@@ -4,8 +4,9 @@ awesoMux keeps AI review and deterministic testing separate:
 
 - **OpenCode review** performs read-only PR review with exact GLM 5.2 through
   Synthetic.
-- **Swift CI** runs deterministic native builds and tests on standard
-  GitHub-hosted macOS infrastructure. It does not produce code-review findings.
+- **Native validation** is temporarily maintainer-local while timing-sensitive
+  tests are made deterministic on constrained hosted macOS runners. It does not
+  produce code-review findings.
 
 Neither system can approve or merge a pull request.
 
@@ -95,10 +96,10 @@ The review test suite covers trusted-default-branch execution, passive PR data,
 maintainer authorization, exact command matching, model/config isolation,
 installer digest verification, output guards, and permission-actor forwarding.
 
-## Deterministic CI
+## Deterministic validation
 
-The `Swift` workflow builds AMX and Ghostty, then builds and tests awesoMux on a
-standard GitHub-hosted `macos-26` runner for non-documentation pull requests and
-pushes to `main`. The workflow has read-only repository permissions and receives
-no OpenCode or publishing credential. Cheap review-automation, source-policy,
-plural, and contrast guards remain separate Linux jobs so they fail quickly.
+Maintainers currently run `./script/preflight.sh` locally for native validation.
+The hosted Swift workflow is disabled until timing-sensitive tests use
+deterministic clocks, gates, and event sources that remain reliable on
+constrained macOS runners. Cheap review-automation, source-policy, plural, and
+contrast guards remain separate Linux jobs so they fail quickly.

@@ -117,18 +117,16 @@ If you do not run this before opening a PR, **please note that in your PR.**
 The preflight runs public-wording and Ghostty-archive guards, the sidebar
 tint/status WCAG contrast gate (`script/check_tint_contrast.py`), the
 Ghostty-aware Swift test wrapper, then builds, stages, ad-hoc signs, and
-launch-verifies `dist/awesoMux.app`. Pull requests and pushes to `main` also
-build AMX and Ghostty, then build and test awesoMux on GitHub's standard
-`macos-26` runner. Documentation-only changes skip that expensive native job.
+launch-verifies `dist/awesoMux.app`. Native Swift CI is temporarily disabled
+while its timing-sensitive tests are made deterministic on constrained hosted
+macOS runners; maintainers run the full preflight locally in the meantime.
 The OpenCode review workflows run exact GLM 5.2 reviews through Synthetic for
 eligible maintainer PRs and support maintainer-requested `/codereview` reruns;
-they cannot publish approvals or merge. The GitHub Swift workflow also supports
-manual `workflow_dispatch` runs when a clean remote rerun is useful.
+they cannot publish approvals or merge.
 [The OpenCode review guide](docs/code-review.md) documents review
 triggers, the passive exact-SHA trust boundary, pinned installation, failure
-behavior, secrets, and testing. Deterministic native validation runs directly
-in the public repository's GitHub Actions workflow; no private runner or
-cross-repository callback is involved.
+behavior, secrets, and testing. Native validation does not use a private runner
+or cross-repository callback.
 
 OpenCode uses exact GLM 5.2 through Synthetic with no model fallback. The
 reviewer has no approval or merge capability. Any future merge automation
