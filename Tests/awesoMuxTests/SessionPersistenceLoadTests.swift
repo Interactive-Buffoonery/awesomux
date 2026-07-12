@@ -238,6 +238,42 @@ struct SessionPersistenceLoadTests {
         }
     }
 
+    @Test("malformed remote metadata archives instead of becoming a local group")
+    func malformedRemoteMetadataArchivesInsteadOfBecomingLocalGroup() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let groupID = UUID()
+            let json = """
+            {
+              "schemaVersion": \(SessionSnapshot.currentSchemaVersion),
+              "groups": [
+                {
+                  "id": "\(groupID.uuidString)",
+                  "name": "remote",
+                  "remote": { "user": "ed" },
+                  "sessions": []
+                }
+              ],
+              "selectedSessionID": null
+            }
+            """
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try Data(json.utf8).write(to: tempDir.appending(path: "session-state.json"))
+
+            let result = SessionPersistence.load()
+
+            guard case let .archivedSnapshot(archivedSnapshotURL, archiveError) = result.recoveryWarning?.kind else {
+                Issue.record("expected malformed remote metadata to be archived")
+                return
+            }
+            #expect(archiveError == nil)
+            #expect(archivedSnapshotURL != nil)
+            #expect(result.store.groups.isEmpty)
+        }
+    }
+
     @Test("remote markdown cache pruning refuses symlinked cache root")
     func remoteMarkdownCachePruningRefusesSymlinkedCacheRoot() throws {
         try Self.withTemporarySupportDirectory { tempDir in

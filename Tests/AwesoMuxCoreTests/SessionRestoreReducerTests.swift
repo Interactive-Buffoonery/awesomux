@@ -245,7 +245,7 @@ struct SessionRestoreReducerTests {
         #expect(restored.groups.first?.remote == target)
     }
 
-    @Test("duplicate group id reassignment preserves the remote target")
+    @Test("duplicate group id reassignment preserves persisted group fields")
     func duplicateGroupIDReassignmentPreservesRemoteTarget() {
         let sharedGroupID = UUID()
         let target = RemoteTarget(user: "ed", host: "box")
@@ -254,7 +254,13 @@ struct SessionRestoreReducerTests {
         let snapshot = SessionSnapshot(
             groups: [
                 SessionGroup(id: sharedGroupID, name: "alpha", sessions: [first]),
-                SessionGroup(id: sharedGroupID, name: "box", remote: target, sessions: [second])
+                SessionGroup(
+                    id: sharedGroupID,
+                    name: "box",
+                    color: .teal,
+                    remote: target,
+                    sessions: [second]
+                )
             ],
             selectedSessionID: nil
         )
@@ -266,6 +272,7 @@ struct SessionRestoreReducerTests {
 
         #expect(restored.groups.map(\.name) == ["alpha", "box"])
         #expect(restored.groups[1].id != sharedGroupID)
+        #expect(restored.groups[1].color == .teal)
         #expect(restored.groups[1].remote == target)
     }
 
