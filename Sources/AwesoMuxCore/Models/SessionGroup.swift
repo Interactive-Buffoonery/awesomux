@@ -35,7 +35,7 @@ public enum WorkspaceGroupColor: String, CaseIterable, Codable, Hashable, Sendab
 }
 
 public struct SessionGroup: Identifiable, Hashable, Sendable {
-    public let id: UUID
+    public private(set) var id: UUID
     public var name: String
     public var color: WorkspaceGroupColor?
     /// Declared SSH destination when this is a remote workgroup; nil = local.
@@ -58,6 +58,10 @@ public struct SessionGroup: Identifiable, Hashable, Sendable {
         self.remote = remote
         self.sessions = sessions
     }
+
+    mutating func reassignIDForRestore(_ id: UUID) {
+        self.id = id
+    }
 }
 
 extension SessionGroup: Codable {
@@ -71,13 +75,10 @@ extension SessionGroup: Codable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        // `try?` over `decodeIfPresent` returns `String??` — outer Optional is
-        // the throw-swallow (malformed shape → nil), inner is the missing-key
-        // signal from `decodeIfPresent`. `?? nil` flattens to `String?` so
-        // unknown colors AND missing-shape AND malformed-shape all collapse
-        // to nil. Covered by `testUnknown...` and `testMalformed...`.
+        // Colors are cosmetic, so unknown or malformed values can fall back
+        // to no tint without changing the group's transport behavior.
         let rawColor = (try? container.decodeIfPresent(String.self, forKey: .color)) ?? nil
-        let remote = (try? container.decodeIfPresent(RemoteTarget.self, forKey: .remote)) ?? nil
+        let remote = try container.decodeIfPresent(RemoteTarget.self, forKey: .remote)
         self.init(
             id: try container.decode(UUID.self, forKey: .id),
             name: try container.decode(String.self, forKey: .name),
