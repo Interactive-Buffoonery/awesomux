@@ -65,6 +65,10 @@ test("Swift CI uses free standard hosted macOS for pull requests and main", () =
   assert.match(workflow, /push:\n\s+branches: \[main\]/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /runs-on: macos-26/);
+  assert.match(
+    workflow,
+    /if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.draft == false/,
+  );
   assert.doesNotMatch(workflow, /blacksmith|self-hosted|CodeRunner/);
   assert.match(
     workflow,
