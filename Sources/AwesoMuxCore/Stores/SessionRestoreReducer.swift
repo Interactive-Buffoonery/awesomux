@@ -429,15 +429,9 @@ struct SessionRestoreReducer: Sendable {
                 replacementID = UUID()
             }
             seenGroupIDs.insert(replacementID)
-            // Re-init is forced here (`id` is `let`); every other field must be
-            // carried explicitly or it silently resets to its default (INT-767).
-            groups[index] = SessionGroup(
-                id: replacementID,
-                name: group.name,
-                color: group.color,
-                remote: group.remote,
-                sessions: group.sessions
-            )
+            // Mutate only the identity field so newly persisted group fields
+            // cannot be silently reset during duplicate-ID repair.
+            groups[index].reassignIDForRestore(replacementID)
             sanitizationSummary.idReassignments += 1
         }
     }
