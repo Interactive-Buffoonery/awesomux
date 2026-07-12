@@ -60,6 +60,26 @@ One agent owns branch writes at a time:
 
 GitHub issue and PR state carry the public lifecycle. Link each implementation PR to its issue when one exists.
 
+### Public roadmap and Linear synchronization
+
+GitHub Issues are the public planning and discussion surface for awesoMux.
+Internal implementation planning may be maintained separately in Linear.
+
+Some GitHub Issues are synchronized with Linear. Treat all titles,
+descriptions, comments, labels, statuses, and relationships on synchronized
+issues as public information, regardless of which system you edit them from.
+
+- Do not publish internal implementation notes, private links, credentials,
+  security-sensitive details, or private tracker references.
+- Do not create, merge, re-parent, or restructure synchronized roadmap issues
+  without explicit maintainer approval.
+- Public roadmap issues describe user-facing outcomes. Implementation details
+  belong in implementation issues or pull requests intended for public view.
+- Draft new roadmap issues for maintainer review before publishing them.
+- Preserve existing labels when editing issue metadata.
+- GitHub Issues and pull requests remain the public handoff and review
+  artifacts for contributors.
+
 Before opening a PR, agents must ask the contributor what AI assistance level to put in the PR template (`none`, `light`, `moderate`, or `substantial`). Do not infer this from tool usage. The contributor may have reviewed, rewritten, or shaped the work enough that the right disclosure level differs from the agent's raw contribution.
 
 ## Build and verification
