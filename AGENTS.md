@@ -28,8 +28,10 @@ The product direction is a native single-window sidebar/session shell, not a mul
 
 ## Non-negotiable rules
 
-- Never copy code from a GPL-3.0 source into this repo, including `manaflow-ai/cmux`.
-- Never read cmux source while writing code for this repo. This includes cmux implementations and forks; concepts from blog posts, product docs, screenshots, or user descriptions are fine.
+- Never copy code from a GPL-3.0 source into this repo.
+- When another product informs awesoMux behavior, rely on public product
+  descriptions, documentation, screenshots, or user descriptions. Do not read
+  its GPL-licensed source while implementing analogous behavior.
 - Never commit `vendor/ghostty` contents directly. It is a submodule.
 - Never push to `main` directly without explicit user approval.
 - Public artifacts use neutral wording such as "review", "specialist review", or "code review findings". Do not mention internal reviewer/persona names in PR titles, PR bodies, commits, issue comments, or other public surfaces.
@@ -44,7 +46,6 @@ The product direction is a native single-window sidebar/session shell, not a mul
 - `ghostty-org/ghostty` (MIT) is the canonical libghostty source and macOS Swift integration reference. Quote small copied patterns with attribution.
 - `ghostty-org/ghostling` (MIT) is the minimum viable C terminal reference for libghostty embedding.
 - `neurosnap/zmx` (MIT) is the upstream of `Interactive-Buffoonery/zmx`, our public fork vendored at `vendor/zmx` that adds the AMX out-of-band protocol (ADR 0011). General fixes go upstream when practical; the fork rebases onto upstream `main` on pin-bumps.
-- cmux product descriptions, screenshots, and docs may inform concepts; cmux source remains off-limits.
 
 ## Collaboration workflow
 
