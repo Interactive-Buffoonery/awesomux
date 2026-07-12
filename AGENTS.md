@@ -28,8 +28,10 @@ The product direction is a native single-window sidebar/session shell, not a mul
 
 ## Non-negotiable rules
 
-- Never copy code from a GPL-3.0 source into this repo, including `manaflow-ai/cmux`.
-- Never read cmux source while writing code for this repo. This includes cmux implementations and forks; concepts from blog posts, product docs, screenshots, or user descriptions are fine.
+- Never copy code from a GPL-3.0 source into this repo.
+- When another product informs awesoMux behavior, rely on public product
+  descriptions, documentation, screenshots, or user descriptions. Do not read
+  its GPL-licensed source while implementing analogous behavior.
 - Never commit `vendor/ghostty` contents directly. It is a submodule.
 - Never push to `main` directly without explicit user approval.
 - Public artifacts use neutral wording such as "review", "specialist review", or "code review findings". Do not mention internal reviewer/persona names in PR titles, PR bodies, commits, issue comments, or other public surfaces.
@@ -44,7 +46,6 @@ The product direction is a native single-window sidebar/session shell, not a mul
 - `ghostty-org/ghostty` (MIT) is the canonical libghostty source and macOS Swift integration reference. Quote small copied patterns with attribution.
 - `ghostty-org/ghostling` (MIT) is the minimum viable C terminal reference for libghostty embedding.
 - `neurosnap/zmx` (MIT) is the upstream of `Interactive-Buffoonery/zmx`, our public fork vendored at `vendor/zmx` that adds the AMX out-of-band protocol (ADR 0011). General fixes go upstream when practical; the fork rebases onto upstream `main` on pin-bumps.
-- cmux product descriptions, screenshots, and docs may inform concepts; cmux source remains off-limits.
 
 ## Collaboration workflow
 
@@ -59,6 +60,26 @@ One agent owns branch writes at a time:
 - The implementing agent responds only to concrete review comments or explicit issue follow-ups.
 
 GitHub issue and PR state carry the public lifecycle. Link each implementation PR to its issue when one exists.
+
+### Public roadmap and Linear synchronization
+
+GitHub Issues are the public planning and discussion surface for awesoMux.
+Internal implementation planning may be maintained separately in Linear.
+
+Some GitHub Issues are synchronized with Linear. Treat all titles,
+descriptions, comments, labels, statuses, and relationships on synchronized
+issues as public information, regardless of which system you edit them from.
+
+- Do not publish internal implementation notes, private links, credentials,
+  security-sensitive details, or private tracker references.
+- Do not create, merge, re-parent, or restructure synchronized roadmap issues
+  without explicit maintainer approval.
+- Public roadmap issues describe user-facing outcomes. Implementation details
+  belong in implementation issues or pull requests intended for public view.
+- Draft new roadmap issues for maintainer review before publishing them.
+- Preserve existing labels when editing issue metadata.
+- GitHub Issues and pull requests remain the public handoff and review
+  artifacts for contributors.
 
 Before opening a PR, agents must ask the contributor what AI assistance level to put in the PR template (`none`, `light`, `moderate`, or `substantial`). Do not infer this from tool usage. The contributor may have reviewed, rewritten, or shaped the work enough that the right disclosure level differs from the agent's raw contribution.
 
