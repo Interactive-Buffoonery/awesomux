@@ -1,0 +1,71 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
+import { spawn } from "node:child_process"
+
+const AWESOMUX_PROTOCOL = "awesomux-agent-v1"
+
+type HookEventName =
+    | "SessionStart"
+    | "UserPromptSubmit"
+    | "PreToolUse"
+    | "PostToolUse"
+    | "Stop"
+    | "SessionEnd"
+
+function canEmitAwesoMuxHook(): boolean {
+    return process.env.AWESOMUX_AGENT_EVENT_PROTOCOL === AWESOMUX_PROTOCOL
+        && !!process.env.AWESOMUX_AGENT_EVENT_FILE
+}
+
+async function emitAwesoMuxHook(hookEventName: HookEventName): Promise<void> {
+    if (!canEmitAwesoMuxHook()) {
+        return
+    }
+
+    const hook = process.env.AWESOMUX_AGENT_HOOK || "awesoMuxAgentHook"
+    const payload = JSON.stringify({ hook_event_name: hookEventName })
+
+    await new Promise<void>((resolve) => {
+        const child = spawn(hook, ["--provider", "pi"], {
+            stdio: ["pipe", "ignore", "ignore"],
+        })
+
+        child.once("error", () => resolve())
+        child.once("close", () => resolve())
+        child.stdin.once("error", () => {})
+
+        try {
+            child.stdin.end(payload)
+        } catch {
+            resolve()
+        }
+    })
+}
+
+export default function awesoMuxPiStatus(pi: ExtensionAPI): void {
+    pi.on("session_start", async () => {
+        await emitAwesoMuxHook("SessionStart")
+    })
+
+    pi.on("before_agent_start", async () => {
+        await emitAwesoMuxHook("UserPromptSubmit")
+    })
+
+    pi.on("tool_execution_start", async () => {
+        await emitAwesoMuxHook("PreToolUse")
+    })
+
+    pi.on("tool_execution_end", async () => {
+        await emitAwesoMuxHook("PostToolUse")
+    })
+
+    pi.on("agent_end", async () => {
+        await emitAwesoMuxHook("Stop")
+    })
+
+    // Shutdown is the agent exiting, not a turn finishing: emit SessionEnd so
+    // awesoMux resets the tile to the quiet shell state instead of leaving a
+    // stuck "needs input" peach badge (which Stop now produces) on a gone agent.
+    pi.on("session_shutdown", async () => {
+        await emitAwesoMuxHook("SessionEnd")
+    })
+}

@@ -1,0 +1,4 @@
+module GhosttyKit [system] {
+    umbrella header "../../.build/ghostty/GhosttyKit.xcframework/macos-arm64/Headers/ghostty.h"
+    export *
+}

@@ -1,0 +1,21 @@
+{
+  "name": "awesomux-claude",
+  "owner": {
+    "name": "awesoMux"
+  },
+  "metadata": {
+    "description": "awesoMux Claude Code runtime status hooks",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "awesomux-claude-status",
+      "description": "Emits coarse runtime status to awesoMux so the sidebar can reflect agent activity.",
+      "version": "0.1.0",
+      "author": {
+        "name": "awesoMux"
+      },
+      "source": "./plugins/awesomux-claude-status"
+    }
+  ]
+}

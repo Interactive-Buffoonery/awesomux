@@ -1,0 +1,174 @@
+name: CodeRunner result
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        required: true
+        type: string
+      commit_sha:
+        required: true
+        type: string
+      controller_run_id:
+        required: true
+        type: string
+      conclusion:
+        required: true
+        type: choice
+        options: [success, failure, cancelled, rejected, stale]
+      capabilities:
+        required: true
+        type: string
+      results:
+        required: true
+        type: string
+      local_commands:
+        required: true
+        type: string
+      total_seconds:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate the trusted controller callback
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+          HEAD_SHA: ${{ inputs.commit_sha }}
+          CONTROLLER_RUN_ID: ${{ inputs.controller_run_id }}
+          CAPABILITIES: ${{ inputs.capabilities }}
+          RESULTS: ${{ inputs.results }}
+          LOCAL_COMMANDS: ${{ inputs.local_commands }}
+          TOTAL_SECONDS: ${{ inputs.total_seconds }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_ACTOR" = 'coderunner-reporter[bot]'
+          case "$PR_NUMBER" in *[!0-9]*|'') exit 64 ;; esac
+          case "$CONTROLLER_RUN_ID" in *[!0-9]*|'') exit 64 ;; esac
+          case "$TOTAL_SECONDS" in *[!0-9]*|'') exit 64 ;; esac
+          test "${#HEAD_SHA}" = 40
+          case "$HEAD_SHA" in *[!0-9a-f]*) exit 64 ;; esac
+          test "${#CAPABILITIES}" -le 512
+          test "${#RESULTS}" -le 4096
+          test "${#LOCAL_COMMANDS}" -le 2048
+          printf '%s' "$CAPABILITIES" | jq -e \
+            '
+              . as $submitted |
+              type == "array" and length > 0 and
+              (["guards", "agent-hooks"] | map(select(. as $value | $submitted | index($value)))) == $submitted
+            ' >/dev/null
+          printf '%s' "$RESULTS" | jq -e \
+            --argjson capabilities "$CAPABILITIES" \
+            '
+              type == "array" and length == ($capabilities | length) and all(.[];
+                type == "object" and
+                (.capability as $capability | $capabilities | index($capability)) and
+                (.conclusion == "success" or .conclusion == "failure" or
+                  .conclusion == "cancelled" or .conclusion == "skipped" or
+                  .conclusion == "not_run") and
+                (.seconds | type == "number" and . >= 0))
+            ' >/dev/null
+          printf '%s' "$LOCAL_COMMANDS" | jq -e \
+            '
+              . as $submitted |
+              type == "array" and
+              ([
+                "(cd vendor/zmx && zig build test)",
+                "./script/build_amx.sh",
+                "./script/build_ghostty_xcframework.sh",
+                "./script/swift-test.sh",
+                "./script/build_and_run.sh --verify",
+                "./script/preflight.sh"
+              ] | map(select(. as $value | $submitted | index($value)))) == $submitted
+            ' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg sha "$HEAD_SHA" \
+            '
+              .state == "open" and
+              .draft == false and
+              .base.ref == "main" and
+              .base.repo.full_name == $repository and
+              .head.repo.full_name == $repository and
+              .head.sha == $sha and
+              (.user.login == "serabi" or .user.login == "edequalsawesome")
+            ' "$RUNNER_TEMP/pr.json" >/dev/null
+
+      - name: Publish the trusted result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+          HEAD_SHA: ${{ inputs.commit_sha }}
+          CONTROLLER_RUN_ID: ${{ inputs.controller_run_id }}
+          CONCLUSION: ${{ inputs.conclusion }}
+          CAPABILITIES: ${{ inputs.capabilities }}
+          RESULTS: ${{ inputs.results }}
+          LOCAL_COMMANDS: ${{ inputs.local_commands }}
+          TOTAL_SECONDS: ${{ inputs.total_seconds }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016
+          marker="<!-- runnertests-result:$HEAD_SHA -->"
+          state=failure
+          heading='Tests did not pass'
+          description='CodeRunner failed or was rejected'
+          if test "$CONCLUSION" = success; then
+            state=success
+            heading='Tests passed'
+            description="CodeRunner passed in ${TOTAL_SECONDS}s"
+          fi
+          {
+            printf '%s\n' "$marker"
+            printf '## CodeRunner: %s\n\n' "$heading"
+            # shellcheck disable=SC2016
+            printf 'Validated exact SHA `%s`.\n\n' "$HEAD_SHA"
+            printf '| Check | Result | Duration |\n'
+            printf '| --- | --- | ---: |\n'
+            # shellcheck disable=SC2016
+            printf '%s' "$RESULTS" | jq -r \
+              '.[] | "| `" + .capability + "` | `" + .conclusion + "` | " + (.seconds | tostring) + "s |"'
+            printf '\n**Total elapsed:** %ss\n\n' "$TOTAL_SECONDS"
+            if test "$(printf '%s' "$LOCAL_COMMANDS" | jq 'length')" -gt 0; then
+              printf '### Still required locally\n\n'
+              # shellcheck disable=SC2016
+              printf '%s' "$LOCAL_COMMANDS" | jq -r '.[] | "- [ ] `" + . + "`"'
+              printf '\nSarah or Ed must complete these before enabling auto-merge. CodeRunner does not attest to their result.\n\n'
+            fi
+            if test "$CONCLUSION" != success; then
+              printf 'The first failing or incomplete capability is shown above. '
+              printf 'Open the [trusted controller run](https://github.com/Interactive-Buffoonery/runner-control/actions/runs/%s) for its bounded failure log.\n\n' "$CONTROLLER_RUN_ID"
+            fi
+            printf '> Informational only: CodeRunner never requests changes or performs a merge.\n'
+          } > "$RUNNER_TEMP/comment.md"
+          existing_id="$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" \
+            | head -n 1)"
+          if test -n "$existing_id"; then
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/issues/comments/$existing_id" \
+              -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
+          else
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
+          fi
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f state="$state" \
+            -f context='CodeRunner' \
+            -f description="$description" \
+            -f target_url="https://github.com/Interactive-Buffoonery/runner-control/actions/runs/$CONTROLLER_RUN_ID" \
+            >/dev/null

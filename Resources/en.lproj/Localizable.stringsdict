@@ -1,0 +1,686 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>accessibility.closeGroup.workspacesClosed</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@workspaces@</string>
+        <key>workspaces</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>Closed %lld workspaces in the group</string>
+            <key>one</key>
+            <string>Closed %lld workspace in the group</string>
+            <key>two</key>
+            <string>Closed %lld workspaces in the group</string>
+            <key>few</key>
+            <string>Closed %lld workspaces in the group</string>
+            <key>many</key>
+            <string>Closed %lld workspaces in the group</string>
+            <key>other</key>
+            <string>Closed %lld workspaces in the group</string>
+        </dict>
+    </dict>
+    <key>alert.closeGroup.riskyWorkspaces</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@workspaces@</string>
+        <key>workspaces</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld workspaces in this group have running activity that will be interrupted. Closing will terminate their running processes.</string>
+            <key>one</key>
+            <string>%lld workspace in this group has running activity that will be interrupted. Closing will terminate its running process.</string>
+            <key>two</key>
+            <string>%lld workspaces in this group have running activity that will be interrupted. Closing will terminate their running processes.</string>
+            <key>few</key>
+            <string>%lld workspaces in this group have running activity that will be interrupted. Closing will terminate their running processes.</string>
+            <key>many</key>
+            <string>%lld workspaces in this group have running activity that will be interrupted. Closing will terminate their running processes.</string>
+            <key>other</key>
+            <string>%lld workspaces in this group have running activity that will be interrupted. Closing will terminate their running processes.</string>
+        </dict>
+    </dict>
+    <key>accessibility.dockBadge.sessionsNeedAttention</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@sessions@</string>
+        <key>sessions</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld sessions need attention</string>
+            <key>one</key>
+            <string>%lld session needs attention</string>
+            <key>two</key>
+            <string>%lld sessions need attention</string>
+            <key>few</key>
+            <string>%lld sessions need attention</string>
+            <key>many</key>
+            <string>%lld sessions need attention</string>
+            <key>other</key>
+            <string>%lld sessions need attention</string>
+        </dict>
+    </dict>
+    <key>accessibility.sidebar.notifications</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@notifications@</string>
+        <key>notifications</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld notifications</string>
+            <key>one</key>
+            <string>%lld notification</string>
+            <key>two</key>
+            <string>%lld notifications</string>
+            <key>few</key>
+            <string>%lld notifications</string>
+            <key>many</key>
+            <string>%lld notifications</string>
+            <key>other</key>
+            <string>%lld notifications</string>
+        </dict>
+    </dict>
+    <key>accessibility.appearance.fontSizeApplied</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>Font size updated to %#@points@. Open terminal panes refreshed.</string>
+        <key>points</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld points</string>
+            <key>one</key>
+            <string>%lld point</string>
+            <key>two</key>
+            <string>%lld points</string>
+            <key>few</key>
+            <string>%lld points</string>
+            <key>many</key>
+            <string>%lld points</string>
+            <key>other</key>
+            <string>%lld points</string>
+        </dict>
+    </dict>
+    <key>keyboard.cheatsheet.matchingShortcuts</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@shortcuts@</string>
+        <key>shortcuts</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld matching shortcuts</string>
+            <key>one</key>
+            <string>%lld matching shortcut</string>
+            <key>two</key>
+            <string>%lld matching shortcuts</string>
+            <key>few</key>
+            <string>%lld matching shortcuts</string>
+            <key>many</key>
+            <string>%lld matching shortcuts</string>
+            <key>other</key>
+            <string>%lld matching shortcuts</string>
+        </dict>
+    </dict>
+    <key>alert.quit.overflowSuffix</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@remaining@</string>
+        <key>remaining</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string> and %lld more</string>
+            <key>one</key>
+            <string> and %lld more</string>
+            <key>two</key>
+            <string> and %lld more</string>
+            <key>few</key>
+            <string> and %lld more</string>
+            <key>many</key>
+            <string> and %lld more</string>
+            <key>other</key>
+            <string> and %lld more</string>
+        </dict>
+    </dict>
+    <key>alert.quit.sessionsAtRisk</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%3$#@sessions@</string>
+        <key>sessions</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%3$lld sessions have %2$@ that may be interrupted: %1$@%4$@.</string>
+            <key>one</key>
+            <string>%1$@ has %2$@ that may be interrupted.</string>
+            <key>two</key>
+            <string>%3$lld sessions have %2$@ that may be interrupted: %1$@%4$@.</string>
+            <key>few</key>
+            <string>%3$lld sessions have %2$@ that may be interrupted: %1$@%4$@.</string>
+            <key>many</key>
+            <string>%3$lld sessions have %2$@ that may be interrupted: %1$@%4$@.</string>
+            <key>other</key>
+            <string>%3$lld sessions have %2$@ that may be interrupted: %1$@%4$@.</string>
+        </dict>
+    </dict>
+    <key>accessibility.footer.agentsInState</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%1$#@agents@</string>
+        <key>agents</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%1$lld %2$@ agents</string>
+            <key>one</key>
+            <string>%1$lld %2$@ agent</string>
+            <key>two</key>
+            <string>%1$lld %2$@ agents</string>
+            <key>few</key>
+            <string>%1$lld %2$@ agents</string>
+            <key>many</key>
+            <string>%1$lld %2$@ agents</string>
+            <key>other</key>
+            <string>%1$lld %2$@ agents</string>
+        </dict>
+    </dict>
+    <key>accessibility.footer.agentsTotal</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@agents@</string>
+        <key>agents</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld agents</string>
+            <key>one</key>
+            <string>%lld agent</string>
+            <key>two</key>
+            <string>%lld agents</string>
+            <key>few</key>
+            <string>%lld agents</string>
+            <key>many</key>
+            <string>%lld agents</string>
+            <key>other</key>
+            <string>%lld agents</string>
+        </dict>
+    </dict>
+    <key>accessibility.document.taskProgress</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%2$#@tasks@</string>
+        <key>tasks</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%1$lld of %2$lld tasks complete</string>
+            <key>one</key>
+            <string>%1$lld of %2$lld task complete</string>
+            <key>two</key>
+            <string>%1$lld of %2$lld tasks complete</string>
+            <key>few</key>
+            <string>%1$lld of %2$lld tasks complete</string>
+            <key>many</key>
+            <string>%1$lld of %2$lld tasks complete</string>
+            <key>other</key>
+            <string>%1$lld of %2$lld tasks complete</string>
+        </dict>
+    </dict>
+    <key>pathbar.branchMenu.moreBranches</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@branches@</string>
+        <key>branches</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>+ %lld more branches</string>
+            <key>one</key>
+            <string>+ %lld more branch</string>
+            <key>two</key>
+            <string>+ %lld more branches</string>
+            <key>few</key>
+            <string>+ %lld more branches</string>
+            <key>many</key>
+            <string>+ %lld more branches</string>
+            <key>other</key>
+            <string>+ %lld more branches</string>
+        </dict>
+    </dict>
+    <key>accessibility.bridge.permissionQueued</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@requests@</string>
+        <key>requests</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld more permission requests waiting</string>
+            <key>one</key>
+            <string>%lld more permission request waiting</string>
+            <key>two</key>
+            <string>%lld more permission requests waiting</string>
+            <key>few</key>
+            <string>%lld more permission requests waiting</string>
+            <key>many</key>
+            <string>%lld more permission requests waiting</string>
+            <key>other</key>
+            <string>%lld more permission requests waiting</string>
+        </dict>
+    </dict>
+    <key>document.revisionIndicator</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%3$#@lines@</string>
+        <key>lines</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>Plan revised: +%1$lld / −%2$lld lines</string>
+            <key>one</key>
+            <string>Plan revised: +%1$lld / −%2$lld line</string>
+            <key>two</key>
+            <string>Plan revised: +%1$lld / −%2$lld lines</string>
+            <key>few</key>
+            <string>Plan revised: +%1$lld / −%2$lld lines</string>
+            <key>many</key>
+            <string>Plan revised: +%1$lld / −%2$lld lines</string>
+            <key>other</key>
+            <string>Plan revised: +%1$lld / −%2$lld lines</string>
+        </dict>
+    </dict>
+    <key>accessibility.commandPalette.results</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld results</string>
+            <key>one</key>
+            <string>%lld result</string>
+            <key>two</key>
+            <string>%lld results</string>
+            <key>few</key>
+            <string>%lld results</string>
+            <key>many</key>
+            <string>%lld results</string>
+            <key>other</key>
+            <string>%lld results</string>
+        </dict>
+    </dict>
+    <key>accessibility.pathbar.uncommittedChanges</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld uncommitted changes</string>
+            <key>one</key>
+            <string>%lld uncommitted change</string>
+            <key>two</key>
+            <string>%lld uncommitted changes</string>
+            <key>few</key>
+            <string>%lld uncommitted changes</string>
+            <key>many</key>
+            <string>%lld uncommitted changes</string>
+            <key>other</key>
+            <string>%lld uncommitted changes</string>
+        </dict>
+    </dict>
+    <key>accessibility.sessionManager.daemons</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld daemons</string>
+            <key>one</key>
+            <string>%lld daemon</string>
+            <key>two</key>
+            <string>%lld daemons</string>
+            <key>few</key>
+            <string>%lld daemons</string>
+            <key>many</key>
+            <string>%lld daemons</string>
+            <key>other</key>
+            <string>%lld daemons</string>
+        </dict>
+    </dict>
+    <key>accessibility.sessionManager.sessions</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld sessions</string>
+            <key>one</key>
+            <string>%lld session</string>
+            <key>two</key>
+            <string>%lld sessions</string>
+            <key>few</key>
+            <string>%lld sessions</string>
+            <key>many</key>
+            <string>%lld sessions</string>
+            <key>other</key>
+            <string>%lld sessions</string>
+        </dict>
+    </dict>
+    <key>accessibility.sessionManager.clients</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld clients</string>
+            <key>one</key>
+            <string>%lld client</string>
+            <key>two</key>
+            <string>%lld clients</string>
+            <key>few</key>
+            <string>%lld clients</string>
+            <key>many</key>
+            <string>%lld clients</string>
+            <key>other</key>
+            <string>%lld clients</string>
+        </dict>
+    </dict>
+    <key>accessibility.sessionManager.autoCleanupDays</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+            <key>one</key>
+            <string>Auto-cleanup after %lld day idle. Configure in Preferences.</string>
+            <key>two</key>
+            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+            <key>few</key>
+            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+            <key>many</key>
+            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+            <key>other</key>
+            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+        </dict>
+    </dict>
+    <key>accessibility.settings.fontSizePoints</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld points</string>
+            <key>one</key>
+            <string>%lld point</string>
+            <key>two</key>
+            <string>%lld points</string>
+            <key>few</key>
+            <string>%lld points</string>
+            <key>many</key>
+            <string>%lld points</string>
+            <key>other</key>
+            <string>%lld points</string>
+        </dict>
+    </dict>
+    <key>settings.terminal.capDays</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld days</string>
+            <key>one</key>
+            <string>%lld day</string>
+            <key>two</key>
+            <string>%lld days</string>
+            <key>few</key>
+            <string>%lld days</string>
+            <key>many</key>
+            <string>%lld days</string>
+            <key>other</key>
+            <string>%lld days</string>
+        </dict>
+    </dict>
+    <key>accessibility.sidebar.groupWorkspaces</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld workspaces</string>
+            <key>one</key>
+            <string>%lld workspace</string>
+            <key>two</key>
+            <string>%lld workspaces</string>
+            <key>few</key>
+            <string>%lld workspaces</string>
+            <key>many</key>
+            <string>%lld workspaces</string>
+            <key>other</key>
+            <string>%lld workspaces</string>
+        </dict>
+    </dict>
+    <key>accessibility.sidebar.agentsNeedInput</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld need input</string>
+            <key>one</key>
+            <string>%lld needs input</string>
+            <key>two</key>
+            <string>%lld need input</string>
+            <key>few</key>
+            <string>%lld need input</string>
+            <key>many</key>
+            <string>%lld need input</string>
+            <key>other</key>
+            <string>%lld need input</string>
+        </dict>
+    </dict>
+    <key>accessibility.sidebar.errors</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld errors</string>
+            <key>one</key>
+            <string>%lld error</string>
+            <key>two</key>
+            <string>%lld errors</string>
+            <key>few</key>
+            <string>%lld errors</string>
+            <key>many</key>
+            <string>%lld errors</string>
+            <key>other</key>
+            <string>%lld errors</string>
+        </dict>
+    </dict>
+    <key>accessibility.workspaceAttention.workspacesNeedAttention</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@workspaces@</string>
+        <key>workspaces</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld workspaces need attention.</string>
+            <key>one</key>
+            <string>%lld workspace needs attention.</string>
+            <key>two</key>
+            <string>%lld workspaces need attention.</string>
+            <key>few</key>
+            <string>%lld workspaces need attention.</string>
+            <key>many</key>
+            <string>%lld workspaces need attention.</string>
+            <key>other</key>
+            <string>%lld workspaces need attention.</string>
+        </dict>
+    </dict>
+    <key>accessibility.diagnostics.processes</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>%lld processes</string>
+            <key>one</key><string>%lld process</string>
+            <key>two</key><string>%lld processes</string>
+            <key>few</key><string>%lld processes</string>
+            <key>many</key><string>%lld processes</string>
+            <key>other</key><string>%lld processes</string>
+        </dict>
+    </dict>
+    <key>accessibility.diagnostics.events</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>%lld events</string>
+            <key>one</key><string>%lld event</string>
+            <key>two</key><string>%lld events</string>
+            <key>few</key><string>%lld events</string>
+            <key>many</key><string>%lld events</string>
+            <key>other</key><string>%lld events</string>
+        </dict>
+    </dict>
+    <key>accessibility.diagnostics.samples</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>%lld samples</string>
+            <key>one</key><string>%lld sample</string>
+            <key>two</key><string>%lld samples</string>
+            <key>few</key><string>%lld samples</string>
+            <key>many</key><string>%lld samples</string>
+            <key>other</key><string>%lld samples</string>
+        </dict>
+    </dict>
+    <key>accessibility.diagnostics.matchingEvents</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>%lld matching diagnostic events</string>
+            <key>one</key><string>%lld matching diagnostic event</string>
+            <key>two</key><string>%lld matching diagnostic events</string>
+            <key>few</key><string>%lld matching diagnostic events</string>
+            <key>many</key><string>%lld matching diagnostic events</string>
+            <key>other</key><string>%lld matching diagnostic events</string>
+        </dict>
+    </dict>
+</dict>
+</plist>

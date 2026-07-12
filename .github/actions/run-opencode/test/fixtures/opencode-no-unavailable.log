@@ -1,0 +1,13 @@
+[22:16:10.101] INFO (#2959): loop {
+  "session.id": "ses_example",
+  step: 0,
+}
+[22:16:11.212] INFO (#2960): llm runtime selected {
+  "llm.runtime": "ai-sdk",
+  "llm.provider": "opencode-go",
+  "llm.model": "glm-5.2",
+}
+## Code Review
+
+No blocking findings.
+Checking if branch is dirty...

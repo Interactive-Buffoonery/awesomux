@@ -1,0 +1,2 @@
+{"type":"tool_use","timestamp":1783830984566,"part":{"type":"tool","tool":"read","state":{"status":"completed","output":"SKIP_BODY: OpenCode reported a usage, billing, quota, or zero-balance limit.\nAnother fixture says subscription quota exceeded and PaymentRequired."}}}
+{"type":"text","part":{"text":"The workflow documents zero-balance handling."}}

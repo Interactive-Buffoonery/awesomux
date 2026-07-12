@@ -1,0 +1,412 @@
+<div style="max-width:880px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;line-height:1.55;color:#cdd6f4;">
+
+<h1 style="font-size:30px;font-weight:800;letter-spacing:-0.5px;margin:0 0 6px;color:#cdd6f4;">Agent states</h1>
+<p style="font-size:15px;color:#a6adc8;margin:0 0 28px;">What each agent-status glyph means, and when it appears — per coding tool and in the terminal at large.</p>
+
+<!-- ============================ INTRO / THREE-LAYER MODEL ============================ -->
+<p style="font-size:15px;color:#bac2de;margin:0 0 14px;">
+An <strong style="color:#cdd6f4;">agent state</strong> is what a coding agent (Claude Code, Codex, OpenCode, Pi) reports about itself while it runs inside an awesoMux pane. awesoMux resolves that into the glyph you see on a sidebar row, peek card, or status dot. The model has <strong style="color:#cdd6f4;">three layers</strong>:
+</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:12px;margin:0 0 14px;">
+  <div style="flex:1 1 240px;background:#181825;border:1px solid #313244;border-radius:10px;padding:14px 16px;">
+    <div style="font-size:12px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:#89b4fa;margin-bottom:4px;">1 — Execution state</div>
+    <div style="font-size:14px;color:#bac2de;">What the agent is actually doing right now: <code style="color:#cdd6f4;">idle</code>, <code style="color:#cdd6f4;">running</code>, <code style="color:#cdd6f4;">waiting</code>, <code style="color:#cdd6f4;">thinking</code>, <code style="color:#cdd6f4;">output</code>, <code style="color:#cdd6f4;">done</code>, <code style="color:#cdd6f4;">error</code>. The resting truth.</div>
+  </div>
+  <div style="flex:1 1 240px;background:#181825;border:1px solid #313244;border-radius:10px;padding:14px 16px;">
+    <div style="font-size:12px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:#fab387;margin-bottom:4px;">2 — Attention overlay</div>
+    <div style="font-size:14px;color:#bac2de;">An <code style="color:#cdd6f4;">attentionReason</code> (permission, approval, blocking choice, bell…) layered <em>over</em> the resting state. When set, the tile shows <strong style="color:#fab387;">Needs input</strong> until you acknowledge. Normal turn-end is not an overlay.</div>
+  </div>
+  <div style="flex:1 1 240px;background:#181825;border:1px solid #313244;border-radius:10px;padding:14px 16px;">
+    <div style="font-size:12px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:#94e2d5;margin-bottom:4px;">3 — Display glyph</div>
+    <div style="font-size:14px;color:#bac2de;">The single badge you see — the louder of overlay vs. execution state, drawn with a distinct shape and color. The legend below.</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7f849c;margin:0 0 30px;border-left:3px solid #313244;padding-left:12px;">
+Glyphs and colors below are drawn to match the app exactly — both Catppuccin <strong style="color:#a6adc8;">Mocha</strong> (dark) and <strong style="color:#a6adc8;">Latte</strong> (light) themes, with shapes traced from <code style="color:#a6adc8;">AgentTile.swift</code>. The shape (not just the hue) carries the distinction so the states stay legible without color.
+</p>
+
+<!-- ============================ GLYPH LEGEND ============================ -->
+<h2 style="font-size:21px;font-weight:700;margin:0 0 4px;color:#cdd6f4;border-bottom:1px solid #313244;padding-bottom:8px;">The glyph legend</h2>
+<p style="font-size:14px;color:#a6adc8;margin:10px 0 18px;">Eight display states, ordered by <strong style="color:#cdd6f4;">priority</strong> (lower number = louder; the loudest pane wins the sidebar badge).</p>
+
+<!-- needs -->
+<div style="display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid #1e1e2e;">
+  <div style="display:flex;gap:8px;flex:0 0 auto;">
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Needs input glyph, Mocha"><circle cx="14" cy="14" r="14" fill="#fab387"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><text x="14" y="14" text-anchor="middle" dominant-baseline="central" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="18" font-weight="700" fill="#12121c">!</text></svg>
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Needs input glyph, Latte"><circle cx="14" cy="14" r="14" fill="#fe640b"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#e6e9ef" stroke-width="1.5"/><text x="14" y="14" text-anchor="middle" dominant-baseline="central" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="18" font-weight="700" fill="#12121c">!</text></svg>
+  </div>
+  <div style="flex:1 1 auto;">
+    <div style="display:flex;align-items:baseline;gap:10px;"><span style="font-size:16px;font-weight:700;color:#fab387;">Needs input</span><span style="font-size:12px;color:#7f849c;">priority 1 · loudest</span></div>
+    <div style="font-size:14px;color:#bac2de;margin-top:2px;">Blocked on an explicit decision: permission, approval, or a provider choice. Peach badge with <code style="color:#cdd6f4;">!</code>. It is an overlay — acknowledge it and the resting execution state shows through. Normal turn completion can still increment unread / notify, but it stays visually Waiting.</div>
+  </div>
+</div>
+
+<!-- error -->
+<div style="display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid #1e1e2e;">
+  <div style="display:flex;gap:8px;flex:0 0 auto;">
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Error glyph, Mocha"><circle cx="14" cy="14" r="14" fill="#f38ba8"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><text x="14" y="14.5" text-anchor="middle" dominant-baseline="central" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="16" font-weight="700" fill="#12121c">x</text></svg>
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Error glyph, Latte"><circle cx="14" cy="14" r="14" fill="#d20f39"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#e6e9ef" stroke-width="1.5"/><text x="14" y="14.5" text-anchor="middle" dominant-baseline="central" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="16" font-weight="700" fill="#12121c">x</text></svg>
+  </div>
+  <div style="flex:1 1 auto;">
+    <div style="display:flex;align-items:baseline;gap:10px;"><span style="font-size:16px;font-weight:700;color:#f38ba8;">Error</span><span style="font-size:12px;color:#7f849c;">priority 2</span></div>
+    <div style="font-size:14px;color:#bac2de;margin-top:2px;">A live detector or runtime path saw an error while the shell is still running, or a restored snapshot carried an unresolved error. Red badge with <code style="color:#cdd6f4;">x</code>. Clears to <code style="color:#cdd6f4;">idle</code> when the next shell command in that pane exits zero.</div>
+  </div>
+</div>
+
+<!-- thinking -->
+<div style="display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid #1e1e2e;">
+  <div style="display:flex;gap:8px;flex:0 0 auto;">
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Thinking glyph, Mocha"><circle cx="14" cy="14" r="14" fill="#11111b"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><path d="M 8.3 18.84 A 8 8 0 1 0 8 14" fill="none" stroke="#cba6f7" stroke-width="2.8" stroke-linecap="round"/></svg>
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Thinking glyph, Latte"><circle cx="14" cy="14" r="14" fill="#dce0e8"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#e6e9ef" stroke-width="1.5"/><path d="M 8.3 18.84 A 8 8 0 1 0 8 14" fill="none" stroke="#8839ef" stroke-width="2.8" stroke-linecap="round"/></svg>
+  </div>
+  <div style="flex:1 1 auto;">
+    <div style="display:flex;align-items:baseline;gap:10px;"><span style="font-size:16px;font-weight:700;color:#cba6f7;">Thinking</span><span style="font-size:12px;color:#7f849c;">priority 3</span></div>
+    <div style="font-size:14px;color:#bac2de;margin-top:2px;">A tool call or model response is in flight. Mauve spinner arc (animated in the app). This is where the agent spends most of an active turn.</div>
+  </div>
+</div>
+
+<!-- done -->
+<div style="display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid #1e1e2e;">
+  <div style="display:flex;gap:8px;flex:0 0 auto;">
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Done glyph, Mocha"><circle cx="14" cy="14" r="14" fill="#94e2d5"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><path d="M 9 14.3 L 12.6 18 L 19.2 10.4" fill="none" stroke="#12121c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Done glyph, Latte"><circle cx="14" cy="14" r="14" fill="#179299"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#e6e9ef" stroke-width="1.5"/><path d="M 9 14.3 L 12.6 18 L 19.2 10.4" fill="none" stroke="#12121c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+  <div style="flex:1 1 auto;">
+    <div style="display:flex;align-items:baseline;gap:10px;"><span style="font-size:16px;font-weight:700;color:#94e2d5;">Done</span><span style="font-size:12px;color:#7f849c;">priority 4</span></div>
+    <div style="font-size:14px;color:#bac2de;margin-top:2px;">An agent run or detected agent command completed successfully. Teal checkmark. Often ephemeral — a process exit may close the pane before you see it. A terminal process-exit workspace close does <em>not</em> set this.</div>
+  </div>
+</div>
+
+<!-- output -->
+<div style="display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid #1e1e2e;">
+  <div style="display:flex;gap:8px;flex:0 0 auto;">
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Output glyph, Mocha"><circle cx="14" cy="14" r="14" fill="#a6e3a1"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><circle cx="14" cy="14" r="5" fill="#12121c"/></svg>
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Output glyph, Latte"><circle cx="14" cy="14" r="14" fill="#40a02b"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#e6e9ef" stroke-width="1.5"/><circle cx="14" cy="14" r="5" fill="#12121c"/></svg>
+  </div>
+  <div style="flex:1 1 auto;">
+    <div style="display:flex;align-items:baseline;gap:10px;"><span style="font-size:16px;font-weight:700;color:#a6e3a1;">Output</span><span style="font-size:12px;color:#7f849c;">priority 5</span></div>
+    <div style="font-size:14px;color:#bac2de;margin-top:2px;">Fresh stdout or visible progress in the recent-output window. Green dot. A provider only earns this if it exposes reliable progress — it is never faked from generic tool-end hooks.</div>
+  </div>
+</div>
+
+<!-- waiting -->
+<div style="display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid #1e1e2e;">
+  <div style="display:flex;gap:8px;flex:0 0 auto;">
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Waiting glyph, Mocha"><circle cx="14" cy="14" r="14" fill="#89b4fa"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><rect x="8.5" y="8" width="4" height="12" rx="1" fill="#12121c"/><rect x="15.5" y="8" width="4" height="12" rx="1" fill="#12121c"/></svg>
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Waiting glyph, Latte"><circle cx="14" cy="14" r="14" fill="#1e66f5"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#e6e9ef" stroke-width="1.5"/><rect x="8.5" y="8" width="4" height="12" rx="1" fill="#ffffff"/><rect x="15.5" y="8" width="4" height="12" rx="1" fill="#ffffff"/></svg>
+  </div>
+  <div style="flex:1 1 auto;">
+    <div style="display:flex;align-items:baseline;gap:10px;"><span style="font-size:16px;font-weight:700;color:#89b4fa;">Waiting</span><span style="font-size:12px;color:#7f849c;">priority 6</span></div>
+    <div style="font-size:14px;color:#bac2de;margin-top:2px;">Agent is alive but awaiting your next turn; no work in flight. Blue badge with a pause glyph (two vertical bars — deliberately not a caret or block-cursor, so it stays distinct from Running's triangle for color-blind users and does not read as a blinking text cursor). Normal turn-end lands here immediately; if it happened unfocused, unread / notification is added without changing the glyph to <code style="color:#fab387;">!</code>. Reached only via an explicit runtime signal, never inferred from screen text.</div>
+  </div>
+</div>
+
+<!-- running -->
+<div style="display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid #1e1e2e;">
+  <div style="display:flex;gap:8px;flex:0 0 auto;">
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Running glyph, Mocha"><circle cx="14" cy="14" r="14" fill="#74c7ec"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><path d="M 10.5 8.5 L 19 14 L 10.5 19.5 Z" fill="#cdd6f4"/></svg>
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Running glyph, Latte"><circle cx="14" cy="14" r="14" fill="#209fb5"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#e6e9ef" stroke-width="1.5"/><path d="M 10.5 8.5 L 19 14 L 10.5 19.5 Z" fill="#4c4f69"/></svg>
+  </div>
+  <div style="flex:1 1 auto;">
+    <div style="display:flex;align-items:baseline;gap:10px;"><span style="font-size:16px;font-weight:700;color:#74c7ec;">Running</span><span style="font-size:12px;color:#7f849c;">priority 7</span></div>
+    <div style="font-size:14px;color:#bac2de;margin-top:2px;">Agent attached with no recent activity — not raw shell-process liveness. Sapphire play triangle. The catch-all "alive, idle-ish" state before a more specific signal arrives.</div>
+  </div>
+</div>
+
+<!-- idle -->
+<div style="display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid #1e1e2e;">
+  <div style="display:flex;gap:8px;flex:0 0 auto;">
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Idle glyph, Mocha"><circle cx="14" cy="14" r="14" fill="#313244"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><circle cx="14" cy="14" r="4.5" fill="#6c7086"/></svg>
+    <svg width="34" height="34" viewBox="0 0 28 28" role="img" aria-label="Idle glyph, Latte"><circle cx="14" cy="14" r="14" fill="#ccd0da"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#e6e9ef" stroke-width="1.5"/><circle cx="14" cy="14" r="4.5" fill="#9ca0b0"/></svg>
+  </div>
+  <div style="flex:1 1 auto;">
+    <div style="display:flex;align-items:baseline;gap:10px;"><span style="font-size:16px;font-weight:700;color:#a6adc8;">Idle</span><span style="font-size:12px;color:#7f849c;">priority 8 · quietest</span></div>
+    <div style="font-size:14px;color:#bac2de;margin-top:2px;">No agent attached, or a shell-only session at rest. A faint dot on a neutral badge. Also the resting state for a fresh, never-prompted session and the target of a clean session-exit reset.</div>
+  </div>
+</div>
+
+<p style="font-size:12px;color:#585b70;margin:10px 0 30px;">Each pair shows <strong style="color:#7f849c;">Mocha</strong> (left) and <strong style="color:#7f849c;">Latte</strong> (right). In the collapsed sidebar rail, most states render as a bare colored dot; only Needs input and Error keep their glyph, and Idle shows no badge at all.</p>
+
+<!-- ============================ ATTENTION OVERLAY MODEL ============================ -->
+<h2 style="font-size:21px;font-weight:700;margin:0 0 4px;color:#cdd6f4;border-bottom:1px solid #313244;padding-bottom:8px;">The attention overlay</h2>
+<p style="font-size:14px;color:#bac2de;margin:12px 0 14px;">
+<strong style="color:#fab387;">Needs input</strong> is not a resting state — it is an <em>overlay</em>. When any <code style="color:#cdd6f4;">attentionReason</code> is set, the tile projects to Needs input regardless of what the agent is resting on underneath. Acknowledging (selection dwell, terminal input, or "Mark as Read") clears the overlay and reveals the execution state beneath.
+</p>
+
+<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#181825;border:1px solid #313244;border-radius:10px;padding:16px;margin:0 0 14px;">
+  <svg width="40" height="40" viewBox="0 0 28 28"><circle cx="14" cy="14" r="14" fill="#89b4fa"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><rect x="11.5" y="6" width="5" height="16" rx="1.5" fill="#12121c"/></svg>
+  <span style="font-size:13px;color:#7f849c;">resting <code style="color:#89b4fa;">waiting</code></span>
+  <svg width="26" height="20" viewBox="0 0 26 20"><path d="M 2 10 L 20 10 M 14 4 L 20 10 L 14 16" fill="none" stroke="#7f849c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span style="font-size:13px;color:#7f849c;">+ <code style="color:#fab387;">attentionReason</code> →</span>
+  <svg width="40" height="40" viewBox="0 0 28 28"><circle cx="14" cy="14" r="14" fill="#fab387"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><text x="14" y="14" text-anchor="middle" dominant-baseline="central" font-family="ui-monospace,monospace" font-size="18" font-weight="700" fill="#12121c">!</text></svg>
+  <span style="font-size:13px;color:#7f849c;">shows <code style="color:#fab387;">Needs input</code></span>
+  <svg width="26" height="20" viewBox="0 0 26 20"><path d="M 2 10 L 20 10 M 14 4 L 20 10 L 14 16" fill="none" stroke="#7f849c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span style="font-size:13px;color:#7f849c;">acknowledge →</span>
+  <svg width="40" height="40" viewBox="0 0 28 28"><circle cx="14" cy="14" r="14" fill="#89b4fa"/><circle cx="14" cy="14" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><rect x="11.5" y="6" width="5" height="16" rx="1.5" fill="#12121c"/></svg>
+  <span style="font-size:13px;color:#7f849c;">back to <code style="color:#89b4fa;">waiting</code></span>
+</div>
+
+<p style="font-size:14px;color:#bac2de;margin:0 0 8px;">The six attention reasons:</p>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px;">
+  <span style="font-size:13px;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 10px;color:#cdd6f4;"><code>permissionPrompt</code> — blocked on approval</span>
+  <span style="font-size:13px;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 10px;color:#cdd6f4;"><code>userInputRequired</code> — explicit question / choice</span>
+  <span style="font-size:13px;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 10px;color:#cdd6f4;"><code>bell</code> — terminal bell</span>
+  <span style="font-size:13px;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 10px;color:#cdd6f4;"><code>desktopNotification</code></span>
+  <span style="font-size:13px;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 10px;color:#cdd6f4;"><code>processError</code></span>
+  <span style="font-size:13px;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 10px;color:#cdd6f4;"><code>unknown</code></span>
+</div>
+
+<h3 style="font-size:16px;font-weight:700;margin:0 0 10px;color:#cdd6f4;">Priority ladder</h3>
+<p style="font-size:14px;color:#a6adc8;margin:0 0 12px;">When two signals compete (or panes roll up to a session badge), the <strong style="color:#cdd6f4;">lowest number wins</strong>.</p>
+<svg width="100%" viewBox="0 0 840 70" role="img" aria-label="Priority ladder from Needs input (1, loudest) to Idle (8, quietest)" style="margin-bottom:6px;">
+  <defs></defs>
+  <!-- needs 1 -->
+  <g><circle cx="52" cy="24" r="14" fill="#fab387"/><circle cx="52" cy="24" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><text x="52" y="24" text-anchor="middle" dominant-baseline="central" font-family="ui-monospace,monospace" font-size="18" font-weight="700" fill="#12121c">!</text><text x="52" y="54" text-anchor="middle" font-size="11" fill="#a6adc8" font-family="sans-serif">Needs</text><text x="52" y="66" text-anchor="middle" font-size="10" fill="#585b70" font-family="sans-serif">1</text></g>
+  <!-- error 2 -->
+  <g><circle cx="152" cy="24" r="14" fill="#f38ba8"/><circle cx="152" cy="24" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><text x="152" y="24.5" text-anchor="middle" dominant-baseline="central" font-family="ui-monospace,monospace" font-size="16" font-weight="700" fill="#12121c">x</text><text x="152" y="54" text-anchor="middle" font-size="11" fill="#a6adc8" font-family="sans-serif">Error</text><text x="152" y="66" text-anchor="middle" font-size="10" fill="#585b70" font-family="sans-serif">2</text></g>
+  <!-- thinking 3 -->
+  <g><circle cx="252" cy="24" r="14" fill="#11111b"/><circle cx="252" cy="24" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><path d="M 246.3 28.84 A 8 8 0 1 0 246 24" fill="none" stroke="#cba6f7" stroke-width="2.8" stroke-linecap="round"/><text x="252" y="54" text-anchor="middle" font-size="11" fill="#a6adc8" font-family="sans-serif">Thinking</text><text x="252" y="66" text-anchor="middle" font-size="10" fill="#585b70" font-family="sans-serif">3</text></g>
+  <!-- done 4 -->
+  <g><circle cx="352" cy="24" r="14" fill="#94e2d5"/><circle cx="352" cy="24" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><path d="M 347 24.3 L 350.6 28 L 357.2 20.4" fill="none" stroke="#12121c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><text x="352" y="54" text-anchor="middle" font-size="11" fill="#a6adc8" font-family="sans-serif">Done</text><text x="352" y="66" text-anchor="middle" font-size="10" fill="#585b70" font-family="sans-serif">4</text></g>
+  <!-- output 5 -->
+  <g><circle cx="452" cy="24" r="14" fill="#a6e3a1"/><circle cx="452" cy="24" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><circle cx="452" cy="24" r="5" fill="#12121c"/><text x="452" y="54" text-anchor="middle" font-size="11" fill="#a6adc8" font-family="sans-serif">Output</text><text x="452" y="66" text-anchor="middle" font-size="10" fill="#585b70" font-family="sans-serif">5</text></g>
+  <!-- waiting 6 -->
+  <g><circle cx="552" cy="24" r="14" fill="#89b4fa"/><circle cx="552" cy="24" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><rect x="549.5" y="16" width="5" height="16" rx="1.5" fill="#12121c"/><text x="552" y="54" text-anchor="middle" font-size="11" fill="#a6adc8" font-family="sans-serif">Waiting</text><text x="552" y="66" text-anchor="middle" font-size="10" fill="#585b70" font-family="sans-serif">6</text></g>
+  <!-- running 7 -->
+  <g><circle cx="652" cy="24" r="14" fill="#74c7ec"/><circle cx="652" cy="24" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><path d="M 648.5 18.5 L 657 24 L 648.5 29.5 Z" fill="#cdd6f4"/><text x="652" y="54" text-anchor="middle" font-size="11" fill="#a6adc8" font-family="sans-serif">Running</text><text x="652" y="66" text-anchor="middle" font-size="10" fill="#585b70" font-family="sans-serif">7</text></g>
+  <!-- idle 8 -->
+  <g><circle cx="752" cy="24" r="14" fill="#313244"/><circle cx="752" cy="24" r="13.25" fill="none" stroke="#181825" stroke-width="1.5"/><circle cx="752" cy="24" r="4.5" fill="#6c7086"/><text x="752" y="54" text-anchor="middle" font-size="11" fill="#a6adc8" font-family="sans-serif">Idle</text><text x="752" y="66" text-anchor="middle" font-size="10" fill="#585b70" font-family="sans-serif">8</text></g>
+  <!-- arrow -->
+  <line x1="36" y1="44" x2="768" y2="44" stroke="#313244" stroke-width="1" stroke-dasharray="3 4"/>
+</svg>
+<p style="font-size:12px;color:#585b70;margin:0 0 30px;">← louder &nbsp;·&nbsp; quieter →</p>
+
+<!-- ============================ STATE TRANSITION DIAGRAM ============================ -->
+<h2 style="font-size:21px;font-weight:700;margin:0 0 4px;color:#cdd6f4;border-bottom:1px solid #313244;padding-bottom:8px;">Lifecycle</h2>
+<p style="font-size:14px;color:#a6adc8;margin:12px 0 16px;">The target state contract. Attaching an agent moves a pane out of <code style="color:#cdd6f4;">idle</code>; work flows through <code style="color:#cba6f7;">thinking</code> / <code style="color:#a6e3a1;">output</code>; normal turn-end rests on <code style="color:#89b4fa;">waiting</code>; blocking choices raise the <code style="color:#fab387;">needsAttention</code> overlay.</p>
+
+<svg width="100%" viewBox="0 0 840 380" role="img" aria-label="Agent state transition diagram" style="background:#181825;border:1px solid #313244;border-radius:10px;">
+  <!-- Arrowheads are drawn as explicit triangles (not SVG markers) so the
+       diagram survives an HTML sanitizer that strips marker ids / url() refs. -->
+  <!-- idle -->
+  <g><rect x="40" y="170" width="92" height="40" rx="20" fill="#313244" stroke="#6c7086" stroke-width="1"/><text x="86" y="195" text-anchor="middle" font-size="14" font-weight="600" fill="#cdd6f4" font-family="sans-serif">idle</text></g>
+  <!-- running -->
+  <g><rect x="210" y="170" width="100" height="40" rx="20" fill="#1e1e2e" stroke="#74c7ec" stroke-width="1.5"/><text x="260" y="195" text-anchor="middle" font-size="14" font-weight="600" fill="#74c7ec" font-family="sans-serif">running</text></g>
+  <!-- thinking -->
+  <g><rect x="390" y="90" width="106" height="40" rx="20" fill="#1e1e2e" stroke="#cba6f7" stroke-width="1.5"/><text x="443" y="115" text-anchor="middle" font-size="14" font-weight="600" fill="#cba6f7" font-family="sans-serif">thinking</text></g>
+  <!-- waiting -->
+  <g><rect x="390" y="250" width="106" height="40" rx="20" fill="#1e1e2e" stroke="#89b4fa" stroke-width="1.5"/><text x="443" y="275" text-anchor="middle" font-size="14" font-weight="600" fill="#89b4fa" font-family="sans-serif">waiting</text></g>
+  <!-- output -->
+  <g><rect x="560" y="90" width="100" height="40" rx="20" fill="#1e1e2e" stroke="#a6e3a1" stroke-width="1.5"/><text x="610" y="115" text-anchor="middle" font-size="14" font-weight="600" fill="#a6e3a1" font-family="sans-serif">output</text></g>
+  <!-- done -->
+  <g><rect x="720" y="170" width="90" height="40" rx="20" fill="#1e1e2e" stroke="#94e2d5" stroke-width="1.5"/><text x="765" y="195" text-anchor="middle" font-size="14" font-weight="600" fill="#94e2d5" font-family="sans-serif">done</text></g>
+  <!-- error -->
+  <g><rect x="560" y="310" width="90" height="40" rx="20" fill="#1e1e2e" stroke="#f38ba8" stroke-width="1.5"/><text x="605" y="335" text-anchor="middle" font-size="14" font-weight="600" fill="#f38ba8" font-family="sans-serif">error</text></g>
+  <!-- needsAttention -->
+  <g><rect x="350" y="10" width="186" height="40" rx="20" fill="#fab387" stroke="#fab387" stroke-width="1.5"/><text x="443" y="35" text-anchor="middle" font-size="14" font-weight="700" fill="#12121c" font-family="sans-serif">needsAttention</text></g>
+
+  <!-- edges -->
+  <!-- idle -> running (attach), arrives rightward -->
+  <path d="M 132 190 L 203 190" fill="none" stroke="#7f849c" stroke-width="1.4"/>
+  <path d="M 204 190 L 197 186.5 L 197 193.5 Z" fill="#7f849c"/>
+  <text x="168" y="182" text-anchor="middle" font-size="10" fill="#a6adc8" font-family="sans-serif">attach</text>
+  <!-- running -> thinking, arrives up-rightward -->
+  <path d="M 296 172 C 340 145, 360 125, 386 114" fill="none" stroke="#7f849c" stroke-width="1.4"/>
+  <path d="M 388 113 L 379.5 113 L 383.5 119 Z" fill="#7f849c"/>
+  <text x="332" y="135" text-anchor="middle" font-size="10" fill="#a6adc8" font-family="sans-serif">model/tool starts</text>
+  <!-- running -> waiting, arrives down-rightward -->
+  <path d="M 296 206 C 340 232, 360 252, 386 263" fill="none" stroke="#7f849c" stroke-width="1.4"/>
+  <path d="M 388 264 L 379.5 264 L 383.5 258 Z" fill="#7f849c"/>
+  <text x="330" y="252" text-anchor="middle" font-size="10" fill="#a6adc8" font-family="sans-serif">prompt-ready</text>
+  <!-- thinking -> output, arrives rightward -->
+  <path d="M 496 110 L 555 110" fill="none" stroke="#7f849c" stroke-width="1.4"/>
+  <path d="M 556 110 L 549 106.5 L 549 113.5 Z" fill="#7f849c"/>
+  <text x="526" y="102" text-anchor="middle" font-size="10" fill="#a6adc8" font-family="sans-serif">stdout</text>
+  <!-- output -> waiting, arrives leftward -->
+  <path d="M 610 130 C 610 200, 540 250, 500 267" fill="none" stroke="#7f849c" stroke-width="1.4"/>
+  <path d="M 498 268 L 506 266 L 503 272 Z" fill="#7f849c"/>
+  <text x="588" y="210" text-anchor="middle" font-size="10" fill="#a6adc8" font-family="sans-serif">prompt-ready</text>
+  <!-- waiting -> thinking (user answers), arrives upward -->
+  <path d="M 432 250 C 426 200, 426 165, 431 134" fill="none" stroke="#7f849c" stroke-width="1.4"/>
+  <path d="M 431 132 L 427.5 139 L 434.5 139 Z" fill="#7f849c"/>
+  <text x="392" y="192" text-anchor="middle" font-size="10" fill="#a6adc8" font-family="sans-serif">answers</text>
+  <!-- output -> done, arrives down-rightward -->
+  <path d="M 660 110 C 720 130, 745 150, 759 167" fill="none" stroke="#7f849c" stroke-width="1.4"/>
+  <path d="M 760 168 L 752.5 165 L 755 171.5 Z" fill="#7f849c"/>
+  <text x="730" y="135" text-anchor="middle" font-size="10" fill="#a6adc8" font-family="sans-serif">completed</text>
+  <!-- output -> error, arrives downward -->
+  <path d="M 610 130 L 608 303" fill="none" stroke="#7f849c" stroke-width="1.4"/>
+  <path d="M 608 304 L 604.5 297 L 611.5 297 Z" fill="#7f849c"/>
+  <text x="636" y="225" text-anchor="middle" font-size="10" fill="#a6adc8" font-family="sans-serif">runtime error</text>
+  <!-- error -> idle, arrives upward into idle bottom -->
+  <path d="M 560 330 C 300 360, 110 280, 88 214" fill="none" stroke="#7f849c" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <path d="M 88 212 L 84.5 219 L 91.5 219 Z" fill="#7f849c"/>
+  <text x="250" y="350" text-anchor="middle" font-size="10" fill="#a6adc8" font-family="sans-serif">next command exits zero</text>
+  <!-- thinking -> needsAttention (overlay), arrives upward -->
+  <path d="M 443 90 L 443 54" fill="none" stroke="#fab387" stroke-width="1.4"/>
+  <path d="M 443 52 L 439.5 59 L 446.5 59 Z" fill="#fab387"/>
+  <text x="500" y="72" text-anchor="middle" font-size="10" fill="#fab387" font-family="sans-serif">explicit decision</text>
+  <!-- needsAttention -> back (ack), arrives down-rightward into running top-left -->
+  <path d="M 388 30 C 250 40, 200 110, 231 166" fill="none" stroke="#fab387" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <path d="M 232 168 L 226 163 L 224 170 Z" fill="#fab387"/>
+  <text x="250" y="90" text-anchor="middle" font-size="10" fill="#fab387" font-family="sans-serif">acknowledge</text>
+</svg>
+<p style="font-size:12px;color:#585b70;margin:8px 0 30px;">Solid edges are forward transitions; dashed edges are recovery / acknowledgement. The peach <code style="color:#fab387;">needsAttention</code> overlay can rise from any active state and settles back to the resting state underneath on acknowledgement.</p>
+
+<!-- ============================ PER-TOOL TABLES ============================ -->
+<h2 style="font-size:21px;font-weight:700;margin:0 0 4px;color:#cdd6f4;border-bottom:1px solid #313244;padding-bottom:8px;">When they appear, per tool</h2>
+<p style="font-size:14px;color:#a6adc8;margin:12px 0 18px;">Each agent emits its own hooks/events; awesoMux maps them to an execution state, an optional attention reason, and a runtime <em>phase</em>. The shared rows are identical across providers; the deltas are called out per tool.</p>
+
+<!-- Claude Code -->
+<h3 style="font-size:16px;font-weight:700;margin:18px 0 8px;color:#cdd6f4;">
+  <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#fab387;vertical-align:middle;margin-right:7px;"></span>Claude Code
+</h3>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px;">
+  <thead><tr style="background:#11111b;">
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Moment / hook</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Execution</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Attention</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Phase</th>
+  </tr></thead>
+  <tbody style="color:#bac2de;">
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>SessionStart</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">idle</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">sessionStart</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>UserPromptSubmit</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">promptSubmit</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>PreToolUse</code> / <code>SubagentStart</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">toolStart</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>PostToolUse</code> / <code>SubagentStop</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">toolEnd</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>PermissionRequest</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">(unchanged)</td><td style="padding:6px 10px;border:1px solid #313244;color:#fab387;">permissionPrompt</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">notification</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>Notification(idle_prompt)</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#89b4fa;">waiting</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">notification</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>Notification(other/unknown)</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">(unchanged)</td><td style="padding:6px 10px;border:1px solid #313244;color:#fab387;">userInputRequired</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">notification</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>Stop</code> (turn-end)</td><td style="padding:6px 10px;border:1px solid #313244;color:#89b4fa;">waiting</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">stop</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>StopFailure</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#f38ba8;">error</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">stop</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>SessionEnd</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#585b70;" colspan="3">Intentionally silent in v1 unless a reliable shutdown signal is added.</td></tr>
+  </tbody>
+</table>
+<p style="font-size:12px;color:#7f849c;margin:0 0 4px;">A turn-end is blue pause immediately: <code>Stop</code> maps to <code style="color:#89b4fa;">waiting</code> with no attention overlay. If it completes unfocused, awesoMux still adds unread / notification treatment. The <code>PermissionRequest</code> hook is load-bearing — Claude Code does not always populate the notification subtype (<code>claude-code#11964</code>), so the notification path is a best-effort fallback only.</p>
+
+<!-- Codex -->
+<h3 style="font-size:16px;font-weight:700;margin:24px 0 8px;color:#cdd6f4;">
+  <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#b4befe;vertical-align:middle;margin-right:7px;"></span>Codex
+</h3>
+<p style="font-size:13px;color:#bac2de;margin:0 0 8px;">Codex uses the shared base mapping with no per-provider deltas:</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px;">
+  <thead><tr style="background:#11111b;">
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Moment / hook</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Execution</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Attention</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Phase</th>
+  </tr></thead>
+  <tbody style="color:#bac2de;">
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>SessionStart</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">idle</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">sessionStart</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>UserPromptSubmit</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">promptSubmit</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>PreToolUse</code> / <code>SubagentStart</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">toolStart</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>PostToolUse</code> / <code>SubagentStop</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">toolEnd</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>PermissionRequest</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">(unchanged)</td><td style="padding:6px 10px;border:1px solid #313244;color:#fab387;">permissionPrompt</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">notification</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>Stop</code> (turn-end)</td><td style="padding:6px 10px;border:1px solid #313244;color:#89b4fa;">waiting</td><td style="padding:6px 10px;border:1px solid #313244;">—</td><td style="padding:6px 10px;border:1px solid #313244;color:#7f849c;">stop</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>Notification</code>, <code>SessionEnd</code>, <code>Pre/PostCompact</code>, <code>StopFailure</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#585b70;" colspan="3">Intentionally silent in v1 — no helper signal yet.</td></tr>
+  </tbody>
+</table>
+
+<!-- OpenCode -->
+<h3 style="font-size:16px;font-weight:700;margin:24px 0 8px;color:#cdd6f4;">
+  <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#89dceb;vertical-align:middle;margin-right:7px;"></span>OpenCode <span style="font-size:12px;font-weight:500;color:#7f849c;">· opt-in</span>
+</h3>
+<p style="font-size:13px;color:#bac2de;margin:0 0 8px;">A plugin translates OpenCode surfaces into synthetic hooks, then the shared mapping applies. Adds <code>StopFailure</code> and a flat <code>Notification</code>:</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px;">
+  <thead><tr style="background:#11111b;">
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">OpenCode surface</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Synthetic hook</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Result</th>
+  </tr></thead>
+  <tbody style="color:#bac2de;">
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>session.created</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>SessionStart</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">idle</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>chat.message</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>UserPromptSubmit</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>tool.execute.before</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>PreToolUse</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>tool.execute.after</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>PostToolUse</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>permission.ask</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>PermissionRequest</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#fab387;">needsAttention (permissionPrompt)</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>session.idle</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>Stop</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#89b4fa;">waiting (unfocused: unread / notify)</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>session.error</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>StopFailure</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#f38ba8;">error</td></tr>
+  </tbody>
+</table>
+<p style="font-size:12px;color:#7f849c;margin:0 0 4px;"><code>session.status</code> is deliberately <em>not</em> used as a turn-start signal — it is a state snapshot, so <code>chat.message</code> carries the real <code>UserPromptSubmit</code>. OpenCode has no normal quit hook, so its glyph may persist after the agent process exits inside a living shell.</p>
+
+<!-- Pi -->
+<h3 style="font-size:16px;font-weight:700;margin:24px 0 8px;color:#cdd6f4;">
+  <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#cba6f7;vertical-align:middle;margin-right:7px;"></span>Pi <span style="font-size:12px;font-weight:500;color:#7f849c;">· opt-in</span>
+</h3>
+<p style="font-size:13px;color:#bac2de;margin:0 0 8px;">A Pi extension maps native events to synthetic hooks:</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px;">
+  <thead><tr style="background:#11111b;">
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Pi event</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Synthetic hook</th>
+    <th style="text-align:left;padding:7px 10px;color:#a6adc8;border:1px solid #313244;font-weight:600;">Result</th>
+  </tr></thead>
+  <tbody style="color:#bac2de;">
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>session_start</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>SessionStart</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">idle</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>before_agent_start</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>UserPromptSubmit</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>tool_execution_start</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>PreToolUse</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>tool_execution_end</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>PostToolUse</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#cba6f7;">thinking</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>agent_end</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>Stop</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#89b4fa;">waiting (unfocused: unread / notify)</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>session_shutdown</code></td><td style="padding:6px 10px;border:1px solid #313244;"><code>SessionEnd</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">shell idle (full reset)</td></tr>
+  </tbody>
+</table>
+<p style="font-size:12px;color:#7f849c;margin:0 0 30px;">Pi has no current permission template — a future permission hook should map to <code>needsAttention (permissionPrompt)</code>. Of the four providers, Pi is the only one with a reliable session-exit signal (<code>session_shutdown</code>), so it cleanly resets the tile back to shell idle.</p>
+
+<!-- ============================ IN THE TERMINAL ============================ -->
+<h2 style="font-size:21px;font-weight:700;margin:0 0 4px;color:#cdd6f4;border-bottom:1px solid #313244;padding-bottom:8px;">In the terminal, in general</h2>
+<p style="font-size:14px;color:#a6adc8;margin:12px 0 16px;">Not every signal comes from an agent. Three terminal-level mechanisms feed the same status surface.</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:12px;margin:0 0 18px;">
+  <div style="flex:1 1 250px;background:#181825;border:1px solid #313244;border-radius:10px;padding:14px 16px;">
+    <div style="font-size:14px;font-weight:700;color:#74c7ec;margin-bottom:4px;">Shell activity</div>
+    <div style="font-size:13px;color:#bac2de;">Separate from agent state. From libghostty prompt markers: <code style="color:#cdd6f4;">idle</code> (at prompt) or <code style="color:#cdd6f4;">busy</code> (running a command). A busy shell shows the <strong>Running</strong> label without touching <code>AgentState</code>. Debounced 250ms, so quick commands (<code>ls</code>, <code>cd</code>, <code>git status</code>) stay Idle — it signals "something big is running," not every command.</div>
+  </div>
+  <div style="flex:1 1 250px;background:#181825;border:1px solid #313244;border-radius:10px;padding:14px 16px;">
+    <div style="font-size:14px;font-weight:700;color:#fab387;margin-bottom:4px;">Bell &amp; notifications</div>
+    <div style="font-size:13px;color:#bac2de;">A terminal bell maps to the <code>bell</code> attention reason; a desktop-notification trigger to <code>desktopNotification</code>. Both raise the Needs-input overlay. Note: OSC desktop notifications are <em>not</em> parsed as agent runtime events — arbitrary terminal output could forge them.</div>
+  </div>
+  <div style="flex:1 1 250px;background:#181825;border:1px solid #313244;border-radius:10px;padding:14px 16px;">
+    <div style="font-size:14px;font-weight:700;color:#a6e3a1;margin-bottom:4px;">Runtime side channel</div>
+    <div style="font-size:13px;color:#bac2de;">The preferred transport — protocol <code style="color:#cdd6f4;">awesomux-agent-v1</code>. Each event is one JSONL line written to a per-pane file; visible-text polling is only a fallback for older/unconfigured panes and may never claim <code>waiting</code>.</div>
+  </div>
+</div>
+
+<p style="font-size:14px;color:#bac2de;margin:0 0 8px;">awesoMux injects these per-pane environment variables so an in-pane process can emit events:</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px;">
+  <tbody style="color:#bac2de;">
+    <tr><td style="padding:6px 10px;border:1px solid #313244;width:38%;"><code>AWESOMUX_AGENT_EVENT_PROTOCOL</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">Protocol name (<code>awesomux-agent-v1</code>)</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_SESSION_ID</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">awesoMux session UUID</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_PANE_ID</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">awesoMux pane UUID</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_AGENT_EVENT_FILE</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">JSONL event file for this pane</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_AGENT_HOOK</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">Absolute path to the bundled helper</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_AGENT_ENABLED_SOURCES</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">Comma-separated enabled OpenCode/Pi sources</td></tr>
+  </tbody>
+</table>
+
+<p style="font-size:14px;color:#bac2de;margin:0 0 8px;">A runtime event carries a <code>phase</code> — the lifecycle moment, independent of the resolved state:</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px;">
+  <span style="font-size:12px;font-family:ui-monospace,monospace;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 9px;color:#cdd6f4;">sessionStart</span>
+  <span style="font-size:12px;font-family:ui-monospace,monospace;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 9px;color:#cdd6f4;">promptSubmit</span>
+  <span style="font-size:12px;font-family:ui-monospace,monospace;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 9px;color:#cdd6f4;">toolStart</span>
+  <span style="font-size:12px;font-family:ui-monospace,monospace;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 9px;color:#cdd6f4;">toolEnd</span>
+  <span style="font-size:12px;font-family:ui-monospace,monospace;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 9px;color:#cdd6f4;">notification</span>
+  <span style="font-size:12px;font-family:ui-monospace,monospace;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 9px;color:#cdd6f4;">stop</span>
+  <span style="font-size:12px;font-family:ui-monospace,monospace;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 9px;color:#cdd6f4;">sessionEnd</span>
+  <span style="font-size:12px;font-family:ui-monospace,monospace;background:#11111b;border:1px solid #313244;border-radius:6px;padding:4px 9px;color:#cdd6f4;">rename</span>
+</div>
+<pre style="font-size:12px;background:#11111b;border:1px solid #313244;border-radius:8px;padding:12px 14px;overflow-x:auto;color:#bac2de;margin:10px 0 30px;"><code>{"v":1,"source":"claude-code","kind":"Claude Code","execution":"thinking","phase":"toolStart","eventID":"abc123","timestamp":1790429673.123}</code></pre>
+
+<!-- ============================ FOOTER ============================ -->
+<hr style="border:none;border-top:1px solid #313244;margin:24px 0 16px;"/>
+<p style="font-size:12px;color:#585b70;margin:0 0 6px;">Generated from the repo's enums, ADRs, and design-system glyph code. To keep this in sync, the sources of truth are:</p>
+<ul style="font-size:12px;color:#7f849c;margin:0;padding-left:20px;line-height:1.8;">
+  <li><code>Sources/AwesoMuxCore/Models/AgentState.swift</code> — execution states, attention reasons, display states, priority</li>
+  <li><code>Sources/DesignSystem/Tokens/AwState.swift</code> + <code>AwColor.swift</code> — labels, glyph mapping, colors</li>
+  <li><code>Sources/DesignSystem/Atoms/AgentTile.swift</code> — glyph geometry</li>
+  <li><code>Sources/AwesoMuxAgentHookSupport/AgentHookEventMapper.swift</code> — per-provider hook → state mapping</li>
+  <li><code>docs/adr/0007-agent-waiting-semantic-state.md</code> — lifecycle &amp; the attention/execution split</li>
+  <li><code>docs/agent-runtime-side-channel.md</code> + <code>docs/architecture.md</code> — side channel, phases, transition diagram</li>
+</ul>
+
+</div>

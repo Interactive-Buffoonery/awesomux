@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: mailto:contact@interactivebuffoonery.com
+    about: Email security vulnerabilities privately rather than opening a public issue.
+  - name: GitHub private vulnerability reporting
+    url: https://github.com/Interactive-Buffoonery/awesomux/security/advisories/new
+    about: Use GitHub private reporting when it is enabled for this repository.

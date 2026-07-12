@@ -1,0 +1,46 @@
+name: opencode-synchronize-reminder
+
+# Posts a reminder comment when new commits are pushed to an already-open
+# PR. The main opencode-review workflow no longer triggers on synchronize
+# (to avoid burning tokens on every push); this lightweight job posts a
+# "use /codereview to re-review" reminder instead, at near-zero cost.
+
+on:
+  pull_request:
+    types: [synchronize]
+
+concurrency:
+  group: opencode-synchronize-reminder-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  remind:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Post re-review reminder
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.pull_request.number }}
+          SKIP_MARKER: "<!-- awesomux-opencode-synchronize-reminder -->"
+          SKIP_BODY: |
+            ## OpenCode re-review reminder
+
+            New changes were pushed to this PR. Automatic OpenCode review runs on PR open and ready-for-review only — it does not re-trigger on subsequent pushes.
+
+            To request a re-review, comment with exactly `/codereview`.
+        run: node .github/scripts/post-skip-comment.mjs

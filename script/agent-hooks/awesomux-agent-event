@@ -1,0 +1,96 @@
+#!/bin/sh
+
+set -eu
+
+if [ -z "${AWESOMUX_AGENT_EVENT_FILE:-}" ]; then
+    exit 0
+fi
+
+source_value=
+kind_value=
+state_value=
+phase_value=
+event_id_value=
+timestamp_value=
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --source)
+            source_value=${2:-}
+            shift 2
+            ;;
+        --kind)
+            kind_value=${2:-}
+            shift 2
+            ;;
+        --state)
+            state_value=${2:-}
+            shift 2
+            ;;
+        --phase)
+            phase_value=${2:-}
+            shift 2
+            ;;
+        --eventID)
+            event_id_value=${2:-}
+            shift 2
+            ;;
+        --timestamp)
+            timestamp_value=${2:-}
+            shift 2
+            ;;
+        *)
+            printf 'awesomux-agent-event: unknown argument: %s\n' "$1" >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [ -z "$source_value" ]; then
+    exit 0
+fi
+
+if ! json=$(
+    /usr/bin/perl -MJSON::PP -MEncode -e '
+        my ($source, $kind, $state, $phase, $event_id, $timestamp) =
+            map { Encode::decode("UTF-8", $_, Encode::FB_DEFAULT) } @ARGV;
+
+        my $encoder = JSON::PP->new->utf8->allow_nonref;
+        my $encode_json_string = sub {
+            return $encoder->encode($_[0]);
+        };
+
+        my $json = q({"v":1,"source":) . $encode_json_string->($source);
+        $json .= q(,"kind":) . $encode_json_string->($kind) if length $kind;
+        $json .= q(,"state":) . $encode_json_string->($state) if length $state;
+        $json .= q(,"phase":) . $encode_json_string->($phase) if length $phase;
+        $json .= q(,"eventID":) . $encode_json_string->($event_id) if length $event_id;
+
+        if (length $timestamp) {
+            if ($timestamp =~ /\A(?:0|[1-9][0-9]*)(?:[.][0-9]+)?\z/) {
+                $json .= q(,"timestamp":) . $timestamp;
+            } else {
+                $json .= q(,"timestamp":) . $encode_json_string->($timestamp);
+            }
+        }
+
+        my $line = $json . q(});
+        if (length($line) > 4096) {
+            warn "awesomux-agent-event: encoded line exceeds 4096 bytes; dropping\n";
+            exit 0;
+        }
+        print $line;
+    ' "$source_value" "$kind_value" "$state_value" "$phase_value" "$event_id_value" "$timestamp_value"
+); then
+    printf 'awesomux-agent-event: failed to encode event\n' >&2
+    exit 0
+fi
+
+if [ -z "$json" ]; then
+    exit 0
+fi
+
+# Don't redirect stderr — if the file is unwritable, the operator's hook
+# logs should surface the failure. Keep `|| true` so a failed write never
+# aborts the agent.
+printf '%s\n' "$json" >> "$AWESOMUX_AGENT_EVENT_FILE" || true

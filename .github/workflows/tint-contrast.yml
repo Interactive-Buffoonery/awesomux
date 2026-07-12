@@ -1,0 +1,29 @@
+name: Tint contrast
+
+# Cheap pure-Python WCAG gate for sidebar tint/status chrome (F44). Path-filtered
+# so token/sidebar edits fail on the PR without needing the full macOS Swift
+# workflow (which remains workflow_dispatch-only).
+
+on:
+  pull_request:
+    paths:
+      - "Sources/DesignSystem/Tokens/AwColor.swift"
+      - "Sources/awesoMux/Views/SidebarGroupView.swift"
+      - "Sources/awesoMux/Views/SidebarPinnedSectionView.swift"
+      - "Sources/awesoMux/Views/SidebarSessionTile.swift"
+      - "script/check_tint_contrast.py"
+      - ".github/workflows/tint-contrast.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run sidebar tint/status contrast gate
+        run: python3 script/check_tint_contrast.py

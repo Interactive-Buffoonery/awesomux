@@ -1,0 +1,14 @@
+[22:12:12.809] ERROR (#3031): stream error {
+  providerID: "opencode-go",
+  modelID: "glm-5.2",
+  "session.id": "ses_example",
+  agent: "review",
+  mode: "primary",
+  error: {
+    name: "AI_APICallError",
+    message: "5-hour usage limit reached. Resets in 2hr 17min. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_example/go",
+    statusCode: 429,
+    responseBody: "{\"type\":\"error\",\"error\":{\"type\":\"GoUsageLimitError\",\"message\":\"5-hour usage limit reached. Resets in 2hr 17min. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_example/go\"},\"metadata\":{\"workspace\":\"wrk_example\",\"limitName\":\"5 hour\"}}",
+    isRetryable: true,
+  },
+}

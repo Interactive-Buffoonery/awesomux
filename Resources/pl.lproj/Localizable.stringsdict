@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>accessibility.dockBadge.sessionsNeedAttention</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@sessions@</string>
+        <key>sessions</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld sesji wymaga uwagi</string>
+            <key>one</key>
+            <string>%lld sesja wymaga uwagi</string>
+            <key>two</key>
+            <string>%lld sesje wymagają uwagi</string>
+            <key>few</key>
+            <string>%lld sesje wymagają uwagi</string>
+            <key>many</key>
+            <string>%lld sesji wymaga uwagi</string>
+            <key>other</key>
+            <string>%lld sesji wymaga uwagi</string>
+        </dict>
+    </dict>
+    <key>accessibility.sidebar.notifications</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@notifications@</string>
+        <key>notifications</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld powiadomień</string>
+            <key>one</key>
+            <string>%lld powiadomienie</string>
+            <key>two</key>
+            <string>%lld powiadomienia</string>
+            <key>few</key>
+            <string>%lld powiadomienia</string>
+            <key>many</key>
+            <string>%lld powiadomień</string>
+            <key>other</key>
+            <string>%lld powiadomienia</string>
+        </dict>
+    </dict>
+    <key>keyboard.cheatsheet.matchingShortcuts</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@shortcuts@</string>
+        <key>shortcuts</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld pasujących skrótów</string>
+            <key>one</key>
+            <string>%lld pasujący skrót</string>
+            <key>two</key>
+            <string>%lld pasujące skróty</string>
+            <key>few</key>
+            <string>%lld pasujące skróty</string>
+            <key>many</key>
+            <string>%lld pasujących skrótów</string>
+            <key>other</key>
+            <string>%lld pasującego skrótu</string>
+        </dict>
+    </dict>
+    <key>accessibility.footer.agentsInState</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%1$#@agents@</string>
+        <key>agents</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%1$lld %2$@ agentów</string>
+            <key>one</key>
+            <string>%1$lld %2$@ agent</string>
+            <key>two</key>
+            <string>%1$lld %2$@ agenty</string>
+            <key>few</key>
+            <string>%1$lld %2$@ agenty</string>
+            <key>many</key>
+            <string>%1$lld %2$@ agentów</string>
+            <key>other</key>
+            <string>%1$lld %2$@ agenty</string>
+        </dict>
+    </dict>
+    <key>accessibility.footer.agentsTotal</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@agents@</string>
+        <key>agents</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld agentów</string>
+            <key>one</key>
+            <string>%lld agent</string>
+            <key>two</key>
+            <string>%lld agenty</string>
+            <key>few</key>
+            <string>%lld agenty</string>
+            <key>many</key>
+            <string>%lld agentów</string>
+            <key>other</key>
+            <string>%lld agenty</string>
+        </dict>
+    </dict>
+    <key>accessibility.document.taskProgress</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%2$#@tasks@</string>
+        <key>tasks</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>Ukończono %1$lld z %2$lld zadań</string>
+            <key>one</key>
+            <string>Ukończono %1$lld z %2$lld zadania</string>
+            <key>two</key>
+            <string>Ukończono %1$lld z %2$lld zadań</string>
+            <key>few</key>
+            <string>Ukończono %1$lld z %2$lld zadań</string>
+            <key>many</key>
+            <string>Ukończono %1$lld z %2$lld zadań</string>
+            <key>other</key>
+            <string>Ukończono %1$lld z %2$lld zadań</string>
+        </dict>
+    </dict>
+    <key>pathbar.branchMenu.moreBranches</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@branches@</string>
+        <key>branches</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>+ jeszcze %lld gałęzi</string>
+            <key>one</key>
+            <string>+ jeszcze %lld gałąź</string>
+            <key>two</key>
+            <string>+ jeszcze %lld gałęzie</string>
+            <key>few</key>
+            <string>+ jeszcze %lld gałęzie</string>
+            <key>many</key>
+            <string>+ jeszcze %lld gałęzi</string>
+            <key>other</key>
+            <string>+ jeszcze %lld gałęzi</string>
+        </dict>
+    </dict>
+    <key>document.revisionIndicator</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%3$#@lines@</string>
+        <key>lines</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>Plan zaktualizowany: +%1$lld / −%2$lld linii</string>
+            <key>one</key>
+            <string>Plan zaktualizowany: +%1$lld / −%2$lld linia</string>
+            <key>two</key>
+            <string>Plan zaktualizowany: +%1$lld / −%2$lld linie</string>
+            <key>few</key>
+            <string>Plan zaktualizowany: +%1$lld / −%2$lld linie</string>
+            <key>many</key>
+            <string>Plan zaktualizowany: +%1$lld / −%2$lld linii</string>
+            <key>other</key>
+            <string>Plan zaktualizowany: +%1$lld / −%2$lld linii</string>
+        </dict>
+    </dict>
+    <key>accessibility.diagnostics.processes</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>%lld procesów</string>
+            <key>one</key><string>%lld proces</string>
+            <key>two</key><string>%lld procesy</string>
+            <key>few</key><string>%lld procesy</string>
+            <key>many</key><string>%lld procesów</string>
+            <key>other</key><string>%lld procesów</string>
+        </dict>
+    </dict>
+    <key>accessibility.diagnostics.events</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>%lld zdarzeń</string>
+            <key>one</key><string>%lld zdarzenie</string>
+            <key>two</key><string>%lld zdarzenia</string>
+            <key>few</key><string>%lld zdarzenia</string>
+            <key>many</key><string>%lld zdarzeń</string>
+            <key>other</key><string>%lld zdarzeń</string>
+        </dict>
+    </dict>
+    <key>accessibility.diagnostics.samples</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>%lld próbek</string>
+            <key>one</key><string>%lld próbka</string>
+            <key>two</key><string>%lld próbki</string>
+            <key>few</key><string>%lld próbki</string>
+            <key>many</key><string>%lld próbek</string>
+            <key>other</key><string>%lld próbek</string>
+        </dict>
+    </dict>
+    <key>accessibility.diagnostics.matchingEvents</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>%lld pasujących zdarzeń diagnostycznych</string>
+            <key>one</key><string>%lld pasujące zdarzenie diagnostyczne</string>
+            <key>two</key><string>%lld pasujące zdarzenia diagnostyczne</string>
+            <key>few</key><string>%lld pasujące zdarzenia diagnostyczne</string>
+            <key>many</key><string>%lld pasujących zdarzeń diagnostycznych</string>
+            <key>other</key><string>%lld pasujących zdarzeń diagnostycznych</string>
+        </dict>
+    </dict>
+</dict>
+</plist>

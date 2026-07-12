@@ -1,0 +1,14 @@
+[14:25:12.341] ERROR (#4052): stream error {
+  providerID: "synthetic",
+  modelID: "hf:zai-org/GLM-5.2",
+  "session.id": "ses_example",
+  agent: "review",
+  mode: "primary",
+  error: {
+    name: "AI_APICallError",
+    message: "subscription quota exceeded. Weekly credit limit reached.",
+    statusCode: 402,
+    responseBody: "{\"type\":\"error\",\"error\":{\"type\":\"PaymentRequired\",\"message\":\"subscription quota exceeded\"}}",
+    isRetryable: true,
+  },
+}

@@ -1,0 +1,361 @@
+import Foundation
+import Testing
+@testable import AwesoMuxCore
+
+@Suite("SessionRestoreReducer")
+struct SessionRestoreReducerTests {
+    @Test("a duplicate pane id is reassigned without dropping the transformed agent state")
+    func duplicatePaneIDPreservesAgentState() {
+        let collidingID = UUID()
+        var seenSplits: Set<TerminalSplit.ID> = []
+        var seenPanes: Set<TerminalPane.ID> = [collidingID] // pre-seed so this pane collides
+        var seenTerminalSessionIDs: Set<TerminalSessionID> = []
+        let layout = TerminalPaneLayout.pane(
+            TerminalPane(id: collidingID, title: "agent", workingDirectory: "/tmp")
+        )
+
+        let result = SessionRestoreReducer.restoredLayout(
+            from: layout,
+            seenSplitIDs: &seenSplits,
+            seenPaneIDs: &seenPanes,
+            seenTerminalSessionIDs: &seenTerminalSessionIDs,
+            transformPane: { pane in
+                var transformed = pane
+                transformed.agentKind = .codex
+                transformed.agentExecutionState = .running
+                transformed.attentionReason = .userInputRequired
+                transformed.unreadNotificationCount = 3
+                return transformed
+            }
+        )
+
+        guard case let .pane(restored) = result.layout else {
+            Issue.record("expected a single pane")
+            return
+        }
+        #expect(restored.id != collidingID)        // reassigned a fresh id
+        #expect(result.idReassignments == 1)
+        // The reassigned pane must keep the transformed agent state, not
+        // silently downgrade to a bare .shell/.idle (the bug this guards).
+        #expect(restored.agentKind == .codex)
+        #expect(restored.agentExecutionState == .running)
+        #expect(restored.attentionReason == .userInputRequired)
+        #expect(restored.unreadNotificationCount == 3)
+    }
+
+    @Test("restoredAgentExecutionState maps every case")
+    func restoredAgentExecutionStateMapsEveryCase() {
+        // .waiting is the only state that round-trips (live hook side-channel
+        // signal that survives restart); everything else clamps to .idle
+        // because a restored session has no live process to reattach to.
+        // Per-case policy spelled out (not derived from allCases) so a new
+        // case fails here and forces a test-time decision, mirroring the
+        // production switch's compile-time exhaustiveness.
+        let policy: [AgentExecutionState: AgentExecutionState] = [
+            .idle: .idle,
+            .running: .idle,
+            .waiting: .waiting,
+            .thinking: .idle,
+            .output: .idle,
+            .done: .idle,
+            .error: .idle,
+        ]
+        #expect(Set(policy.keys) == Set(AgentExecutionState.allCases))
+        for (state, expected) in policy {
+            #expect(SessionRestoreReducer.restoredAgentExecutionState(state) == expected)
+        }
+    }
+
+    @Test("unique terminal-session id generation retries collisions")
+    func uniqueTerminalSessionIDGenerationRetriesCollisions() throws {
+        let duplicate = try #require(
+            TerminalSessionID(rawValue: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        )
+        let unique = try #require(
+            TerminalSessionID(rawValue: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        )
+        var seenTerminalSessionIDs: Set<TerminalSessionID> = [duplicate]
+        var generatedIDs = [duplicate, duplicate, unique].makeIterator()
+
+        let generated = SessionRestoreReducer.generateUniqueTerminalSessionID(
+            avoiding: &seenTerminalSessionIDs,
+            generate: { generatedIDs.next() ?? unique }
+        )
+
+        #expect(generated == unique)
+        #expect(seenTerminalSessionIDs == [duplicate, unique])
+    }
+
+    @Test("restore sanitizes visible fields, merges duplicate groups, and preserves waiting")
+    func restoreSanitizesAndPreservesWaiting() throws {
+        let sharedSessionID = UUID()
+        let pane = TerminalPane(id: UUID(), title: "\u{202E}", workingDirectory: "\u{0000}")
+        let dirty = TerminalSession(
+            id: sharedSessionID,
+            title: "\u{202E}",
+            workingDirectory: "\u{0000}",
+            agentKind: .codex,
+            agentExecutionState: .waiting,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let duplicate = TerminalSession(
+            id: sharedSessionID,
+            title: "duplicate",
+            workingDirectory: "~",
+            agentKind: .shell
+        )
+        let snapshot = SessionSnapshot(
+            groups: [
+                SessionGroup(name: "scratch", sessions: [dirty]),
+                SessionGroup(name: "scratch\u{200B}", sessions: [duplicate])
+            ],
+            selectedSessionID: sharedSessionID
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: snapshot,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        #expect(restored.groups.count == 1)
+        #expect(restored.groups[0].sessions.count == 2)
+        #expect(restored.groups[0].sessions[0].title == "Codex 1")
+        #expect(restored.groups[0].sessions[0].workingDirectory == "~")
+        #expect(restored.groups[0].sessions[0].activeAgentKind == .codex)
+        #expect(restored.groups[0].sessions[0].agentExecutionState == .waiting)
+        #expect(restored.groups[0].sessions[1].id != sharedSessionID)
+        #expect(restored.sanitizationSummary.mergedGroups == 1)
+        #expect(restored.sanitizationSummary.idReassignments == 1)
+    }
+
+    @Test("restore clears stale agent identity but keeps waiting and live prompts")
+    func restoreClearsStaleAgentIdentityKeepsLiveAgentChrome() throws {
+        let staleRunning = TerminalPane(
+            title: "",
+            workingDirectory: "~",
+            agentKind: .codex,
+            agentExecutionState: .thinking
+        )
+        let staleAttention = TerminalPane(
+            title: "stale-attention",
+            workingDirectory: "~",
+            agentKind: .codex,
+            agentExecutionState: .error,
+            attentionReason: .processError
+        )
+        let waiting = TerminalPane(
+            title: "waiting",
+            workingDirectory: "~",
+            agentKind: .claudeCode,
+            agentExecutionState: .waiting
+        )
+        let livePrompt = TerminalPane(
+            title: "prompt",
+            workingDirectory: "~",
+            agentKind: .codex,
+            agentExecutionState: .thinking,
+            attentionReason: .permissionPrompt
+        )
+        let session = TerminalSession(
+            title: "",
+            workingDirectory: "~",
+            layout: .split(TerminalSplit(
+                orientation: .vertical,
+                first: .split(TerminalSplit(
+                    orientation: .horizontal,
+                    first: .pane(staleRunning),
+                    second: .pane(staleAttention)
+                )),
+                second: .split(TerminalSplit(
+                    orientation: .horizontal,
+                    first: .pane(waiting),
+                    second: .pane(livePrompt)
+                ))
+            )),
+            activePaneID: staleRunning.id
+        )
+        let snapshot = SessionSnapshot(
+            groups: [SessionGroup(name: "main", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(from: snapshot)
+            .groups[0].sessions[0]
+
+        #expect(restored.title == "shell 1")
+        #expect(restored.activeAgentKind == .shell)
+        #expect(restored.layout.pane(id: staleRunning.id)?.agentKind == .shell)
+        #expect(restored.layout.pane(id: staleRunning.id)?.title == "shell 1")
+        #expect(restored.layout.pane(id: staleRunning.id)?.agentExecutionState == .idle)
+        #expect(restored.layout.pane(id: staleRunning.id)?.attentionReason == nil)
+        #expect(restored.layout.pane(id: staleAttention.id)?.agentKind == .shell)
+        #expect(restored.layout.pane(id: staleAttention.id)?.agentExecutionState == .idle)
+        #expect(restored.layout.pane(id: staleAttention.id)?.attentionReason == nil)
+        #expect(restored.layout.pane(id: waiting.id)?.agentKind == .claudeCode)
+        #expect(restored.layout.pane(id: waiting.id)?.agentExecutionState == .waiting)
+        #expect(restored.layout.pane(id: livePrompt.id)?.agentKind == .codex)
+        #expect(restored.layout.pane(id: livePrompt.id)?.agentExecutionState == .idle)
+        #expect(restored.layout.pane(id: livePrompt.id)?.attentionReason == .permissionPrompt)
+    }
+
+    @Test("restore reassigns duplicate group ids after name merging")
+    func restoreReassignsDuplicateGroupIDsAfterNameMerging() throws {
+        let sharedGroupID = UUID()
+        let first = TerminalSession(title: "first", workingDirectory: "~", agentKind: .shell)
+        let second = TerminalSession(title: "second", workingDirectory: "~", agentKind: .shell)
+        let snapshot = SessionSnapshot(
+            groups: [
+                SessionGroup(id: sharedGroupID, name: "alpha", sessions: [first]),
+                SessionGroup(id: sharedGroupID, name: "beta", sessions: [second])
+            ],
+            selectedSessionID: nil
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: snapshot,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        #expect(restored.groups.map(\.name) == ["alpha", "beta"])
+        #expect(restored.groups[0].id == sharedGroupID)
+        #expect(restored.groups[1].id != sharedGroupID)
+        #expect(Set(restored.groups.map(\.id)).count == restored.groups.count)
+        #expect(restored.sanitizationSummary.mergedGroups == 0)
+        #expect(restored.sanitizationSummary.idReassignments == 1)
+    }
+
+    @Test("restore preserves a remote workgroup's target")
+    func restorePreservesRemoteTarget() {
+        let target = RemoteTarget(user: "ed", host: "box")
+        let session = TerminalSession(title: "shell 1", workingDirectory: "~", agentKind: .shell)
+        let snapshot = SessionSnapshot(
+            groups: [SessionGroup(name: "box", remote: target, sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: snapshot,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        // Regression: the group rebuild re-inited SessionGroup without
+        // `remote:`, silently de-tagging every remote workgroup on relaunch —
+        // "+ new workspace" then attached a LOCAL shell (INT-767).
+        #expect(restored.groups.first?.remote == target)
+    }
+
+    @Test("duplicate group id reassignment preserves the remote target")
+    func duplicateGroupIDReassignmentPreservesRemoteTarget() {
+        let sharedGroupID = UUID()
+        let target = RemoteTarget(user: "ed", host: "box")
+        let first = TerminalSession(title: "first", workingDirectory: "~", agentKind: .shell)
+        let second = TerminalSession(title: "second", workingDirectory: "~", agentKind: .shell)
+        let snapshot = SessionSnapshot(
+            groups: [
+                SessionGroup(id: sharedGroupID, name: "alpha", sessions: [first]),
+                SessionGroup(id: sharedGroupID, name: "box", remote: target, sessions: [second])
+            ],
+            selectedSessionID: nil
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: snapshot,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        #expect(restored.groups.map(\.name) == ["alpha", "box"])
+        #expect(restored.groups[1].id != sharedGroupID)
+        #expect(restored.groups[1].remote == target)
+    }
+
+    @Test(
+        "same-name merge never folds sessions across a transport boundary",
+        arguments: [true, false]
+    )
+    func sameNameMergeRefusesTransportMismatch(remoteFirst: Bool) {
+        let target = RemoteTarget(user: "ed", host: "box")
+        let localSession = TerminalSession(title: "local", workingDirectory: "~", agentKind: .shell)
+        let remoteSession = TerminalSession(title: "remote", workingDirectory: "~", agentKind: .shell)
+        let localGroup = SessionGroup(name: "box", sessions: [localSession])
+        let remoteGroup = SessionGroup(name: "Box", remote: target, sessions: [remoteSession])
+        let snapshot = SessionSnapshot(
+            groups: remoteFirst ? [remoteGroup, localGroup] : [localGroup, remoteGroup],
+            selectedSessionID: nil
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: snapshot,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        // Both groups survive, renamed apart — no session may inherit the
+        // other group's transport (ADR-0022), in either encounter order.
+        #expect(restored.groups.count == 2)
+        #expect(restored.sanitizationSummary.mergedGroups == 0)
+        let restoredRemote = restored.groups.first { $0.remote != nil }
+        let restoredLocal = restored.groups.first { $0.remote == nil }
+        #expect(restoredRemote?.remote == target)
+        #expect(restoredRemote?.sessions.map(\.title) == ["remote"])
+        #expect(restoredLocal?.sessions.map(\.title) == ["local"])
+        #expect(restored.groups[1].name.hasSuffix(" 2"))
+        #expect(
+            restored.groups[0].name.caseInsensitiveCompare(restored.groups[1].name)
+                != .orderedSame
+        )
+        #expect(restored.sanitizationSummary.groupNameAdjustments == 1)
+    }
+
+    @Test("a synthetic disambiguated name never swallows a legitimate later group")
+    func syntheticNameDodgesLegitimateLaterGroup() {
+        let target = RemoteTarget(user: "ed", host: "box")
+        let localSession = TerminalSession(title: "local", workingDirectory: "~", agentKind: .shell)
+        let remoteSession = TerminalSession(title: "remote", workingDirectory: "~", agentKind: .shell)
+        let preexisting = TerminalSession(title: "always-two", workingDirectory: "~", agentKind: .shell)
+        let snapshot = SessionSnapshot(
+            groups: [
+                SessionGroup(name: "name", sessions: [localSession]),
+                SessionGroup(name: "name", remote: target, sessions: [remoteSession]),
+                SessionGroup(name: "name 2", remote: target, sessions: [preexisting])
+            ],
+            selectedSessionID: nil
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: snapshot,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        // The renamed remote group must skip "name 2" — that name already
+        // belongs to a real group later in the snapshot.
+        #expect(restored.groups.map(\.name) == ["name", "name 3", "name 2"])
+        #expect(restored.groups.map { $0.sessions.map(\.title) } == [
+            ["local"], ["remote"], ["always-two"]
+        ])
+        #expect(restored.sanitizationSummary.mergedGroups == 0)
+    }
+
+    @Test("same-name merge with an equal remote target still folds")
+    func sameNameMergeWithEqualRemoteStillMerges() {
+        let target = RemoteTarget(user: "ed", host: "box")
+        let first = TerminalSession(title: "first", workingDirectory: "~", agentKind: .shell)
+        let second = TerminalSession(title: "second", workingDirectory: "~", agentKind: .shell)
+        let snapshot = SessionSnapshot(
+            groups: [
+                SessionGroup(name: "box", remote: target, sessions: [first]),
+                SessionGroup(name: "Box", remote: target, sessions: [second])
+            ],
+            selectedSessionID: nil
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: snapshot,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        #expect(restored.groups.count == 1)
+        #expect(restored.sanitizationSummary.mergedGroups == 1)
+        #expect(restored.groups[0].remote == target)
+        #expect(restored.groups[0].sessions.map(\.title) == ["first", "second"])
+    }
+}

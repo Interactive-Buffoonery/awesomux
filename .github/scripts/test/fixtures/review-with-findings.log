@@ -1,0 +1,22 @@
+[22:16:10.101] INFO (#2959): loop {
+  "session.id": "ses_example",
+  step: 0,
+}
+[22:16:11.212] INFO (#2960): llm runtime selected {
+  "llm.runtime": "ai-sdk",
+  "llm.provider": "synthetic",
+  "llm.model": "hf:zai-org/GLM-5.2",
+}
+## Code Review
+
+**Blockers:** 1 | **Should fix:** 1 | **Nits:** 1
+
+### Blockers
+- `Sources/Foo.swift:42` — Force unwrap on optional value; use guard let instead.
+
+### Should fix
+- `Sources/Bar.swift:100` — Missing @MainActor isolation on UI-facing state; add @MainActor to the method.
+
+### Nits
+- `Sources/Baz.swift:15` — Variable name `x` could be more descriptive.
+Checking if branch is dirty...

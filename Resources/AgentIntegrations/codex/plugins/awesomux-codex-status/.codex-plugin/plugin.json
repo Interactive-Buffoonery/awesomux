@@ -1,0 +1,9 @@
+{
+  "name": "awesomux-codex-status",
+  "version": "0.1.0",
+  "description": "Emits coarse runtime status to awesoMux so the sidebar can reflect agent activity.",
+  "hooks": "./hooks/hooks.json",
+  "author": {
+    "name": "awesoMux"
+  }
+}

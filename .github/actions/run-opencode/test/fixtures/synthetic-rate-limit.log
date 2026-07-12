@@ -1,0 +1,14 @@
+[14:22:33.011] ERROR (#4052): stream error {
+  providerID: "synthetic",
+  modelID: "hf:zai-org/GLM-5.2",
+  "session.id": "ses_example",
+  agent: "review",
+  mode: "primary",
+  error: {
+    name: "AI_APICallError",
+    message: "rate limit exceeded: 500 requests per 5 hours. Resets in 2hr 14min.",
+    statusCode: 429,
+    responseBody: "{\"type\":\"error\",\"error\":{\"type\":\"RateLimitError\",\"message\":\"rate limit exceeded: 500 requests per 5 hours\"}}",
+    isRetryable: true,
+  },
+}

@@ -1,0 +1,14 @@
+[22:15:04.121] ERROR (#3031): stream error {
+  providerID: "opencode-go",
+  modelID: "glm-5.2",
+  "session.id": "ses_example",
+  agent: "review",
+  mode: "primary",
+  error: {
+    name: "AI_APICallError",
+    message: "Payment required: zero balance for this workspace. Add credit before retrying.",
+    statusCode: 402,
+    responseBody: "{\"type\":\"error\",\"error\":{\"type\":\"PaymentRequired\",\"message\":\"insufficient balance for workspace\"}}",
+    isRetryable: true,
+  },
+}
