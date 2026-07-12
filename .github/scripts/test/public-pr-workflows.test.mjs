@@ -65,6 +65,8 @@ test("Swift CI uses free standard hosted macOS for pull requests and main", () =
   assert.match(workflow, /push:\n\s+branches: \[main\]/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /runs-on: macos-26/);
+  assert.match(workflow, /concurrency:\n\s+group: swift-\$\{\{ github\.ref \}\}\n\s+cancel-in-progress: true/);
+  assert.match(workflow, /timeout-minutes: 120/);
   assert.match(
     workflow,
     /if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.draft == false/,
@@ -75,6 +77,7 @@ test("Swift CI uses free standard hosted macOS for pull requests and main", () =
     /pull_request:\n\s+paths-ignore:[\s\S]*?"docs\/\*\*"[\s\S]*?push:\n\s+branches: \[main\]\n\s+paths-ignore:[\s\S]*?"docs\/\*\*"/,
   );
   assert.match(workflow, /submodules: recursive/);
+  assert.match(workflow, /Xcode_26\.4\.1\.app\/Contents\/Developer/);
   assert.match(workflow, /brew install zig@0\.15/);
   assert.match(workflow, /\.\/script\/build_ghostty_xcframework\.sh/);
   assert.match(workflow, /swift build/);
