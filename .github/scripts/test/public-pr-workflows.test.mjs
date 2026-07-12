@@ -9,6 +9,7 @@ const read = (path) => readFileSync(join(repoRoot, path), "utf8");
 
 const workflows = {
   size: read(".github/workflows/pr-size.yml"),
+  swift: read(".github/workflows/swift.yml"),
   template: read(".github/workflows/pr-template.yml"),
 };
 
@@ -16,8 +17,8 @@ function assertMetadataOnly(name, workflow) {
   assert.match(workflow, /pull_request_target:/, `${name} must run trusted base workflow code`);
   assert.match(
     workflow,
-    /runs-on: blacksmith-2vcpu-ubuntu-2404/,
-    `${name} must use the smallest Blacksmith runner`,
+    /runs-on: ubuntu-latest/,
+    `${name} must use a standard GitHub-hosted runner`,
   );
   assert.doesNotMatch(
     workflow,
@@ -32,14 +33,17 @@ function assertMetadataOnly(name, workflow) {
 }
 
 test("all contributor workflows preserve the metadata-only trust boundary", () => {
-  for (const [name, workflow] of Object.entries(workflows)) {
+  for (const [name, workflow] of Object.entries({
+    size: workflows.size,
+    template: workflows.template,
+  })) {
     assertMetadataOnly(name, workflow);
   }
 });
 
 test("PR sizing uses a verified passive ref and effective line rules", () => {
   const workflow = workflows.size;
-  assert.match(workflow, /runs-on: blacksmith-2vcpu-ubuntu-2404/);
+  assert.match(workflow, /runs-on: ubuntu-latest/);
   assert.match(workflow, /head_ref="refs\/remotes\/pull\/\$\{PR_NUMBER\}\/head"/);
   assert.match(workflow, /refs\/pull\/\$\{PR_NUMBER\}\/head:\$\{head_ref\}/);
   assert.match(workflow, /fetched_sha[\s\S]*?PR_HEAD_SHA/);
@@ -53,6 +57,24 @@ test("PR sizing uses a verified passive ref and effective line rules", () => {
   assert.match(workflow, /if \[\[ "\$non_test_changed" -eq 0 \]\]/);
   assert.match(workflow, /<!-- awesomux-pr-size-xxl -->/);
   assert.match(workflow, /issues\/comments\/\$\{comment_id\}/);
+});
+
+test("Swift CI uses free standard hosted macOS for pull requests and main", () => {
+  const workflow = workflows.swift;
+  assert.match(workflow, /pull_request:/);
+  assert.match(workflow, /push:\n\s+branches: \[main\]/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /runs-on: macos-26/);
+  assert.doesNotMatch(workflow, /blacksmith|self-hosted|CodeRunner/);
+  assert.match(
+    workflow,
+    /pull_request:\n\s+paths-ignore:[\s\S]*?"docs\/\*\*"[\s\S]*?push:\n\s+branches: \[main\]\n\s+paths-ignore:[\s\S]*?"docs\/\*\*"/,
+  );
+  assert.match(workflow, /submodules: recursive/);
+  assert.match(workflow, /brew install zig@0\.15/);
+  assert.match(workflow, /\.\/script\/build_ghostty_xcframework\.sh/);
+  assert.match(workflow, /swift build/);
+  assert.match(workflow, /swift test/);
 });
 
 test("PR hygiene consolidates the external checklist", () => {
