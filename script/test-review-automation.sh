@@ -22,9 +22,4 @@ node --test \
 bash .github/actions/run-opencode/test/guard_test.sh
 bash .github/actions/run-opencode/test/direct_run_test.sh
 
-echo "test-review-automation: CodeRunner trust boundaries"
-node --test \
-    .github/scripts/test/namemeplz-test-plan.test.mjs \
-    .github/scripts/test/namemeplz-test-workflows.test.mjs
-
 echo "test-review-automation: all passed."

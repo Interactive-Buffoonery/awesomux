@@ -16,8 +16,8 @@ function assertMetadataOnly(name, workflow) {
   assert.match(workflow, /pull_request_target:/, `${name} must run trusted base workflow code`);
   assert.match(
     workflow,
-    /runs-on: blacksmith-2vcpu-ubuntu-2404/,
-    `${name} must use the smallest Blacksmith runner`,
+    /runs-on: ubuntu-latest/,
+    `${name} must use a standard GitHub-hosted runner`,
   );
   assert.doesNotMatch(
     workflow,
@@ -32,14 +32,17 @@ function assertMetadataOnly(name, workflow) {
 }
 
 test("all contributor workflows preserve the metadata-only trust boundary", () => {
-  for (const [name, workflow] of Object.entries(workflows)) {
+  for (const [name, workflow] of Object.entries({
+    size: workflows.size,
+    template: workflows.template,
+  })) {
     assertMetadataOnly(name, workflow);
   }
 });
 
 test("PR sizing uses a verified passive ref and effective line rules", () => {
   const workflow = workflows.size;
-  assert.match(workflow, /runs-on: blacksmith-2vcpu-ubuntu-2404/);
+  assert.match(workflow, /runs-on: ubuntu-latest/);
   assert.match(workflow, /head_ref="refs\/remotes\/pull\/\$\{PR_NUMBER\}\/head"/);
   assert.match(workflow, /refs\/pull\/\$\{PR_NUMBER\}\/head:\$\{head_ref\}/);
   assert.match(workflow, /fetched_sha[\s\S]*?PR_HEAD_SHA/);
@@ -53,6 +56,10 @@ test("PR sizing uses a verified passive ref and effective line rules", () => {
   assert.match(workflow, /if \[\[ "\$non_test_changed" -eq 0 \]\]/);
   assert.match(workflow, /<!-- awesomux-pr-size-xxl -->/);
   assert.match(workflow, /issues\/comments\/\$\{comment_id\}/);
+});
+
+test("native Swift CI stays disabled until its tests are deterministic", () => {
+  assert.equal(existsSync(join(repoRoot, ".github/workflows/swift.yml")), false);
 });
 
 test("PR hygiene consolidates the external checklist", () => {

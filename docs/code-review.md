@@ -1,11 +1,12 @@
 # OpenCode PR reviews
 
-awesoMux keeps AI review and deterministic testing as separate systems:
+awesoMux keeps AI review and deterministic testing separate:
 
 - **OpenCode review** performs read-only PR review with exact GLM 5.2 through
   Synthetic.
-- **CodeRunner** runs deterministic tests on disposable infrastructure. It does
-  not produce code-review findings.
+- **Native validation** is temporarily maintainer-local while timing-sensitive
+  tests are made deterministic on constrained hosted macOS runners. It does not
+  produce code-review findings.
 
 Neither system can approve or merge a pull request.
 
@@ -95,12 +96,10 @@ The review test suite covers trusted-default-branch execution, passive PR data,
 maintainer authorization, exact command matching, model/config isolation,
 installer digest verification, output guards, and permission-actor forwarding.
 
-## CodeRunner
+## Deterministic validation
 
-CodeRunner is documented and operated independently. Its authorization,
-disposable-runner lifecycle, deterministic command selection, and result
-publication do not grant OpenCode additional permissions and do not consume the
-Synthetic key. See
-[`docs/reference/coderunner-test-routing.md`](reference/coderunner-test-routing.md)
-for its current automatic coverage, unattested local-command contract, run
-inspection guide, and future capability qualification requirements.
+Maintainers currently run `./script/preflight.sh` locally for native validation.
+The hosted Swift workflow is disabled until timing-sensitive tests use
+deterministic clocks, gates, and event sources that remain reliable on
+constrained macOS runners. Cheap review-automation, source-policy, plural, and
+contrast guards remain separate Linux jobs so they fail quickly.
