@@ -64,8 +64,9 @@ brew install --cask awesomux
 
 Or grab the latest `awesoMux-<version>.zip` from
 [Releases](https://github.com/Interactive-Buffoonery/awesomux/releases), unzip,
-and drag `awesoMux.app` to Applications. Each release ships a `.sha256` file to
-verify the download.
+and drag `awesoMux.app` to Applications. Download the matching `.sha256` file
+and verify the ZIP before opening it:
+
 
 ## Getting started
 
