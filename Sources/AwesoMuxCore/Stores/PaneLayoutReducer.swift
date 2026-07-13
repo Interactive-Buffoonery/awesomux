@@ -700,7 +700,9 @@ struct PaneLayoutReducer: Sendable {
             return nil
         }
 
-        guard RemoteSSHCommandTarget.parseSubmittedCommand(command) != nil else {
+        guard pane.remoteHost == nil,
+            RemoteSSHCommandTarget.parseSubmittedCommand(command) != nil
+        else {
             return nil
         }
         let target = RemoteSSHCommandTarget.parseManagedWorkspaceOffer(command)

@@ -84,6 +84,11 @@ extension GhosttySurfaceNSView {
         // reset the snapshot stays non-shell until the next SwiftUI update
         // pass, which would re-probe (and re-announce) every sampler tick.
         let foregroundProcess = foregroundProcessLivenessAndSample()
+        sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: foregroundProcess.liveness
+        )
         // Codex's SessionStart hook arrives batched with the first prompt, so a
         // fresh Codex pane shows the generic shell icon until the user types —
         // and its fragile text signature (splash banner / prompt-anchored
@@ -92,20 +97,23 @@ extension GhosttySurfaceNSView {
         // OpenCode/Grok fast-path. This also gives the liveness reset below a
         // correctly-tagged pane once the agent exits back to the shell.
         if let foregroundAgentKind = AgentProcessRecognition.agentKind(forCommand: foregroundProcess.sample?.comm) {
-            applyDetectedAgentOutput(AgentOutputDetection(
-                state: .waiting,
-                agentKind: foregroundAgentKind,
-                agentKindIsAuthoritative: true
-            ))
+            applyDetectedAgentOutput(
+                AgentOutputDetection(
+                    state: .waiting,
+                    agentKind: foregroundAgentKind,
+                    agentKindIsAuthoritative: true
+                ))
         }
 
-        guard let agentKind = sessionStore.session(id: sessionID)?
-            .layout.pane(id: paneID)?.agentKind,
+        guard
+            let agentKind = sessionStore.session(id: sessionID)?
+                .layout.pane(id: paneID)?.agentKind,
             agentKind != .shell,
             AgentLivenessPolicy.shouldResetAgentChrome(
                 agentKind: agentKind,
                 liveness: foregroundProcess.liveness
-            ) else {
+            )
+        else {
             return
         }
         // App-synthesized from process liveness, not parsed from the agent
@@ -114,17 +122,19 @@ extension GhosttySurfaceNSView {
         // provider input — and routing through the shared wrapper keeps
         // detector suppression and VoiceOver announcements consistent with
         // real hook-delivered session-end events.
-        applyAgentRuntimeEvent(AgentRuntimeEvent(
-            source: .unknown,
-            executionState: .idle,
-            phase: .sessionEnd
-        ))
+        applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .unknown,
+                executionState: .idle,
+                phase: .sessionEnd
+            ))
     }
 
     @MainActor
     func shellActivitySnapshot() -> ShellActivitySnapshot? {
         guard session.layout.pane(id: paneID)?.agentKind == .shell,
-              let isAwayFromPrompt = promptMarkerIsAwayFromPrompt() else {
+            let isAwayFromPrompt = promptMarkerIsAwayFromPrompt()
+        else {
             return nil
         }
 
@@ -203,12 +213,14 @@ extension GhosttySurfaceNSView {
                 // `update(session:pane:...)` can re-point this NSView at a
                 // different pane while the timer was pending — only clear
                 // the pane that actually armed it.
-                guard ProgressReportDispatchGuard.shouldApply(
-                    capturedSessionID: sessionID,
-                    capturedPaneID: paneID,
-                    currentSessionID: self.sessionID,
-                    currentPaneID: self.paneID
-                ) else { return }
+                guard
+                    ProgressReportDispatchGuard.shouldApply(
+                        capturedSessionID: sessionID,
+                        capturedPaneID: paneID,
+                        currentSessionID: self.sessionID,
+                        currentPaneID: self.paneID
+                    )
+                else { return }
                 self.updateProgressReport(TerminalProgressReport(state: .remove))
             }
         }
@@ -253,12 +265,14 @@ extension GhosttySurfaceNSView {
                 guard let self else { return }
                 self.progressReportThrottleWorkItem = nil
                 // Same pane-recycle hazard as the expiry timer above.
-                guard ProgressReportDispatchGuard.shouldApply(
-                    capturedSessionID: sessionID,
-                    capturedPaneID: paneID,
-                    currentSessionID: self.sessionID,
-                    currentPaneID: self.paneID
-                ) else { return }
+                guard
+                    ProgressReportDispatchGuard.shouldApply(
+                        capturedSessionID: sessionID,
+                        capturedPaneID: paneID,
+                        currentSessionID: self.sessionID,
+                        currentPaneID: self.paneID
+                    )
+                else { return }
                 self.commitProgressReport(progressReport, writtenAt: CACurrentMediaTime())
             }
         }
@@ -276,10 +290,12 @@ extension GhosttySurfaceNSView {
     }
 
     func markNeedsAttention() {
-        guard Self.shouldMarkGenericOutputNeedsAttention(
-            isKeyWindow: window?.isKeyWindow == true,
-            isSelectedWorkspace: sessionStore.selectedSessionID == sessionID
-        ) else {
+        guard
+            Self.shouldMarkGenericOutputNeedsAttention(
+                isKeyWindow: window?.isKeyWindow == true,
+                isSelectedWorkspace: sessionStore.selectedSessionID == sessionID
+            )
+        else {
             return
         }
 
@@ -378,7 +394,8 @@ extension GhosttySurfaceNSView {
     func sampleAgentStateFromVisibleText() {
         let now = CACurrentMediaTime()
         guard now - lastAgentDetectionSample >= Self.visibleTextChangeThrottle,
-              let visibleText = visibleTerminalText() else {
+            let visibleText = visibleTerminalText()
+        else {
             return
         }
 
@@ -406,7 +423,8 @@ extension GhosttySurfaceNSView {
             }
         }
 
-        hasObservedAgentActivity = hasObservedAgentActivity
+        hasObservedAgentActivity =
+            hasObservedAgentActivity
             || agentOutputDetector.observesAgentContext(in: visibleText)
 
         // Visible-text changed: the underlying process is producing output.
@@ -418,10 +436,12 @@ extension GhosttySurfaceNSView {
             sessionStore.markAgentActivityObserved(id: sessionID, paneID: paneID)
         }
 
-        guard let detection = agentOutputDetector.detectedOutput(
-            in: visibleText,
-            assumingAgentContext: hasObservedAgentActivity
-        ) else {
+        guard
+            let detection = agentOutputDetector.detectedOutput(
+                in: visibleText,
+                assumingAgentContext: hasObservedAgentActivity
+            )
+        else {
             return
         }
 
@@ -507,7 +527,8 @@ extension GhosttySurfaceNSView {
             detection.agentKind = nil
         }
         if detection.agentKind == .openCode,
-           !enabledAgentRuntimeFileDropSources.contains(.openCode) {
+            !enabledAgentRuntimeFileDropSources.contains(.openCode)
+        {
             detection.agentKind = nil
         }
         let livePane = liveSession.layout.pane(id: paneID)
@@ -532,9 +553,10 @@ extension GhosttySurfaceNSView {
         // tools are still about to run; busy shell keeps the thinking chrome.
         var applyState = decision.shouldApplyState ? detection.state : nil
         if applyState == .waiting,
-           liveAgentKind == .grok,
-           (liveExecutionState == .thinking || liveDisplayState == .thinking),
-           livePane?.shellActivity == .busy {
+            liveAgentKind == .grok,
+            (liveExecutionState == .thinking || liveDisplayState == .thinking),
+            livePane?.shellActivity == .busy
+        {
             applyState = nil
             if decision.agentKind == nil {
                 return
@@ -595,7 +617,8 @@ extension GhosttySurfaceNSView {
         }
         let panes = session.panes
         guard panes.count > 1,
-              let index = panes.firstIndex(where: { $0.id == paneID }) else {
+            let index = panes.firstIndex(where: { $0.id == paneID })
+        else {
             return nil
         }
         let title = panes[index].title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -645,7 +668,8 @@ extension GhosttySurfaceNSView {
         // Only state-bearing events suppress the visible-text detector,
         // and only after the store actually accepted the event — a
         // rejected dedupe/stale event shouldn't mute the fallback.
-        let suppressionDecision = visibleTextAgentStateReducer
+        let suppressionDecision =
+            visibleTextAgentStateReducer
             .runtimeEventSuppressionDecision(
                 state: event.state,
                 executionState: event.executionState,
@@ -676,7 +700,8 @@ extension GhosttySurfaceNSView {
     }
 
     func markNeedsAttentionPromptAnswered() {
-        let livePane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
+        let livePane =
+            sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
             ?? session.layout.pane(id: paneID)
         guard livePane?.agentState == .needsAttention else {
             return

@@ -70,24 +70,32 @@ struct TerminalPaneView: View {
             .onChange(of: session.layout.paneIDs) { _, _ in
                 dragCoordinator.end()
             }
-            .task(id: managedSSHOfferPaneID) {
-                guard let paneID = managedSSHOfferPaneID else { return }
-                onManagedSSHWorkspaceOffer?(session.id, paneID)
+            .task(id: managedSSHOfferIdentity) {
+                guard let identity = managedSSHOfferIdentity else { return }
+                onManagedSSHWorkspaceOffer?(session.id, identity.paneID)
             }
         } else {
             RuntimeUnavailableView(ghosttyRuntime: ghosttyRuntime)
         }
     }
 
-    private var managedSSHOfferPaneID: TerminalPane.ID? {
+    private var managedSSHOfferIdentity: ManagedSSHWorkspaceOfferIdentity? {
         guard let pane = session.activePane,
             pane.executionPlan == .local,
-            pane.remoteSSHTarget != nil
+            let remoteSSHTarget = pane.remoteSSHTarget
         else {
             return nil
         }
-        return pane.id
+        return ManagedSSHWorkspaceOfferIdentity(
+            paneID: pane.id,
+            sshDestination: remoteSSHTarget
+        )
     }
+}
+
+struct ManagedSSHWorkspaceOfferIdentity: Equatable {
+    let paneID: TerminalPane.ID
+    let sshDestination: String
 }
 
 struct TerminalPaneLayoutView: View {
@@ -133,7 +141,8 @@ struct TerminalPaneLayoutView: View {
                     ZStack {
                         Color.aw.surface.chrome
                         if session.activePaneID == pane.id,
-                           !suppressTopFocusAccentForActivePane {
+                            !suppressTopFocusAccentForActivePane
+                        {
                             PaneFocusAccent(
                                 state: session.focusAccentAwState,
                                 differentiateWithoutColor: differentiateWithoutColor
@@ -193,19 +202,20 @@ struct TerminalPaneLayoutView: View {
                         }
                         .overlay(alignment: .bottom) {
                             if let progressReport = pane.progressReport,
-                               progressReport.isVisible {
+                                progressReport.isVisible
+                            {
                                 // Accent passed by value so it participates in
                                 // the bar's `==` — see SurfaceProgressBar.accent.
                                 SurfaceProgressBar(
                                     report: progressReport,
                                     accent: accentResolver.accent
                                 )
-                                    // Skip re-render when the report is
-                                    // unchanged — same reasoning as
-                                    // `PaneTitleBarView.equatable()` above:
-                                    // a sibling pane's update shouldn't
-                                    // re-evaluate this one.
-                                    .equatable()
+                                // Skip re-render when the report is
+                                // unchanged — same reasoning as
+                                // `PaneTitleBarView.equatable()` above:
+                                // a sibling pane's update shouldn't
+                                // re-evaluate this one.
+                                .equatable()
                             }
                         }
                         .overlay(alignment: .topTrailing) {
@@ -248,7 +258,8 @@ struct TerminalPaneLayoutView: View {
                 // is needed over the origin pane.
                 .overlay {
                     if dragCoordinator.isDragging,
-                       dragCoordinator.draggedPaneID != pane.id {
+                        dragCoordinator.draggedPaneID != pane.id
+                    {
                         PaneDropZonesOverlay(
                             targetPaneID: pane.id,
                             sessionID: session.id,
