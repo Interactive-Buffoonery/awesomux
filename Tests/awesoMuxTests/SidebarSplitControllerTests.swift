@@ -1,4 +1,5 @@
 import CoreGraphics
+import AppKit
 import Testing
 @testable import AwesoMuxCore
 @testable import awesoMux
@@ -6,6 +7,69 @@ import Testing
 @Suite("SidebarSplitController clamp")
 @MainActor
 struct SidebarSplitControllerTests {
+    @Test("sidebar geometry mirrors across the pane extent")
+    func mirroredGeometry() {
+        let extent: CGFloat = 1_199
+        #expect(SidebarSplitController.dividerCoordinate(forSidebarWidth: 300, paneExtent: extent, position: .left) == 300)
+        #expect(SidebarSplitController.dividerCoordinate(forSidebarWidth: 300, paneExtent: extent, position: .right) == 899)
+        #expect(SidebarSplitController.sidebarWidth(forDividerCoordinate: 300, paneExtent: extent, position: .left) == 300)
+        #expect(SidebarSplitController.sidebarWidth(forDividerCoordinate: 899, paneExtent: extent, position: .right) == 300)
+    }
+
+    @Test("sidebar geometry stays finite for invalid pane extents")
+    func invalidGeometry() {
+        for extent in [CGFloat.zero, -10, .infinity, .nan] {
+            let coordinate = SidebarSplitController.dividerCoordinate(forSidebarWidth: 300, paneExtent: extent, position: .right)
+            let width = SidebarSplitController.sidebarWidth(forDividerCoordinate: 300, paneExtent: extent, position: .right)
+            #expect(coordinate.isFinite)
+            #expect(width.isFinite)
+            #expect(coordinate >= 0)
+            #expect(width >= 0)
+        }
+    }
+
+    @Test("changing sides preserves semantic width and child identities")
+    func changingSides() {
+        let sidebar = NSViewController()
+        let detail = NSViewController()
+        let controller = SidebarSplitController(sidebar: sidebar, detail: detail)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        controller.setSidebarWidth(300)
+        let sidebarView = sidebar.view
+        let detailView = detail.view
+
+        controller.setSidebarPosition(.right)
+
+        #expect(sidebar.view === sidebarView)
+        #expect(detail.view === detailView)
+        #expect(controller.view.subviews.first === detailView)
+        #expect(abs(sidebarView.frame.width - 300) < 1)
+    }
+
+    @Test("hide suppresses callbacks and reveal restores width")
+    func hideAndReveal() {
+        let sidebar = NSViewController()
+        let controller = SidebarSplitController(sidebar: sidebar, detail: NSViewController())
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        controller.setSidebarWidth(300)
+        var live: [CGFloat] = []
+        var commits: [CGFloat] = []
+        controller.onLiveWidthChange = { live.append($0) }
+        controller.onCommitWidth = { commits.append($0) }
+
+        controller.setSidebarHidden(true)
+        #expect(sidebar.view.frame.width == 0)
+        #expect(live.isEmpty)
+        #expect(commits.isEmpty)
+
+        controller.setSidebarHidden(false)
+        #expect(abs(sidebar.view.frame.width - 300) < 1)
+    }
+
     @Test("rail-zone widths snap while expanded widths are preserved")
     func preservesInRange() {
         #expect(
@@ -86,7 +150,7 @@ struct SidebarSplitControllerReclampTests {
     @Test("restore-on-grow is suppressed during a divider drag")
     func noRestoreWhileDragging() {
         let action = SidebarSplitController.reclampAction(
-            currentWidth: 120, // below the rail threshold, mid-drag
+            currentWidth: 120,  // below the rail threshold, mid-drag
             maxWidth: 1000,
             lastExpandedWidth: 296,
             userChoseRail: false,

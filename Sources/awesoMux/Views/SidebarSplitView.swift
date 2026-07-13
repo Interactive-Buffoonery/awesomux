@@ -1,4 +1,6 @@
 import AppKit
+import AwesoMuxConfig
+import AwesoMuxCore
 import SwiftUI
 
 /// SwiftUI bridge to the native `SidebarSplitController` (INT-535).
@@ -14,6 +16,8 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     let initialWidth: CGFloat
     /// Channel for `ContentView` to command the divider (the `⌘\` toggle).
     let proxy: SidebarSplitProxy
+    var position: AppearanceConfig.SidebarPosition = .left
+    var isHidden = false
     var onLiveWidthChange: ((CGFloat) -> Void)?
     var onCommitWidth: ((CGFloat) -> Void)?
     @ViewBuilder var sidebar: () -> Sidebar
@@ -27,8 +31,12 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.terminalMinimumWidth = terminalMinimumWidth
         controller.onLiveWidthChange = onLiveWidthChange
         controller.onCommitWidth = onCommitWidth
+        controller.setSidebarPosition(position)
+        controller.setSidebarHidden(isHidden)
         controller.setSidebarWidth(initialWidth)
         proxy.setWidth = { [weak controller] width in controller?.setSidebarWidth(width) }
+        proxy.setPosition = { [weak controller] position in controller?.setSidebarPosition(position) }
+        proxy.setHidden = { [weak controller] hidden in controller?.setSidebarHidden(hidden) }
         return controller
     }
 
@@ -36,6 +44,8 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.terminalMinimumWidth = terminalMinimumWidth
         controller.onLiveWidthChange = onLiveWidthChange
         controller.onCommitWidth = onCommitWidth
+        controller.setSidebarPosition(position)
+        controller.setSidebarHidden(isHidden)
         // Re-host each pane's root view so @Observable / @Bindable updates inside the
         // panes propagate. SwiftUI diffs the new root against the old, so this is
         // cheap when nothing changed; it does not rebuild the hosting controllers.
@@ -47,10 +57,10 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         // pane stops updating. Both builders are stable today; keep them so (don't
         // erase to `AnyView` — that loses SwiftUI diffing — and don't branch the
         // root type).
-        if let host = controller.children.first as? NSHostingController<Sidebar> {
+        if let host = controller.sidebarViewController as? NSHostingController<Sidebar> {
             host.rootView = sidebar()
         }
-        if let host = controller.children.dropFirst().first as? NSHostingController<Detail> {
+        if let host = controller.detailViewController as? NSHostingController<Detail> {
             host.rootView = detail()
         }
     }

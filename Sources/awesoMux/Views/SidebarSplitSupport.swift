@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxConfig
 import CoreGraphics
 import Observation
 
@@ -286,4 +287,6 @@ final class SidebarSplitProxy {
     /// Set by `SidebarSplitView.makeNSViewController`. Moves the divider so the
     /// sidebar pane is the given width (clamped, un-animated).
     @ObservationIgnored var setWidth: ((CGFloat) -> Void)?
+    @ObservationIgnored var setPosition: ((AppearanceConfig.SidebarPosition) -> Void)?
+    @ObservationIgnored var setHidden: ((Bool) -> Void)?
 }
