@@ -215,10 +215,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         splitView.onDragEnded?()
     }
 
-    func simulateSidebarFocusHandoffForTesting() {
-        handOffSidebarFocusIfNeeded()
-    }
-
     static func dividerCoordinate(
         forSidebarWidth width: CGFloat,
         paneExtent: CGFloat,
