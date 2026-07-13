@@ -36,6 +36,7 @@
 - `Tests/awesoMuxTests/SidebarPresentationModelTests.swift`: boundary, state-machine, grace, lifecycle, and stale-token coverage.
 - `Tests/awesoMuxTests/SidebarEdgeTrackingViewTests.swift`: local geometry, resize, pass-through input, and responder preservation.
 - `Tests/awesoMuxTests/SidebarSplitControllerTests.swift`: animation policy, interruption, side symmetry, resize, Reduce Motion, focus, and persistence guards.
+- `Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift`: structural regression proving representable updates cannot enact runtime visibility.
 - `Tests/awesoMuxTests/SidebarHoverIntegrationTests.swift`: pure orchestration policy for hidden width toggles and explicit-versus-hover transitions.
 
 ## Interfaces Shared Across Tasks
@@ -65,7 +66,7 @@ enum SidebarSplitTransition: Equatable {
 
 extension SidebarSplitProxy {
     // Existing setWidth and setPosition remain unchanged.
-    var setVisibility: ((Bool, SidebarSplitTransition) -> Void)?
+    var setVisibility: ((Bool, SidebarSplitTransition, Bool) -> Void)?
 }
 
 final class SidebarEdgeTrackingView: NSView {
@@ -81,7 +82,15 @@ final class SidebarEdgeTrackingView: NSView {
 }
 ```
 
-`setVisibility` receives **visible**, not hidden, to avoid double-negatives at call sites. `.hover(duration: 0.140)` is used only for proximity transitions; every other caller uses `.immediate`.
+`setVisibility` receives **visible**, not hidden, to avoid double-negatives at call sites. Its final argument is the current Reduce Motion value, sampled at the runtime transition boundary. `.hover(duration: 0.140)` is used only for proximity transitions; every other caller uses `.immediate`.
+
+Runtime visibility has exactly one enactor:
+
+```text
+initial construction/restoration -> SidebarSplitView.makeNSViewController (immediate)
+runtime visibility changes       -> SidebarSplitProxy.setVisibility only
+updateNSViewController           -> callbacks, position, tracker; never visibility
+```
 
 ---
 
@@ -168,6 +177,19 @@ func pointerMoved(x: CGFloat, width: CGFloat, position: AppearanceConfig.Sidebar
 
 `transition(to:)` cancels the pending hide before accepting `.cue` or `.revealed`. A direct `.revealed -> .cue/.dormant` caused by leaving the tracker must schedule the existing 220ms grace instead of collapsing immediately while the pointer crosses into the sidebar.
 
+`sidebarPointerPresent` is authoritative while true: `pointerMoved` may promote `.dormant/.cue` to `.revealed`, but it must not downgrade `.revealed` to `.cue` or `.dormant` while the pointer is inside the revealed sidebar. Collapse grace begins only after both the tracker/reveal zone and sidebar are absent.
+
+Implement that arbitration at the top of the distance transition:
+
+```swift
+if sidebarPointerPresent {
+    transition(to: .revealed)
+    return
+}
+```
+
+`sidebarPointerChanged(true)` cancels grace and promotes to `.revealed`; `sidebarPointerChanged(false)` schedules grace only when the latest tracker classification is not `.revealed`.
+
 - [ ] **Step 4: Add failing grace, jitter, and stale-generation tests**
 
 Add tests that prove:
@@ -190,6 +212,20 @@ await drainMainQueue()
 ```
 
 Also alternate points `40`, `39.9`, `16`, and `15.9` and assert every call produces exactly one stable enum value.
+
+Add both overlap event orders so AppKit/SwiftUI delivery order cannot change behavior:
+
+```swift
+model.pointerMoved(x: 15, width: 40, position: .left)
+model.sidebarPointerChanged(true)
+model.pointerMoved(x: 30, width: 40, position: .left)
+#expect(model.proximityState == .revealed)
+
+model.invalidateTransientState()
+model.sidebarPointerChanged(true)
+model.pointerMoved(x: 30, width: 40, position: .left)
+#expect(model.proximityState == .revealed)
+```
 
 - [ ] **Step 5: Implement generation-safe grace and lifecycle invalidation**
 
@@ -264,7 +300,7 @@ Expected: compilation fails because `SidebarEdgeTrackingView` does not exist.
 
 - [ ] **Step 3: Implement the local tracking view**
 
-Create a flipped, accessibility-hidden view with a rebuilt `.mouseEnteredAndExited`, `.mouseMoved`, `.activeInKeyWindow`, `.inVisibleRect` tracking area:
+Create a flipped, accessibility-hidden view with a rebuilt `.mouseEnteredAndExited`, `.mouseMoved`, `.activeInKeyWindow`, `.inVisibleRect` tracking area. Entry and movement call the same coordinate-report helper so entering the band produces a cue/reveal without requiring a second movement:
 
 ```swift
 final class SidebarEdgeTrackingView: NSView {
@@ -291,6 +327,14 @@ final class SidebarEdgeTrackingView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        report(event)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        report(event)
+    }
+
+    private func report(_ event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
         onPointerMove?(local.x, bounds.width)
     }
@@ -299,7 +343,7 @@ final class SidebarEdgeTrackingView: NSView {
 }
 ```
 
-`distance` clamps non-finite/negative input and mirrors `x` against the supplied live width. Override `viewDidMoveToWindow()` to replace a scoped `NSWindow.didResignKeyNotification` observer for the current window; call `onAvailabilityLost` when the view detaches or that window resigns key. Remove the observer in `deinit`.
+`distance` clamps non-finite/negative input and mirrors `x` against the supplied live width. Override `viewDidMoveToWindow()` to replace a scoped `NSWindow.didResignKeyNotification` observer for the current window; call `onAvailabilityLost` when the view detaches or that window resigns key. Remove the observer in `deinit`. Add a synthetic local-event test proving `mouseEntered` reports immediately, and that `mouseMoved` uses the identical helper result.
 
 - [ ] **Step 4: Write failing controller-host tests**
 
@@ -325,13 +369,14 @@ Expose callbacks:
 ```swift
 var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
 var onEdgeExit: (() -> Void)?
+var onTrackingAvailabilityLost: (() -> Void)?
 ```
 
 Forward tracker events without touching first responder. Add `setEdgeTrackingEnabled(_:)`; disabling removes/hides tracking immediately and emits `onEdgeExit` once.
 
 - [ ] **Step 6: Wire callbacks through `SidebarSplitView` and verify**
 
-Add representable properties `edgeTrackingEnabled`, `onEdgePointerMove`, and `onEdgeExit`; assign them in both `makeNSViewController` and `updateNSViewController`.
+Add representable properties `edgeTrackingEnabled`, `onEdgePointerMove`, `onEdgeExit`, and `onTrackingAvailabilityLost`; assign them in both `makeNSViewController` and `updateNSViewController`. The availability callback must survive ordinary SwiftUI updates exactly like the movement callbacks.
 
 Run:
 
@@ -355,11 +400,13 @@ Commit: `feat(sidebar): track hidden edge proximity`
 - Modify: `Sources/awesoMux/Views/SidebarSplitController.swift`
 - Modify: `Sources/awesoMux/Views/SidebarSplitView.swift`
 - Modify: `Tests/awesoMuxTests/SidebarSplitControllerTests.swift`
+- Create: `Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift`
 
 **Interfaces:**
 - Consumes: selected width already held in `pendingWidth`/`lastExpandedPaneWidth` and semantic left/right divider math.
 - Produces: `SidebarSplitTransition`, `SidebarSplitController.setSidebarVisible(_:transition:reduceMotion:)`, `SidebarSplitProxy.setVisibility`.
 - Preserves: existing `setSidebarHidden(_:)` as an immediate compatibility wrapper until all callers migrate in Task 4.
+- Ownership: `SidebarSplitController` is the sole runtime visibility enactor. `SidebarSplitView.makeNSViewController` performs initial restoration only; `updateNSViewController` must never apply visibility.
 
 - [ ] **Step 1: Write failing transition-policy and target tests**
 
@@ -377,6 +424,8 @@ controller.setSidebarVisible(false, transition: .hover(duration: 0.140), reduceM
 ```
 
 Repeat for `.right` and assert target divider coordinates use `dividerCoordinate(forSidebarWidth:paneExtent:position:)`.
+
+Add a delegate-policy test that places an in-flight hover animation at widths strictly between `SidebarWidthPolicy.collapsedWidth` and `SidebarWidthPolicy.railThreshold` and asserts `constrainSplitPosition` returns the proposed coordinate unchanged on both sides. Add a control assertion that the same coordinate still snaps when no hover animation is active.
 
 - [ ] **Step 2: Run controller tests and verify RED**
 
@@ -397,10 +446,27 @@ func setSidebarVisible(
     transition: SidebarSplitTransition,
     reduceMotion: Bool
 ) {
+    if case .hover = transition,
+        isHoverAnimating,
+        requestedSidebarVisible == visible,
+        activeHoverTargetWidth == targetWidth(forVisible: visible)
+    {
+        return
+    }
     cancelHoverAnimation()
-    let shouldAnimate = !reduceMotion && transition == .hover(duration: 0.140)
-    if shouldAnimate { animateSidebarVisibility(visible, duration: 0.140) }
-    else { applySidebarVisibilityImmediately(visible) }
+    let target = targetWidth(forVisible: visible)
+    if abs(sidebarPaneWidth - target) < 0.5 {
+        normalizeSidebarVisibility(visible)
+        return
+    }
+    switch transition {
+    case .immediate:
+        applySidebarVisibilityImmediately(visible)
+    case let .hover(duration) where !reduceMotion:
+        animateSidebarVisibility(visible, duration: duration)
+    case .hover:
+        applySidebarVisibilityImmediately(visible)
+    }
 }
 ```
 
@@ -423,6 +489,8 @@ NSAnimationContext.runAnimationGroup { context in
 
 `finishHoverAnimation` no-ops for stale generations and normalizes to `requestedSidebarVisible`. A winning hide completion sets `isSidebarHidden = true` only after the divider reaches zero; a winning reveal completion leaves it false. Immediate transitions increment the generation and normalize synchronously. This ordering prevents the existing hidden delegate constraints from pinning an in-flight animation at zero. Suppress live and commit callbacks for programmatic/hover animation ticks.
 
+During `isHoverAnimating`, `splitView(_:constrainSplitPosition:ofSubviewAt:)` returns `proposedPosition` unchanged so the divider traverses the rail/full dead zone smoothly. Clamp the final target before animation and keep the normal min/max/terminal-floor policy; bypass only the dead-zone snap, not target safety.
+
 - [ ] **Step 5: Add failing interruption and resize tests**
 
 Inject an animation driver seam so tests can hold completions. Assert:
@@ -433,6 +501,8 @@ Inject an animation driver seam so tests can hold completions. Assert:
 - resizing clamps both current and target width, cancels invalid work, and settles at the newest requested state;
 - no `onCommitWidth` fires and no width preference callback sees `0` or an intermediate value;
 - `.immediate` during animation invalidates the completion and settles synchronously.
+- a repeated request matching `requestedSidebarVisible` during the active matching animation is a no-op and does not increment the generation or invoke the animation runner again;
+- a request whose target equals `sidebarPaneWidth` normalizes synchronously and never invokes the animation runner.
 
 Use a protocol-free closure seam:
 
@@ -446,15 +516,49 @@ Production runs the changes in `NSAnimationContext`; tests capture both closures
 
 - [ ] **Step 6: Wire proxy and preserve initial hidden restoration**
 
-Add `setVisibility` to `SidebarSplitProxy`. In `SidebarSplitView.makeNSViewController`, apply the initial hidden value immediately before width restoration; in updates, side changes and explicit hidden values use `.immediate`. Do not animate cold launch.
+Add `setVisibility` to `SidebarSplitProxy`. Rename the representable input to `initiallyHidden` to make its one-shot role unmistakable. In `SidebarSplitView.makeNSViewController`, apply `initiallyHidden` immediately before width restoration and bind:
+
+```swift
+proxy.setVisibility = { [weak controller] visible, transition, reduceMotion in
+    controller?.setSidebarVisible(
+        visible,
+        transition: transition,
+        reduceMotion: reduceMotion
+    )
+}
+```
+
+`updateNSViewController` updates terminal minimum, callbacks, position, tracking enablement, and hosted root views only. It must contain no call to `setSidebarHidden`, `setSidebarVisible`, or any other visibility setter. Do not animate cold launch.
+
+Add a structural ownership regression that extracts `updateNSViewController` from `SidebarSplitView.swift` and fails if a visibility setter returns:
+
+```swift
+@Test("representable updates never enact runtime visibility")
+func updatePathHasNoVisibilitySetter() throws {
+    let testURL = URL(fileURLWithPath: #filePath)
+    let root = testURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let source = try String(
+        contentsOf: root.appendingPathComponent("Sources/awesoMux/Views/SidebarSplitView.swift"),
+        encoding: .utf8
+    )
+    let update = try #require(source.split(separator: "func updateNSViewController", maxSplits: 1).last)
+    let body = try #require(update.split(separator: "\n    }", maxSplits: 1).first)
+    #expect(!body.contains("setSidebarHidden"))
+    #expect(!body.contains("setSidebarVisible"))
+    #expect(!body.contains("setVisibility"))
+}
+```
+
+In controller tests, invoke `proxy.setVisibility?(true, .hover(duration: 0.140), false)` through the installed closure and assert the injected animation runner receives exactly one request with duration `0.140`; no `.immediate` request is recorded.
 
 - [ ] **Step 7: Run, format, and commit animation support**
 
 Run:
 
 ```bash
-script/format.sh Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift
+script/format.sh Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift
 ./script/swift-test.sh --filter SidebarSplitControllerTests
+./script/swift-test.sh --filter SidebarSplitVisibilityOwnershipTests
 ./script/swift-test.sh --filter SidebarPresentationModelTests
 git diff --check
 ```
@@ -549,7 +653,20 @@ onEdgePointerMove: { x, width in
 onEdgeExit: sidebarPresentation.trackingRegionExited
 ```
 
-Add `.onChange(of: sidebarPresentation.proximityState)` and route `.revealed` to visible, `.cue/.dormant` to hidden using `.hover(duration: 0.140)` unless Reduce Motion is active. Read `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` at the transition boundary, not once at launch.
+Add `.onChange(of: sidebarPresentation.proximityState)` and route `.revealed` to visible, `.cue/.dormant` to hidden through the sole runtime proxy path. Read Reduce Motion at that boundary, not once at launch:
+
+```swift
+.onChange(of: sidebarPresentation.proximityState) { _, state in
+    let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    splitProxy.setVisibility?(
+        state == .revealed,
+        .hover(duration: 0.140),
+        reduceMotion
+    )
+}
+```
+
+Pass `initiallyHidden: !sidebarPresentation.isSidebarVisible` to construction, but do not bind runtime visibility to a representable update property. A proximity rerender may update callbacks/cue/root views; only the `.onChange` proxy call enacts the runtime divider transition.
 
 - [ ] **Step 5: Render the non-interactive 4-point cue**
 
@@ -581,8 +698,10 @@ For `Command-Shift-Backslash`, Focus Sidebar, and `applySidebarPosition`:
 
 ```swift
 sidebarPresentation.invalidateTransientState()
-splitProxy.setVisibility?(sidebarPresentation.isSidebarVisible, .immediate)
+splitProxy.setVisibility?(sidebarPresentation.isSidebarVisible, .immediate, true)
 ```
+
+The final `true` deliberately disables motion for explicit actions independent of the current accessibility preference. For pointer transitions, sample `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` immediately before the proxy call and pass that current value as the third argument.
 
 Side change order remains: invalidate transient state and animator, hide peek cards, settle visibility immediately, move the native split, publish the new position/tracker edge.
 
@@ -642,7 +761,7 @@ heldHoverCompletion()
 #expect(abs(sidebar.view.frame.width - selectedWidth) < 1)
 ```
 
-Also cover cold launch hidden on both sides, visible divider dragging, remembered expanded width, detail first responder through cue/reveal/hide, narrow-window reveal clamp, position change during a pending grace, and tracker resize using current local bounds.
+Also add an end-to-end availability test: enter reveal, start a held animation, call the tracker/controller `onAvailabilityLost`, and assert model state is `.dormant`, the held completion is stale, sidebar width is `0`, and no cue remains. Cover cold launch hidden on both sides, visible divider dragging, remembered expanded width, detail first responder through cue/reveal/hide, narrow-window reveal clamp, position change during a pending grace, and tracker resize using current local bounds.
 
 - [ ] **Step 2: Run focused suites and verify any new test fails for the intended omission**
 
@@ -664,9 +783,11 @@ Wire `SidebarEdgeTrackingView.onAvailabilityLost` through `SidebarSplitControlle
 ```swift
 onTrackingAvailabilityLost: {
     sidebarPresentation.invalidateTransientState()
-    splitProxy.setVisibility?(false, .immediate)
+    splitProxy.setVisibility?(false, .immediate, true)
 }
 ```
+
+This is end-to-end invalidation, not only cue cleanup: detachment or key-window loss cancels the model grace generation, cancels the controller animation generation through the immediate proxy request, and settles the persistently hidden sidebar at zero immediately.
 
 In `SidebarSplitController.viewDidLayout`, if bounds change while `isHoverAnimating`, increment `animationGeneration`, clear the animation flag, clamp `pendingWidth` to the new `maxSidebarWidth`, and call `setSidebarVisible(requestedSidebarVisible, transition: .immediate, reduceMotion: true)`. `setSidebarPosition` begins with the same animation cancellation before it reorders panes. Keep keyboard/menu/palette routing unchanged. Do not add a global monitor fallback when tracking is unavailable.
 
@@ -675,7 +796,7 @@ In `SidebarSplitController.viewDidLayout`, if bounds change while `isHoverAnimat
 Run:
 
 ```bash
-script/format.sh Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/SidebarPresentationModelTests.swift Tests/awesoMuxTests/SidebarEdgeTrackingViewTests.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift Tests/awesoMuxTests/SidebarHoverIntegrationTests.swift
+script/format.sh Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/SidebarPresentationModelTests.swift Tests/awesoMuxTests/SidebarEdgeTrackingViewTests.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift Tests/awesoMuxTests/SidebarHoverIntegrationTests.swift
 ./script/swift-test.sh
 script/format.sh --lint Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift
 git diff --check
@@ -693,14 +814,18 @@ Verify manually in the development bundle on both left and right:
 
 1. Hide with `Command-Shift-Backslash`; the action is instant.
 2. Move inside 40 points: a clear 4-point strip appears without terminal shift.
-3. Move to exactly/approximately 16 points: cue remains; move closer: selected rail/full sidebar shifts detail over 140ms.
-4. Move away and rapidly reverse several times: no flicker, stale reopen, or partial width.
-5. Click, drag-select, scroll, and contextual-click terminal content inside the 40-point zone; terminal behavior is unchanged.
-6. Type continuously during cue and animation; first responder remains the terminal.
-7. While hidden press `Command-Backslash`; nothing reveals. Hover again and confirm the opposite rail/full width appears.
-8. Resize during reveal and switch position while cue/reveal is active; old-side cue disappears and layout settles on the new edge.
-9. Enable Reduce Motion in System Settings; hover movement becomes immediate while the cue remains legible.
-10. Quit while persistently hidden, relaunch, and confirm hidden cold launch remains stable.
+3. Enter the 40-point band and stop moving immediately: the cue appears from `mouseEntered`, without a second movement.
+4. Move to exactly/approximately 16 points: cue remains; move closer: selected rail/full sidebar shifts detail over 140ms.
+5. Watch the reveal/hide traverse widths between the collapsed rail and full threshold smoothly on both left and right; there must be no dead-zone snap or jump. Repeat once with the rail selected and once with the full sidebar selected.
+6. Rest inside the revealed sidebar while the edge tracker also reports movement: it remains revealed without flicker or collapse.
+7. Move away and rapidly reverse several times, including repeating the same movement within one target state: no animation restarts, flicker, stale reopen, or partial width.
+8. Click, drag-select, scroll, and contextual-click terminal content inside the 40-point zone on both sides; terminal behavior is unchanged.
+9. Type continuously during cue and animation; first responder remains the terminal.
+10. While hidden press `Command-Backslash`; nothing reveals. Hover again and confirm the opposite rail/full width appears.
+11. Resize during reveal and switch position while cue/reveal is active; old-side cue disappears and layout settles on the new edge.
+12. Deactivate or detach the development window during cue/reveal; cue and sidebar settle hidden immediately and do not resurrect on stale completion.
+13. Enable Reduce Motion in System Settings; hover movement becomes immediate while the cue remains legible.
+14. Quit while persistently hidden, relaunch, and confirm hidden cold launch remains stable.
 
 - [ ] **Step 6: Run preflight, refresh overlap, and commit verification hardening**
 
