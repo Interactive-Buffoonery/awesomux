@@ -93,15 +93,17 @@ struct PaneLayoutReducer: Sendable {
 
         if let group = session.layout.firstDocumentGroup {
             var group = group
-            let matchingTab =
-                remoteResourceIdentity.map { identity in
-                    group.tab(forRemoteResource: identity)
-                }
-                ?? (group.tab(forNormalizedURL: normalizedURL)
+            let matchingTab: DocumentPane?
+            if let remoteResourceIdentity {
+                matchingTab = group.tab(forRemoteResource: remoteResourceIdentity)
+            } else {
+                matchingTab =
+                    group.tab(forNormalizedURL: normalizedURL)
                     ?? group.tabs.first(where: {
                         $0.fileURL.standardizedFileURL == normalizedURL
                             && $0.remoteResourceIdentity != nil
-                    }))
+                    })
+            }
             if var existing = matchingTab {
                 var changed = false
                 let storedAssociationIsDead =
