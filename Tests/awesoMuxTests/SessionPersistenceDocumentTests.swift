@@ -40,7 +40,7 @@ struct SessionPersistenceDocumentTests {
     @Test("legacy v2 terminal snapshot round-trips unchanged under v6")
     func legacyV2SnapshotStillDecodes() throws {
         try withTemporarySupportDirectory { tempDir in
-            let pane = TerminalPane(title: "zsh", workingDirectory: "~")
+            let pane = TerminalPane(title: "zsh", workingDirectory: "~", executionPlan: .local)
             let session = TerminalSession(
                 title: "s",
                 workingDirectory: "~",
@@ -97,13 +97,15 @@ struct SessionPersistenceDocumentTests {
                 title: "codex",
                 workingDirectory: "~",
                 agentKind: .codex,
-                agentExecutionState: .waiting  // non-idle; preserved by restore reducer
+                agentExecutionState: .waiting,  // non-idle; preserved by restore reducer,
+                executionPlan: .local
             )
             let claudePane = TerminalPane(
                 title: "claude",
                 workingDirectory: "~",
                 agentKind: .claudeCode,
-                agentExecutionState: .waiting
+                agentExecutionState: .waiting,
+                executionPlan: .local
             )
             let session = TerminalSession(
                 title: "agents",
@@ -174,7 +176,7 @@ struct SessionPersistenceDocumentTests {
     @Test("split layout containing a document group round-trips at current schema")
     func documentLayoutSurvivesSnapshotRoundTrip() throws {
         try withTemporarySupportDirectory { tempDir in
-            let terminal = TerminalPane(title: "zsh", workingDirectory: "~")
+            let terminal = TerminalPane(title: "zsh", workingDirectory: "~", executionPlan: .local)
             let doc = DocumentPane(
                 fileURL: FileManager.default.temporaryDirectory
                     .appendingPathComponent("notes.md"),
@@ -231,7 +233,7 @@ struct SessionPersistenceDocumentTests {
                 workingDirectory: "~",
                 agentKind: .shell
             )
-            let closedPane = TerminalPane(title: "shell", workingDirectory: "/work")
+            let closedPane = TerminalPane(title: "shell", workingDirectory: "/work", executionPlan: .local)
             let closed = RecentlyClosedWorkspace(
                 sessionID: UUID(),
                 title: "shell 5",
@@ -280,8 +282,8 @@ struct SessionPersistenceDocumentTests {
     @Test("v4 snapshot with nested document leaves migrates to one backfilled group")
     func v4DocumentLeavesMigrateToOneGroup() throws {
         try withTemporarySupportDirectory { tempDir in
-            let t1 = TerminalPane(title: "t1", workingDirectory: "~")
-            let t2 = TerminalPane(title: "t2", workingDirectory: "~")
+            let t1 = TerminalPane(title: "t1", workingDirectory: "~", executionPlan: .local)
+            let t2 = TerminalPane(title: "t2", workingDirectory: "~", executionPlan: .local)
             let sessionID = UUID()
             let docAID = UUID()
             let docBID = UUID()
@@ -359,8 +361,8 @@ struct SessionPersistenceDocumentTests {
     @Test("v4 recently-closed entry migrates its document leaves on decode")
     func v4RecentlyClosedEntryMigratesDocuments() throws {
         try withTemporarySupportDirectory { tempDir in
-            let t1 = TerminalPane(title: "t1", workingDirectory: "~")
-            let t2 = TerminalPane(title: "t2", workingDirectory: "~")
+            let t1 = TerminalPane(title: "t1", workingDirectory: "~", executionPlan: .local)
+            let t2 = TerminalPane(title: "t2", workingDirectory: "~", executionPlan: .local)
             let docAID = UUID()
             let docBID = UUID()
             func legacyDoc(_ id: UUID, _ name: String) -> String {
@@ -374,7 +376,7 @@ struct SessionPersistenceDocumentTests {
             let liveSession = TerminalSession(
                 title: "live",
                 workingDirectory: "~",
-                layout: .pane(TerminalPane(title: "zsh", workingDirectory: "~"))
+                layout: .pane(TerminalPane(title: "zsh", workingDirectory: "~", executionPlan: .local))
             )
             let liveSessionJSON = String(
                 decoding: try JSONEncoder().encode(liveSession),

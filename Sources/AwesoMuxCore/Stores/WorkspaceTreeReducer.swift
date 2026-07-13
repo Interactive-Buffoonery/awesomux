@@ -21,19 +21,25 @@ struct WorkspaceTreeReducer: Sendable {
             syntheticTitle = generated
             resolvedTitle = generated.localizedTitle()
         }
+        let lookupKey = SessionStoreText.groupLookupKey(groupName)
+        let groupIndex = groups.firstIndex(where: {
+            SessionStoreText.groupLookupKey($0.name)
+                .caseInsensitiveCompare(lookupKey) == .orderedSame
+        })
+        let executionPlan =
+            groupIndex.flatMap { groups[$0].remote }
+            .map { PaneExecutionPlan.ssh(SSHExecution(target: $0)) }
+            ?? .local
         let session = TerminalSession(
             title: resolvedTitle,
             workingDirectory: workingDirectory ?? selectedSession?.workingDirectory ?? "~",
             syntheticTitle: syntheticTitle,
             agentKind: agentKind,
-            agentState: agentKind.initialSessionState
+            agentState: agentKind.initialSessionState,
+            executionPlan: executionPlan
         )
 
-        let lookupKey = SessionStoreText.groupLookupKey(groupName)
-        if let groupIndex = groups.firstIndex(where: {
-            SessionStoreText.groupLookupKey($0.name)
-                .caseInsensitiveCompare(lookupKey) == .orderedSame
-        }) {
+        if let groupIndex {
             groups[groupIndex].sessions.append(session)
         } else {
             groups.append(SessionGroup(name: lookupKey, sessions: [session]))
@@ -50,9 +56,11 @@ struct WorkspaceTreeReducer: Sendable {
         // Caller-supplied session carries its own ID (unlike `addSession`, which
         // mints a fresh one). Refuse a duplicate: two rows on one ID make
         // selection, close, and the promotion pulse resolve to the wrong tile.
-        guard !groups.contains(where: { group in
-            group.sessions.contains { $0.id == session.id }
-        }) else {
+        guard
+            !groups.contains(where: { group in
+                group.sessions.contains { $0.id == session.id }
+            })
+        else {
             return
         }
 
@@ -78,8 +86,9 @@ struct WorkspaceTreeReducer: Sendable {
     ) -> TerminalSession.ID? {
         let groupName = SessionStoreText.sanitizedGroupName(rawGroupName)
         guard !groupName.isEmpty,
-              !UnicodeHygiene.hasSuspiciousScriptMixing(rawGroupName),
-              !containsGroup(in: groups, named: groupName) else {
+            !UnicodeHygiene.hasSuspiciousScriptMixing(rawGroupName),
+            !containsGroup(in: groups, named: groupName)
+        else {
             return nil
         }
 
@@ -89,7 +98,11 @@ struct WorkspaceTreeReducer: Sendable {
             workingDirectory: workingDirectory ?? selectedSession?.workingDirectory ?? "~",
             syntheticTitle: syntheticTitle,
             agentKind: agentKind,
-            agentState: agentKind.initialSessionState
+            agentState: agentKind.initialSessionState,
+            executionPlan:
+                remote
+                .map { .ssh(SSHExecution(target: $0)) }
+                ?? .local
         )
 
         groups.append(SessionGroup(name: groupName, remote: remote, sessions: [session]))
@@ -120,7 +133,8 @@ struct WorkspaceTreeReducer: Sendable {
 
         let groupName = SessionStoreText.sanitizedGroupName(rawGroupName)
         guard !groupName.isEmpty,
-              !UnicodeHygiene.hasSuspiciousScriptMixing(rawGroupName) else {
+            !UnicodeHygiene.hasSuspiciousScriptMixing(rawGroupName)
+        else {
             return false
         }
 
@@ -161,8 +175,9 @@ struct WorkspaceTreeReducer: Sendable {
 
     static func removeGroup(in groups: inout [SessionGroup], id: SessionGroup.ID) -> Bool {
         guard let groupIndex = groups.firstIndex(where: { $0.id == id }),
-              groups[groupIndex].sessions.isEmpty,
-              groups.count > 1 else {
+            groups[groupIndex].sessions.isEmpty,
+            groups.count > 1
+        else {
             return false
         }
 
@@ -178,17 +193,20 @@ struct WorkspaceTreeReducer: Sendable {
         atIndex targetIndex: Int
     ) -> Bool {
         guard let source = index.positionsBySessionID[sessionID],
-              let destinationGroupIndex = groups.firstIndex(where: { $0.id == destinationGroupID }) else {
+            let destinationGroupIndex = groups.firstIndex(where: { $0.id == destinationGroupID })
+        else {
             return false
         }
 
-        let destinationCount = source.groupIndex == destinationGroupIndex
+        let destinationCount =
+            source.groupIndex == destinationGroupIndex
             ? groups[destinationGroupIndex].sessions.count - 1
             : groups[destinationGroupIndex].sessions.count
         let clampedIndex = max(0, min(targetIndex, destinationCount))
 
         if source.groupIndex == destinationGroupIndex
-            && clampedIndex == source.sessionIndex {
+            && clampedIndex == source.sessionIndex
+        {
             return false
         }
 
@@ -262,7 +280,8 @@ struct WorkspaceTreeReducer: Sendable {
         }
 
         guard let currentSelection,
-              let selectedPosition = index.positionsBySessionID[currentSelection] else {
+            let selectedPosition = index.positionsBySessionID[currentSelection]
+        else {
             return firstSessionID(in: groups)
         }
 
@@ -299,7 +318,8 @@ struct WorkspaceTreeReducer: Sendable {
             for session in group.sessions {
                 existingTitles.insert(session.title)
                 if session.syntheticTitle?.agentKind == agentKind,
-                   let index = session.syntheticTitle?.index {
+                    let index = session.syntheticTitle?.index
+                {
                     usedIndices.insert(index)
                 }
                 if session.activeAgentKind == agentKind {
@@ -312,7 +332,8 @@ struct WorkspaceTreeReducer: Sendable {
         var candidate = SyntheticSessionTitle(agentKind: agentKind, index: index)
         while usedIndices.contains(index)
             || existingTitles.contains(candidate.localizedTitle())
-            || existingTitles.contains(candidate.canonicalTitle) {
+            || existingTitles.contains(candidate.canonicalTitle)
+        {
             index += 1
             candidate = SyntheticSessionTitle(agentKind: agentKind, index: index)
         }

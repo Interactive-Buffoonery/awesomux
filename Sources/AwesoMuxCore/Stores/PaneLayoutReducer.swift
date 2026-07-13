@@ -31,7 +31,8 @@ struct PaneLayoutReducer: Sendable {
         let newPane = TerminalPane(
             title: Self.freshPaneSeedTitle(from: activePane),
             workingDirectory: activePane.workingDirectory,
-            lastAgentStateChangeAt: now
+            lastAgentStateChangeAt: now,
+            executionPlan: activePane.executionPlan
         )
 
         // `.done` outranks `.idle`, so clear stale completion before adding a
@@ -50,10 +51,12 @@ struct PaneLayoutReducer: Sendable {
             )
         )
 
-        guard let layout = session.layout.replacingPane(
-            id: activePane.id,
-            with: replacement
-        ) else {
+        guard
+            let layout = session.layout.replacingPane(
+                id: activePane.id,
+                with: replacement
+            )
+        else {
             return nil
         }
 
@@ -79,18 +82,21 @@ struct PaneLayoutReducer: Sendable {
         selectingNewTab: Bool = true
     ) -> (session: TerminalSession, newTabID: DocumentPane.ID)? {
         let normalizedURL = fileURL.standardizedFileURL
-        let title = documentTabTitle(fileURL: normalizedURL, remoteSnapshotOrigin: remoteSnapshotOrigin)
+        let title = documentTabTitle(
+            fileURL: normalizedURL, remoteSnapshotOrigin: remoteSnapshotOrigin)
         var session = session
 
         if let group = session.layout.firstDocumentGroup {
             var group = group
             if var existing = group.tab(forNormalizedURL: normalizedURL) {
                 var changed = false
-                let storedAssociationIsDead = existing.associatedTerminalPaneID
+                let storedAssociationIsDead =
+                    existing.associatedTerminalPaneID
                     .map { session.layout.pane(id: $0) == nil } ?? true
                 if storedAssociationIsDead,
-                   let incoming = associatedTerminalPaneID,
-                   incoming != existing.associatedTerminalPaneID {
+                    let incoming = associatedTerminalPaneID,
+                    incoming != existing.associatedTerminalPaneID
+                {
                     existing.associatedTerminalPaneID = incoming
                     if let index = group.tabs.firstIndex(where: { $0.id == existing.id }) {
                         group.tabs[index] = existing
@@ -128,7 +134,8 @@ struct PaneLayoutReducer: Sendable {
                 guard changed else {
                     return (session, existing.id)
                 }
-                guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group) else {
+                guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group)
+                else {
                     return nil
                 }
                 session.layout = layout
@@ -145,7 +152,8 @@ struct PaneLayoutReducer: Sendable {
             if selectingNewTab {
                 group.selectedTabID = tab.id
             }
-            guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group) else {
+            guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group)
+            else {
                 return nil
             }
             session.layout = layout
@@ -158,18 +166,20 @@ struct PaneLayoutReducer: Sendable {
             associatedTerminalPaneID: associatedTerminalPaneID,
             remoteSnapshotOrigin: remoteSnapshotOrigin
         )
-        session.layout = .split(TerminalSplit(
-            orientation: .vertical,
-            first: session.layout,
-            second: .documentGroup(DocumentGroup(tabs: [tab], selectedTabID: tab.id)),
-            firstFraction: 0.6
-        ))
+        session.layout = .split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: session.layout,
+                second: .documentGroup(DocumentGroup(tabs: [tab], selectedTabID: tab.id)),
+                firstFraction: 0.6
+            ))
         return (session, tab.id)
     }
 
     static func documentTabTitle(fileURL: URL, remoteSnapshotOrigin: String?) -> String {
         guard let remoteSnapshotOrigin,
-              let separator = remoteSnapshotOrigin.lastIndex(of: ":") else {
+            let separator = remoteSnapshotOrigin.lastIndex(of: ":")
+        else {
             return fileURL.lastPathComponent
         }
         let path = remoteSnapshotOrigin[remoteSnapshotOrigin.index(after: separator)...]
@@ -188,8 +198,8 @@ struct PaneLayoutReducer: Sendable {
         in session: TerminalSession
     ) -> TerminalSession? {
         guard var group = session.layout.firstDocumentGroup,
-              group.tab(id: tabID) != nil,
-              group.selectedTabID != tabID
+            group.tab(id: tabID) != nil,
+            group.selectedTabID != tabID
         else {
             return nil
         }
@@ -209,7 +219,7 @@ struct PaneLayoutReducer: Sendable {
         now: Date
     ) -> TerminalSession? {
         guard var group = session.layout.firstDocumentGroup,
-              let index = group.tabs.firstIndex(where: { $0.id == tabID })
+            let index = group.tabs.firstIndex(where: { $0.id == tabID })
         else {
             return nil
         }
@@ -242,7 +252,7 @@ struct PaneLayoutReducer: Sendable {
     ) -> TerminalSession? {
         let normalizedURL = fileURL.standardizedFileURL
         guard var group = session.layout.firstDocumentGroup,
-              let index = group.tabs.firstIndex(where: { $0.id == tabID })
+            let index = group.tabs.firstIndex(where: { $0.id == tabID })
         else {
             return nil
         }
@@ -251,7 +261,8 @@ struct PaneLayoutReducer: Sendable {
         if let existing = group.tab(forNormalizedURL: normalizedURL), existing.id != tabID {
             group.tabs.remove(at: index)
             group.selectedTabID = existing.id
-            guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group) else {
+            guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group)
+            else {
                 return nil
             }
             session.layout = layout
@@ -275,7 +286,8 @@ struct PaneLayoutReducer: Sendable {
         in session: TerminalSession
     ) -> TerminalSession? {
         guard session.layout.pane(id: paneID) != nil,
-              session.activePaneID != paneID else {
+            session.activePaneID != paneID
+        else {
             return nil
         }
 
@@ -359,10 +371,12 @@ struct PaneLayoutReducer: Sendable {
         by delta: Double,
         in session: TerminalSession
     ) -> TerminalSession? {
-        guard let nextLayout = session.layout.resizingSplit(
-            containing: session.activePaneID,
-            by: delta
-        ), nextLayout != session.layout else {
+        guard
+            let nextLayout = session.layout.resizingSplit(
+                containing: session.activePaneID,
+                by: delta
+            ), nextLayout != session.layout
+        else {
             return nil
         }
 
@@ -394,9 +408,10 @@ struct PaneLayoutReducer: Sendable {
         if remainingPaneIDs.contains(session.activePaneID) {
             activeReplacementID = session.activePaneID
         } else {
-            activeReplacementID = remainingPaneIDs[
-                min(closedPaneIndex, remainingPaneIDs.count - 1)
-            ]
+            activeReplacementID =
+                remainingPaneIDs[
+                    min(closedPaneIndex, remainingPaneIDs.count - 1)
+                ]
         }
 
         session.layout = layout
@@ -414,8 +429,9 @@ struct PaneLayoutReducer: Sendable {
         in session: TerminalSession
     ) -> TerminalSession? {
         guard let pane = session.layout.pane(id: paneID),
-              session.layout.hasMultiplePanes,
-              let remainder = session.layout.removingPane(id: paneID) else {
+            session.layout.hasMultiplePanes,
+            let remainder = session.layout.removingPane(id: paneID)
+        else {
             return nil
         }
 
@@ -435,12 +451,13 @@ struct PaneLayoutReducer: Sendable {
         in session: TerminalSession
     ) -> TerminalSession? {
         guard paneID != targetID,
-              let pane = session.layout.pane(id: paneID),
-              session.layout.pane(id: targetID) != nil,
-              session.layout.hasMultiplePanes,
-              let remainder = session.layout.removingPane(id: paneID),
-              let nextLayout = remainder.splittingPane(id: targetID, adding: pane, on: edge),
-              !nextLayout.isStructurallyEquivalent(to: session.layout) else {
+            let pane = session.layout.pane(id: paneID),
+            session.layout.pane(id: targetID) != nil,
+            session.layout.hasMultiplePanes,
+            let remainder = session.layout.removingPane(id: paneID),
+            let nextLayout = remainder.splittingPane(id: targetID, adding: pane, on: edge),
+            !nextLayout.isStructurallyEquivalent(to: session.layout)
+        else {
             return nil
         }
 
@@ -510,12 +527,15 @@ struct PaneLayoutReducer: Sendable {
             title: Self.freshPaneSeedTitle(from: activePane),
             workingDirectory: activePane.workingDirectory,
             color: activePane.color,
-            lastAgentStateChangeAt: now
+            lastAgentStateChangeAt: now,
+            executionPlan: activePane.executionPlan
         )
-        guard var layout = session.layout.replacingPane(
-            id: activePane.id,
-            with: .pane(recycledPane)
-        ) else {
+        guard
+            var layout = session.layout.replacingPane(
+                id: activePane.id,
+                with: .pane(recycledPane)
+            )
+        else {
             return nil
         }
 
@@ -567,7 +587,7 @@ struct PaneLayoutReducer: Sendable {
                 // Cache the live title even while the display title is frozen.
                 pane.liveTerminalTitle = sanitized
 
-                if case let .remote(host) = RemoteSessionDetector.detect(
+                if case .remote(let host) = RemoteSessionDetector.detect(
                     title: sanitized,
                     localNames: localHostnames
                 ) {
@@ -579,7 +599,8 @@ struct PaneLayoutReducer: Sendable {
                     } else if previousHost != host {
                         pane.remoteSSHTarget = nil
                     }
-                    pane.remoteWorkingDirectory = RemoteSessionDetector.promptDirectory(title: sanitized)
+                    pane.remoteWorkingDirectory =
+                        RemoteSessionDetector.promptDirectory(title: sanitized)
                         ?? (previousHost == host ? pane.remoteWorkingDirectory : nil)
                     pane.remoteConnectionHealth = .active
                 }
@@ -614,15 +635,16 @@ struct PaneLayoutReducer: Sendable {
 
         // Compare the fields this reducer can touch. `TerminalPane ==` is a
         // render-only subset and would miss live-title and health changes.
-        guard pane.title != originalPane.title
-            || pane.liveTerminalTitle != originalPane.liveTerminalTitle
-            || pane.workingDirectory != originalPane.workingDirectory
-            || pane.remoteHost != originalPane.remoteHost
-            || pane.remoteSSHTarget != originalPane.remoteSSHTarget
-            || pane.pendingRemoteSSHTarget != originalPane.pendingRemoteSSHTarget
-            || pane.remoteWorkingDirectory != originalPane.remoteWorkingDirectory
-            || pane.remoteConnectionHealth != originalPane.remoteConnectionHealth
-            || pane.progressReport != originalPane.progressReport
+        guard
+            pane.title != originalPane.title
+                || pane.liveTerminalTitle != originalPane.liveTerminalTitle
+                || pane.workingDirectory != originalPane.workingDirectory
+                || pane.remoteHost != originalPane.remoteHost
+                || pane.remoteSSHTarget != originalPane.remoteSSHTarget
+                || pane.pendingRemoteSSHTarget != originalPane.pendingRemoteSSHTarget
+                || pane.remoteWorkingDirectory != originalPane.remoteWorkingDirectory
+                || pane.remoteConnectionHealth != originalPane.remoteConnectionHealth
+                || pane.progressReport != originalPane.progressReport
         else {
             return nil
         }
@@ -680,7 +702,8 @@ struct PaneLayoutReducer: Sendable {
     ) -> TerminalSession? {
         let sanitized = SessionStoreText.sanitizedTitle(title)
         guard !sanitized.isEmpty,
-              var pane = session.layout.pane(id: paneID) else {
+            var pane = session.layout.pane(id: paneID)
+        else {
             return nil
         }
 
@@ -704,7 +727,8 @@ struct PaneLayoutReducer: Sendable {
         paneID: TerminalPane.ID
     ) -> TerminalSession? {
         guard var pane = session.layout.pane(id: paneID),
-              pane.isTitleUserEdited else {
+            pane.isTitleUserEdited
+        else {
             return nil
         }
 

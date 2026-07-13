@@ -279,11 +279,13 @@ struct SessionStoreRemoteSessionTests {
         let remotePane = TerminalPane(
             title: "ed@webserver: ~/app",
             workingDirectory: "/tmp",
-            remoteHost: "webserver"
+            remoteHost: "webserver",
+            executionPlan: .local
         )
         let localPane = TerminalPane(
             title: "ed@mymac: ~/local",
-            workingDirectory: "/tmp"
+            workingDirectory: "/tmp",
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "w",
@@ -376,7 +378,8 @@ struct TerminalPaneRemoteHostPersistenceTests {
             remoteSSHTarget: "webserver-alias",
             pendingRemoteSSHTarget: "other-webserver-alias",
             remoteConnectionHealth: .possiblyStale,
-            remoteWorkingDirectory: "~/app"
+            remoteWorkingDirectory: "~/app",
+            executionPlan: .local
         )
         let data = try JSONEncoder().encode(pane)
         let json = String(decoding: data, as: UTF8.self)
@@ -408,14 +411,16 @@ struct TerminalPaneValueSemanticsTests {
             title: "ed@webserver: ~/app",
             workingDirectory: "/srv/app",
             remoteHost: "webserver",
-            remoteConnectionHealth: .active
+            remoteConnectionHealth: .active,
+            executionPlan: .local
         )
         let stalePane = TerminalPane(
             id: id,
             title: "ed@webserver: ~/app",
             workingDirectory: "/srv/app",
             remoteHost: "webserver",
-            remoteConnectionHealth: .possiblyStale
+            remoteConnectionHealth: .possiblyStale,
+            executionPlan: .local
         )
 
         #expect(activePane == stalePane)
@@ -428,13 +433,15 @@ struct TerminalPaneValueSemanticsTests {
         let localPane = TerminalPane(
             id: id,
             title: "ed@webserver: ~/app",
-            workingDirectory: "/srv/app"
+            workingDirectory: "/srv/app",
+            executionPlan: .local
         )
         let remotePane = TerminalPane(
             id: id,
             title: "ed@webserver: ~/app",
             workingDirectory: "/srv/app",
-            remoteHost: "webserver"
+            remoteHost: "webserver",
+            executionPlan: .local
         )
 
         #expect(localPane != remotePane)

@@ -3,7 +3,7 @@ import Foundation
 /// A declared SSH destination attached to a remote Workspace Group. This is
 /// *declared* group state, distinct from `TerminalPane.remoteHost` (which is a
 /// detected, disposable, title-derived signal on a live pane).
-public struct RemoteTarget: Codable, Equatable, Hashable, Sendable {
+public struct RemoteTarget: Equatable, Hashable, Sendable {
     public var user: String
     public var host: String
 
@@ -32,5 +32,32 @@ public struct RemoteTarget: Codable, Equatable, Hashable, Sendable {
     /// user is declared (ssh resolves the user from config).
     public var sshDestination: String {
         user.isEmpty ? host : "\(user)@\(host)"
+    }
+}
+
+extension RemoteTarget: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case user
+        case host
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let user = try container.decode(String.self, forKey: .user)
+        let host = try container.decode(String.self, forKey: .host)
+        guard !host.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .host,
+                in: container,
+                debugDescription: "A remote target host cannot be empty."
+            )
+        }
+        self.init(user: user, host: host)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(user, forKey: .user)
+        try container.encode(host, forKey: .host)
     }
 }

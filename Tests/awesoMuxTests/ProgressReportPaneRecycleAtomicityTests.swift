@@ -67,7 +67,8 @@ struct ProgressReportPaneRecycleAtomicityTests {
         let paneInSessionA = TerminalPane(
             id: sharedPaneID,
             title: "session A pane",
-            workingDirectory: "/tmp/a"
+            workingDirectory: "/tmp/a",
+            executionPlan: .local
         )
         let sessionA = TerminalSession(
             title: "session A",
@@ -79,7 +80,8 @@ struct ProgressReportPaneRecycleAtomicityTests {
         let paneInSessionB = TerminalPane(
             id: sharedPaneID,
             title: "session B pane",
-            workingDirectory: "/tmp/b"
+            workingDirectory: "/tmp/b",
+            executionPlan: .local
         )
         let sessionB = TerminalSession(
             title: "session B",
@@ -163,7 +165,8 @@ struct ProgressReportPaneRecycleAtomicityTests {
         let paneInSessionA = TerminalPane(
             id: sharedPaneID,
             title: "session A pane",
-            workingDirectory: "/tmp/a"
+            workingDirectory: "/tmp/a",
+            executionPlan: .local
         )
         let sessionA = TerminalSession(
             title: "session A",
@@ -175,7 +178,8 @@ struct ProgressReportPaneRecycleAtomicityTests {
         let paneInSessionB = TerminalPane(
             id: sharedPaneID,
             title: "session B pane",
-            workingDirectory: "/tmp/b"
+            workingDirectory: "/tmp/b",
+            executionPlan: .local
         )
         let sessionB = TerminalSession(
             title: "session B",

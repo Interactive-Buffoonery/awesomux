@@ -79,10 +79,12 @@ struct TerminalPathBarView: View {
             // loses focus.
             .task(id: bridgePollKey) {
                 guard let pane = session.activePane,
-                      BridgeCwdRefreshPolicy.shouldRefreshCwdFromAmx(
-                          bridgeEnabled: isCommandBridgeEnabled,
-                          isBridgePane: pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata
-                      ) else { return }
+                    BridgeCwdRefreshPolicy.shouldRefreshCwdFromAmx(
+                        bridgeEnabled: isCommandBridgeEnabled,
+                        isBridgePane: pane.terminalBackendMetadata
+                            == AmxBackend.establishedSessionMetadata
+                    )
+                else { return }
 
                 let sessionID = pane.terminalSessionID
                 let paneID = pane.id
@@ -108,13 +110,16 @@ struct TerminalPathBarView: View {
                     // start guard). Without this, the poll keeps spawning
                     // `amx cwd <dead-id>` every ~4s on a latched/exited pane for
                     // the view's whole lifetime. Stop when it's no longer a bridge.
-                    guard let livePane = sessionStore?.session(id: workspaceID)?
-                        .layout.pane(id: paneID),
+                    guard
+                        let livePane = sessionStore?.session(id: workspaceID)?
+                            .layout.pane(id: paneID),
                         livePane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata
                     else { break }
                     let current = livePane.workingDirectory
                     if let queried = await AmxBackend.queryCwd(sessionID),
-                       let newCwd = BridgeCwdRefreshPolicy.cwdUpdate(current: current, queried: queried) {
+                        let newCwd = BridgeCwdRefreshPolicy.cwdUpdate(
+                            current: current, queried: queried)
+                    {
                         sessionStore?.updatePane(
                             sessionID: workspaceID,
                             paneID: paneID,
@@ -145,6 +150,7 @@ struct TerminalPathBarView: View {
                 // on an ACTUAL change so a same-pane title spinner (INT-523) doesn't
                 // re-invalidate the view on every OSC title tick.
                 let activeHost = session.activePane?.remoteHost
+                let activeExecutionPlan = session.activePane?.executionPlan ?? .local
                 let activeHealth = session.activePane?.remoteConnectionHealth ?? .active
                 if model.remoteHost != activeHost { model.remoteHost = activeHost }
                 if model.remoteConnectionHealth != activeHealth {
@@ -160,6 +166,7 @@ struct TerminalPathBarView: View {
                     activePaneID: activePaneID,
                     workingDirectory: session.activePane?.workingDirectory
                         ?? session.workingDirectory,
+                    executionPlan: activeExecutionPlan,
                     remoteHost: activeHost,
                     remoteConnectionHealth: activeHealth,
                     isActive: controlActiveState != .inactive
@@ -170,7 +177,7 @@ struct TerminalPathBarView: View {
                 // discarded — skip them entirely (title churn over SSH would repeat
                 // the work). The remote indicator renders from model.remoteHost. Clear
                 // chips only when set, for the same no-churn reason as the flip above.
-                if activeHost != nil {
+                if activeExecutionPlan.remoteTarget != nil {
                     if model.pullRequest != nil { model.pullRequest = nil }
                     if model.gitStatus != nil { model.gitStatus = nil }
                     if model.ciStatus != nil { model.ciStatus = nil }
@@ -196,7 +203,7 @@ struct TerminalPathBarView: View {
                     do {
                         try await Task.sleep(for: TerminalPathBarResolvePolicy.titleSettleDelay)
                     } catch {
-                        return // a newer title tick cancelled us; its settle resolves
+                        return  // a newer title tick cancelled us; its settle resolves
                     }
                 }
 
@@ -234,7 +241,8 @@ struct TerminalPathBarView: View {
                 let previousBranch = model.gitBranch
                 model = resolved
                 if resolved.repoRootPath == previousRepoRoot,
-                   resolved.gitBranch == previousBranch {
+                    resolved.gitBranch == previousBranch
+                {
                     model.pullRequest = previousPullRequest
                     model.gitStatus = previousGitStatus
                     model.ciStatus = previousCIStatus
@@ -276,23 +284,26 @@ struct TerminalPathBarView: View {
                 let statusBranch = resolved.gitBranch ?? ""
                 await withTaskGroup(of: PathBarChipLookup.self) { group in
                     group.addTask {
-                        .gitStatus(await GitStatusResolver.shared.status(
-                            repoRoot: repoRoot,
-                            branch: statusBranch
-                        ))
+                        .gitStatus(
+                            await GitStatusResolver.shared.status(
+                                repoRoot: repoRoot,
+                                branch: statusBranch
+                            ))
                     }
                     if let branch = resolved.gitBranch {
                         group.addTask {
-                            .pullRequest(await PullRequestResolver.shared.pullRequest(
-                                repoRoot: repoRoot,
-                                branch: branch
-                            ))
+                            .pullRequest(
+                                await PullRequestResolver.shared.pullRequest(
+                                    repoRoot: repoRoot,
+                                    branch: branch
+                                ))
                         }
                         group.addTask {
-                            .ci(await CIStatusResolver.shared.status(
-                                repoRoot: repoRoot,
-                                branch: branch
-                            ))
+                            .ci(
+                                await CIStatusResolver.shared.status(
+                                    repoRoot: repoRoot,
+                                    branch: branch
+                                ))
                         }
                     }
                     for await lookup in group {
@@ -318,6 +329,7 @@ struct TerminalPathBarView: View {
             paneTitle: pane?.title ?? session.title,
             fallbackProject: session.title,
             isActive: controlActiveState != .inactive,
+            executionPlan: pane?.executionPlan ?? .local,
             remoteHost: pane?.remoteHost,
             remoteConnectionHealth: pane?.remoteConnectionHealth ?? .active
         )
@@ -377,7 +389,10 @@ struct TerminalPathBarView: View {
     }
 
     private var canOpenInIDE: Bool {
-        isOpenInIDEEnabled && model.remoteHost == nil && model.revealURL != nil
+        isOpenInIDEEnabled
+            && ExecutionContext(plan: model.executionPlan)
+                .capability(.inspectLocalFilesystem).isAllowed
+            && model.revealURL != nil
     }
 
     private var content: some View {
@@ -472,7 +487,8 @@ struct TerminalPathBarView: View {
             RemoteIndicatorCopy(
                 health: health,
                 icon: "network",
-                help: "Remote session on \(host). Local Path Bar features (git, reveal, copy) are unavailable over SSH.",
+                help:
+                    "Remote session on \(host). Local Path Bar features (git, reveal, copy) are unavailable over SSH.",
                 accessibilityLabel: "Remote session on \(host)",
                 accessibilityHint: "Local path features are unavailable over SSH."
             )
@@ -480,9 +496,11 @@ struct TerminalPathBarView: View {
             RemoteIndicatorCopy(
                 health: health,
                 icon: "exclamationmark.triangle",
-                help: "Network changed; this SSH session may be disconnected until SSH recovers or reports failure.",
+                help:
+                    "Network changed; this SSH session may be disconnected until SSH recovers or reports failure.",
                 accessibilityLabel: "Possibly stale remote session on \(host)",
-                accessibilityHint: "Network changed; this SSH session may be disconnected until SSH recovers or reports failure."
+                accessibilityHint:
+                    "Network changed; this SSH session may be disconnected until SSH recovers or reports failure."
             )
         }
     }
@@ -633,9 +651,11 @@ struct TerminalPathBarView: View {
                         }
                         switch ciStatus.state {
                         case .running:
-                            sendTextToActivePane("gh run watch \(ciStatus.runDatabaseID) --repo \(slug)")
+                            sendTextToActivePane(
+                                "gh run watch \(ciStatus.runDatabaseID) --repo \(slug)")
                         case .failing:
-                            sendTextToActivePane("gh run view \(ciStatus.runDatabaseID) --repo \(slug) --log-failed")
+                            sendTextToActivePane(
+                                "gh run view \(ciStatus.runDatabaseID) --repo \(slug) --log-failed")
                         }
                     }
                 )
@@ -689,13 +709,17 @@ struct TerminalPathBarView: View {
             .contentShape(RoundedRectangle(cornerRadius: AwRadius.pill))
         }
         .buttonStyle(TerminalPathButtonStyle())
-        .help(model.revealURL == nil
-            ? "Working directory unavailable"
-            : "Open workspace options. Command-click to reveal in Finder.")
+        .help(
+            model.revealURL == nil
+                ? "Working directory unavailable"
+                : "Open workspace options. Command-click to reveal in Finder."
+        )
         .accessibilityLabel(model.accessibilityLabel)
-        .accessibilityHint(model.revealURL == nil
-            ? "Working directory is unavailable."
-            : "Opens workspace options. Command-click to reveal in Finder.")
+        .accessibilityHint(
+            model.revealURL == nil
+                ? "Working directory is unavailable."
+                : "Opens workspace options. Command-click to reveal in Finder."
+        )
         .disabled(model.revealURL == nil)
         // Copy lives in the context menu visually, but VoiceOver / keyboard
         // users can't reliably summon that — expose it as a first-class
@@ -739,40 +763,40 @@ struct TerminalPathBarView: View {
 
     private var openTargetControls: some View {
         pathButton
-        .overlay(alignment: .bottomLeading) {
-            if presentedMenu == .openTarget {
-                // This is intentionally an in-place foldout, rather than a native
-                // popover: it sits above the path control with the shared overlay
-                // gap, without a speech-bubble arrow competing with the workspace name.
-                VStack(alignment: .leading, spacing: 0) {
-                    OpenTargetMenu(
-                        installedIDEs: orderedInstalledIDEs,
-                        showsIDEOptions: ideTargetURLForOpenMenu != nil,
-                        accent: Color.aw.accent(accentResolver.accent),
-                        appIcon: { AnyView(appIcon(for: $0)) },
-                        onOpenInIDEWithApp: { ide in
-                            presentedMenu = nil
-                            guard let targetURL = ideTargetURLForOpenMenu else { return }
-                            openInIDEWithApp?(targetURL, ide)
-                        },
-                        onOpenInFinder: {
-                            presentedMenu = nil
-                            guard let revealURL = revealURLForOpenMenu else { return }
-                            revealInFinder(revealURL)
-                        },
-                        onCopyPath: {
-                            guard let capturedPath = copyPathForOpenMenu else { return }
-                            copyPath(capturedPath)
-                        }
-                    )
+            .overlay(alignment: .bottomLeading) {
+                if presentedMenu == .openTarget {
+                    // This is intentionally an in-place foldout, rather than a native
+                    // popover: it sits above the path control with the shared overlay
+                    // gap, without a speech-bubble arrow competing with the workspace name.
+                    VStack(alignment: .leading, spacing: 0) {
+                        OpenTargetMenu(
+                            installedIDEs: orderedInstalledIDEs,
+                            showsIDEOptions: ideTargetURLForOpenMenu != nil,
+                            accent: Color.aw.accent(accentResolver.accent),
+                            appIcon: { AnyView(appIcon(for: $0)) },
+                            onOpenInIDEWithApp: { ide in
+                                presentedMenu = nil
+                                guard let targetURL = ideTargetURLForOpenMenu else { return }
+                                openInIDEWithApp?(targetURL, ide)
+                            },
+                            onOpenInFinder: {
+                                presentedMenu = nil
+                                guard let revealURL = revealURLForOpenMenu else { return }
+                                revealInFinder(revealURL)
+                            },
+                            onCopyPath: {
+                                guard let capturedPath = copyPathForOpenMenu else { return }
+                                copyPath(capturedPath)
+                            }
+                        )
 
-                    // Align to the path controls' minimum touch height, plus
-                    // the shared visual gap for elevated overlays.
-                    Color.clear.frame(height: 24 + AwSpacing.overlayGap)
+                        // Align to the path controls' minimum touch height, plus
+                        // the shared visual gap for elevated overlays.
+                        Color.clear.frame(height: 24 + AwSpacing.overlayGap)
+                    }
+                    .zIndex(1)
                 }
-                .zIndex(1)
             }
-        }
     }
 
     private var orderedInstalledIDEs: [InstalledIDE] {
@@ -809,20 +833,24 @@ struct TerminalPathBarView: View {
         }
 
         let model = model
-        let activeWorkingDirectory = session.activePane?.workingDirectory ?? session.workingDirectory
+        let activeWorkingDirectory =
+            session.activePane?.workingDirectory ?? session.workingDirectory
         let priority = idePriority
         let openTargets = await Task.detached(priority: .utility) {
             let targetURL = IDEOpenTarget.targetURL(
                 from: model,
                 activeWorkingDirectory: activeWorkingDirectory
             )
-            let installedIDEs = targetURL.map { _ in
-                InstalledIDEDiscovery.installed(
-                    extraBundleIdentifiers: priority,
-                    resolveApplicationURL: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) },
-                    displayName: InstalledIDEDiscovery.bundleDisplayName
-                )
-            } ?? []
+            let installedIDEs =
+                targetURL.map { _ in
+                    InstalledIDEDiscovery.installed(
+                        extraBundleIdentifiers: priority,
+                        resolveApplicationURL: {
+                            NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)
+                        },
+                        displayName: InstalledIDEDiscovery.bundleDisplayName
+                    )
+                } ?? []
             return (targetURL, installedIDEs)
         }.value
 
@@ -847,7 +875,8 @@ struct TerminalPathBarView: View {
         // can change while git runs; the menu must open against the repo/branch
         // the user clicked on — or not at all.
         guard let repoRoot = model.validatedRepoRootPath,
-              let currentBranch = model.gitBranch else { return }
+            let currentBranch = model.gitBranch
+        else { return }
         branchMenuGeneration += 1
         let generation = branchMenuGeneration
         let branches = await BranchListResolver.shared.branches(repoRoot: repoRoot)
@@ -894,6 +923,10 @@ struct TerminalPathBarView: View {
     }
 
     private func revealInFinder(_ revealURL: URL) {
+        guard
+            ExecutionContext(plan: model.executionPlan)
+                .capability(.revealInFinder).isAllowed
+        else { return }
         NSWorkspace.shared.activateFileViewerSelecting([revealURL])
     }
 

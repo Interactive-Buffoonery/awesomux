@@ -142,7 +142,8 @@ struct SidebarDuplicateDisambiguatorTests {
         let pane = TerminalPane(
             title: title,
             workingDirectory: workingDirectory,
-            remoteHost: remoteHost
+            remoteHost: remoteHost,
+            executionPlan: .local
         )
         return TerminalSession(
             title: title,

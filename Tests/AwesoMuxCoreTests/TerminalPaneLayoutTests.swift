@@ -6,8 +6,8 @@ import Testing
 struct TerminalPaneLayoutTests {
     @Test("terminal pane layout preserves nested pane identity across coding")
     func terminalPaneLayoutCodingRoundTrip() throws {
-        let first = TerminalPane(title: "one", workingDirectory: "/tmp/one")
-        let second = TerminalPane(title: "two", workingDirectory: "/tmp/two")
+        let first = TerminalPane(title: "one", workingDirectory: "/tmp/one", executionPlan: .local)
+        let second = TerminalPane(title: "two", workingDirectory: "/tmp/two", executionPlan: .local)
         let layout = TerminalPaneLayout.split(
             TerminalSplit(
                 orientation: .horizontal,
@@ -26,9 +26,9 @@ struct TerminalPaneLayoutTests {
 
     @Test("paneIDs preserves depth-first order through nested splits")
     func paneIDsPreservesDepthFirstOrder() {
-        let first = TerminalPane(title: "first", workingDirectory: "~")
-        let second = TerminalPane(title: "second", workingDirectory: "~")
-        let third = TerminalPane(title: "third", workingDirectory: "~")
+        let first = TerminalPane(title: "first", workingDirectory: "~", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "~", executionPlan: .local)
+        let third = TerminalPane(title: "third", workingDirectory: "~", executionPlan: .local)
         let layout = nestedLayout(first: first, second: second, third: third)
 
         #expect(layout.paneIDs == [first.id, second.id, third.id])
@@ -40,17 +40,19 @@ struct TerminalPaneLayoutTests {
 
     @Test("appendRemotePaneIDs preserves nested remote pane membership")
     func appendRemotePaneIDsFindsNestedRemotePanes() {
-        let first = TerminalPane(title: "first", workingDirectory: "~")
+        let first = TerminalPane(title: "first", workingDirectory: "~", executionPlan: .local)
         let second = TerminalPane(
             title: "second",
             workingDirectory: "~",
-            remoteHost: "webserver"
+            remoteHost: "webserver",
+            executionPlan: .local
         )
         let third = TerminalPane(
             title: "third",
             workingDirectory: "~",
             remoteHost: "db",
-            remoteConnectionHealth: .possiblyStale
+            remoteConnectionHealth: .possiblyStale,
+            executionPlan: .local
         )
         let layout = nestedLayout(first: first, second: second, third: third)
 
@@ -62,9 +64,9 @@ struct TerminalPaneLayoutTests {
 
     @Test("contains finds nested panes without materializing paneIDs")
     func containsFindsNestedPanes() {
-        let first = TerminalPane(title: "first", workingDirectory: "~")
-        let second = TerminalPane(title: "second", workingDirectory: "~")
-        let third = TerminalPane(title: "third", workingDirectory: "~")
+        let first = TerminalPane(title: "first", workingDirectory: "~", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "~", executionPlan: .local)
+        let third = TerminalPane(title: "third", workingDirectory: "~", executionPlan: .local)
         let layout = nestedLayout(first: first, second: second, third: third)
 
         #expect(layout.contains(paneID: first.id))
@@ -75,9 +77,9 @@ struct TerminalPaneLayoutTests {
 
     @Test("removing a nested pane collapses only its owning split")
     func removingNestedPaneCollapsesOwningSplit() throws {
-        let first = TerminalPane(title: "first", workingDirectory: "~")
-        let second = TerminalPane(title: "second", workingDirectory: "~")
-        let third = TerminalPane(title: "third", workingDirectory: "~")
+        let first = TerminalPane(title: "first", workingDirectory: "~", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "~", executionPlan: .local)
+        let third = TerminalPane(title: "third", workingDirectory: "~", executionPlan: .local)
         let layout = nestedLayout(first: first, second: second, third: third)
 
         let nextLayout = try #require(layout.removingPane(id: third.id))
@@ -93,9 +95,9 @@ struct TerminalPaneLayoutTests {
 
     @Test("resize by pane adjusts the nearest containing split")
     func resizeByPaneAdjustsNearestContainingSplit() throws {
-        let first = TerminalPane(title: "first", workingDirectory: "~")
-        let second = TerminalPane(title: "second", workingDirectory: "~")
-        let third = TerminalPane(title: "third", workingDirectory: "~")
+        let first = TerminalPane(title: "first", workingDirectory: "~", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "~", executionPlan: .local)
+        let third = TerminalPane(title: "third", workingDirectory: "~", executionPlan: .local)
         let layout = nestedLayout(first: first, second: second, third: third)
 
         let nextLayout = try #require(layout.resizingSplit(containing: third.id, by: 0.1))
@@ -111,9 +113,9 @@ struct TerminalPaneLayoutTests {
 
     @Test("marking stale returns no change for nested splits with no remote panes")
     func markingRemotePanesPossiblyStaleDoesNotChangeLocalSplits() {
-        let first = TerminalPane(title: "first", workingDirectory: "~")
-        let second = TerminalPane(title: "second", workingDirectory: "~")
-        let third = TerminalPane(title: "third", workingDirectory: "~")
+        let first = TerminalPane(title: "first", workingDirectory: "~", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "~", executionPlan: .local)
+        let third = TerminalPane(title: "third", workingDirectory: "~", executionPlan: .local)
         let layout = nestedLayout(first: first, second: second, third: third)
 
         let result = layout.markingRemotePanesPossiblyStale()
@@ -124,18 +126,20 @@ struct TerminalPaneLayoutTests {
 
     @Test("marking stale returns no change when all remote panes are already stale")
     func markingRemotePanesPossiblyStaleDoesNotChangeAlreadyStaleRemotePanes() {
-        let first = TerminalPane(title: "first", workingDirectory: "~")
+        let first = TerminalPane(title: "first", workingDirectory: "~", executionPlan: .local)
         let second = TerminalPane(
             title: "second",
             workingDirectory: "~",
             remoteHost: "webserver",
-            remoteConnectionHealth: .possiblyStale
+            remoteConnectionHealth: .possiblyStale,
+            executionPlan: .local
         )
         let third = TerminalPane(
             title: "third",
             workingDirectory: "~",
             remoteHost: "db",
-            remoteConnectionHealth: .possiblyStale
+            remoteConnectionHealth: .possiblyStale,
+            executionPlan: .local
         )
         let layout = nestedLayout(first: first, second: second, third: third)
 
@@ -150,17 +154,19 @@ struct TerminalPaneLayoutTests {
     func markingRemotePanesPossiblyStaleRecursesAndPreservesLayoutShape() throws {
         let rootSplitID = TerminalSplit.ID()
         let nestedSplitID = TerminalSplit.ID()
-        let localPane = TerminalPane(title: "local", workingDirectory: "~")
+        let localPane = TerminalPane(title: "local", workingDirectory: "~", executionPlan: .local)
         let activeRemotePane = TerminalPane(
             title: "remote",
             workingDirectory: "~",
-            remoteHost: "webserver"
+            remoteHost: "webserver",
+            executionPlan: .local
         )
         let staleRemotePane = TerminalPane(
             title: "stale",
             workingDirectory: "~",
             remoteHost: "db",
-            remoteConnectionHealth: .possiblyStale
+            remoteConnectionHealth: .possiblyStale,
+            executionPlan: .local
         )
         let layout = nestedLayout(
             first: localPane,

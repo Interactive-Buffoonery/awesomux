@@ -24,7 +24,8 @@ struct SessionStoreRestoreSanitizationSummaryTests {
     func invalidPaneWorkingDirectoryRecordsAdjustment() throws {
         let pane = TerminalPane(
             title: "pane",
-            workingDirectory: "/tmp/remote-controlled"
+            workingDirectory: "/tmp/remote-controlled",
+            executionPlan: .local
         )
         let session = Self.makeSession(
             layout: .pane(pane),
@@ -43,8 +44,8 @@ struct SessionStoreRestoreSanitizationSummaryTests {
     func dirtyTitlesRecordAdjustments() throws {
         // A multi-pane session's title is a distinct sidebar datum from its pane
         // titles, so both are genuinely separate cleanups.
-        let pane = TerminalPane(title: "pane\u{202E}", workingDirectory: "~")
-        let sibling = TerminalPane(title: "sibling", workingDirectory: "~")
+        let pane = TerminalPane(title: "pane\u{202E}", workingDirectory: "~", executionPlan: .local)
+        let sibling = TerminalPane(title: "sibling", workingDirectory: "~", executionPlan: .local)
         let session = Self.makeSession(
             title: "\u{200E}",
             layout: .split(TerminalSplit(
@@ -214,7 +215,7 @@ struct SessionStoreRestoreSanitizationSummaryTests {
 
     @Test("missing active pane records active-pane fallback")
     func missingActivePaneRecordsFallback() throws {
-        let pane = TerminalPane(title: "pane", workingDirectory: "~")
+        let pane = TerminalPane(title: "pane", workingDirectory: "~", executionPlan: .local)
         var session = Self.makeSession(
             layout: .pane(pane),
             activePaneID: pane.id
@@ -230,7 +231,7 @@ struct SessionStoreRestoreSanitizationSummaryTests {
 
     @Test("over-depth layout collapses and records collapsed layout")
     func overDepthLayoutRecordsCollapse() throws {
-        let leaf = TerminalPane(title: "deep", workingDirectory: "~")
+        let leaf = TerminalPane(title: "deep", workingDirectory: "~", executionPlan: .local)
         let session = Self.makeSession(
             layout: Self.layout(depth: 70, leaf: leaf),
             activePaneID: leaf.id
@@ -246,8 +247,8 @@ struct SessionStoreRestoreSanitizationSummaryTests {
     @Test("structural ID reassignment archives but produces no user-visible warning")
     func structuralIDReassignmentArchivesWithoutWarning() throws {
         let duplicateSessionID = UUID()
-        let firstPane = TerminalPane(title: "first", workingDirectory: "~")
-        let secondPane = TerminalPane(title: "second", workingDirectory: "~")
+        let firstPane = TerminalPane(title: "first", workingDirectory: "~", executionPlan: .local)
+        let secondPane = TerminalPane(title: "second", workingDirectory: "~", executionPlan: .local)
         let first = Self.makeSession(
             id: duplicateSessionID,
             title: "first",
@@ -262,7 +263,7 @@ struct SessionStoreRestoreSanitizationSummaryTests {
             layout: .pane(secondPane),
             activePaneID: secondPane.id
         )
-        let staleClosedPane = TerminalPane(title: "stale", workingDirectory: "~")
+        let staleClosedPane = TerminalPane(title: "stale", workingDirectory: "~", executionPlan: .local)
         let staleRecentlyClosed = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "stale",
@@ -375,8 +376,8 @@ struct SessionStoreRestoreSanitizationSummaryTests {
 
     @Test("a snapshot dirty in many ways tallies every counter")
     func kitchenSinkCombinesCountersCorrectly() {
-        let dirtyTitlePane = TerminalPane(title: "p\u{202E}", workingDirectory: "~")
-        let badCwdPane = TerminalPane(title: "ok", workingDirectory: "/tmp/escape")
+        let dirtyTitlePane = TerminalPane(title: "p\u{202E}", workingDirectory: "~", executionPlan: .local)
+        let badCwdPane = TerminalPane(title: "ok", workingDirectory: "/tmp/escape", executionPlan: .local)
         let multiPaneSession = Self.makeSession(
             title: "s\u{202E}",
             layout: .split(TerminalSplit(
@@ -452,7 +453,7 @@ struct SessionStoreRestoreSanitizationSummaryTests {
     func benignNormalizationNotCounted() throws {
         // A valid home path that only changes via standardization (a dropped
         // trailing slash) must not be reported to the user as "cleaned up."
-        let pane = TerminalPane(title: "ok", workingDirectory: "~/Documents/")
+        let pane = TerminalPane(title: "ok", workingDirectory: "~/Documents/", executionPlan: .local)
         let session = Self.makeSession(layout: .pane(pane), activePaneID: pane.id)
 
         let restored = SessionStore.restore(from: Self.snapshot(with: session))
@@ -499,7 +500,8 @@ struct SessionStoreRestoreSanitizationSummaryTests {
                 first: layout,
                 second: .pane(TerminalPane(
                     title: "sibling \(index)",
-                    workingDirectory: "~"
+                    workingDirectory: "~",
+                    executionPlan: .local
                 ))
             ))
         }

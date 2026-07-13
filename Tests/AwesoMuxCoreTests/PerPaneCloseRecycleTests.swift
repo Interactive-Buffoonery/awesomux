@@ -26,8 +26,8 @@ struct PerPaneCloseRecycleTests {
 
     @Test("two panes hold independent runtime states; the rollup picks the loudest")
     func independentPaneStatesRollUpToLoudest() {
-        let a = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell)
-        let b = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell)
+        let a = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
+        let b = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let (store, sessionID) = splitStore(first: a, second: b)
 
         // Pane A goes thinking (Codex); pane B needs attention (Claude).
@@ -56,11 +56,13 @@ struct PerPaneCloseRecycleTests {
     func acknowledgeClearsActivePaneOnly() {
         let active = TerminalPane(
             title: "active", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt, unreadNotificationCount: 1
+            attentionReason: .permissionPrompt, unreadNotificationCount: 1,
+            executionPlan: .local
         )
         let sibling = TerminalPane(
             title: "sibling", workingDirectory: "~", agentKind: .claudeCode,
-            attentionReason: .userInputRequired, unreadNotificationCount: 2
+            attentionReason: .userInputRequired, unreadNotificationCount: 2,
+            executionPlan: .local
         )
         let (store, sessionID) = splitStore(first: active, second: sibling, active: active.id)
 
@@ -79,11 +81,13 @@ struct PerPaneCloseRecycleTests {
     func acknowledgeAllClearsEveryPane() {
         let active = TerminalPane(
             title: "active", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt, unreadNotificationCount: 1
+            attentionReason: .permissionPrompt, unreadNotificationCount: 1,
+            executionPlan: .local
         )
         let sibling = TerminalPane(
             title: "sibling", workingDirectory: "~", agentKind: .claudeCode,
-            attentionReason: .userInputRequired, unreadNotificationCount: 2
+            attentionReason: .userInputRequired, unreadNotificationCount: 2,
+            executionPlan: .local
         )
         let (store, sessionID) = splitStore(first: active, second: sibling, active: active.id)
 
@@ -97,10 +101,11 @@ struct PerPaneCloseRecycleTests {
 
     @Test("closing a pane carrying attention + unread settles the rollup and total")
     func closingPaneSettlesAggregates() {
-        let keep = TerminalPane(title: "keep", workingDirectory: "~", agentKind: .shell)
+        let keep = TerminalPane(title: "keep", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let doomed = TerminalPane(
             title: "doomed", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt, unreadNotificationCount: 2
+            attentionReason: .permissionPrompt, unreadNotificationCount: 2,
+            executionPlan: .local
         )
         let (store, sessionID) = splitStore(first: keep, second: doomed, active: keep.id)
         #expect(store.unreadNotificationTotal == 2)
@@ -117,8 +122,8 @@ struct PerPaneCloseRecycleTests {
 
     @Test("reopening a closed split preserves each pane's agent kind")
     func reopenPreservesSiblingPaneKinds() {
-        let shell = TerminalPane(title: "shell", workingDirectory: "~/work", agentKind: .shell)
-        let codex = TerminalPane(title: "codex", workingDirectory: "~/work", agentKind: .codex)
+        let shell = TerminalPane(title: "shell", workingDirectory: "~/work", agentKind: .shell, executionPlan: .local)
+        let codex = TerminalPane(title: "codex", workingDirectory: "~/work", agentKind: .codex, executionPlan: .local)
         let session = TerminalSession(
             title: "split",
             workingDirectory: "~/work",
@@ -149,7 +154,8 @@ struct PerPaneCloseRecycleTests {
             title: "dirty", workingDirectory: "~", agentKind: .codex,
             agentExecutionState: .thinking,
             attentionReason: .permissionPrompt,
-            unreadNotificationCount: 4
+            unreadNotificationCount: 4,
+            executionPlan: .local
         )
         dirty.shellActivity = .busy
         dirty.needsTerminalQuitConfirmation = true

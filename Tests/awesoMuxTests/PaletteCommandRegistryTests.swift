@@ -232,11 +232,12 @@ struct PaletteCommandRegistryTests {
     @Test("Open in IDE is active-pane scoped and disables for remote panes")
     @MainActor
     func openInIDEDisablesForRemoteActivePane() throws {
-        let localPane = TerminalPane(title: "local", workingDirectory: "/tmp/local")
+        let localPane = TerminalPane(title: "local", workingDirectory: "/tmp/local", executionPlan: .local)
         let remotePane = TerminalPane(
             title: "remote",
             workingDirectory: "/tmp/stale-local",
-            remoteHost: "buildbox"
+            remoteHost: "buildbox",
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "Remote",

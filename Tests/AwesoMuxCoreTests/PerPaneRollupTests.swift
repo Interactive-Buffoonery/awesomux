@@ -27,11 +27,13 @@ struct PerPaneRollupTests {
         // needs input. The rollup must surface needsAttention AND name Codex.
         let shell = TerminalPane(
             title: "shell", workingDirectory: "~", agentKind: .shell,
-            agentExecutionState: .output
+            agentExecutionState: .output,
+            executionPlan: .local
         )
         let codex = TerminalPane(
             title: "codex", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let session = splitSession(first: shell, second: codex, active: shell.id)
 
@@ -46,11 +48,13 @@ struct PerPaneRollupTests {
     func unreadSummed() {
         let a = TerminalPane(
             title: "a", workingDirectory: "~", agentKind: .codex,
-            unreadNotificationCount: 2
+            unreadNotificationCount: 2,
+            executionPlan: .local
         )
         let b = TerminalPane(
             title: "b", workingDirectory: "~", agentKind: .claudeCode,
-            unreadNotificationCount: 3
+            unreadNotificationCount: 3,
+            executionPlan: .local
         )
         let session = splitSession(first: a, second: b)
         #expect(session.unreadNotificationCount == 5)
@@ -59,10 +63,11 @@ struct PerPaneRollupTests {
 
     @Test("any pane needing input makes the session need acknowledgement")
     func anyPaneNeedsAck() {
-        let calm = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell)
+        let calm = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let needy = TerminalPane(
             title: "b", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .userInputRequired
+            attentionReason: .userInputRequired,
+            executionPlan: .local
         )
         let session = splitSession(first: calm, second: needy, active: calm.id)
         #expect(session.needsAcknowledgement == true)
@@ -71,8 +76,8 @@ struct PerPaneRollupTests {
 
     @Test("any pane at quit risk makes the session a quit risk")
     func anyPaneQuitRisk() {
-        let safe = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell)
-        var risky = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell)
+        let safe = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
+        var risky = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         risky.needsTerminalQuitConfirmation = true
         let session = splitSession(first: safe, second: risky, active: safe.id)
         #expect(session.isQuitRisk() == true)
@@ -81,10 +86,11 @@ struct PerPaneRollupTests {
 
     @Test("activeAgentKind follows the active pane, not the loudest")
     func activeAgentKindFollowsActivePane() {
-        let shell = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell)
+        let shell = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let codex = TerminalPane(
             title: "b", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let session = splitSession(first: shell, second: codex, active: shell.id)
         // The loudest pane is Codex, but the active pane is the shell.

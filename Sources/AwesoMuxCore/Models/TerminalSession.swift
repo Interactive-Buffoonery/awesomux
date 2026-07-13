@@ -45,24 +45,27 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
         shellActivity: ShellActivity = .idle,
         unreadNotificationCount: Int = 0,
         layout: TerminalPaneLayout? = nil,
-        activePaneID: TerminalPane.ID? = nil
+        activePaneID: TerminalPane.ID? = nil,
+        executionPlan: PaneExecutionPlan = .local
     ) {
         var resolvedLayout: TerminalPaneLayout
         if let layout {
             resolvedLayout = layout
         } else {
-            resolvedLayout = .pane(TerminalPane(
-                title: syntheticTitle?.localizedTitle() ?? title,
-                workingDirectory: workingDirectory,
-                agentKind: agentKind ?? .shell,
-                agentState: agentState,
-                agentExecutionState: agentExecutionState,
-                attentionReason: attentionReason,
-                lastAgentStateChangeAt: lastAgentStateChangeAt ?? Date(),
-                shellActivity: shellActivity,
-                needsTerminalQuitConfirmation: needsTerminalQuitConfirmation,
-                unreadNotificationCount: unreadNotificationCount
-            ))
+            resolvedLayout = .pane(
+                TerminalPane(
+                    title: syntheticTitle?.localizedTitle() ?? title,
+                    workingDirectory: workingDirectory,
+                    agentKind: agentKind ?? .shell,
+                    agentState: agentState,
+                    agentExecutionState: agentExecutionState,
+                    attentionReason: attentionReason,
+                    lastAgentStateChangeAt: lastAgentStateChangeAt ?? Date(),
+                    shellActivity: shellActivity,
+                    needsTerminalQuitConfirmation: needsTerminalQuitConfirmation,
+                    unreadNotificationCount: unreadNotificationCount,
+                    executionPlan: executionPlan
+                ))
         }
 
         // A session layout must contain at least one terminal pane. A document-only
@@ -90,15 +93,16 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
         // Modern per-pane reconstruction passes `agentKind: nil`, so the layout's
         // own decoded pane state is preserved untouched (INT-504 R5).
         if layout != nil,
-           Self.hasSessionLevelAgentParams(
-               agentKind: agentKind,
-               agentState: agentState,
-               agentExecutionState: agentExecutionState,
-               attentionReason: attentionReason,
-               needsTerminalQuitConfirmation: needsTerminalQuitConfirmation,
-               shellActivity: shellActivity,
-               unreadNotificationCount: unreadNotificationCount
-           ) {
+            Self.hasSessionLevelAgentParams(
+                agentKind: agentKind,
+                agentState: agentState,
+                agentExecutionState: agentExecutionState,
+                attentionReason: attentionReason,
+                needsTerminalQuitConfirmation: needsTerminalQuitConfirmation,
+                shellActivity: shellActivity,
+                unreadNotificationCount: unreadNotificationCount
+            )
+        {
             resolvedLayout = resolvedLayout.mappingPanes { pane in
                 guard pane.id == resolvedActivePaneID else { return pane }
                 var folded = pane
@@ -166,14 +170,14 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
     }
 }
 
-public extension TerminalSession {
-    var activePane: TerminalPane? {
+extension TerminalSession {
+    public var activePane: TerminalPane? {
         layout.pane(id: activePaneID) ?? layout.firstPane
     }
 
     /// Every pane in tree order. Source of all session-level rollups; collected
     /// in a single O(panes) tree walk.
-    var panes: [TerminalPane] {
+    public var panes: [TerminalPane] {
         var panes: [TerminalPane] = []
         layout.appendPanes(into: &panes)
         return panes
@@ -181,7 +185,7 @@ public extension TerminalSession {
 
     /// Visits each pane in tree order without allocating the `panes` array —
     /// for hot read-only loops (shell-activity refresh, notification eval).
-    func forEachPane(_ body: (TerminalPane) -> Void) {
+    public func forEachPane(_ body: (TerminalPane) -> Void) {
         layout.forEachPane(body)
     }
 
@@ -189,7 +193,7 @@ public extension TerminalSession {
     /// per-pane agent snapshots into one rollup that carries pane ownership, so
     /// the sidebar glyph follows the pane that earned the loudest state instead of
     /// the active pane (INT-504 R1).
-    func agentRollup(at now: Date = Date()) -> SessionAgentRollup {
+    public func agentRollup(at now: Date = Date()) -> SessionAgentRollup {
         let snapshots = panes.map { $0.agentSnapshot(at: now) }
         return SessionAgentRollup.from(snapshots)
             ?? SessionAgentRollup(
@@ -204,41 +208,41 @@ public extension TerminalSession {
     /// Mirrors the pre-INT-504 session-level `agentState`: a shell pane running a
     /// command reads `.running` here, where `effectiveChromeState` would collapse
     /// it to idle. Folds over panes by display priority.
-    var agentState: AgentState {
+    public var agentState: AgentState {
         panes.map(\.agentState).min { $0.priority < $1.priority } ?? .idle
     }
 
     /// Loudest pane's chrome-collapsed display state — what the sidebar badge
     /// shows (shell panes read idle/running keyed on debounced activity).
-    var effectiveChromeState: AgentState {
+    public var effectiveChromeState: AgentState {
         agentRollup().state
     }
 
     /// The active pane's kind — for the few genuinely active-pane reads (path
     /// bar, shell-feature gating). Attention/state display follows the rollup's
     /// `winningAgentKind`, NOT this.
-    var activeAgentKind: AgentKind {
+    public var activeAgentKind: AgentKind {
         activePane?.agentKind ?? .shell
     }
 
-    var needsAcknowledgement: Bool {
+    public var needsAcknowledgement: Bool {
         panes.contains { $0.attentionReason != nil }
     }
 
     /// Summed across panes for badge display. Flipped from a stored var to a
     /// computed rollup — every former write moved to the owning pane.
-    var unreadNotificationCount: Int {
+    public var unreadNotificationCount: Int {
         panes.reduce(0) { $0 + $1.unreadNotificationCount }
     }
 
     /// Whether any pane would lose work if the app quit right now.
-    func isQuitRisk(at now: Date = Date()) -> Bool {
+    public func isQuitRisk(at now: Date = Date()) -> Bool {
         panes.contains { $0.isQuitRisk(at: now) }
     }
 
     /// Whether any pane would lose work if this session were CLOSED (destroyed,
     /// daemon session included) — see `TerminalPane.isCloseRisk`.
-    func isCloseRisk(at now: Date = Date()) -> Bool {
+    public func isCloseRisk(at now: Date = Date()) -> Bool {
         panes.contains { $0.isCloseRisk(at: now) }
     }
 }
@@ -284,7 +288,8 @@ extension TerminalSession: Codable {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
-                    debugDescription: "TerminalSession layout has no terminal pane; document-only layouts are invalid"
+                    debugDescription:
+                        "TerminalSession layout has no terminal pane; document-only layouts are invalid"
                 )
             )
         }
@@ -303,7 +308,8 @@ extension TerminalSession: Codable {
         // incorrectly fold v2 per-pane state back onto the session (INT-504
         // regression). The fold is specifically a v1→v2 migration; later bumps
         // add new leaf kinds (like `.document`) that require no agent-state fold.
-        let schemaVersion = (decoder.userInfo[.snapshotSchemaVersion] as? Int)
+        let schemaVersion =
+            (decoder.userInfo[.snapshotSchemaVersion] as? Int)
             ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
         let foldsLegacyAgentState = schemaVersion < 2
 
@@ -319,26 +325,31 @@ extension TerminalSession: Codable {
             layout = DocumentGroupMigration.migratingLegacyDocumentLeaves(in: decoded)
         }
 
-        let legacyAgentState = foldsLegacyAgentState
+        let legacyAgentState =
+            foldsLegacyAgentState
             ? try container.decodeIfPresent(AgentState.self, forKey: .agentState)
             : nil
 
         let rawTitle = try container.decode(String.self, forKey: .title)
-        let isTitleUserEdited = try container.decodeIfPresent(
-            Bool.self,
-            forKey: .isTitleUserEdited
-        ) ?? false
+        let isTitleUserEdited =
+            try container.decodeIfPresent(
+                Bool.self,
+                forKey: .isTitleUserEdited
+            ) ?? false
         let activePaneID = try container.decodeIfPresent(UUID.self, forKey: .activePaneID)
-        let decodedAgentKind = foldsLegacyAgentState
+        let decodedAgentKind =
+            foldsLegacyAgentState
             ? try container.decodeIfPresent(AgentKind.self, forKey: .agentKind)
             : nil
-        let activeAgentKind = activePaneID.flatMap { layout?.pane(id: $0)?.agentKind }
+        let activeAgentKind =
+            activePaneID.flatMap { layout?.pane(id: $0)?.agentKind }
             ?? layout?.firstPane?.agentKind
             ?? decodedAgentKind
             ?? .shell
         let syntheticTitle: SyntheticSessionTitle?
         if schemaVersion < 6 {
-            syntheticTitle = isTitleUserEdited
+            syntheticTitle =
+                isTitleUserEdited
                 ? nil
                 : SyntheticSessionTitle.inferred(
                     from: rawTitle,

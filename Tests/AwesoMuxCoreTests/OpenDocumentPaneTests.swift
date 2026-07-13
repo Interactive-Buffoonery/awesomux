@@ -17,7 +17,7 @@ import Testing
     }
 
     @Test func insertsDocumentGroupWithoutStealingActivePane() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 
@@ -35,7 +35,7 @@ import Testing
     // MARK: - Same-file dedup (INT-562, retargeted to tabs in INT-748)
 
     @Test func openingAlreadyOpenFileReturnsSameIDWithoutDuplicate() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 
@@ -51,7 +51,7 @@ import Testing
 
     @Test func openingAlreadyOpenFileViaPathVariantDedups() {
         // Verify that /a/./b.md and /a/b.md compare equal via standardizedFileURL.
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 
@@ -63,7 +63,7 @@ import Testing
     }
 
     @Test func openingDedupedFileSelectsItsTab() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 
@@ -78,7 +78,7 @@ import Testing
     }
 
     @Test func openingDifferentFileAppendsTabToSameGroup() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 
@@ -100,7 +100,7 @@ import Testing
     }
 
     @Test func openingDocumentTabStoresStandardizedURL() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 
@@ -116,7 +116,7 @@ import Testing
     // MARK: - replaceDocumentTab (inline file-browser navigation)
 
     @Test func replacingDocumentTabKeepsSameTabAndActivePane() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 
@@ -144,7 +144,7 @@ import Testing
     }
 
     @Test func replacingDocumentTabStoresStandardizedURL() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 
@@ -166,7 +166,7 @@ import Testing
     }
 
     @Test func replacingWithAlreadyOpenFileSelectsExistingTabAndDropsNavigator() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 
@@ -191,7 +191,7 @@ import Testing
     }
 
     @Test func replacingUnknownDocumentTabIsNoOp() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
         session.activePaneID = terminal.id
 

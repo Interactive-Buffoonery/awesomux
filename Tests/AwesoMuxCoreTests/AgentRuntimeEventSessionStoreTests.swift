@@ -679,8 +679,8 @@ struct AgentRuntimeEventSessionStoreTests {
         // legitimately reuse eventID values across panes. The dedupe
         // cache must be pane-scoped so a second pane's event is not
         // mistakenly dropped as a duplicate of the first pane's.
-        let paneA = TerminalPane(title: "a", workingDirectory: "~")
-        let paneB = TerminalPane(title: "b", workingDirectory: "~")
+        let paneA = TerminalPane(title: "a", workingDirectory: "~", executionPlan: .local)
+        let paneB = TerminalPane(title: "b", workingDirectory: "~", executionPlan: .local)
         let layout = TerminalPaneLayout.split(
             TerminalSplit(orientation: .horizontal, first: .pane(paneA), second: .pane(paneB))
         )

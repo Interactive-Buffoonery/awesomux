@@ -20,6 +20,7 @@ struct ResolveKey: Equatable {
     let paneTitle: String
     let fallbackProject: String
     let isActive: Bool
+    let executionPlan: PaneExecutionPlan
     /// Re-resolve when remote state flips even if cwd/title are unchanged.
     let remoteHost: String?
     let remoteConnectionHealth: RemoteConnectionHealth

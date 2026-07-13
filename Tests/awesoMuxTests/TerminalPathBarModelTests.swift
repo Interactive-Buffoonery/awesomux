@@ -1,10 +1,28 @@
 import AwesoMuxCore
 import Foundation
 import Testing
+
 @testable import awesoMux
 
 @Suite("Terminal Path Bar model")
 struct TerminalPathBarModelTests {
+    private final class ProbeCountingFileManager: FileManager {
+        var probeCount = 0
+
+        override func fileExists(atPath path: String) -> Bool {
+            probeCount += 1
+            return false
+        }
+
+        override func fileExists(
+            atPath path: String,
+            isDirectory: UnsafeMutablePointer<ObjCBool>?
+        ) -> Bool {
+            probeCount += 1
+            return false
+        }
+    }
+
     @Test("repo root displays project and repo root label")
     func repoRootDisplaysProjectAndRootLabel() throws {
         let fixture = try PathBarFixture()
@@ -29,13 +47,13 @@ struct TerminalPathBarModelTests {
 
     @Test("the model reflects the ACTIVE pane's remote host (split tracking)")
     func remoteHostTracksActivePane() {
-        let localPane = TerminalPane(title: "ed@mymac: ~/x", workingDirectory: "/tmp")
+        let localPane = TerminalPane(
+            title: "ed@mymac: ~/x", workingDirectory: "/tmp", executionPlan: .local)
         let remotePane = TerminalPane(
             title: "ed@webserver: ~/app",
             workingDirectory: "/tmp",
             remoteHost: "webserver",
-            remoteConnectionHealth: .possiblyStale
-        )
+            remoteConnectionHealth: .possiblyStale, executionPlan: .local)
         let layout = TerminalPaneLayout.split(
             TerminalSplit(
                 orientation: .vertical,
@@ -65,6 +83,30 @@ struct TerminalPathBarModelTests {
         #expect(TerminalPathBarModel.make(session: localActive).remoteHost == nil)
     }
 
+    @Test("declared SSH panes never probe the local filesystem")
+    func declaredSSHSkipsLocalFilesystem() {
+        let target = RemoteTarget(user: "alice", host: "buildbox")
+        let pane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/srv/app",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "remote",
+            workingDirectory: "/srv/app",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let fileManager = ProbeCountingFileManager()
+
+        let model = TerminalPathBarModel.make(session: session, fileManager: fileManager)
+
+        #expect(fileManager.probeCount == 0)
+        #expect(model.remoteHost == "alice@buildbox")
+        #expect(model.revealURL == nil)
+        #expect(model.executionPlan == pane.executionPlan)
+    }
+
     @Test("stale remote copy uses the network-changed warning")
     func staleRemoteCopy() {
         let copy = TerminalPathBarView.remoteIndicatorCopySnapshot(
@@ -74,7 +116,10 @@ struct TerminalPathBarModelTests {
 
         #expect(copy.icon == "exclamationmark.triangle")
         #expect(copy.accessibilityLabel == "Possibly stale remote session on webserver")
-        #expect(copy.help == "Network changed; this SSH session may be disconnected until SSH recovers or reports failure.")
+        #expect(
+            copy.help
+                == "Network changed; this SSH session may be disconnected until SSH recovers or reports failure."
+        )
         #expect(copy.accessibilityHint == copy.help)
     }
 
@@ -133,10 +178,14 @@ struct TerminalPathBarModelTests {
         let repo = try fixture.makeRepo(named: "awesomux")
         let firstDirectory = repo.appending(path: "Sources")
         let secondDirectory = repo.appending(path: "Tests")
-        try FileManager.default.createDirectory(at: firstDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: secondDirectory, withIntermediateDirectories: true)
-        let firstPane = TerminalPane(title: "src", workingDirectory: firstDirectory.path)
-        let secondPane = TerminalPane(title: "tests", workingDirectory: secondDirectory.path)
+        try FileManager.default.createDirectory(
+            at: firstDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: secondDirectory, withIntermediateDirectories: true)
+        let firstPane = TerminalPane(
+            title: "src", workingDirectory: firstDirectory.path, executionPlan: .local)
+        let secondPane = TerminalPane(
+            title: "tests", workingDirectory: secondDirectory.path, executionPlan: .local)
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: firstDirectory.path,
@@ -195,7 +244,8 @@ struct TerminalPathBarModelTests {
         let fixture = try PathBarFixture()
         defer { fixture.cleanup() }
         let spacedDirectory = fixture.home.appending(path: "Project ")
-        try FileManager.default.createDirectory(at: spacedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: spacedDirectory, withIntermediateDirectories: true)
         let session = TerminalSession(
             title: "scratch",
             workingDirectory: spacedDirectory.path,
@@ -488,7 +538,8 @@ struct TerminalPathBarModelTests {
         // dir (no HEAD/objects/refs/commondir) — modelling an attacker pointing
         // the read at something like ~/.ssh.
         let secretDirectory = fixture.home.appending(path: ".ssh")
-        try FileManager.default.createDirectory(at: secretDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: secretDirectory, withIntermediateDirectories: true)
         try "ref: refs/heads/leaked\n".write(
             to: secretDirectory.appending(path: "HEAD"),
             atomically: true,
@@ -644,11 +695,11 @@ private final class PathBarFixture {
     }
 }
 
-private extension URL {
+extension URL {
     /// The model resolves symlinks (the macOS temp dir lives under
     /// `/var`→`/private/var`), so test expectations compare against the
     /// symlink-resolved, standardized path.
-    var resolvedPath: String {
+    fileprivate var resolvedPath: String {
         resolvingSymlinksInPath().standardizedFileURL.path
     }
 }

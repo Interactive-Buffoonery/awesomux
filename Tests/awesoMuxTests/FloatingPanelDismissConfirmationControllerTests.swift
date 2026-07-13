@@ -116,7 +116,8 @@ struct FloatingPanelDismissConfirmationControllerTests {
         var pane = TerminalPane(
             title: "vim",
             workingDirectory: "/tmp",
-            agentKind: .shell
+            agentKind: .shell,
+            executionPlan: .local
         )
         pane.foregroundProcessLiveness = .bridged
         pane.needsTerminalQuitConfirmation = true

@@ -33,7 +33,8 @@ struct CornerTabStateTests {
     func exitedForegroundProcessEnds() {
         var pane = TerminalPane(
             title: "t", workingDirectory: "/tmp",
-            agentKind: .shell, agentState: AgentKind.shell.initialSessionState
+            agentKind: .shell, agentState: AgentKind.shell.initialSessionState,
+            executionPlan: .local
         )
         pane.foregroundProcessLiveness = .exited
         let session = TerminalSession(

@@ -11,7 +11,7 @@ struct SessionRestoreReducerTests {
         var seenPanes: Set<TerminalPane.ID> = [collidingID] // pre-seed so this pane collides
         var seenTerminalSessionIDs: Set<TerminalSessionID> = []
         let layout = TerminalPaneLayout.pane(
-            TerminalPane(id: collidingID, title: "agent", workingDirectory: "/tmp")
+            TerminalPane(id: collidingID, title: "agent", workingDirectory: "/tmp", executionPlan: .local)
         )
 
         let result = SessionRestoreReducer.restoredLayout(
@@ -89,7 +89,7 @@ struct SessionRestoreReducerTests {
     @Test("restore sanitizes visible fields, merges duplicate groups, and preserves waiting")
     func restoreSanitizesAndPreservesWaiting() throws {
         let sharedSessionID = UUID()
-        let pane = TerminalPane(id: UUID(), title: "\u{202E}", workingDirectory: "\u{0000}")
+        let pane = TerminalPane(id: UUID(), title: "\u{202E}", workingDirectory: "\u{0000}", executionPlan: .local)
         let dirty = TerminalSession(
             id: sharedSessionID,
             title: "\u{202E}",
@@ -135,27 +135,31 @@ struct SessionRestoreReducerTests {
             title: "",
             workingDirectory: "~",
             agentKind: .codex,
-            agentExecutionState: .thinking
+            agentExecutionState: .thinking,
+            executionPlan: .local
         )
         let staleAttention = TerminalPane(
             title: "stale-attention",
             workingDirectory: "~",
             agentKind: .codex,
             agentExecutionState: .error,
-            attentionReason: .processError
+            attentionReason: .processError,
+            executionPlan: .local
         )
         let waiting = TerminalPane(
             title: "waiting",
             workingDirectory: "~",
             agentKind: .claudeCode,
-            agentExecutionState: .waiting
+            agentExecutionState: .waiting,
+            executionPlan: .local
         )
         let livePrompt = TerminalPane(
             title: "prompt",
             workingDirectory: "~",
             agentKind: .codex,
             agentExecutionState: .thinking,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "",

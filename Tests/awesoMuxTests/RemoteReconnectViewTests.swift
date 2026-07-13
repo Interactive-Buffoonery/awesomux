@@ -1,6 +1,7 @@
 import AwesoMuxCore
 import Foundation
 import Testing
+
 @testable import awesoMux
 
 /// View/enactor coverage for the manual remote-reconnect path (INT-697, §3/§6).
@@ -93,13 +94,14 @@ struct RemoteReconnectViewTests {
         // is preserved (no `resetPaneAgentChromeToShell`); the confirmation hook
         // is the only thing that un-sticks the bridge-death `.error`.
         view.handleCommandBridgeStatusEvents([
-            try #require(Self.attachedEvent(
-                token: "tok",
-                terminalSessionID: fixture.sessionID,
-                created: false,
-                daemonPid: 100,
-                daemonCreatedAt: 1_700_000_000
-            ))
+            try #require(
+                Self.attachedEvent(
+                    token: "tok",
+                    terminalSessionID: fixture.sessionID,
+                    created: false,
+                    daemonPid: 100,
+                    daemonCreatedAt: 1_700_000_000
+                ))
         ])
 
         let confirmedPane = try #require(
@@ -221,12 +223,13 @@ struct RemoteReconnectViewTests {
         view.beginCommandBridgeStatusWatch(channel: channel)
         #expect(view.commandBridgeStatusWatcher?.isArmed == true)
 
-        let event = try #require(Self.sessionEndEvent(
-            token: channel.token,
-            terminalSessionID: terminalSessionID,
-            reason: .shellExit,
-            code: code
-        ))
+        let event = try #require(
+            Self.sessionEndEvent(
+                token: channel.token,
+                terminalSessionID: terminalSessionID,
+                reason: .shellExit,
+                code: code
+            ))
         view.handleCommandBridgeStatusEvents([event])
     }
 
@@ -237,8 +240,8 @@ struct RemoteReconnectViewTests {
         code: Int
     ) -> AmxStatusEvent? {
         let line = """
-        {"event":"session-end","token":"\(token)","reason":"\(statusReason(reason))","code":\(code),"session":"\(terminalSessionID.rawValue)","ts":1700000001}
-        """
+            {"event":"session-end","token":"\(token)","reason":"\(statusReason(reason))","code":\(code),"session":"\(terminalSessionID.rawValue)","ts":1700000001}
+            """
         return AmxStatusEvent.parseLines(line + "\n", expectedToken: token).first
     }
 
@@ -250,8 +253,8 @@ struct RemoteReconnectViewTests {
         daemonCreatedAt: Int
     ) -> AmxStatusEvent? {
         let line = """
-        {"event":"attached","token":"\(token)","created":\(created),"daemon_pid":\(daemonPid),"daemon_created_at":\(daemonCreatedAt),"session":"\(terminalSessionID.rawValue)","ts":1700000001}
-        """
+            {"event":"attached","token":"\(token)","created":\(created),"daemon_pid":\(daemonPid),"daemon_created_at":\(daemonCreatedAt),"session":"\(terminalSessionID.rawValue)","ts":1700000001}
+            """
         return AmxStatusEvent.parseLines(line + "\n", expectedToken: token).first
     }
 
@@ -267,9 +270,10 @@ struct RemoteReconnectViewTests {
     // MARK: - Fixtures
 
     private func makeRemoteAgentFixture() throws -> RemoteAgentFixture {
-        let sessionID = try #require(TerminalSessionID(
-            rawValue: "22222222-2222-4222-8222-222222222222"
-        ))
+        let sessionID = try #require(
+            TerminalSessionID(
+                rawValue: "22222222-2222-4222-8222-222222222222"
+            ))
         let target = RemoteTarget(user: "deploy", host: "prod.example")
         let pane = TerminalPane(
             terminalSessionID: sessionID,
@@ -278,8 +282,8 @@ struct RemoteReconnectViewTests {
             workingDirectory: "/home/deploy",
             agentKind: .codex,
             agentExecutionState: .thinking,
-            attentionReason: .permissionPrompt
-        )
+            attentionReason: .permissionPrompt,
+            executionPlan: .ssh(SSHExecution(target: target)))
         let session = TerminalSession(
             title: "remote agent",
             workingDirectory: "/home/deploy",
@@ -300,33 +304,36 @@ struct RemoteReconnectViewTests {
     }
 
     private func makeRemoteSplitFixture() throws -> RemoteSplitFixture {
-        let sessionIDA = try #require(TerminalSessionID(
-            rawValue: "33333333-3333-4333-8333-333333333333"
-        ))
-        let sessionIDB = try #require(TerminalSessionID(
-            rawValue: "44444444-4444-4444-8444-444444444444"
-        ))
+        let sessionIDA = try #require(
+            TerminalSessionID(
+                rawValue: "33333333-3333-4333-8333-333333333333"
+            ))
+        let sessionIDB = try #require(
+            TerminalSessionID(
+                rawValue: "44444444-4444-4444-8444-444444444444"
+            ))
         let target = RemoteTarget(user: "deploy", host: "prod.example")
         let paneA = TerminalPane(
             terminalSessionID: sessionIDA,
             terminalBackendMetadata: establishedMetadata,
             title: "pane A",
-            workingDirectory: "/home/deploy/a"
-        )
+            workingDirectory: "/home/deploy/a",
+            executionPlan: .ssh(SSHExecution(target: target)))
         let paneB = TerminalPane(
             terminalSessionID: sessionIDB,
             terminalBackendMetadata: establishedMetadata,
             title: "pane B",
             workingDirectory: "/home/deploy/b",
             agentKind: .codex,
-            agentExecutionState: .thinking
-        )
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .pane(paneA),
-            second: .pane(paneB),
-            firstFraction: 0.5
-        ))
+            agentExecutionState: .thinking,
+            executionPlan: .ssh(SSHExecution(target: target)))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(paneA),
+                second: .pane(paneB),
+                firstFraction: 0.5
+            ))
         let session = TerminalSession(
             title: "remote split",
             workingDirectory: "/home/deploy",

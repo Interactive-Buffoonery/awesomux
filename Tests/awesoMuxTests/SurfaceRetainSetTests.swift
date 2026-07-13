@@ -6,10 +6,10 @@ import Testing
 struct SurfaceRetainSetTests {
     @Test("includes main session pane IDs and all auxiliary pane IDs")
     func includesMainSessionAndAuxiliaryPaneIDs() {
-        let mainFirst = TerminalPane(title: "main 1", workingDirectory: "/tmp/main-1")
-        let mainSecond = TerminalPane(title: "main 2", workingDirectory: "/tmp/main-2")
-        let secondary = TerminalPane(title: "secondary", workingDirectory: "/tmp/secondary")
-        let tertiary = TerminalPane(title: "tertiary", workingDirectory: "/tmp/tertiary")
+        let mainFirst = TerminalPane(title: "main 1", workingDirectory: "/tmp/main-1", executionPlan: .local)
+        let mainSecond = TerminalPane(title: "main 2", workingDirectory: "/tmp/main-2", executionPlan: .local)
+        let secondary = TerminalPane(title: "secondary", workingDirectory: "/tmp/secondary", executionPlan: .local)
+        let tertiary = TerminalPane(title: "tertiary", workingDirectory: "/tmp/tertiary", executionPlan: .local)
         let floating = TerminalPane.ID()
         let mainSession = TerminalSession(
             title: "main",
