@@ -596,7 +596,10 @@ struct SidebarView: View {
 
             NewWorkspaceMenuButton(
                 size: 40,
-                cornerRadius: 7,
+                // Matches the search chip above and the workspace tiles below
+                // (both AwRadius.panel) so the collapsed rail's three chip
+                // types share one corner radius.
+                cornerRadius: AwRadius.panel,
                 // Blend into the sidebar, matching the expanded header's
                 // treatment of this same button — not a separate boxed color.
                 restFill: Color.aw.surface.sidebar,
