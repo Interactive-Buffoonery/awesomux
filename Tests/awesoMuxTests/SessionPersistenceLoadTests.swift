@@ -128,6 +128,46 @@ struct SessionPersistenceLoadTests {
         }
     }
 
+    @Test("genuine v6 snapshot preserves healthy content around malformed remote tabs")
+    func genuineV6MixedSnapshotRecoversThroughFullLoadPipeline() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let fixtureData = try Data(contentsOf: Self.v6MixedSnapshotFixtureURL)
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            try fixtureData.write(to: tempDir.appending(path: "session-state.json"))
+
+            let result = SessionPersistence.load()
+
+            #expect(result.recoveryWarning == nil)
+            #expect(try Self.corruptedArchives(in: tempDir).isEmpty)
+            #expect(result.store.groups.map(\.name) == ["mixed", "fallback"])
+            #expect(result.store.selectedSessionID == UUID(uuidString: "40000000-0000-0000-0000-000000000001"))
+
+            let mixedSession = try #require(result.store.groups.first?.sessions.first)
+            guard case let .split(split) = mixedSession.layout,
+                case let .documentGroup(documentGroup) = split.second
+            else {
+                Issue.record("expected the healthy mixed document group to survive")
+                return
+            }
+            #expect(
+                documentGroup.tabs.map(\.id) == [
+                    UUID(uuidString: "20000000-0000-0000-0000-000000000001"),
+                    UUID(uuidString: "20000000-0000-0000-0000-000000000002"),
+                ])
+            #expect(documentGroup.selectedTabID == UUID(uuidString: "20000000-0000-0000-0000-000000000001"))
+            let remoteDocument = try #require(documentGroup.tabs.last)
+            #expect(remoteDocument.remoteResourceIdentity?.remoteTarget?.sshDestination == "devbox")
+            #expect(remoteDocument.remoteResourceIdentity?.path.rawValue == "/repo/generated:/README.md")
+
+            let fallbackSession = try #require(result.store.groups.last?.sessions.first)
+            guard case let .pane(fallbackPane) = fallbackSession.layout else {
+                Issue.record("expected an empty recovered document leaf to collapse to its terminal sibling")
+                return
+            }
+            #expect(fallbackPane.id == UUID(uuidString: "10000000-0000-0000-0000-000000000002"))
+        }
+    }
+
     @Test("remote markdown cache prunes unreferenced snapshots after successful load")
     func remoteMarkdownCachePrunesUnreferencedSnapshotsAfterSuccessfulLoad() throws {
         try Self.withTemporarySupportDirectory { tempDir in
@@ -561,6 +601,14 @@ struct SessionPersistenceLoadTests {
             + "\"workingDirectory\":\"~\",\"isTitleUserEdited\":false,"
             + "\"layout\":\(layout),\"activePaneID\":\"\(UUID().uuidString)\"}]}],"
             + "\"selectedSessionID\":\"\(sessionID)\"}"
+    }
+
+    private static var v6MixedSnapshotFixtureURL: URL {
+        // Generated with JSONEncoder from the schema-v6 models at d432831.
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Fixtures/session-state-v6-mixed-documents.json")
     }
 
     private static func withTemporarySupportDirectory(

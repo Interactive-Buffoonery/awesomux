@@ -12,6 +12,54 @@ struct RemoteMarkdownReferenceTests {
             count += 1
         }
     }
+
+    private actor AsyncGate {
+        private var entryCount = 0
+        private var entryWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+        private var isReleased = false
+
+        func enterAndWait() async {
+            entryCount += 1
+            let ready = entryWaiters.filter { entryCount >= $0.count }
+            entryWaiters.removeAll { entryCount >= $0.count }
+            ready.forEach { $0.continuation.resume() }
+            guard !isReleased else { return }
+            await withCheckedContinuation { releaseWaiters.append($0) }
+        }
+
+        func waitForEntries(_ count: Int) async {
+            guard entryCount < count else { return }
+            await withCheckedContinuation { continuation in
+                entryWaiters.append((count, continuation))
+            }
+        }
+
+        func release() {
+            isReleased = true
+            let waiters = releaseWaiters
+            releaseWaiters = []
+            waiters.forEach { $0.resume() }
+        }
+    }
+
+    private actor AsyncSignal {
+        private var isSignaled = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func signal() {
+            isSignaled = true
+            let pending = waiters
+            waiters = []
+            pending.forEach { $0.resume() }
+        }
+
+        func wait() async {
+            guard !isSignaled else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+    }
+
     private func remotePane(
         target: String = "my-purple",
         title: String = "alice@devbox:/repo",
@@ -201,18 +249,24 @@ struct RemoteMarkdownReferenceTests {
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let operationGate = AsyncGate()
+        let coalesced = AsyncSignal()
         let fetcher = RemoteMarkdownSnapshotFetcher(
             cacheDirectoryURL: cacheDirectory,
             fetchOverride: { _ in
                 await counter.record()
-                try? await Task.sleep(for: .milliseconds(50))
+                await operationGate.enterAndWait()
                 return Data("current".utf8)
-            }
+            },
+            onCoalescedFetch: { await coalesced.signal() }
         )
 
-        async let first = fetcher.fetch(reference)
-        async let second = fetcher.fetch(reference)
-        let results = await [first, second]
+        let first = Task { await fetcher.fetch(reference) }
+        await operationGate.waitForEntries(1)
+        let second = Task { await fetcher.fetch(reference) }
+        await coalesced.wait()
+        await operationGate.release()
+        let results = await [first.value, second.value]
 
         #expect(await counter.count == 1)
         #expect(results[0]?.fileURL == results[1]?.fileURL)
@@ -229,11 +283,12 @@ struct RemoteMarkdownReferenceTests {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
+        let operationGate = AsyncGate()
         let first = RemoteMarkdownSnapshotFetcher(
             cacheDirectoryURL: root.appending(path: "first", directoryHint: .isDirectory),
             fetchOverride: { _ in
                 await counter.record()
-                try? await Task.sleep(for: .milliseconds(50))
+                await operationGate.enterAndWait()
                 return Data("first".utf8)
             }
         )
@@ -241,14 +296,16 @@ struct RemoteMarkdownReferenceTests {
             cacheDirectoryURL: root.appending(path: "second", directoryHint: .isDirectory),
             fetchOverride: { _ in
                 await counter.record()
-                try? await Task.sleep(for: .milliseconds(50))
+                await operationGate.enterAndWait()
                 return Data("second".utf8)
             }
         )
 
-        async let firstResult = first.fetch(reference)
-        async let secondResult = second.fetch(reference)
-        let results = await [firstResult, secondResult]
+        let firstResult = Task { await first.fetch(reference) }
+        let secondResult = Task { await second.fetch(reference) }
+        await operationGate.waitForEntries(2)
+        await operationGate.release()
+        let results = await [firstResult.value, secondResult.value]
 
         #expect(await counter.count == 2)
         #expect(results[0]?.fileURL.deletingLastPathComponent().lastPathComponent == "first")

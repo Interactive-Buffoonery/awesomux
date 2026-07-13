@@ -132,9 +132,11 @@ private actor RemoteMarkdownFetchCoordinator {
 
     func value(
         for key: Key,
+        onCoalesced: (@Sendable () async -> Void)? = nil,
         operation: @escaping @Sendable () async -> RemoteMarkdownSnapshot?
     ) async -> RemoteMarkdownSnapshot? {
         if let existing = inFlight[key] {
+            await onCoalesced?()
             return await existing.value
         }
         let task = Task(operation: operation)
@@ -157,13 +159,17 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     )
     var fileManager: FileManager = .default
     var fetchOverride: (@Sendable (RemoteMarkdownReference) async -> Data?)?
+    var onCoalescedFetch: (@Sendable () async -> Void)?
 
     func fetch(_ reference: RemoteMarkdownReference) async -> RemoteMarkdownSnapshot? {
         let key = RemoteMarkdownFetchCoordinator.Key(
             identity: reference.identity,
             cacheDirectoryPath: cacheDirectoryURL.standardizedFileURL.path
         )
-        return await RemoteMarkdownFetchCoordinator.shared.value(for: key) {
+        return await RemoteMarkdownFetchCoordinator.shared.value(
+            for: key,
+            onCoalesced: onCoalescedFetch
+        ) {
             await fetchUncoordinated(reference)
         }
     }
