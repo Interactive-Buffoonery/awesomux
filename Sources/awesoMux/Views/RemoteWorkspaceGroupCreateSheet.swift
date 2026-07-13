@@ -44,8 +44,8 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 .accessibilityLabel("Remote host")
                 .onSubmit { submit(target: target, canCreate: canCreate) }
 
-            if let validation = SSHWorkspaceDestinationValidation.message(for: draftHost) {
-                Text(validation)
+            if let message = SSHWorkspaceDestinationValidation.message(for: draftHost) ?? settingsErrorMessage {
+                Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -108,6 +108,10 @@ struct RemoteWorkspaceGroupCreateSheet: View {
 
     private var primaryButtonLabel: LocalizedStringKey {
         backgroundSessionsEnabled ? "Create" : "Enable and Create"
+    }
+
+    private var settingsErrorMessage: String? {
+        backgroundSessionsEnabled ? nil : appSettingsStore.latestError?.displayText
     }
 
     private func enableBackgroundSessions() -> Bool {
