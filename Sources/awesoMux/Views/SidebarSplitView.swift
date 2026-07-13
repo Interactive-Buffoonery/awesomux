@@ -20,6 +20,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     var isHidden = false
     var onLiveWidthChange: ((CGFloat) -> Void)?
     var onCommitWidth: ((CGFloat) -> Void)?
+    var onSidebarFocusHandoff: (() -> Bool)?
     @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var detail: () -> Detail
 
@@ -31,6 +32,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.terminalMinimumWidth = terminalMinimumWidth
         controller.onLiveWidthChange = onLiveWidthChange
         controller.onCommitWidth = onCommitWidth
+        controller.onSidebarFocusHandoff = onSidebarFocusHandoff
         controller.setSidebarPosition(position)
         controller.setSidebarHidden(isHidden)
         controller.setSidebarWidth(initialWidth)
@@ -44,6 +46,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.terminalMinimumWidth = terminalMinimumWidth
         controller.onLiveWidthChange = onLiveWidthChange
         controller.onCommitWidth = onCommitWidth
+        controller.onSidebarFocusHandoff = onSidebarFocusHandoff
         controller.setSidebarPosition(position)
         controller.setSidebarHidden(isHidden)
         // Re-host each pane's root view so @Observable / @Bindable updates inside the

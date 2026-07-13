@@ -288,6 +288,7 @@ struct AwesoMuxApp: App {
                     requestTerminalFocus(sessionID: sessionID, paneID: paneID)
                     announcePaneFocused(index: paneIndex + 1)
                 },
+                onFocusActiveTerminal: focusActiveTerminal,
                 sidebarFocusRequestID: sidebarFocusRequestID,
                 sidebarWidthToggleRequestID: sidebarWidthToggleRequestID,
                 sidebarVisibilityToggleRequestID: sidebarVisibilityToggleRequestID
@@ -3394,6 +3395,19 @@ struct AwesoMuxApp: App {
             }
             window.makeFirstResponder(surface)
         }
+    }
+
+    private func focusActiveTerminal() -> Bool {
+        guard let session = sessionStore.selectedSession,
+              let window = NSApp.mainWindow ?? NSApp.keyWindow,
+              let surface = Self.terminalSurface(
+                  in: window.contentView,
+                  sessionID: session.id,
+                  paneID: session.activePaneID
+              ) else {
+            return false
+        }
+        return window.makeFirstResponder(surface)
     }
 
     private static func terminalSurface(
