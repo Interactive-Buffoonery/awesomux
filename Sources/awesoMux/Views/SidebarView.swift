@@ -203,7 +203,7 @@ struct SidebarView: View {
                                 onNewSessionInGroup: {
                                     sessionStore.addSession(groupName: entry.group.name)
                                 },
-                                onConnectViaSSH: { onConnectViaSSH(entry.group) },
+                                onConnectViaSSH: onConnectViaSSH,
                                 onNewSessionHere: { session in
                                     sessionStore.addSession(
                                         workingDirectory: session.workingDirectory,

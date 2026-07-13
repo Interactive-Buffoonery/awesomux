@@ -432,6 +432,7 @@ public final class SessionStore {
         target: RemoteTarget,
         toGroupID groupID: SessionGroup.ID
     ) -> TerminalSession.ID? {
+        guard target.isSafeSSHDestination else { return nil }
         guard
             let sessionID = WorkspaceTreeReducer.addSession(
                 to: &_groups,
@@ -497,6 +498,7 @@ public final class SessionStore {
         named rawGroupName: String,
         target: RemoteTarget
     ) -> TerminalSession.ID? {
+        guard target.isSafeSSHDestination else { return nil }
         let seeded = WorkspaceTreeReducer.addWorkspaceGroup(
             to: &_groups,
             selectedSession: selectedSession,
