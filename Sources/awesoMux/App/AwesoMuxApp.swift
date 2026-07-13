@@ -52,7 +52,8 @@ private func sanitizeInheritedTerminalContextFromProcessEnvironment() {
     for key in ProcessInfo.processInfo.environment.keys
     where key.hasPrefix("GHOSTTY_") || key.hasPrefix("CMUX_")
         || key.hasPrefix("ZMX_") || key.hasPrefix("AMX_")
-        || key == "AWESOMUX_PROFILE" {
+        || key == "AWESOMUX_PROFILE"
+    {
         unsetenv(key)
     }
 
@@ -158,13 +159,15 @@ struct AwesoMuxApp: App {
             diagnosticEventHandler: { event in
                 switch event {
                 case let .reloadSucceeded(trigger):
-                    diagnosticEvents.record(.configurationReloaded(
-                        trigger: mapDiagnosticTrigger(trigger)
-                    ))
+                    diagnosticEvents.record(
+                        .configurationReloaded(
+                            trigger: mapDiagnosticTrigger(trigger)
+                        ))
                 case let .reloadRejected(trigger):
-                    diagnosticEvents.record(.configurationRejected(
-                        trigger: mapDiagnosticTrigger(trigger)
-                    ))
+                    diagnosticEvents.record(
+                        .configurationRejected(
+                            trigger: mapDiagnosticTrigger(trigger)
+                        ))
                 case .resetAfterDeletion:
                     diagnosticEvents.record(.configurationReset)
                 case .resetAfterDeletionRejected:
@@ -207,26 +210,28 @@ struct AwesoMuxApp: App {
             eventRecorder: diagnosticEvents
         )
         _diagnosticsModel = State(initialValue: diagnosticsModel)
-        _ghosttyRuntime = State(initialValue: GhosttyRuntime(
-            terminalAppearanceProvider: {
-                let appearance = appSettingsStore.appearance.value
-                return terminalAppearancePreferencesCache.preferences(
-                    for: appearance,
-                    fallbackEffectiveTheme: terminalEffectiveTheme(for: appearance)
-                )
-            },
-            initialClipboardWritePolicy: appSettingsStore.terminal.value.clipboardWritePolicy,
-            initialConfirmClipboardRead: appSettingsStore.terminal.value.confirmClipboardRead,
-            initialCopyOnSelect: appSettingsStore.terminal.value.copyOnSelect,
-            initialCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
-            diagnosticEventHandler: { diagnosticEvents.record($0) }
-        ))
+        _ghosttyRuntime = State(
+            initialValue: GhosttyRuntime(
+                terminalAppearanceProvider: {
+                    let appearance = appSettingsStore.appearance.value
+                    return terminalAppearancePreferencesCache.preferences(
+                        for: appearance,
+                        fallbackEffectiveTheme: terminalEffectiveTheme(for: appearance)
+                    )
+                },
+                initialClipboardWritePolicy: appSettingsStore.terminal.value.clipboardWritePolicy,
+                initialConfirmClipboardRead: appSettingsStore.terminal.value.confirmClipboardRead,
+                initialCopyOnSelect: appSettingsStore.terminal.value.copyOnSelect,
+                initialCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
+                diagnosticEventHandler: { diagnosticEvents.record($0) }
+            ))
         _terminalAppearancePreferencesCache = State(initialValue: terminalAppearancePreferencesCache)
         _recoveryWarning = State(initialValue: loadResult.recoveryWarning)
-        _sessionManagerModel = State(initialValue: SessionManagerModel(
-            store: loadResult.store,
-            settings: appSettingsStore
-        ))
+        _sessionManagerModel = State(
+            initialValue: SessionManagerModel(
+                store: loadResult.store,
+                settings: appSettingsStore
+            ))
     }
 
     var body: some Scene {
@@ -244,6 +249,8 @@ struct AwesoMuxApp: App {
                 onRenameWorkspaceGroup: requestRenameWorkspaceGroup,
                 onNewWorkspaceGroup: requestNewWorkspaceGroup,
                 onConnectViaSSH: { group in requestConnectViaSSH(group) },
+                canMakeWorkspaceManaged: canMakeWorkspaceManaged,
+                onMakeWorkspaceManaged: { requestManagedSSHWorkspaceConversion($0) },
                 onManagedSSHWorkspaceOffer: requestManagedSSHWorkspaceOffer,
                 onReopenClosedWorkspace: reopenMostRecentlyClosedWorkspace,
                 hasRecoveryWarning: recoveryWarning != nil,
@@ -261,10 +268,13 @@ struct AwesoMuxApp: App {
                     // first responder but not the model's active pane, which strands the
                     // path bar / per-pane ack on the wrong pane (review finding).
                     guard let session = sessionStore.session(id: sessionID),
-                          let paneIndex = session.layout.paneIDs.firstIndex(of: paneID) else {
+                        let paneIndex = session.layout.paneIDs.firstIndex(of: paneID)
+                    else {
                         // Roster rows are render-time snapshots; the pane can vanish
                         // between build and click. IDs only — privacy-safe.
-                        Self.logger.debug("agent panel jump dropped stale row sessionID=\(sessionID, privacy: .public) paneID=\(paneID, privacy: .public)")
+                        Self.logger.debug(
+                            "agent panel jump dropped stale row sessionID=\(sessionID, privacy: .public) paneID=\(paneID, privacy: .public)"
+                        )
                         return
                     }
                     sessionStore.selectedSessionID = sessionID
@@ -278,74 +288,74 @@ struct AwesoMuxApp: App {
                 sidebarFocusRequestID: sidebarFocusRequestID,
                 sidebarToggleRequestID: sidebarToggleRequestID
             )
-                .frame(
-                    minWidth: ContentView.minimumWindowWidth,
-                    minHeight: ContentView.minimumWindowHeight
+            .frame(
+                minWidth: ContentView.minimumWindowWidth,
+                minHeight: ContentView.minimumWindowHeight
+            )
+            .sheet(item: $workspaceEditRequest) { request in
+                WorkspaceEditSheet(
+                    title: request.title,
+                    onCancel: {
+                        workspaceEditRequest = nil
+                    },
+                    onSave: { title in
+                        sessionStore.renameSession(id: request.id, title: title)
+                        workspaceEditRequest = nil
+                    }
                 )
-                .sheet(item: $workspaceEditRequest) { request in
-                    WorkspaceEditSheet(
-                        title: request.title,
-                        onCancel: {
-                            workspaceEditRequest = nil
-                        },
-                        onSave: { title in
-                            sessionStore.renameSession(id: request.id, title: title)
-                            workspaceEditRequest = nil
+            }
+            .sheet(item: $paneEditRequest) { request in
+                PaneEditSheet(
+                    title: request.currentTitle,
+                    canReset: request.isUserEdited,
+                    onCancel: { paneEditRequest = nil },
+                    onReset: {
+                        sessionStore.resetPaneTitle(
+                            sessionID: request.sessionID,
+                            paneID: request.paneID
+                        )
+                        paneEditRequest = nil
+                    },
+                    onSave: { newTitle in
+                        sessionStore.renamePane(
+                            sessionID: request.sessionID,
+                            paneID: request.paneID,
+                            title: newTitle
+                        )
+                        paneEditRequest = nil
+                    }
+                )
+            }
+            .sheet(item: $workspaceGroupCreateRequest) { _ in
+                WorkspaceGroupCreateSheet(
+                    existingGroupNames: sessionStore.groups.map(\.name),
+                    onCancel: {
+                        workspaceGroupCreateRequest = nil
+                    },
+                    onCreate: { groupName in
+                        guard sessionStore.addWorkspaceGroup(named: groupName) != nil else {
+                            return
                         }
-                    )
-                }
-                .sheet(item: $paneEditRequest) { request in
-                    PaneEditSheet(
-                        title: request.currentTitle,
-                        canReset: request.isUserEdited,
-                        onCancel: { paneEditRequest = nil },
-                        onReset: {
-                            sessionStore.resetPaneTitle(
-                                sessionID: request.sessionID,
-                                paneID: request.paneID
-                            )
-                            paneEditRequest = nil
-                        },
-                        onSave: { newTitle in
-                            sessionStore.renamePane(
-                                sessionID: request.sessionID,
-                                paneID: request.paneID,
-                                title: newTitle
-                            )
-                            paneEditRequest = nil
+                        appDelegate.surfacePrimaryWindow()
+                        workspaceGroupCreateRequest = nil
+                    }
+                )
+            }
+            .sheet(item: $remoteWorkspaceGroupCreateRequest) { _ in
+                RemoteWorkspaceGroupCreateSheet(
+                    onCancel: {
+                        remoteWorkspaceGroupCreateRequest = nil
+                    },
+                    onCreate: { name, target in
+                        let groupName = name.isEmpty ? target.host : name
+                        guard sessionStore.createRemoteWorkspaceGroup(named: groupName, target: target) != nil else {
+                            return
                         }
-                    )
-                }
-                .sheet(item: $workspaceGroupCreateRequest) { _ in
-                    WorkspaceGroupCreateSheet(
-                        existingGroupNames: sessionStore.groups.map(\.name),
-                        onCancel: {
-                            workspaceGroupCreateRequest = nil
-                        },
-                        onCreate: { groupName in
-                            guard sessionStore.addWorkspaceGroup(named: groupName) != nil else {
-                                return
-                            }
-                            appDelegate.surfacePrimaryWindow()
-                            workspaceGroupCreateRequest = nil
-                        }
-                    )
-                }
-                .sheet(item: $remoteWorkspaceGroupCreateRequest) { _ in
-                    RemoteWorkspaceGroupCreateSheet(
-                        onCancel: {
-                            remoteWorkspaceGroupCreateRequest = nil
-                        },
-                        onCreate: { name, target in
-                            let groupName = name.isEmpty ? target.host : name
-                            guard sessionStore.createRemoteWorkspaceGroup(named: groupName, target: target) != nil else {
-                                return
-                            }
-                            appDelegate.surfacePrimaryWindow()
-                            remoteWorkspaceGroupCreateRequest = nil
-                        }
-                    )
-                }
+                        appDelegate.surfacePrimaryWindow()
+                        remoteWorkspaceGroupCreateRequest = nil
+                    }
+                )
+            }
             .sheet(item: $sshWorkspaceConnectRequest) { request in
                 SSHWorkspaceConnectSheet(
                     groupName: request.action.groupName,
@@ -375,27 +385,27 @@ struct AwesoMuxApp: App {
                     }
                 )
             }
-                .sheet(item: $workspaceGroupRenameRequest) { request in
-                    WorkspaceGroupRenameSheet(
-                        groupName: request.name,
-                        existingGroups: sessionStore.groups.map { ($0.id, $0.name) },
-                        currentGroupID: request.id,
-                        onCancel: {
-                            workspaceGroupRenameRequest = nil
-                        },
-                        onSave: { groupName in
-                            guard sessionStore.renameGroup(id: request.id, to: groupName) else {
-                                return
-                            }
-                            workspaceGroupRenameRequest = nil
+            .sheet(item: $workspaceGroupRenameRequest) { request in
+                WorkspaceGroupRenameSheet(
+                    groupName: request.name,
+                    existingGroups: sessionStore.groups.map { ($0.id, $0.name) },
+                    currentGroupID: request.id,
+                    onCancel: {
+                        workspaceGroupRenameRequest = nil
+                    },
+                    onSave: { groupName in
+                        guard sessionStore.renameGroup(id: request.id, to: groupName) else {
+                            return
                         }
-                    )
-                }
-                .sheet(item: $quickSettingsRequest) { _ in
-                    QuickSettingsSheet()
-                        .environment(appSettingsStore)
-                        .appearanceBridge(appSettingsStore)
-                }
+                        workspaceGroupRenameRequest = nil
+                    }
+                )
+            }
+            .sheet(item: $quickSettingsRequest) { _ in
+                QuickSettingsSheet()
+                    .environment(appSettingsStore)
+                    .appearanceBridge(appSettingsStore)
+            }
             .onChange(of: isAnySheetPresented) { wasPresented, isPresented in
                 guard wasPresented, !isPresented,
                     let session = sessionStore.selectedSession,
@@ -403,129 +413,129 @@ struct AwesoMuxApp: App {
                 else { return }
                 requestManagedSSHWorkspaceOffer(sessionID: session.id, paneID: paneID)
             }
-                .onAppear {
-                    // Give the floating-panel controllers the settings store so
-                    // their detached SwiftUI roots carry the appearance bridge
-                    // (accent, glow, UI font, text scale). See INT-237/INT-367.
-                    commandPaletteController.appSettingsStore = appSettingsStore
-                    keyboardCheatsheetController.appSettingsStore = appSettingsStore
-                    sessionManagerController.appSettingsStore = appSettingsStore
-                    appDelegate.bind(
-                        sessionStore: sessionStore,
-                        ghosttyRuntime: ghosttyRuntime,
-                        floatingPanelController: floatingPanelController,
-                        popUpTerminalController: popUpTerminalController,
-                        appSettingsStore: appSettingsStore,
-                        terminalAppearancePreferencesCache: terminalAppearancePreferencesCache,
-                        openSettings: { openSettingsWindow() },
-                        openPrimaryWindow: { openPrimaryWindow() }
-                    )
-                    appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
-                    appDelegate.syncMenuBarMiniStatusItem()
-                    appDelegate.requestNotificationAuthorizationIfNeeded()
-                    let terminalSettings = appSettingsStore.terminal.value
-                    DaemonGarbageCollector.sweepIfEnabled(
-                        store: sessionStore,
-                        terminalSettings: terminalSettings,
-                        isRestoreEnabled: appSettingsStore.general.value.restoreWorkspaces,
-                        hasUnresolvedRecoveryWarning: recoveryWarning != nil,
-                        pinned: DaemonPolicyStore().pinnedIDs
-                    )
-                    if recoveryWarning?.preventsInitialSave != true {
-                        saveSessionIfRestoreEnabled()
-                    }
-                    presentRecoveryWarningIfNeeded()
-                }
-                .onChange(of: sessionStore.groups) { _, _ in
-                    saveSessionIfRestoreEnabled()
-                    dismissWorkspaceEditorIfTargetClosed()
-                    dismissWorkspaceGroupEditorIfTargetClosed()
-                    dismissPaneEditorIfTargetClosed()
-                    appDelegate.evaluateAndPostNotifications()
-                    appDelegate.syncMenuBarMiniStatusItem()
-                }
-                // Pins live outside the group array, so the groups onChange above
-                // never fires for a pin/unpin — persist them on their own signal.
-                .onChange(of: sessionStore.pinnedSessionIDs) { _, _ in
-                    saveSessionIfRestoreEnabled()
-                }
-                .onChange(of: sessionStore.selectedSessionID) { _, _ in
-                    saveSessionIfRestoreEnabled()
-                    // Per-workspace floating panel: show the new workspace's
-                    // panel if it's open, hide otherwise (without tearing the
-                    // previous workspace's slot down).
-                    floatingPanelController.activeWorkspaceDidChange(
-                        relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
-                        sessionStore: sessionStore,
-                        ghosttyRuntime: ghosttyRuntime,
-                        appSettingsStore: appSettingsStore
-                    )
-                }
-                .onChange(of: sessionStore.unreadNotificationTotal) { _, total in
-                    appDelegate.updateDockBadge(total: total)
-                }
-                .onChange(of: appSettingsStore.general.value.showMenuBarMiniStatus) { _, _ in
-                    appDelegate.syncMenuBarMiniStatusItem()
-                }
-                .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
-                    appDelegate.evaluateAndPostNotifications()
-                }
-                .onChange(of: appSettingsStore.keyboard.value, initial: true) { _, keyboard in
-                    CurrentKeyboardShortcuts.keyboard = keyboard
-                }
-                .onChange(of: appSettingsStore.terminal.value.clipboardWritePolicy) { _, _ in
-                    ghosttyRuntime.applyTerminalSettings()
-                }
-                .onChange(of: appSettingsStore.terminal.value.confirmClipboardRead) { _, _ in
-                    ghosttyRuntime.applyTerminalSettings()
-                }
-                .onChange(of: appSettingsStore.terminal.value.copyOnSelect) { _, _ in
-                    ghosttyRuntime.applyTerminalSettings()
-                }
-                .onChange(of: appSettingsStore.appearance.value.accent, initial: true) { _, newAccent in
-                    // Single writer for the non-view-facing accent
-                    // mailbox. AppearanceBridge previously fired its own
-                    // .task here, which produced N writers when the
-                    // modifier was installed in multiple windows. Hoisting
-                    // the write to the primary scene root guarantees exactly
-                    // one update per accent change.
-                    AwAccentRuntime.current = AwAccent(configAccent: newAccent)
-                }
-                .onChange(of: appSettingsStore.appearance.value.uiFont) { _, newFamily in
-                    AwUIFontRuntime.current = AwUIFontResolver.resolvedForSystem(
-                        rawFamily: newFamily
-                    )
-                }
-                .terminalAppearanceSync(
-                    appSettingsStore: appSettingsStore,
+            .onAppear {
+                // Give the floating-panel controllers the settings store so
+                // their detached SwiftUI roots carry the appearance bridge
+                // (accent, glow, UI font, text scale). See INT-237/INT-367.
+                commandPaletteController.appSettingsStore = appSettingsStore
+                keyboardCheatsheetController.appSettingsStore = appSettingsStore
+                sessionManagerController.appSettingsStore = appSettingsStore
+                appDelegate.bind(
+                    sessionStore: sessionStore,
                     ghosttyRuntime: ghosttyRuntime,
-                    preferencesCache: terminalAppearancePreferencesCache
+                    floatingPanelController: floatingPanelController,
+                    popUpTerminalController: popUpTerminalController,
+                    appSettingsStore: appSettingsStore,
+                    terminalAppearancePreferencesCache: terminalAppearancePreferencesCache,
+                    openSettings: { openSettingsWindow() },
+                    openPrimaryWindow: { openPrimaryWindow() }
                 )
-                .onReceive(NotificationCenter.default.publisher(for: .awesoMuxFocusSidebarRequested)) { _ in
-                    requestSidebarFocus()
+                appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
+                appDelegate.syncMenuBarMiniStatusItem()
+                appDelegate.requestNotificationAuthorizationIfNeeded()
+                let terminalSettings = appSettingsStore.terminal.value
+                DaemonGarbageCollector.sweepIfEnabled(
+                    store: sessionStore,
+                    terminalSettings: terminalSettings,
+                    isRestoreEnabled: appSettingsStore.general.value.restoreWorkspaces,
+                    hasUnresolvedRecoveryWarning: recoveryWarning != nil,
+                    pinned: DaemonPolicyStore().pinnedIDs
+                )
+                if recoveryWarning?.preventsInitialSave != true {
+                    saveSessionIfRestoreEnabled()
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .awesoMuxToggleSidebarWidthRequested)) { _ in
-                    requestSidebarWidthToggle()
+                presentRecoveryWarningIfNeeded()
+            }
+            .onChange(of: sessionStore.groups) { _, _ in
+                saveSessionIfRestoreEnabled()
+                dismissWorkspaceEditorIfTargetClosed()
+                dismissWorkspaceGroupEditorIfTargetClosed()
+                dismissPaneEditorIfTargetClosed()
+                appDelegate.evaluateAndPostNotifications()
+                appDelegate.syncMenuBarMiniStatusItem()
+            }
+            // Pins live outside the group array, so the groups onChange above
+            // never fires for a pin/unpin — persist them on their own signal.
+            .onChange(of: sessionStore.pinnedSessionIDs) { _, _ in
+                saveSessionIfRestoreEnabled()
+            }
+            .onChange(of: sessionStore.selectedSessionID) { _, _ in
+                saveSessionIfRestoreEnabled()
+                // Per-workspace floating panel: show the new workspace's
+                // panel if it's open, hide otherwise (without tearing the
+                // previous workspace's slot down).
+                floatingPanelController.activeWorkspaceDidChange(
+                    relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
+                    sessionStore: sessionStore,
+                    ghosttyRuntime: ghosttyRuntime,
+                    appSettingsStore: appSettingsStore
+                )
+            }
+            .onChange(of: sessionStore.unreadNotificationTotal) { _, total in
+                appDelegate.updateDockBadge(total: total)
+            }
+            .onChange(of: appSettingsStore.general.value.showMenuBarMiniStatus) { _, _ in
+                appDelegate.syncMenuBarMiniStatusItem()
+            }
+            .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
+                appDelegate.evaluateAndPostNotifications()
+            }
+            .onChange(of: appSettingsStore.keyboard.value, initial: true) { _, keyboard in
+                CurrentKeyboardShortcuts.keyboard = keyboard
+            }
+            .onChange(of: appSettingsStore.terminal.value.clipboardWritePolicy) { _, _ in
+                ghosttyRuntime.applyTerminalSettings()
+            }
+            .onChange(of: appSettingsStore.terminal.value.confirmClipboardRead) { _, _ in
+                ghosttyRuntime.applyTerminalSettings()
+            }
+            .onChange(of: appSettingsStore.terminal.value.copyOnSelect) { _, _ in
+                ghosttyRuntime.applyTerminalSettings()
+            }
+            .onChange(of: appSettingsStore.appearance.value.accent, initial: true) { _, newAccent in
+                // Single writer for the non-view-facing accent
+                // mailbox. AppearanceBridge previously fired its own
+                // .task here, which produced N writers when the
+                // modifier was installed in multiple windows. Hoisting
+                // the write to the primary scene root guarantees exactly
+                // one update per accent change.
+                AwAccentRuntime.current = AwAccent(configAccent: newAccent)
+            }
+            .onChange(of: appSettingsStore.appearance.value.uiFont) { _, newFamily in
+                AwUIFontRuntime.current = AwUIFontResolver.resolvedForSystem(
+                    rawFamily: newFamily
+                )
+            }
+            .terminalAppearanceSync(
+                appSettingsStore: appSettingsStore,
+                ghosttyRuntime: ghosttyRuntime,
+                preferencesCache: terminalAppearancePreferencesCache
+            )
+            .onReceive(NotificationCenter.default.publisher(for: .awesoMuxFocusSidebarRequested)) { _ in
+                requestSidebarFocus()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .awesoMuxToggleSidebarWidthRequested)) { _ in
+                requestSidebarWidthToggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .awesoMuxCommandPaletteRequested)) { _ in
+                toggleCommandPalette()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .awesoMuxKeyboardCheatsheetRequested)) { _ in
+                toggleKeyboardCheatsheet()
+            }
+            .overlay(alignment: .topTrailing) {
+                if let quickRunToast {
+                    QuickRunToastView(toast: quickRunToast)
+                        .padding(.top, 18)
+                        .padding(.trailing, 18)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .awesoMuxCommandPaletteRequested)) { _ in
-                    toggleCommandPalette()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .awesoMuxKeyboardCheatsheetRequested)) { _ in
-                    toggleKeyboardCheatsheet()
-                }
-                .overlay(alignment: .topTrailing) {
-                    if let quickRunToast {
-                        QuickRunToastView(toast: quickRunToast)
-                            .padding(.top, 18)
-                            .padding(.trailing, 18)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                }
-                .animation(.easeOut(duration: 0.16), value: quickRunToast)
-                .preferredColorScheme(preferredScheme)
-                .environment(appSettingsStore)
-                .appearanceBridge(appSettingsStore)
-                .modifier(CaptureOpenWindowAction(action: $openWindowAction))
+            }
+            .animation(.easeOut(duration: 0.16), value: quickRunToast)
+            .preferredColorScheme(preferredScheme)
+            .environment(appSettingsStore)
+            .appearanceBridge(appSettingsStore)
+            .modifier(CaptureOpenWindowAction(action: $openWindowAction))
         }
         .windowStyle(.hiddenTitleBar)
         // A stable scene id lets Dock/menu code call `openWindow(id:)`, but it
@@ -617,8 +627,12 @@ struct AwesoMuxApp: App {
 
                 Button(
                     sessionStore.selectedSession.map { sessionStore.isPinned($0.id) } == true
-                        ? String(localized: "Unpin Workspace", comment: "Main-menu action that removes the selected workspace from the sidebar's pinned section.")
-                        : String(localized: "Pin Workspace", comment: "Main-menu action that pins the selected workspace to the top of the sidebar.")
+                        ? String(
+                            localized: "Unpin Workspace",
+                            comment: "Main-menu action that removes the selected workspace from the sidebar's pinned section.")
+                        : String(
+                            localized: "Pin Workspace",
+                            comment: "Main-menu action that pins the selected workspace to the top of the sidebar.")
                 ) {
                     guard let selected = sessionStore.selectedSession else { return }
                     sessionStore.togglePin(sessionID: selected.id)
@@ -861,12 +875,12 @@ struct AwesoMuxApp: App {
                 Divider()
 
                 Button("Focus Sidebar", action: requestSidebarFocus)
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.focusSidebar))
-                .disabled(isAnySheetPresented)
+                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.focusSidebar))
+                    .disabled(isAnySheetPresented)
 
                 Button("Collapse/Expand Sidebar", action: requestSidebarWidthToggle)
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarWidth))
-                .disabled(isAnySheetPresented)
+                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarWidth))
+                    .disabled(isAnySheetPresented)
 
                 let jumpRows = DockRecentWorkspaceMenu.openWorkspaceRows(
                     groups: sessionStore.groups,
@@ -901,33 +915,33 @@ struct AwesoMuxApp: App {
                 .disabled(!canRunWorkspaceShortcut(hasTarget: hasMultipleSessions))
 
                 #if DEBUG
-                Divider()
+                    Divider()
 
-                // Debug-only test affordance. The notification policy +
-                // tracker chain (PR #29 / INT-183) and any future producer
-                // (INT-182) both depend on something flipping a session into
-                // .needsAttention. Until INT-182 lands, the only natural
-                // path is libghostty's bell handler — which Claude Code
-                // doesn't trigger for prompts. This button gives manual
-                // testers a way to exercise the notification chain end-to-end
-                // without waiting for the real producer.
-                Button("Debug: Fire Needs Attention on Active Workspace") {
-                    if let id = sessionStore.selectedSessionID {
-                        sessionStore.markSessionNeedsAttention(id: id, unreadNotificationDelta: 1)
+                    // Debug-only test affordance. The notification policy +
+                    // tracker chain (PR #29 / INT-183) and any future producer
+                    // (INT-182) both depend on something flipping a session into
+                    // .needsAttention. Until INT-182 lands, the only natural
+                    // path is libghostty's bell handler — which Claude Code
+                    // doesn't trigger for prompts. This button gives manual
+                    // testers a way to exercise the notification chain end-to-end
+                    // without waiting for the real producer.
+                    Button("Debug: Fire Needs Attention on Active Workspace") {
+                        if let id = sessionStore.selectedSessionID {
+                            sessionStore.markSessionNeedsAttention(id: id, unreadNotificationDelta: 1)
+                        }
                     }
-                }
-                .disabled(sessionStore.selectedSessionID == nil)
+                    .disabled(sessionStore.selectedSessionID == nil)
 
-                Button("Debug: Set Active Workspace Waiting") {
-                    if let id = sessionStore.selectedSessionID {
-                        sessionStore.setDebugAgentState(
-                            id: id,
-                            agentState: .waiting,
-                            clearsAttention: true
-                        )
+                    Button("Debug: Set Active Workspace Waiting") {
+                        if let id = sessionStore.selectedSessionID {
+                            sessionStore.setDebugAgentState(
+                                id: id,
+                                agentState: .waiting,
+                                clearsAttention: true
+                            )
+                        }
                     }
-                }
-                .disabled(sessionStore.selectedSessionID == nil)
+                    .disabled(sessionStore.selectedSessionID == nil)
                 #endif
             }
 
@@ -1106,15 +1120,19 @@ struct AwesoMuxApp: App {
         defer { isCloseConfirmAlertPresented = false }
 
         let displayTitle = Self.sanitizedAlertTitle(session.title)
-        let atRisk = session.isCloseRisk(at: Date())
+        let atRisk =
+            session.isCloseRisk(at: Date())
             || floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
 
         // One localized string per variant (not concatenated fragments) so
         // translators control the full sentence — mirrors confirmCloseIfNeeded.
-        let body = atRisk
+        let body =
+            atRisk
             ? String(
-                localized: "\(displayTitle) has activity that will be interrupted. The workspace will be closed permanently and can't be reopened. Its running sessions will be terminated.",
-                comment: "Body of the clear-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
+                localized:
+                    "\(displayTitle) has activity that will be interrupted. The workspace will be closed permanently and can't be reopened. Its running sessions will be terminated.",
+                comment:
+                    "Body of the clear-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
             )
             : String(
                 localized: "\(displayTitle) will be closed permanently and can't be reopened. Its running sessions will be terminated.",
@@ -1123,7 +1141,8 @@ struct AwesoMuxApp: App {
         return NSAlert.confirmDestructive(
             title: String(
                 localized: "Clear \(displayTitle)?",
-                comment: "Title of the clear-workspace (permanent close) confirmation dialog. Argument is the bidi-isolated workspace title."
+                comment:
+                    "Title of the clear-workspace (permanent close) confirmation dialog. Argument is the bidi-isolated workspace title."
             ),
             body: body,
             keyboardHint: String(
@@ -1241,7 +1260,8 @@ struct AwesoMuxApp: App {
     private func confirmCloseGroupIfNeeded(_ group: SessionGroup) -> CloseConfirmDecision {
         let workspaces = appSettingsStore.workspaces.value
         let now = Date()
-        let riskyCount = workspaces.confirmCloseWithRunningAgent
+        let riskyCount =
+            workspaces.confirmCloseWithRunningAgent
             ? group.sessions.count(where: {
                 $0.isCloseRisk(at: now) || floatingPanelController.hasRiskyFloatingSessionsOnClose(for: $0.id)
             })
@@ -1268,15 +1288,19 @@ struct AwesoMuxApp: App {
         if group.remote != nil {
             // The risky alert doubles as the remote-forget confirm here — one
             // dialog, not two stacked modals.
-            body += "\n\n" + String(
-                localized: "Closing this group also forgets its SSH target.",
-                comment: "Extra line on the close-group confirmation dialog when the group has a remote SSH target that removal would forget."
-            )
+            body +=
+                "\n\n"
+                + String(
+                    localized: "Closing this group also forgets its SSH target.",
+                    comment:
+                        "Extra line on the close-group confirmation dialog when the group has a remote SSH target that removal would forget."
+                )
         }
         return NSAlert.confirmDestructive(
             title: String(
                 localized: "Close group \(displayName)?",
-                comment: "Title of the close-group confirmation dialog when workspaces in the group have running activity. Argument is the bidi-isolated group name."
+                comment:
+                    "Title of the close-group confirmation dialog when workspaces in the group have running activity. Argument is the bidi-isolated group name."
             ),
             body: body,
             keyboardHint: String(
@@ -1309,25 +1333,31 @@ struct AwesoMuxApp: App {
         // "Remove" for an empty group (nothing closes but the shell of the
         // group itself); "Close" when workspaces are about to be torn down —
         // matching the risky-path dialog's verb for the same operation.
-        let title = isEmpty
+        let title =
+            isEmpty
             ? String(
                 localized: "Remove remote group \(displayName)?",
-                comment: "Title of the confirmation dialog shown when removing an empty workspace group that has a remote SSH target. Argument is the bidi-isolated group name."
+                comment:
+                    "Title of the confirmation dialog shown when removing an empty workspace group that has a remote SSH target. Argument is the bidi-isolated group name."
             )
             : String(
                 localized: "Close remote group \(displayName)?",
-                comment: "Title of the confirmation dialog shown when closing a populated workspace group that has a remote SSH target. Argument is the bidi-isolated group name."
+                comment:
+                    "Title of the confirmation dialog shown when closing a populated workspace group that has a remote SSH target. Argument is the bidi-isolated group name."
             )
-        let lossLine = isEmpty
+        let lossLine =
+            isEmpty
             ? String(
                 localized: "The group is empty, but removing it forgets its SSH target. Sessions on the remote host are not affected.",
                 comment: "Body of the empty-remote-group removal confirmation dialog."
             )
             : String(
                 localized: "Closing this group also forgets its SSH target. Sessions on the remote host are not affected.",
-                comment: "Body of the remote-group close confirmation dialog when the group has workspaces but the running-agent risk gate did not fire."
+                comment:
+                    "Body of the remote-group close confirmation dialog when the group has workspaces but the running-agent risk gate did not fire."
             )
-        let keyboardHint = isEmpty
+        let keyboardHint =
+            isEmpty
             ? String(
                 localized: "Press ⌘Return to remove group. Esc cancels.",
                 comment: "Keyboard hint line on the empty-remote-group removal confirmation dialog."
@@ -1336,7 +1366,8 @@ struct AwesoMuxApp: App {
                 localized: "Press ⌘Return to close group. Esc cancels.",
                 comment: "Keyboard hint line on the close-group confirmation dialog."
             )
-        let destructiveTitle = isEmpty
+        let destructiveTitle =
+            isEmpty
             ? String(
                 localized: "Remove Group",
                 comment: "Destructive button on the empty-remote-group removal confirmation dialog."
@@ -1404,7 +1435,8 @@ struct AwesoMuxApp: App {
         let mainAtRisk = session.isCloseRisk(at: Date())
         let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
         guard workspaces.confirmCloseWithRunningAgent,
-              mainAtRisk || floatingAtRisk else {
+            mainAtRisk || floatingAtRisk
+        else {
             return .proceed
         }
 
@@ -1417,7 +1449,8 @@ struct AwesoMuxApp: App {
         return NSAlert.confirmDestructive(
             title: String(
                 localized: "Close \(displayTitle)?",
-                comment: "Title of the close-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
+                comment:
+                    "Title of the close-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
             ),
             body: String(
                 localized: "\(displayTitle) has activity that will be interrupted. Closing will terminate the running process.",
@@ -1451,19 +1484,23 @@ struct AwesoMuxApp: App {
         case .restartShell:
             title = String(
                 localized: "Restart shell in \(displayTitle)?",
-                comment: "Title of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
+                comment:
+                    "Title of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
             )
             body = String(
-                localized: "\(displayTitle) has activity that will be interrupted. Restarting the shell will terminate the running process.",
+                localized:
+                    "\(displayTitle) has activity that will be interrupted. Restarting the shell will terminate the running process.",
                 comment: "Body of the restart-shell confirmation dialog. Argument is the bidi-isolated workspace title."
             )
         case .closePane:
             title = String(
                 localized: "Close pane in \(displayTitle)?",
-                comment: "Title of the close-pane confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
+                comment:
+                    "Title of the close-pane confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
             )
             body = String(
-                localized: "The active pane in \(displayTitle) has activity that will be interrupted. Closing the pane will terminate the running process.",
+                localized:
+                    "The active pane in \(displayTitle) has activity that will be interrupted. Closing the pane will terminate the running process.",
                 comment: "Body of the close-pane confirmation dialog. Argument is the bidi-isolated workspace title."
             )
         }
@@ -1480,7 +1517,8 @@ struct AwesoMuxApp: App {
     /// non-bidi-isolated form used for VoiceOver announcements so
     /// `U+2068`/`U+2069` codepoints don't show up as spoken artifacts.
     private static func compactTitle(_ raw: String) -> String {
-        let oneLine = raw
+        let oneLine =
+            raw
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
         return oneLine.count > 60
@@ -1515,7 +1553,8 @@ struct AwesoMuxApp: App {
     private func announceClearCancelled(title: String) {
         let announcement = String(
             localized: "Clear cancelled for \(title)",
-            comment: "VoiceOver announcement when the user cancels the clear-workspace confirmation dialog; argument is the workspace title."
+            comment:
+                "VoiceOver announcement when the user cancels the clear-workspace confirmation dialog; argument is the workspace title."
         )
         postAccessibilityAnnouncement(announcement)
     }
@@ -1531,7 +1570,8 @@ struct AwesoMuxApp: App {
     private func announceAllWorkspacesClosed(inGroup name: String) {
         let announcement = String(
             localized: "Closed all workspaces in \(name)",
-            comment: "VoiceOver announcement after closing every workspace in the sole group, which remains as an empty group; argument is the group name."
+            comment:
+                "VoiceOver announcement after closing every workspace in the sole group, which remains as an empty group; argument is the group name."
         )
         postAccessibilityAnnouncement(announcement)
     }
@@ -1539,7 +1579,8 @@ struct AwesoMuxApp: App {
     private func announceCloseCancelled(title: String) {
         let announcement = String(
             localized: "Close cancelled for \(title)",
-            comment: "VoiceOver announcement when the user cancels a close confirmation dialog; argument is the workspace title or workspace group name."
+            comment:
+                "VoiceOver announcement when the user cancels a close confirmation dialog; argument is the workspace title or workspace group name."
         )
         postAccessibilityAnnouncement(announcement)
     }
@@ -1569,7 +1610,8 @@ struct AwesoMuxApp: App {
         DispatchQueue.main.async {
             let announcement: String
             if let restoredID,
-               let session = self.sessionStore.session(id: restoredID) {
+                let session = self.sessionStore.session(id: restoredID)
+            {
                 announcement = String(
                     localized: "Reopened workspace \(Self.compactTitle(session.title))",
                     comment: "VoiceOver announcement after Cmd-Shift-T reopens a closed workspace; argument is the workspace title."
@@ -1585,7 +1627,7 @@ struct AwesoMuxApp: App {
                 notification: .announcementRequested,
                 userInfo: [
                     .announcement: announcement,
-                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue,
                 ]
             )
         }
@@ -1605,19 +1647,21 @@ struct AwesoMuxApp: App {
         appDelegate.surfacePrimaryWindow()
         DispatchQueue.main.async {
             guard let restoredID,
-                  let session = self.sessionStore.session(id: restoredID) else {
+                let session = self.sessionStore.session(id: restoredID)
+            else {
                 return
             }
             let announcement = String(
                 localized: "Reopened workspace \(Self.compactTitle(session.title))",
-                comment: "VoiceOver announcement after a recently-closed workspace is reopened from the picker; argument is the workspace title."
+                comment:
+                    "VoiceOver announcement after a recently-closed workspace is reopened from the picker; argument is the workspace title."
             )
             NSAccessibility.post(
                 element: NSApplication.shared,
                 notification: .announcementRequested,
                 userInfo: [
                     .announcement: announcement,
-                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue,
                 ]
             )
         }
@@ -1641,7 +1685,7 @@ struct AwesoMuxApp: App {
                 notification: .announcementRequested,
                 userInfo: [
                     .announcement: announcement,
-                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue,
                 ]
             )
         }
@@ -1665,7 +1709,8 @@ struct AwesoMuxApp: App {
 
     private var canOpenSelectedSessionInIDE: Bool {
         guard appSettingsStore.workspaces.value.openInIDEEnabled,
-              let session = sessionStore.selectedSession else {
+            let session = sessionStore.selectedSession
+        else {
             return false
         }
         return IDEOpenTarget.isEligible(session: session)
@@ -1680,8 +1725,8 @@ struct AwesoMuxApp: App {
     /// already dismissed the transient popover, so it needs no guard.
     private func selectAdjacentDocumentTab(offset: Int) {
         guard !DocumentComposeGuard.isComposing(),
-              let session = sessionStore.selectedSession,
-              let targetTabID = session.layout.firstDocumentGroup?.adjacentTabID(offset: offset)
+            let session = sessionStore.selectedSession,
+            let targetTabID = session.layout.firstDocumentGroup?.adjacentTabID(offset: offset)
         else {
             return
         }
@@ -1695,8 +1740,8 @@ struct AwesoMuxApp: App {
     /// destroys an open draft.
     private func closeSelectedDocumentTab() {
         guard !DocumentComposeGuard.isComposing(),
-              let session = sessionStore.selectedSession,
-              let selectedTab = session.layout.firstDocumentGroup?.selectedTab
+            let session = sessionStore.selectedSession,
+            let selectedTab = session.layout.firstDocumentGroup?.selectedTab
         else {
             return
         }
@@ -1725,7 +1770,8 @@ struct AwesoMuxApp: App {
     /// always land on a different pane, so the announcement is always a real move.
     private func announceActivePaneFocused() {
         guard let session = sessionStore.selectedSession,
-              let index = session.layout.paneIDs.firstIndex(of: session.activePaneID) else {
+            let index = session.layout.paneIDs.firstIndex(of: session.activePaneID)
+        else {
             return
         }
         announcePaneFocused(index: index + 1)
@@ -1750,11 +1796,13 @@ struct AwesoMuxApp: App {
         guard let session = sessionStore.selectedSession else {
             return
         }
-        guard sessionStore.movePane(
-            id: session.activePaneID,
-            toWorkspaceEdge: edge,
-            in: session.id
-        ) else {
+        guard
+            sessionStore.movePane(
+                id: session.activePaneID,
+                toWorkspaceEdge: edge,
+                in: session.id
+            )
+        else {
             return
         }
         announcePaneMoved(toWorkspaceEdge: edge)
@@ -1795,7 +1843,8 @@ struct AwesoMuxApp: App {
     ) -> (index: Int, id: TerminalPane.ID)? {
         let paneIDs = session.layout.paneIDs
         guard paneIDs.count > 1,
-              let activeIndex = paneIDs.firstIndex(of: session.activePaneID) else {
+            let activeIndex = paneIDs.firstIndex(of: session.activePaneID)
+        else {
             return nil
         }
         let nextIndex = (activeIndex + 1) % paneIDs.count
@@ -1804,7 +1853,8 @@ struct AwesoMuxApp: App {
 
     private var canSwapActivePaneWithNext: Bool {
         guard let session = sessionStore.selectedSession,
-              let next = nextPaneIDForSwap(in: session) else {
+            let next = nextPaneIDForSwap(in: session)
+        else {
             return false
         }
         return sessionStore.canSwapPanes(
@@ -1816,12 +1866,13 @@ struct AwesoMuxApp: App {
 
     private func swapActivePaneWithNext() {
         guard let session = sessionStore.selectedSession,
-              let next = nextPaneIDForSwap(in: session),
-              sessionStore.swapPanes(
-                  firstID: session.activePaneID,
-                  secondID: next.id,
-                  in: session.id
-              ) else {
+            let next = nextPaneIDForSwap(in: session),
+            sessionStore.swapPanes(
+                firstID: session.activePaneID,
+                secondID: next.id,
+                in: session.id
+            )
+        else {
             return
         }
         // `next.index` is the depth-first position the swap moved the active
@@ -1829,7 +1880,8 @@ struct AwesoMuxApp: App {
         // existing `Focused pane N` idiom.
         let announcement = String(
             localized: "Swapped with pane \(next.index + 1)",
-            comment: "VoiceOver announcement after swapping the active pane with the next pane in depth-first order; argument is the 1-based pane index."
+            comment:
+                "VoiceOver announcement after swapping the active pane with the next pane in depth-first order; argument is the 1-based pane index."
         )
         postAccessibilityAnnouncement(announcement)
     }
@@ -1859,9 +1911,11 @@ struct AwesoMuxApp: App {
     }
 
     private func hasWorkspace(atFlatIndex index: Int) -> Bool {
-        index >= 0 && index < sessionStore.groups.reduce(0) { count, group in
-            count + group.sessions.count
-        }
+        index >= 0
+            && index
+                < sessionStore.groups.reduce(0) { count, group in
+                    count + group.sessions.count
+                }
     }
 
     private func canRunWorkspaceShortcut(hasTarget: Bool) -> Bool {
@@ -1925,7 +1979,8 @@ struct AwesoMuxApp: App {
             return
         }
         guard let current = sessionStore.selectedSessionID,
-              let currentIndex = order.firstIndex(of: current) else {
+            let currentIndex = order.firstIndex(of: current)
+        else {
             sessionStore.selectedSessionID = order.first
             return
         }
@@ -2081,7 +2136,8 @@ struct AwesoMuxApp: App {
         switch action {
         case .restartShell:
             guard let refreshed = sessionStore.session(id: sessionID),
-                  refreshed.layout.isSinglePane else {
+                refreshed.layout.isSinglePane
+            else {
                 assertionFailure(
                     "Single-pane restart action resolved for a stale or multi-pane session"
                 )
@@ -2094,8 +2150,9 @@ struct AwesoMuxApp: App {
             )
         case .closePane:
             guard let refreshed = sessionStore.session(id: sessionID),
-                  refreshed.layout.hasMultiplePanes,
-                  refreshed.layout.pane(id: targetPaneID) != nil else {
+                refreshed.layout.hasMultiplePanes,
+                refreshed.layout.pane(id: targetPaneID) != nil
+            else {
                 assertionFailure(
                     "Close-pane action resolved for a stale, single-pane, or missing target pane"
                 )
@@ -2158,9 +2215,10 @@ struct AwesoMuxApp: App {
 
     private func requestRenameActivePane() {
         guard !isAnySheetPresented,
-              let session = sessionStore.selectedSession,
-              session.layout.hasMultiplePanes,
-              let pane = session.activePane else {
+            let session = sessionStore.selectedSession,
+            session.layout.hasMultiplePanes,
+            let pane = session.activePane
+        else {
             return
         }
         paneEditRequest = PaneEditRequest(
@@ -2173,9 +2231,10 @@ struct AwesoMuxApp: App {
 
     private func requestResetActivePaneTitle() {
         guard let session = sessionStore.selectedSession,
-              session.layout.hasMultiplePanes,
-              let pane = session.activePane,
-              pane.isTitleUserEdited else {
+            session.layout.hasMultiplePanes,
+            let pane = session.activePane,
+            pane.isTitleUserEdited
+        else {
             return
         }
         sessionStore.resetPaneTitle(sessionID: session.id, paneID: pane.id)
@@ -2231,10 +2290,23 @@ struct AwesoMuxApp: App {
         )
     }
 
-    private func requestManagedSSHWorkspaceConversion() {
+    private func canMakeWorkspaceManaged(_ session: TerminalSession) -> Bool {
+        guard !isAnySheetPresented,
+            sessionStore.selectedSessionID == session.id
+        else {
+            return false
+        }
+        return sessionStore.managedSSHConversionTarget(
+            sessionID: session.id,
+            paneID: session.activePaneID
+        ) != nil
+    }
+
+    private func requestManagedSSHWorkspaceConversion(_ session: TerminalSession? = nil) {
         guard !isAnySheetPresented,
             let request = SSHWorkspaceConnectRequest.managedConversion(
-                sessionStore: sessionStore
+                sessionStore: sessionStore,
+                sessionID: session?.id
             )
         else {
             return
@@ -2340,7 +2412,8 @@ struct AwesoMuxApp: App {
 
     private func presentFindInActivePane() {
         guard !isAnySheetPresented,
-              let session = sessionStore.selectedSession else {
+            let session = sessionStore.selectedSession
+        else {
             return
         }
         _ = ghosttyRuntime.presentSearch(in: session.activePaneID)
@@ -2348,7 +2421,8 @@ struct AwesoMuxApp: App {
 
     private func presentScrollbackDumpForActivePane() {
         guard !isAnySheetPresented,
-              let session = sessionStore.selectedSession else {
+            let session = sessionStore.selectedSession
+        else {
             return
         }
         _ = ghosttyRuntime.presentScrollbackDump(in: session.activePaneID)
@@ -2370,7 +2444,8 @@ struct AwesoMuxApp: App {
     /// owning session, and we focus that session's active pane.
     private func jumpToDaemonOwner(_ id: TerminalSessionID) {
         guard let target = sessionManagerModel.jumpTarget(for: id),
-              let session = sessionStore.session(id: target.sessionID) else {
+            let session = sessionStore.session(id: target.sessionID)
+        else {
             return
         }
         sessionStore.selectedSessionID = target.sessionID
@@ -2403,7 +2478,8 @@ struct AwesoMuxApp: App {
     private func runPaletteCommand(id commandID: PaletteCommand.ID) -> Bool {
         let commands = currentPaletteCommands()
         guard let command = PaletteCommandRegistry.command(id: commandID, in: commands),
-              command.isEnabled else {
+            command.isEnabled
+        else {
             // A custom command deleted between palette-open and Enter is
             // absent from the freshly rebuilt list, so it lands here instead
             // of reaching `runCustomCommand`'s stale-id guard. Route it there
@@ -2541,10 +2617,11 @@ struct AwesoMuxApp: App {
             groupName: appSettingsStore.workspaces.value.defaultGroup
         )
         guard let session = sessionStore.session(id: sessionID) else {
-            announceQuickRun(String(
-                localized: "Could not create a new tab for \(command).",
-                comment: "Accessibility announcement when opening a new tab for a palette command fails"
-            ))
+            announceQuickRun(
+                String(
+                    localized: "Could not create a new tab for \(command).",
+                    comment: "Accessibility announcement when opening a new tab for a palette command fails"
+                ))
             return
         }
         if pinsTitle {
@@ -2617,8 +2694,9 @@ struct AwesoMuxApp: App {
 
     private func selectedWorkingDirectoryURL() -> URL? {
         guard let workingDirectory = sessionStore.selectedSession?.workingDirectory,
-              !workingDirectory.isEmpty,
-              let validated = WorkingDirectoryValidator.validatedStartupDirectory(workingDirectory) else {
+            !workingDirectory.isEmpty,
+            let validated = WorkingDirectoryValidator.validatedStartupDirectory(workingDirectory)
+        else {
             return nil
         }
         return URL(fileURLWithPath: validated, isDirectory: true)
@@ -2631,7 +2709,7 @@ struct AwesoMuxApp: App {
             notification: .announcementRequested,
             userInfo: [
                 .announcement: message,
-                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )
     }
@@ -2665,23 +2743,27 @@ struct AwesoMuxApp: App {
         where row.lifecycle == .owned || row.lifecycle == .detachedRestorable {
             let daemonID = row.id
             let label = row.owner ?? row.id.rawValue
-            commands.append(PaletteCommand(
-                id: "daemonJump.\(row.id.rawValue)",
-                title: "Jump to Session: \(label)",
-                subtitle: "Background session",
-                keywords: ["session", "daemon", "jump", "bridge", "background"],
-                shortcut: nil,
-                isEnabled: true,
-                run: { [self] in
-                    jumpToDaemonOwner(daemonID)
-                }
-            ))
+            commands.append(
+                PaletteCommand(
+                    id: "daemonJump.\(row.id.rawValue)",
+                    title: "Jump to Session: \(label)",
+                    subtitle: "Background session",
+                    keywords: ["session", "daemon", "jump", "bridge", "background"],
+                    shortcut: nil,
+                    isEnabled: true,
+                    run: { [self] in
+                        jumpToDaemonOwner(daemonID)
+                    }
+                ))
         }
         for customCommand in customCommandStore.commands {
             let commandID = customCommand.id
-            commands.append(.customCommand(customCommand, run: { [self] in
-                runCustomCommand(id: commandID)
-            }))
+            commands.append(
+                .customCommand(
+                    customCommand,
+                    run: { [self] in
+                        runCustomCommand(id: commandID)
+                    }))
         }
         return commands
     }
@@ -2703,7 +2785,7 @@ struct AwesoMuxApp: App {
             newWorkspaceGroup: requestNewWorkspaceGroup,
             newRemoteWorkspaceGroup: requestNewRemoteWorkspaceGroup,
             connectViaSSH: { requestConnectViaSSH() },
-            makeThisWorkspaceManaged: requestManagedSSHWorkspaceConversion,
+            makeThisWorkspaceManaged: { requestManagedSSHWorkspaceConversion() },
             renameWorkspace: requestRenameSelectedWorkspace,
             renamePane: requestRenameActivePane,
             resetPaneTitle: requestResetActivePaneTitle,
@@ -2771,19 +2853,24 @@ struct AwesoMuxApp: App {
             },
             focusPermissionPrompt: {
                 guard let sessionID = sessionStore.selectedSessionID,
-                      let session = sessionStore.session(id: sessionID) else {
+                    let session = sessionStore.session(id: sessionID)
+                else {
                     return
                 }
-                let candidates = [session.activePaneID]
+                let candidates =
+                    [session.activePaneID]
                     + session.layout.paneIDs.filter { $0 != session.activePaneID }
-                guard let target = candidates.lazy.compactMap({ paneID -> (TerminalPane.ID, BridgePermissionCoordinator)? in
-                    guard let terminalSessionID = session.layout.pane(id: paneID)?.terminalSessionID,
-                          let coordinator = ghosttyRuntime.bridgeCoordinatorStore.coordinator(for: terminalSessionID),
-                          coordinator.activePrompt != nil else {
-                        return nil
-                    }
-                    return (paneID, coordinator)
-                }).first else {
+                guard
+                    let target = candidates.lazy.compactMap({ paneID -> (TerminalPane.ID, BridgePermissionCoordinator)? in
+                        guard let terminalSessionID = session.layout.pane(id: paneID)?.terminalSessionID,
+                            let coordinator = ghosttyRuntime.bridgeCoordinatorStore.coordinator(for: terminalSessionID),
+                            coordinator.activePrompt != nil
+                        else {
+                            return nil
+                        }
+                        return (paneID, coordinator)
+                    }).first
+                else {
                     return
                 }
                 sessionStore.setActivePane(id: target.0, in: sessionID)
@@ -2839,9 +2926,10 @@ struct AwesoMuxApp: App {
 
     private func openSelectedWorkspaceInIDE(with selectedIDE: InstalledIDE?) {
         guard appSettingsStore.workspaces.value.openInIDEEnabled,
-              !isAnySheetPresented,
-              let session = sessionStore.selectedSession,
-              IDEOpenTarget.isEligible(session: session) else {
+            !isAnySheetPresented,
+            let session = sessionStore.selectedSession,
+            IDEOpenTarget.isEligible(session: session)
+        else {
             return
         }
 
@@ -2922,12 +3010,14 @@ struct AwesoMuxApp: App {
             pullsDown: false
         )
         popup.setAccessibilityLabel(String(localized: "IDE", comment: "Accessibility label for the IDE picker popup."))
-        popup.setAccessibilityHelp(String(localized: "Choose the IDE or editor to open this project.", comment: "Accessibility help for the IDE picker popup."))
+        popup.setAccessibilityHelp(
+            String(localized: "Choose the IDE or editor to open this project.", comment: "Accessibility help for the IDE picker popup."))
         for ide in installed {
             popup.addItem(withTitle: ide.displayName)
         }
         if let preselectedBundleIdentifier,
-           let savedIndex = installed.firstIndex(where: { $0.bundleIdentifier == preselectedBundleIdentifier }) {
+            let savedIndex = installed.firstIndex(where: { $0.bundleIdentifier == preselectedBundleIdentifier })
+        {
             popup.selectItem(at: savedIndex)
         }
         alert.accessoryView = popup
@@ -2967,8 +3057,12 @@ struct AwesoMuxApp: App {
 
     private func showIDEOpenTargetUnavailableAlert() {
         let alert = NSAlert()
-        alert.messageText = String(localized: "Could Not Resolve Project Folder", comment: "Alert title shown when awesoMux cannot resolve a local folder for Open in IDE.")
-        alert.informativeText = String(localized: "awesoMux could not find a local folder to open for the active pane.", comment: "Alert text shown when Open in IDE cannot resolve a target folder.")
+        alert.messageText = String(
+            localized: "Could Not Resolve Project Folder",
+            comment: "Alert title shown when awesoMux cannot resolve a local folder for Open in IDE.")
+        alert.informativeText = String(
+            localized: "awesoMux could not find a local folder to open for the active pane.",
+            comment: "Alert text shown when Open in IDE cannot resolve a target folder.")
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
         alert.runModal()
@@ -2976,8 +3070,11 @@ struct AwesoMuxApp: App {
 
     private func showNoIDEsFoundAlert() {
         let alert = NSAlert()
-        alert.messageText = String(localized: "No Supported IDEs Found", comment: "Alert title shown when Open in IDE cannot find an installed supported IDE.")
-        alert.informativeText = String(localized: "Install a supported Mac IDE or editor, then try again.", comment: "Alert text shown when no supported IDE is installed.")
+        alert.messageText = String(
+            localized: "No Supported IDEs Found", comment: "Alert title shown when Open in IDE cannot find an installed supported IDE.")
+        alert.informativeText = String(
+            localized: "Install a supported Mac IDE or editor, then try again.",
+            comment: "Alert text shown when no supported IDE is installed.")
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
         alert.runModal()
@@ -2989,7 +3086,8 @@ struct AwesoMuxApp: App {
         message: String
     ) {
         let alert = NSAlert()
-        alert.messageText = String(localized: "Could Not Open in \(ideName)", comment: "Alert title shown when opening a project in the selected IDE fails.")
+        alert.messageText = String(
+            localized: "Could Not Open in \(ideName)", comment: "Alert title shown when opening a project in the selected IDE fails.")
         alert.informativeText = "\(targetURL.path)\n\n\(message)"
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
@@ -3004,7 +3102,7 @@ struct AwesoMuxApp: App {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [
             UTType(filenameExtension: "md"),
-            UTType(filenameExtension: "markdown")
+            UTType(filenameExtension: "markdown"),
         ].compactMap { $0 }
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -3023,7 +3121,7 @@ struct AwesoMuxApp: App {
 
         let validated = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
             selectedSession.activePane?.workingDirectory,
-            selectedSession.workingDirectory
+            selectedSession.workingDirectory,
         ])
         return validated.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
@@ -3108,11 +3206,13 @@ struct AwesoMuxApp: App {
             guard let window = NSApp.mainWindow ?? NSApp.keyWindow else {
                 return
             }
-            guard let surface = Self.terminalSurface(
-                in: window.contentView,
-                sessionID: sessionID,
-                paneID: paneID
-            ) else {
+            guard
+                let surface = Self.terminalSurface(
+                    in: window.contentView,
+                    sessionID: sessionID,
+                    paneID: paneID
+                )
+            else {
                 window.makeFirstResponder(nil)
                 return
             }
@@ -3129,8 +3229,9 @@ struct AwesoMuxApp: App {
             return nil
         }
         if let surface = view as? GhosttySurfaceNSView,
-           surface.sessionID == sessionID,
-           surface.paneID == paneID {
+            surface.sessionID == sessionID,
+            surface.paneID == paneID
+        {
             return surface
         }
         for subview in view.subviews {
@@ -3147,9 +3248,10 @@ struct AwesoMuxApp: App {
 
     private func dismissWorkspaceEditorIfTargetClosed() {
         guard let workspaceEditRequest,
-              !sessionStore.groups.contains(where: { group in
-                  group.sessions.contains { $0.id == workspaceEditRequest.id }
-              }) else {
+            !sessionStore.groups.contains(where: { group in
+                group.sessions.contains { $0.id == workspaceEditRequest.id }
+            })
+        else {
             return
         }
 
@@ -3162,7 +3264,8 @@ struct AwesoMuxApp: App {
         }
         // If the pane (or its session) exited/closed while the sheet was open,
         // Save/Reset would silently target a dead id — dismiss instead (Codex).
-        let targetExists = sessionStore.session(id: paneEditRequest.sessionID)?
+        let targetExists =
+            sessionStore.session(id: paneEditRequest.sessionID)?
             .layout.pane(id: paneEditRequest.paneID) != nil
         if !targetExists {
             self.paneEditRequest = nil
@@ -3171,7 +3274,8 @@ struct AwesoMuxApp: App {
 
     private func dismissWorkspaceGroupEditorIfTargetClosed() {
         guard let workspaceGroupRenameRequest,
-              !sessionStore.groups.contains(where: { $0.id == workspaceGroupRenameRequest.id }) else {
+            !sessionStore.groups.contains(where: { $0.id == workspaceGroupRenameRequest.id })
+        else {
             return
         }
 
@@ -3207,8 +3311,18 @@ struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
     let action: SSHWorkspaceConnectAction
 
     @MainActor
-    static func managedConversion(sessionStore: SessionStore) -> Self? {
-        guard let session = sessionStore.selectedSession,
+    static func managedConversion(
+        sessionStore: SessionStore,
+        sessionID: TerminalSession.ID? = nil
+    ) -> Self? {
+        let session =
+            if let sessionID {
+                sessionStore.session(id: sessionID)
+            } else {
+                sessionStore.selectedSession
+            }
+        guard let session,
+            sessionStore.selectedSessionID == session.id,
             let target = sessionStore.managedSSHConversionTarget(
                 sessionID: session.id,
                 paneID: session.activePaneID
@@ -3276,7 +3390,8 @@ extension AwesoMuxApp {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Couldn't reopen your last workspaces"
-        alert.informativeText = "We couldn't read your saved workspace data, so awesoMux opened with fresh workspaces. Your old data is saved as a file in case you want to recover it later."
+        alert.informativeText =
+            "We couldn't read your saved workspace data, so awesoMux opened with fresh workspaces. Your old data is saved as a file in case you want to recover it later."
 
         alert.accessoryView = recoveryPathAccessoryField(for: warning)
 
@@ -3290,7 +3405,8 @@ extension AwesoMuxApp {
         switch alert.runModal() {
         case .alertSecondButtonReturn:
             if let url = warning.archivedSnapshotURL,
-               isSafeRecoveryArchiveURL(url) {
+                isSafeRecoveryArchiveURL(url)
+            {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         case .alertThirdButtonReturn:
@@ -3335,7 +3451,8 @@ extension AwesoMuxApp {
         switch alert.runModal() {
         case .alertSecondButtonReturn:
             if let url = warning.archivedSnapshotURL,
-               isSafeRecoveryArchiveURL(url) {
+                isSafeRecoveryArchiveURL(url)
+            {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         case .alertThirdButtonReturn:

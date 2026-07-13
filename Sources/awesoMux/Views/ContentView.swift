@@ -26,6 +26,8 @@ struct ContentView: View {
     let onRenameWorkspaceGroup: (SessionGroup) -> Void
     let onNewWorkspaceGroup: () -> Void
     let onConnectViaSSH: (SessionGroup) -> Void
+    let canMakeWorkspaceManaged: (TerminalSession) -> Bool
+    let onMakeWorkspaceManaged: (TerminalSession) -> Void
     let onManagedSSHWorkspaceOffer: (TerminalSession.ID, TerminalPane.ID) -> Void
     let onReopenClosedWorkspace: () -> Void
     let hasRecoveryWarning: Bool
@@ -161,6 +163,8 @@ struct ContentView: View {
                         onRenameWorkspaceGroup: onRenameWorkspaceGroup,
                         onNewWorkspaceGroup: onNewWorkspaceGroup,
                         onConnectViaSSH: onConnectViaSSH,
+                        canMakeWorkspaceManaged: canMakeWorkspaceManaged,
+                        onMakeWorkspaceManaged: onMakeWorkspaceManaged,
                         onOpenQuickSettings: onOpenQuickSettings,
                         onToggleCommandPalette: onToggleCommandPalette,
                         onFocusPane: onFocusAgentPane,

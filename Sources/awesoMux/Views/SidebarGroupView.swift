@@ -21,6 +21,8 @@ struct SidebarGroupView: View {
     let onSelect: (TerminalSession) -> Void
     let onNewSessionInGroup: () -> Void
     let onConnectViaSSH: (SessionGroup) -> Void
+    let canMakeWorkspaceManaged: (TerminalSession) -> Bool
+    let onMakeWorkspaceManaged: (TerminalSession) -> Void
     let onNewSessionHere: (TerminalSession) -> Void
     let onNewGroup: () -> Void
     let onRenameGroup: () -> Void
@@ -102,7 +104,8 @@ struct SidebarGroupView: View {
         // don't each rebuild `sessions.map(\.id)` (a double allocation —
         // `sessions` is itself computed) on every render / layout pass.
         let sessionIDSet = Set(sessionIDs)
-        let structuralAnimation: Animation? = reduceMotion || isFiltering
+        let structuralAnimation: Animation? =
+            reduceMotion || isFiltering
             ? nil
             : .easeOut(duration: 0.14)
 
@@ -230,6 +233,10 @@ struct SidebarGroupView: View {
                             onRename: {
                                 onRename(session)
                             },
+                            canMakeWorkspaceManaged: canMakeWorkspaceManaged(session),
+                            onMakeWorkspaceManaged: {
+                                onMakeWorkspaceManaged(session)
+                            },
                             onToggleNotificationsMute: {
                                 onToggleNotificationsMute(session)
                             },
@@ -297,14 +304,15 @@ struct SidebarGroupView: View {
                 }
                 .overlay(alignment: .topLeading) {
                     if activeDragKind == .workspace,
-                       !isFiltering,
-                       let workspaceDropIndex,
-                       let y = SidebarInsertionResolver.insertionY(
-                           forInsertionIndex: workspaceDropIndex,
-                           orderedIDs: sessionIDs,
-                           frames: rowFrames,
-                           spacing: density.sessionStackSpacing
-                       ) {
+                        !isFiltering,
+                        let workspaceDropIndex,
+                        let y = SidebarInsertionResolver.insertionY(
+                            forInsertionIndex: workspaceDropIndex,
+                            orderedIDs: sessionIDs,
+                            frames: rowFrames,
+                            spacing: density.sessionStackSpacing
+                        )
+                    {
                         SidebarInsertionIndicator(tint: tint.hue)
                             .offset(y: y - SidebarInsertionIndicator.height / 2)
                             .allowsHitTesting(false)
