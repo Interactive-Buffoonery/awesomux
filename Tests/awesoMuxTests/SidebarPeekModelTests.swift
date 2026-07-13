@@ -95,6 +95,77 @@ struct SidebarPeekModelTests {
         #expect(model.session?.id == b.id)       // B survived
     }
 
+    private func twoSessionGroup(_ name: String) -> (SessionGroup, TerminalSession, TerminalSession) {
+        let a = TerminalSession(title: "A", workingDirectory: "~", agentKind: .shell, agentState: .idle)
+        let b = TerminalSession(title: "B", workingDirectory: "~", agentKind: .shell, agentState: .idle)
+        let group = SessionGroup(name: name, sessions: [a, b])
+        return (group, a, b)
+    }
+
+    @Test("showGroup clears any active session peek, and vice versa")
+    func showGroupAndShowSessionAreMutuallyExclusive() async {
+        let model = SidebarPeekModel()
+        let session = twoPaneSession("A")
+        let (group, ga, gb) = twoSessionGroup("Code")
+
+        model.show(session: session, location: location, tint: tint, frame: .zero)
+        #expect(model.session?.id == session.id)
+        #expect(model.group == nil)
+
+        model.showGroup(group: group, tint: tint, sessions: [ga, gb], activeSessionID: ga.id, frame: .zero)
+        #expect(model.group?.id == group.id)
+        #expect(model.groupSessionItems.map(\.id) == [ga.id, gb.id])
+        #expect(model.session == nil) // showing the group cleared the session peek
+
+        model.show(session: session, location: location, tint: tint, frame: .zero)
+        #expect(model.session?.id == session.id)
+        #expect(model.group == nil) // showing the session cleared the group peek
+    }
+
+    @Test("requestHideGroup hides after the grace when the pointer never reaches the card")
+    func requestHideGroupHidesAfterGrace() async {
+        let gate = ManualDelayGate()
+        let model = SidebarPeekModel(sleep: { _ in await gate.wait() })
+        let (group, ga, gb) = twoSessionGroup("Code")
+        model.showGroup(group: group, tint: tint, sessions: [ga, gb], activeSessionID: nil, frame: .zero)
+        model.requestHideGroup(for: group.id)
+        #expect(await waitUntil { gate.waiterCount == 1 })
+        gate.release()
+        #expect(await waitUntil { model.group == nil })
+        #expect(model.group == nil)
+    }
+
+    @Test("pointer reaching the group card cancels the pending hide")
+    func pointerOverGroupCardCancelsHide() async {
+        let gate = ManualDelayGate()
+        let model = SidebarPeekModel(sleep: { _ in await gate.wait() })
+        let (group, ga, gb) = twoSessionGroup("Code")
+        model.showGroup(group: group, tint: tint, sessions: [ga, gb], activeSessionID: nil, frame: .zero)
+        model.requestHideGroup(for: group.id)
+        #expect(await waitUntil { gate.waiterCount == 1 })
+        model.setPointerOverGroupCard(true, for: group.id)
+        gate.release()
+        await drainMainQueue()
+        #expect(model.group?.id == group.id)
+    }
+
+    @Test("refreshGroup updates content only while this group owns the peek")
+    func refreshGroupGuardsOwnership() async {
+        let model = SidebarPeekModel()
+        let (groupA, aOne, aTwo) = twoSessionGroup("A")
+        let (groupB, _, _) = twoSessionGroup("B")
+        model.showGroup(group: groupA, tint: tint, sessions: [aOne, aTwo], activeSessionID: nil, frame: .zero)
+
+        // A different, non-owning group's refresh must no-op.
+        model.refreshGroup(group: groupB, tint: tint, sessions: [], activeSessionID: nil)
+        #expect(model.group?.id == groupA.id)
+
+        // The owning group's refresh updates content in place.
+        model.refreshGroup(group: groupA, tint: tint, sessions: [aOne], activeSessionID: aOne.id)
+        #expect(model.groupSessionItems.map(\.id) == [aOne.id])
+        #expect(model.groupSessionItems[0].isActive == true)
+    }
+
     /// Yield-poll with a bound: deterministic (no wall clock — pending
     /// main-actor jobs run whenever this suspends), and a condition that never
     /// comes reports a failure rather than hanging the suite.
@@ -109,5 +180,15 @@ struct SidebarPeekModelTests {
             await Task.yield()
         }
         return condition()
+    }
+
+    /// The orphan rescue defers its check one main-queue turn past the detach;
+    /// enqueueing behind it and awaiting guarantees the check has run.
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
     }
 }
