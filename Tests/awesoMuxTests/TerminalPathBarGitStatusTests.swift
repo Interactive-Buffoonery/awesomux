@@ -213,6 +213,7 @@ struct GitStatusResolverTests {
 
 // MARK: - Command runner drain
 
+@MainActor
 @Suite("Bounded command runner")
 struct BoundedCommandRunnerTests {
     @Test("stdout larger than the pipe buffer is fully drained, not deadlocked")
@@ -243,27 +244,42 @@ struct BoundedCommandRunnerTests {
         // resolve via its post-exit grace (not block on the sleep) — and to nil,
         // since without EOF the output can't be confirmed complete. The sleep is
         // kept short so the test leaves nothing meaningful behind.
-        let runner = BoundedCommandRunner(executableCandidates: ["/bin/sh"])
-        let start = Date()
-        let data = await runner.run(arguments: ["-c", "sleep 3 &"], inDirectory: NSTemporaryDirectory())
-        let elapsed = Date().timeIntervalSince(start)
+        let scheduler = TestScheduler()
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/sh"],
+            delay: { duration in
+                await scheduler.wait(for: duration)
+                try Task.checkCancellation()
+            }
+        )
+        let run = Task {
+            await runner.run(arguments: ["-c", "sleep 3 &"], inDirectory: NSTemporaryDirectory())
+        }
 
-        #expect(data == nil)  // undrained → unknown, not a partial result
-        #expect(elapsed < 2.5)  // ~500ms grace, not the 3s sleep
+        #expect(await waitUntil { scheduler.requestedDurations.contains(.milliseconds(500)) })
+        scheduler.advanceOneCycle()
+        #expect(await run.value == nil)  // undrained → unknown, not a partial result
     }
 
     @Test("a child that outlives the timeout is killed and yields nil")
     func timeoutTerminatesChild() async {
         // `sleep 30` never exits on its own; the 1s timeout must SIGTERM/SIGKILL it
         // and resolve nil well before the sleep would end.
-        var runner = BoundedCommandRunner(executableCandidates: ["/bin/sleep"])
-        runner.timeout = .seconds(1)
+        let scheduler = TestScheduler()
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/sleep"],
+            timeout: .seconds(1),
+            delay: { duration in
+                await scheduler.wait(for: duration)
+                try Task.checkCancellation()
+            }
+        )
+        let run = Task {
+            await runner.run(arguments: ["30"], inDirectory: NSTemporaryDirectory())
+        }
 
-        let start = Date()
-        let result = await runner.run(arguments: ["30"], inDirectory: NSTemporaryDirectory())
-        let elapsed = Date().timeIntervalSince(start)
-
-        #expect(result == nil)
-        #expect(elapsed < 5)  // timeout (1s) + SIGKILL grace (1s), not the 30s sleep
+        #expect(await waitUntil { scheduler.requestedDurations.first == .seconds(1) })
+        scheduler.advanceOneCycle()
+        #expect(await run.value == nil)
     }
 }
