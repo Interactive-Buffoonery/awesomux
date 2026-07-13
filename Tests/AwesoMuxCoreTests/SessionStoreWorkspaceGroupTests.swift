@@ -466,8 +466,19 @@ struct SessionStoreWorkspaceGroupTests {
 
     @Test("managed SSH conversion replaces the active pane in place")
     func managedSSHConversionReplacesActivePaneInPlace() throws {
-        let session = TerminalSession(title: "shell", workingDirectory: "~")
-        let oldPaneID = try #require(session.activePane?.id)
+        let sibling = TerminalPane(title: "local", workingDirectory: "~", executionPlan: .local)
+        let converting = TerminalPane(title: "ssh", workingDirectory: "~", executionPlan: .local)
+        let session = TerminalSession(
+            title: "shell",
+            workingDirectory: "~",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(sibling),
+                    second: .pane(converting)
+                )),
+            activePaneID: converting.id
+        )
         let group = SessionGroup(name: "Work", sessions: [session])
         let store = SessionStore(groups: [group], selectedSessionID: session.id)
         let target = try #require(RemoteTarget(parsing: "my-server"))
@@ -475,13 +486,14 @@ struct SessionStoreWorkspaceGroupTests {
         #expect(
             store.convertPaneToManagedSSH(
                 sessionID: session.id,
-                paneID: oldPaneID,
+                paneID: converting.id,
                 target: target
-            ) == oldPaneID
+            ) == converting.id
         )
         #expect(store.groups[0].sessions.map(\.id) == [session.id])
         #expect(store.groups[0].remote == nil)
-        #expect(store.session(id: session.id)?.activePane?.id != oldPaneID)
+        #expect(store.session(id: session.id)?.layout.pane(id: sibling.id) == sibling)
+        #expect(store.session(id: session.id)?.activePane?.id != converting.id)
         #expect(store.session(id: session.id)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
     }
 
