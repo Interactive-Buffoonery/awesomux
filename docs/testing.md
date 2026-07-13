@@ -67,6 +67,37 @@ that every test in that target is end-to-end.
 | System | 180 | 1,608 |
 | **Total** | **346** | **3,483** |
 
+## Running test groups
+
+Use the Ghostty-aware group wrapper for focused or full Swift test runs:
+
+```sh
+./script/test.sh unit
+./script/test.sh adapter
+./script/test.sh system
+./script/test.sh all
+```
+
+Arguments after the group are passed to `swift test`. For example,
+`./script/test.sh unit --xunit-output result.xml` records the unit result.
+`./script/preflight.sh` remains the complete local check, including non-Swift
+guards and app launch verification.
+
+### Initial group check
+
+| Command | Selected tests | Result |
+| --- | ---: | --- |
+| `./script/test.sh unit` | 1,762 | Passed |
+| `./script/test.sh adapter` | 113 | Passed |
+| `./script/test.sh system` | 1,608 | Failed with 3 issues |
+| `./script/test.sh all` | 3,483 | Passed |
+
+The isolated system run exposes an existing ordering dependency in
+`AppearanceUIFontResolutionTests`: two tests expect the bundled Geist font to
+have been registered by another test target. The full suite passes because
+that registration happens elsewhere during the run. This baseline records the
+isolation failure without broadening the system group or hiding it.
+
 ## Test organization rules
 
 These rules apply to new tests and tests changed as part of feature work.
