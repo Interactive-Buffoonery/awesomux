@@ -6,6 +6,14 @@ enum SSHWorkspaceDestinationValidation {
         guard let target = RemoteTarget(parsing: text), target.isSafeSSHDestination else { return nil }
         return target
     }
+
+    static func message(for text: String) -> String? {
+        guard !text.isEmpty, target(from: text) == nil else { return nil }
+        return String(
+            localized: "Enter an SSH alias, hostname, or user@host, not a command option.",
+            comment: "Validation message when a managed SSH workspace destination is invalid"
+        )
+    }
 }
 
 struct SSHWorkspaceConnectSheet: View {
@@ -17,8 +25,8 @@ struct SSHWorkspaceConnectSheet: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        let parsedTarget = RemoteTarget(parsing: destination)
         let target = SSHWorkspaceDestinationValidation.target(from: destination)
+        let validationMessage = SSHWorkspaceDestinationValidation.message(for: destination)
         VStack(alignment: .leading, spacing: 16) {
             Text("Connect via SSH")
                 .font(.headline)
@@ -32,11 +40,10 @@ struct SSHWorkspaceConnectSheet: View {
                 .focused($isFocused)
                 .accessibilityLabel("SSH destination")
                 .onSubmit { if let target { onConnect(target) } }
-            if parsedTarget != nil, target == nil {
-                Text("Enter an SSH alias, hostname, or user@host, not a command option.")
+            if let validationMessage {
+                Text(validationMessage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Invalid SSH destination")
             }
             Text("Creates a managed SSH workspace in “\(groupName).”\nOpenSSH will use your existing config and credentials.")
                 .font(.caption)
@@ -51,6 +58,7 @@ struct SSHWorkspaceConnectSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(target == nil)
+                .accessibilityHint(validationMessage ?? "Enter a destination to enable Connect", isEnabled: target == nil)
             }
         }
         .padding(20)

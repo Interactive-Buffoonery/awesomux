@@ -61,12 +61,6 @@ enum SidebarGroupClosePolicy {
     }
 }
 
-enum SidebarGroupConnectAction {
-    static func perform(group: SessionGroup, onConnect: (SessionGroup) -> Void) {
-        onConnect(group)
-    }
-}
-
 /// The group header row, extracted from `SidebarGroupView` so that its hover
 /// state (`isHeaderHovered`, which drives the count-badge → close-X morph)
 /// invalidates ONLY this subview. As `@State` on the parent it re-evaluated the
@@ -495,7 +489,7 @@ struct SidebarGroupHeaderRow: View {
         }
 
         Button("Connect via SSH…") {
-            SidebarGroupConnectAction.perform(group: group, onConnect: onConnectViaSSH)
+            onConnectViaSSH(group)
         }
 
         Button("New Workspace Group…") {
@@ -592,7 +586,7 @@ struct SidebarGroupHeaderRow: View {
         }
 
         Button("Connect via SSH…") {
-            SidebarGroupConnectAction.perform(group: group, onConnect: onConnectViaSSH)
+            onConnectViaSSH(group)
         }
 
         Button("New Workspace Group…") {
