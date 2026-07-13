@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import SwiftUI
 
@@ -6,6 +7,7 @@ struct SSHWorkspaceConnectSheet: View {
     let onCancel: () -> Void
     let onConnect: (RemoteTarget) -> Void
 
+    @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var destination = ""
     @FocusState private var isFocused: Bool
 
@@ -24,7 +26,7 @@ struct SSHWorkspaceConnectSheet: View {
                 .autocorrectionDisabled(true)
                 .focused($isFocused)
                 .accessibilityLabel("SSH destination")
-                .onSubmit { if let target { onConnect(target) } }
+                .onSubmit { connect(target) }
             if let validationMessage {
                 Text(validationMessage)
                     .font(.caption)
@@ -34,12 +36,21 @@ struct SSHWorkspaceConnectSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if !backgroundSessionsEnabled {
+                Label(
+                    "Managed SSH requires background terminal sessions. awesoMux will turn them on when you connect.",
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button("Connect") {
-                    if let target { onConnect(target) }
+                Button(primaryButtonLabel) {
+                    connect(target)
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(target == nil)
@@ -58,5 +69,24 @@ struct SSHWorkspaceConnectSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Connect via SSH")
         .onAppear { isFocused = true }
+    }
+
+    private func connect(_ target: RemoteTarget?) {
+        guard let target else { return }
+        guard backgroundSessionsEnabled || enableBackgroundSessions() else { return }
+        onConnect(target)
+    }
+
+    private var backgroundSessionsEnabled: Bool {
+        appSettingsStore.terminal.value.commandBridgeEnabled
+    }
+
+    private var primaryButtonLabel: LocalizedStringKey {
+        backgroundSessionsEnabled ? "Connect" : "Enable and Connect"
+    }
+
+    private func enableBackgroundSessions() -> Bool {
+        appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
+        return backgroundSessionsEnabled
     }
 }

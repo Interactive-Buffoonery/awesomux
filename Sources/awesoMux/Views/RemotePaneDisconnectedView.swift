@@ -18,7 +18,11 @@ struct RemotePaneDisconnectedContent {
     ///   - liveTarget: the pane's durable execution target read fresh at render
     ///     time. It may differ from the target captured in `state` after an
     ///     explicit pane retarget operation.
-    static func make(state: RemoteReconnectState, liveTarget: RemoteTarget?) -> Self {
+    static func make(
+        state: RemoteReconnectState,
+        liveTarget: RemoteTarget?,
+        backgroundSessionsEnabled: Bool = true
+    ) -> Self {
         let captured = state.context.target
         let buttonEnabled: Bool
         let isReconnecting: Bool
@@ -29,6 +33,24 @@ struct RemotePaneDisconnectedContent {
         case .reconnecting:
             buttonEnabled = false
             isReconnecting = true
+        }
+
+        if !backgroundSessionsEnabled, let liveTarget, !isReconnecting {
+            return Self(
+                title: String(
+                    localized: "Background sessions are off",
+                    comment: "Title on a managed SSH pane blocked because background terminal sessions are disabled"
+                ),
+                description: String(
+                    localized: "Managed SSH requires background terminal sessions.",
+                    comment: "Explanation on a managed SSH pane blocked because background terminal sessions are disabled"
+                ),
+                buttonLabel: String(
+                    localized: "Enable and reconnect to \(liveTarget.host)",
+                    comment: "Button that enables background terminal sessions and reconnects a managed SSH pane"
+                ),
+                buttonEnabled: true
+            )
         }
 
         // While reconnecting, the title reflects the in-flight state so the
@@ -119,13 +141,18 @@ struct RemotePaneDisconnectedView: View {
     // `updateNSView` (live smoke finding, PR #506). Passing the
     // environment-resolved accent down as an input does.
     @Environment(\.awAccent) private var accentResolver
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private var capturedTarget: RemoteTarget {
         state.context.target
     }
 
     private var content: RemotePaneDisconnectedContent {
-        .make(state: state, liveTarget: liveTarget)
+        .make(
+            state: state,
+            liveTarget: liveTarget,
+            backgroundSessionsEnabled: appSettingsStore.terminal.value.commandBridgeEnabled
+        )
     }
 
     private var isDisconnected: Bool {
@@ -157,6 +184,12 @@ struct RemotePaneDisconnectedView: View {
                     isEnabled: content.buttonEnabled,
                     accent: accentResolver.accent
                 ) {
+                    if liveTarget != nil,
+                        !appSettingsStore.terminal.value.commandBridgeEnabled
+                    {
+                        appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
+                        guard appSettingsStore.terminal.value.commandBridgeEnabled else { return }
+                    }
                     runtime.reconnectRemotePane(in: paneID)
                 }
                 .frame(height: 30)
