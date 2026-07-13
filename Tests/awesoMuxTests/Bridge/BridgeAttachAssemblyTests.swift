@@ -186,8 +186,7 @@ struct BridgeAttachAssemblyTests {
             // ends option parsing. A match after `--` would be inert text
             // inside the remote command, not an ssh flag.
             let optionRegionEnd = try #require(command.range(of: " -- ")).lowerBound
-            for option in ["-o ControlMaster=auto", "-o ControlPersist=60",
-                           "-o ServerAliveInterval=15", "-o ForwardAgent=no"] {
+            for option in ["-o ControlMaster=auto", "-o ControlPersist=60", "-o ServerAliveInterval=15"] {
                 let match = command.range(of: option)
                 #expect(match != nil, "missing \(option): \(command)")
                 if let match {
@@ -195,6 +194,10 @@ struct BridgeAttachAssemblyTests {
                             "\(option) landed after `--` (inert): \(command)")
                 }
             }
+            #expect(
+                !command.contains("ForwardAgent"),
+                "the user's SSH config must control agent forwarding: \(command)"
+            )
         }
         let controlCommands: [String] = [
             AmxBackend.bridgeReverseForwardCommand(
