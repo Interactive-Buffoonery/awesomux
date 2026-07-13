@@ -464,6 +464,27 @@ struct SessionStoreWorkspaceGroupTests {
         #expect(store.createRemoteWorkspaceGroup(named: "unsafe", target: unsafe) == nil)
     }
 
+    @Test("managed SSH conversion replaces the active pane in place")
+    func managedSSHConversionReplacesActivePaneInPlace() throws {
+        let session = TerminalSession(title: "shell", workingDirectory: "~")
+        let oldPaneID = try #require(session.activePane?.id)
+        let group = SessionGroup(name: "Work", sessions: [session])
+        let store = SessionStore(groups: [group], selectedSessionID: session.id)
+        let target = try #require(RemoteTarget(parsing: "my-server"))
+
+        #expect(
+            store.convertPaneToManagedSSH(
+                sessionID: session.id,
+                paneID: oldPaneID,
+                target: target
+            ) == oldPaneID
+        )
+        #expect(store.groups[0].sessions.map(\.id) == [session.id])
+        #expect(store.groups[0].remote == nil)
+        #expect(store.session(id: session.id)?.activePane?.id != oldPaneID)
+        #expect(store.session(id: session.id)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
+    }
+
     @Test("remoteTarget finds the active pane's declared target")
     func remoteTargetLookupFindsActivePanePlan() {
         let target = RemoteTarget(user: "ed", host: "box")!

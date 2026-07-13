@@ -819,9 +819,6 @@
     "Create" : {
 
     },
-    "Create Managed Workspace" : {
-      "comment" : "Button that creates a managed workspace from an ordinary SSH connection"
-    },
     "Create a new workspace" : {
       "localizations" : {
         "en" : {
@@ -1034,8 +1031,8 @@
     "Enable and Connect" : {
       "comment" : "Button that enables background sessions and creates a managed SSH workspace"
     },
-    "Enable and Create" : {
-      "comment" : "Button that enables background sessions and creates a managed SSH workspace"
+    "Enable and Reconnect" : {
+      "comment" : "Button that enables background sessions and reconnects an SSH pane as managed"
     },
     "Enable and reconnect to %arg" : {
       "comment" : "Button that enables background terminal sessions and reconnects a managed SSH pane"
@@ -1337,6 +1334,9 @@
     },
     "MIT" : {
 
+    },
+    "Make This Workspace Managed?" : {
+      "comment" : "Title of the prompt to reconnect an ordinary SSH pane as managed"
     },
     "Malformed runtime event was ignored" : {
       "comment" : "Diagnostics event summary"
@@ -1645,9 +1645,6 @@
     },
     "Open URL with non-standard scheme?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL's scheme is outside http/https/mailto."
-    },
-    "Open as Managed SSH Workspace?" : {
-      "comment" : "Title of the prompt shown after an ordinary SSH connection is detected"
     },
     "Open at Login" : {
       "comment" : "Settings field and VoiceOver label for controlling whether awesoMux opens when the user logs in."
@@ -1982,6 +1979,9 @@
     },
     "Recently Closed" : {
 
+    },
+    "Reconnect as Managed" : {
+      "comment" : "Button that reconnects an ordinary SSH pane as managed"
     },
     "Reconnect to %arg" : {
       "comment" : "Button label to reconnect a disconnected remote pane, naming the CURRENT live target host"
@@ -2693,6 +2693,9 @@
     "This request mixes character scripts and may be disguised." : {
       "comment" : "Tooltip on the remote permission banner warning that the request text mixes writing systems (a homograph-spoof signal)"
     },
+    "This restarts the current SSH connection through awesoMux. This workspace and its other panes stay open." : {
+      "comment" : "Explanation when offering to reconnect an ordinary SSH pane as managed"
+    },
     "This terminal" : {
       "comment" : "Fallback subject in clipboard confirmation dialogs when the pane has no title."
     },
@@ -2870,9 +2873,6 @@
           }
         }
       }
-    },
-    "You connected with regular SSH. This creates a separate managed SSH workspace in “%arg” and leaves the current connection open." : {
-      "comment" : "Explanation when offering to turn an observed regular SSH connection into a separate managed workspace"
     },
     "Your Ghostty config controls the terminal background." : {
 

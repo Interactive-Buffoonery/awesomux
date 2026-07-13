@@ -352,7 +352,23 @@ struct AwesoMuxApp: App {
                     initialDestination: request.initialDestination,
                     onCancel: { sshWorkspaceConnectRequest = nil },
                     onConnect: { target in
-                        guard sessionStore.addSSHSession(target: target, toGroupID: request.groupID) != nil else { return }
+                        if let sourcePane = request.sourcePane {
+                            guard
+                                let discardedPaneID = sessionStore.convertPaneToManagedSSH(
+                                    sessionID: sourcePane.sessionID,
+                                    paneID: sourcePane.paneID,
+                                    target: target
+                                )
+                            else { return }
+                            ghosttyRuntime.discardSurface(for: discardedPaneID)
+                        } else {
+                            guard
+                                sessionStore.addSSHSession(
+                                    target: target,
+                                    toGroupID: request.groupID
+                                ) != nil
+                            else { return }
+                        }
                         appDelegate.surfacePrimaryWindow()
                         sshWorkspaceConnectRequest = nil
                     }
@@ -2160,10 +2176,7 @@ struct AwesoMuxApp: App {
         remoteWorkspaceGroupCreateRequest = RemoteWorkspaceGroupCreateRequest()
     }
 
-    private func requestConnectViaSSH(
-        _ requestedGroup: SessionGroup? = nil,
-        initialDestination: String? = nil
-    ) {
+    private func requestConnectViaSSH(_ requestedGroup: SessionGroup? = nil) {
         guard !isAnySheetPresented else { return }
         let group =
             requestedGroup
@@ -2176,7 +2189,8 @@ struct AwesoMuxApp: App {
         sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest(
             groupID: group.id,
             groupName: group.name,
-            initialDestination: initialDestination
+            initialDestination: nil,
+            sourcePane: nil
         )
     }
 
@@ -2195,7 +2209,12 @@ struct AwesoMuxApp: App {
         else {
             return
         }
-        requestConnectViaSSH(group, initialDestination: target.sshDestination)
+        sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest(
+            groupID: group.id,
+            groupName: group.name,
+            initialDestination: target.sshDestination,
+            sourcePane: ManagedSSHWorkspaceSource(sessionID: sessionID, paneID: paneID)
+        )
     }
 
     private func requestRenameWorkspaceGroup(_ group: SessionGroup) {
@@ -3161,6 +3180,12 @@ private struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
     let groupID: SessionGroup.ID
     let groupName: String
     let initialDestination: String?
+    let sourcePane: ManagedSSHWorkspaceSource?
+}
+
+private struct ManagedSSHWorkspaceSource: Sendable {
+    let sessionID: TerminalSession.ID
+    let paneID: TerminalPane.ID
 }
 
 private struct WorkspaceGroupRenameRequest: Identifiable, Sendable {

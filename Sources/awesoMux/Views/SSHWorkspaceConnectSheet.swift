@@ -99,13 +99,13 @@ struct SSHWorkspaceConnectSheet: View {
         if initialDestination != nil {
             if backgroundSessionsEnabled {
                 return String(
-                    localized: "Create Managed Workspace",
-                    comment: "Button that creates a managed workspace from an ordinary SSH connection"
+                    localized: "Reconnect as Managed",
+                    comment: "Button that reconnects an ordinary SSH pane as managed"
                 )
             }
             return String(
-                localized: "Enable and Create",
-                comment: "Button that enables background sessions and creates a managed SSH workspace"
+                localized: "Enable and Reconnect",
+                comment: "Button that enables background sessions and reconnects an SSH pane as managed"
             )
         }
         if backgroundSessionsEnabled {
@@ -122,8 +122,8 @@ struct SSHWorkspaceConnectSheet: View {
             return String(localized: "Connect via SSH", comment: "Title of the Connect via SSH sheet")
         }
         return String(
-            localized: "Open as Managed SSH Workspace?",
-            comment: "Title of the prompt shown after an ordinary SSH connection is detected"
+            localized: "Make This Workspace Managed?",
+            comment: "Title of the prompt to reconnect an ordinary SSH pane as managed"
         )
     }
 
@@ -131,8 +131,8 @@ struct SSHWorkspaceConnectSheet: View {
         if initialDestination != nil {
             return String(
                 localized:
-                    "You connected with regular SSH. This creates a separate managed SSH workspace in “\(groupName)” and leaves the current connection open.",
-                comment: "Explanation when offering to turn an observed regular SSH connection into a separate managed workspace"
+                    "This restarts the current SSH connection through awesoMux. This workspace and its other panes stay open.",
+                comment: "Explanation when offering to reconnect an ordinary SSH pane as managed"
             )
         }
         return String(
