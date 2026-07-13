@@ -17,14 +17,11 @@ modifying the working tree. Set FORMAT_LINT_BASE to override the comparison ref.
 EOF
 }
 
-if swift format --version >/dev/null 2>&1; then
-    FORMATTER=(swift format)
-elif command -v swift-format >/dev/null 2>&1; then
-    FORMATTER=(swift-format)
-else
-    echo "error: swift-format is unavailable; install a Swift toolchain that includes it" >&2
+if ! swift format --version >/dev/null 2>&1; then
+    echo "error: the toolchain-integrated 'swift format' command is unavailable" >&2
     exit 1
 fi
+FORMATTER=(swift format)
 
 case "$(uname -s)" in
     Darwin) formatter_platform="darwin" ;;

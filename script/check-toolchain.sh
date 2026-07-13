@@ -18,8 +18,9 @@ if [[ -z "$expected_formatter_version" ]]; then
     exit 1
 fi
 swift_version_output="$(swift --version)"
+actual_swift_version="$(sed -nE 's/.*Swift version ([^ ]+).*/\1/p' <<< "$swift_version_output" | head -1)"
 
-if [[ "$swift_version_output" != *"Swift version $expected_swift_version"* ]]; then
+if [[ "$actual_swift_version" != "$expected_swift_version" ]]; then
     echo "error: Swift $expected_swift_version is required" >&2
     echo "Found: $(head -1 <<< "$swift_version_output")" >&2
     exit 1
