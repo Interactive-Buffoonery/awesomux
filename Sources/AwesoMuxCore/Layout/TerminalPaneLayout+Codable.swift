@@ -59,9 +59,7 @@ extension TerminalPaneLayout: Codable {
         case .documentGroup:
             do {
                 return .documentGroup(try payload.decode(DocumentGroup.self, forKey: .value))
-            } catch let DecodingError.dataCorrupted(context)
-                where context.debugDescription == DocumentGroup.emptyAfterRecoveryDescription
-            {
+            } catch is EmptyDocumentGroupDecodingError {
                 return nil
             }
         case .document:
