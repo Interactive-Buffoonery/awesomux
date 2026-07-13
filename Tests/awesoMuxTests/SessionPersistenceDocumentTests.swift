@@ -97,7 +97,7 @@ struct SessionPersistenceDocumentTests {
                 title: "codex",
                 workingDirectory: "~",
                 agentKind: .codex,
-                agentExecutionState: .waiting,  // non-idle; preserved by restore reducer,
+                agentExecutionState: .waiting,  // non-idle; preserved by restore reducer
                 executionPlan: .local
             )
             let claudePane = TerminalPane(

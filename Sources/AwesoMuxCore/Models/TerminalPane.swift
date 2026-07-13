@@ -131,8 +131,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.remoteWorkingDirectory = remoteWorkingDirectory
         self.liveTerminalTitle = liveTerminalTitle
         self.agentKind = agentKind
-        self.agentExecutionState =
-            agentExecutionState
+        self.agentExecutionState = agentExecutionState
             ?? agentState?.executionState
             ?? agentKind.initialSessionState.executionState
             ?? .idle
@@ -160,11 +159,11 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
-extension TerminalPane {
+public extension TerminalPane {
     /// Read-only projection of `agentExecutionState` + `attentionReason`, mirroring
     /// `TerminalSession.agentState` before the INT-504 relocation. Mutate the
     /// durable fields directly, or call `applyLegacyAgentState(_:_:)`.
-    public var agentState: AgentState {
+    var agentState: AgentState {
         AgentDisplayState(
             executionState: agentExecutionState,
             attentionReason: attentionReason
@@ -175,7 +174,7 @@ extension TerminalPane {
     /// it is `agentState`; for shells it collapses ordinary execution states to
     /// idle/running keyed on debounced `shellActivity`, but still surfaces an
     /// explicit attention reason or a terminal error.
-    public var effectiveChromeState: AgentState {
+    var effectiveChromeState: AgentState {
         guard agentKind == .shell else {
             return agentState
         }
@@ -203,19 +202,19 @@ extension TerminalPane {
     /// How long an active execution state (`.running` / `.thinking` / `.output`)
     /// is trusted before quit-risk checks treat it as stale and ignore it.
     /// Guards against `AgentState` drifting from process reality — see INT-217.
-    public static let staleAgentActivityThreshold: TimeInterval = 60
+    static let staleAgentActivityThreshold: TimeInterval = 60
 
     /// Whether this pane would lose work if the app quit right now. Delegates to
     /// the pure `QuitRiskPolicy`: process liveness is primary, OSC-133
     /// away-from-prompt corroborates, agent-execution freshness is the fallback.
-    public func isQuitRisk(at now: Date = Date()) -> Bool {
+    func isQuitRisk(at now: Date = Date()) -> Bool {
         QuitRiskPolicy.decision(quitRiskInputs, at: now).isRisk
     }
 
     /// Whether CLOSING (destroying) this pane would lose work. Distinct from
     /// `isQuitRisk`: bridged panes survive app quit but not a close, which
     /// kills their daemon session too — see `QuitRiskPolicy.closeDecision`.
-    public func isCloseRisk(at now: Date = Date()) -> Bool {
+    func isCloseRisk(at now: Date = Date()) -> Bool {
         QuitRiskPolicy.closeDecision(quitRiskInputs, at: now).isRisk
     }
 
@@ -230,7 +229,7 @@ extension TerminalPane {
     }
 
     /// The pane's contribution to a `SessionAgentRollup`.
-    public func agentSnapshot(at now: Date = Date()) -> PaneAgentSnapshot {
+    func agentSnapshot(at now: Date = Date()) -> PaneAgentSnapshot {
         PaneAgentSnapshot(
             paneID: id,
             agentKind: agentKind,

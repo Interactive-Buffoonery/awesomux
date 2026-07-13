@@ -47,7 +47,7 @@ struct RemotePaneDisconnectedContent {
             localized: "Lost connection to \(captured.host).",
             comment: "Description under the Disconnected overlay title, naming the remote host that dropped"
         )
-        // If the pane moved to a DIFFERENT remote host while latched, the
+        // If the session moved to a DIFFERENT remote host while latched, the
         // button names the live host but the description names the captured
         // one — spell out the move so the two hostnames aren't silently
         // contradictory (INT-697 fix #11).
@@ -69,7 +69,7 @@ struct RemotePaneDisconnectedContent {
         let buttonLabel: String
         if let liveTarget {
             // The LIVE target wins the label — it's what the reconnect attach
-            // actually dials. If the pane was retargeted while latched, the
+            // actually dials. If the session moved groups while latched, the
             // captured (disconnect-time) host and the live host can differ.
             buttonLabel = String(
                 localized: "Reconnect to \(liveTarget.host)",

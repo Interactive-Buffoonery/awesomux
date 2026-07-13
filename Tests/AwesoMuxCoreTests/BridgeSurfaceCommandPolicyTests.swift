@@ -1,5 +1,4 @@
 import Testing
-
 @testable import AwesoMuxCore
 
 @Suite("BridgeSurfaceCommandPolicy")
@@ -53,17 +52,17 @@ struct BridgeSurfaceCommandPolicyTests {
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: true, attachCommandAvailable: false, executionPlan: remotePlan
-            ) == .remoteUnavailable)
+        ) == .remoteUnavailable)
         // Local group unchanged: still falls back to a local shell.
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: true, attachCommandAvailable: false, executionPlan: .local
-            ) == .localShell)
+        ) == .localShell)
         // Happy path unchanged.
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: true, attachCommandAvailable: true, executionPlan: remotePlan
-            ) == .bridgeAttach)
+        ) == .bridgeAttach)
     }
 
     @Test("a remote group with the bridge globally disabled errors, never a local shell")
@@ -79,12 +78,12 @@ struct BridgeSurfaceCommandPolicyTests {
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: false, attachCommandAvailable: false, executionPlan: remotePlan
-            ) == .remoteUnavailable)
+        ) == .remoteUnavailable)
         // Even if some attach command were somehow available, a disabled
         // bridge can't use it for a remote group — still unavailable.
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: false, attachCommandAvailable: true, executionPlan: remotePlan
-            ) == .remoteUnavailable)
+        ) == .remoteUnavailable)
     }
 }

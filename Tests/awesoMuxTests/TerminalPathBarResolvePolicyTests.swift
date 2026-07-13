@@ -50,27 +50,27 @@ struct TerminalPathBarResolvePolicyTests {
     func cwdChange() {
         #expect(
             TerminalPathBarResolvePolicy.classify(
-                previous: inputs(cwd: "/a"),
-                current: inputs(cwd: "/b")
-            ) == .immediate)
+            previous: inputs(cwd: "/a"),
+            current: inputs(cwd: "/b")
+        ) == .immediate)
     }
 
     @Test("pane switch walks immediately")
     func paneSwitch() {
         #expect(
             TerminalPathBarResolvePolicy.classify(
-                previous: inputs(paneID: UUID()),
-                current: inputs(paneID: UUID())
-            ) == .immediate)
+            previous: inputs(paneID: UUID()),
+            current: inputs(paneID: UUID())
+        ) == .immediate)
     }
 
     @Test("remote-host flip walks immediately (stale local path must not stay clickable)")
     func remoteFlip() {
         #expect(
             TerminalPathBarResolvePolicy.classify(
-                previous: inputs(remoteHost: nil),
-                current: inputs(remoteHost: "webserver")
-            ) == .immediate)
+            previous: inputs(remoteHost: nil),
+            current: inputs(remoteHost: "webserver")
+        ) == .immediate)
     }
 
     @Test("execution-plan flip walks immediately before shell observation")
@@ -91,26 +91,26 @@ struct TerminalPathBarResolvePolicyTests {
         // mistaken for title churn and debounced.
         #expect(
             TerminalPathBarResolvePolicy.classify(
-                previous: inputs(remoteHost: "webserver"),
-                current: inputs(remoteHost: nil)
-            ) == .immediate)
+            previous: inputs(remoteHost: "webserver"),
+            current: inputs(remoteHost: nil)
+        ) == .immediate)
     }
 
     @Test("connection-health change walks immediately")
     func healthChange() {
         #expect(
             TerminalPathBarResolvePolicy.classify(
-                previous: inputs(health: .active),
-                current: inputs(health: .possiblyStale)
-            ) == .immediate)
+            previous: inputs(health: .active),
+            current: inputs(health: .possiblyStale)
+        ) == .immediate)
     }
 
     @Test("focus regain walks immediately (catches a checkout made in the background)")
     func focusRegain() {
         #expect(
             TerminalPathBarResolvePolicy.classify(
-                previous: inputs(isActive: false),
-                current: inputs(isActive: true)
-            ) == .immediate)
+            previous: inputs(isActive: false),
+            current: inputs(isActive: true)
+        ) == .immediate)
     }
 }

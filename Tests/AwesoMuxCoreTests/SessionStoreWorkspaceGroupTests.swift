@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-
 @testable import AwesoMuxCore
 
 @MainActor
@@ -225,9 +224,9 @@ struct SessionStoreWorkspaceGroupTests {
         // share the canonical-default lookup key — they must merge, not split
         // into one phantom group each. (Pins the canonical fallback, which a
         // raw-input fallback would have failed.)
-        _ = store.addSession(groupName: "\u{202E}")  // RLO
-        _ = store.addSession(groupName: "\u{200B}\u{FEFF}")  // zero-width + BOM
-        _ = store.addSession(groupName: "\u{0301}")  // combining mark only
+        _ = store.addSession(groupName: "\u{202E}")       // RLO
+        _ = store.addSession(groupName: "\u{200B}\u{FEFF}") // zero-width + BOM
+        _ = store.addSession(groupName: "\u{0301}")        // combining mark only
 
         #expect(store.groups.count == 1)
         #expect(store.groups[0].sessions.count == 3)
@@ -316,7 +315,7 @@ struct SessionStoreWorkspaceGroupTests {
         let snapshot = SessionSnapshot(
             groups: [
                 SessionGroup(name: "scratch", sessions: [firstSession]),
-                SessionGroup(name: "scratch\u{200B}", sessions: [secondSession]),
+                SessionGroup(name: "scratch\u{200B}", sessions: [secondSession])
             ],
             selectedSessionID: firstSession.id
         )
@@ -401,7 +400,7 @@ struct SessionStoreWorkspaceGroupTests {
         let snapshot = SessionSnapshot(
             groups: [
                 SessionGroup(name: "scratch\u{200C}", sessions: [firstSession]),
-                SessionGroup(name: "scratch\u{200D}", sessions: [secondSession]),
+                SessionGroup(name: "scratch\u{200D}", sessions: [secondSession])
             ],
             selectedSessionID: firstSession.id
         )

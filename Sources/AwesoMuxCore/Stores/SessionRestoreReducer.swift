@@ -32,8 +32,7 @@ struct SessionRestoreReducer: Sendable {
             // rejection, not an unusable value: quarantine the group under the
             // canonical default name so its sessions survive, and count it as
             // an adjustment — never a drop (INT-485).
-            let restoredName =
-                UnicodeHygiene.hasSuspiciousScriptMixing(group.name)
+            let restoredName = UnicodeHygiene.hasSuspiciousScriptMixing(group.name)
                 ? SessionStoreText.canonicalDefaultGroupName
                 : SessionStoreText.sanitizedGroupName(group.name)
             guard !restoredName.isEmpty else {
@@ -175,12 +174,10 @@ struct SessionRestoreReducer: Sendable {
             attentionReason: activeAttentionReason
         )
         let sanitizedSessionTitle = SessionStoreText.sanitizedTitle(session.title)
-        let fallbackSyntheticTitle =
-            sanitizedSessionTitle.isEmpty
+        let fallbackSyntheticTitle = sanitizedSessionTitle.isEmpty
             ? SyntheticSessionTitle(agentKind: activeAgentKind, index: fallbackIndex)
             : session.syntheticTitle
-        let fallbackTitle =
-            fallbackSyntheticTitle?.localizedTitle()
+        let fallbackTitle = fallbackSyntheticTitle?.localizedTitle()
             ?? SessionStoreText.restoredTitle(
                 session.title,
                 fallbackForAgent: activeAgentKind,
@@ -238,7 +235,7 @@ struct SessionRestoreReducer: Sendable {
             let agentKind = restoredAgentKind(
                 pane.agentKind,
                 executionState: executionState,
-                attentionReason: attentionReason,
+                attentionReason: attentionReason
             )
             let paneTitle = SessionStoreText.restoredTitle(
                 pane.title,
@@ -314,9 +311,8 @@ struct SessionRestoreReducer: Sendable {
         // re-syncs). A user-renamed workspace still wins.
         let restoredTitle: String
         if !session.isTitleUserEdited,
-            !layout.hasMultiplePanes,
-            resolvedActivePane.isTitleUserEdited
-        {
+           !layout.hasMultiplePanes,
+           resolvedActivePane.isTitleUserEdited {
             restoredTitle = resolvedActivePane.title
         } else {
             restoredTitle = fallbackTitle
@@ -398,7 +394,7 @@ struct SessionRestoreReducer: Sendable {
         switch layout {
         case .pane:
             return 1
-        case .split(let split):
+        case let .split(split):
             return 1 + max(layoutDepth(split.first), layoutDepth(split.second))
         case .documentGroup:
             return 1
@@ -463,7 +459,7 @@ struct SessionRestoreReducer: Sendable {
         transformPane: (TerminalPane) -> TerminalPane
     ) -> (layout: TerminalPaneLayout, idReassignments: Int) {
         switch layout {
-        case .pane(let pane):
+        case let .pane(pane):
             var restoredPane = transformPane(pane)
             var idReassignments = 0
             if !seenPaneIDs.insert(restoredPane.id).inserted {
@@ -547,7 +543,7 @@ struct SessionRestoreReducer: Sendable {
                 idReassignments
             )
 
-        case .documentGroup(let group):
+        case let .documentGroup(group):
             var restoredGroup = group
             var idReassignments = 0
             // Group and tab ids share the pane-id dedup pool, matching how the

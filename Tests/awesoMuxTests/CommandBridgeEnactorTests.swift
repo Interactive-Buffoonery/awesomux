@@ -365,10 +365,10 @@ struct CommandBridgeEnactorTests {
         enactor.beginStatusWatch(channel: channel)
         let event = try #require(
             Self.sessionEndEvent(
-                token: channel.token,
-                terminalSessionID: fixture.sessionID,
-                reason: .detached
-            ))
+            token: channel.token,
+            terminalSessionID: fixture.sessionID,
+            reason: .detached
+        ))
 
         enactor.handleStatusEvents([event])
 
@@ -494,11 +494,11 @@ struct CommandBridgeEnactorTests {
 
         let event = try #require(
             Self.sessionEndEvent(
-                token: channel.token,
-                terminalSessionID: fixture.sessionID,
-                reason: reason,
-                code: code
-            ))
+            token: channel.token,
+            terminalSessionID: fixture.sessionID,
+            reason: reason,
+            code: code
+        ))
         enactor.handleStatusEvents([event])
     }
 
@@ -515,16 +515,16 @@ struct CommandBridgeEnactorTests {
         code: Int = 0
     ) -> AmxStatusEvent? {
         let line = """
-            {"event":"session-end","token":"\(token)","reason":"\(statusReason(reason))","code":\(code),"session":"\(terminalSessionID.rawValue)","ts":1700000001}
-            """
+        {"event":"session-end","token":"\(token)","reason":"\(statusReason(reason))","code":\(code),"session":"\(terminalSessionID.rawValue)","ts":1700000001}
+        """
         return AmxStatusEvent.parseLines(line + "\n", expectedToken: token).first
     }
 
     private static func attachedStatusEvent(pid: Int, createdAt: Int) -> AmxStatusEvent? {
         let token = "tok"
         let line = """
-            {"event":"attached","token":"\(token)","created":true,"daemon_pid":\(pid),"daemon_created_at":\(createdAt),"session":"00000000-0000-4000-8000-000000000001","ts":1700000001}
-            """
+        {"event":"attached","token":"\(token)","created":true,"daemon_pid":\(pid),"daemon_created_at":\(createdAt),"session":"00000000-0000-4000-8000-000000000001","ts":1700000001}
+        """
         return AmxStatusEvent.parseLines(line + "\n", expectedToken: token).first
     }
 
@@ -542,8 +542,8 @@ struct CommandBridgeEnactorTests {
     private func makeFixture() throws -> Fixture {
         let sessionID = try #require(
             TerminalSessionID(
-                rawValue: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-            ))
+            rawValue: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        ))
         let pane = TerminalPane(
             terminalSessionID: sessionID,
             terminalBackendMetadata: establishedMetadata,
@@ -555,8 +555,8 @@ struct CommandBridgeEnactorTests {
     private func makeAgentFixture() throws -> Fixture {
         let sessionID = try #require(
             TerminalSessionID(
-                rawValue: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-            ))
+            rawValue: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        ))
         let pane = TerminalPane(
             terminalSessionID: sessionID,
             terminalBackendMetadata: establishedMetadata,
@@ -576,8 +576,8 @@ struct CommandBridgeEnactorTests {
     private func makeRemoteFixture(bridgeEnabled: Bool = true) throws -> Fixture {
         let sessionID = try #require(
             TerminalSessionID(
-                rawValue: "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
-            ))
+            rawValue: "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        ))
         let pane = TerminalPane(
             terminalSessionID: sessionID,
             title: "remote",
@@ -595,9 +595,9 @@ struct CommandBridgeEnactorTests {
         let store = SessionStore(
             groups: [
                 SessionGroup(
-                    name: "remote group",
+                name: "remote group",
                     remote: RemoteTarget(user: "ed", host: "example.invalid")!,
-                    sessions: [session]
+                sessions: [session]
                 )
             ],
             selectedSessionID: session.id
