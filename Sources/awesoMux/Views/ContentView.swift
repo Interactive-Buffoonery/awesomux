@@ -592,4 +592,9 @@ enum SidebarPeekMetrics {
     /// leading edge.
     static let cardGap: CGFloat = AwSpacing.overlayGap
     static let cardWidth: CGFloat = 240
+    /// Beyond this many rows a peek card's list scrolls instead of growing
+    /// the card past the window — shared by the multi-pane card and the
+    /// group-roster card so both cap at the same visual height.
+    static let maxVisibleRows = 5
+    static let rowHeight: CGFloat = 30
 }
