@@ -53,6 +53,21 @@ and sends it, then the agent resolves comments by removing the matching mark and
 comment marker.
 
 
+## Install
+
+Requires macOS 15+ on Apple Silicon. Releases are Developer ID signed and notarized.
+
+```sh
+brew tap interactive-buffoonery/tap
+brew install --cask awesomux
+```
+
+Or grab the latest `awesoMux-<version>.zip` from
+[Releases](https://github.com/Interactive-Buffoonery/awesomux/releases), unzip,
+and drag `awesoMux.app` to Applications. Download the matching `.sha256` file
+and verify the ZIP before opening it:
+
+
 ## Getting started
 
 Want to help us develop awesoMux? Here's how you can get started:
