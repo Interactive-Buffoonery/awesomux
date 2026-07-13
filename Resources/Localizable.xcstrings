@@ -817,7 +817,7 @@
       "comment" : "VoiceOver hint for Diagnostics malformed-event count"
     },
     "Create" : {
-
+      "comment" : "Button that creates a remote workspace group"
     },
     "Create a new workspace" : {
       "localizations" : {
@@ -1030,6 +1030,9 @@
     },
     "Enable and Connect" : {
       "comment" : "Button that enables background sessions and creates a managed SSH workspace"
+    },
+    "Enable and Create" : {
+      "comment" : "Button that enables background sessions and creates a remote workspace group"
     },
     "Enable and Reconnect" : {
       "comment" : "Button that enables background sessions and reconnects an SSH pane as managed"

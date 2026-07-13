@@ -135,11 +135,11 @@ struct RemotePaneDisconnectedView: View {
     /// has the session); nil in a single-pane session (INT-697 fix #8).
     let paneDescriptor: String?
 
-    // Tracks the last host we announced "Disconnected from" for, so a
+    // Tracks the last disconnected state we announced, so a
     // `.disconnected` -> `.reconnecting` -> `.disconnected` (failed retry)
     // cycle on the SAME host re-announces (state resets to nil while
     // `.reconnecting`), mirroring `RuntimeUnavailableView.lastAnnouncedMessage`.
-    @State private var lastAnnouncedHost: String?
+    @State private var lastAnnouncementID: String?
 
     // The button resolves its fill from the accent; reading the bare
     // `Color.aw.accent` global inside the representable establishes no SwiftUI
@@ -255,21 +255,21 @@ struct RemotePaneDisconnectedView: View {
     }
 
     private var announcementStateID: String {
-        "\(capturedTarget.host)\u{0}\(isDisconnected)"
+        "\(capturedTarget.host)\u{0}\(isDisconnected)\u{0}\(needsBackgroundSessions)"
     }
 
     private func announceDisconnectedIfNeeded() {
         guard isDisconnected else {
             // `.reconnecting` (or a future non-disconnected case) clears the
             // guard so a subsequent re-latch on the SAME host announces again
-            // instead of being silently deduped by a stale `lastAnnouncedHost`.
-            lastAnnouncedHost = nil
+            // instead of being silently deduped by stale state.
+            lastAnnouncementID = nil
             return
         }
 
         let host = capturedTarget.host
-        guard host != lastAnnouncedHost else { return }
-        lastAnnouncedHost = host
+        guard announcementStateID != lastAnnouncementID else { return }
+        lastAnnouncementID = announcementStateID
 
         TerminalAccessibilityAnnouncer.announceRemoteDisconnected(
             host: host,

@@ -3,7 +3,7 @@ import AwesoMuxCore
 import SwiftUI
 
 struct SSHWorkspaceConnectSheet: View {
-    let groupName: String
+    let groupName: String?
     let initialDestination: String?
     let onCancel: () -> Void
     let onConnect: (RemoteTarget) -> Void
@@ -13,7 +13,7 @@ struct SSHWorkspaceConnectSheet: View {
     @FocusState private var isFocused: Bool
 
     init(
-        groupName: String,
+        groupName: String?,
         initialDestination: String? = nil,
         onCancel: @escaping () -> Void,
         onConnect: @escaping (RemoteTarget) -> Void
@@ -135,6 +135,7 @@ struct SSHWorkspaceConnectSheet: View {
                 comment: "Explanation when offering to reconnect an ordinary SSH pane as managed"
             )
         }
+        guard let groupName else { return "" }
         return String(
             localized: "Creates a managed SSH workspace in “\(groupName).”\nOpenSSH will use your existing config and credentials.",
             comment: "Explanation in the Connect via SSH sheet"

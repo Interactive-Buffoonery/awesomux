@@ -106,8 +106,14 @@ struct RemoteWorkspaceGroupCreateSheet: View {
         appSettingsStore.terminal.value.commandBridgeEnabled
     }
 
-    private var primaryButtonLabel: LocalizedStringKey {
-        backgroundSessionsEnabled ? "Create" : "Enable and Create"
+    private var primaryButtonLabel: String {
+        if backgroundSessionsEnabled {
+            return String(localized: "Create", comment: "Button that creates a remote workspace group")
+        }
+        return String(
+            localized: "Enable and Create",
+            comment: "Button that enables background sessions and creates a remote workspace group"
+        )
     }
 
     private var settingsErrorMessage: String? {
