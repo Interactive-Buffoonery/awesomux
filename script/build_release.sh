@@ -3,6 +3,8 @@
 # metadata, sign with Developer ID + Hardened Runtime, package, notarize,
 # staple, checksum. Policy: docs/adr/0019-macos-distribution-signing-and-sandbox-posture.md
 # Checklist context: docs/releasing.md
+# Retries rebuild from scratch; add a resume mode only if release cadence
+# makes that painful.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,8 +35,9 @@ Options:
   --notary-profile NAME  notarytool keychain profile (default: awesomux-notary).
   --output DIR           Artifact directory (default: dist/release).
   --unsigned             Dry run: ad-hoc sign, skip notarization/stapling.
-                         Lets contributors exercise the packaging path
-                         without release credentials.
+                         Exercises the packaging path without signing
+                         credentials (still requires full Xcode and the
+                         amx/Zig toolchain).
 USAGE
 }
 
@@ -50,6 +53,12 @@ while [[ $# -gt 0 ]]; do
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+# --output given as a relative path resolves against the repo root, matching
+# the default, not against whatever directory invoked the script.
+if [[ "$OUTPUT_DIR" != /* ]]; then
+  OUTPUT_DIR="$ROOT_DIR/$OUTPUT_DIR"
+fi
 
 if [[ -z "$VERSION" ]]; then
   echo "error: --version X.Y.Z is required" >&2
@@ -74,11 +83,32 @@ RELEASE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 
 BUILD_NUMBER="${BUILD_NUMBER:-$(git -C "$ROOT_DIR" rev-list --count HEAD)}"
 
+# Fail before the expensive build, not after it: a fresh machine without the
+# signing identity or notary profile should learn that in seconds.
+if [[ "$UNSIGNED" -eq 0 ]]; then
+  if ! security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
+    echo "error: no 'Developer ID Application' identity in the keychain." >&2
+    echo "       See docs/releasing.md 'Create required certificates and credentials'." >&2
+    exit 1
+  fi
+  if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+    echo "error: notary keychain profile '$NOTARY_PROFILE' is missing or not working." >&2
+    echo "       Create it with: xcrun notarytool store-credentials $NOTARY_PROFILE --key <AuthKey.p8> --key-id <ID> --issuer <ISSUER>" >&2
+    exit 1
+  fi
+fi
+
 # Pin the Ghostty optimize mode: ensure_ghostty_artifacts.sh verifies the
 # cached archive against AWESOMUX_GHOSTTY_OPTIMIZE itself, so a Debug value
 # leaked from a debugging shell would pass its own check and ship a Debug
 # Ghostty. Releases are always ReleaseFast.
 export AWESOMUX_GHOSTTY_OPTIMIZE=ReleaseFast
+
+# SwiftPM does not reliably relink when the Ghostty archive under
+# .build/ghostty changes content (known gap in this repo) — remove the cached
+# release product so an exact-pin Ghostty rebuild cannot ship a stale-linked
+# binary that passes every downstream check.
+rm -f "$ROOT_DIR/.build/release/awesoMux"
 
 "$ROOT_DIR/script/build_and_run.sh" --stage-release
 
@@ -91,9 +121,24 @@ fi
 for exe in awesoMux awesoMuxAgentHook awesoMuxBridgeHelper amx; do
   if [[ ! -x "$APP_MACOS/$exe" ]]; then
     echo "error: $exe missing from staged bundle" >&2
+    if [[ "$exe" == "amx" ]]; then
+      echo "       Build it with: ./script/build_amx.sh (requires the vendor/zmx submodule and a Zig toolchain)" >&2
+    else
+      echo "       Rebuild with: swift build -c release (then re-run this script)" >&2
+    fi
     exit 1
   fi
 done
+
+# dist/awesoMux.app is shared with every build_and_run.sh mode; a dev build
+# started during the (long) notarization wait would mutate it mid-release.
+# Work on a private copy so nothing can race the release.
+RELEASE_WORK_DIR="$(mktemp -d -t awesomux-release-work)"
+trap 'rm -rf "${RELEASE_WORK_DIR:-}" "${VALIDATE_DIR:-}" 2>/dev/null || true' EXIT
+/usr/bin/ditto "$APP_BUNDLE" "$RELEASE_WORK_DIR/awesoMux.app"
+APP_BUNDLE="$RELEASE_WORK_DIR/awesoMux.app"
+APP_MACOS="$APP_BUNDLE/Contents/MacOS"
+INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 
 # Strip stray extended attributes (quarantine, Finder metadata) before
 # signing so none ride into the notarized archive.
@@ -126,7 +171,11 @@ codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 # ADR-0019: entitlements start empty — on every signed executable, not just
 # the outer bundle. Fail loudly if any sneak in.
 for target in "$APP_BUNDLE" "$APP_MACOS/awesoMux" "$APP_MACOS/awesoMuxAgentHook" "$APP_MACOS/awesoMuxBridgeHelper" "$APP_MACOS/amx"; do
-  if codesign -d --entitlements - --xml "$target" 2>/dev/null | grep -q '<key>'; then
+  entitlements_xml="$(codesign -d --entitlements - --xml "$target" 2>/dev/null)" || {
+    echo "error: could not read entitlements for $target" >&2
+    exit 1
+  }
+  if grep -q '<key>' <<<"$entitlements_xml"; then
     echo "error: $target carries entitlements; ADR-0019 requires none without documented evidence" >&2
     exit 1
   fi
@@ -146,33 +195,50 @@ if [[ "$UNSIGNED" -eq 0 ]]; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
-ZIP_PATH="$OUTPUT_DIR/awesoMux-$VERSION.zip"
+ZIP_SUFFIX=""
+if [[ "$UNSIGNED" -eq 1 ]]; then
+  ZIP_SUFFIX="-unsigned"
+fi
+ZIP_PATH="$OUTPUT_DIR/awesoMux-$VERSION$ZIP_SUFFIX.zip"
 rm -f "$ZIP_PATH" "$ZIP_PATH.sha256"
 # ditto -c -k --keepParent is the only supported archiver here: it preserves
 # the signed bundle byte-for-byte (resource forks, symlinks, permissions).
 /usr/bin/ditto -c -k --keepParent "$APP_BUNDLE" "$ZIP_PATH"
 
 if [[ "$UNSIGNED" -eq 0 ]]; then
+  NOTARY_STDERR="$OUTPUT_DIR/notarytool-submit-$VERSION.stderr.log"
+  rm -f "$NOTARY_STDERR"
   echo "Submitting $ZIP_PATH for notarization (profile: $NOTARY_PROFILE)..."
-  # Structured output + preserved exit code: Apple warns against scraping
-  # notarytool's human-readable messages, and set -e would otherwise kill the
-  # script before the diagnosis guidance below prints.
-  NOTARY_STDERR="$OUTPUT_DIR/notarytool-submit.stderr.log"
+  # Submit WITHOUT --wait so the submission id lands on disk immediately — a
+  # Ctrl-C or dropped connection during the (potentially 45-minute) wait must
+  # not lose the id of a submission Apple already has. plutil parses the JSON
+  # structurally; notarytool's whitespace style varies across versions.
   set +e
   SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARY_PROFILE" \
-    --wait --timeout 45m --output-format json 2>"$NOTARY_STDERR")"
+    --output-format json 2>"$NOTARY_STDERR")"
   SUBMIT_EXIT=$?
   set -e
-  # notarytool pretty-prints its JSON ("status": "Accepted", space after the
-  # colon) — the patterns must allow optional whitespace.
-  SUBMISSION_ID="$(sed -n 's/.*"id": *"\([0-9a-f-]*\)".*/\1/p' <<<"$SUBMIT_JSON" | head -1)"
-  SUBMIT_STATUS="$(sed -n 's/.*"status": *"\([^"]*\)".*/\1/p' <<<"$SUBMIT_JSON" | head -1)"
-  if [[ "$SUBMIT_EXIT" -ne 0 || "$SUBMIT_STATUS" != "Accepted" ]]; then
-    echo "error: notarization not accepted (exit=$SUBMIT_EXIT, status=${SUBMIT_STATUS:-unknown})." >&2
+  SUBMISSION_ID="$(plutil -extract id raw -o - - <<<"$SUBMIT_JSON" 2>/dev/null || true)"
+  if [[ "$SUBMIT_EXIT" -ne 0 || -z "$SUBMISSION_ID" ]]; then
+    echo "error: notarization submission failed (exit=$SUBMIT_EXIT)." >&2
     echo "$SUBMIT_JSON" >&2
     cat "$NOTARY_STDERR" >&2 || true
-    echo "       Inspect with: xcrun notarytool log ${SUBMISSION_ID:-<submission-id>} --keychain-profile $NOTARY_PROFILE" >&2
-    echo "       Resume a timed-out wait with: xcrun notarytool wait ${SUBMISSION_ID:-<submission-id>} --keychain-profile $NOTARY_PROFILE" >&2
+    exit 1
+  fi
+  echo "$SUBMISSION_ID" > "$OUTPUT_DIR/notarytool-submission-id-$VERSION.txt"
+  echo "Submission id: $SUBMISSION_ID (waiting up to 45m; safe to Ctrl-C and resume with: xcrun notarytool wait $SUBMISSION_ID --keychain-profile $NOTARY_PROFILE)"
+
+  set +e
+  WAIT_JSON="$(xcrun notarytool wait "$SUBMISSION_ID" --keychain-profile "$NOTARY_PROFILE" \
+    --timeout 45m --output-format json 2>>"$NOTARY_STDERR")"
+  WAIT_EXIT=$?
+  set -e
+  SUBMIT_STATUS="$(plutil -extract status raw -o - - <<<"$WAIT_JSON" 2>/dev/null || true)"
+  if [[ "$WAIT_EXIT" -ne 0 || "$SUBMIT_STATUS" != "Accepted" ]]; then
+    echo "error: notarization not accepted (exit=$WAIT_EXIT, status=${SUBMIT_STATUS:-unknown})." >&2
+    echo "$WAIT_JSON" >&2
+    cat "$NOTARY_STDERR" >&2 || true
+    echo "       Inspect with: xcrun notarytool log $SUBMISSION_ID --keychain-profile $NOTARY_PROFILE" >&2
     echo "       Do NOT add entitlements speculatively; capture the failure first (ADR-0019)." >&2
     exit 1
   fi
@@ -190,23 +256,29 @@ if [[ "$UNSIGNED" -eq 0 ]]; then
   xcrun stapler staple "$APP_BUNDLE"
   rm -f "$ZIP_PATH"
   /usr/bin/ditto -c -k --keepParent "$APP_BUNDLE" "$ZIP_PATH"
-
-  # Validate the exact artifact users will download, not the staging copy:
-  # extract the final zip fresh and assess that.
-  VALIDATE_DIR="$(mktemp -d -t awesomux-release-validate)"
-  /usr/bin/ditto -x -k "$ZIP_PATH" "$VALIDATE_DIR"
-  codesign --verify --deep --strict "$VALIDATE_DIR/awesoMux.app"
-  spctl --assess --type execute --verbose "$VALIDATE_DIR/awesoMux.app"
-  xcrun stapler validate "$VALIDATE_DIR/awesoMux.app"
-  rm -rf "$VALIDATE_DIR"
 fi
 
+# Checksum the final artifact first — its validity does not depend on the
+# assessment below, and a transient validation failure must not leave the
+# artifact unchecksummed.
 (cd "$OUTPUT_DIR" && shasum -a 256 "$(basename "$ZIP_PATH")" > "$(basename "$ZIP_PATH").sha256")
+
+# Validate the exact artifact users will download, not the staging copy:
+# extract the final zip fresh and assess that. Runs in both modes; only the
+# Gatekeeper/staple checks need real signing.
+VALIDATE_DIR="$(mktemp -d -t awesomux-release-validate)"
+/usr/bin/ditto -x -k "$ZIP_PATH" "$VALIDATE_DIR"
+codesign --verify --deep --strict "$VALIDATE_DIR/awesoMux.app"
+if [[ "$UNSIGNED" -eq 0 ]]; then
+  echo "Assessing Gatekeeper acceptance (a failure right after stapling can be transient ticket propagation — re-running this step in a minute is safe; the zip is already built)..."
+  spctl --assess --type execute --verbose "$VALIDATE_DIR/awesoMux.app"
+  xcrun stapler validate "$VALIDATE_DIR/awesoMux.app"
+fi
 
 # Source-to-artifact binding: the build must not have dirtied tracked files,
 # and HEAD must still be the commit captured above — the tag in the release
 # flow points at exactly this commit.
-if [[ -n "$(git -C "$ROOT_DIR" status --porcelain)" || "$(git -C "$ROOT_DIR" rev-parse HEAD)" != "$RELEASE_COMMIT" ]]; then
+if [[ -n "$(git -C "$ROOT_DIR" status --porcelain | grep -v '^??' || true)" || "$(git -C "$ROOT_DIR" rev-parse HEAD)" != "$RELEASE_COMMIT" ]]; then
   echo "error: worktree or HEAD changed during the build; artifact is not attributable to $RELEASE_COMMIT" >&2
   exit 1
 fi
