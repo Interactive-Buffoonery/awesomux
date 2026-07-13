@@ -78,30 +78,41 @@ struct SidebarGroupPeekCard: View {
 
     @ViewBuilder
     private var rowList: some View {
-        let rows = VStack(alignment: .leading, spacing: 4) {
-            ForEach(items) { item in
-                Button {
-                    onSelectSession(item.id)
-                } label: {
-                    SessionPeekRow(item: item)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-
-        if items.count > SidebarPeekMetrics.maxVisibleRows {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    rows
-                }
-                .frame(maxHeight: CGFloat(SidebarPeekMetrics.maxVisibleRows) * SidebarPeekMetrics.rowHeight)
-                .onAppear { scrollToActive(proxy) }
-                .onChange(of: items.first(where: \.isActive)?.id) { _, _ in
-                    scrollToActive(proxy)
-                }
-            }
+        // An empty roster (every session pinned out, or — defensively — no
+        // sessions at all) would otherwise render a blank card with no
+        // explanation. "All pinned" is the project owner's own wording for
+        // this state (2026-07-13): pinning is the only path that empties a
+        // non-empty group's roster while the group itself still shows.
+        if items.isEmpty {
+            Text("All pinned")
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text2)
         } else {
-            rows
+            let rows = VStack(alignment: .leading, spacing: 4) {
+                ForEach(items) { item in
+                    Button {
+                        onSelectSession(item.id)
+                    } label: {
+                        SessionPeekRow(item: item)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if items.count > SidebarPeekMetrics.maxVisibleRows {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        rows
+                    }
+                    .frame(maxHeight: CGFloat(SidebarPeekMetrics.maxVisibleRows) * SidebarPeekMetrics.rowHeight)
+                    .onAppear { scrollToActive(proxy) }
+                    .onChange(of: items.first(where: \.isActive)?.id) { _, _ in
+                        scrollToActive(proxy)
+                    }
+                }
+            } else {
+                rows
+            }
         }
     }
 

@@ -125,7 +125,8 @@ struct SidebarGroupHeaderRow: View {
     }
 
     private func updatePeekVisibility() {
-        guard canPeek, isHeaderHovered else {
+        guard canPeek,
+              isHeaderHovered || (focusedRowTarget.wrappedValue == .group(group.id) && isKeyboardNavigating) else {
             cancelPeek()
             return
         }
@@ -175,10 +176,12 @@ struct SidebarGroupHeaderRow: View {
         let isHighContrast = contrast == .increased
         let groupTintMarkerSize: CGFloat = isHighContrast ? 8 : 6
 
-        // Tap gesture instead of Button(action:) — Button on macOS claims
-        // the press gesture before .draggable can start a drag. See skill
-        // `swiftui-macos-draggable-on-button-silent-fail`.
-        groupHeader(
+        // Split at the peek-lifecycle modifiers (`withPeekLifecycle`) so the
+        // type-checker sees two expressions instead of one — the combined
+        // chain (gestures + focus + drag + peek onChange×7 + accessibility)
+        // times out, the same failure mode `groupContextMenuContent`'s own
+        // extraction comment describes for the menu content.
+        let chrome = groupHeader(
             isHighContrast: isHighContrast,
             groupTintMarkerSize: groupTintMarkerSize
         )
@@ -253,66 +256,8 @@ struct SidebarGroupHeaderRow: View {
             }
             updatePeekVisibility()
         }
-        // mouseExited isn't delivered when the header is torn out from
-        // under a stationary pointer (filter removes the group, structural
-        // rebuild) — same reset the session tile carries. Without it a
-        // stale-true flag re-arms the X on reappear with no live hover.
-        .onDisappear {
-            isHeaderHovered = false
-            cancelPeek()
-            peekModel.hideGroup(for: group.id)
-        }
-        // A drag suppresses tracking-area exit events, so the origin
-        // header's hover flag would strand true (and the close X strand
-        // visible) after the group lands elsewhere. (Was a parent-level
-        // `.onChange(of: activeDragKind)`; moved here with the state.)
-        .onChange(of: isDragActive) { _, active in
-            if active {
-                isHeaderHovered = false
-            }
-        }
-        // Re-arming the X requires a fresh hover: without this, clearing
-        // the filter by keyboard while the pointer rests on a header
-        // widens the gate under a stationary pointer and the X appears
-        // with no hover gesture (stale-state-plus-widened-gate, INT-562
-        // family). (Was a parent-level `.onChange(of: isFiltering)`.)
-        .onChange(of: isFiltering) { _, _ in
-            isHeaderHovered = false
-        }
-        .onChange(of: isPeekVisible) { _, visible in
-            if visible {
-                peekModel.showGroup(
-                    group: group,
-                    tint: tint,
-                    sessions: sessions,
-                    activeSessionID: selectedSessionID,
-                    frame: headerFrame
-                )
-            } else {
-                // Always hittable (every row jumps), so always request the
-                // graced hide — never the immediate one — matching the
-                // multi-pane tile's card, not the single-pane summary path.
-                peekModel.requestHideGroup(for: group.id)
-            }
-        }
-        .onChange(of: headerFrame) { _, frame in
-            peekModel.updateGroupFrame(for: group.id, frame: frame)
-        }
-        .onChange(of: entries) { _, _ in
-            peekModel.refreshGroup(
-                group: group,
-                tint: tint,
-                sessions: sessions,
-                activeSessionID: selectedSessionID
-            )
-        }
-        .onChange(of: displayMode) { _, _ in
-            // Re-evaluate on a ⌘\ toggle even when the pointer never moves
-            // — expanding the rail must dismiss a showing group peek
-            // (`canPeek` gates it off), matching the tile's own
-            // displayMode re-check.
-            updatePeekVisibility()
-        }
+
+        return withPeekLifecycle(chrome)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         // Default activation for VoiceOver (VO+space). Refactoring
@@ -337,6 +282,107 @@ struct SidebarGroupHeaderRow: View {
         )
         .contextMenu { groupContextMenuContent }
         .accessibilityActions { groupAccessibilityActionsContent }
+    }
+
+    /// The group-roster peek's full hover/keyboard/drag/filter lifecycle,
+    /// extracted out of `body`'s modifier chain for the same type-checking
+    /// reason `groupContextMenuContent` was extracted (see its comment) —
+    /// this many `.onChange` handlers plus everything else in `body` is too
+    /// much for one expression.
+    @ViewBuilder
+    private func withPeekLifecycle(_ content: some View) -> some View {
+        content
+            // mouseExited isn't delivered when the header is torn out from
+            // under a stationary pointer (filter removes the group, structural
+            // rebuild) — same reset the session tile carries. Without it a
+            // stale-true flag re-arms the X on reappear with no live hover.
+            .onDisappear {
+                isHeaderHovered = false
+                cancelPeek()
+                peekModel.hideGroup(for: group.id)
+            }
+            // A drag suppresses tracking-area exit events, so the origin
+            // header's hover flag would strand true (and the close X strand
+            // visible) after the group lands elsewhere. (Was a parent-level
+            // `.onChange(of: activeDragKind)`; moved here with the state.)
+            .onChange(of: isDragActive) { _, active in
+                if active {
+                    isHeaderHovered = false
+                    cancelPeek()
+                }
+            }
+            // Re-arming the X requires a fresh hover: without this, clearing
+            // the filter by keyboard while the pointer rests on a header
+            // widens the gate under a stationary pointer and the X appears
+            // with no hover gesture (stale-state-plus-widened-gate, INT-562
+            // family). (Was a parent-level `.onChange(of: isFiltering)`.)
+            .onChange(of: isFiltering) { _, _ in
+                isHeaderHovered = false
+                cancelPeek()
+            }
+            .onChange(of: isPeekVisible) { _, visible in
+                if visible {
+                    peekModel.showGroup(
+                        group: group,
+                        tint: tint,
+                        sessions: sessions,
+                        activeSessionID: selectedSessionID,
+                        frame: headerFrame
+                    )
+                } else if canPeek {
+                    // Always hittable (every row jumps), so always request the
+                    // graced hide — never the immediate one — matching the
+                    // multi-pane tile's card, not the single-pane summary path.
+                    peekModel.requestHideGroup(for: group.id)
+                } else {
+                    // The rail itself stopped being collapsed — there's no gap
+                    // left for the pointer to be reaching across, so the grace
+                    // (which exists to survive that gap) doesn't apply here. An
+                    // immediate hide prevents the card from stranding open if the
+                    // pointer happens to be resting on it when displayMode changes.
+                    peekModel.hideGroup(for: group.id)
+                }
+            }
+            .onChange(of: headerFrame) { _, frame in
+                peekModel.updateGroupFrame(for: group.id, frame: frame)
+            }
+            // Keyed on `peekRefreshKey` (not just `entries`' plain equality) so
+            // a per-session state change entries' `==` excludes (e.g. a shell
+            // idle↔busy flip) still refreshes a live card — same reasoning as
+            // the single-session tile's `peekRefreshKey` onChange. This array
+            // is a strict superset of what an `entries`-keyed onChange would
+            // catch: any add/remove/reorder also changes this array's length
+            // or order.
+            .onChange(of: sessions.map(\.peekRefreshKey)) { _, _ in
+                peekModel.refreshGroup(
+                    group: group,
+                    tint: tint,
+                    sessions: sessions,
+                    activeSessionID: selectedSessionID
+                )
+            }
+            // The roster's active-row highlight is derived from
+            // `selectedSessionID`, which can change without touching this
+            // group's own `entries` (e.g. selecting a session in a different
+            // group) — without this the highlight goes stale on a live card.
+            .onChange(of: selectedSessionID) { _, _ in
+                peekModel.refreshGroup(
+                    group: group,
+                    tint: tint,
+                    sessions: sessions,
+                    activeSessionID: selectedSessionID
+                )
+            }
+            .onChange(of: displayMode) { _, _ in
+                // Re-evaluate on a ⌘\ toggle even when the pointer never moves
+                // — expanding the rail must dismiss a showing group peek
+                // (`canPeek` gates it off), matching the tile's own
+                // displayMode re-check.
+                updatePeekVisibility()
+            }
+            .onChange(of: focusedRowTarget.wrappedValue) { _, _ in
+                updatePeekVisibility()
+            }
     }
 
     @ViewBuilder
@@ -587,18 +633,39 @@ struct SidebarGroupHeaderRow: View {
         // The only interactive-content peek in the app without a non-mouse
         // path otherwise — mirrors `SidebarSessionTile`'s per-pane jump
         // actions (`PanePeekItem`) for the group roster peek card. Gated on
-        // `isCollapsed` too, not just `displayMode == .collapsed`: an
-        // *expanded* group that's simply collapsed-shut already exposes each
-        // workspace as an ordinary focusable/actionable row once
-        // uncollapsed, and duplicate jump actions on a group that's already
-        // fully visible would be redundant.
-        if isCollapsed, displayMode == .collapsed {
-            ForEach(sessions) { session in
-                Button("Jump to \(session.title)") {
-                    peekModel.onSelectGroupSession?(session.id)
+        // `displayMode == .collapsed` only — matching `canPeek` exactly, the
+        // same trigger the mouse-hover path uses. A group's own `isCollapsed`
+        // doesn't matter here: in the collapsed rail, a group's own tiles
+        // (when `isCollapsed` is false) render as bare numbered squares with
+        // no name text, so there's no redundancy with the peek card either
+        // way — unlike the expanded rail, where an uncollapsed group already
+        // exposes each workspace as an ordinary focusable/actionable row.
+        if displayMode == .collapsed {
+            ForEach(SessionPeekItem.items(for: sessions, activeSessionID: selectedSessionID)) { item in
+                Button(groupSessionJumpActionLabel(item)) {
+                    peekModel.onSelectGroupSession?(group.id, item.id)
                 }
             }
         }
+    }
+
+    /// VoiceOver twin of the mouse-only group roster peek card row — mirrors
+    /// `SidebarSessionTile.paneJumpActionLabel`'s shape for a `SessionPeekItem`
+    /// instead of a `PanePeekItem`, so a VoiceOver "Jump to X" action carries
+    /// the same state a sighted user reads off the card row (agent, status,
+    /// remote, unread, active).
+    private func groupSessionJumpActionLabel(_ item: SessionPeekItem) -> String {
+        var parts = ["Jump to \(item.title)", item.agentShortName, item.state.label]
+        if item.isRemote {
+            parts.append("remote")
+        }
+        if item.unread > 0 {
+            parts.append(LocalizedPluralStrings.sidebarNotifications(count: item.unread))
+        }
+        if item.isActive {
+            parts.append("active workspace")
+        }
+        return parts.joined(separator: ", ")
     }
 
     @ViewBuilder
