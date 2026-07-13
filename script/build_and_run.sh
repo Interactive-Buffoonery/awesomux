@@ -34,7 +34,7 @@ PROCESS_ENUMERATION_FAILURE=70
 # the app switcher — so a `.dev` build doesn't render as a second, identical
 # "awesoMux" row the user can't tell apart from the installed one.
 case "$MODE" in
-  --install|install) RUNTIME_PROFILE="production" ;;
+  --install|install|--stage-release|stage-release) RUNTIME_PROFILE="production" ;;
   *)                 RUNTIME_PROFILE="$(awesomux_checkout_profile "$ROOT_DIR")" ;;
 esac
 awesomux_resolve_profile "$RUNTIME_PROFILE"
@@ -94,6 +94,9 @@ Modes:
                                        Exits 1 if the app never starts, 3 if it starts
                                        but cannot be terminated afterwards.
   --install, install                  Install into ~/Applications and launch that bundle.
+  --stage-release, stage-release      Build, stage, and ad-hoc sign dist/awesoMux.app
+                                       with the production profile, then exit without
+                                       launching. Consumed by script/build_release.sh.
   --help, -h, help                    Show this help and exit.
 
 Environment:
@@ -119,11 +122,11 @@ if [[ "$MODE" == "--help" || "$MODE" == "-h" || "$MODE" == "help" ]]; then
 fi
 
 mode_requires_amx() {
-  [[ "$MODE" == "--install" || "$MODE" == "install" ]]
+  [[ "$MODE" == "--install" || "$MODE" == "install" || "$MODE" == "--stage-release" || "$MODE" == "stage-release" ]]
 }
 
 mode_requires_exact_ghostty_pin() {
-  [[ "$MODE" == "--install" || "$MODE" == "install" || "$MODE" == "--perf-install" || "$MODE" == "perf-install" ]]
+  [[ "$MODE" == "--install" || "$MODE" == "install" || "$MODE" == "--perf-install" || "$MODE" == "perf-install" || "$MODE" == "--stage-release" || "$MODE" == "stage-release" ]]
 }
 
 amx_install_error() {
@@ -131,7 +134,7 @@ amx_install_error() {
 
   cat >&2 <<EOF
 error: $detail
-       --install requires the bundled amx command-bridge backend.
+       --install and --stage-release require the bundled amx command-bridge backend.
        Refusing to replace the installed app with a local-shell-only build.
 
 To fix:
@@ -905,6 +908,9 @@ case "$MODE" in
   --install|install)
     install_app
     open_app "$INSTALLED_APP_BUNDLE"
+    ;;
+  --stage-release|stage-release)
+    echo "Staged $APP_BUNDLE (production profile; not launched)."
     ;;
   *)
     usage

@@ -129,16 +129,15 @@ Developer ID signing and notarization implementation is tracked by
 the GitHub issue tracking Developer ID signing for distribution.
 Keep release policy in ADR-0019 and use this section as the build checklist.
 
-- [ ] Add a dedicated release build script, for example
-      `script/build_release.sh`.
-- [ ] Keep `script/build_and_run.sh` local-dev focused; do not overload it with
-      release signing.
-- [ ] Teach the release script to accept:
-  - [ ] version
-  - [ ] build number
-  - [ ] signing identity
-  - [ ] output directory
-  - [ ] notarization profile or credentials
+- [x] Add a dedicated release build script: script/build_release.sh
+- [x] Keep `script/build_and_run.sh` local-dev focused; do not overload it with
+      release signing. (the release path only adds `--stage-release`, which stops before launch; release signing lives in `script/build_release.sh`)
+- [x] Teach the release script to accept:
+  - [x] version
+  - [x] build number (default: `git rev-list --count HEAD`)
+  - [x] signing identity
+  - [x] output directory
+  - [x] notarization keychain profile (`--notary-profile`)
 - [ ] Build from a clean checkout:
   - [ ] `git submodule update --init --recursive`
   - [ ] `./script/ensure_ghostty_artifacts.sh`
@@ -182,7 +181,7 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [ ] notarizes and staples
   - [ ] uploads artifacts/checksums to a draft GitHub Release
   - [ ] never runs signing steps for `pull_request` from forks
-- [ ] Add an unsigned local dry-run mode for contributors.
+- [x] Add an unsigned local dry-run mode (`--unsigned`; needs full Xcode + Zig, but no signing credentials)
 - [ ] Document maintainer-only release prerequisites.
 
 ### Per-release checklist
