@@ -62,12 +62,12 @@ struct RemotePaneDisconnectedContent {
                 comment: "Title on the remote-pane overlay while a manual reconnect is in flight"
             )
             : String(
-                localized: "Disconnected",
-                comment: "Title on the overlay covering a remote pane whose SSH connection died"
+                localized: "SSH connection failed",
+                comment: "Title on the overlay covering a remote pane whose SSH connection failed or ended"
             )
         var description = String(
-            localized: "Lost connection to \(captured.host).",
-            comment: "Description under the Disconnected overlay title, naming the remote host that dropped"
+            localized: "Could not connect to \(captured.host), or the connection ended.",
+            comment: "Description under the SSH connection failed overlay title, naming the remote host"
         )
         // If the session moved to a DIFFERENT remote host while latched, the
         // button names the live host but the description names the captured
@@ -80,11 +80,17 @@ struct RemotePaneDisconnectedContent {
             )
         }
         if !isReconnecting {
+            let diagnosticTarget = liveTarget ?? captured
             description +=
                 "\n"
                 + String(
-                    localized: "For more details, try the same destination with ordinary ssh in a local workspace.",
-                    comment: "Safe diagnostic guidance shown after a managed SSH workspace disconnects"
+                    localized: "Check that \(diagnosticTarget.host) is a valid hostname or SSH config alias and is reachable.",
+                    comment: "Guidance shown after a managed SSH connection fails"
+                )
+                + "\n"
+                + String(
+                    localized: "For more details, try ssh \(diagnosticTarget.sshDestination) in a local workspace.",
+                    comment: "Safe ordinary SSH diagnostic shown after a managed SSH connection fails"
                 )
         }
 
@@ -222,10 +228,15 @@ struct RemotePaneDisconnectedView: View {
             )
         }
         if isDisconnected {
-            return String(
-                localized: "Remote pane disconnected from \(capturedTarget.host)",
-                comment: "Accessibility label for the overlay container shown over a remote pane whose SSH connection died"
+            let failure = String(
+                localized: "SSH connection to \(capturedTarget.host) failed.",
+                comment: "Accessibility label for a remote pane whose SSH connection failed"
             )
+            let guidance = String(
+                localized: "Check that the hostname or SSH config alias exists and is reachable.",
+                comment: "Accessibility guidance after a remote pane's SSH connection fails"
+            )
+            return failure + " " + guidance
         }
         return String(
             localized: "Remote pane reconnecting to \(capturedTarget.host)",

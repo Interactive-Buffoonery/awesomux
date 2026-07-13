@@ -107,16 +107,22 @@ enum TerminalAccessibilityAnnouncer {
                 comment: "VoiceOver announcement when a managed SSH pane is blocked because background terminal sessions are disabled"
             )
         }
-        if let pane {
-            return String(
-                localized: "Disconnected from \(host) in \(pane). Reconnect available.",
-                comment: "VoiceOver announcement when a remote pane's SSH connection dies in a split, naming the host and pane"
-            )
-        }
-        return String(
-            localized: "Disconnected from \(host). Reconnect available.",
-            comment: "VoiceOver announcement when a remote pane's SSH connection dies and a reconnect affordance appears"
+        let reconnectHelp = String(
+            localized: "Check that the hostname or SSH config alias exists and is reachable. Reconnect available.",
+            comment: "VoiceOver recovery guidance after an SSH connection fails"
         )
+        if let pane {
+            let failure = String(
+                localized: "SSH connection to \(host) in \(pane) failed.",
+                comment: "VoiceOver announcement when a remote pane's SSH connection fails in a split"
+            )
+            return failure + " " + reconnectHelp
+        }
+        let failure = String(
+            localized: "SSH connection to \(host) failed.",
+            comment: "VoiceOver announcement when a remote pane's SSH connection fails"
+        )
+        return failure + " " + reconnectHelp
     }
 
     static func announceRemoteDisconnected(
