@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import SwiftUI
 
@@ -5,6 +6,7 @@ struct RemoteWorkspaceGroupCreateSheet: View {
     let onCancel: () -> Void
     let onCreate: (_ name: String, _ target: RemoteTarget) -> Void
 
+    @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var draftName = ""
     @State private var draftHost = ""
     @FocusState private var isHostFocused: Bool
@@ -49,6 +51,16 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if !backgroundSessionsEnabled {
+                Label(
+                    "Managed SSH requires background terminal sessions. awesoMux will turn them on when you create the group.",
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
                 Spacer()
 
@@ -57,7 +69,7 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Create") {
+                Button(primaryButtonLabel) {
                     submit(target: target, canCreate: canCreate)
                 }
                 .keyboardShortcut(.defaultAction)
@@ -86,6 +98,20 @@ struct RemoteWorkspaceGroupCreateSheet: View {
         guard canCreate, let target else {
             return
         }
+        guard backgroundSessionsEnabled || enableBackgroundSessions() else { return }
         onCreate(draftName, target)
+    }
+
+    private var backgroundSessionsEnabled: Bool {
+        appSettingsStore.terminal.value.commandBridgeEnabled
+    }
+
+    private var primaryButtonLabel: LocalizedStringKey {
+        backgroundSessionsEnabled ? "Create" : "Enable and Create"
+    }
+
+    private func enableBackgroundSessions() -> Bool {
+        appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
+        return backgroundSessionsEnabled
     }
 }

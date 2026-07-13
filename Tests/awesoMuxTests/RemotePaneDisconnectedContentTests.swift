@@ -28,6 +28,20 @@ struct RemotePaneDisconnectedContentTests {
         #expect(content.buttonEnabled)
     }
 
+    @Test("disabled background sessions explain the requirement and offer recovery")
+    func disabledBackgroundSessions() {
+        let content = RemotePaneDisconnectedContent.make(
+            state: .disconnected(.init(target: capturedTarget)),
+            liveTarget: capturedTarget,
+            backgroundSessionsEnabled: false
+        )
+
+        #expect(content.title == "Background sessions are off")
+        #expect(content.description == "Managed SSH requires background terminal sessions.")
+        #expect(content.buttonLabel == "Enable and reconnect to prod.example")
+        #expect(content.buttonEnabled)
+    }
+
     @Test("disconnected with no live target (moved to a local group): Restart pane")
     func disconnectedWithNoLiveTarget() {
         let content = RemotePaneDisconnectedContent.make(
