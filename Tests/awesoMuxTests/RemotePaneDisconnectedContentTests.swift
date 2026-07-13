@@ -42,6 +42,32 @@ struct RemotePaneDisconnectedContentTests {
         #expect(content.buttonEnabled)
     }
 
+    @Test("disabled background sessions do not replace reconnecting state")
+    func disabledBackgroundSessionsWhileReconnecting() {
+        let content = RemotePaneDisconnectedContent.make(
+            state: .reconnecting(.init(target: capturedTarget)),
+            liveTarget: capturedTarget,
+            backgroundSessionsEnabled: false
+        )
+
+        #expect(content.title == "Reconnecting…")
+        #expect(content.buttonLabel == "Reconnecting…")
+        #expect(!content.buttonEnabled)
+    }
+
+    @Test("disabled background sessions with no live target still restart locally")
+    func disabledBackgroundSessionsWithNoLiveTarget() {
+        let content = RemotePaneDisconnectedContent.make(
+            state: .disconnected(.init(target: capturedTarget)),
+            liveTarget: nil,
+            backgroundSessionsEnabled: false
+        )
+
+        #expect(content.title == "Disconnected")
+        #expect(content.buttonLabel == "Restart pane")
+        #expect(content.buttonEnabled)
+    }
+
     @Test("disconnected with no live target (moved to a local group): Restart pane")
     func disconnectedWithNoLiveTarget() {
         let content = RemotePaneDisconnectedContent.make(

@@ -194,6 +194,13 @@ struct RemotePaneDisconnectedView: View {
                 }
                 .frame(height: 30)
                 .fixedSize()
+
+                if let settingsErrorMessage {
+                    Text(settingsErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(32)
         }
@@ -208,6 +215,12 @@ struct RemotePaneDisconnectedView: View {
     }
 
     private var containerAccessibilityLabel: String {
+        if needsBackgroundSessions {
+            return String(
+                localized: "Remote pane disconnected from \(capturedTarget.host). Background sessions are off.",
+                comment: "Accessibility label for a managed SSH pane blocked because background terminal sessions are disabled"
+            )
+        }
         if isDisconnected {
             return String(
                 localized: "Remote pane disconnected from \(capturedTarget.host)",
@@ -218,6 +231,16 @@ struct RemotePaneDisconnectedView: View {
             localized: "Remote pane reconnecting to \(capturedTarget.host)",
             comment: "Accessibility label for the overlay container while a remote pane's manual reconnect is in flight"
         )
+    }
+
+    private var needsBackgroundSessions: Bool {
+        isDisconnected
+            && liveTarget != nil
+            && !appSettingsStore.terminal.value.commandBridgeEnabled
+    }
+
+    private var settingsErrorMessage: String? {
+        needsBackgroundSessions ? appSettingsStore.latestError?.displayText : nil
     }
 
     private var announcementStateID: String {
@@ -239,7 +262,8 @@ struct RemotePaneDisconnectedView: View {
 
         TerminalAccessibilityAnnouncer.announceRemoteDisconnected(
             host: host,
-            paneDescriptor: paneDescriptor
+            paneDescriptor: paneDescriptor,
+            backgroundSessionsEnabled: !needsBackgroundSessions
         )
     }
 }

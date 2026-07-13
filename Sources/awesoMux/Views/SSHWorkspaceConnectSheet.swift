@@ -27,8 +27,8 @@ struct SSHWorkspaceConnectSheet: View {
                 .focused($isFocused)
                 .accessibilityLabel("SSH destination")
                 .onSubmit { connect(target) }
-            if let validationMessage {
-                Text(validationMessage)
+            if let message = validationMessage ?? settingsErrorMessage {
+                Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -83,6 +83,10 @@ struct SSHWorkspaceConnectSheet: View {
 
     private var primaryButtonLabel: LocalizedStringKey {
         backgroundSessionsEnabled ? "Connect" : "Enable and Connect"
+    }
+
+    private var settingsErrorMessage: String? {
+        backgroundSessionsEnabled ? nil : appSettingsStore.latestError?.displayText
     }
 
     private func enableBackgroundSessions() -> Bool {
