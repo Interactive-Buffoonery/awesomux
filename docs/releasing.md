@@ -181,7 +181,7 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [ ] notarizes and staples
   - [ ] uploads artifacts/checksums to a draft GitHub Release
   - [ ] never runs signing steps for `pull_request` from forks
-- [x] Add an unsigned local dry-run mode for contributors (`--unsigned`)
+- [x] Add an unsigned local dry-run mode (`--unsigned`; needs full Xcode + Zig, but no signing credentials)
 - [ ] Document maintainer-only release prerequisites.
 
 ### Per-release checklist
