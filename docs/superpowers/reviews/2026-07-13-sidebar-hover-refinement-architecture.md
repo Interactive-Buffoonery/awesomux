@@ -18,8 +18,45 @@ All architecture blockers from the initial review are resolved in the plan:
 | Incomplete availability-loss path | Callback is carried tracker → controller → representable → model/proxy; it invalidates both generations and immediately settles hidden | Resolved |
 | Repeated/equal request churn | Same-intent in-flight requests no-op; equal current/target requests normalize synchronously; runner-count tests enforce both | Resolved |
 | Insufficient real AppKit evidence | Live verification explicitly covers dead-zone traversal, both sides and widths, overlap, pass-through input, deactivation, reversal, and Reduce Motion | Resolved |
+| Right-side title lockup alignment (`4e7239a`) | Position-only policy moves the complete unchanged `Brandmark` lockup to trailing alignment with the named existing 10-point inset; traffic-light column policy and content-column clearance remain untouched; hidden/rail suppression continues to derive from effective visible width and existing thresholds | Resolved |
 
 No unresolved blocker remains before implementation. The remaining uncertainties are deliberately classified as verification work rather than architectural ambiguity.
+
+### Addendum — Right-Side Title Lockup Task (`4e7239a`)
+
+The newly added Task 5 is architecturally compatible with the approved hover design and does not reopen runtime visibility ownership.
+
+```text
+Appearance.sidebarPosition
+          |
+          +---------------------------+
+          |                           |
+          v                           v
+titlebarColumns / traffic lights   titlebarLockupAlignment
+(existing policy, unchanged)       left -> leading
+ left:  sidebar | detail           right -> trailing
+ right: detail  | sidebar                    |
+          |                                  v
+          |                         whole existing Brandmark
+          |                         [icon][awesoMux]
+          v                                  |
+physical-leading column keeps               v
+trafficLightClearance              10pt physical outer inset
+
+effective titlebar sidebar width
+ visible -> sidebarLiveWidth.value -> existing full/icon/hidden thresholds
+ hidden  -> 0                      -> no lockup remnant
+```
+
+The title task preserves the important boundaries:
+
+- **Traffic-light behavior:** The right sidebar still places the detail column physically first, and the existing content-column path still applies `trafficLightClearance`. Task 5 changes only alignment inside the sidebar column. Existing `SidebarPresentationLayoutTests` assert `.right` maps traffic lights to `.detail`, and that suite is part of the focused run.
+- **Hidden and rail behavior:** `AppTitlebarView` already derives its effective sidebar width as zero when hidden and uses the live pane width only while visible. Task 5 does not create presentation state or alter thresholds. The matrix and screenshot checks cover persistent/temporary rail and full states; hidden remains zero-width with no lockup. At the current rail width, the existing suppression remains intact.
+- **Item order:** The whole `Brandmark` moves as one unit. Its internal `HStack` remains icon-before-text. The structural regression is modest but appropriate because the implementation is forbidden from editing `Brandmark.swift`, and live screenshots verify the rendered result.
+- **Animation ownership:** Alignment is position-only. Hover animation changes the sidebar column width; it does not add a second title animation or another visibility enactor.
+- **Padding:** Naming the existing literal as `AppTitlebarMetrics.lockupPadding == 10` consolidates an existing contract rather than introducing a new layout dependency.
+
+Coverage is proportional and adequate: pure policy assertions protect side/alignment/padding and existing traffic-light mapping; the real lockup receives an order guard; focused regression suites cover hover/split integration; and the six-state screenshot matrix plus narrow/wide final checks verify clipping, suppression, and persistent/temporary parity. No additional architecture test is required before implementation.
 
 ### System Diagram
 
@@ -228,7 +265,7 @@ Do not add hysteresis, global event monitoring, configurable thresholds, or gene
 
 ### J'onn's Recommendation
 
-The plan is ready to implement. I no longer sense two competing truths at the SwiftUI/AppKit boundary: construction restores once, the proxy enacts runtime intent, and the controller alone moves the divider. The revised tests make that boundary falsifiable rather than aspirational.
+The plan is ready to implement, including the right-side title lockup task added in `4e7239a`. I no longer sense two competing truths at the SwiftUI/AppKit boundary: construction restores once, the proxy enacts runtime intent, and the controller alone moves the divider. Title alignment remains a position-only presentation policy above that boundary; it neither moves traffic-light responsibility nor alters hidden/rail state. The revised tests make these boundaries falsifiable rather than aspirational.
 
 Proceed task by task with the specified red-green discipline. Treat the real AppKit checks as release evidence, not optional polish: the pass-through tracker and animated divider still depend on framework behavior that pure seams cannot prove. If those live checks expose different event ordering or presentation geometry, preserve the plan's ownership invariants and adjust the narrow adapter—not the state model.
 
