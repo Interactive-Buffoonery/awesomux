@@ -193,6 +193,7 @@ enum PaletteSearch {
                     query: query,
                     title: session.title,
                     subtitle: subtitle,
+                    searchLocation: session.sidebarLocation.searchText,
                     groupName: group.name
                 ) else {
                     continue
@@ -279,11 +280,18 @@ enum PaletteSearch {
         query: String,
         title: String,
         subtitle: String?,
+        searchLocation: String,
         groupName: String
     ) -> Int? {
+        // `subtitle` is the last-path-component the row displays; searching
+        // only that (as this used to) misses parent-folder queries like
+        // "dev" against `~/Development/awesomux` entirely, unlike the
+        // sidebar's own inline search, which matches the full abbreviated
+        // path. `searchLocation` restores that without changing what's shown.
         [
             title,
             subtitle,
+            searchLocation,
             groupName
         ].compactMap { haystack in
             haystack.flatMap { score(query, in: $0) }

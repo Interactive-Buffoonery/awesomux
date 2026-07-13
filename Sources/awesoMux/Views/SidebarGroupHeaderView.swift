@@ -292,6 +292,10 @@ struct SidebarGroupHeaderRow: View {
             .frame(width: 40)
             .frame(minHeight: 14)
             .frame(maxWidth: .infinity)
+            // Without this, hover-hit-testing for .help() only fires over the
+            // drawn tint-bar/chevron pixels, not the full row — the tooltip
+            // would feel broken across most of the collapsed header's area.
+            .contentShape(Rectangle())
             .help(group.name)
         } else {
             HStack(spacing: 8) {
