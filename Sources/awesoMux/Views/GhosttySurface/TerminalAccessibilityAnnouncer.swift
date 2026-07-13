@@ -88,21 +88,56 @@ enum TerminalAccessibilityAnnouncer {
     /// appears (INT-697). `host` names the dropped host; `paneDescriptor`
     /// disambiguates a split. The single voice for the disconnect transition —
     /// `markError` suppresses its generic "Session error." for this case.
-    static func announceRemoteDisconnected(host: String, paneDescriptor: String? = nil) {
+    static func remoteDisconnectedAnnouncement(
+        host: String,
+        paneDescriptor: String? = nil,
+        backgroundSessionsEnabled: Bool = true
+    ) -> String {
         let pane = trimmedPaneDescriptor(paneDescriptor)
-        let message: String
-        if let pane {
-            message = String(
-                localized: "Disconnected from \(host) in \(pane). Reconnect available.",
-                comment: "VoiceOver announcement when a remote pane's SSH connection dies in a split, naming the host and pane"
-            )
-        } else {
-            message = String(
-                localized: "Disconnected from \(host). Reconnect available.",
-                comment: "VoiceOver announcement when a remote pane's SSH connection dies and a reconnect affordance appears"
+        if !backgroundSessionsEnabled {
+            if let pane {
+                return String(
+                    localized: "Disconnected from \(host) in \(pane). Background sessions are off. Enable them to reconnect.",
+                    comment:
+                        "VoiceOver announcement when a managed SSH pane in a split is blocked because background terminal sessions are disabled"
+                )
+            }
+            return String(
+                localized: "Disconnected from \(host). Background sessions are off. Enable them to reconnect.",
+                comment: "VoiceOver announcement when a managed SSH pane is blocked because background terminal sessions are disabled"
             )
         }
-        post(message, priority: .medium)
+        let reconnectHelp = String(
+            localized: "Check that the hostname or SSH config alias exists and is reachable. Reconnect available.",
+            comment: "VoiceOver recovery guidance after an SSH connection fails"
+        )
+        if let pane {
+            let failure = String(
+                localized: "SSH connection to \(host) in \(pane) failed.",
+                comment: "VoiceOver announcement when a remote pane's SSH connection fails in a split"
+            )
+            return failure + " " + reconnectHelp
+        }
+        let failure = String(
+            localized: "SSH connection to \(host) failed.",
+            comment: "VoiceOver announcement when a remote pane's SSH connection fails"
+        )
+        return failure + " " + reconnectHelp
+    }
+
+    static func announceRemoteDisconnected(
+        host: String,
+        paneDescriptor: String? = nil,
+        backgroundSessionsEnabled: Bool = true
+    ) {
+        post(
+            remoteDisconnectedAnnouncement(
+                host: host,
+                paneDescriptor: paneDescriptor,
+                backgroundSessionsEnabled: backgroundSessionsEnabled
+            ),
+            priority: .medium
+        )
     }
 
     /// Spoken when a manual remote reconnect lands its `attached` confirmation

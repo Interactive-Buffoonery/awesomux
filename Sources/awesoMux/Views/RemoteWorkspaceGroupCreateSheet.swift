@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import SwiftUI
 
@@ -5,12 +6,16 @@ struct RemoteWorkspaceGroupCreateSheet: View {
     let onCancel: () -> Void
     let onCreate: (_ name: String, _ target: RemoteTarget) -> Void
 
+    @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var draftName = ""
     @State private var draftHost = ""
     @FocusState private var isHostFocused: Bool
 
     var body: some View {
-        let target = RemoteTarget(parsing: draftHost)
+        // Shared validator, not bare RemoteTarget(parsing:): option-like
+        // destinations must be rejected at every creation boundary, and the
+        // store guard returning nil would otherwise leave a dead Create button.
+        let target = SSHWorkspaceDestinationValidation.target(from: draftHost)
         let canCreate = target != nil
 
         return VStack(alignment: .leading, spacing: 16) {
@@ -39,11 +44,21 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 .accessibilityLabel("Remote host")
                 .onSubmit { submit(target: target, canCreate: canCreate) }
 
-            if let validation = validationMessage(target: target) {
-                Text(validation)
+            if let message = SSHWorkspaceDestinationValidation.message(for: draftHost) ?? settingsErrorMessage {
+                Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !backgroundSessionsEnabled {
+                Label(
+                    "Managed SSH requires background terminal sessions. awesoMux will turn them on when you create the group.",
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -54,7 +69,7 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Create") {
+                Button(primaryButtonLabel) {
                     submit(target: target, canCreate: canCreate)
                 }
                 .keyboardShortcut(.defaultAction)
@@ -62,8 +77,10 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 // Conditional hint on one stable button identity — an if/else
                 // over two button copies resets focus mid-edit.
                 .accessibilityHint(
-                    validationMessage(target: target)
-                        ?? String(localized: "Enter a host to enable Create", comment: "Accessibility hint for the disabled Create button in the New Remote Workspace Group sheet"),
+                    SSHWorkspaceDestinationValidation.message(for: draftHost)
+                        ?? String(
+                            localized: "Enter a host to enable Create",
+                            comment: "Accessibility hint for the disabled Create button in the New Remote Workspace Group sheet"),
                     isEnabled: !canCreate
                 )
             }
@@ -77,20 +94,34 @@ struct RemoteWorkspaceGroupCreateSheet: View {
         }
     }
 
-    private func validationMessage(target: RemoteTarget?) -> String? {
-        guard target == nil, !draftHost.isEmpty else {
-            return nil
-        }
-        return String(
-            localized: "Enter a host to connect to, like user@example.com.",
-            comment: "Validation message when the remote workspace group's host field doesn't parse to a usable SSH target"
-        )
-    }
-
     private func submit(target: RemoteTarget?, canCreate: Bool) {
         guard canCreate, let target else {
             return
         }
+        guard backgroundSessionsEnabled || enableBackgroundSessions() else { return }
         onCreate(draftName, target)
+    }
+
+    private var backgroundSessionsEnabled: Bool {
+        appSettingsStore.terminal.value.commandBridgeEnabled
+    }
+
+    private var primaryButtonLabel: String {
+        if backgroundSessionsEnabled {
+            return String(localized: "Create", comment: "Button that creates a remote workspace group")
+        }
+        return String(
+            localized: "Enable and Create",
+            comment: "Button that enables background sessions and creates a remote workspace group"
+        )
+    }
+
+    private var settingsErrorMessage: String? {
+        backgroundSessionsEnabled ? nil : appSettingsStore.latestError?.displayText
+    }
+
+    private func enableBackgroundSessions() -> Bool {
+        appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
+        return backgroundSessionsEnabled
     }
 }

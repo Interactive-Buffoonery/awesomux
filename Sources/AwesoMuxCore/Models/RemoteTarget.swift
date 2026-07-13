@@ -1,9 +1,8 @@
 import Foundation
 import UnicodeHygiene
 
-/// A declared SSH destination attached to a remote Workspace Group. This is
-/// *declared* group state, distinct from `TerminalPane.remoteHost` (which is a
-/// detected, disposable, title-derived signal on a live pane).
+/// A declared SSH destination persisted by a pane execution plan. This is
+/// distinct from `TerminalPane.remoteHost`, a disposable title-derived signal.
 public struct RemoteTarget: Equatable, Hashable, Sendable {
     public let user: String
     public let host: String

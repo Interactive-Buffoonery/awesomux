@@ -18,11 +18,53 @@ struct RemotePaneDisconnectedContentTests {
             liveTarget: movedTarget
         )
 
-        #expect(content.title == "Disconnected")
+        #expect(content.title == "SSH connection failed")
         // Moved to a different host → the second reconciling line appears (#11).
-        #expect(content.description ==
-            "Lost connection to prod.example.\nThis workspace now targets staging.example.")
+        #expect(
+            content.description
+                == "Could not connect to prod.example, or the connection ended.\nThis workspace now targets staging.example.\nCheck that staging.example is a valid hostname or SSH config alias and is reachable.\nFor more details, try ssh deploy@staging.example in a local workspace."
+        )
         #expect(content.buttonLabel == "Reconnect to staging.example")
+        #expect(content.buttonEnabled)
+    }
+
+    @Test("disabled background sessions explain the requirement and offer recovery")
+    func disabledBackgroundSessions() {
+        let content = RemotePaneDisconnectedContent.make(
+            state: .disconnected(.init(target: capturedTarget)),
+            liveTarget: capturedTarget,
+            backgroundSessionsEnabled: false
+        )
+
+        #expect(content.title == "Background sessions are off")
+        #expect(content.description == "Managed SSH requires background terminal sessions.")
+        #expect(content.buttonLabel == "Enable and reconnect to prod.example")
+        #expect(content.buttonEnabled)
+    }
+
+    @Test("disabled background sessions do not replace reconnecting state")
+    func disabledBackgroundSessionsWhileReconnecting() {
+        let content = RemotePaneDisconnectedContent.make(
+            state: .reconnecting(.init(target: capturedTarget)),
+            liveTarget: capturedTarget,
+            backgroundSessionsEnabled: false
+        )
+
+        #expect(content.title == "Reconnecting…")
+        #expect(content.buttonLabel == "Reconnecting…")
+        #expect(!content.buttonEnabled)
+    }
+
+    @Test("disabled background sessions with no live target still restart locally")
+    func disabledBackgroundSessionsWithNoLiveTarget() {
+        let content = RemotePaneDisconnectedContent.make(
+            state: .disconnected(.init(target: capturedTarget)),
+            liveTarget: nil,
+            backgroundSessionsEnabled: false
+        )
+
+        #expect(content.title == "SSH connection failed")
+        #expect(content.buttonLabel == "Restart pane")
         #expect(content.buttonEnabled)
     }
 
@@ -33,8 +75,11 @@ struct RemotePaneDisconnectedContentTests {
             liveTarget: nil
         )
 
-        #expect(content.title == "Disconnected")
-        #expect(content.description == "Lost connection to prod.example.")
+        #expect(content.title == "SSH connection failed")
+        #expect(
+            content.description
+                == "Could not connect to prod.example, or the connection ended.\nCheck that prod.example is a valid hostname or SSH config alias and is reachable.\nFor more details, try ssh deploy@prod.example in a local workspace."
+        )
         #expect(content.buttonLabel == "Restart pane")
         #expect(content.buttonEnabled)
     }
@@ -67,7 +112,10 @@ struct RemotePaneDisconnectedContentTests {
         #expect(content.buttonLabel == "Reconnect to prod.example")
         #expect(content.buttonEnabled)
         // Same host both places → no contradictory second description line.
-        #expect(content.description == "Lost connection to prod.example.")
+        #expect(
+            content.description
+                == "Could not connect to prod.example, or the connection ended.\nCheck that prod.example is a valid hostname or SSH config alias and is reachable.\nFor more details, try ssh deploy@prod.example in a local workspace."
+        )
     }
 
     @Test("disconnected with a DIFFERENT live host appends the moved-target line")
@@ -79,8 +127,10 @@ struct RemotePaneDisconnectedContentTests {
 
         // The two hostnames are reconciled: description names the dropped host,
         // a second line names where the workspace now points (INT-697 fix #11).
-        #expect(content.description ==
-            "Lost connection to prod.example.\nThis workspace now targets staging.example.")
+        #expect(
+            content.description
+                == "Could not connect to prod.example, or the connection ended.\nThis workspace now targets staging.example.\nCheck that staging.example is a valid hostname or SSH config alias and is reachable.\nFor more details, try ssh deploy@staging.example in a local workspace."
+        )
         #expect(content.buttonLabel == "Reconnect to staging.example")
     }
 }

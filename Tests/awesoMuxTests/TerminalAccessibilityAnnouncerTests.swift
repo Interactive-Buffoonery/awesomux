@@ -40,6 +40,27 @@ struct TerminalAccessibilityAnnouncerTests {
         )
     }
 
+    @Test("remote disconnect announcement explains disabled background sessions")
+    func remoteDisconnectAnnouncementExplainsDisabledBackgroundSessions() {
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteDisconnectedAnnouncement(
+                host: "prod.example",
+                paneDescriptor: "pane 2, web",
+                backgroundSessionsEnabled: false
+            ) == "Disconnected from prod.example in pane 2, web. Background sessions are off. Enable them to reconnect."
+        )
+    }
+
+    @Test("remote disconnect announcement explains an SSH destination failure")
+    func remoteDisconnectAnnouncementExplainsSSHDestinationFailure() {
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteDisconnectedAnnouncement(
+                host: "missing.example"
+            )
+                == "SSH connection to missing.example failed. Check that the hostname or SSH config alias exists and is reachable. Reconnect available."
+        )
+    }
+
     @Test("waiting announcement includes non-empty session title")
     func waitingAnnouncementIncludesTitle() {
         #expect(

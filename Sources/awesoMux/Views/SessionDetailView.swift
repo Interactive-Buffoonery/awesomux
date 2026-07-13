@@ -8,6 +8,7 @@ struct SessionDetailView: View {
     let sessionStore: SessionStore
     let ghosttyRuntime: GhosttyRuntime
     let onRenameWorkspace: (TerminalSession) -> Void
+    let onManagedSSHWorkspaceOffer: (TerminalSession.ID, TerminalPane.ID) -> Void
     /// Announcing reopen handler shared with the menu / keyboard command so the
     /// on-screen button posts the same VoiceOver feedback on both success and
     /// nil (INT-166 review: the button used to call the store directly and
@@ -55,7 +56,8 @@ struct SessionDetailView: View {
                         TerminalPaneView(
                             session: session,
                             sessionStore: sessionStore,
-                            ghosttyRuntime: ghosttyRuntime
+                            ghosttyRuntime: ghosttyRuntime,
+                            onManagedSSHWorkspaceOffer: onManagedSSHWorkspaceOffer
                         )
                     }
 

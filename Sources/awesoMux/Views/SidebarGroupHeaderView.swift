@@ -82,6 +82,7 @@ struct SidebarGroupHeaderRow: View {
     let isDragActive: Bool
     let onToggle: () -> Void
     let onNewSessionInGroup: () -> Void
+    let onConnectViaSSH: (SessionGroup) -> Void
     let onNewGroup: () -> Void
     let onRenameGroup: () -> Void
     let onSetGroupColor: (WorkspaceGroupColor?) -> Void
@@ -487,6 +488,10 @@ struct SidebarGroupHeaderRow: View {
             onNewSessionInGroup()
         }
 
+        Button("Connect via SSH…") {
+            onConnectViaSSH(group)
+        }
+
         Button("New Workspace Group…") {
             onNewGroup()
         }
@@ -578,6 +583,10 @@ struct SidebarGroupHeaderRow: View {
     private var groupAccessibilityActionsContent: some View {
         Button("New Workspace in Group") {
             onNewSessionInGroup()
+        }
+
+        Button("Connect via SSH…") {
+            onConnectViaSSH(group)
         }
 
         Button("New Workspace Group…") {

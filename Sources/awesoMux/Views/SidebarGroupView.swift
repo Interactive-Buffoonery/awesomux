@@ -20,6 +20,7 @@ struct SidebarGroupView: View {
     let onToggle: () -> Void
     let onSelect: (TerminalSession) -> Void
     let onNewSessionInGroup: () -> Void
+    let onConnectViaSSH: (SessionGroup) -> Void
     let onNewSessionHere: (TerminalSession) -> Void
     let onNewGroup: () -> Void
     let onRenameGroup: () -> Void
@@ -128,6 +129,7 @@ struct SidebarGroupView: View {
                 isDragActive: activeDragKind != nil,
                 onToggle: onToggle,
                 onNewSessionInGroup: onNewSessionInGroup,
+                onConnectViaSSH: onConnectViaSSH,
                 onNewGroup: onNewGroup,
                 onRenameGroup: onRenameGroup,
                 onSetGroupColor: onSetGroupColor,

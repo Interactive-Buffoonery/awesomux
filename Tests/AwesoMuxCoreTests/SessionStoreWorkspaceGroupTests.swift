@@ -429,6 +429,74 @@ struct SessionStoreWorkspaceGroupTests {
         #expect(store.selectedSessionID == sessionID)
     }
 
+    @Test("managed SSH workspace keeps pane identity without changing group default")
+    func addSSHSessionKeepsPaneOwnedIdentity() throws {
+        let local = TerminalSession(title: "shell 1", workingDirectory: "~")
+        let group = SessionGroup(name: "Current Group", sessions: [local])
+        let store = SessionStore(groups: [group], selectedSessionID: local.id)
+        let target = try #require(RemoteTarget(parsing: "my-server"))
+        let sessionID = try #require(store.addSSHSession(target: target, toGroupID: group.id))
+
+        #expect(store.groups[0].remote == nil)
+        #expect(store.session(id: sessionID)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
+        store.moveSession(id: sessionID, toGroupID: group.id, atIndex: 0)
+        let data = try JSONEncoder().encode(store.snapshot())
+        let restored = SessionStore(restoring: try JSONDecoder().decode(SessionSnapshot.self, from: data))
+        #expect(restored.session(id: sessionID)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
+        #expect(restored.groups[0].remote == nil)
+    }
+
+    @Test("managed SSH workspace rejects a missing group")
+    func addSSHSessionRejectsMissingGroup() {
+        let store = SessionStore(groups: [])
+        #expect(store.addSSHSession(target: RemoteTarget(parsing: "my-server")!, toGroupID: UUID()) == nil)
+        #expect(store.groups.isEmpty)
+    }
+
+    @Test("managed SSH creation rejects an option-like destination")
+    func addSSHSessionRejectsOptionLikeDestination() {
+        let group = SessionGroup(name: "Work", sessions: [])
+        let store = SessionStore(groups: [group])
+        let unsafe = RemoteTarget(parsing: "-oProxyCommand=example")!
+
+        #expect(store.addSSHSession(target: unsafe, toGroupID: group.id) == nil)
+        #expect(store.groups[0].sessions.isEmpty)
+        #expect(store.createRemoteWorkspaceGroup(named: "unsafe", target: unsafe) == nil)
+    }
+
+    @Test("managed SSH conversion replaces the active pane in place")
+    func managedSSHConversionReplacesActivePaneInPlace() throws {
+        let sibling = TerminalPane(title: "local", workingDirectory: "~", executionPlan: .local)
+        let converting = TerminalPane(title: "ssh", workingDirectory: "~", executionPlan: .local)
+        let session = TerminalSession(
+            title: "shell",
+            workingDirectory: "~",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(sibling),
+                    second: .pane(converting)
+                )),
+            activePaneID: converting.id
+        )
+        let group = SessionGroup(name: "Work", sessions: [session])
+        let store = SessionStore(groups: [group], selectedSessionID: session.id)
+        let target = try #require(RemoteTarget(parsing: "my-server"))
+
+        #expect(
+            store.convertPaneToManagedSSH(
+                sessionID: session.id,
+                paneID: converting.id,
+                target: target
+            ) == converting.id
+        )
+        #expect(store.groups[0].sessions.map(\.id) == [session.id])
+        #expect(store.groups[0].remote == nil)
+        #expect(store.session(id: session.id)?.layout.pane(id: sibling.id) == sibling)
+        #expect(store.session(id: session.id)?.activePane?.id != converting.id)
+        #expect(store.session(id: session.id)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
+    }
+
     @Test("remoteTarget finds the active pane's declared target")
     func remoteTargetLookupFindsActivePanePlan() {
         let target = RemoteTarget(user: "ed", host: "box")!

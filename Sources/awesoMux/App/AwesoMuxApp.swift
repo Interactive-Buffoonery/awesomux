@@ -84,6 +84,7 @@ struct AwesoMuxApp: App {
     @State private var paneEditRequest: PaneEditRequest?
     @State private var workspaceGroupCreateRequest: WorkspaceGroupCreateRequest?
     @State private var remoteWorkspaceGroupCreateRequest: RemoteWorkspaceGroupCreateRequest?
+    @State private var sshWorkspaceConnectRequest: SSHWorkspaceConnectRequest?
     @State private var workspaceGroupRenameRequest: WorkspaceGroupRenameRequest?
     @State private var quickSettingsRequest: QuickSettingsRequest?
     @State private var recoveryWarning: SessionPersistence.SessionRecoveryWarning?
@@ -242,6 +243,8 @@ struct AwesoMuxApp: App {
                 onRenameWorkspace: requestRenameWorkspace,
                 onRenameWorkspaceGroup: requestRenameWorkspaceGroup,
                 onNewWorkspaceGroup: requestNewWorkspaceGroup,
+                onConnectViaSSH: { group in requestConnectViaSSH(group) },
+                onManagedSSHWorkspaceOffer: requestManagedSSHWorkspaceOffer,
                 onReopenClosedWorkspace: reopenMostRecentlyClosedWorkspace,
                 hasRecoveryWarning: recoveryWarning != nil,
                 onOpenQuickSettings: requestQuickSettings,
@@ -343,6 +346,35 @@ struct AwesoMuxApp: App {
                         }
                     )
                 }
+            .sheet(item: $sshWorkspaceConnectRequest) { request in
+                SSHWorkspaceConnectSheet(
+                    groupName: request.action.groupName,
+                    initialDestination: request.initialDestination,
+                    onCancel: { sshWorkspaceConnectRequest = nil },
+                    onConnect: { target in
+                        switch request.action {
+                        case .convertPane(let sessionID, let paneID):
+                            guard
+                                let discardedPaneID = sessionStore.convertPaneToManagedSSH(
+                                    sessionID: sessionID,
+                                    paneID: paneID,
+                                    target: target
+                                )
+                            else { return }
+                            ghosttyRuntime.discardSurface(for: discardedPaneID)
+                        case .addToGroup(let groupID, _):
+                            guard
+                                sessionStore.addSSHSession(
+                                    target: target,
+                                    toGroupID: groupID
+                                ) != nil
+                            else { return }
+                        }
+                        appDelegate.surfacePrimaryWindow()
+                        sshWorkspaceConnectRequest = nil
+                    }
+                )
+            }
                 .sheet(item: $workspaceGroupRenameRequest) { request in
                     WorkspaceGroupRenameSheet(
                         groupName: request.name,
@@ -364,6 +396,13 @@ struct AwesoMuxApp: App {
                         .environment(appSettingsStore)
                         .appearanceBridge(appSettingsStore)
                 }
+            .onChange(of: isAnySheetPresented) { wasPresented, isPresented in
+                guard wasPresented, !isPresented,
+                    let session = sessionStore.selectedSession,
+                    let paneID = session.activePane?.id
+                else { return }
+                requestManagedSSHWorkspaceOffer(sessionID: session.id, paneID: paneID)
+            }
                 .onAppear {
                     // Give the floating-panel controllers the settings store so
                     // their detached SwiftUI roots carry the appearance bridge
@@ -559,6 +598,9 @@ struct AwesoMuxApp: App {
                     requestNewRemoteWorkspaceGroup()
                 }
                 .disabled(isAnySheetPresented)
+
+                Button("Connect via SSH…") { requestConnectViaSSH() }
+                    .disabled(isAnySheetPresented)
 
                 Divider()
 
@@ -1888,6 +1930,7 @@ struct AwesoMuxApp: App {
             || paneEditRequest != nil
             || workspaceGroupCreateRequest != nil
             || remoteWorkspaceGroupCreateRequest != nil
+            || sshWorkspaceConnectRequest != nil
             || workspaceGroupRenameRequest != nil
             || quickSettingsRequest != nil
             || ghosttyRuntime.isScrollbackDumpSheetPresented
@@ -2139,6 +2182,40 @@ struct AwesoMuxApp: App {
         }
 
         remoteWorkspaceGroupCreateRequest = RemoteWorkspaceGroupCreateRequest()
+    }
+
+    private func requestConnectViaSSH(_ requestedGroup: SessionGroup? = nil) {
+        guard !isAnySheetPresented else { return }
+        let group =
+            requestedGroup
+            ?? SSHWorkspaceGroupTargeting.resolve(
+                groups: sessionStore.groups,
+                selectedSessionID: sessionStore.selectedSessionID,
+                defaultGroupName: appSettingsStore.workspaces.value.defaultGroup
+            )
+        guard let group else { return }
+        sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest(
+            initialDestination: nil,
+            action: .addToGroup(id: group.id, name: group.name)
+        )
+    }
+
+    private func requestManagedSSHWorkspaceOffer(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) {
+        guard !isAnySheetPresented,
+            let target = sessionStore.consumeManagedSSHWorkspaceOffer(
+                sessionID: sessionID,
+                paneID: paneID
+            )
+        else {
+            return
+        }
+        sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest(
+            initialDestination: target.sshDestination,
+            action: .convertPane(sessionID: sessionID, paneID: paneID)
+        )
     }
 
     private func requestRenameWorkspaceGroup(_ group: SessionGroup) {
@@ -2601,6 +2678,7 @@ struct AwesoMuxApp: App {
             },
             newWorkspaceGroup: requestNewWorkspaceGroup,
             newRemoteWorkspaceGroup: requestNewRemoteWorkspaceGroup,
+            connectViaSSH: { requestConnectViaSSH() },
             renameWorkspace: requestRenameSelectedWorkspace,
             renamePane: requestRenameActivePane,
             resetPaneTitle: requestResetActivePaneTitle,
@@ -3096,6 +3174,24 @@ private struct WorkspaceGroupCreateRequest: Identifiable, Sendable {
 
 private struct RemoteWorkspaceGroupCreateRequest: Identifiable, Sendable {
     let id = UUID()
+}
+
+private struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
+    let id = UUID()
+    let initialDestination: String?
+    let action: SSHWorkspaceConnectAction
+}
+
+private enum SSHWorkspaceConnectAction: Sendable {
+    case addToGroup(id: SessionGroup.ID, name: String)
+    case convertPane(sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
+
+    var groupName: String? {
+        switch self {
+        case .addToGroup(_, let name): name
+        case .convertPane: nil
+        }
+    }
 }
 
 private struct WorkspaceGroupRenameRequest: Identifiable, Sendable {
