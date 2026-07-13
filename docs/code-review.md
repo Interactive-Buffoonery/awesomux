@@ -26,6 +26,11 @@ review of a fork PR, by commenting exactly:
 New commits receive a lightweight reminder instead of automatically consuming
 another model review.
 
+Automatic review skips pull requests above 2,000 changed lines and updates one
+marked pull-request comment with the reason. An allowlisted maintainer can use
+the same exact `/codereview` command to deliberately request a larger bounded
+review; requested reviews accept up to 10,000 diff lines or 512 KiB.
+
 ## Trust boundary
 
 The workflows check out the repository's trusted default branch, then fetch the
@@ -71,11 +76,15 @@ Usage, quota, billing, provider, or output-contract failures fail the Actions
 job. Where possible, the workflow also posts a visible availability comment.
 A failed review must never be interpreted as a clean review.
 
+An oversized automatic-review diff is not a review failure. The workflow exits
+successfully without invoking the model and posts or updates a marked comment
+that explains how to request the larger manual review.
+
 ## Required repository configuration
 
-| Name | Kind | Purpose |
-| --- | --- | --- |
-| `SYNTHETIC_API_KEY` | Actions secret | Calls GLM 5.2 through Synthetic. |
+| Name                     | Kind             | Purpose                                              |
+| ------------------------ | ---------------- | ---------------------------------------------------- |
+| `SYNTHETIC_API_KEY`      | Actions secret   | Calls GLM 5.2 through Synthetic.                     |
 | `MAINTAINER_LOGINS_JSON` | Actions variable | JSON array of logins allowed to trigger paid review. |
 
 ## Local verification
