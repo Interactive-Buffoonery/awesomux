@@ -14,57 +14,58 @@ struct PaletteCommandRegistryTests {
             actions: .noop
         )
         let ids = Set(commands.map(\.id))
-        let expectedIDs = Set([
-            KeyboardShortcutCatalog.newWorkspace.id,
-            KeyboardShortcutCatalog.newWorkspaceInCurrentDirectory.id,
-            KeyboardShortcutCatalog.newWorkspaceGroup.id,
-            "newRemoteWorkspaceGroup",
+        let expectedIDs = Set(
+            [
+                KeyboardShortcutCatalog.newWorkspace.id,
+                KeyboardShortcutCatalog.newWorkspaceInCurrentDirectory.id,
+                KeyboardShortcutCatalog.newWorkspaceGroup.id,
+                "newRemoteWorkspaceGroup",
                 "connectViaSSH",
                 "makeThisWorkspaceManaged",
-            KeyboardShortcutCatalog.renameWorkspace.id,
-            KeyboardShortcutCatalog.renamePane.id,
-            "resetPaneTitle",
-            KeyboardShortcutCatalog.closeWorkspace.id,
-            KeyboardShortcutCatalog.clearWorkspace.id,
-            KeyboardShortcutCatalog.reopenClosedWorkspace.id,
-            KeyboardShortcutCatalog.splitRight.id,
-            KeyboardShortcutCatalog.splitDown.id,
-            KeyboardShortcutCatalog.closePane.id,
-            KeyboardShortcutCatalog.find.id,
-            KeyboardShortcutCatalog.scrollbackDump.id,
-            "reconnectRemotePane",
-            KeyboardShortcutCatalog.growActivePane.id,
-            KeyboardShortcutCatalog.shrinkActivePane.id,
-            KeyboardShortcutCatalog.previousPane.id,
-            KeyboardShortcutCatalog.nextPane.id,
-            KeyboardShortcutCatalog.previousDocumentTab.id,
-            KeyboardShortcutCatalog.nextDocumentTab.id,
-            KeyboardShortcutCatalog.closeDocumentTab.id,
-            KeyboardShortcutCatalog.movePaneUp.id,
-            KeyboardShortcutCatalog.movePaneDown.id,
-            KeyboardShortcutCatalog.movePaneLeft.id,
-            KeyboardShortcutCatalog.movePaneRight.id,
-            KeyboardShortcutCatalog.swapPaneWithNext.id,
-        ] + KeyboardShortcutCatalog.focusPaneBindings.map(\.id) + [
-            KeyboardShortcutCatalog.acknowledgeWorkspace.id,
-            KeyboardShortcutCatalog.focusPermissionPrompt.id,
-            "clearAllNotifications",
-            KeyboardShortcutCatalog.toggleFloatingPanel.id,
-            KeyboardShortcutCatalog.togglePopUpTerminal.id,
-            KeyboardShortcutCatalog.toggleCommandPalette.id,
-            KeyboardShortcutCatalog.focusSidebar.id,
-            KeyboardShortcutCatalog.toggleSidebarWidth.id,
-        ] + KeyboardShortcutCatalog.jumpWorkspaces.map(\.id) + [
-            KeyboardShortcutCatalog.previousWorkspace.id,
-            KeyboardShortcutCatalog.nextWorkspace.id,
-            KeyboardShortcutCatalog.togglePinWorkspace.id,
-            "recenterPalette",
-            "openSettings",
-            "openInIDE",
-            KeyboardShortcutCatalog.showKeyboardCheatsheet.id,
-            KeyboardShortcutCatalog.openMarkdownFile.id,
-            KeyboardShortcutCatalog.sessionManager.id
-        ])
+                KeyboardShortcutCatalog.renameWorkspace.id,
+                KeyboardShortcutCatalog.renamePane.id,
+                "resetPaneTitle",
+                KeyboardShortcutCatalog.closeWorkspace.id,
+                KeyboardShortcutCatalog.clearWorkspace.id,
+                KeyboardShortcutCatalog.reopenClosedWorkspace.id,
+                KeyboardShortcutCatalog.splitRight.id,
+                KeyboardShortcutCatalog.splitDown.id,
+                KeyboardShortcutCatalog.closePane.id,
+                KeyboardShortcutCatalog.find.id,
+                KeyboardShortcutCatalog.scrollbackDump.id,
+                "reconnectRemotePane",
+                KeyboardShortcutCatalog.growActivePane.id,
+                KeyboardShortcutCatalog.shrinkActivePane.id,
+                KeyboardShortcutCatalog.previousPane.id,
+                KeyboardShortcutCatalog.nextPane.id,
+                KeyboardShortcutCatalog.previousDocumentTab.id,
+                KeyboardShortcutCatalog.nextDocumentTab.id,
+                KeyboardShortcutCatalog.closeDocumentTab.id,
+                KeyboardShortcutCatalog.movePaneUp.id,
+                KeyboardShortcutCatalog.movePaneDown.id,
+                KeyboardShortcutCatalog.movePaneLeft.id,
+                KeyboardShortcutCatalog.movePaneRight.id,
+                KeyboardShortcutCatalog.swapPaneWithNext.id,
+            ] + KeyboardShortcutCatalog.focusPaneBindings.map(\.id) + [
+                KeyboardShortcutCatalog.acknowledgeWorkspace.id,
+                KeyboardShortcutCatalog.focusPermissionPrompt.id,
+                "clearAllNotifications",
+                KeyboardShortcutCatalog.toggleFloatingPanel.id,
+                KeyboardShortcutCatalog.togglePopUpTerminal.id,
+                KeyboardShortcutCatalog.toggleCommandPalette.id,
+                KeyboardShortcutCatalog.focusSidebar.id,
+                KeyboardShortcutCatalog.toggleSidebarWidth.id,
+            ] + KeyboardShortcutCatalog.jumpWorkspaces.map(\.id) + [
+                KeyboardShortcutCatalog.previousWorkspace.id,
+                KeyboardShortcutCatalog.nextWorkspace.id,
+                KeyboardShortcutCatalog.togglePinWorkspace.id,
+                "recenterPalette",
+                "openSettings",
+                "openInIDE",
+                KeyboardShortcutCatalog.showKeyboardCheatsheet.id,
+                KeyboardShortcutCatalog.openMarkdownFile.id,
+                KeyboardShortcutCatalog.sessionManager.id,
+            ])
 
         #expect(commands.map(\.id).count == ids.count)
         #expect(ids == expectedIDs)
@@ -100,9 +101,11 @@ struct PaletteCommandRegistryTests {
     @MainActor
     func sheetPresentedGatesCommands() throws {
         let store = SessionStore(groups: [
-            SessionGroup(name: "Code", sessions: [
-                TerminalSession(title: "Main", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
-            ])
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(title: "Main", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
+                ])
         ])
         let commands = PaletteCommandRegistry.commands(
             sessionStore: store,
@@ -175,7 +178,10 @@ struct PaletteCommandRegistryTests {
         #expect(command.shortcut == nil)
 
         let request = try #require(
-            SSHWorkspaceConnectRequest.managedConversion(sessionStore: store)
+            SSHWorkspaceConnectRequest.managedConversion(
+                sessionStore: store,
+                sessionID: session.id
+            )
         )
         #expect(request.initialDestination == "deploy@server-alias")
         switch request.action {
@@ -184,6 +190,12 @@ struct PaletteCommandRegistryTests {
             #expect(paneID == pane.id)
         case .addToGroup:
             Issue.record("Expected an in-place pane conversion request")
+        }
+        if case .some = SSHWorkspaceConnectRequest.managedConversion(
+            sessionStore: store,
+            sessionID: TerminalSession.ID()
+        ) {
+            Issue.record("An unselected workspace must not create a conversion request")
         }
 
         _ = store.consumeManagedSSHWorkspaceOffer(sessionID: session.id, paneID: pane.id)
@@ -242,9 +254,11 @@ struct PaletteCommandRegistryTests {
     @MainActor
     func shortcutBackedCommandsUseCatalogBindings() {
         let store = SessionStore(groups: [
-            SessionGroup(name: "Code", sessions: [
-                TerminalSession(title: "Main", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
-            ])
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(title: "Main", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
+                ])
         ])
         let commands = PaletteCommandRegistry.commands(
             sessionStore: store,
@@ -274,9 +288,10 @@ struct PaletteCommandRegistryTests {
             actions: .noop
         )
         let commandIDs = Set(commands.map(\.id))
-        let cheatsheetEntryIDs = Set(KeyboardShortcutCatalog.settingsSections
-            .flatMap(\.entries)
-            .map(\.id))
+        let cheatsheetEntryIDs = Set(
+            KeyboardShortcutCatalog.settingsSections
+                .flatMap(\.entries)
+                .map(\.id))
 
         #expect(cheatsheetEntryIDs.isSubset(of: commandIDs))
     }
@@ -285,9 +300,11 @@ struct PaletteCommandRegistryTests {
     @MainActor
     func openMarkdownFileAdvertisesCommandO() throws {
         let store = SessionStore(groups: [
-            SessionGroup(name: "Code", sessions: [
-                TerminalSession(title: "Main", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
-            ])
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(title: "Main", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
+                ])
         ])
         let commands = PaletteCommandRegistry.commands(
             sessionStore: store,
@@ -317,11 +334,12 @@ struct PaletteCommandRegistryTests {
             title: "Remote",
             workingDirectory: "/tmp/local",
             agentKind: .shell,
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(localPane),
-                second: .pane(remotePane)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(localPane),
+                    second: .pane(remotePane)
+                )),
             activePaneID: remotePane.id
         )
         let store = SessionStore(groups: [
@@ -343,9 +361,11 @@ struct PaletteCommandRegistryTests {
     @MainActor
     func openInIDERespectsWorkspaceSetting() throws {
         let store = SessionStore(groups: [
-            SessionGroup(name: "Code", sessions: [
-                TerminalSession(title: "Local", workingDirectory: "/tmp/local", agentKind: .shell)
-            ])
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(title: "Local", workingDirectory: "/tmp/local", agentKind: .shell)
+                ])
         ])
 
         let commands = PaletteCommandRegistry.commands(
@@ -362,10 +382,12 @@ struct PaletteCommandRegistryTests {
     @MainActor
     func dynamicCommandsMirrorMenuEnablement() throws {
         let store = SessionStore(groups: [
-            SessionGroup(name: "Code", sessions: [
-                TerminalSession(title: "One", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle),
-                TerminalSession(title: "Two", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
-            ])
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(title: "One", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle),
+                    TerminalSession(title: "Two", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle),
+                ])
         ])
         store.selectedSessionID = store.groups[0].sessions[0].id
         store.splitActivePane(orientation: .vertical)
@@ -392,26 +414,30 @@ struct PaletteCommandRegistryTests {
             ("movePaneUp", .up),
             ("movePaneDown", .down),
             ("movePaneLeft", .left),
-            ("movePaneRight", .right)
+            ("movePaneRight", .right),
         ]
         for (commandID, edge) in moveCases {
             let command = try #require(PaletteCommandRegistry.command(id: commandID, in: commands))
-            #expect(command.isEnabled == store.canMovePane(
-                id: selected.activePaneID,
-                toWorkspaceEdge: edge,
-                in: selected.id
-            ))
+            #expect(
+                command.isEnabled
+                    == store.canMovePane(
+                        id: selected.activePaneID,
+                        toWorkspaceEdge: edge,
+                        in: selected.id
+                    ))
         }
 
         let nextPaneID = try #require(
             selected.layout.paneIDs.first { $0 != selected.activePaneID }
         )
         let swap = try #require(PaletteCommandRegistry.command(id: "swapPaneWithNext", in: commands))
-        #expect(swap.isEnabled == store.canSwapPanes(
-            firstID: selected.activePaneID,
-            secondID: nextPaneID,
-            in: selected.id
-        ))
+        #expect(
+            swap.isEnabled
+                == store.canSwapPanes(
+                    firstID: selected.activePaneID,
+                    secondID: nextPaneID,
+                    in: selected.id
+                ))
     }
 
     @Test("Acknowledge command derives enablement from selected session")
@@ -452,9 +478,11 @@ struct PaletteCommandRegistryTests {
         #expect(!disabled.isEnabled)
 
         let store = SessionStore(groups: [
-            SessionGroup(name: "Code", sessions: [
-                TerminalSession(title: "Main", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
-            ])
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(title: "Main", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
+                ])
         ])
         let commands = PaletteCommandRegistry.commands(
             sessionStore: store,
@@ -488,10 +516,11 @@ struct PaletteCommandRegistryTests {
             actions: .noop
         )
 
-        let reopenCommand = try #require(PaletteCommandRegistry.command(
-            id: "\(PaletteCommandRegistry.reopenRecentIDPrefix)\(doomed.id.uuidString)",
-            in: commands
-        ))
+        let reopenCommand = try #require(
+            PaletteCommandRegistry.command(
+                id: "\(PaletteCommandRegistry.reopenRecentIDPrefix)\(doomed.id.uuidString)",
+                in: commands
+            ))
         #expect(reopenCommand.title == "Reopen: worth keeping")
         #expect(reopenCommand.isEnabled)
     }
@@ -596,8 +625,8 @@ struct PaletteCommandRegistryTests {
         #expect(suggestedIDs.contains("newWorkspace"))
         #expect(suggestedIDs.contains("openSettings"))
         // ...while suggestions that are disabled in this state stay hidden.
-        #expect(!suggestedIDs.contains("newWorkspaceInCurrentDirectory")) // no selected session
-        #expect(!suggestedIDs.contains("reopenClosedWorkspace")) // nothing to reopen
+        #expect(!suggestedIDs.contains("newWorkspaceInCurrentDirectory"))  // no selected session
+        #expect(!suggestedIDs.contains("reopenClosedWorkspace"))  // nothing to reopen
 
         // Bare-query product rule still holds: no implicit selection.
         #expect(results.defaultSelectionIndex == nil)

@@ -108,14 +108,15 @@ struct SidebarGroupHeaderHitTargetTests {
         onCloseGroup: @escaping () -> Void = {},
         onNewSessionInGroup: @escaping () -> Void = {}
     ) -> NSWindow {
-        let hostingView = NSHostingView(rootView: SidebarGroupHitTargetHarness(
-            isCollapsed: isCollapsed,
-            displayMode: displayMode,
-            width: width,
-            onToggle: onToggle,
-            onCloseGroup: onCloseGroup,
-            onNewSessionInGroup: onNewSessionInGroup
-        ))
+        let hostingView = NSHostingView(
+            rootView: SidebarGroupHitTargetHarness(
+                isCollapsed: isCollapsed,
+                displayMode: displayMode,
+                width: width,
+                onToggle: onToggle,
+                onCloseGroup: onCloseGroup,
+                onNewSessionInGroup: onNewSessionInGroup
+            ))
         hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 80)
 
         let window = NSWindow(
@@ -140,17 +141,19 @@ struct SidebarGroupHeaderHitTargetTests {
 
     private static func sendClick(to window: NSWindow, at location: CGPoint) {
         for (type, eventNumber) in [(NSEvent.EventType.leftMouseDown, 1), (.leftMouseUp, 2)] {
-            guard let event = NSEvent.mouseEvent(
-                with: type,
-                location: location,
-                modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
-                eventNumber: eventNumber,
-                clickCount: 1,
-                pressure: type == .leftMouseDown ? 1 : 0
-            ) else { continue }
+            guard
+                let event = NSEvent.mouseEvent(
+                    with: type,
+                    location: location,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: eventNumber,
+                    clickCount: 1,
+                    pressure: type == .leftMouseDown ? 1 : 0
+                )
+            else { continue }
             window.sendEvent(event)
         }
     }
@@ -230,6 +233,8 @@ private struct SidebarGroupHitTargetHarness: View {
             onSelect: { _ in },
             onNewSessionInGroup: onNewSessionInGroup,
             onConnectViaSSH: { _ in },
+            canMakeWorkspaceManaged: { _ in false },
+            onMakeWorkspaceManaged: { _ in },
             onNewSessionHere: { _ in },
             onNewGroup: {},
             onRenameGroup: {},

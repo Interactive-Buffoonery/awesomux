@@ -19,6 +19,8 @@ struct SidebarView: View {
     let onRenameWorkspaceGroup: (SessionGroup) -> Void
     let onNewWorkspaceGroup: () -> Void
     let onConnectViaSSH: (SessionGroup) -> Void
+    let canMakeWorkspaceManaged: (TerminalSession) -> Bool
+    let onMakeWorkspaceManaged: (TerminalSession) -> Void
     let onOpenQuickSettings: () -> Void
     /// Opens the command palette from the collapsed rail's search button —
     /// the rail is too narrow for the inline search field (INT-537).
@@ -92,22 +94,25 @@ struct SidebarView: View {
         // tile's ORIGIN group identity — feeding pinned entries under a
         // synthetic group would change the "N of M" qualifiers a pinned tile
         // shares with its still-in-group twin (INT-737 review).
-        let disambiguationInput: [SidebarGroupEntry] = snapshot.pinned.isEmpty
+        let disambiguationInput: [SidebarGroupEntry] =
+            snapshot.pinned.isEmpty
             ? snapshot.entries
-            : snapshot.entries + snapshot.pinned.map { pinnedEntry in
-                SidebarGroupEntry(
-                    group: pinnedEntry.originGroup,
-                    unfilteredIndex: pinnedEntry.originGroupUnfilteredIndex,
-                    sessions: [pinnedEntry.entry]
-                )
-            }
+            : snapshot.entries
+                + snapshot.pinned.map { pinnedEntry in
+                    SidebarGroupEntry(
+                        group: pinnedEntry.originGroup,
+                        unfilteredIndex: pinnedEntry.originGroupUnfilteredIndex,
+                        sessions: [pinnedEntry.entry]
+                    )
+                }
         let duplicateDisambiguationBySessionID =
             SidebarDuplicateDisambiguator.disambiguationBySessionID(for: disambiguationInput)
         let density = SidebarDensity(compact: appSettingsStore.general.value.sidebarCompactMode)
         let visibleGroupIDs = snapshot.entries.map { $0.group.id }
         // Pinned tiles render above every group, so ⌘1-9 must count them first
         // to keep the on-tile jump digits truthful (INT-737).
-        let jumpOrderedSessions = snapshot.pinned.isEmpty
+        let jumpOrderedSessions =
+            snapshot.pinned.isEmpty
             ? snapshot.entries.flatMap(\.sessions)
             : snapshot.pinned.map(\.entry) + snapshot.entries.flatMap(\.sessions)
         let jumpIndexBySessionID = Dictionary(
@@ -130,7 +135,8 @@ struct SidebarView: View {
         // closure below, which would otherwise rebuild this set on every
         // layout pass during a drag.
         let visibleGroupIDSet = Set(visibleGroupIDs)
-        let structuralAnimation: Animation? = reduceMotion || isFiltering
+        let structuralAnimation: Animation? =
+            reduceMotion || isFiltering
             ? nil
             : .easeOut(duration: 0.12)
 
@@ -164,8 +170,9 @@ struct SidebarView: View {
                         }
 
                         if sessionStore.groups.isEmpty,
-                           !isFiltering,
-                           displayMode == .collapsed {
+                            !isFiltering,
+                            displayMode == .collapsed
+                        {
                             CollapsedEmptySidebarAction(
                                 onNewWorkspace: addWorkspaceInCurrentContext
                             )
@@ -204,6 +211,8 @@ struct SidebarView: View {
                                     sessionStore.addSession(groupName: entry.group.name)
                                 },
                                 onConnectViaSSH: onConnectViaSSH,
+                                canMakeWorkspaceManaged: canMakeWorkspaceManaged,
+                                onMakeWorkspaceManaged: onMakeWorkspaceManaged,
                                 onNewSessionHere: { session in
                                     sessionStore.addSession(
                                         workingDirectory: session.workingDirectory,
@@ -330,14 +339,15 @@ struct SidebarView: View {
                     }
                     .overlay(alignment: .topLeading) {
                         if activeDragKind == .group,
-                           !isFiltering,
-                           let groupDropIndex,
-                           let y = SidebarInsertionResolver.insertionY(
-                               forInsertionIndex: groupDropIndex,
-                               orderedIDs: visibleGroupIDs,
-                               frames: groupFrames,
-                               spacing: density.groupStackSpacing
-                           ) {
+                            !isFiltering,
+                            let groupDropIndex,
+                            let y = SidebarInsertionResolver.insertionY(
+                                forInsertionIndex: groupDropIndex,
+                                orderedIDs: visibleGroupIDs,
+                                frames: groupFrames,
+                                spacing: density.groupStackSpacing
+                            )
+                        {
                             let clampedY = groupDropIndex == 0 ? max(0, y) : y
                             SidebarGroupInsertionIndicator(tint: Color.aw.mauve)
                                 .offset(y: clampedY - SidebarGroupInsertionIndicator.height / 2)
@@ -389,10 +399,11 @@ struct SidebarView: View {
                         // filter, clear the filter first so the jump lands somewhere
                         // visible (mirrors the search onSubmit top-match clear).
                         if isFiltering,
-                           !snapshot.entries.contains(where: { entry in
-                               entry.sessions.contains { $0.session.id == row.sessionID }
-                           }),
-                           !snapshot.pinned.contains(where: { $0.entry.session.id == row.sessionID }) {
+                            !snapshot.entries.contains(where: { entry in
+                                entry.sessions.contains { $0.session.id == row.sessionID }
+                            }),
+                            !snapshot.pinned.contains(where: { $0.entry.session.id == row.sessionID })
+                        {
                             clearFilters()
                         }
                         onFocusPane(row.sessionID, row.paneID)
@@ -475,9 +486,10 @@ struct SidebarView: View {
             // notification clicks (⌘+number, prev/next workspace) — expanding
             // here covers all of them from one place instead of each caller.
             guard let newValue,
-                  let group = sessionStore.groups.first(where: { group in
-                      group.sessions.contains { $0.id == newValue }
-                  }) else {
+                let group = sessionStore.groups.first(where: { group in
+                    group.sessions.contains { $0.id == newValue }
+                })
+            else {
                 return
             }
             // A pinned session renders in the Pinned section, not its origin
@@ -504,10 +516,11 @@ struct SidebarView: View {
                 reorderAnnouncer.announce("Pinned \(session.title)")
             }
             if let removedID = removed.first,
-               let session = sessionStore.session(id: removedID),
-               let group = sessionStore.groups.first(where: { group in
-                   group.sessions.contains { $0.id == removedID }
-               }) {
+                let session = sessionStore.session(id: removedID),
+                let group = sessionStore.groups.first(where: { group in
+                    group.sessions.contains { $0.id == removedID }
+                })
+            {
                 // Auto-expand the origin group so the returning tile isn't
                 // hidden under a collapsed header. A pin pruned on close has
                 // no live session → this lookup fails → no-op, as intended.
@@ -701,9 +714,10 @@ struct SidebarView: View {
         // INT-330: the top-level "+" button targets the currently selected
         // workspace's group. Cold-start falls back to the configured default.
         if let selectedSession = sessionStore.selectedSession,
-           let owner = sessionStore.groups.first(where: { group in
-               group.sessions.contains(where: { $0.id == selectedSession.id })
-           }) {
+            let owner = sessionStore.groups.first(where: { group in
+                group.sessions.contains(where: { $0.id == selectedSession.id })
+            })
+        {
             sessionStore.addSession(groupName: owner.name)
         } else {
             sessionStore.addSession(
@@ -770,9 +784,10 @@ struct SidebarView: View {
             return
         }
         let activePaneID = sessionStore.selectedSession?.activePaneID
-        let startIndex = activePaneID.flatMap { id in
-            rows.firstIndex { $0.paneID == id }
-        } ?? -1
+        let startIndex =
+            activePaneID.flatMap { id in
+                rows.firstIndex { $0.paneID == id }
+            } ?? -1
         let next = rows[(startIndex + 1) % rows.count]
         onFocusPane(next.sessionID, next.paneID)
     }
@@ -787,8 +802,12 @@ struct SidebarView: View {
         activityPanelOpen = open
         TerminalAccessibilityAnnouncer.announce(
             open
-                ? String(localized: "Agent activity panel opened", comment: "VoiceOver announcement when the sidebar agent activity panel expands.")
-                : String(localized: "Agent activity panel closed", comment: "VoiceOver announcement when the sidebar agent activity panel collapses.")
+                ? String(
+                    localized: "Agent activity panel opened",
+                    comment: "VoiceOver announcement when the sidebar agent activity panel expands.")
+                : String(
+                    localized: "Agent activity panel closed",
+                    comment: "VoiceOver announcement when the sidebar agent activity panel collapses.")
         )
     }
 
@@ -914,6 +933,8 @@ struct SidebarView: View {
                     muted: !session.notificationsMuted
                 )
             },
+            canMakeWorkspaceManaged: canMakeWorkspaceManaged,
+            onMakeWorkspaceManaged: onMakeWorkspaceManaged,
             onNewSessionHere: newSessionInPinnedOrigin,
             onMoveToGroup: { sessionID, destinationGroupID in
                 moveSession(sessionID, toGroupID: destinationGroupID, atIndex: SessionStore.appendIndex)
@@ -934,9 +955,11 @@ struct SidebarView: View {
     /// "New Workspace Here" from a pinned tile lands the new workspace in the
     /// pinned session's origin group, matching the in-group tile's behavior.
     private func newSessionInPinnedOrigin(_ session: TerminalSession) {
-        guard let origin = sessionStore.groups.first(where: { group in
-            group.sessions.contains { $0.id == session.id }
-        }) else {
+        guard
+            let origin = sessionStore.groups.first(where: { group in
+                group.sessions.contains { $0.id == session.id }
+            })
+        else {
             return
         }
         sessionStore.addSession(
@@ -959,7 +982,8 @@ struct SidebarView: View {
         let paneID = session.activePaneID
         DispatchQueue.main.async {
             guard let surface = ghosttyRuntime.cachedSurfaceView(for: paneID),
-                  let window = surface.window else {
+                let window = surface.window
+            else {
                 return
             }
             window.makeFirstResponder(surface)
@@ -998,7 +1022,8 @@ struct SidebarView: View {
     private func moveGroup(fromIndex: Int, toIndex: Int) {
         // Capture the moving group's id before the mutation so the landing
         // position can be announced afterward.
-        let movedGroupID = sessionStore.groups.indices.contains(fromIndex)
+        let movedGroupID =
+            sessionStore.groups.indices.contains(fromIndex)
             ? sessionStore.groups[fromIndex].id
             : nil
         sessionStore.moveGroup(from: fromIndex, to: toIndex)
@@ -1027,11 +1052,13 @@ struct SidebarView: View {
     /// Reads the post-move position from the store so cross-group moves
     /// name the destination group too.
     private func announceWorkspaceReorder(_ sessionID: TerminalSession.ID) {
-        guard let groupIndex = sessionStore.groups.firstIndex(where: {
-                  $0.sessions.contains(where: { $0.id == sessionID })
-              }),
-              let sessionIndex = sessionStore.groups[groupIndex].sessions
-                  .firstIndex(where: { $0.id == sessionID }) else {
+        guard
+            let groupIndex = sessionStore.groups.firstIndex(where: {
+                $0.sessions.contains(where: { $0.id == sessionID })
+            }),
+            let sessionIndex = sessionStore.groups[groupIndex].sessions
+                .firstIndex(where: { $0.id == sessionID })
+        else {
             return
         }
         let group = sessionStore.groups[groupIndex]
@@ -1056,13 +1083,15 @@ struct SidebarView: View {
     /// store, then announces the landing position for VoiceOver — the pinned
     /// twin of `moveSession`, whose pinned path bypassed the announcer.
     private func movePinnedSession(fromIndex: Int, toIndex: Int) {
-        let movedID = sessionStore.pinnedSessionIDs.indices.contains(fromIndex)
+        let movedID =
+            sessionStore.pinnedSessionIDs.indices.contains(fromIndex)
             ? sessionStore.pinnedSessionIDs[fromIndex]
             : nil
         sessionStore.movePinnedSession(fromIndex: fromIndex, toIndex: toIndex)
         guard let movedID,
-              let landedIndex = sessionStore.pinnedSessionIDs.firstIndex(of: movedID),
-              let session = sessionStore.session(id: movedID) else {
+            let landedIndex = sessionStore.pinnedSessionIDs.firstIndex(of: movedID),
+            let session = sessionStore.session(id: movedID)
+        else {
             return
         }
         reorderAnnouncer.announce(
@@ -1121,11 +1150,14 @@ struct SidebarView: View {
             activeDragKind = kind
         }
         let now = Date()
-        let clearIsSoon = sidebarDragClearDeadline.map {
-            $0.timeIntervalSince(now) <= SidebarDragStateTiming.watchdogRefreshInterval
-        } ?? true
-        guard clearIsSoon
-            || now.timeIntervalSince(lastDragWatchdogRefresh) >= SidebarDragStateTiming.watchdogRefreshInterval else {
+        let clearIsSoon =
+            sidebarDragClearDeadline.map {
+                $0.timeIntervalSince(now) <= SidebarDragStateTiming.watchdogRefreshInterval
+            } ?? true
+        guard
+            clearIsSoon
+                || now.timeIntervalSince(lastDragWatchdogRefresh) >= SidebarDragStateTiming.watchdogRefreshInterval
+        else {
             return
         }
         lastDragWatchdogRefresh = now
@@ -1254,7 +1286,7 @@ private final class SidebarReorderAnnouncer {
                 notification: .announcementRequested,
                 userInfo: [
                     .announcement: message,
-                    .priority: NSAccessibilityPriorityLevel.high.rawValue
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue,
                 ]
             )
         }
