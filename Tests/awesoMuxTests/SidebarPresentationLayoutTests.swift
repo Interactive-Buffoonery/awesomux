@@ -12,6 +12,8 @@ struct SidebarPresentationLayoutTests {
         #expect(policy.peekDirection == .right)
         #expect(policy.titlebarColumns == [.sidebar, .detail])
         #expect(policy.trafficLightColumn == .sidebar)
+        #expect(policy.dividerGutterColumn == .detail)
+        #expect(policy.dividerGutterEdge == .leading)
     }
 
     @Test("right sidebar reveals from trailing and peeks leftward")
@@ -22,5 +24,7 @@ struct SidebarPresentationLayoutTests {
         #expect(policy.peekDirection == .left)
         #expect(policy.titlebarColumns == [.detail, .sidebar])
         #expect(policy.trafficLightColumn == .detail)
+        #expect(policy.dividerGutterColumn == .sidebar)
+        #expect(policy.dividerGutterEdge == .leading)
     }
 }
