@@ -577,25 +577,32 @@ struct SidebarView: View {
             } label: {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 32, height: 32)
+                    // Matches the 40pt collapsed workspace tile
+                    // (SidebarSessionTile.swift) so the rail reads as one
+                    // consistent column width, not a narrower control.
+                    .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.aw.text3)
-            .background(Color.aw.surface.elevated.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(Color.aw.border2.opacity(0.7), lineWidth: 0.5)
-            }
+            // Same family as a workspace tile's fill (SidebarSessionTile.swift
+            // tileBackground), dimmed a notch so search reads as a utility
+            // control rather than "one more workspace" next to the actual
+            // tiles below it.
+            .background(Color.aw.surface.elevated.opacity(0.6), in: RoundedRectangle(cornerRadius: AwRadius.panel))
             .accessibilityLabel("Search")
             .accessibilityHint("Opens the command palette to search workspaces and actions.")
             .help("Search workspaces and actions (\(paletteShortcutSymbol))")
 
             NewWorkspaceMenuButton(
-                size: 32,
-                cornerRadius: 7,
-                // Keep the rail button boxed to match the command-palette button above it.
-                restFill: Color.aw.surface.hover,
+                size: 40,
+                // Matches the search chip above and the workspace tiles below
+                // (both AwRadius.panel) so the collapsed rail's three chip
+                // types share one corner radius.
+                cornerRadius: AwRadius.panel,
+                // Blend into the sidebar, matching the expanded header's
+                // treatment of this same button — not a separate boxed color.
+                restFill: Color.aw.surface.sidebar,
                 otherGroups: sessionStore.groups.map { ($0.id, $0.name) },
                 onNewWorkspace: addWorkspaceInCurrentContext,
                 onNewWorkspaceInGroup: addWorkspace(inGroupID:),

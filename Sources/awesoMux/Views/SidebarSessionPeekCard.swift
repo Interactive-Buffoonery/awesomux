@@ -16,11 +16,6 @@ struct SidebarSessionPeekCard: View {
     /// only on the multi-pane path.
     let onHoverChanged: (Bool) -> Void
 
-    /// Beyond this many panes the list scrolls instead of growing the card past
-    /// the window (538 R7). Five rows covers the overwhelming majority of real
-    /// layouts; the scroll is the safety valve, not the common path.
-    private static let maxVisibleRows = 5
-    private static let rowHeight: CGFloat = 30
 
     private var isMultiPane: Bool { session.layout.paneCount > 1 }
 
@@ -139,7 +134,7 @@ struct SidebarSessionPeekCard: View {
             }
         }
 
-        if paneItems.count > Self.maxVisibleRows {
+        if paneItems.count > SidebarPeekMetrics.maxVisibleRows {
             // Scroll the active pane into view on open, so the highlighted row
             // isn't stranded below the fold for a many-pane workspace whose
             // active pane sorts past the visible cap (INT-538 review).
@@ -147,7 +142,7 @@ struct SidebarSessionPeekCard: View {
                 ScrollView {
                     rows
                 }
-                .frame(maxHeight: CGFloat(Self.maxVisibleRows) * Self.rowHeight)
+                .frame(maxHeight: CGFloat(SidebarPeekMetrics.maxVisibleRows) * SidebarPeekMetrics.rowHeight)
                 .onAppear { scrollToActive(proxy) }
                 // Re-scroll if the active pane changes while the card stays open
                 // (a refresh swaps in new paneItems), so the highlight never sits

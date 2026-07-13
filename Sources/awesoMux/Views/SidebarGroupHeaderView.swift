@@ -2,7 +2,6 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
-
 /// Gate for the group header's hover-revealed close-group X (INT-739).
 ///
 /// Beyond hover, the X carries the same guards as the context menu's
@@ -93,6 +92,13 @@ struct SidebarGroupHeaderRow: View {
     @Binding var isKeyboardNavigating: Bool
 
     @State private var isHeaderHovered = false
+    @State private var isPeekVisible = false
+    @State private var peekTask: Task<Void, Never>?
+    /// This header's box in the sidebar pane's `.global` space — handed to
+    /// `SidebarPeekModel` so `ContentView` can draw the peek card aligned
+    /// with the header, above the split. Mirrors `SidebarSessionTile.tileFrame`.
+    @State private var headerFrame: CGRect = .zero
+    @Environment(SidebarPeekModel.self) private var peekModel
     @Environment(\.colorSchemeContrast) private var contrast
     // Mirror the count badge's scaling: it renders with `.awFont(.Mono.meta)`,
     // whose point size is `@ScaledMetric(relativeTo: .subheadline)` off
@@ -106,6 +112,39 @@ struct SidebarGroupHeaderRow: View {
 
     private var sessions: [TerminalSession] {
         entries.map(\.session)
+    }
+
+    /// Only the collapsed rail's header shows the group roster — the
+    /// expanded header already lists every workspace inline, and hovering
+    /// an individual tile keeps showing the existing single-session peek
+    /// (mutually exclusive by construction: this trigger and the tile's
+    /// trigger call different `SidebarPeekModel` methods).
+    private var canPeek: Bool {
+        displayMode == .collapsed
+    }
+
+    private func updatePeekVisibility() {
+        guard canPeek,
+            isHeaderHovered || (focusedRowTarget.wrappedValue == .group(group.id) && isKeyboardNavigating)
+        else {
+            cancelPeek()
+            return
+        }
+        guard !isPeekVisible else { return }
+
+        peekTask?.cancel()
+        peekTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            isPeekVisible = true
+        }
+    }
+
+    private func cancelPeek() {
+        peekTask?.cancel()
+        peekTask = nil
+        guard isPeekVisible else { return }
+        isPeekVisible = false
     }
 
     /// The count text's scale relative to its 100% size, so the close-X can
@@ -137,10 +176,12 @@ struct SidebarGroupHeaderRow: View {
         let isHighContrast = contrast == .increased
         let groupTintMarkerSize: CGFloat = isHighContrast ? 8 : 6
 
-        // Tap gesture instead of Button(action:) — Button on macOS claims
-        // the press gesture before .draggable can start a drag. See skill
-        // `swiftui-macos-draggable-on-button-silent-fail`.
-        groupHeader(
+        // Split at the peek-lifecycle modifiers (`withPeekLifecycle`) so the
+        // type-checker sees two expressions instead of one — the combined
+        // chain (gestures + focus + drag + peek onChange×7 + accessibility)
+        // times out, the same failure mode `groupContextMenuContent`'s own
+        // extraction comment describes for the menu content.
+        let chrome = groupHeader(
             isHighContrast: isHighContrast,
             groupTintMarkerSize: groupTintMarkerSize
         )
@@ -153,10 +194,12 @@ struct SidebarGroupHeaderRow: View {
         // `.onDrag` from activating. `.simultaneousGesture` composes
         // with the drag so both can fire (tap on quick click, drag
         // on hold + motion).
-        .simultaneousGesture(TapGesture().onEnded {
-            isKeyboardNavigating = false
-            onToggle()
-        })
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                isKeyboardNavigating = false
+                onToggle()
+            }
+        )
         // Deliberately NOT the session row's vacate-on-tap treatment
         // (INT-652): a header click toggles collapse without changing the
         // selection, so no surface mounts and nothing would reclaim a
@@ -193,6 +236,16 @@ struct SidebarGroupHeaderRow: View {
         // TapGesture. Order is load-bearing: this must stay AFTER
         // .simultaneousGesture and .onDrag, or the parent tap fires too.
         .overlay(alignment: .trailing) { groupCloseButton }
+        .background {
+            if canPeek {
+                Color.clear
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .global)
+                    } action: {
+                        headerFrame = $0
+                    }
+            }
+        }
         // .onHover must sit ABOVE the overlay (mirrors the session tile's
         // order), so the X counts as part of the hovered region. Attached
         // below it, the hover-gated hittable X occludes the header, which
@@ -205,53 +258,137 @@ struct SidebarGroupHeaderRow: View {
             if hovering {
                 isKeyboardNavigating = false
             }
+            updatePeekVisibility()
         }
-        // mouseExited isn't delivered when the header is torn out from
-        // under a stationary pointer (filter removes the group, structural
-        // rebuild) — same reset the session tile carries. Without it a
-        // stale-true flag re-arms the X on reappear with no live hover.
-        .onDisappear { isHeaderHovered = false }
-        // A drag suppresses tracking-area exit events, so the origin
-        // header's hover flag would strand true (and the close X strand
-        // visible) after the group lands elsewhere. (Was a parent-level
-        // `.onChange(of: activeDragKind)`; moved here with the state.)
-        .onChange(of: isDragActive) { _, active in
-            if active {
+
+        return withPeekLifecycle(chrome)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            // Default activation for VoiceOver (VO+space). Refactoring
+            // off `Button` to free `.onDrag` removed the built-in
+            // button activation — restoring it explicitly so the
+            // announced `.isButton` trait actually does something.
+            .accessibilityAction { onToggle() }
+            .accessibilityLabel(
+                {
+                    // Include color tint in the label so VoiceOver users hear the
+                    // currently-assigned color — the visual 6×6 dot is otherwise
+                    // the only signal that a user-chosen tint actually applied.
+                    let colorSuffix = group.color.map { ", \($0.displayName) tint" } ?? ""
+                    if sessions.isEmpty {
+                        return "\(group.name), empty workspace group\(colorSuffix)"
+                    }
+                    return "\(group.name), \(LocalizedPluralStrings.sidebarGroupWorkspaces(count: sessions.count))\(colorSuffix)"
+                }()
+            )
+            .accessibilityValue(groupAccessibilityValue)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityAddTraits(
+                sessions.contains(where: { $0.id == selectedSessionID }) ? [.isSelected] : []
+            )
+            .contextMenu { groupContextMenuContent }
+            .accessibilityActions { groupAccessibilityActionsContent }
+    }
+
+    /// The group-roster peek's full hover/keyboard/drag/filter lifecycle,
+    /// extracted out of `body`'s modifier chain for the same type-checking
+    /// reason `groupContextMenuContent` was extracted (see its comment) —
+    /// this many `.onChange` handlers plus everything else in `body` is too
+    /// much for one expression.
+    @ViewBuilder
+    private func withPeekLifecycle(_ content: some View) -> some View {
+        content
+            // mouseExited isn't delivered when the header is torn out from
+            // under a stationary pointer (filter removes the group, structural
+            // rebuild) — same reset the session tile carries. Without it a
+            // stale-true flag re-arms the X on reappear with no live hover.
+            .onDisappear {
                 isHeaderHovered = false
+                cancelPeek()
+                peekModel.hideGroup(for: group.id)
             }
-        }
-        // Re-arming the X requires a fresh hover: without this, clearing
-        // the filter by keyboard while the pointer rests on a header
-        // widens the gate under a stationary pointer and the X appears
-        // with no hover gesture (stale-state-plus-widened-gate, INT-562
-        // family). (Was a parent-level `.onChange(of: isFiltering)`.)
-        .onChange(of: isFiltering) { _, _ in
-            isHeaderHovered = false
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        // Default activation for VoiceOver (VO+space). Refactoring
-        // off `Button` to free `.onDrag` removed the built-in
-        // button activation — restoring it explicitly so the
-        // announced `.isButton` trait actually does something.
-        .accessibilityAction { onToggle() }
-        .accessibilityLabel({
-            // Include color tint in the label so VoiceOver users hear the
-            // currently-assigned color — the visual 6×6 dot is otherwise
-            // the only signal that a user-chosen tint actually applied.
-            let colorSuffix = group.color.map { ", \($0.displayName) tint" } ?? ""
-            if sessions.isEmpty {
-                return "\(group.name), empty workspace group\(colorSuffix)"
+            // A drag suppresses tracking-area exit events, so the origin
+            // header's hover flag would strand true (and the close X strand
+            // visible) after the group lands elsewhere. (Was a parent-level
+            // `.onChange(of: activeDragKind)`; moved here with the state.)
+            .onChange(of: isDragActive) { _, active in
+                if active {
+                    isHeaderHovered = false
+                    cancelPeek()
+                }
             }
-            return "\(group.name), \(LocalizedPluralStrings.sidebarGroupWorkspaces(count: sessions.count))\(colorSuffix)"
-        }())
-        .accessibilityValue(groupAccessibilityValue)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityAddTraits(
-            sessions.contains(where: { $0.id == selectedSessionID }) ? [.isSelected] : []
-        )
-        .contextMenu { groupContextMenuContent }
-        .accessibilityActions { groupAccessibilityActionsContent }
+            // Re-arming the X requires a fresh hover: without this, clearing
+            // the filter by keyboard while the pointer rests on a header
+            // widens the gate under a stationary pointer and the X appears
+            // with no hover gesture (stale-state-plus-widened-gate, INT-562
+            // family). (Was a parent-level `.onChange(of: isFiltering)`.)
+            .onChange(of: isFiltering) { _, _ in
+                isHeaderHovered = false
+                cancelPeek()
+            }
+            .onChange(of: isPeekVisible) { _, visible in
+                if visible {
+                    peekModel.showGroup(
+                        group: group,
+                        tint: tint,
+                        sessions: sessions,
+                        activeSessionID: selectedSessionID,
+                        frame: headerFrame
+                    )
+                } else if canPeek {
+                    // Always hittable (every row jumps), so always request the
+                    // graced hide — never the immediate one — matching the
+                    // multi-pane tile's card, not the single-pane summary path.
+                    peekModel.requestHideGroup(for: group.id)
+                } else {
+                    // The rail itself stopped being collapsed — there's no gap
+                    // left for the pointer to be reaching across, so the grace
+                    // (which exists to survive that gap) doesn't apply here. An
+                    // immediate hide prevents the card from stranding open if the
+                    // pointer happens to be resting on it when displayMode changes.
+                    peekModel.hideGroup(for: group.id)
+                }
+            }
+            .onChange(of: headerFrame) { _, frame in
+                peekModel.updateGroupFrame(for: group.id, frame: frame)
+            }
+            // Keyed on `peekRefreshKey` (not just `entries`' plain equality) so
+            // a per-session state change entries' `==` excludes (e.g. a shell
+            // idle↔busy flip) still refreshes a live card — same reasoning as
+            // the single-session tile's `peekRefreshKey` onChange. This array
+            // is a strict superset of what an `entries`-keyed onChange would
+            // catch: any add/remove/reorder also changes this array's length
+            // or order.
+            .onChange(of: sessions.map(\.peekRefreshKey)) { _, _ in
+                peekModel.refreshGroup(
+                    group: group,
+                    tint: tint,
+                    sessions: sessions,
+                    activeSessionID: selectedSessionID
+                )
+            }
+            // The roster's active-row highlight is derived from
+            // `selectedSessionID`, which can change without touching this
+            // group's own `entries` (e.g. selecting a session in a different
+            // group) — without this the highlight goes stale on a live card.
+            .onChange(of: selectedSessionID) { _, _ in
+                peekModel.refreshGroup(
+                    group: group,
+                    tint: tint,
+                    sessions: sessions,
+                    activeSessionID: selectedSessionID
+                )
+            }
+            .onChange(of: displayMode) { _, _ in
+                // Re-evaluate on a ⌘\ toggle even when the pointer never moves
+                // — expanding the rail must dismiss a showing group peek
+                // (`canPeek` gates it off), matching the tile's own
+                // displayMode re-check.
+                updatePeekVisibility()
+            }
+            .onChange(of: focusedRowTarget.wrappedValue) { _, _ in
+                updatePeekVisibility()
+            }
     }
 
     @ViewBuilder
@@ -290,9 +427,9 @@ struct SidebarGroupHeaderRow: View {
                 }
             }
             .frame(width: 40)
-            .frame(minHeight: 14)
+            .frame(minHeight: 26)
             .frame(maxWidth: .infinity)
-            .help(group.name)
+            .contentShape(Rectangle())
         } else {
             HStack(spacing: 8) {
                 Image(systemName: "chevron.down")
@@ -367,7 +504,8 @@ struct SidebarGroupHeaderRow: View {
             .accessibilityAddTraits(group.color == nil ? [.isSelected] : [])
 
             if let legacyColor = currentLegacyColor {
-                Button {} label: {
+                Button {
+                } label: {
                     colorMenuLabel(
                         legacyColor.displayName,
                         swatch: ProjectTint.color(for: legacyColor),
@@ -428,10 +566,11 @@ struct SidebarGroupHeaderRow: View {
             Button("Close Group", role: .destructive) {
                 onCloseGroup()
             }
-            .disabled(SidebarGroupClosePolicy.closeIsDeadControl(
-                isGroupEmpty: group.sessions.isEmpty,
-                totalGroupCount: totalGroupCount
-            ))
+            .disabled(
+                SidebarGroupClosePolicy.closeIsDeadControl(
+                    isGroupEmpty: group.sessions.isEmpty,
+                    totalGroupCount: totalGroupCount
+                ))
         }
     }
 
@@ -490,14 +629,52 @@ struct SidebarGroupHeaderRow: View {
         // `.accessibilityActions` has no disabled state. Same
         // filtering + unresolved-row suppression as the context menu.
         if !isFiltering, currentGroupIndex != nil,
-           !SidebarGroupClosePolicy.closeIsDeadControl(
-               isGroupEmpty: group.sessions.isEmpty,
-               totalGroupCount: totalGroupCount
-           ) {
+            !SidebarGroupClosePolicy.closeIsDeadControl(
+                isGroupEmpty: group.sessions.isEmpty,
+                totalGroupCount: totalGroupCount
+            )
+        {
             Button("Close Group") {
                 onCloseGroup()
             }
         }
+
+        // The only interactive-content peek in the app without a non-mouse
+        // path otherwise — mirrors `SidebarSessionTile`'s per-pane jump
+        // actions (`PanePeekItem`) for the group roster peek card. Gated on
+        // `displayMode == .collapsed` only — matching `canPeek` exactly, the
+        // same trigger the mouse-hover path uses. A group's own `isCollapsed`
+        // doesn't matter here: in the collapsed rail, a group's own tiles
+        // (when `isCollapsed` is false) render as bare numbered squares with
+        // no name text, so there's no redundancy with the peek card either
+        // way — unlike the expanded rail, where an uncollapsed group already
+        // exposes each workspace as an ordinary focusable/actionable row.
+        if displayMode == .collapsed {
+            ForEach(SessionPeekItem.items(for: sessions, activeSessionID: selectedSessionID)) { item in
+                Button(groupSessionJumpActionLabel(item)) {
+                    peekModel.onSelectGroupSession?(group.id, item.id)
+                }
+            }
+        }
+    }
+
+    /// VoiceOver twin of the mouse-only group roster peek card row — mirrors
+    /// `SidebarSessionTile.paneJumpActionLabel`'s shape for a `SessionPeekItem`
+    /// instead of a `PanePeekItem`, so a VoiceOver "Jump to X" action carries
+    /// the same state a sighted user reads off the card row (agent, status,
+    /// remote, unread, active).
+    private func groupSessionJumpActionLabel(_ item: SessionPeekItem) -> String {
+        var parts = ["Jump to \(item.title)", item.agentShortName, item.state.label]
+        if item.isRemote {
+            parts.append("remote")
+        }
+        if item.unread > 0 {
+            parts.append(LocalizedPluralStrings.sidebarNotifications(count: item.unread))
+        }
+        if item.isActive {
+            parts.append("active workspace")
+        }
+        return parts.joined(separator: ", ")
     }
 
     @ViewBuilder
@@ -521,7 +698,8 @@ struct SidebarGroupHeaderRow: View {
             TerminalAccessibilityAnnouncer.announce(
                 String(
                     localized: "Workspace group color set to \(color.displayName)",
-                    comment: "VoiceOver status message after setting a workspace group's color. The placeholder is a color name such as 'Teal' or 'Mauve'."
+                    comment:
+                        "VoiceOver status message after setting a workspace group's color. The placeholder is a color name such as 'Teal' or 'Mauve'."
                 )
             )
         } else {

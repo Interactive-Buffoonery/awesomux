@@ -92,10 +92,11 @@ enum PaletteSearch {
         var outputGroups: [PaletteResultGroup] = []
 
         if resolved.mode == .unified,
-           let quickRun = PaletteQuickRunDetector.quickRun(
-            for: rawQuery,
-            searchPath: quickRunSearchPath
-           ) {
+            let quickRun = PaletteQuickRunDetector.quickRun(
+                for: rawQuery,
+                searchPath: quickRunSearchPath
+            )
+        {
             return PaletteResults(
                 mode: .quickRun,
                 query: query,
@@ -140,7 +141,8 @@ enum PaletteSearch {
             }
         }
 
-        let isBareUnifiedQuery = resolved.mode == .unified
+        let isBareUnifiedQuery =
+            resolved.mode == .unified
             && rawQuery.trimmingCharacters(in: .whitespaces).isEmpty
 
         return PaletteResults(
@@ -189,12 +191,15 @@ enum PaletteSearch {
                     continue
                 }
 
-                guard let score = bestSessionScore(
-                    query: query,
-                    title: session.title,
-                    subtitle: subtitle,
-                    groupName: group.name
-                ) else {
+                guard
+                    let score = bestSessionScore(
+                        query: query,
+                        title: session.title,
+                        subtitle: subtitle,
+                        searchLocation: session.sidebarLocation.searchText,
+                        groupName: group.name
+                    )
+                else {
                     continue
                 }
 
@@ -268,7 +273,7 @@ enum PaletteSearch {
             KeyboardShortcutCatalog.reopenClosedWorkspace.id,
             KeyboardShortcutCatalog.toggleFloatingPanel.id,
             KeyboardShortcutCatalog.togglePopUpTerminal.id,
-            "openSettings"
+            "openSettings",
         ]
         return suggestedIDs.compactMap { id in
             commands.first { $0.id == id }
@@ -279,12 +284,19 @@ enum PaletteSearch {
         query: String,
         title: String,
         subtitle: String?,
+        searchLocation: String,
         groupName: String
     ) -> Int? {
+        // `subtitle` is the last-path-component the row displays; searching
+        // only that (as this used to) misses parent-folder queries like
+        // "dev" against `~/Development/awesomux` entirely, unlike the
+        // sidebar's own inline search, which matches the full abbreviated
+        // path. `searchLocation` restores that without changing what's shown.
         [
             title,
             subtitle,
-            groupName
+            searchLocation,
+            groupName,
         ].compactMap { haystack in
             haystack.flatMap { score(query, in: $0) }
         }.max()
