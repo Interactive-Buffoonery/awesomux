@@ -241,6 +241,44 @@ struct PaletteFuzzyMatchTests {
         #expect(sessionIDs == [first.id, stronger.id])
     }
 
+    @Test("Query matches a parent-folder segment, not just the last path component")
+    @MainActor
+    func sessionSearchMatchesFullPath() {
+        // Regression for a divergence from the sidebar's own inline search:
+        // the palette used to score only the session title, the *last*
+        // working-directory path component, and the group name — so "dev"
+        // never matched a `~/Development/*` workspace unless "dev" also
+        // happened to appear in one of those three fields.
+        let alpha = TerminalSession(
+            title: "Alpha",
+            workingDirectory: "/Users/example/Development/alpha",
+            agentKind: .shell,
+            agentState: .idle
+        )
+        let beta = TerminalSession(
+            title: "Beta",
+            workingDirectory: "/Users/example/Development/beta",
+            agentKind: .shell,
+            agentState: .idle
+        )
+        let store = SessionStore(groups: [
+            SessionGroup(name: "Code", sessions: [alpha, beta])
+        ])
+        let results = PaletteSearch.results(
+            groups: store.groups,
+            commands: [],
+            rawQuery: "dev"
+        )
+        let sessionIDs = results.flattened.compactMap { result -> TerminalSession.ID? in
+            if case .session(let session) = result {
+                return session.sessionID
+            }
+            return nil
+        }
+
+        #expect(Set(sessionIDs) == Set([alpha.id, beta.id]))
+    }
+
     @Test("Empty query respects session limit")
     @MainActor
     func emptyQueryRespectsSessionLimit() {
