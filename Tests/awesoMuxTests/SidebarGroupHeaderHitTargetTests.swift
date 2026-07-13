@@ -7,6 +7,18 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarGroupHeaderHitTargetTests {
+    @Test("context menu and accessibility SSH actions preserve the clicked group")
+    func connectActionsPreserveClickedGroup() {
+        let group = SessionGroup(name: "Clicked", sessions: [])
+        var received: [SessionGroup.ID] = []
+        let callback: (SessionGroup) -> Void = { received.append($0.id) }
+
+        SidebarGroupConnectAction.perform(group: group, onConnect: callback)
+        SidebarGroupConnectAction.perform(group: group, onConnect: callback)
+
+        #expect(received == [group.id, group.id])
+    }
+
     @Test("test harness window is transparent while ordered for event delivery")
     func testHarnessWindowIsTransparentWhileOrdered() {
         let window = Self.makeWindow(onToggle: {})
@@ -229,7 +241,7 @@ private struct SidebarGroupHitTargetHarness: View {
             onToggle: onToggle,
             onSelect: { _ in },
             onNewSessionInGroup: onNewSessionInGroup,
-            onConnectViaSSH: {},
+            onConnectViaSSH: { _ in },
             onNewSessionHere: { _ in },
             onNewGroup: {},
             onRenameGroup: {},

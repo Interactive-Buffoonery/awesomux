@@ -251,6 +251,7 @@ enum AmxBackend {
             // force a remote PTY when the bridge injects its env wrapper.
             tokens.append("-t")
         }
+        tokens.append("--")
         tokens.append(remote.sshDestination)
         if let remoteCommand {
             tokens.append(remoteCommand)

@@ -2162,13 +2162,11 @@ struct AwesoMuxApp: App {
         guard !isAnySheetPresented else { return }
         let group =
             requestedGroup
-            ?? sessionStore.groups.first(where: { group in
-                group.sessions.contains { $0.id == sessionStore.selectedSessionID }
-            })
-            ?? sessionStore.groups.first(where: {
-                $0.name == appSettingsStore.workspaces.value.defaultGroup
-            })
-            ?? sessionStore.groups.first
+            ?? SSHWorkspaceGroupTargeting.resolve(
+                groups: sessionStore.groups,
+                selectedSessionID: sessionStore.selectedSessionID,
+                defaultGroupName: appSettingsStore.workspaces.value.defaultGroup
+            )
         guard let group else { return }
         sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest(groupID: group.id, groupName: group.name)
     }

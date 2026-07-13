@@ -1,6 +1,13 @@
 import AwesoMuxCore
 import SwiftUI
 
+enum SSHWorkspaceDestinationValidation {
+    static func target(from text: String) -> RemoteTarget? {
+        guard let target = RemoteTarget(parsing: text), target.isSafeSSHDestination else { return nil }
+        return target
+    }
+}
+
 struct SSHWorkspaceConnectSheet: View {
     let groupName: String
     let onCancel: () -> Void
@@ -10,7 +17,8 @@ struct SSHWorkspaceConnectSheet: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        let target = RemoteTarget(parsing: destination)
+        let parsedTarget = RemoteTarget(parsing: destination)
+        let target = SSHWorkspaceDestinationValidation.target(from: destination)
         VStack(alignment: .leading, spacing: 16) {
             Text("Connect via SSH")
                 .font(.headline)
@@ -24,6 +32,12 @@ struct SSHWorkspaceConnectSheet: View {
                 .focused($isFocused)
                 .accessibilityLabel("SSH destination")
                 .onSubmit { if let target { onConnect(target) } }
+            if parsedTarget != nil, target == nil {
+                Text("Enter an SSH alias, hostname, or user@host, not a command option.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Invalid SSH destination")
+            }
             Text("Creates a managed SSH workspace in “\(groupName).”\nOpenSSH will use your existing config and credentials.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

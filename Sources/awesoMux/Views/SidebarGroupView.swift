@@ -20,7 +20,7 @@ struct SidebarGroupView: View {
     let onToggle: () -> Void
     let onSelect: (TerminalSession) -> Void
     let onNewSessionInGroup: () -> Void
-    let onConnectViaSSH: () -> Void
+    let onConnectViaSSH: (SessionGroup) -> Void
     let onNewSessionHere: (TerminalSession) -> Void
     let onNewGroup: () -> Void
     let onRenameGroup: () -> Void

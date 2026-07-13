@@ -453,6 +453,17 @@ struct SessionStoreWorkspaceGroupTests {
         #expect(store.groups.isEmpty)
     }
 
+    @Test("managed SSH creation rejects an option-like destination")
+    func addSSHSessionRejectsOptionLikeDestination() {
+        let group = SessionGroup(name: "Work", sessions: [])
+        let store = SessionStore(groups: [group])
+        let unsafe = RemoteTarget(parsing: "-oProxyCommand=example")!
+
+        #expect(store.addSSHSession(target: unsafe, toGroupID: group.id) == nil)
+        #expect(store.groups[0].sessions.isEmpty)
+        #expect(store.createRemoteWorkspaceGroup(named: "unsafe", target: unsafe) == nil)
+    }
+
     @Test("remoteTarget finds the active pane's declared target")
     func remoteTargetLookupFindsActivePanePlan() {
         let target = RemoteTarget(user: "ed", host: "box")!
