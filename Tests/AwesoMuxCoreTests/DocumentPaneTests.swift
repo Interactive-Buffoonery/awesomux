@@ -153,6 +153,16 @@ import Testing
 }
 
 @Suite struct DocumentGroupDecodingTests {
+    @Test func emptyRecoveredGroupThrowsTypedSignal() {
+        let data = Data(
+            #"{"id":"22222222-2222-2222-2222-222222222222","tabs":[],"selectedTabID":"11111111-1111-1111-1111-111111111111"}"#.utf8
+        )
+
+        #expect(throws: EmptyDocumentGroupDecodingError.self) {
+            try JSONDecoder().decode(DocumentGroup.self, from: data)
+        }
+    }
+
     @Test func dropsOnlyMalformedTabsAndClampsSelection() throws {
         let data = Data(
             #"{"id":"22222222-2222-2222-2222-222222222222","tabs":[{"id":"11111111-1111-1111-1111-111111111111","fileURL":"file:///tmp/bad.md","title":"bad.md","remoteSnapshotOrigin":"bad"},{"id":"33333333-3333-3333-3333-333333333333","fileURL":"file:///tmp/good.md","title":"good.md"}],"selectedTabID":"11111111-1111-1111-1111-111111111111"}"#

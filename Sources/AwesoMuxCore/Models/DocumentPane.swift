@@ -257,12 +257,7 @@ extension DocumentGroup: Codable {
         // Keep decode catchable: empty groups are invalid, while a stale
         // selectedTabID is disposable UI state and clamps in init.
         guard !tabs.isEmpty else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: Self.emptyAfterRecoveryDescription
-                )
-            )
+            throw EmptyDocumentGroupDecodingError()
         }
         self.init(
             id: try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID(),
@@ -272,3 +267,5 @@ extension DocumentGroup: Codable {
         )
     }
 }
+
+struct EmptyDocumentGroupDecodingError: Error {}
