@@ -72,8 +72,13 @@ final class SidebarPeekModel {
 
     /// Routes a group-roster row click up to `ContentView` (select
     /// workspace + focus its active pane). Set once when the overlay is
-    /// installed, same shape as `onSelectPane`.
-    @ObservationIgnored var onSelectGroupSession: ((TerminalSession.ID) -> Void)?
+    /// installed, same shape as `onSelectPane`. Carries the invoking group's
+    /// ID too — a VoiceOver "Jump to X" action can fire for a DIFFERENT
+    /// group than whichever peek happens to be showing (e.g. group A's card
+    /// is still open inside its hide grace when a VoiceOver action fires for
+    /// group B), so the handler must target the group the action actually
+    /// came from, not `group?.id` read off the model at call time.
+    @ObservationIgnored var onSelectGroupSession: ((SessionGroup.ID, TerminalSession.ID) -> Void)?
 
     /// True while the pointer rests over the (hittable) multi-pane card. Gates
     /// the graced hide so the card can't vanish under a cursor reaching for a

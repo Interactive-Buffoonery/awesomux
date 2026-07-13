@@ -8,6 +8,11 @@ struct SessionPeekItem: Identifiable, Equatable {
     let id: TerminalSession.ID
     let title: String
     let agent: AwAgentIcon
+    /// The winning agent's kind, spoken in the VoiceOver jump-action label so
+    /// a per-session action distinguishes Codex from Claude — matching what
+    /// `PanePeekItem.agentShortName` carries one level down (the icon alone
+    /// is silent).
+    let agentShortName: String
     let state: AwState
     let unread: Int
     let isActive: Bool
@@ -30,6 +35,7 @@ extension SessionPeekItem {
                 id: session.id,
                 title: session.title,
                 agent: rollup.winningAgentKind.awAgentIcon,
+                agentShortName: rollup.winningAgentKind.shortName,
                 state: rollup.state.awState,
                 unread: rollup.unreadTotal,
                 isActive: session.id == activeSessionID,

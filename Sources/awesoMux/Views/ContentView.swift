@@ -231,18 +231,14 @@ struct ContentView: View {
                 )
             )
         }
-        peekModel.onSelectGroupSession = { [weak peekModel] sessionID in
+        peekModel.onSelectGroupSession = { [weak peekModel] groupID, sessionID in
             guard sessionStore.session(id: sessionID) != nil else {
-                if let groupID = peekModel?.group?.id {
-                    peekModel?.hideGroup(for: groupID)
-                }
+                peekModel?.hideGroup(for: groupID)
                 return
             }
             sessionStore.selectedSessionID = sessionID
             sessionStore.acknowledgeSession(id: sessionID)
-            if let groupID = peekModel?.group?.id {
-                peekModel?.hideGroup(for: groupID)
-            }
+            peekModel?.hideGroup(for: groupID)
         }
     }
 
@@ -587,7 +583,7 @@ private struct SidebarPeekCardOverlay: View {
                     group: group,
                     tint: tint,
                     items: model.groupSessionItems,
-                    onSelectSession: { sessionID in model.onSelectGroupSession?(sessionID) },
+                    onSelectSession: { sessionID in model.onSelectGroupSession?(group.id, sessionID) },
                     onHoverChanged: { over in model.setPointerOverGroupCard(over, for: group.id) }
                 )
                     // Always hittable — every row jumps, unlike the
@@ -608,6 +604,13 @@ private struct SidebarPeekCardOverlay: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: model.session?.id)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: model.group?.id)
+        // `cardHeight` is shared across both card kinds (session vs group),
+        // so switching kinds without a fresh 0-height frame in between would
+        // clamp the newly-shown card against the OLD kind's stale height for
+        // one frame — a visible glitch. Reset it whenever the shown card's
+        // identity changes kind.
+        .onChange(of: model.session?.id) { _, _ in cardHeight = 0 }
+        .onChange(of: model.group?.id) { _, _ in cardHeight = 0 }
     }
 
     private func clampedCenterY(containerHeight: CGFloat, overlayOriginY: CGFloat) -> CGFloat {
@@ -629,8 +632,13 @@ private struct SidebarPeekCardOverlay: View {
     private func clampedTopAlignedY(containerHeight: CGFloat, overlayOriginY: CGFloat) -> CGFloat {
         let top = model.anchorY - overlayOriginY
         // `.position` sets the view's CENTER, so the top-aligned target
-        // center is the top edge plus half the card's own height.
-        guard cardHeight > 0, containerHeight > 0 else { return top }
+        // center is the top edge plus half the card's own height. Before
+        // the card has measured its real height, estimate using the
+        // trigger element's own height rather than the raw top — using
+        // `top` directly here would make `.position` treat it as the
+        // card's CENTER, visually overshooting upward by half the card's
+        // eventual height until the next frame corrects it.
+        guard cardHeight > 0, containerHeight > 0 else { return top + model.tileHeight / 2 }
         let halfCard = cardHeight / 2
         let center = top + halfCard
         let lower = halfCard + Self.edgeInset
