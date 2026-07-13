@@ -670,6 +670,9 @@
     "Collapse/Expand Sidebar" : {
 
     },
+    "Hide/Show Sidebar" : {
+
+    },
     "Collapsed" : {
       "comment" : "Accessibility value for the footer total button while the agent activity panel is closed"
     },

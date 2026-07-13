@@ -20,10 +20,33 @@ struct KeyboardShortcutCatalogTests {
     func toggleSidebarWidthUsesCommandBackslash() {
         let binding = KeyboardShortcutCatalog.toggleSidebarWidth
 
+        #expect(binding.id == "toggleSidebarWidth")
+        #expect(binding.action == "Collapse/Expand Sidebar")
         #expect(binding.key == "\\")
         #expect(binding.modifiers == [.command])
         #expect(binding.displaySymbol == "⌘\\")
         #expect(binding.spokenForm == "Command Backslash")
+    }
+
+    @Test("toggle sidebar visibility uses shift command backslash")
+    func toggleSidebarVisibilityUsesShiftCommandBackslash() {
+        let binding = KeyboardShortcutCatalog.toggleSidebarVisibility
+        #expect(binding.id == "toggleSidebarVisibility")
+        #expect(binding.action == "Hide/Show Sidebar")
+        #expect(binding.key == "\\")
+        #expect(binding.modifiers == [.command, .shift])
+        #expect(binding.displaySymbol == "⇧⌘\\")
+        #expect(binding.spokenForm == "Shift Command Backslash")
+    }
+
+    @Test("sidebar commands appear in shortcut settings")
+    func sidebarCommandsAppearInShortcutSettings() throws {
+        let workspaces = try #require(KeyboardShortcutCatalog.settingsSections.first { $0.title == "Workspaces" })
+        let bindings = Dictionary(uniqueKeysWithValues: workspaces.entries.flatMap(\.bindings).map { ($0.id, $0) })
+        #expect(bindings["toggleSidebarWidth"]?.action == "Collapse/Expand Sidebar")
+        #expect(bindings["toggleSidebarWidth"]?.displaySymbol == "⌘\\")
+        #expect(bindings["toggleSidebarVisibility"]?.action == "Hide/Show Sidebar")
+        #expect(bindings["toggleSidebarVisibility"]?.displaySymbol == "⇧⌘\\")
     }
 
     @Test("custom shortcut config overrides catalog binding")
@@ -565,6 +588,28 @@ struct KeyboardShortcutCatalogTests {
         #expect(!SidebarWidthToggleShortcut.matches(wrongKeyEvent!))
         #expect(!SidebarWidthToggleShortcut.matches(repeatEvent!))
         #expect(SidebarWidthToggleShortcut.isRepeat(ofToggleSidebarWidthChord: repeatEvent!))
+    }
+
+    @Test("sidebar visibility toggle matcher follows cached binding")
+    @MainActor
+    func sidebarVisibilityToggleMatcherFollowsCachedBinding() throws {
+        let originalKeyboard = CurrentKeyboardShortcuts.keyboard
+        defer { CurrentKeyboardShortcuts.keyboard = originalKeyboard }
+        let defaultEvent = try #require(makeKeyEvent(modifierFlags: [.command, .shift], characters: "|", charactersIgnoringModifiers: "\\", keyCode: 0x2A))
+        let overrideEvent = try #require(makeKeyEvent(modifierFlags: [.command, .option], characters: ";", charactersIgnoringModifiers: ";", keyCode: 0x29))
+        CurrentKeyboardShortcuts.keyboard = KeyboardConfig(shortcuts: [
+            KeyboardShortcutCatalog.toggleSidebarVisibility.id: ShortcutBindingConfig(key: ";", modifiers: [.command, .option])
+        ])
+        #expect(SidebarVisibilityToggleShortcut.matches(overrideEvent))
+        #expect(!SidebarVisibilityToggleShortcut.matches(defaultEvent))
+    }
+
+    @Test("sidebar visibility toggle matcher ignores repeats")
+    @MainActor
+    func sidebarVisibilityToggleMatcherIgnoresRepeats() throws {
+        let event = try #require(makeKeyEvent(modifierFlags: [.command, .shift], characters: "|", charactersIgnoringModifiers: "\\", isARepeat: true, keyCode: 0x2A))
+        #expect(!SidebarVisibilityToggleShortcut.matches(event))
+        #expect(SidebarVisibilityToggleShortcut.isRepeat(ofToggleSidebarVisibilityChord: event))
     }
 
     @Test("command palette matcher aligns with catalog chord")

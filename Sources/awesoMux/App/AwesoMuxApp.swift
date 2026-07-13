@@ -106,7 +106,8 @@ struct AwesoMuxApp: App {
     @State private var customCommandStore = CustomCommandStore()
     @State private var isCloseConfirmAlertPresented = false
     @State private var sidebarFocusRequestID: UUID?
-    @State private var sidebarToggleRequestID: UUID?
+    @State private var sidebarWidthToggleRequestID: UUID?
+    @State private var sidebarVisibilityToggleRequestID: UUID?
     @State private var quickRunToast: QuickRunToast?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
 
@@ -288,7 +289,8 @@ struct AwesoMuxApp: App {
                     announcePaneFocused(index: paneIndex + 1)
                 },
                 sidebarFocusRequestID: sidebarFocusRequestID,
-                sidebarToggleRequestID: sidebarToggleRequestID
+                sidebarWidthToggleRequestID: sidebarWidthToggleRequestID,
+                sidebarVisibilityToggleRequestID: sidebarVisibilityToggleRequestID
             )
             .frame(
                 minWidth: ContentView.minimumWindowWidth,
@@ -519,6 +521,9 @@ struct AwesoMuxApp: App {
             }
             .onReceive(NotificationCenter.default.publisher(for: .awesoMuxToggleSidebarWidthRequested)) { _ in
                 requestSidebarWidthToggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .awesoMuxToggleSidebarVisibilityRequested)) { _ in
+                requestSidebarVisibilityToggle()
             }
             .onReceive(NotificationCenter.default.publisher(for: .awesoMuxCommandPaletteRequested)) { _ in
                 toggleCommandPalette()
@@ -909,6 +914,10 @@ struct AwesoMuxApp: App {
                 Button("Collapse/Expand Sidebar", action: requestSidebarWidthToggle)
                     .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarWidth))
                     .disabled(isAnySheetPresented)
+
+                Button("Hide/Show Sidebar", action: requestSidebarVisibilityToggle)
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarVisibility))
+                .disabled(isAnySheetPresented)
 
                 let jumpRows = DockRecentWorkspaceMenu.openWorkspaceRows(
                     groups: sessionStore.groups,
@@ -2506,7 +2515,16 @@ struct AwesoMuxApp: App {
         }
 
         ShortcutDiagnostics.log("stage=requestSidebarWidthToggle action=emitRequest")
-        sidebarToggleRequestID = UUID()
+        sidebarWidthToggleRequestID = UUID()
+    }
+
+    private func requestSidebarVisibilityToggle() {
+        guard !isAnySheetPresented else {
+            ShortcutDiagnostics.log("stage=requestSidebarVisibilityToggle blocked=sheetPresented")
+            return
+        }
+        ShortcutDiagnostics.log("stage=requestSidebarVisibilityToggle action=emitRequest")
+        sidebarVisibilityToggleRequestID = UUID()
     }
 
     private func toggleFloatingPanel() {
@@ -3044,6 +3062,7 @@ struct AwesoMuxApp: App {
             toggleCommandPalette: toggleCommandPalette,
             focusSidebar: requestSidebarFocus,
             toggleSidebarWidth: requestSidebarWidthToggle,
+            toggleSidebarVisibility: requestSidebarVisibilityToggle,
             jumpWorkspace: { index in
                 selectWorkspace(atFlatIndex: index)
                 if sessionStore.selectedSessionID != nil {

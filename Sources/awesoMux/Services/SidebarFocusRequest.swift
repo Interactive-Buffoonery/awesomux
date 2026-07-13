@@ -9,6 +9,9 @@ extension Notification.Name {
     static let awesoMuxToggleSidebarWidthRequested = Notification.Name(
         "com.interactivebuffoonery.awesomux.toggleSidebarWidthRequested"
     )
+    static let awesoMuxToggleSidebarVisibilityRequested = Notification.Name(
+        "com.interactivebuffoonery.awesomux.toggleSidebarVisibilityRequested"
+    )
 }
 
 @MainActor
@@ -42,6 +45,23 @@ enum SidebarWidthToggleShortcut {
 
     private static func isToggleSidebarWidthChord(_ event: NSEvent) -> Bool {
         CurrentKeyboardShortcuts.binding(id: KeyboardShortcutCatalog.toggleSidebarWidth.id)?.matches(event) == true
+    }
+}
+
+@MainActor
+enum SidebarVisibilityToggleShortcut {
+    static func matches(_ event: NSEvent) -> Bool {
+        let matched = isToggleSidebarVisibilityChord(event) && !event.isARepeat
+        ShortcutDiagnostics.logMatcher(event: event, matched: matched)
+        return matched
+    }
+
+    static func isRepeat(ofToggleSidebarVisibilityChord event: NSEvent) -> Bool {
+        isToggleSidebarVisibilityChord(event) && event.isARepeat
+    }
+
+    private static func isToggleSidebarVisibilityChord(_ event: NSEvent) -> Bool {
+        CurrentKeyboardShortcuts.binding(id: KeyboardShortcutCatalog.toggleSidebarVisibility.id)?.matches(event) == true
     }
 }
 

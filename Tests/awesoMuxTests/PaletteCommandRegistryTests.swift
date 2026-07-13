@@ -56,6 +56,7 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.toggleCommandPalette.id,
                 KeyboardShortcutCatalog.focusSidebar.id,
                 KeyboardShortcutCatalog.toggleSidebarWidth.id,
+                KeyboardShortcutCatalog.toggleSidebarVisibility.id,
             ] + KeyboardShortcutCatalog.jumpWorkspaces.map(\.id) + [
                 KeyboardShortcutCatalog.previousWorkspace.id,
                 KeyboardShortcutCatalog.nextWorkspace.id,

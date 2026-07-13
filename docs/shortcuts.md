@@ -45,6 +45,7 @@ Default chords below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Ser
 | ⇧⌘K | Acknowledge Workspace | Clears attention/unread for the *selected* workspace immediately (bypasses [selection dwell](adr/0003-acknowledge-on-selection-dwell.md)) |
 | ⌃⌘S | Focus Sidebar | Moves keyboard focus to sidebar search |
 | ⌘\\ | Collapse/Expand Sidebar | Collapses to the rail or restores the last non-collapsed width |
+| ⇧⌘\\ | Hide/Show Sidebar | Hides the sidebar or restores it persistently |
 | ⌘1…⌘9 | Jump to Workspace 1…9 | Jumps to the corresponding workspace in flattened sidebar order |
 | ⇧⌘[ | Previous Workspace | |
 | ⇧⌘] | Next Workspace | |
