@@ -1,14 +1,20 @@
 import Foundation
+import UnicodeHygiene
 
 /// A declared SSH destination attached to a remote Workspace Group. This is
 /// *declared* group state, distinct from `TerminalPane.remoteHost` (which is a
 /// detected, disposable, title-derived signal on a live pane).
 public struct RemoteTarget: Equatable, Hashable, Sendable {
-    public var user: String
-    public var host: String
+    public let user: String
+    public let host: String
 
     public init?(user: String, host: String) {
-        guard !host.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        guard !host.trimmingCharacters(in: .whitespaces).isEmpty,
+            !UnicodeHygiene.containsUnsafePathScalars(user),
+            !UnicodeHygiene.containsUnsafePathScalars(host)
+        else {
+            return nil
+        }
         self.user = user
         self.host = host
     }
@@ -35,6 +41,10 @@ public struct RemoteTarget: Equatable, Hashable, Sendable {
     /// user is declared (ssh resolves the user from config).
     public var sshDestination: String {
         user.isEmpty ? host : "\(user)@\(host)"
+    }
+
+    public var isSafeSSHDestination: Bool {
+        !sshDestination.hasPrefix("-")
     }
 }
 

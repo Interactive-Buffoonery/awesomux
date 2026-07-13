@@ -84,8 +84,8 @@ struct DocumentPaneSendBar: View {
                 AllCommentsResolvedNotice {
                     showAllResolvedNotice = false
                 }
-                    .offset(y: -30)
-                    .transition(.opacity)
+                .offset(y: -30)
+                .transition(.opacity)
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showAllResolvedNotice)
@@ -157,9 +157,10 @@ struct DocumentPaneSendBar: View {
         // — but an embedded newline/CR/ESC in the path would auto-submit a partial
         // line, bypassing that gate. Strip control characters before the string ever
         // reaches the terminal; U+FFFD keeps the path legible.
-        return String(raw.unicodeScalars.map {
-            CharacterSet.controlCharacters.contains($0) ? "\u{FFFD}" : Character($0)
-        })
+        return String(
+            raw.unicodeScalars.map {
+                CharacterSet.controlCharacters.contains($0) ? "\u{FFFD}" : Character($0)
+            })
     }
 
     private nonisolated static func rawDisplayPath(
@@ -311,7 +312,8 @@ private struct SendToAgentButton: NSViewRepresentable {
                     comment: "Accessibility label for the document send button"
                 )
         )
-        nsView.toolTip = failed
+        nsView.toolTip =
+            failed
             ? String(
                 localized: "This document's terminal isn't available — reopen the document from a running terminal to reconnect",
                 comment: "Tooltip for the send button when its terminal is gone"
@@ -576,9 +578,10 @@ struct DocumentPaneView: View {
     private func loadedView(blocks: [MarkdownBlock]) -> some View {
         if let doc = renderedDoc {
             let isReadOnly = pane.isReadOnlySnapshot
-            let spanTouchesMark = selectedSourceSpan.map {
-                SelectionSourceMapping.spanTouchesExistingMark($0, in: doc)
-            } ?? false
+            let spanTouchesMark =
+                selectedSourceSpan.map {
+                    SelectionSourceMapping.spanTouchesExistingMark($0, in: doc)
+                } ?? false
             // Hoisted: body re-evaluates per selection event, and these build
             // fresh collections (review: avoid re-deriving them ~6x per pass).
             let hiddenIDs = hideResolved ? doc.resolvedAnnotationIDs : []
@@ -603,6 +606,7 @@ struct DocumentPaneView: View {
                             highlightColor: highlightColor,
                             textColor: markdownTextColor,
                             relativeLinkBaseURL: pane.fileURL.deletingLastPathComponent(),
+                            allowsDocumentLinks: !isReadOnly,
                             onPillClicked: { markID, pillRect, anchorView in
                                 showCommentPopover(
                                     markID: markID,
@@ -661,7 +665,8 @@ struct DocumentPaneView: View {
                                         // will be offscreen when the document is scrolled). The clip
                                         // view's visibleRect in text-view coordinates always resolves
                                         // to somewhere the popover can appear.
-                                        let visibleInTV = tv.enclosingScrollView?
+                                        let visibleInTV =
+                                            tv.enclosingScrollView?
                                             .contentView.bounds ?? tv.visibleRect
                                         let centRect = NSRect(
                                             x: visibleInTV.midX - 10,
@@ -713,7 +718,8 @@ struct DocumentPaneView: View {
                             let saved = addDocumentNote(note, doc: noteDoc)
                             if saved {
                                 TerminalAccessibilityAnnouncer.announce(
-                                    String(localized: "Document note added", comment: "VoiceOver announcement after adding the document note")
+                                    String(
+                                        localized: "Document note added", comment: "VoiceOver announcement after adding the document note")
                                 )
                             }
                             return saved
@@ -722,7 +728,9 @@ struct DocumentPaneView: View {
                             let saved = updateAnnotation(id: id, doc: noteDoc) { $0.payload = newNote }
                             if saved {
                                 TerminalAccessibilityAnnouncer.announce(
-                                    String(localized: "Document note updated", comment: "VoiceOver announcement after editing the document note")
+                                    String(
+                                        localized: "Document note updated",
+                                        comment: "VoiceOver announcement after editing the document note")
                                 )
                             }
                             return saved
@@ -732,8 +740,12 @@ struct DocumentPaneView: View {
                             if saved {
                                 TerminalAccessibilityAnnouncer.announce(
                                     status == .resolved
-                                        ? String(localized: "Document note resolved", comment: "VoiceOver announcement after resolving the document note")
-                                        : String(localized: "Document note reopened", comment: "VoiceOver announcement after reopening the document note")
+                                        ? String(
+                                            localized: "Document note resolved",
+                                            comment: "VoiceOver announcement after resolving the document note")
+                                        : String(
+                                            localized: "Document note reopened",
+                                            comment: "VoiceOver announcement after reopening the document note")
                                 )
                             }
                             return saved
@@ -742,7 +754,9 @@ struct DocumentPaneView: View {
                             let saved = deleteAnnotation(id: id, doc: noteDoc)
                             if saved {
                                 TerminalAccessibilityAnnouncer.announce(
-                                    String(localized: "Document note deleted", comment: "VoiceOver announcement after deleting the document note")
+                                    String(
+                                        localized: "Document note deleted",
+                                        comment: "VoiceOver announcement after deleting the document note")
                                 )
                             }
                             return saved
@@ -812,8 +826,12 @@ struct DocumentPaneView: View {
         .onChange(of: hideResolved) { _, hidden in
             TerminalAccessibilityAnnouncer.announce(
                 hidden
-                    ? String(localized: "Resolved annotations hidden", comment: "VoiceOver announcement when the resolved-annotations filter turns on")
-                    : String(localized: "Resolved annotations shown", comment: "VoiceOver announcement when the resolved-annotations filter turns off")
+                    ? String(
+                        localized: "Resolved annotations hidden",
+                        comment: "VoiceOver announcement when the resolved-annotations filter turns on")
+                    : String(
+                        localized: "Resolved annotations shown",
+                        comment: "VoiceOver announcement when the resolved-annotations filter turns off")
             )
         }
     }
@@ -854,7 +872,7 @@ struct DocumentPaneView: View {
         doc: RenderedDocument
     ) {
         guard let annotation = doc.annotation(id: markID),
-              let displayNumber = doc.displayNumber(for: markID)
+            let displayNumber = doc.displayNumber(for: markID)
         else { return }
         let quotedText = doc.runs.filter { $0.markID == markID }.map(\.text).joined()
 
@@ -863,57 +881,62 @@ struct DocumentPaneView: View {
 
         let popover = NSPopover()
         popover.behavior = .transient
-        let hosting = NSHostingController(rootView: FullCommentPopover(
-            displayNumber: displayNumber,
-            annotation: annotation,
-            quotedText: quotedText,
-            // Close only on SUCCESS: a stale-source failure keeps the popover
-            // (and any typed draft) on screen next to the explanatory alert
-            // instead of silently discarding the user's input (review). The
-            // Bool result lets the popover gate its own draft/edit state the
-            // same way.
-            onEdit: { [weak popover] newNote in
-                let saved = updateAnnotation(id: markID, doc: doc, mutate: { $0.payload = newNote })
-                if saved {
-                    popover?.close()
-                    TerminalAccessibilityAnnouncer.announce(
-                        String(localized: "Annotation updated", comment: "VoiceOver announcement after editing an annotation's note")
-                    )
-                }
-                return saved
-            },
-            onDelete: { [weak popover] in
-                if deleteAnnotation(id: markID, doc: doc) {
-                    popover?.close()
-                    TerminalAccessibilityAnnouncer.announce(
-                        String(localized: "Annotation deleted", comment: "VoiceOver announcement after deleting an annotation")
-                    )
-                }
-            },
-            onSetStatus: { [weak popover] status in
-                if updateAnnotation(id: markID, doc: doc, mutate: { $0.status = status }) {
-                    popover?.close()
-                    TerminalAccessibilityAnnouncer.announce(
-                        status == .resolved
-                            ? String(localized: "Annotation resolved", comment: "VoiceOver announcement after marking an annotation resolved")
-                            : String(localized: "Annotation reopened", comment: "VoiceOver announcement after reopening an annotation")
-                    )
-                }
-            },
-            onReply: { [weak popover] reply in
-                let saved = replyToAnnotation(id: markID, reply: reply, doc: doc)
-                if saved {
-                    popover?.close()
-                    TerminalAccessibilityAnnouncer.announce(
-                        annotation.status == .resolved
-                            ? String(localized: "Reply added, annotation reopened", comment: "VoiceOver announcement after replying to a resolved annotation, which reopens it")
-                            : String(localized: "Reply added", comment: "VoiceOver announcement after replying to an annotation")
-                    )
-                }
-                return saved
-            },
-            allowsEditing: !pane.isReadOnlySnapshot
-        ))
+        let hosting = NSHostingController(
+            rootView: FullCommentPopover(
+                displayNumber: displayNumber,
+                annotation: annotation,
+                quotedText: quotedText,
+                // Close only on SUCCESS: a stale-source failure keeps the popover
+                // (and any typed draft) on screen next to the explanatory alert
+                // instead of silently discarding the user's input (review). The
+                // Bool result lets the popover gate its own draft/edit state the
+                // same way.
+                onEdit: { [weak popover] newNote in
+                    let saved = updateAnnotation(id: markID, doc: doc, mutate: { $0.payload = newNote })
+                    if saved {
+                        popover?.close()
+                        TerminalAccessibilityAnnouncer.announce(
+                            String(localized: "Annotation updated", comment: "VoiceOver announcement after editing an annotation's note")
+                        )
+                    }
+                    return saved
+                },
+                onDelete: { [weak popover] in
+                    if deleteAnnotation(id: markID, doc: doc) {
+                        popover?.close()
+                        TerminalAccessibilityAnnouncer.announce(
+                            String(localized: "Annotation deleted", comment: "VoiceOver announcement after deleting an annotation")
+                        )
+                    }
+                },
+                onSetStatus: { [weak popover] status in
+                    if updateAnnotation(id: markID, doc: doc, mutate: { $0.status = status }) {
+                        popover?.close()
+                        TerminalAccessibilityAnnouncer.announce(
+                            status == .resolved
+                                ? String(
+                                    localized: "Annotation resolved", comment: "VoiceOver announcement after marking an annotation resolved"
+                                )
+                                : String(localized: "Annotation reopened", comment: "VoiceOver announcement after reopening an annotation")
+                        )
+                    }
+                },
+                onReply: { [weak popover] reply in
+                    let saved = replyToAnnotation(id: markID, reply: reply, doc: doc)
+                    if saved {
+                        popover?.close()
+                        TerminalAccessibilityAnnouncer.announce(
+                            annotation.status == .resolved
+                                ? String(
+                                    localized: "Reply added, annotation reopened",
+                                    comment: "VoiceOver announcement after replying to a resolved annotation, which reopens it")
+                                : String(localized: "Reply added", comment: "VoiceOver announcement after replying to an annotation")
+                        )
+                    }
+                    return saved
+                },
+                allowsEditing: !pane.isReadOnlySnapshot
+            ))
         // Size the popover to the SwiftUI content's intrinsic height. Without this,
         // NSPopover uses a fixed default content size, leaving a short note floating
         // in a large empty box (INT-562 live-smoke fix).
@@ -949,19 +972,20 @@ struct DocumentPaneView: View {
 
         let popover = NSPopover()
         popover.behavior = .transient
-        let hosting = NSHostingController(rootView: ComposeCommentPopover(
-            onSave: { [weak popover] note, intent in
-                if insertAnnotation(span: span, intent: intent, payload: note, doc: doc) {
+        let hosting = NSHostingController(
+            rootView: ComposeCommentPopover(
+                onSave: { [weak popover] note, intent in
+                    if insertAnnotation(span: span, intent: intent, payload: note, doc: doc) {
+                        popover?.close()
+                        TerminalAccessibilityAnnouncer.announce(
+                            String(localized: "Annotation added", comment: "VoiceOver announcement after adding a new annotation")
+                        )
+                    }
+                },
+                onCancel: { [weak popover] in
                     popover?.close()
-                    TerminalAccessibilityAnnouncer.announce(
-                        String(localized: "Annotation added", comment: "VoiceOver announcement after adding a new annotation")
-                    )
                 }
-            },
-            onCancel: { [weak popover] in
-                popover?.close()
-            }
-        ))
+            ))
         // sizingOptions under-measures this content (the Save/Cancel row gets cropped),
         // so measure the laid-out content explicitly and size the popover to it.
         popover.contentViewController = hosting
@@ -1036,12 +1060,15 @@ struct DocumentPaneView: View {
     /// currently hidden by the resolved filter, say so — a rejection citing a
     /// mark the user cannot see reads as the tool malfunctioning (review).
     private func showNestedMarkAlert(span: Range<Int>, doc: RenderedDocument) {
-        let overlapped = Set(doc.runs.compactMap { run -> String? in
-            guard let id = run.markID, let sourceRange = run.sourceRange,
-                  sourceRange.overlaps(span) else { return nil }
-            return id
-        })
-        let allHidden = hideResolved && !overlapped.isEmpty
+        let overlapped = Set(
+            doc.runs.compactMap { run -> String? in
+                guard let id = run.markID, let sourceRange = run.sourceRange,
+                    sourceRange.overlaps(span)
+                else { return nil }
+                return id
+            })
+        let allHidden =
+            hideResolved && !overlapped.isEmpty
             && overlapped.isSubset(of: doc.resolvedAnnotationIDs)
         showAlert(
             title: "Already Annotated",

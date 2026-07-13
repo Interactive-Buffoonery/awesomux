@@ -199,14 +199,14 @@ struct SessionStoreRemoteSessionTests {
         store.selectedSession?.layout.pane(id: paneID)?.remoteConnectionHealth
     }
 
-    @Test("a foreign-host title marks the pane remote and active")
+    @Test("a foreign-host title cannot report a remote working directory")
     func titleSetsRemote() {
         let (store, sid, pid) = makeStore()
         #expect(store.index.remotePaneIDs.isEmpty)
 
         store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
         #expect(remoteHost(store, pid) == "webserver")
-        #expect(remoteWorkingDirectory(store, pid) == "~/app")
+        #expect(remoteWorkingDirectory(store, pid) == nil)
         #expect(remoteConnectionHealth(store, pid) == .active)
         #expect(store.index.remotePaneIDs == Set([pid]))
     }
@@ -233,15 +233,44 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteSSHTarget(store, pid) == "my-purple")
     }
 
-    @Test("an indeterminate tool title keeps the last remote prompt directory")
-    func indeterminateTitleKeepsRemoteWorkingDirectory() {
+    @Test("an indeterminate tool title cannot recover a title-derived remote directory")
+    func indeterminateTitleDoesNotRecoverRemoteWorkingDirectory() {
         let (store, sid, pid) = makeStore()
         store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
 
         store.updatePane(sessionID: sid, paneID: pid, title: "codex")
 
         #expect(remoteHost(store, pid) == "webserver")
-        #expect(remoteWorkingDirectory(store, pid) == "~/app")
+        #expect(remoteWorkingDirectory(store, pid) == nil)
+    }
+
+    @Test("an SSH pane accepts an explicitly reported remote directory")
+    func sshPaneAcceptsExplicitlyReportedRemoteDirectory() throws {
+        let target = try #require(RemoteTarget(parsing: "my-purple"))
+        let pane = TerminalPane(
+            title: "shell",
+            workingDirectory: "/Users/me/project",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "shell",
+            workingDirectory: pane.workingDirectory,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "g", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        store.updatePane(
+            sessionID: session.id,
+            paneID: pane.id,
+            workingDirectory: "file://devbox/srv/repo"
+        )
+
+        #expect(remoteWorkingDirectory(store, pane.id) == "/srv/repo")
+        #expect(store.selectedSession?.layout.pane(id: pane.id)?.workingDirectory == "/Users/me/project")
     }
 
     // A real, existing directory so the pwd survives WorkingDirectoryValidator and

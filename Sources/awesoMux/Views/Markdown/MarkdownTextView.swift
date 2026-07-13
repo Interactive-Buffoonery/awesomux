@@ -25,7 +25,7 @@ final class SelectionAwareTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         let before = selectedRange()
-        super.mouseDown(with: event) // blocks through NSTextView's drag-tracking loop until mouse-up
+        super.mouseDown(with: event)  // blocks through NSTextView's drag-tracking loop until mouse-up
         let after = selectedRange()
         guard after.length > 0, after != before else { return }
         onSelectionFinished?(self)
@@ -68,6 +68,9 @@ struct MarkdownTextView: NSViewRepresentable {
     var textColor: NSColor? = nil
     /// Directory used to resolve schemeless relative Markdown links in document panes.
     var relativeLinkBaseURL: URL? = nil
+    /// Remote snapshots keep external web links actionable but render document
+    /// links as plain text because they cannot safely resolve another file.
+    var allowsDocumentLinks = true
 
     // Bigfoot seams
     /// Called when a comment pill is clicked. Args: markID, pill rect in overlay coords, overlay view.
@@ -110,7 +113,8 @@ struct MarkdownTextView: NSViewRepresentable {
         MarkdownAttributedStringBuilder.attributedString(
             for: doc,
             textColor: textColor,
-            relativeLinkBaseURL: relativeLinkBaseURL
+            relativeLinkBaseURL: relativeLinkBaseURL,
+            allowsDocumentLinks: allowsDocumentLinks
         )
     }
 
@@ -213,6 +217,8 @@ struct MarkdownTextView: NSViewRepresentable {
         // like a source change.
         let textColorChanged = context.coordinator.lastTextColor != textColor
         let linkBaseChanged = context.coordinator.lastRelativeLinkBaseURL != relativeLinkBaseURL
+        let documentLinkPolicyChanged =
+            context.coordinator.lastAllowsDocumentLinks != allowsDocumentLinks
         // Capture before the coordinator's last* fields are overwritten below.
         // `docSourceChanged` = the document content actually changed (a reload).
         // `sourceChanged` additionally covers a textColor restyle, which must rebuild
@@ -220,7 +226,8 @@ struct MarkdownTextView: NSViewRepresentable {
         // but must NOT re-fire the scroll anchor, or a theme switch would jump the
         // user back to a stale pendingScrollAnchor left over from the last reload.
         let docSourceChanged = context.coordinator.lastSource != doc.source
-        let sourceChanged = docSourceChanged || textColorChanged || linkBaseChanged
+        let sourceChanged =
+            docSourceChanged || textColorChanged || linkBaseChanged || documentLinkPolicyChanged
         let highlightChanged = context.coordinator.lastHighlightColor != highlightColor
         let hiddenChanged = context.coordinator.lastHiddenAnnotationIDs != hiddenAnnotationIDs
         if sourceChanged {
@@ -230,11 +237,13 @@ struct MarkdownTextView: NSViewRepresentable {
             // Always wrap in a fresh NSMutableAttributedString so coordinator.currentAttr
             // and the value we hand to textStorage are guaranteed to be the same instance.
             let mutableAttr = NSMutableAttributedString(attributedString: attr)
-            MarkdownAttributedStringBuilder.applyHighlights(mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
+            MarkdownAttributedStringBuilder.applyHighlights(
+                mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
             textView.textStorage?.setAttributedString(mutableAttr)
             context.coordinator.lastSource = doc.source
             context.coordinator.lastTextColor = textColor
             context.coordinator.lastRelativeLinkBaseURL = relativeLinkBaseURL
+            context.coordinator.lastAllowsDocumentLinks = allowsDocumentLinks
             context.coordinator.lastDoc = doc
             context.coordinator.currentAttr = mutableAttr
 
@@ -249,7 +258,8 @@ struct MarkdownTextView: NSViewRepresentable {
             // Highlight color or resolved-filter changed — re-apply without
             // rebuilding the full attributed string.
             if let mutableAttr = context.coordinator.currentAttr {
-                MarkdownAttributedStringBuilder.applyHighlights(mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
+                MarkdownAttributedStringBuilder.applyHighlights(
+                    mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
                 textView.textStorage?.setAttributedString(mutableAttr)
             }
         }
@@ -375,6 +385,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     var lastHiddenAnnotationIDs: Set<String> = []
     var lastTextColor: NSColor? = nil
     var lastRelativeLinkBaseURL: URL? = nil
+    var lastAllowsDocumentLinks: Bool? = nil
     var currentAttr: NSMutableAttributedString? = nil
 
     // Task 5
@@ -429,9 +440,11 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             // Fallback: anchor to the selection's visible bounding rect so the composer
             // still appears even when the layout manager can't return a precise glyph rect.
             let screenRect = textView.firstRect(forCharacterRange: range, actualRange: nil)
-            guard let textViewRect = CommentBadgeOverlay.textViewRect(
-                fromScreenRect: screenRect, in: textView
-            ) else { return }
+            guard
+                let textViewRect = CommentBadgeOverlay.textViewRect(
+                    fromScreenRect: screenRect, in: textView
+                )
+            else { return }
             trailingRect = textViewRect
         }
         onSelectionFinalized?(span, trailingRect, textView)
@@ -486,16 +499,18 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     /// Reads the UTF-8 source offset of the top visible glyph in the scroll view.
     func scrollAnchorSourceOffset() -> Int? {
         guard let textView,
-              let scrollView = textView.enclosingScrollView,
-              let attr = currentAttr,
-              attr.length > 0 else { return nil }
+            let scrollView = textView.enclosingScrollView,
+            let attr = currentAttr,
+            attr.length > 0
+        else { return nil }
 
         let clipBounds = scrollView.contentView.bounds
         let topY = clipBounds.minY
         guard topY > 1 else { return nil }
 
         guard let layoutManager = textView.textLayoutManager,
-              let contentStorage = textView.textContentStorage else { return nil }
+            let contentStorage = textView.textContentStorage
+        else { return nil }
 
         let inset = textView.textContainerInset
         let topInContainer = topY - inset.height
@@ -525,7 +540,8 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         }
 
         guard let utf16Idx = foundUTF16, utf16Idx < attr.length,
-              let doc = lastDoc else { return nil }
+            let doc = lastDoc
+        else { return nil }
         // INT-567: intra-run precise mapping instead of the old run-start-only
         // .sourceOffset attribute — a glyph halfway through a long paragraph
         // anchors to its own byte offset, not the paragraph start.
@@ -535,24 +551,30 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     /// Scrolls the text view so the line containing `sourceOffset` is at the top.
     func scrollToSourceOffset(_ targetOffset: Int) {
         guard let textView,
-              let attr = currentAttr,
-              attr.length > 0,
-              let doc = lastDoc else { return }
+            let attr = currentAttr,
+            attr.length > 0,
+            let doc = lastDoc
+        else { return }
 
-        guard let mapped = SelectionSourceMapping.renderedUTF16Offset(
-            forSourceOffset: targetOffset, in: doc
-        ) else { return }
+        guard
+            let mapped = SelectionSourceMapping.renderedUTF16Offset(
+                forSourceOffset: targetOffset, in: doc
+            )
+        else { return }
         // The preceding-run fallback can return the rendered end of the last run
         // (== attr.length); clamp so the location/fragment lookup below stays valid.
         let idx = min(mapped, attr.length - 1)
 
         guard let layoutManager = textView.textLayoutManager,
-              let contentStorage = textView.textContentStorage else { return }
+            let contentStorage = textView.textContentStorage
+        else { return }
 
-        guard let location = contentStorage.location(
-            contentStorage.documentRange.location,
-            offsetBy: idx
-        ) else { return }
+        guard
+            let location = contentStorage.location(
+                contentStorage.documentRange.location,
+                offsetBy: idx
+            )
+        else { return }
 
         // INT-567: a TextKit 2 layout fragment spans a whole paragraph, so
         // fragment.minY alone would restore to the paragraph start no matter how

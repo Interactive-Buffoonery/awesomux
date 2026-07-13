@@ -2,49 +2,53 @@ import AwesoMuxCore
 import Foundation
 
 struct RemoteMarkdownReference: Equatable, Sendable {
-    let sshTarget: String
-    let remotePath: String
-    let origin: String
+    let identity: ResourceIdentity
+
+    var target: RemoteTarget {
+        guard case .remote(let target) = identity.location else {
+            preconditionFailure("Remote Markdown references require a remote identity")
+        }
+        return target
+    }
+
+    var sshTarget: String { target.sshDestination }
+    var remotePath: String { identity.path.rawValue }
+    var origin: String { identity.remoteDisplayOrigin ?? remotePath }
 
     static func make(payload: String, pane: TerminalPane) -> RemoteMarkdownReference? {
-        guard let host = pane.remoteHost.flatMap(trimmedNonEmpty),
-              let remotePath = remotePath(from: payload) else {
+        guard case .ssh(let execution) = pane.executionPlan,
+            let remotePath = remotePath(from: payload)
+        else {
             return nil
         }
         guard !remotePath.hasPrefix("~") || remotePath.hasPrefix("~/") else {
             return nil
         }
-        let titleInfo = RemoteTitleInfo.parse(pane.liveTerminalTitle ?? pane.title)
-        let titleMatchesHost = titleInfo?.host.caseInsensitiveCompare(host) == .orderedSame
-        let user = titleMatchesHost ? titleInfo?.user : nil
-        let directory = titleMatchesHost ? titleInfo?.directory ?? pane.remoteWorkingDirectory : pane.remoteWorkingDirectory
-        let resolvedPath = resolve(remotePath, relativeTo: directory)
-        guard isSupportedRemotePath(resolvedPath) else {
+        guard
+            let resolvedPath = resolve(
+                remotePath,
+                relativeTo: pane.remoteWorkingDirectory
+            )
+        else {
             return nil
         }
-        let target = pane.remoteSSHTarget.flatMap(trimmedNonEmpty)
-            ?? user.map { "\($0)@\(host)" }
-            ?? host
-        // Never let an SSH destination begin with `-`. Without a guaranteed
-        // OpenSSH `--` end-of-options, a `-`-leading target — reachable from a
-        // spoofed title whose username charset permits a leading dash — would be
-        // parsed by ssh as an option rather than a host. Fail closed.
-        guard !target.hasPrefix("-") else {
-            return nil
-        }
-        return RemoteMarkdownReference(
-            sshTarget: target,
-            remotePath: resolvedPath,
-            origin: "\(target):\(resolvedPath)"
+        let identity = ResourceIdentity(
+            location: .remote(execution.target),
+            path: ResourcePath(rawValue: resolvedPath)
         )
+        guard identity.isSupportedRemoteMarkdownSnapshot else {
+            return nil
+        }
+        return RemoteMarkdownReference(identity: identity)
     }
 
     static func isPotentialPayload(_ payload: String) -> Bool {
         guard let path = remotePath(from: payload),
-              !path.isEmpty,
-              !path.contains("\0"),
-              !path.hasPrefix("~") || path.hasPrefix("~/"),
-              !MarkdownLinkIntercept.containsUnsafePathScalars(path) else {
+            !path.isEmpty,
+            !path.contains("\0"),
+            !path.hasPrefix("~") || path.hasPrefix("~/"),
+            !MarkdownLinkIntercept.containsUnsafePathScalars(path)
+        else {
             return false
         }
         return DocumentURLValidator.allowedExtensions.contains((path as NSString).pathExtension.lowercased())
@@ -52,7 +56,8 @@ struct RemoteMarkdownReference: Equatable, Sendable {
 
     private static func remotePath(from payload: String) -> String? {
         guard !payload.isEmpty,
-              let parsed = URL(string: payload) else {
+            let parsed = URL(string: payload)
+        else {
             return nil
         }
         if parsed.scheme == nil {
@@ -66,47 +71,87 @@ struct RemoteMarkdownReference: Equatable, Sendable {
             return MarkdownLinkIntercept.strippingTrailingSentencePunctuation(payload)
         }
         guard parsed.scheme?.lowercased() == "file",
-              parsed.query == nil else {
+            parsed.query == nil
+        else {
             return nil
         }
         return parsed.path
     }
 
-    private static func resolve(_ path: String, relativeTo directory: String?) -> String {
+    private static func resolve(_ path: String, relativeTo directory: String?) -> String? {
         if path.hasPrefix("/") {
             return (path as NSString).standardizingPath
         }
         if path.hasPrefix("~/") {
-            return path
+            return normalizedTildePath(path)
         }
-        guard let directory, directory.hasPrefix("/") || directory.hasPrefix("~/") else {
-            return path
+        guard let directory,
+            directory.hasPrefix("/") || directory == "~" || directory.hasPrefix("~/")
+        else {
+            return nil
         }
-        if directory.hasPrefix("~/") {
-            return (directory as NSString).appendingPathComponent(path)
+        if directory == "~" || directory.hasPrefix("~/") {
+            return normalizedTildePath(
+                (directory as NSString).appendingPathComponent(path)
+            )
         }
         return ((directory as NSString).appendingPathComponent(path) as NSString).standardizingPath
     }
 
-    private static func isSupportedRemotePath(_ path: String) -> Bool {
-        guard !path.isEmpty,
-              !path.contains("\0"),
-              !path.hasPrefix("~") || path.hasPrefix("~/"),
-              !MarkdownLinkIntercept.containsUnsafePathScalars(path),
-              DocumentURLValidator.allowedExtensions.contains((path as NSString).pathExtension.lowercased())
-        else {
-            return false
+    private static func normalizedTildePath(_ path: String) -> String? {
+        guard path.hasPrefix("~/") else { return nil }
+        var components: [Substring] = []
+        for component in path.dropFirst(2).split(separator: "/", omittingEmptySubsequences: true) {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                guard !components.isEmpty else { return nil }
+                components.removeLast()
+            default:
+                components.append(component)
+            }
         }
-        return path.hasPrefix("/") || path.hasPrefix("~/")
+        return "~/" + components.joined(separator: "/")
     }
 
-    private static func trimmedNonEmpty(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+}
+
+struct RemoteMarkdownSnapshot: Equatable, Sendable {
+    let fileURL: URL
+    let identity: ResourceIdentity
+}
+
+private actor RemoteMarkdownFetchCoordinator {
+    struct Key: Hashable, Sendable {
+        let identity: ResourceIdentity
+        let cacheDirectoryPath: String
+    }
+
+    static let shared = RemoteMarkdownFetchCoordinator()
+
+    private var inFlight: [Key: Task<RemoteMarkdownSnapshot?, Never>] = [:]
+
+    func value(
+        for key: Key,
+        onCoalesced: (@Sendable () async -> Void)? = nil,
+        operation: @escaping @Sendable () async -> RemoteMarkdownSnapshot?
+    ) async -> RemoteMarkdownSnapshot? {
+        if let existing = inFlight[key] {
+            await onCoalesced?()
+            return await existing.value
+        }
+        let task = Task(operation: operation)
+        inFlight[key] = task
+        let result = await task.value
+        inFlight[key] = nil
+        return result
     }
 }
 
-struct RemoteMarkdownSnapshotFetcher {
+// FileManager is documented as safe to use from multiple threads, but does not
+// yet declare Sendable in Foundation. The remaining stored values are Sendable.
+struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     var cacheDirectoryURL: URL = SessionPersistence.supportDirectoryURL
         .appending(path: "remote-markdown", directoryHint: .isDirectory)
     var runner = BoundedCommandRunner(
@@ -115,8 +160,25 @@ struct RemoteMarkdownSnapshotFetcher {
         maxOutputBytes: DocumentURLValidator.maxFileSizeBytes + 1
     )
     var fileManager: FileManager = .default
+    var fetchOverride: (@Sendable (RemoteMarkdownReference) async -> Data?)?
+    var onCoalescedFetch: (@Sendable () async -> Void)?
 
-    func fetch(_ reference: RemoteMarkdownReference) async -> (fileURL: URL, origin: String)? {
+    func fetch(_ reference: RemoteMarkdownReference) async -> RemoteMarkdownSnapshot? {
+        let key = RemoteMarkdownFetchCoordinator.Key(
+            identity: reference.identity,
+            cacheDirectoryPath: cacheDirectoryURL.standardizedFileURL.path
+        )
+        return await RemoteMarkdownFetchCoordinator.shared.value(
+            for: key,
+            onCoalesced: onCoalescedFetch
+        ) {
+            await fetchUncoordinated(reference)
+        }
+    }
+
+    private func fetchUncoordinated(
+        _ reference: RemoteMarkdownReference
+    ) async -> RemoteMarkdownSnapshot? {
         let output = await fetchOutput(for: reference)
         let content: Data
         if let output, output.count <= DocumentURLValidator.maxFileSizeBytes {
@@ -134,11 +196,13 @@ struct RemoteMarkdownSnapshotFetcher {
         guard ((try? cacheDirectoryURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory) == true else {
             return
         }
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: cacheDirectoryURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
+        guard
+            let entries = try? fileManager.contentsOfDirectory(
+                at: cacheDirectoryURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+        else {
             return
         }
         let referencedPaths = Set(referencedFileURLs.map { $0.standardizedFileURL.path })
@@ -151,7 +215,10 @@ struct RemoteMarkdownSnapshotFetcher {
     }
 
     private func fetchOutput(for reference: RemoteMarkdownReference) async -> Data? {
-        await runner.run(
+        if let fetchOverride {
+            return await fetchOverride(reference)
+        }
+        return await runner.run(
             arguments: sshArguments(target: reference.sshTarget, path: reference.remotePath),
             inDirectory: FileManager.default.currentDirectoryPath
         )
@@ -163,29 +230,33 @@ struct RemoteMarkdownSnapshotFetcher {
             "-o", "ConnectTimeout=5",
             "-o", "NumberOfPasswordPrompts=0",
             target,
-            remoteReadCommand(path: path)
+            remoteReadCommand(path: path),
         ]
     }
 
     private func remoteReadCommand(path: String) -> String {
         let quotedPath = Self.shellSingleQuoted(path)
-        return "p=\(quotedPath); case \"$p\" in \"~/\"*) p=\"$HOME/${p#~/}\";; esac; [ -f \"$p\" ] || exit 1; size=$(wc -c < \"$p\") || exit 1; [ \"$size\" -le \(DocumentURLValidator.maxFileSizeBytes) ] || exit 2; cat -- \"$p\""
+        return
+            "p=\(quotedPath); case \"$p\" in \"~/\"*) p=\"$HOME/${p#~/}\";; esac; [ -f \"$p\" ] || exit 1; size=$(wc -c < \"$p\") || exit 1; [ \"$size\" -le \(DocumentURLValidator.maxFileSizeBytes) ] || exit 2; cat -- \"$p\""
     }
 
-    private func write(_ content: Data, for reference: RemoteMarkdownReference) -> (fileURL: URL, origin: String)? {
+    private func write(
+        _ content: Data,
+        for reference: RemoteMarkdownReference
+    ) -> RemoteMarkdownSnapshot? {
         do {
             try fileManager.createDirectory(at: cacheDirectoryURL, withIntermediateDirectories: true)
             let fileURL = cacheDirectoryURL.appending(path: cacheFileName(for: reference))
             try content.write(to: fileURL, options: .atomic)
-            return (fileURL: fileURL, origin: reference.origin)
+            return RemoteMarkdownSnapshot(fileURL: fileURL, identity: reference.identity)
         } catch {
             return nil
         }
     }
 
-    private func cacheFileName(for reference: RemoteMarkdownReference) -> String {
+    func cacheFileName(for reference: RemoteMarkdownReference) -> String {
         let ext = (reference.remotePath as NSString).pathExtension.lowercased()
-        return "\(Self.stableHash(reference.origin)).\(ext)"
+        return "\(Self.stableHash(Self.cacheIdentityKey(reference.identity))).\(ext)"
     }
 
     private func failureMarkdown(for reference: RemoteMarkdownReference) -> String {
@@ -211,6 +282,15 @@ struct RemoteMarkdownSnapshotFetcher {
         value.replacingOccurrences(of: "`", with: "")
     }
 
+    private static func cacheIdentityKey(_ identity: ResourceIdentity) -> String {
+        guard case .remote(let target) = identity.location else {
+            preconditionFailure("Remote Markdown cache keys require a remote identity")
+        }
+        return ["remote", target.user, target.host, identity.path.rawValue]
+            .map { "\($0.utf8.count):\($0)" }
+            .joined(separator: "|")
+    }
+
     private static func stableHash(_ value: String) -> String {
         var hash: UInt64 = 0xcbf29ce484222325
         for byte in value.utf8 {
@@ -218,97 +298,5 @@ struct RemoteMarkdownSnapshotFetcher {
             hash &*= 0x100000001b3
         }
         return String(hash, radix: 16)
-    }
-}
-
-private struct RemoteTitleInfo: Equatable {
-    let user: String
-    let host: String
-    let directory: String?
-
-    static func parse(_ title: String) -> RemoteTitleInfo? {
-        var text = title[...]
-        while text.first == " " || text.first == "\t" {
-            text = text.dropFirst()
-        }
-        guard let atIndex = text.firstIndex(of: "@") else {
-            return nil
-        }
-        let user = text[..<atIndex]
-        guard !user.isEmpty, user.allSatisfy(isUsernameCharacter) else {
-            return nil
-        }
-        let afterAt = text[text.index(after: atIndex)...]
-        let host: Substring
-        if afterAt.first == "[" {
-            guard let close = afterAt.firstIndex(of: "]") else {
-                return nil
-            }
-            host = afterAt[afterAt.startIndex...close]
-        } else {
-            host = afterAt.prefix { character in
-                guard let scalar = character.unicodeScalars.first,
-                      character.unicodeScalars.count == 1,
-                      scalar.isASCII else {
-                    return false
-                }
-                return character.isLetter || character.isNumber
-                    || character == "." || character == "-" || character == "_"
-            }
-        }
-        guard !host.isEmpty else {
-            return nil
-        }
-        let trailing = afterAt[host.endIndex...]
-        guard isPromptShaped(trailing) else {
-            return nil
-        }
-        return RemoteTitleInfo(
-            user: String(user),
-            host: String(host),
-            directory: directory(from: trailing)
-        )
-    }
-
-    private static func directory(from trailing: Substring) -> String? {
-        var rest = trailing
-        if rest.first == ":" {
-            rest = rest.dropFirst()
-        }
-        while rest.first == " " || rest.first == "\t" {
-            rest = rest.dropFirst()
-        }
-        guard rest.first == "/" || rest.first == "~" else {
-            return nil
-        }
-        return String(rest.prefix { $0 != " " && $0 != "\t" })
-    }
-
-    private static func isPromptShaped(_ trailing: Substring) -> Bool {
-        if trailing.isEmpty { return true }
-
-        var rest = trailing
-        if rest.first == ":" {
-            rest = rest.dropFirst()
-            let digits = rest.prefix(while: \.isNumber)
-            rest = rest[digits.endIndex...]
-        }
-
-        if rest.isEmpty { return true }
-        while rest.first == " " || rest.first == "\t" {
-            rest = rest.dropFirst()
-        }
-        if rest.isEmpty { return true }
-        return rest.first == "/" || rest.first == "~"
-    }
-
-    private static func isUsernameCharacter(_ character: Character) -> Bool {
-        guard character.unicodeScalars.count == 1,
-              let scalar = character.unicodeScalars.first,
-              scalar.isASCII else {
-            return false
-        }
-        return character.isLetter || character.isNumber
-            || character == "." || character == "_" || character == "-" || character == "+"
     }
 }

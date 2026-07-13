@@ -15,6 +15,13 @@ are **File > Open Markdown File…** (`⌘O`), the matching command-palette
 action, local Markdown links opened from terminal output, and Markdown links
 clicked inside another document pane.
 
+Remote Markdown opens are read-only snapshots. Their durable provenance is a
+`ResourceIdentity` built from the initiating pane's declared
+`PaneExecutionPlan` and remote path; the downloaded local cache URL is only
+implementation storage. Runtime titles and observed SSH commands never grant
+fetch authority, and relative paths require explicitly reported remote working
+directory metadata.
+
 The review/comment workflow is intentionally file-backed. A document can carry
 one whole-document note plus any number of inline annotations. Selecting rendered
 text and adding an inline annotation writes a `<mark>...</mark><!-- AMX id=... -->`
