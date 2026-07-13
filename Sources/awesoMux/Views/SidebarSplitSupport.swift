@@ -27,6 +27,8 @@ struct SidebarPresentationLayoutPolicy {
         position == .left ? [.sidebar, .detail] : [.detail, .sidebar]
     }
     var trafficLightColumn: AppTitlebarColumn { titlebarColumns[0] }
+    var dividerGutterColumn: AppTitlebarColumn { position == .left ? .detail : .sidebar }
+    var dividerGutterEdge: SidebarPhysicalEdge { .leading }
 }
 
 /// Live sidebar width published on every divider tick (INT-535, A4).

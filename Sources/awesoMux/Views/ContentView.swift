@@ -342,6 +342,9 @@ private struct AppTitlebarView: View {
     let sidebarPosition: AppearanceConfig.SidebarPosition
     let isSidebarVisible: Bool
     private var sidebarWidth: CGFloat { isSidebarVisible ? sidebarLiveWidth.value : 0 }
+    private var layoutPolicy: SidebarPresentationLayoutPolicy {
+        SidebarPresentationLayoutPolicy(position: sidebarPosition)
+    }
 
     // Read the accent from the environment (published by AppearanceBridge)
     // rather than the bare `Color.aw.accent` getter. The bare getter reads the
@@ -408,8 +411,14 @@ private struct AppTitlebarView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, isPhysicalLeading ? AppTitlebarMetrics.trafficLightClearance : 10)
-        .padding(.trailing, sidebarPosition == .left ? 10 : AppTitlebarMetrics.contentColumnGutter)
+        .padding(
+            .leading,
+            isPhysicalLeading
+                ? AppTitlebarMetrics.trafficLightClearance
+                : layoutPolicy.dividerGutterColumn == .sidebar
+                    ? AppTitlebarMetrics.contentColumnGutter : 10
+        )
+        .padding(.trailing, 10)
         .frame(width: sidebarWidth, alignment: .leading)
     }
 
@@ -432,14 +441,17 @@ private struct AppTitlebarView: View {
 
             Spacer(minLength: 12)
         }
-        .padding(.leading, sidebarPosition == .left ? AppTitlebarMetrics.contentColumnGutter : 10)
+        .padding(
+            .leading,
+            layoutPolicy.dividerGutterColumn == .detail ? AppTitlebarMetrics.contentColumnGutter : 10
+        )
         .padding(
             .leading,
             sidebarPosition == .left
                 ? max(0, AppTitlebarMetrics.trafficLightClearance + 10 - sidebarWidth)
                 : AppTitlebarMetrics.trafficLightClearance
         )
-        .padding(.trailing, sidebarPosition == .right ? AppTitlebarMetrics.contentColumnGutter : 10)
+        .padding(.trailing, 10)
     }
 
     private func workspaceCluster(_ session: TerminalSession) -> some View {
