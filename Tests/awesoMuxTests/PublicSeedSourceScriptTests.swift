@@ -43,7 +43,16 @@ struct PublicSeedSourceScriptTests {
         #expect(result.error.contains("remains in the public seed surface"))
     }
 
-    private func runGuard(publicText: String) throws -> ShellResult {
+    @Test("ripgrep execution errors fail the guard")
+    func ripgrepExecutionErrorsFailTheGuard() throws {
+        let result = try runGuard(publicText: "public", failingRipgrep: true)
+
+        #expect(result.status == 1)
+        #expect(result.error.contains("public seed source scan failed"))
+        #expect(result.error.contains("simulated rg failure"))
+    }
+
+    private func runGuard(publicText: String, failingRipgrep: Bool = false) throws -> ShellResult {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "awesomux-public-seed-guard-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -59,6 +68,19 @@ struct PublicSeedSourceScriptTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [copiedScript.path]
+        if failingRipgrep {
+            let binDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+            let ripgrep = binDirectory.appending(path: "rg")
+            try Data("#!/bin/sh\necho 'simulated rg failure' >&2\nexit 2\n".utf8).write(to: ripgrep)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: ripgrep.path
+            )
+            var environment = ProcessInfo.processInfo.environment
+            environment["PATH"] = "\(binDirectory.path):\(environment["PATH"] ?? "")"
+            process.environment = environment
+        }
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
