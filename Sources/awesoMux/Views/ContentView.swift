@@ -4,6 +4,58 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
+enum SidebarVisibilitySource {
+    case pointer
+    case explicit
+}
+
+struct SidebarHiddenWidthToggleResult: Equatable {
+    let targetWidth: CGFloat
+    let shouldReveal: Bool
+}
+
+enum SidebarHoverTransitionPolicy {
+    static func transition(
+        for source: SidebarVisibilitySource,
+        reduceMotion: Bool
+    ) -> SidebarSplitTransition {
+        source == .pointer && !reduceMotion ? .hover(duration: 0.140) : .immediate
+    }
+}
+
+enum SidebarHiddenWidthTogglePolicy {
+    static func currentWidth(
+        committedWidth: CGFloat,
+        liveWidth: CGFloat,
+        isTemporarilyRevealed: Bool
+    ) -> CGFloat {
+        isTemporarilyRevealed ? liveWidth : committedWidth
+    }
+
+    static func resolve(
+        currentWidth: CGFloat,
+        lastNonCollapsedWidth: CGFloat,
+        persistentlyHidden: Bool
+    ) -> SidebarHiddenWidthToggleResult {
+        SidebarHiddenWidthToggleResult(
+            targetWidth: SidebarWidthPolicy.toggleWidth(
+                currentWidth: currentWidth,
+                lastNonCollapsedWidth: lastNonCollapsedWidth
+            ),
+            shouldReveal: !persistentlyHidden
+        )
+    }
+}
+
+enum SidebarRuntimeVisibilityPolicy {
+    static func isVisible(
+        proximityState: SidebarPresentationModel.ProximityState,
+        userWantsHidden: Bool
+    ) -> Bool {
+        !userWantsHidden || proximityState == .revealed
+    }
+}
+
 struct ContentView: View {
     static let minimumWindowWidth: CGFloat = 720
     static let minimumWindowHeight: CGFloat = 640
@@ -118,12 +170,12 @@ struct ContentView: View {
                     return
                 }
                 sidebarPresentation.togglePersistentVisibility()
-                splitProxy.setHidden?(!sidebarPresentation.isSidebarVisible)
+                settleSidebarVisibilityExplicitly()
             }
             .onChange(of: sidebarFocusRequestID) { _, requestID in
                 guard requestID != nil else { return }
                 sidebarPresentation.showPersistently()
-                splitProxy.setHidden?(false)
+                settleSidebarVisibilityExplicitly()
             }
             .onChange(of: appSettingsStore.appearance.value.sidebarPosition) { _, position in
                 applySidebarPosition(position)
@@ -171,9 +223,19 @@ struct ContentView: View {
                 proxy: splitProxy,
                 position: sidebarPosition,
                 initiallyHidden: !sidebarPresentation.isSidebarVisible,
+                edgeTrackingEnabled: sidebarPresentation.userWantsHidden,
                 onLiveWidthChange: { width in sidebarLiveWidth.value = width },
                 onCommitWidth: { width in commitSidebarWidth(width) },
                 onSidebarFocusHandoff: onFocusActiveTerminal,
+                onEdgePointerMove: { x, width in
+                    sidebarPresentation.pointerMoved(
+                        x: x,
+                        width: width,
+                        position: appliedSidebarPosition
+                    )
+                },
+                onEdgeExit: sidebarPresentation.trackingRegionExited,
+                onTrackingAvailabilityLost: sidebarPresentation.invalidateTransientState,
                 sidebar: {
                     SidebarView(
                         sessionStore: sessionStore,
@@ -231,13 +293,24 @@ struct ContentView: View {
                 SidebarPeekCardOverlay(model: peekModel)
             }
             .overlay(alignment: layoutPolicy.edge == .leading ? .leading : .trailing) {
-                if sidebarPresentation.userWantsHidden {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .frame(width: 6)
-                        .onHover(perform: sidebarPresentation.edgePointerChanged)
-                        .accessibilityHidden(true)
-                }
+                SidebarProximityCue(
+                    edge: layoutPolicy.edge,
+                    visible: sidebarPresentation.isCueVisible
+                )
+            }
+            .onChange(of: sidebarPresentation.proximityState) { _, state in
+                let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                splitProxy.setVisibility?(
+                    SidebarRuntimeVisibilityPolicy.isVisible(
+                        proximityState: state,
+                        userWantsHidden: sidebarPresentation.userWantsHidden
+                    ),
+                    SidebarHoverTransitionPolicy.transition(
+                        for: .pointer,
+                        reduceMotion: reduceMotion
+                    ),
+                    reduceMotion
+                )
             }
         }
     }
@@ -247,6 +320,7 @@ struct ContentView: View {
         // Ordering is deliberate: invalidate every stale interaction before
         // moving the native split, then publish the new overlay geometry.
         sidebarPresentation.positionDidChange()
+        splitProxy.setVisibility?(sidebarPresentation.isSidebarVisible, .immediate, true)
         peekModel.hideAll()
         splitProxy.setPosition?(position)
         appliedSidebarPosition = position
@@ -317,23 +391,54 @@ struct ContentView: View {
     }
 
     private func toggleSidebarWidth() {
-        // Hidden is presentation state, not a third width. Preserve the exact
-        // pre-hide width instead of invisibly changing a later reveal.
-        guard sidebarPresentation.permitsWidthChanges else { return }
         // Read the LIVE rendered width, not the committed `sidebarWidth`: a
         // programmatic clamp (e.g. a window-narrow force-collapse) moves the live
         // width without re-committing, so the committed copy can be stale. Toggling
         // off the stale value inverts the first press (it thinks a collapsed rail is
         // still expanded and re-collapses it).
-        let targetWidth = SidebarWidthPolicy.toggleWidth(
-            currentWidth: sidebarLiveWidth.value,
-            lastNonCollapsedWidth: lastNonCollapsedSidebarWidth
+        let result = SidebarHiddenWidthTogglePolicy.resolve(
+            currentWidth: sidebarPresentation.userWantsHidden
+                ? SidebarHiddenWidthTogglePolicy.currentWidth(
+                    committedWidth: sidebarWidth,
+                    liveWidth: sidebarLiveWidth.value,
+                    isTemporarilyRevealed: sidebarPresentation.isTemporarilyRevealed
+                )
+                : sidebarLiveWidth.value,
+            lastNonCollapsedWidth: lastNonCollapsedSidebarWidth,
+            persistentlyHidden: sidebarPresentation.userWantsHidden
         )
         // Collapse/expand by commanding the native divider directly — instant
         // (commitSidebarWidth moves the divider).
-        commitSidebarWidth(targetWidth)
+        commitSidebarWidth(result.targetWidth)
     }
 
+    private func settleSidebarVisibilityExplicitly() {
+        sidebarPresentation.invalidateTransientState()
+        splitProxy.setVisibility?(sidebarPresentation.isSidebarVisible, .immediate, true)
+    }
+
+}
+
+private struct SidebarProximityCue: View {
+    let edge: SidebarPhysicalEdge
+    let visible: Bool
+    @Environment(\.awAccent) private var accentResolver
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Rectangle()
+            .fill(
+                Color.aw.focusAccent(
+                    accentResolver.accent,
+                    terminalBackground: Color.aw.surface.window
+                )
+            )
+            .frame(width: 4)
+            .opacity(visible ? 1 : 0)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.08), value: visible)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
 }
 
 private struct AppTitlebarView: View {

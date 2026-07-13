@@ -1,4 +1,5 @@
 import Foundation
+import AwesoMuxCore
 import AwesoMuxTestSupport
 import Testing
 @testable import awesoMux
@@ -223,6 +224,23 @@ struct SidebarPresentationModelTests {
         gate.advance()
         await drainMainQueue()
         #expect(model.proximityState == .dormant)
+    }
+
+    @Test("hidden width selection leaves presentation dormant and hidden")
+    func hiddenWidthSelectionPreservesPresentation() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let result = SidebarHiddenWidthTogglePolicy.resolve(
+            currentWidth: 300,
+            lastNonCollapsedWidth: 300,
+            persistentlyHidden: model.userWantsHidden
+        )
+
+        #expect(result.targetWidth == SidebarWidthPolicy.collapsedWidth)
+        #expect(!result.shouldReveal)
+        #expect(model.proximityState == .dormant)
+        #expect(model.userWantsHidden)
     }
 
     private func makeHiddenModel() throws -> ModelFixture {
