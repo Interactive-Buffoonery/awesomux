@@ -140,7 +140,9 @@ git diff --check
 The wrapper excludes vendored and generated sources. Write mode requires
 explicit first-party file paths; `--lint` does not modify files and reports
 formatter findings only on Swift lines changed from `origin/main` (or the
-`FORMAT_LINT_BASE` override used by CI).
+`FORMAT_LINT_BASE` override used by CI). Swift and `swift-format` versions are
+pinned and their update procedure is documented in
+[`docs/toolchain.md`](docs/toolchain.md).
 
 OpenCode uses exact GLM 5.2 through Synthetic with no model fallback. The
 reviewer has no approval or merge capability. Any future merge automation
