@@ -85,10 +85,12 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         if path.hasPrefix("~/") {
             return normalizedTildePath(path)
         }
-        guard let directory, directory.hasPrefix("/") || directory.hasPrefix("~/") else {
+        guard let directory,
+            directory.hasPrefix("/") || directory == "~" || directory.hasPrefix("~/")
+        else {
             return nil
         }
-        if directory.hasPrefix("~/") {
+        if directory == "~" || directory.hasPrefix("~/") {
             return normalizedTildePath(
                 (directory as NSString).appendingPathComponent(path)
             )

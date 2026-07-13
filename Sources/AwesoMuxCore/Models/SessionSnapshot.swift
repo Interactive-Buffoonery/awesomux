@@ -10,6 +10,21 @@ public extension CodingUserInfoKey {
     /// `TerminalSession` decode keeps migrating session-level keys onto the
     /// active pane (INT-504 M3).
     static let snapshotSchemaVersion = CodingUserInfoKey(rawValue: "awesomux.snapshotSchemaVersion")!
+    static let snapshotDecodeRecoveryRecorder = CodingUserInfoKey(
+        rawValue: "awesomux.snapshotDecodeRecoveryRecorder"
+    )!
+}
+
+/// Mutable only during one synchronous `JSONDecoder.decode` call. The decoder
+/// threads this reference through `userInfo`; it is never shared across tasks.
+public final class SessionSnapshotDecodeRecoveryRecorder: @unchecked Sendable {
+    public private(set) var droppedDocumentTabs = 0
+
+    public init() {}
+
+    func recordDroppedDocumentTab() {
+        droppedDocumentTabs += 1
+    }
 }
 
 public struct SessionSnapshot: Codable, Hashable, Sendable {
@@ -69,6 +84,7 @@ public struct SessionSnapshot: Codable, Hashable, Sendable {
     /// — decode failure drops to an empty pin list rather than archiving the
     /// whole snapshot, since a pin is disposable UI state, never data loss.
     public var pinnedSessionIDs: [TerminalSession.ID]
+    var droppedDocumentTabCountDuringDecoding = 0
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -94,7 +110,8 @@ public struct SessionSnapshot: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        let schemaVersion =
+            try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
             ?? Self.currentSchemaVersion
         guard schemaVersion <= Self.currentSchemaVersion else {
             Self.logger.error(
@@ -103,7 +120,8 @@ public struct SessionSnapshot: Codable, Hashable, Sendable {
             throw DecodingError.dataCorruptedError(
                 forKey: .schemaVersion,
                 in: container,
-                debugDescription: "Unsupported future session snapshot schema version: found \(schemaVersion), current \(Self.currentSchemaVersion)."
+                debugDescription:
+                    "Unsupported future session snapshot schema version: found \(schemaVersion), current \(Self.currentSchemaVersion)."
             )
         }
 
@@ -114,10 +132,14 @@ public struct SessionSnapshot: Codable, Hashable, Sendable {
             forKey: .selectedSessionID
         )
         self.recentlyClosed = Self.decodeRecentlyClosed(from: container)
-        self.pinnedSessionIDs = (try? container.decodeIfPresent(
-            [TerminalSession.ID].self,
-            forKey: .pinnedSessionIDs
-        )).flatMap { $0 } ?? []
+        self.pinnedSessionIDs =
+            (try? container.decodeIfPresent(
+                [TerminalSession.ID].self,
+                forKey: .pinnedSessionIDs
+            )).flatMap { $0 } ?? []
+        self.droppedDocumentTabCountDuringDecoding =
+            (decoder.userInfo[.snapshotDecodeRecoveryRecorder]
+            as? SessionSnapshotDecodeRecoveryRecorder)?.droppedDocumentTabs ?? 0
     }
 
     public func encode(to encoder: Encoder) throws {

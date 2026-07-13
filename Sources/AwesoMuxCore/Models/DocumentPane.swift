@@ -249,7 +249,10 @@ extension DocumentGroup: Codable {
             let tabDecoder = try tabsContainer.superDecoder()
             do {
                 tabs.append(try DocumentPane(from: tabDecoder))
-            } catch {}
+            } catch {
+                (decoder.userInfo[.snapshotDecodeRecoveryRecorder]
+                    as? SessionSnapshotDecodeRecoveryRecorder)?.recordDroppedDocumentTab()
+            }
         }
         // Keep decode catchable: empty groups are invalid, while a stale
         // selectedTabID is disposable UI state and clamps in init.

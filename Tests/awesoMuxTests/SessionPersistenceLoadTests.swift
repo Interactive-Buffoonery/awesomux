@@ -128,7 +128,7 @@ struct SessionPersistenceLoadTests {
         }
     }
 
-    @Test("genuine v6 snapshot preserves healthy content around malformed remote tabs")
+    @Test("genuine v6 snapshot warns and archives while preserving healthy remote tabs")
     func genuineV6MixedSnapshotRecoversThroughFullLoadPipeline() throws {
         try Self.withTemporarySupportDirectory { tempDir in
             let fixtureData = try Data(contentsOf: Self.v6MixedSnapshotFixtureURL)
@@ -137,7 +137,17 @@ struct SessionPersistenceLoadTests {
 
             let result = SessionPersistence.load()
 
-            #expect(result.recoveryWarning == nil)
+            guard
+                case let .sanitizedRestore(summary, archiveURL, archiveError) =
+                    result.recoveryWarning?.kind
+            else {
+                Issue.record("expected a visible sanitized-restore warning")
+                return
+            }
+            #expect(summary.droppedDocumentTabs == 2)
+            #expect(archiveError == nil)
+            #expect(try Data(contentsOf: #require(archiveURL)) == fixtureData)
+            #expect(try Self.sanitizedArchives(in: tempDir).count == 1)
             #expect(try Self.corruptedArchives(in: tempDir).isEmpty)
             #expect(result.store.groups.map(\.name) == ["mixed", "fallback"])
             #expect(result.store.selectedSessionID == UUID(uuidString: "40000000-0000-0000-0000-000000000001"))
@@ -165,6 +175,68 @@ struct SessionPersistenceLoadTests {
                 return
             }
             #expect(fallbackPane.id == UUID(uuidString: "10000000-0000-0000-0000-000000000002"))
+        }
+    }
+
+    @Test("typed remote markdown restores while its SSH pane is disconnected")
+    func typedRemoteMarkdownRestoresWhilePaneIsDisconnected() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            let cachedSnapshot = cacheDir.appending(path: "offline.md")
+            try Data("# Offline snapshot".utf8).write(to: cachedSnapshot)
+
+            let target = try #require(RemoteTarget(parsing: "alice@devbox"))
+            let terminal = TerminalPane(
+                title: "remote shell",
+                workingDirectory: "~",
+                executionPlan: .ssh(SSHExecution(target: target))
+            )
+            let document = DocumentPane(
+                fileURL: cachedSnapshot,
+                title: "offline.md",
+                associatedTerminalPaneID: terminal.id,
+                remoteResourceIdentity: ResourceIdentity(
+                    location: .remote(target),
+                    path: ResourcePath(rawValue: "/repo/offline.md")
+                )
+            )
+            let session = TerminalSession(
+                title: "remote shell",
+                workingDirectory: "~",
+                layout: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(terminal),
+                        second: .documentGroup(
+                            DocumentGroup(
+                                tabs: [document],
+                                selectedTabID: document.id
+                            ))
+                    )),
+                activePaneID: terminal.id
+            )
+            try Self.write(
+                SessionSnapshot(
+                    groups: [SessionGroup(name: "remote", sessions: [session])],
+                    selectedSessionID: session.id
+                ),
+                to: tempDir
+            )
+
+            let result = SessionPersistence.load()
+
+            #expect(result.recoveryWarning == nil)
+            let restoredSession = try #require(result.store.session(id: session.id))
+            let restoredTerminal = try #require(restoredSession.layout.pane(id: terminal.id))
+            #expect(restoredTerminal.executionPlan == .ssh(SSHExecution(target: target)))
+            #expect(restoredTerminal.remoteHost == nil)
+            #expect(restoredTerminal.remoteWorkingDirectory == nil)
+            let restoredDocument = try #require(restoredSession.layout.firstDocumentGroup?.selectedTab)
+            #expect(restoredDocument.remoteResourceIdentity == document.remoteResourceIdentity)
+            #expect(restoredDocument.associatedTerminalPaneID == terminal.id)
+            #expect(restoredDocument.fileURL == cachedSnapshot)
+            #expect(FileManager.default.fileExists(atPath: cachedSnapshot.path))
         }
     }
 
