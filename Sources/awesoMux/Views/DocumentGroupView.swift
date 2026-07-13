@@ -131,7 +131,8 @@ struct DocumentGroupView: View {
                     // adversarial pass, convergent).
                     if mode == .document {
                         if let scrollAnchorCapture,
-                           scrollAnchorCapture.tabID == document.id {
+                            scrollAnchorCapture.tabID == document.id
+                        {
                             tabMemory.storeScrollAnchor(
                                 scrollAnchorCapture.capture(),
                                 for: document
@@ -189,6 +190,7 @@ struct DocumentGroupView: View {
                     // A link inside a document inherits the CURRENT tab's
                     // terminal, not the active pane's (INT-748 PR2).
                     onOpenDocumentLink: { url in
+                        guard !document.isReadOnlySnapshot else { return }
                         // Re-assert the router's contract at the sink: the old
                         // GhosttyRuntime.openURL path re-ran this exact check,
                         // and a future caller that skips the router shouldn't
@@ -216,7 +218,8 @@ struct DocumentGroupView: View {
                         // nudge-failure and the all-resolved notice.
                         TerminalAccessibilityAnnouncer.announce(
                             String(
-                                localized: "\(document.title): \(LocalizedPluralStrings.documentRevisionIndicator(added: diff.added, removed: diff.removed))",
+                                localized:
+                                    "\(document.title): \(LocalizedPluralStrings.documentRevisionIndicator(added: diff.added, removed: diff.removed))",
                                 comment: "VoiceOver announcement when an external edit revises the visible document"
                             )
                         )
@@ -225,7 +228,7 @@ struct DocumentGroupView: View {
                         scrollAnchorCapture = (document.id, capture)
                     }
                 )
-                    .id(document.fileURL.standardizedFileURL.path)
+                .id(document.fileURL.standardizedFileURL.path)
                 DocumentPaneSendBar(
                     pane: document,
                     session: session,
@@ -260,9 +263,10 @@ struct DocumentGroupView: View {
         // would resurrect a just-closed tab's memory entry).
         .onChange(of: group) { oldGroup, newGroup in
             if oldGroup.selectedTabID != newGroup.selectedTabID,
-               let scrollAnchorCapture,
-               scrollAnchorCapture.tabID == oldGroup.selectedTabID,
-               let outgoingTab = oldGroup.tab(id: oldGroup.selectedTabID) {
+                let scrollAnchorCapture,
+                scrollAnchorCapture.tabID == oldGroup.selectedTabID,
+                let outgoingTab = oldGroup.tab(id: oldGroup.selectedTabID)
+            {
                 // Snapshot the outgoing tab's reading position while its text
                 // view is still mounted (onChange runs before the remount
                 // commits). If the registration has already moved to the
@@ -274,7 +278,8 @@ struct DocumentGroupView: View {
                 )
             }
             if oldGroup.selectedTabID != newGroup.selectedTabID,
-               let outgoingTab = oldGroup.tab(id: oldGroup.selectedTabID) {
+                let outgoingTab = oldGroup.tab(id: oldGroup.selectedTabID)
+            {
                 revisionIndicators.collapse(for: outgoingTab)
                 revisionInteractionActive = false
             }
@@ -316,17 +321,18 @@ struct DocumentGroupView: View {
         }
         .task(id: revisionAutoCollapseTaskID) {
             guard revisionAutoCollapseTaskID.canRun,
-                  let indicator = revisionIndicators.indicator(for: document)
+                let indicator = revisionIndicators.indicator(for: document)
             else {
                 return
             }
             let generation = indicator.generation
             let clock = ContinuousClock()
             let startedAt = clock.now
-            let remaining = revisionIndicators.remainingExpandedTime(
-                of: Self.revisionExpandedDuration,
-                for: document
-            ) ?? Self.revisionExpandedDuration
+            let remaining =
+                revisionIndicators.remainingExpandedTime(
+                    of: Self.revisionExpandedDuration,
+                    for: document
+                ) ?? Self.revisionExpandedDuration
             if remaining > .zero {
                 do {
                     try await Task.sleep(for: remaining)
@@ -345,9 +351,9 @@ struct DocumentGroupView: View {
                 generation: generation
             )
             guard revisionAutoCollapseTaskID.canRun,
-                  let current = revisionIndicators.indicator(for: document),
-                  current.generation == generation,
-                  current.presentation == .expanded
+                let current = revisionIndicators.indicator(for: document),
+                current.generation == generation,
+                current.presentation == .expanded
             else {
                 return
             }
@@ -373,13 +379,16 @@ struct DocumentGroupView: View {
         // active terminal's folder instead of an empty browser. Resolving the
         // pane (not just the id) is what makes the dangling case actually
         // reach the fallback.
-        let targetPane = document.associatedTerminalPaneID
+        let targetPane =
+            document.associatedTerminalPaneID
             .flatMap { session.layout.pane(id: $0) }
             ?? session.layout.pane(id: session.activePaneID)
-        guard let directory = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
-            targetPane?.workingDirectory,
-            session.workingDirectory,
-        ]) else {
+        guard
+            let directory = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
+                targetPane?.workingDirectory,
+                session.workingDirectory,
+            ])
+        else {
             return nil
         }
         return URL(fileURLWithPath: directory, isDirectory: true)
@@ -387,7 +396,7 @@ struct DocumentGroupView: View {
 
     private var selectedTaskProgress: TaskProgress? {
         guard let progress = tabMemory.render(for: document)?.renderedDoc?.taskProgress,
-              progress.total > 0
+            progress.total > 0
         else {
             return nil
         }

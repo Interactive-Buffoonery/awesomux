@@ -2,19 +2,23 @@ import Foundation
 
 /// A document tab, not a terminal pane. Agent, remote, and shell state lives
 /// on `TerminalPane`.
-public struct DocumentPane: Identifiable, Codable, Hashable, Sendable {
+public struct DocumentPane: Identifiable, Hashable, Sendable {
     public let id: UUID
     public var fileURL: URL
     public var title: String
     /// Send/stage target. It may dangle after terminal close; callers validate
     /// it and fail closed rather than falling back to the active pane.
     public var associatedTerminalPaneID: TerminalPane.ID?
-    /// Non-nil when `fileURL` is a local cached copy of a remote Markdown file.
-    /// Remote snapshots are read-only; the origin string is user-facing.
-    public var remoteSnapshotOrigin: String?
+    /// Non-nil when `fileURL` is implementation storage for a remote Markdown
+    /// resource. The typed identity, never the cache URL, is its provenance.
+    public internal(set) var remoteResourceIdentity: ResourceIdentity?
 
     public var isReadOnlySnapshot: Bool {
-        remoteSnapshotOrigin != nil
+        remoteResourceIdentity != nil
+    }
+
+    public var remoteSnapshotOrigin: String? {
+        remoteResourceIdentity?.remoteDisplayOrigin
     }
 
     public init(
@@ -22,13 +26,167 @@ public struct DocumentPane: Identifiable, Codable, Hashable, Sendable {
         fileURL: URL,
         title: String,
         associatedTerminalPaneID: TerminalPane.ID? = nil,
-        remoteSnapshotOrigin: String? = nil
+        remoteResourceIdentity: ResourceIdentity? = nil
     ) {
         self.id = id
         self.fileURL = fileURL
         self.title = title
         self.associatedTerminalPaneID = associatedTerminalPaneID
-        self.remoteSnapshotOrigin = remoteSnapshotOrigin
+        precondition(
+            remoteResourceIdentity?.isSupportedRemoteMarkdownSnapshot != false,
+            "A remote document requires a valid remote Markdown identity"
+        )
+        self.remoteResourceIdentity = remoteResourceIdentity
+    }
+}
+
+extension DocumentPane: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case fileURL
+        case title
+        case associatedTerminalPaneID
+        case remoteResourceIdentity
+        case remoteSnapshotOrigin
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion =
+            (decoder.userInfo[.snapshotSchemaVersion] as? Int)
+            ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
+        let containsTypedIdentity = container.contains(.remoteResourceIdentity)
+        let containsLegacyOrigin = container.contains(.remoteSnapshotOrigin)
+        let hasTypedIdentity =
+            try containsTypedIdentity
+            && !container.decodeNil(forKey: .remoteResourceIdentity)
+        let hasLegacyOrigin =
+            try containsLegacyOrigin
+            && !container.decodeNil(forKey: .remoteSnapshotOrigin)
+
+        if schemaVersion >= 7, containsLegacyOrigin {
+            throw DecodingError.dataCorruptedError(
+                forKey: .remoteSnapshotOrigin,
+                in: container,
+                debugDescription: "Schema-v7 document panes cannot contain legacy remote provenance."
+            )
+        }
+        if schemaVersion >= 7, containsTypedIdentity, !hasTypedIdentity {
+            throw DecodingError.dataCorruptedError(
+                forKey: .remoteResourceIdentity,
+                in: container,
+                debugDescription: "A present remote resource identity cannot be null."
+            )
+        }
+        if hasTypedIdentity, hasLegacyOrigin {
+            throw DecodingError.dataCorruptedError(
+                forKey: .remoteResourceIdentity,
+                in: container,
+                debugDescription: "A document pane cannot contain both typed and legacy remote provenance."
+            )
+        }
+
+        let identity: ResourceIdentity?
+        if hasTypedIdentity {
+            identity = try container.decode(ResourceIdentity.self, forKey: .remoteResourceIdentity)
+        } else if hasLegacyOrigin {
+            let origin = try container.decode(String.self, forKey: .remoteSnapshotOrigin)
+            identity = try Self.migrateLegacyRemoteOrigin(origin, in: container)
+        } else {
+            identity = nil
+        }
+
+        if let identity, !identity.isSupportedRemoteMarkdownSnapshot {
+            throw DecodingError.dataCorruptedError(
+                forKey: .remoteResourceIdentity,
+                in: container,
+                debugDescription: "A remote document requires a valid remote Markdown identity."
+            )
+        }
+
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            fileURL: try container.decode(URL.self, forKey: .fileURL),
+            title: try container.decode(String.self, forKey: .title),
+            associatedTerminalPaneID: try container.decodeIfPresent(
+                TerminalPane.ID.self,
+                forKey: .associatedTerminalPaneID
+            ),
+            remoteResourceIdentity: identity
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        if let remoteResourceIdentity,
+            !remoteResourceIdentity.isSupportedRemoteMarkdownSnapshot
+        {
+            throw EncodingError.invalidValue(
+                remoteResourceIdentity,
+                EncodingError.Context(
+                    codingPath: encoder.codingPath,
+                    debugDescription: "A remote document requires a valid remote Markdown identity."
+                )
+            )
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(fileURL, forKey: .fileURL)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(associatedTerminalPaneID, forKey: .associatedTerminalPaneID)
+        try container.encodeIfPresent(remoteResourceIdentity, forKey: .remoteResourceIdentity)
+    }
+
+    private static func migrateLegacyRemoteOrigin(
+        _ origin: String,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> ResourceIdentity {
+        let separators = [":~/", ":/"]
+        let matches = separators.flatMap { separator in
+            origin.ranges(of: separator).map { (separator, $0) }
+        }
+        guard matches.count == 1, let match = matches.first else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .remoteSnapshotOrigin,
+                in: container,
+                debugDescription: "Legacy remote snapshot origin is malformed or ambiguous."
+            )
+        }
+        let targetText = String(origin[..<match.1.lowerBound])
+        let pathStart = origin.index(after: match.1.lowerBound)
+        let path = String(origin[pathStart...])
+        guard let target = RemoteTarget(parsing: targetText) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .remoteSnapshotOrigin,
+                in: container,
+                debugDescription: "Legacy remote snapshot origin has no valid SSH target."
+            )
+        }
+        let identity = ResourceIdentity(
+            location: .remote(target),
+            path: ResourcePath(rawValue: path)
+        )
+        guard identity.isSupportedRemoteMarkdownSnapshot else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .remoteSnapshotOrigin,
+                in: container,
+                debugDescription: "Legacy remote snapshot origin has no valid Markdown path."
+            )
+        }
+        return identity
+    }
+}
+
+private extension String {
+    func ranges(of substring: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var searchStart = startIndex
+        while searchStart < endIndex,
+            let range = range(of: substring, range: searchStart..<endIndex)
+        {
+            ranges.append(range)
+            searchStart = range.upperBound
+        }
+        return ranges
     }
 }
 
@@ -49,7 +207,8 @@ public struct DocumentGroup: Identifiable, Hashable, Sendable {
         precondition(!tabs.isEmpty, "DocumentGroup must contain at least one tab")
         self.id = id
         self.tabs = tabs
-        self.selectedTabID = tabs.contains(where: { $0.id == selectedTabID })
+        self.selectedTabID =
+            tabs.contains(where: { $0.id == selectedTabID })
             ? selectedTabID
             : tabs[0].id
     }
@@ -63,13 +222,20 @@ public struct DocumentGroup: Identifiable, Hashable, Sendable {
     }
 
     public func tab(forNormalizedURL normalizedURL: URL) -> DocumentPane? {
-        tabs.first(where: { $0.fileURL.standardizedFileURL == normalizedURL })
+        tabs.first(where: {
+            $0.remoteResourceIdentity == nil
+                && $0.fileURL.standardizedFileURL == normalizedURL
+        })
+    }
+
+    public func tab(forRemoteResource identity: ResourceIdentity) -> DocumentPane? {
+        tabs.first(where: { $0.remoteResourceIdentity == identity })
     }
 
     /// Returns nil when there is no other tab to select.
     public func adjacentTabID(offset: Int) -> DocumentPane.ID? {
         guard tabs.count > 1,
-              let index = tabs.firstIndex(where: { $0.id == selectedTabID })
+            let index = tabs.firstIndex(where: { $0.id == selectedTabID })
         else {
             return nil
         }

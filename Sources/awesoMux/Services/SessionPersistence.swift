@@ -81,7 +81,7 @@ enum SessionPersistence {
         var archivedSnapshotURL: URL? {
             switch kind {
             case let .archivedSnapshot(url, _),
-                 let .sanitizedRestore(_, url, _):
+                let .sanitizedRestore(_, url, _):
                 return url
             }
         }
@@ -89,7 +89,7 @@ enum SessionPersistence {
         var archiveError: String? {
             switch kind {
             case let .archivedSnapshot(_, error),
-                 let .sanitizedRestore(_, _, error):
+                let .sanitizedRestore(_, _, error):
                 return error
             }
         }
@@ -191,7 +191,8 @@ enum SessionPersistence {
             // `userInfo` so nested `TerminalSession.init(from:)` can gate the v1
             // legacy agent-state fold on the version (INT-504 M3). A fresh
             // decoder avoids mutating the shared static across the write task.
-            let peekedVersion = (try? jsonDecoder.decode(SchemaVersionPeek.self, from: data))?
+            let peekedVersion =
+                (try? jsonDecoder.decode(SchemaVersionPeek.self, from: data))?
                 .schemaVersion ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
             let versionedDecoder = JSONDecoder()
             versionedDecoder.userInfo[.snapshotSchemaVersion] = peekedVersion
@@ -214,8 +215,10 @@ enum SessionPersistence {
             // failed, in which case we must surface the warning so its
             // `preventsInitialSave` guard stops the cleaned state from
             // overwriting the un-archived original.
-            guard restored.sanitizationSummary.hasUserVisibleAdjustments
-                || archiveResult.url == nil else {
+            guard
+                restored.sanitizationSummary.hasUserVisibleAdjustments
+                    || archiveResult.url == nil
+            else {
                 return LoadResult(store: restored.store, recoveryWarning: nil)
             }
 
@@ -246,7 +249,8 @@ enum SessionPersistence {
 
     static func scheduleRemoteMarkdownSnapshotPrune(keeping store: SessionStore) {
         let urls = remoteMarkdownSnapshotURLs(keeping: store)
-        let cacheDirectoryURL = supportDirectoryURL
+        let cacheDirectoryURL =
+            supportDirectoryURL
             .appending(path: "remote-markdown", directoryHint: .isDirectory)
         Task.detached(priority: .utility) {
             RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDirectoryURL)
@@ -278,7 +282,8 @@ enum SessionPersistence {
         case .pane:
             return
         case let .documentGroup(group):
-            for tab in group.tabs where tab.remoteSnapshotOrigin != nil {
+            for tab in group.tabs
+            where tab.remoteResourceIdentity?.isSupportedRemoteMarkdownSnapshot == true {
                 urls.insert(tab.fileURL)
             }
         case let .split(split):
@@ -300,22 +305,22 @@ enum SessionPersistence {
             if inString {
                 if escaped {
                     escaped = false
-                } else if byte == 0x5C { // backslash
+                } else if byte == 0x5C {  // backslash
                     escaped = true
-                } else if byte == 0x22 { // closing quote
+                } else if byte == 0x22 {  // closing quote
                     inString = false
                 }
                 continue
             }
             switch byte {
-            case 0x22: // opening quote
+            case 0x22:  // opening quote
                 inString = true
-            case 0x7B, 0x5B: // { or [
+            case 0x7B, 0x5B:  // { or [
                 depth += 1
                 if depth > maxDepth {
                     maxDepth = depth
                 }
-            case 0x7D, 0x5D: // } or ]
+            case 0x7D, 0x5D:  // } or ]
                 // Clamp at 0: a malformed file with leading unbalanced closers
                 // must not drive `depth` negative and undercount a later genuine
                 // nesting run (review finding). Valid JSON is balanced, so this is a no-op
@@ -374,7 +379,8 @@ enum SessionPersistence {
             lastWrittenDigestLock.lock()
             defer { lastWrittenDigestLock.unlock() }
             let snapshotPath = snapshotURL.path
-            let snapshotIsUsable = FileManager.default.fileExists(atPath: snapshotPath)
+            let snapshotIsUsable =
+                FileManager.default.fileExists(atPath: snapshotPath)
                 && FileManager.default.isReadableFile(atPath: snapshotPath)
             guard digestWriteGate.shouldWrite(digest, snapshotFileExists: snapshotIsUsable) else {
                 return
@@ -475,11 +481,13 @@ enum SessionPersistence {
     nonisolated static let maxQuarantineArchives = 10
 
     nonisolated private static func pruneQuarantineArchives(prefix: String) {
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: supportDirectoryURL,
-            includingPropertiesForKeys: [.creationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
+        guard
+            let entries = try? FileManager.default.contentsOfDirectory(
+                at: supportDirectoryURL,
+                includingPropertiesForKeys: [.creationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        else {
             return
         }
         let archives = entries.filter { $0.lastPathComponent.hasPrefix(prefix) }
@@ -575,7 +583,8 @@ private struct SchemaVersionPeek: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        schemaVersion =
+            try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
             ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
     }
 

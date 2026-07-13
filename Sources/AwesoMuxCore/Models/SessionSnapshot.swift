@@ -39,7 +39,9 @@ public struct SessionSnapshot: Codable, Hashable, Sendable {
     // and folds multiple groups into one (gated on the literal `< 5`).
     // v6 (INT-612): generated workspace titles carry agent-kind + index metadata
     // so locale changes do not make collision detection depend on persisted copy.
-    public static let currentSchemaVersion = 6
+    // v7 (INT-821): remote Markdown document tabs persist `ResourceIdentity`
+    // instead of a display-origin string. Older origins migrate during decode.
+    public static let currentSchemaVersion = 7
 
     /// The schema version to assume when a snapshot carries NO `schemaVersion`
     /// key at all (a truly pre-versioned file). Defaulting to v1 routes such a

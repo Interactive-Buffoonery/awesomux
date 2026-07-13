@@ -142,7 +142,10 @@ struct SessionPersistenceLoadTests {
             let doc = DocumentPane(
                 fileURL: kept,
                 title: "kept.md",
-                remoteSnapshotOrigin: "devbox:/repo/kept.md"
+                remoteResourceIdentity: ResourceIdentity(
+                    location: .remote(RemoteTarget(parsing: "devbox")!),
+                    path: ResourcePath(rawValue: "/repo/kept.md")
+                )
             )
             let session = TerminalSession(
                 title: "shell",
@@ -185,7 +188,10 @@ struct SessionPersistenceLoadTests {
             let doc = DocumentPane(
                 fileURL: kept,
                 title: "recent.md",
-                remoteSnapshotOrigin: "devbox:/repo/recent.md"
+                remoteResourceIdentity: ResourceIdentity(
+                    location: .remote(RemoteTarget(parsing: "devbox")!),
+                    path: ResourcePath(rawValue: "/repo/recent.md")
+                )
             )
             let layout = TerminalPaneLayout.split(TerminalSplit(
                 orientation: .vertical,

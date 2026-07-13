@@ -5,194 +5,175 @@ import Testing
 
 @Suite
 struct RemoteMarkdownReferenceTests {
-    @Test func absoluteRemoteMarkdownUsesTitleUserAndPaneHost() throws {
-        let pane = TerminalPane(
-            title: "alice@devbox:/repo",
+    private func remotePane(
+        target: String = "my-purple",
+        title: String = "alice@devbox:/repo",
+        remoteHost: String? = "devbox",
+        remoteSSHTarget: String? = nil,
+        remoteWorkingDirectory: String? = nil
+    ) -> TerminalPane {
+        TerminalPane(
+            title: title,
             workingDirectory: "/local",
-            remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox:/repo",
-            executionPlan: .local
+            remoteHost: remoteHost,
+            remoteSSHTarget: remoteSSHTarget,
+            remoteWorkingDirectory: remoteWorkingDirectory,
+            liveTerminalTitle: title,
+            executionPlan: .ssh(SSHExecution(target: RemoteTarget(parsing: target)!))
         )
-
-        let reference = try #require(RemoteMarkdownReference.make(
-            payload: "/repo/README.md",
-            pane: pane
-        ))
-
-        #expect(reference.sshTarget == "alice@devbox")
-        #expect(reference.remotePath == "/repo/README.md")
-        #expect(reference.origin == "alice@devbox:/repo/README.md")
     }
 
-    // Same libghostty bare-path artifact MarkdownLinkIntercept fixes for
-    // local panes (a path mentioned at the end of a sentence, e.g.
-    // "see /repo/README.md.") also reaches remote panes via the identical
-    // regex — without stripping it here too, isPotentialPayload's extension
-    // check fails and the click falls through to local resolution instead
-    // of fetching the remote snapshot.
-    @Test func absoluteRemoteMarkdownStripsTrailingSentencePeriod() throws {
-        let pane = TerminalPane(
-            title: "alice@devbox:/repo",
-            workingDirectory: "/local",
-            remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox:/repo",
-            executionPlan: .local
-        )
-
-        #expect(RemoteMarkdownReference.isPotentialPayload("/repo/README.md."))
-
-        let reference = try #require(RemoteMarkdownReference.make(
-            payload: "/repo/README.md.",
-            pane: pane
-        ))
-
-        #expect(reference.remotePath == "/repo/README.md")
-    }
-
-    @Test func absoluteRemoteMarkdownPrefersSubmittedSSHTarget() throws {
-        let pane = TerminalPane(
-            title: "alice@devbox:/repo",
-            workingDirectory: "/local",
-            remoteHost: "devbox",
-            remoteSSHTarget: "my-purple",
-            liveTerminalTitle: "alice@devbox:/repo",
-            executionPlan: .local
-        )
-
-        let reference = try #require(RemoteMarkdownReference.make(
-            payload: "/repo/README.md",
-            pane: pane
-        ))
+    @Test func absoluteRemoteMarkdownUsesDeclaredAlias() throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane()
+            ))
 
         #expect(reference.sshTarget == "my-purple")
+        #expect(reference.remotePath == "/repo/README.md")
         #expect(reference.origin == "my-purple:/repo/README.md")
     }
 
-    @Test func relativeRemoteMarkdownUsesTitleDirectory() throws {
-        let pane = TerminalPane(
-            title: "alice@devbox:~/repo",
-            workingDirectory: "/local",
-            remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox:~/repo",
-            executionPlan: .local
-        )
+    @Test func declaredUserAndAliasArePassedExactly() throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane(target: "alice@my-purple")
+            ))
 
-        let reference = try #require(RemoteMarkdownReference.make(
-            payload: "docs/plan.md",
-            pane: pane
-        ))
-
-        #expect(reference.remotePath == "~/repo/docs/plan.md")
+        #expect(reference.sshTarget == "alice@my-purple")
     }
 
-    @Test func relativeRemoteMarkdownUsesCachedRemoteDirectoryWhenToolOwnsTitle() throws {
-        let pane = TerminalPane(
-            title: "codex",
-            workingDirectory: "/local",
-            remoteHost: "devbox",
-            remoteWorkingDirectory: "~/repo",
-            liveTerminalTitle: "codex",
-            executionPlan: .local
-        )
+    @Test func titleAndSubmittedTargetCannotRetargetDeclaredPane() throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane(
+                    title: "mallory@spoofed:/private",
+                    remoteHost: "spoofed",
+                    remoteSSHTarget: "submitted-target"
+                )
+            ))
 
-        let reference = try #require(RemoteMarkdownReference.make(
-            payload: "docs/plan.md",
-            pane: pane
-        ))
-
-        #expect(reference.remotePath == "~/repo/docs/plan.md")
+        #expect(reference.sshTarget == "my-purple")
+        #expect(reference.remotePath == "/repo/README.md")
     }
 
-    @Test func bracketedIPv6TitleCanSupplyUserAndDirectory() throws {
-        let pane = TerminalPane(
-            title: "ed@[2001:db8::1]:~/repo",
-            workingDirectory: "/local",
-            remoteHost: "[2001:db8::1]",
-            liveTerminalTitle: "ed@[2001:db8::1]:~/repo",
-            executionPlan: .local
-        )
-
-        let reference = try #require(RemoteMarkdownReference.make(
-            payload: "docs/plan.md",
-            pane: pane
-        ))
-
-        #expect(reference.sshTarget == "ed@[2001:db8::1]")
-        #expect(reference.remotePath == "~/repo/docs/plan.md")
-    }
-
-    @Test func nonPromptTitleDoesNotSupplyUser() throws {
-        let pane = TerminalPane(
-            title: "ed@devbox - Mail",
-            workingDirectory: "/local",
-            remoteHost: "devbox",
-            liveTerminalTitle: "ed@devbox - Mail",
-            executionPlan: .local
-        )
-
-        let reference = try #require(RemoteMarkdownReference.make(
-            payload: "/repo/README.md",
-            pane: pane
-        ))
-
-        #expect(reference.sshTarget == "devbox")
-    }
-
-    @Test func relativeRemoteMarkdownWithoutTitleDirectoryIsRejected() {
-        let pane = TerminalPane(
-            title: "alice@devbox",
-            workingDirectory: "/local",
-            remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox",
-            executionPlan: .local
-        )
-
-        #expect(RemoteMarkdownReference.make(payload: "docs/plan.md", pane: pane) == nil)
-    }
-
-    @Test func remoteMarkdownRejectsUnsafeOrUnsupportedPaths() {
+    @Test func localPaneWithRemotePresentationCannotFetch() {
         let pane = TerminalPane(
             title: "alice@devbox:/repo",
             workingDirectory: "/local",
             remoteHost: "devbox",
+            remoteSSHTarget: "devbox",
             liveTerminalTitle: "alice@devbox:/repo",
-            executionPlan: .local
-        )
-
-        #expect(RemoteMarkdownReference.make(payload: "/repo/script.sh", pane: pane) == nil)
-        #expect(RemoteMarkdownReference.make(payload: "/repo/e\u{202E}vil.md", pane: pane) == nil)
-        #expect(RemoteMarkdownReference.make(payload: "~other/notes.md", pane: pane) == nil)
-    }
-
-    @Test func dashLeadingTitleUserYieldsNoSSHTargetInjection() {
-        // A spoofed title whose username begins with `-` must not produce an SSH
-        // destination (`-i@devbox`) that ssh would parse as an option.
-        let pane = TerminalPane(
-            title: "-i@devbox:/repo",
-            workingDirectory: "/local",
-            remoteHost: "devbox",
-            liveTerminalTitle: "-i@devbox:/repo",
             executionPlan: .local
         )
 
         #expect(RemoteMarkdownReference.make(payload: "/repo/README.md", pane: pane) == nil)
     }
 
+    @Test func declaredRemoteWorksWithoutObservedHost() throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane(remoteHost: nil)
+            ))
+
+        #expect(reference.sshTarget == "my-purple")
+    }
+
+    @Test func absoluteRemoteMarkdownStripsTrailingSentencePeriod() throws {
+        #expect(RemoteMarkdownReference.isPotentialPayload("/repo/README.md."))
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md.",
+                pane: remotePane()
+            ))
+        #expect(reference.remotePath == "/repo/README.md")
+    }
+
+    @Test func relativeRemoteMarkdownUsesReportedRemoteDirectory() throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "docs/plan.md",
+                pane: remotePane(remoteWorkingDirectory: "~/repo")
+            ))
+
+        #expect(reference.remotePath == "~/repo/docs/plan.md")
+    }
+
+    @Test func relativeRemoteMarkdownIgnoresTitleDirectory() {
+        let pane = remotePane(title: "alice@devbox:~/repo")
+        #expect(RemoteMarkdownReference.make(payload: "docs/plan.md", pane: pane) == nil)
+    }
+
+    @Test func relativeRemoteMarkdownRejectsInvalidReportedDirectories() {
+        for directory in [nil, "repo", "~other/repo", ""] as [String?] {
+            #expect(
+                RemoteMarkdownReference.make(
+                    payload: "docs/plan.md",
+                    pane: remotePane(remoteWorkingDirectory: directory)
+                ) == nil)
+        }
+    }
+
+    @Test func relativeRemoteMarkdownNormalizesWithoutEscapingTildeRoot() throws {
+        let normalized = try #require(
+            RemoteMarkdownReference.make(
+                payload: "docs/../plan.md",
+                pane: remotePane(remoteWorkingDirectory: "~/repo")
+            ))
+        #expect(normalized.remotePath == "~/repo/plan.md")
+
+        #expect(
+            RemoteMarkdownReference.make(
+                payload: "../../plan.md",
+                pane: remotePane(remoteWorkingDirectory: "~/repo")
+            ) == nil)
+    }
+
+    @Test func remoteMarkdownRejectsUnsafeOrUnsupportedPaths() {
+        let pane = remotePane()
+        #expect(RemoteMarkdownReference.make(payload: "/repo/script.sh", pane: pane) == nil)
+        #expect(RemoteMarkdownReference.make(payload: "/repo/e\u{202E}vil.md", pane: pane) == nil)
+        #expect(RemoteMarkdownReference.make(payload: "~other/notes.md", pane: pane) == nil)
+    }
+
+    @Test func dashLeadingDeclaredTargetIsRejected() {
+        let pane = remotePane(target: "-i@devbox")
+        #expect(RemoteMarkdownReference.make(payload: "/repo/README.md", pane: pane) == nil)
+    }
+
     @Test func fileURLPayloadUsesRemotePath() throws {
-        let pane = TerminalPane(
-            title: "alice@devbox:/repo",
-            workingDirectory: "/local",
-            remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox:/repo",
-            executionPlan: .local
-        )
-
-        let reference = try #require(RemoteMarkdownReference.make(
-            payload: "file:///repo/docs/plan.markdown",
-            pane: pane
-        ))
-
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "file:///repo/docs/plan.markdown",
+                pane: remotePane()
+            ))
         #expect(reference.remotePath == "/repo/docs/plan.markdown")
+    }
+
+    @Test func cacheIdentitySeparatesHostsAndUsers() throws {
+        let fetcher = RemoteMarkdownSnapshotFetcher()
+        let hostA = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane(target: "host-a")
+            ))
+        let hostB = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane(target: "host-b")
+            ))
+        let userA = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane(target: "alice@host-a")
+            ))
+
+        #expect(fetcher.cacheFileName(for: hostA) != fetcher.cacheFileName(for: hostB))
+        #expect(fetcher.cacheFileName(for: hostA) != fetcher.cacheFileName(for: userA))
     }
 
     @Test func shellSingleQuoteEscapesQuotes() {
