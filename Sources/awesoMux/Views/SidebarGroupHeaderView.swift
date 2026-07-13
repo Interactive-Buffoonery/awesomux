@@ -2,7 +2,6 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
-
 /// Gate for the group header's hover-revealed close-group X (INT-739).
 ///
 /// Beyond hover, the X carries the same guards as the context menu's
@@ -126,7 +125,8 @@ struct SidebarGroupHeaderRow: View {
 
     private func updatePeekVisibility() {
         guard canPeek,
-              isHeaderHovered || (focusedRowTarget.wrappedValue == .group(group.id) && isKeyboardNavigating) else {
+            isHeaderHovered || (focusedRowTarget.wrappedValue == .group(group.id) && isKeyboardNavigating)
+        else {
             cancelPeek()
             return
         }
@@ -194,10 +194,12 @@ struct SidebarGroupHeaderRow: View {
         // `.onDrag` from activating. `.simultaneousGesture` composes
         // with the drag so both can fire (tap on quick click, drag
         // on hold + motion).
-        .simultaneousGesture(TapGesture().onEnded {
-            isKeyboardNavigating = false
-            onToggle()
-        })
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                isKeyboardNavigating = false
+                onToggle()
+            }
+        )
         // Deliberately NOT the session row's vacate-on-tap treatment
         // (INT-652): a header click toggles collapse without changing the
         // selection, so no surface mounts and nothing would reclaim a
@@ -239,7 +241,9 @@ struct SidebarGroupHeaderRow: View {
                 Color.clear
                     .onGeometryChange(for: CGRect.self) { proxy in
                         proxy.frame(in: .global)
-                    } action: { headerFrame = $0 }
+                    } action: {
+                        headerFrame = $0
+                    }
             }
         }
         // .onHover must sit ABOVE the overlay (mirrors the session tile's
@@ -258,30 +262,32 @@ struct SidebarGroupHeaderRow: View {
         }
 
         return withPeekLifecycle(chrome)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        // Default activation for VoiceOver (VO+space). Refactoring
-        // off `Button` to free `.onDrag` removed the built-in
-        // button activation — restoring it explicitly so the
-        // announced `.isButton` trait actually does something.
-        .accessibilityAction { onToggle() }
-        .accessibilityLabel({
-            // Include color tint in the label so VoiceOver users hear the
-            // currently-assigned color — the visual 6×6 dot is otherwise
-            // the only signal that a user-chosen tint actually applied.
-            let colorSuffix = group.color.map { ", \($0.displayName) tint" } ?? ""
-            if sessions.isEmpty {
-                return "\(group.name), empty workspace group\(colorSuffix)"
-            }
-            return "\(group.name), \(LocalizedPluralStrings.sidebarGroupWorkspaces(count: sessions.count))\(colorSuffix)"
-        }())
-        .accessibilityValue(groupAccessibilityValue)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityAddTraits(
-            sessions.contains(where: { $0.id == selectedSessionID }) ? [.isSelected] : []
-        )
-        .contextMenu { groupContextMenuContent }
-        .accessibilityActions { groupAccessibilityActionsContent }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            // Default activation for VoiceOver (VO+space). Refactoring
+            // off `Button` to free `.onDrag` removed the built-in
+            // button activation — restoring it explicitly so the
+            // announced `.isButton` trait actually does something.
+            .accessibilityAction { onToggle() }
+            .accessibilityLabel(
+                {
+                    // Include color tint in the label so VoiceOver users hear the
+                    // currently-assigned color — the visual 6×6 dot is otherwise
+                    // the only signal that a user-chosen tint actually applied.
+                    let colorSuffix = group.color.map { ", \($0.displayName) tint" } ?? ""
+                    if sessions.isEmpty {
+                        return "\(group.name), empty workspace group\(colorSuffix)"
+                    }
+                    return "\(group.name), \(LocalizedPluralStrings.sidebarGroupWorkspaces(count: sessions.count))\(colorSuffix)"
+                }()
+            )
+            .accessibilityValue(groupAccessibilityValue)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityAddTraits(
+                sessions.contains(where: { $0.id == selectedSessionID }) ? [.isSelected] : []
+            )
+            .contextMenu { groupContextMenuContent }
+            .accessibilityActions { groupAccessibilityActionsContent }
     }
 
     /// The group-roster peek's full hover/keyboard/drag/filter lifecycle,
@@ -498,7 +504,8 @@ struct SidebarGroupHeaderRow: View {
             .accessibilityAddTraits(group.color == nil ? [.isSelected] : [])
 
             if let legacyColor = currentLegacyColor {
-                Button {} label: {
+                Button {
+                } label: {
                     colorMenuLabel(
                         legacyColor.displayName,
                         swatch: ProjectTint.color(for: legacyColor),
@@ -559,10 +566,11 @@ struct SidebarGroupHeaderRow: View {
             Button("Close Group", role: .destructive) {
                 onCloseGroup()
             }
-            .disabled(SidebarGroupClosePolicy.closeIsDeadControl(
-                isGroupEmpty: group.sessions.isEmpty,
-                totalGroupCount: totalGroupCount
-            ))
+            .disabled(
+                SidebarGroupClosePolicy.closeIsDeadControl(
+                    isGroupEmpty: group.sessions.isEmpty,
+                    totalGroupCount: totalGroupCount
+                ))
         }
     }
 
@@ -621,10 +629,11 @@ struct SidebarGroupHeaderRow: View {
         // `.accessibilityActions` has no disabled state. Same
         // filtering + unresolved-row suppression as the context menu.
         if !isFiltering, currentGroupIndex != nil,
-           !SidebarGroupClosePolicy.closeIsDeadControl(
-               isGroupEmpty: group.sessions.isEmpty,
-               totalGroupCount: totalGroupCount
-           ) {
+            !SidebarGroupClosePolicy.closeIsDeadControl(
+                isGroupEmpty: group.sessions.isEmpty,
+                totalGroupCount: totalGroupCount
+            )
+        {
             Button("Close Group") {
                 onCloseGroup()
             }
@@ -689,7 +698,8 @@ struct SidebarGroupHeaderRow: View {
             TerminalAccessibilityAnnouncer.announce(
                 String(
                     localized: "Workspace group color set to \(color.displayName)",
-                    comment: "VoiceOver status message after setting a workspace group's color. The placeholder is a color name such as 'Teal' or 'Mauve'."
+                    comment:
+                        "VoiceOver status message after setting a workspace group's color. The placeholder is a color name such as 'Teal' or 'Mauve'."
                 )
             )
         } else {

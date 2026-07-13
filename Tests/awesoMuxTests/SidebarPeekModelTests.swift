@@ -12,11 +12,12 @@ struct SidebarPeekModelTests {
         return TerminalSession(
             title: title,
             workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(first),
-                second: .pane(second)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(first),
+                    second: .pane(second)
+                )),
             activePaneID: first.id
         )
     }
@@ -84,15 +85,15 @@ struct SidebarPeekModelTests {
         let a = twoPaneSession("A")
         let b = twoPaneSession("B")
         model.show(session: a, location: location, tint: tint, frame: .zero)
-        model.requestHide(for: a.id)            // grace scheduled for A
+        model.requestHide(for: a.id)  // grace scheduled for A
         // Suspend A's grace at its delay point BEFORE B's takeover, so the
         // release below resumes a genuinely stale task — it must no-op via the
         // cancel guard and the session-id re-guard.
         #expect(await waitUntil { gate.waiterCount == 1 })
-        model.show(session: b, location: location, tint: tint, frame: .zero) // cancels it
+        model.show(session: b, location: location, tint: tint, frame: .zero)  // cancels it
         gate.release()
         await drainMainQueue()
-        #expect(model.session?.id == b.id)       // B survived
+        #expect(model.session?.id == b.id)  // B survived
     }
 
     private func twoSessionGroup(_ name: String) -> (SessionGroup, TerminalSession, TerminalSession) {
@@ -115,11 +116,11 @@ struct SidebarPeekModelTests {
         model.showGroup(group: group, tint: tint, sessions: [ga, gb], activeSessionID: ga.id, frame: .zero)
         #expect(model.group?.id == group.id)
         #expect(model.groupSessionItems.map(\.id) == [ga.id, gb.id])
-        #expect(model.session == nil) // showing the group cleared the session peek
+        #expect(model.session == nil)  // showing the group cleared the session peek
 
         model.show(session: session, location: location, tint: tint, frame: .zero)
         #expect(model.session?.id == session.id)
-        #expect(model.group == nil) // showing the session cleared the group peek
+        #expect(model.group == nil)  // showing the session cleared the group peek
     }
 
     @Test("requestHideGroup hides after the grace when the pointer never reaches the card")
