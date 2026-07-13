@@ -8,6 +8,8 @@ cd "$ROOT_DIR"
 "$ROOT_DIR/script/check_public_wording.sh"
 "$ROOT_DIR/script/check_public_seed_source.sh"
 "$ROOT_DIR/script/check_plural_guards.sh"
+"$ROOT_DIR/script/test-test-wait-guard.sh"
+"$ROOT_DIR/script/check_test_waits.sh"
 "$ROOT_DIR/script/test-format.sh"
 "$ROOT_DIR/script/format.sh" --lint
 "$ROOT_DIR/script/test-review-automation.sh"
