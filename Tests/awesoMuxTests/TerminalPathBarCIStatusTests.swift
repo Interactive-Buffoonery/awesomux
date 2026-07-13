@@ -1,28 +1,9 @@
 import Foundation
 import Testing
+import AwesoMuxTestSupport
 @testable import awesoMux
 
 // MARK: - Helpers
-
-/// Test clock with a mutable "now"; safe to read from the resolver's `@Sendable`
-/// closure while a test advances it.
-private final class MutableClock: @unchecked Sendable {
-    private let lock = NSLock()
-    private var current: Date
-
-    init(_ start: Date = Date(timeIntervalSince1970: 1_000_000)) {
-        current = start
-    }
-
-    var date: Date {
-        lock.lock(); defer { lock.unlock() }
-        return current
-    }
-
-    func advance(by interval: TimeInterval) {
-        lock.lock(); current += interval; lock.unlock()
-    }
-}
 
 private actor RecordingCIStatusRunner {
     private(set) var callCount = 0
@@ -53,9 +34,9 @@ private func runJSON(
     let runURL = url ?? "https://github.com/o/r/actions/runs/\(databaseId)"
     let conclusionField = conclusion.map { "\"\($0)\"" } ?? "null"
     let json = """
-    [{"databaseId":\(databaseId),"status":"\(status)","conclusion":\(conclusionField),\
-    "url":"\(runURL)","workflowName":"\(workflowName)"}]
-    """
+        [{"databaseId":\(databaseId),"status":"\(status)","conclusion":\(conclusionField),\
+        "url":"\(runURL)","workflowName":"\(workflowName)"}]
+        """
     return Data(json.utf8)
 }
 
@@ -149,124 +130,134 @@ struct CIStatusInfoParsingTests {
 
     @Test("a non-https run url is rejected even when failing")
     func nonHTTPSRejected() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "completed",
-            conclusion: "failure",
-            url: "file:///etc/passwd"
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "completed",
+                conclusion: "failure",
+                url: "file:///etc/passwd"
+            ))
         #expect(info == nil)
     }
 
     @Test("a run missing databaseId is rejected (decode fails)")
     func missingDatabaseIdRejected() {
         let json = """
-        [{"status":"completed","conclusion":"failure","url":"https://github.com/o/r/actions/runs/1"}]
-        """
+            [{"status":"completed","conclusion":"failure","url":"https://github.com/o/r/actions/runs/1"}]
+            """
         #expect(CIStatusInfo(parsingGhJSON: Data(json.utf8)) == nil)
     }
 
     @Test("a large (Int64-scale) run id round-trips")
     func largeRunID() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "in_progress",
-            conclusion: "",
-            databaseId: 26_372_906_825
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "in_progress",
+                conclusion: "",
+                databaseId: 26_372_906_825
+            ))
         #expect(info?.runDatabaseID == 26_372_906_825)
     }
 
     @Test("the workflow name is surfaced for help / a11y")
     func workflowNameParsed() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "completed",
-            conclusion: "failure",
-            workflowName: "Swift CI"
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "completed",
+                conclusion: "failure",
+                workflowName: "Swift CI"
+            ))
         #expect(info?.workflowName == "Swift CI")
     }
 
     @Test("owner/repo is derived from the run url for --repo scoping")
     func repoSlugDerived() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "completed",
-            conclusion: "failure",
-            url: "https://github.com/Interactive-Buffoonery/awesomux/actions/runs/42"
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "completed",
+                conclusion: "failure",
+                url: "https://github.com/Interactive-Buffoonery/awesomux/actions/runs/42"
+            ))
         #expect(info?.repoSlug == "Interactive-Buffoonery/awesomux")
     }
 
     @Test("a run url with too few path segments yields a nil slug but still a chip")
     func repoSlugNilButChipShows() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "completed",
-            conclusion: "failure",
-            url: "https://github.com/justone"
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "completed",
+                conclusion: "failure",
+                url: "https://github.com/justone"
+            ))
         #expect(info?.state == .failing)
         #expect(info?.repoSlug == nil)
     }
 
     @Test("an api.github.com url does not mis-derive a `repos/owner` slug")
     func repoSlugRejectsApiHost() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "completed",
-            conclusion: "failure",
-            url: "https://api.github.com/repos/o/r/actions/runs/42"
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "completed",
+                conclusion: "failure",
+                url: "https://api.github.com/repos/o/r/actions/runs/42"
+            ))
         #expect(info?.state == .failing)
         #expect(info?.repoSlug == nil)
     }
 
     @Test("an enterprise host yields a nil slug (no silent cross-host --repo)")
     func repoSlugRejectsEnterpriseHost() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "completed",
-            conclusion: "failure",
-            url: "https://github.example.com/o/r/actions/runs/42"
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "completed",
+                conclusion: "failure",
+                url: "https://github.example.com/o/r/actions/runs/42"
+            ))
         #expect(info?.state == .failing)
         #expect(info?.repoSlug == nil)
     }
 
     @Test("a non-run github.com path (e.g. /pull/) yields a nil slug")
     func repoSlugRejectsOffShapePath() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "completed",
-            conclusion: "failure",
-            url: "https://github.com/o/r/pull/5"
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "completed",
+                conclusion: "failure",
+                url: "https://github.com/o/r/pull/5"
+            ))
         #expect(info?.state == .failing)
         #expect(info?.repoSlug == nil)
     }
 
     @Test("a run url whose id doesn't match databaseId yields a nil slug")
     func repoSlugRejectsIdMismatch() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "completed",
-            conclusion: "failure",
-            databaseId: 42,
-            url: "https://github.com/o/r/actions/runs/99"
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "completed",
+                conclusion: "failure",
+                databaseId: 42,
+                url: "https://github.com/o/r/actions/runs/99"
+            ))
         #expect(info?.state == .failing)
         #expect(info?.repoSlug == nil)
     }
 
     @Test("a workflow name carrying a bidi override is sanitized")
     func workflowNameSanitized() {
-        let info = CIStatusInfo(parsingGhJSON: runJSON(
-            status: "completed",
-            conclusion: "failure",
-            workflowName: "Deploy\u{202E}gnp"
-        ))
+        let info = CIStatusInfo(
+            parsingGhJSON: runJSON(
+                status: "completed",
+                conclusion: "failure",
+                workflowName: "Deploy\u{202E}gnp"
+            ))
         #expect(info?.workflowName?.unicodeScalars.contains("\u{202E}") == false)
     }
 
     @Test("the first array element wins (newest run)")
     func firstElementWins() {
         let json = """
-        [{"databaseId":1,"status":"completed","conclusion":"failure","url":"https://github.com/o/r/actions/runs/1","workflowName":"A"},
-         {"databaseId":2,"status":"completed","conclusion":"success","url":"https://github.com/o/r/actions/runs/2","workflowName":"B"}]
-        """
+            [{"databaseId":1,"status":"completed","conclusion":"failure","url":"https://github.com/o/r/actions/runs/1","workflowName":"A"},
+             {"databaseId":2,"status":"completed","conclusion":"success","url":"https://github.com/o/r/actions/runs/2","workflowName":"B"}]
+            """
         let info = CIStatusInfo(parsingGhJSON: Data(json.utf8))
         #expect(info?.state == .failing)
         #expect(info?.runDatabaseID == 1)
@@ -295,32 +286,32 @@ struct CIStatusResolverTests {
 
     @Test("a running run re-resolves after the short running TTL (15s)")
     func runningTTLExpiry() async {
-        let clock = MutableClock()
+        let clock = TestClock()
         let runner = RecordingCIStatusRunner(response: Self.running)
-        let resolver = CIStatusResolver(runner: { await runner.run(repoRoot: $0, branch: $1) }, now: { clock.date })
+        let resolver = CIStatusResolver(runner: { await runner.run(repoRoot: $0, branch: $1) }, now: { clock.now })
 
         _ = await resolver.status(repoRoot: "/r", branch: "main")
         clock.advance(by: 10)
         _ = await resolver.status(repoRoot: "/r", branch: "main")
-        #expect(await runner.count() == 1) // still inside 15s
+        #expect(await runner.count() == 1)  // still inside 15s
 
-        clock.advance(by: 6) // now 16s past resolution
+        clock.advance(by: 6)  // now 16s past resolution
         _ = await resolver.status(repoRoot: "/r", branch: "main")
         #expect(await runner.count() == 2)
     }
 
     @Test("a failing run holds longer than running but still expires at 20s")
     func failingTTLExpiry() async {
-        let clock = MutableClock()
+        let clock = TestClock()
         let runner = RecordingCIStatusRunner(response: Self.failing)
-        let resolver = CIStatusResolver(runner: { await runner.run(repoRoot: $0, branch: $1) }, now: { clock.date })
+        let resolver = CIStatusResolver(runner: { await runner.run(repoRoot: $0, branch: $1) }, now: { clock.now })
 
         _ = await resolver.status(repoRoot: "/r", branch: "main")
-        clock.advance(by: 16) // past running's 15s, inside failing's 20s
+        clock.advance(by: 16)  // past running's 15s, inside failing's 20s
         _ = await resolver.status(repoRoot: "/r", branch: "main")
         #expect(await runner.count() == 1)
 
-        clock.advance(by: 5) // now 21s past resolution
+        clock.advance(by: 5)  // now 21s past resolution
         _ = await resolver.status(repoRoot: "/r", branch: "main")
         #expect(await runner.count() == 2)
     }

@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Testing
 import XCTest
 @testable import AwesoMuxCore
@@ -36,11 +37,12 @@ final class SessionStoreTests: XCTestCase {
         let workspace1 = TerminalSession(
             title: "w1",
             workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(paneA),
-                second: .pane(paneB)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(paneA),
+                    second: .pane(paneB)
+                )),
             activePaneID: paneA.id
         )
         let otherPane = TerminalPane(
@@ -123,7 +125,8 @@ final class SessionStoreTests: XCTestCase {
     func testRestoreSanitizesTitlesAndWorkingDirectories() throws {
         let restoredDirectory = try makeTemporaryHomeDirectory()
         let restoredRelativePath = "~/\(restoredDirectory.lastPathComponent)/ProjectCase"
-        let restoredAbsolutePath = restoredDirectory
+        let restoredAbsolutePath =
+            restoredDirectory
             .appendingPathComponent("ProjectCase", isDirectory: true)
             .path
         try FileManager.default.createDirectory(
@@ -229,7 +232,7 @@ final class SessionStoreTests: XCTestCase {
         let snapshot = SessionSnapshot(
             groups: [
                 SessionGroup(name: "empty", sessions: []),
-                SessionGroup(name: "main", sessions: [session])
+                SessionGroup(name: "main", sessions: [session]),
             ],
             selectedSessionID: nil
         )
@@ -408,7 +411,7 @@ final class SessionStoreTests: XCTestCase {
         )
         let store = SessionStore(groups: [
             SessionGroup(name: "empty", sessions: []),
-            SessionGroup(name: "main", sessions: [session])
+            SessionGroup(name: "main", sessions: [session]),
         ])
         store.selectedSessionID = nil
 
@@ -484,7 +487,7 @@ final class SessionStoreTests: XCTestCase {
         )
         let store = SessionStore(groups: [
             SessionGroup(name: "main", sessions: [firstSession]),
-            SessionGroup(name: "scratch", sessions: [secondSession, thirdSession])
+            SessionGroup(name: "scratch", sessions: [secondSession, thirdSession]),
         ])
 
         XCTAssertEqual(store.unreadNotificationTotal, 5)
@@ -613,16 +616,17 @@ final class SessionStoreTests: XCTestCase {
             agentState: .needsAttention,
             unreadNotificationCount: 2
         )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [firstSession, secondSession])
-        ], acknowledgementDwellNanoseconds: 10_000_000)
+        let store = SessionStore(
+            groups: [
+                SessionGroup(name: "main", sessions: [firstSession, secondSession])
+            ], acknowledgementDwellNanoseconds: 10_000_000)
 
         store.selectedSessionID = secondSession.id
 
         XCTAssertEqual(store.selectedSession?.agentState, .needsAttention)
         XCTAssertEqual(store.selectedSession?.unreadNotificationCount, 2)
 
-        let didAcknowledgeSelection = await eventually {
+        let didAcknowledgeSelection = await waitUntil {
             store.selectedSession?.agentState == .running
                 && store.selectedSession?.unreadNotificationCount == 0
         }
@@ -652,9 +656,10 @@ final class SessionStoreTests: XCTestCase {
             agentKind: .claudeCode,
             agentState: .running
         )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [firstSession, secondSession, thirdSession])
-        ], acknowledgementDwellNanoseconds: 30_000_000)
+        let store = SessionStore(
+            groups: [
+                SessionGroup(name: "main", sessions: [firstSession, secondSession, thirdSession])
+            ], acknowledgementDwellNanoseconds: 30_000_000)
 
         store.selectNextSession()
         XCTAssertEqual(store.selectedSessionID, secondSession.id)
@@ -683,9 +688,10 @@ final class SessionStoreTests: XCTestCase {
             agentState: .needsAttention,
             unreadNotificationCount: 1
         )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [firstSession, secondSession])
-        ], acknowledgementDwellNanoseconds: 250_000_000)
+        let store = SessionStore(
+            groups: [
+                SessionGroup(name: "main", sessions: [firstSession, secondSession])
+            ], acknowledgementDwellNanoseconds: 250_000_000)
 
         store.selectedSessionID = secondSession.id
 
@@ -713,9 +719,10 @@ final class SessionStoreTests: XCTestCase {
             agentState: .needsAttention,
             unreadNotificationCount: 2
         )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [firstSession, secondSession])
-        ], acknowledgementDwellNanoseconds: 30_000_000)
+        let store = SessionStore(
+            groups: [
+                SessionGroup(name: "main", sessions: [firstSession, secondSession])
+            ], acknowledgementDwellNanoseconds: 30_000_000)
 
         store.selectedSessionID = secondSession.id
         store.acknowledgeSession(id: secondSession.id)
@@ -745,16 +752,18 @@ final class SessionStoreTests: XCTestCase {
         let session = TerminalSession(
             title: "split",
             workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(paneA),
-                second: .pane(paneB)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(paneA),
+                    second: .pane(paneB)
+                )),
             activePaneID: paneA.id
         )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ], acknowledgementDwellNanoseconds: 10_000_000)
+        let store = SessionStore(
+            groups: [
+                SessionGroup(name: "main", sessions: [session])
+            ], acknowledgementDwellNanoseconds: 10_000_000)
 
         store.selectedSessionID = session.id
 
@@ -767,7 +776,7 @@ final class SessionStoreTests: XCTestCase {
 
         // Switch active pane to B → the dwell must re-arm and ack B.
         store.setActivePane(id: paneB.id, in: session.id)
-        let didAcknowledgePaneB = await eventually {
+        let didAcknowledgePaneB = await waitUntil {
             store.session(id: session.id)?.layout.pane(id: paneB.id)?.attentionReason == nil
                 && store.session(id: session.id)?.layout.pane(id: paneB.id)?.unreadNotificationCount == 0
         }
@@ -870,7 +879,7 @@ final class SessionStoreTests: XCTestCase {
                         workingDirectory: "~",
                         agentKind: .shell,
                         agentState: .idle
-                    )
+                    ),
                 ]
             )
         ])
@@ -1023,7 +1032,8 @@ final class SessionStoreTests: XCTestCase {
         _ = store.splitActivePane(orientation: .horizontal)
 
         guard case let .split(rootSplit) = store.selectedSession?.layout,
-              case let .split(nestedSplit) = rootSplit.second else {
+            case let .split(nestedSplit) = rootSplit.second
+        else {
             return XCTFail("Expected nested split layout")
         }
 
@@ -1031,7 +1041,8 @@ final class SessionStoreTests: XCTestCase {
         store.resizeSplit(id: nestedSplit.id, firstFraction: 0.7)
 
         guard case let .split(resizedRootSplit) = store.selectedSession?.layout,
-              case let .split(resizedNestedSplit) = resizedRootSplit.second else {
+            case let .split(resizedNestedSplit) = resizedRootSplit.second
+        else {
             return XCTFail("Expected nested split layout")
         }
 
@@ -1089,7 +1100,8 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedSession?.activePaneID, secondSplitPaneID)
 
         guard case let .split(rootSplit) = store.selectedSession?.layout,
-              case let .split(nestedSplit) = rootSplit.second else {
+            case let .split(nestedSplit) = rootSplit.second
+        else {
             return XCTFail("Expected nested split layout")
         }
 
@@ -1245,7 +1257,8 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedSession?.activePaneID, nestedSurvivorID)
 
         guard case let .split(rootSplit) = store.selectedSession?.layout,
-              case let .pane(nestedSurvivorPane) = rootSplit.second else {
+            case let .pane(nestedSurvivorPane) = rootSplit.second
+        else {
             return XCTFail("Expected nested split to collapse to its sibling pane")
         }
 
@@ -1714,7 +1727,7 @@ final class SessionStoreTests: XCTestCase {
         )
         let store = SessionStore(groups: [
             SessionGroup(name: "scratch", sessions: [closingSession]),
-            SessionGroup(name: "main", sessions: [siblingSession])
+            SessionGroup(name: "main", sessions: [siblingSession]),
         ])
         store.selectedSessionID = closingSession.id
 
@@ -1775,7 +1788,7 @@ final class SessionStoreTests: XCTestCase {
         )
         let store = SessionStore(groups: [
             SessionGroup(name: "main", sessions: [firstSession, secondSession]),
-            SessionGroup(name: "scratch", sessions: [thirdSession])
+            SessionGroup(name: "scratch", sessions: [thirdSession]),
         ])
         store.selectedSessionID = thirdSession.id
 
@@ -1799,7 +1812,7 @@ final class SessionStoreTests: XCTestCase {
         )
         let store = SessionStore(groups: [
             SessionGroup(name: "main", sessions: [firstSession]),
-            SessionGroup(name: "scratch", sessions: [secondSession])
+            SessionGroup(name: "scratch", sessions: [secondSession]),
         ])
         store.selectedSessionID = firstSession.id
 
@@ -1833,11 +1846,12 @@ final class SessionStoreTests: XCTestCase {
         // the reducer in isolation.
         let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
         let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .pane(first),
-            second: .pane(second)
-        ))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(first),
+                second: .pane(second)
+            ))
         let session = TerminalSession(
             title: "first",
             workingDirectory: "/a",
@@ -1861,11 +1875,12 @@ final class SessionStoreTests: XCTestCase {
         // the focused pane, but a user-named workspace keeps its title.
         let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
         let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .pane(first),
-            second: .pane(second)
-        ))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(first),
+                second: .pane(second)
+            ))
         let session = TerminalSession(
             title: "My Workspace",
             workingDirectory: "/a",
@@ -1911,21 +1926,6 @@ final class SessionStoreTests: XCTestCase {
         return directory
     }
 
-    private func eventually(
-        timeoutNanoseconds: UInt64 = 2_000_000_000,
-        pollNanoseconds: UInt64 = 10_000_000,
-        _ condition: () -> Bool
-    ) async -> Bool {
-        let deadline = Date().addingTimeInterval(Double(timeoutNanoseconds) / 1_000_000_000)
-        while Date() < deadline {
-            if condition() {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: pollNanoseconds)
-        }
-        return condition()
-    }
-
     private func splitIDs(in layout: TerminalPaneLayout) -> [TerminalSplit.ID] {
         switch layout {
         case .pane:
@@ -1940,11 +1940,12 @@ final class SessionStoreTests: XCTestCase {
     func testFocusPaneByIndexSelectsPaneAndSyncsChrome() {
         let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
         let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .pane(first),
-            second: .pane(second)
-        ))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(first),
+                second: .pane(second)
+            ))
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "/a",
@@ -2161,11 +2162,12 @@ struct SessionStoreSiblingPaneExitErrorTests {
         let session = TerminalSession(
             title: "split",
             workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(paneA),
-                second: .pane(paneB)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(paneA),
+                    second: .pane(paneB)
+                )),
             activePaneID: paneB.id
         )
         let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [session])])
@@ -2203,11 +2205,12 @@ struct SessionStoreSiblingPaneExitErrorTests {
         let session = TerminalSession(
             title: "split",
             workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(paneA),
-                second: .pane(paneB)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(paneA),
+                    second: .pane(paneB)
+                )),
             activePaneID: paneA.id
         )
         let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [session])])

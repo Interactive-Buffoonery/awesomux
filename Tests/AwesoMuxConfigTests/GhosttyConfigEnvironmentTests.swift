@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import AwesoMuxConfig
@@ -7,7 +8,7 @@ struct GhosttyConfigEnvironmentTests {
     @Test("snapshot reports both user-config paths as missing in an empty home")
     func snapshotEmptyHomeReportsBothMissing() throws {
         let fixture = try TemporaryHomeFixture()
-        defer { fixture.cleanUp() }
+        defer { withExtendedLifetime(fixture) {} }
 
         let env = GhosttyConfigEnvironment.snapshot(
             homeDirectory: fixture.homeURL,
@@ -24,7 +25,7 @@ struct GhosttyConfigEnvironmentTests {
     @Test("snapshot detects ~/.config/ghostty/config.ghostty when XDG_CONFIG_HOME unset")
     func snapshotDetectsModernXDGConfigUnderDefaultPath() throws {
         let fixture = try TemporaryHomeFixture()
-        defer { fixture.cleanUp() }
+        defer { withExtendedLifetime(fixture) {} }
         try fixture.writeFile(
             relativePath: ".config/ghostty/config.ghostty",
             contents: "scrollback-limit = 99\n"
@@ -44,7 +45,7 @@ struct GhosttyConfigEnvironmentTests {
     @Test("snapshot detects legacy ~/.config/ghostty/config when XDG_CONFIG_HOME unset")
     func snapshotDetectsLegacyXDGConfigUnderDefaultPath() throws {
         let fixture = try TemporaryHomeFixture()
-        defer { fixture.cleanUp() }
+        defer { withExtendedLifetime(fixture) {} }
         try fixture.writeFile(
             relativePath: ".config/ghostty/config",
             contents: "scrollback-limit = 99\n"
@@ -64,7 +65,7 @@ struct GhosttyConfigEnvironmentTests {
     @Test("snapshot honors an explicit XDG_CONFIG_HOME override")
     func snapshotHonorsXDGOverride() throws {
         let fixture = try TemporaryHomeFixture()
-        defer { fixture.cleanUp() }
+        defer { withExtendedLifetime(fixture) {} }
         // Write configs under HOME/.config and the environment path, but pass
         // an explicit override that does NOT have one. Only the override
         // should determine the bool.
@@ -94,7 +95,7 @@ struct GhosttyConfigEnvironmentTests {
     @Test("snapshot detects ~/Library/Application Support/com.mitchellh.ghostty/config.ghostty")
     func snapshotDetectsModernAppSupportConfig() throws {
         let fixture = try TemporaryHomeFixture()
-        defer { fixture.cleanUp() }
+        defer { withExtendedLifetime(fixture) {} }
         try fixture.writeFile(
             relativePath: "Library/Application Support/com.mitchellh.ghostty/config.ghostty",
             contents: "scrollback-limit = 42\n"
@@ -113,7 +114,7 @@ struct GhosttyConfigEnvironmentTests {
     @Test("snapshot detects legacy ~/Library/Application Support/com.mitchellh.ghostty/config")
     func snapshotDetectsLegacyAppSupportConfig() throws {
         let fixture = try TemporaryHomeFixture()
-        defer { fixture.cleanUp() }
+        defer { withExtendedLifetime(fixture) {} }
         try fixture.writeFile(
             relativePath: "Library/Application Support/com.mitchellh.ghostty/config",
             contents: "scrollback-limit = 42\n"
@@ -132,7 +133,7 @@ struct GhosttyConfigEnvironmentTests {
     @Test("snapshot treats XDG_CONFIG_HOME=\"\" as unset and falls back to ~/.config")
     func snapshotEmptyXDGFallsBackToDefault() throws {
         let fixture = try TemporaryHomeFixture()
-        defer { fixture.cleanUp() }
+        defer { withExtendedLifetime(fixture) {} }
         try fixture.writeFile(
             relativePath: ".config/ghostty/config",
             contents: "fallback\n"
@@ -155,7 +156,7 @@ struct GhosttyConfigEnvironmentTests {
     @Test("snapshot uses HOME from the injected environment when no home override is passed")
     func snapshotUsesInjectedHomeEnvironment() throws {
         let fixture = try TemporaryHomeFixture()
-        defer { fixture.cleanUp() }
+        defer { withExtendedLifetime(fixture) {} }
         try fixture.writeFile(
             relativePath: ".config/ghostty/config.ghostty",
             contents: "home-env\n"
@@ -175,7 +176,7 @@ struct GhosttyConfigEnvironmentTests {
     @Test("snapshot honors a non-empty XDG_CONFIG_HOME env var when no override is passed")
     func snapshotHonorsXDGEnvVar() throws {
         let fixture = try TemporaryHomeFixture()
-        defer { fixture.cleanUp() }
+        defer { withExtendedLifetime(fixture) {} }
         let customXDG = fixture.homeURL.appendingPathComponent("custom-xdg", isDirectory: true)
         try FileManager.default.createDirectory(at: customXDG, withIntermediateDirectories: true)
         try fixture.writeFile(
@@ -272,15 +273,11 @@ struct GhosttyConfigEnvironmentTests {
 }
 
 private struct TemporaryHomeFixture {
-    let homeURL: URL
+    private let directory: TemporaryDirectory
+    var homeURL: URL { directory.url }
 
     init() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "awesomux-int397-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        self.homeURL = url
+        directory = try TemporaryDirectory(prefix: "awesomux-int397")
     }
 
     func writeFile(relativePath: String, contents: String) throws {
@@ -290,9 +287,5 @@ private struct TemporaryHomeFixture {
             withIntermediateDirectories: true
         )
         try contents.write(to: target, atomically: true, encoding: .utf8)
-    }
-
-    func cleanUp() {
-        try? FileManager.default.removeItem(at: homeURL)
     }
 }

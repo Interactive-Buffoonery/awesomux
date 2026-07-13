@@ -18,7 +18,7 @@ shift
 
 case "$group" in
     unit)
-        filter='^(AwesoMuxCoreTests|AwesoMuxConfigTests|DesignSystemTests|UnicodeHygieneTests|SecureFileIOTests)\.'
+        filter='^(AwesoMuxCoreTests|AwesoMuxConfigTests|AwesoMuxTestSupportTests|DesignSystemTests|UnicodeHygieneTests|SecureFileIOTests)\.'
         ;;
     adapter)
         filter='^(AwesoMuxAgentHookSupportTests|AwesoMuxBridgeHelperSupportTests)\.'
