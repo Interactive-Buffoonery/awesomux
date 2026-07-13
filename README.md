@@ -115,7 +115,8 @@ awesoMux uses a local preflight before merging. Run it before pushing or merging
 If you do not run this before opening a PR, **please note that in your PR.**
 
 The preflight runs public-wording and Ghostty-archive guards, the sidebar
-tint/status WCAG contrast gate (`script/check_tint_contrast.py`), the
+tint/status WCAG contrast gate (`script/check_tint_contrast.py`), a non-mutating
+Swift format check for changed lines, the
 Ghostty-aware Swift test wrapper, then builds, stages, ad-hoc signs, and
 launch-verifies `dist/awesoMux.app`. Native Swift CI is temporarily disabled
 while its timing-sensitive tests are made deterministic on constrained hosted
@@ -127,6 +128,19 @@ they cannot publish approvals or merge.
 triggers, the passive exact-SHA trust boundary, pinned installation, failure
 behavior, secrets, and testing. Native validation does not use a private runner
 or cross-repository callback.
+
+Format only the Swift files you intentionally changed, then inspect the diff:
+
+```sh
+./script/format.sh Sources/AwesoMuxCore/Example.swift Tests/AwesoMuxCoreTests/ExampleTests.swift
+git diff --check
+./script/format.sh --lint
+```
+
+The wrapper excludes vendored and generated sources. Write mode requires
+explicit first-party file paths; `--lint` does not modify files and reports
+formatter findings only on Swift lines changed from `origin/main` (or the
+`FORMAT_LINT_BASE` override used by CI).
 
 OpenCode uses exact GLM 5.2 through Synthetic with no model fallback. The
 reviewer has no approval or merge capability. Any future merge automation
