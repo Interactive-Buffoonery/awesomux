@@ -72,53 +72,54 @@ struct ContentView: View {
 
     var body: some View {
         content(sidebarWidth: sidebarWidth)
-        .ignoresSafeArea(.container)
-        .background(WindowAccessor { hostingWindow = $0 })
-        .onAppear {
-            sessionStore.selectFirstSessionIfNeeded()
-            // `.onAppear` can fire more than once (window re-show, scene
-            // reactivation); wire the peek callback only once.
-            if peekModel.onSelectPane == nil {
-                wirePeekSelection()
+            .ignoresSafeArea(.container)
+            .background(WindowAccessor { hostingWindow = $0 })
+            .onAppear {
+                sessionStore.selectFirstSessionIfNeeded()
+                // `.onAppear` can fire more than once (window re-show, scene
+                // reactivation); wire the peek callback only once.
+                if peekModel.onSelectPane == nil {
+                    wirePeekSelection()
+                }
+                // No session to claim first responder (empty workspace list) means
+                // AppKit's key-view loop falls back to the sidebar search field —
+                // the only focusable control in that state. Deferred a tick so
+                // this wins the race against that automatic selection; the
+                // condition is re-checked inside the closure since a session (or
+                // another deliberate focus request) can legitimately win first
+                // responder before the deferred tick runs.
+                initialEmptyFocusClearState.requestIfNeeded(
+                    hasSelectedSession: sessionStore.selectedSessionID != nil
+                )
+                DispatchQueue.main.async { clearInitialEmptyFocusIfEligible() }
             }
-            // No session to claim first responder (empty workspace list) means
-            // AppKit's key-view loop falls back to the sidebar search field —
-            // the only focusable control in that state. Deferred a tick so
-            // this wins the race against that automatic selection; the
-            // condition is re-checked inside the closure since a session (or
-            // another deliberate focus request) can legitimately win first
-            // responder before the deferred tick runs.
-            initialEmptyFocusClearState.requestIfNeeded(
-                hasSelectedSession: sessionStore.selectedSessionID != nil
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
+                notification in
+                guard notification.object as? NSWindow === hostingWindow else { return }
+                // Handle the key transition before its activating mouse event is
+                // dispatched, so a click into search can establish focus afterward.
+                clearInitialEmptyFocusIfEligible()
+            }
+            .onChange(of: sidebarToggleRequestID) { _, requestID in
+                guard requestID != nil else {
+                    return
+                }
+                toggleSidebarWidth()
+            }
+            .background(Color.aw.surface.window)
+            .background(
+                WindowChromeConfigurator(windowRole: .primaryContent)
+                    .allowsHitTesting(false)
             )
-            DispatchQueue.main.async { clearInitialEmptyFocusIfEligible() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
-            notification in
-            guard notification.object as? NSWindow === hostingWindow else { return }
-            // Handle the key transition before its activating mouse event is
-            // dispatched, so a click into search can establish focus afterward.
-            clearInitialEmptyFocusIfEligible()
-        }
-        .onChange(of: sidebarToggleRequestID) { _, requestID in
-            guard requestID != nil else {
-                return
-            }
-            toggleSidebarWidth()
-        }
-        .background(Color.aw.surface.window)
-        .background(
-            WindowChromeConfigurator(windowRole: .primaryContent)
-                .allowsHitTesting(false)
-        )
     }
 
     private func clearInitialEmptyFocusIfEligible() {
         guard let hostingWindow,
-              initialEmptyFocusClearState.consumeIfEligible(
-                  hasSelectedSession: sessionStore.selectedSessionID != nil,
-                  isHostingWindowKey: hostingWindow.isKeyWindow
-              ) else {
+            initialEmptyFocusClearState.consumeIfEligible(
+                hasSelectedSession: sessionStore.selectedSessionID != nil,
+                isHostingWindowKey: hostingWindow.isKeyWindow
+            )
+        else {
             return
         }
         hostingWindow.makeFirstResponder(nil)
@@ -216,7 +217,8 @@ struct ContentView: View {
     private func wirePeekSelection() {
         peekModel.onSelectPane = { [weak peekModel] sessionID, paneID in
             guard let live = sessionStore.session(id: sessionID),
-                  let paneIndex = live.layout.paneIDs.firstIndex(of: paneID) else {
+                let paneIndex = live.layout.paneIDs.firstIndex(of: paneID)
+            else {
                 peekModel?.hide(for: sessionID)
                 return
             }
@@ -521,8 +523,9 @@ private struct SidebarPeekCardOverlay: View {
     var body: some View {
         GeometryReader { proxy in
             if let session = model.session,
-               let location = model.location,
-               let tint = model.tint {
+                let location = model.location,
+                let tint = model.tint
+            {
                 // The model's anchors are measured in the sidebar pane's
                 // hosting root, which spans the whole window — including the
                 // titlebar (the rail renders behind the transparent titlebar).
@@ -550,34 +553,39 @@ private struct SidebarPeekCardOverlay: View {
                     onSelectPane: { paneID in model.onSelectPane?(session.id, paneID) },
                     onHoverChanged: { over in model.setPointerOverCard(over, for: session.id) }
                 )
-                    // `.leading` is load-bearing: the single-pane summary card
-                    // hugs its content (no expanding Spacer, unlike the pane
-                    // rows), so the default `.center` alignment would float the
-                    // visible card ~(cardWidth − contentWidth)/2 right of the
-                    // rail while the `.position` math below assumes it starts
-                    // at this frame's leading edge (INT-790). Like `anchorX`,
-                    // this assumes LTR; an RTL locale would need the whole
-                    // peek positioning system revisited, not just this line.
-                    .frame(width: SidebarPeekMetrics.cardWidth, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
-                    // `.position` centers the card here: leading edge just past
-                    // the hovered row's right edge (`anchorX`) — the collapsed
-                    // rail's edge or the expanded row's edge, so it floats right
-                    // of the sidebar in both modes — vertically centered on the
-                    // tile but clamped so a near-edge tile's card doesn't clip.
-                    .position(
-                        x: model.anchorX - overlayOrigin.x + SidebarPeekMetrics.cardGap + SidebarPeekMetrics.cardWidth / 2,
-                        y: clampedCenterY(containerHeight: proxy.size.height, overlayOriginY: overlayOrigin.y)
-                    )
-                    .allowsHitTesting(interactive)
-                    .transition(
-                        reduceMotion
-                            ? .identity
-                            : .opacity.combined(with: .scale(scale: 0.98, anchor: .leading))
-                    )
+                // `.leading` is load-bearing: the single-pane summary card
+                // hugs its content (no expanding Spacer, unlike the pane
+                // rows), so the default `.center` alignment would float the
+                // visible card ~(cardWidth − contentWidth)/2 right of the
+                // rail while the `.position` math below assumes it starts
+                // at this frame's leading edge (INT-790). Like `anchorX`,
+                // this assumes LTR; an RTL locale would need the whole
+                // peek positioning system revisited, not just this line.
+                .frame(width: SidebarPeekMetrics.cardWidth, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.size.height
+                } action: {
+                    cardHeight = $0
+                }
+                // `.position` centers the card here: leading edge just past
+                // the hovered row's right edge (`anchorX`) — the collapsed
+                // rail's edge or the expanded row's edge, so it floats right
+                // of the sidebar in both modes — vertically centered on the
+                // tile but clamped so a near-edge tile's card doesn't clip.
+                .position(
+                    x: model.anchorX - overlayOrigin.x + SidebarPeekMetrics.cardGap + SidebarPeekMetrics.cardWidth / 2,
+                    y: clampedCenterY(containerHeight: proxy.size.height, overlayOriginY: overlayOrigin.y)
+                )
+                .allowsHitTesting(interactive)
+                .transition(
+                    reduceMotion
+                        ? .identity
+                        : .opacity.combined(with: .scale(scale: 0.98, anchor: .leading))
+                )
             } else if let group = model.group,
-                      let tint = model.tint {
+                let tint = model.tint
+            {
                 let overlayOrigin = proxy.frame(in: .global).origin
                 SidebarGroupPeekCard(
                     group: group,
@@ -586,20 +594,24 @@ private struct SidebarPeekCardOverlay: View {
                     onSelectSession: { sessionID in model.onSelectGroupSession?(group.id, sessionID) },
                     onHoverChanged: { over in model.setPointerOverGroupCard(over, for: group.id) }
                 )
-                    // Always hittable — every row jumps, unlike the
-                    // session card's single-pane summary variant.
-                    .frame(width: SidebarPeekMetrics.cardWidth, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
-                    .position(
-                        x: model.anchorX - overlayOrigin.x + SidebarPeekMetrics.cardGap + SidebarPeekMetrics.cardWidth / 2,
-                        y: clampedTopAlignedY(containerHeight: proxy.size.height, overlayOriginY: overlayOrigin.y)
-                    )
-                    .transition(
-                        reduceMotion
-                            ? .identity
-                            : .opacity.combined(with: .scale(scale: 0.98, anchor: .leading))
-                    )
+                // Always hittable — every row jumps, unlike the
+                // session card's single-pane summary variant.
+                .frame(width: SidebarPeekMetrics.cardWidth, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.size.height
+                } action: {
+                    cardHeight = $0
+                }
+                .position(
+                    x: model.anchorX - overlayOrigin.x + SidebarPeekMetrics.cardGap + SidebarPeekMetrics.cardWidth / 2,
+                    y: clampedTopAlignedY(containerHeight: proxy.size.height, overlayOriginY: overlayOrigin.y)
+                )
+                .transition(
+                    reduceMotion
+                        ? .identity
+                        : .opacity.combined(with: .scale(scale: 0.98, anchor: .leading))
+                )
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: model.session?.id)

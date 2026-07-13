@@ -92,10 +92,11 @@ enum PaletteSearch {
         var outputGroups: [PaletteResultGroup] = []
 
         if resolved.mode == .unified,
-           let quickRun = PaletteQuickRunDetector.quickRun(
-            for: rawQuery,
-            searchPath: quickRunSearchPath
-           ) {
+            let quickRun = PaletteQuickRunDetector.quickRun(
+                for: rawQuery,
+                searchPath: quickRunSearchPath
+            )
+        {
             return PaletteResults(
                 mode: .quickRun,
                 query: query,
@@ -140,7 +141,8 @@ enum PaletteSearch {
             }
         }
 
-        let isBareUnifiedQuery = resolved.mode == .unified
+        let isBareUnifiedQuery =
+            resolved.mode == .unified
             && rawQuery.trimmingCharacters(in: .whitespaces).isEmpty
 
         return PaletteResults(
@@ -189,13 +191,15 @@ enum PaletteSearch {
                     continue
                 }
 
-                guard let score = bestSessionScore(
-                    query: query,
-                    title: session.title,
-                    subtitle: subtitle,
-                    searchLocation: session.sidebarLocation.searchText,
-                    groupName: group.name
-                ) else {
+                guard
+                    let score = bestSessionScore(
+                        query: query,
+                        title: session.title,
+                        subtitle: subtitle,
+                        searchLocation: session.sidebarLocation.searchText,
+                        groupName: group.name
+                    )
+                else {
                     continue
                 }
 
@@ -269,7 +273,7 @@ enum PaletteSearch {
             KeyboardShortcutCatalog.reopenClosedWorkspace.id,
             KeyboardShortcutCatalog.toggleFloatingPanel.id,
             KeyboardShortcutCatalog.togglePopUpTerminal.id,
-            "openSettings"
+            "openSettings",
         ]
         return suggestedIDs.compactMap { id in
             commands.first { $0.id == id }
@@ -292,7 +296,7 @@ enum PaletteSearch {
             title,
             subtitle,
             searchLocation,
-            groupName
+            groupName,
         ].compactMap { haystack in
             haystack.flatMap { score(query, in: $0) }
         }.max()
