@@ -141,16 +141,14 @@ final class CommandBridgeEnactor {
         // squat, EACCES) returns nil, in which case we attach WITHOUT a status
         // channel and the exit handler degrades to its legacy exitCode + `amx
         // list` probe (its `statusChannel == nil` path).
-        let channel: AmxStatusChannel? =
-            bridgeEnabled
+        let channel: AmxStatusChannel? = bridgeEnabled
             ? AmxBackend.makeStatusChannel(for: pane.terminalSessionID)
             : nil
         let remote = pane.executionPlan.remoteTarget
         let attachCommand: String? = {
             guard bridgeEnabled else { return nil }
             if let channel {
-                return AmxBackend.attachCommand(
-                    for: pane.terminalSessionID, status: channel, remote: remote)
+                return AmxBackend.attachCommand(for: pane.terminalSessionID, status: channel, remote: remote)
             }
             return AmxBackend.attachCommand(for: pane.terminalSessionID, remote: remote)
         }()
@@ -231,16 +229,14 @@ final class CommandBridgeEnactor {
         // different token, so this stale teardown no-ops on it instead of
         // breaking the successor's live transport.
         guard let registry = runtime.bridgeGenerationRegistry,
-            let token = registry.currentToken(for: session)
-        else {
+              let token = registry.currentToken(for: session) else {
             return
         }
         Task { await registry.teardown(for: session, ifToken: token) }
     }
 
     func clearStateForLocalShellFallback() {
-        let recoverySessionID =
-            recoveryRecord?.terminalSessionID
+        let recoverySessionID = recoveryRecord?.terminalSessionID
             ?? sessionID
         tearDownBridgeGeneration(for: recoverySessionID)
         // A pane falling back from a bridge session to a local shell must not
@@ -321,10 +317,9 @@ final class CommandBridgeEnactor {
         // authoritative here; clean shell exits clear it before re-entering the
         // normal close path.
         guard !processAlive,
-            runtime.isCommandBridgeEnabled,
-            let currentPane = sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID),
-            currentPane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata
-        else {
+              runtime.isCommandBridgeEnabled,
+              let currentPane = sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID),
+              currentPane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata else {
             return false
         }
 
@@ -399,7 +394,7 @@ final class CommandBridgeEnactor {
         }
         for event in events {
             switch event.kind {
-            case .attached(let created, let daemonPid, let daemonCreatedAt):
+            case let .attached(created, daemonPid, daemonCreatedAt):
                 let incarnation = AmxDaemonIncarnation(pid: daemonPid, createdAt: daemonCreatedAt)
                 let outcome = respawnLedger.recordAttach(incarnation)
                 // `created` on a first attach means amx launched a new daemon
@@ -465,7 +460,7 @@ final class CommandBridgeEnactor {
                         )
                     )
                 }
-            case .sessionEnd(let reason, let code):
+            case let .sessionEnd(reason, code):
                 // The incarnation that just ended did not clear the grace window,
                 // so cancel its pending refill.
                 budgetRefillWorkItem?.cancel()
@@ -490,9 +485,8 @@ final class CommandBridgeEnactor {
                 // makes the status path authoritative (it's read before the
                 // exitCode branch in supervision).
                 if !exitProbeInFlight,
-                    !exitResolutionPending,
-                    statusWatcher?.isArmed == true
-                {
+                   !exitResolutionPending,
+                   statusWatcher?.isArmed == true {
                     beginExitSupervision(exitCode: nil)
                 }
             }
@@ -548,11 +542,10 @@ final class CommandBridgeEnactor {
         // "Reconnect Remote Pane" command is a second caller: it must no-op on a
         // pane that isn't showing the disconnected overlay (INT-697 fix #6).
         guard errorLatched,
-            !exitProbeInFlight,
-            !exitResolutionPending,
-            sessionStore.session(id: hostSessionID)?
-                .layout.pane(id: paneID)?.remoteReconnect != nil
-        else {
+              !exitProbeInFlight,
+              !exitResolutionPending,
+              sessionStore.session(id: hostSessionID)?
+                  .layout.pane(id: paneID)?.remoteReconnect != nil else {
             return
         }
         // An explicit user retry earns a full crash budget; otherwise a
@@ -577,8 +570,7 @@ final class CommandBridgeEnactor {
 
     func beginExitSupervision(exitCode: Int16?) {
         guard let sessionID,
-            !exitProbeInFlight
-        else {
+              !exitProbeInFlight else {
             return
         }
 
@@ -625,10 +617,7 @@ final class CommandBridgeEnactor {
         legacyExitProbeGeneration &+= 1
         let probeGeneration = legacyExitProbeGeneration
         let sessionExistsProvider = sessionExistsProvider
-        Task {
-            @MainActor [
-                weak self, hostSessionID, paneID, sessionID, probeGeneration, sessionExistsProvider
-            ] in
+        Task { @MainActor [weak self, hostSessionID, paneID, sessionID, probeGeneration, sessionExistsProvider] in
             let sessionExists = await sessionExistsProvider(sessionID)
             guard let self else {
                 return
@@ -637,19 +626,15 @@ final class CommandBridgeEnactor {
                 return
             }
             guard self.hostSessionID == hostSessionID,
-                self.paneID == paneID,
-                self.sessionID == sessionID
-            else {
+                  self.paneID == paneID,
+                  self.sessionID == sessionID else {
                 self.exitProbeInFlight = false
                 return
             }
 
             self.exitProbeInFlight = false
-            guard
-                let currentPane = self.sessionStore.session(id: hostSessionID)?.layout.pane(
-                    id: paneID),
-                currentPane.terminalSessionID == sessionID
-            else {
+            guard let currentPane = self.sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID),
+                  currentPane.terminalSessionID == sessionID else {
                 return
             }
 
@@ -666,13 +651,11 @@ final class CommandBridgeEnactor {
 
             self.errorLatched = false
             self.host.shellCommandFinishedIdleLatched = false
-            guard
-                let recovery = self.sessionStore.healCommandBridgePaneInPlace(
-                    sessionID: hostSessionID,
-                    paneID: paneID,
-                    metadata: AmxBackend.establishedSessionMetadata
-                )
-            else {
+            guard let recovery = self.sessionStore.healCommandBridgePaneInPlace(
+                sessionID: hostSessionID,
+                paneID: paneID,
+                metadata: AmxBackend.establishedSessionMetadata
+            ) else {
                 return
             }
             self.host.pane = recovery.pane
@@ -742,13 +725,11 @@ final class CommandBridgeEnactor {
                     progressReport: TerminalProgressReport(state: .remove)
                 )
             }
-            guard
-                let recovery = sessionStore.healCommandBridgePaneInPlace(
-                    sessionID: hostSessionID,
-                    paneID: paneID,
-                    metadata: AmxBackend.establishedSessionMetadata
-                )
-            else {
+            guard let recovery = sessionStore.healCommandBridgePaneInPlace(
+                sessionID: hostSessionID,
+                paneID: paneID,
+                metadata: AmxBackend.establishedSessionMetadata
+            ) else {
                 return
             }
             host.pane = recovery.pane
@@ -787,8 +768,7 @@ final class CommandBridgeEnactor {
                 return
             }
             guard self.hostSessionID == hostSessionID,
-                self.paneID == paneID
-            else {
+                  self.paneID == paneID else {
                 self.exitResolutionPending = false
                 return
             }
@@ -823,8 +803,7 @@ final class CommandBridgeEnactor {
     /// drop the channel, reason, and recovery record so a stale session-end can't
     /// drive the new session's exit decision.
     func handleSessionRepoint() {
-        let oldRecoverySessionID =
-            recoveryRecord?.terminalSessionID
+        let oldRecoverySessionID = recoveryRecord?.terminalSessionID
             ?? sessionID
         legacyExitProbeGeneration &+= 1
         tearDownBridgeGeneration(for: oldRecoverySessionID)
@@ -874,8 +853,7 @@ final class CommandBridgeEnactor {
         // announcement — the single voice for that transition. Suppress the
         // generic "Session error." here so VoiceOver doesn't speak both
         // (INT-697 fix #10a).
-        let latchedRemoteReconnect =
-            sessionStore.session(id: hostSessionID)?
+        let latchedRemoteReconnect = sessionStore.session(id: hostSessionID)?
             .layout.pane(id: paneID)?.remoteReconnect != nil
         if !latchedRemoteReconnect {
             announceErrorEntered()
