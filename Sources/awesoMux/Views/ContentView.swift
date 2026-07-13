@@ -597,7 +597,7 @@ private struct SidebarPeekCardOverlay: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
                     .position(
                         x: model.anchorX - overlayOrigin.x + SidebarPeekMetrics.cardGap + SidebarPeekMetrics.cardWidth / 2,
-                        y: clampedCenterY(containerHeight: proxy.size.height, overlayOriginY: overlayOrigin.y)
+                        y: clampedTopAlignedY(containerHeight: proxy.size.height, overlayOriginY: overlayOrigin.y)
                     )
                     .transition(
                         reduceMotion
@@ -615,6 +615,24 @@ private struct SidebarPeekCardOverlay: View {
         // Until the card has measured its height, place it raw (corrected next frame).
         guard cardHeight > 0, containerHeight > 0 else { return center }
         let halfCard = cardHeight / 2
+        let lower = halfCard + Self.edgeInset
+        let upper = containerHeight - halfCard - Self.edgeInset
+        guard lower <= upper else { return center }
+        return min(max(center, lower), upper)
+    }
+
+    /// The group roster card anchors its TOP edge to the header instead of
+    /// centering on it (unlike `clampedCenterY`) — the collapsed header is a
+    /// thin 26pt row, so centering a multi-row card on it reads as floating
+    /// disconnected from what triggered it; top-aligning reads like an
+    /// ordinary dropdown expanding from its invoker (eD, 2026-07-13).
+    private func clampedTopAlignedY(containerHeight: CGFloat, overlayOriginY: CGFloat) -> CGFloat {
+        let top = model.anchorY - overlayOriginY
+        // `.position` sets the view's CENTER, so the top-aligned target
+        // center is the top edge plus half the card's own height.
+        guard cardHeight > 0, containerHeight > 0 else { return top }
+        let halfCard = cardHeight / 2
+        let center = top + halfCard
         let lower = halfCard + Self.edgeInset
         let upper = containerHeight - halfCard - Self.edgeInset
         guard lower <= upper else { return center }
