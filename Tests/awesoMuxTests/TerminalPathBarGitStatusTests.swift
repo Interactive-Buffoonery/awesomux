@@ -261,6 +261,40 @@ struct BoundedCommandRunnerTests {
         #expect(await run.value == nil)  // undrained → unknown, not a partial result
     }
 
+    @Test("cancellation escalates to SIGKILL after the grace period")
+    func cancellationEscalatesAfterGrace() async {
+        let scheduler = TestScheduler()
+        let completedDelays = EventRecorder<Duration>()
+        let completedRuns = EventRecorder<Bool>()
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/sh"],
+            timeout: .seconds(60),
+            delay: { duration in
+                await scheduler.wait(for: duration)
+                try Task.checkCancellation()
+                await completedDelays.record(duration)
+            }
+        )
+        let run = Task {
+            let result = await runner.run(
+                arguments: ["-c", "trap '' TERM; exec sleep 30"],
+                inDirectory: NSTemporaryDirectory()
+            )
+            await completedRuns.record(true)
+            return result
+        }
+
+        #expect(await waitUntil { scheduler.requestedDurations.first == .seconds(60) })
+        run.cancel()
+        #expect(await waitUntil { scheduler.requestedDurations.contains(.seconds(1)) })
+        #expect(await completedRuns.values.isEmpty)
+
+        scheduler.advanceOneCycle()
+        #expect(await run.value == nil)
+        #expect(await completedDelays.values.contains(.seconds(1)))
+        scheduler.advanceOneCycle()
+    }
+
     @Test("a child that outlives the timeout is killed and yields nil")
     func timeoutTerminatesChild() async {
         // `sleep 30` never exits on its own; the 1s timeout must SIGTERM/SIGKILL it
