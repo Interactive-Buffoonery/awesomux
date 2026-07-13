@@ -13,6 +13,16 @@ diff_lines="unknown"
 diff_bytes="unknown"
 : > "$telemetry_file"
 
+set_failure_outputs() {
+  local kind="$1" message="$2"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "failure_kind=$kind" >> "$GITHUB_OUTPUT"
+    echo "failure_message=$message" >> "$GITHUB_OUTPUT"
+  fi
+}
+
+set_failure_outputs "" ""
+
 set_action_output() {
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
     echo "$1=$2" >> "$GITHUB_OUTPUT"
@@ -66,6 +76,7 @@ if [ -n "${BASE_RANGE:-}" ]; then
       exit 0
     fi
     echo "::error title=OpenCode diff too large::The exact diff exceeds the bounded review preview (${diff_lines} lines, ${diff_bytes} bytes); human review is required." >&2
+    set_failure_outputs "diff_too_large" "The exact diff exceeds this review's ${MAX_DIFF_LINES:-2000}-line or ${MAX_DIFF_BYTES:-262144}-byte limit."
     exit 1
   fi
 fi
@@ -75,16 +86,17 @@ set_opencode_unavailable_output() {
 }
 
 report_opencode_unavailable() {
-  local message="OpenCode reported a usage, billing, quota, or zero-balance limit. Stopping now and failing the review job."
+  local message="The model provider rejected the review request: $1"
 
   echo "::notice title=OpenCode unavailable::$message" >&2
   set_opencode_unavailable_output true
+  set_failure_outputs "provider_unavailable" "$message"
 
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     {
       echo "### OpenCode review skipped"
       echo
-      echo "OpenCode reported a usage, billing, quota, or zero-balance limit, so this run stopped early and failed instead of reporting a false-green review."
+      echo "$message"
     } >> "$GITHUB_STEP_SUMMARY"
   fi
 }
@@ -145,8 +157,9 @@ for attempt in 1 2 3; do
 
   while kill -0 "$opencode_pid" 2>/dev/null; do
     if opencode_unavailable_detected "$attempt_log"; then
+      provider_error="$(opencode_unavailable_message "$attempt_log")"
       record_attempt "provider unavailable"
-      report_opencode_unavailable
+      report_opencode_unavailable "$provider_error"
       terminate_opencode "$opencode_pid"
       wait "$opencode_pid" 2>/dev/null || true
       exit 1
@@ -161,13 +174,15 @@ for attempt in 1 2 3; do
   set -e
 
   if opencode_unavailable_detected "$attempt_log"; then
+    provider_error="$(opencode_unavailable_message "$attempt_log")"
     record_attempt "provider unavailable"
-    report_opencode_unavailable
+    report_opencode_unavailable "$provider_error"
     exit 1
   fi
 
   if [ "$exit_code" -ne 0 ]; then
     record_attempt "command failed ($exit_code)"
+    set_failure_outputs "command_failed" "OpenCode exited with status $exit_code before publishing a validated review."
     exit "$exit_code"
   fi
 
@@ -183,6 +198,7 @@ for attempt in 1 2 3; do
         continue
       fi
       echo "::error title=OpenCode review incomplete::No '## Code Review' after initial, continuation, and fresh fallback attempts; failing instead of accepting an empty review." >&2
+      set_failure_outputs "incomplete_review" "OpenCode completed three attempts without producing a valid ## Code Review response."
       exit 1
     fi
 

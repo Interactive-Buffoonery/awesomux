@@ -42,12 +42,26 @@ expect_opencode_unavailable "normal opencode run" \
 expect_opencode_unavailable "reviewed source mentioning provider limits" \
   "$fixtures/opencode-tool-output-provider-wording.log" miss
 
+expect_opencode_unavailable "reviewed guard source containing its own matcher" \
+  "$fixtures/opencode-tool-output-guard-source.log" miss
+
 # Synthetic provider rate-limit and quota errors should be detected.
 expect_opencode_unavailable "synthetic rate limit" \
   "$fixtures/synthetic-rate-limit.log" match
 
 expect_opencode_unavailable "synthetic credit quota" \
   "$fixtures/synthetic-credit-quota.log" match
+
+usage_message="$(opencode_unavailable_message "$fixtures/opencode-unavailable-usage-limit.log")"
+case "$usage_message" in
+  *"5-hour usage limit reached"*"[link omitted]"*)
+    echo "ok   - provider detail is preserved with links redacted"
+    ;;
+  *)
+    echo "FAIL - provider detail was not safely preserved: $usage_message"
+    failures=$((failures + 1))
+    ;;
+esac
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2

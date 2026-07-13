@@ -77,6 +77,7 @@ jobs:
           fi
 
       - name: Checkout trusted workflow helpers
+        if: always()
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: ${{ github.repository }}
@@ -159,18 +160,17 @@ jobs:
           REPO_ROOT: ${{ github.workspace }}
         run: node _trusted/.github/scripts/append-reviewed-files.mjs
 
-      - name: Comment when OpenCode is unavailable
-        if: always() && steps.opencode.outputs.opencode_unavailable == 'true'
+      - name: Comment when OpenCode review fails
+        if: always() && failure()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           SKIP_MARKER: "<!-- awesomux-opencode-unavailable -->"
-          SKIP_BODY: |
-            ## OpenCode review unavailable
-
-            OpenCode reported a usage, billing, quota, or zero-balance limit.
-
-            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node _trusted/.github/scripts/post-skip-comment.mjs
+          FAILURE_MESSAGE: ${{ steps.opencode.outputs.failure_message }}
+        run: |
+          detail="${FAILURE_MESSAGE:-OpenCode review automation failed before a validated review was published.}"
+          SKIP_BODY="$(printf '## OpenCode review failed\n\n%s\n\nRun: https://github.com/%s/actions/runs/%s' "$detail" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+          export SKIP_BODY
+          node _trusted/.github/scripts/post-skip-comment.mjs
