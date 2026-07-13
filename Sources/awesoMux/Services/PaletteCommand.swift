@@ -54,6 +54,7 @@ struct PaletteAppActions {
     let newWorkspaceInCurrentDirectory: @MainActor () -> Void
     let newWorkspaceGroup: @MainActor () -> Void
     let newRemoteWorkspaceGroup: @MainActor () -> Void
+    let connectViaSSH: @MainActor () -> Void
     let renameWorkspace: @MainActor () -> Void
     let renamePane: @MainActor () -> Void
     let resetPaneTitle: @MainActor () -> Void
@@ -107,6 +108,7 @@ struct PaletteAppActions {
             newWorkspaceInCurrentDirectory: action,
             newWorkspaceGroup: action,
             newRemoteWorkspaceGroup: action,
+            connectViaSSH: action,
             renameWorkspace: action,
             renamePane: action,
             resetPaneTitle: action,
@@ -232,6 +234,15 @@ enum PaletteCommandRegistry {
                 shortcut: nil,
                 isEnabled: !availability.isAnySheetPresented,
                 run: actions.newRemoteWorkspaceGroup
+            ),
+            PaletteCommand(
+                id: "connectViaSSH",
+                title: "Connect via SSH",
+                subtitle: "Create a managed SSH workspace",
+                keywords: ["ssh", "remote", "server", "connect"],
+                shortcut: nil,
+                isEnabled: !availability.isAnySheetPresented,
+                run: actions.connectViaSSH
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.renameWorkspace.id,

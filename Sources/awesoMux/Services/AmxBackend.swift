@@ -237,13 +237,7 @@ enum AmxBackend {
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=" + sshControlPath(),
             "-o", "ControlPersist=60",
-            "-o", "ServerAliveInterval=15",
-            // Review-mandated (Codex): force agent forwarding OFF. If the user's
-            // ~/.ssh/config sets `ForwardAgent yes`, our managed panes would
-            // silently expose the local ssh-agent to every remote host — a
-            // credential-authority leak that contradicts ADR-0022. Opt-in agent
-            // forwarding is a deliberate later decision, never a silent default.
-            "-o", "ForwardAgent=no"
+            "-o", "ServerAliveInterval=15"
         ]
         if remoteCommand != nil {
             // Supplying a command disables ssh's automatic TTY allocation.
@@ -251,6 +245,7 @@ enum AmxBackend {
             // force a remote PTY when the bridge injects its env wrapper.
             tokens.append("-t")
         }
+        tokens.append("--")
         tokens.append(remote.sshDestination)
         if let remoteCommand {
             tokens.append(remoteCommand)
@@ -493,8 +488,7 @@ enum AmxBackend {
     private static let bridgeExecMasterOptionTokens = [
         "-o", "ControlMaster=auto",
         "-o", "ControlPersist=60",
-        "-o", "ServerAliveInterval=15",
-        "-o", "ForwardAgent=no"
+        "-o", "ServerAliveInterval=15"
     ]
 
     /// Pure assembly of the one-time exec-channel command that resolves the

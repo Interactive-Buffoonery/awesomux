@@ -18,7 +18,11 @@ struct RemotePaneDisconnectedContent {
     ///   - liveTarget: the pane's durable execution target read fresh at render
     ///     time. It may differ from the target captured in `state` after an
     ///     explicit pane retarget operation.
-    static func make(state: RemoteReconnectState, liveTarget: RemoteTarget?) -> Self {
+    static func make(
+        state: RemoteReconnectState,
+        liveTarget: RemoteTarget?,
+        backgroundSessionsEnabled: Bool = true
+    ) -> Self {
         let captured = state.context.target
         let buttonEnabled: Bool
         let isReconnecting: Bool
@@ -31,6 +35,24 @@ struct RemotePaneDisconnectedContent {
             isReconnecting = true
         }
 
+        if !backgroundSessionsEnabled, let liveTarget, !isReconnecting {
+            return Self(
+                title: String(
+                    localized: "Background sessions are off",
+                    comment: "Title on a managed SSH pane blocked because background terminal sessions are disabled"
+                ),
+                description: String(
+                    localized: "Managed SSH requires background terminal sessions.",
+                    comment: "Explanation on a managed SSH pane blocked because background terminal sessions are disabled"
+                ),
+                buttonLabel: String(
+                    localized: "Enable and reconnect to \(liveTarget.host)",
+                    comment: "Button that enables background terminal sessions and reconnects a managed SSH pane"
+                ),
+                buttonEnabled: true
+            )
+        }
+
         // While reconnecting, the title reflects the in-flight state so the
         // overlay isn't stuck reading "Disconnected" over a live retry (INT-697
         // fix #7).
@@ -40,12 +62,12 @@ struct RemotePaneDisconnectedContent {
                 comment: "Title on the remote-pane overlay while a manual reconnect is in flight"
             )
             : String(
-                localized: "Disconnected",
-                comment: "Title on the overlay covering a remote pane whose SSH connection died"
+                localized: "SSH connection failed",
+                comment: "Title on the overlay covering a remote pane whose SSH connection failed or ended"
             )
         var description = String(
-            localized: "Lost connection to \(captured.host).",
-            comment: "Description under the Disconnected overlay title, naming the remote host that dropped"
+            localized: "Could not connect to \(captured.host), or the connection ended.",
+            comment: "Description under the SSH connection failed overlay title, naming the remote host"
         )
         // If the session moved to a DIFFERENT remote host while latched, the
         // button names the live host but the description names the captured
@@ -56,6 +78,20 @@ struct RemotePaneDisconnectedContent {
                 localized: "This workspace now targets \(liveTarget.host).",
                 comment: "Second description line on the remote-disconnected overlay when the workspace moved to a different remote host than the one that dropped"
             )
+        }
+        if !isReconnecting {
+            let diagnosticTarget = liveTarget ?? captured
+            description +=
+                "\n"
+                + String(
+                    localized: "Check that \(diagnosticTarget.host) is a valid hostname or SSH config alias and is reachable.",
+                    comment: "Guidance shown after a managed SSH connection fails"
+                )
+                + "\n"
+                + String(
+                    localized: "For more details, try ssh \(diagnosticTarget.sshDestination) in a local workspace.",
+                    comment: "Safe ordinary SSH diagnostic shown after a managed SSH connection fails"
+                )
         }
 
         guard buttonEnabled else {
@@ -99,11 +135,11 @@ struct RemotePaneDisconnectedView: View {
     /// has the session); nil in a single-pane session (INT-697 fix #8).
     let paneDescriptor: String?
 
-    // Tracks the last host we announced "Disconnected from" for, so a
+    // Tracks the last disconnected state we announced, so a
     // `.disconnected` -> `.reconnecting` -> `.disconnected` (failed retry)
     // cycle on the SAME host re-announces (state resets to nil while
     // `.reconnecting`), mirroring `RuntimeUnavailableView.lastAnnouncedMessage`.
-    @State private var lastAnnouncedHost: String?
+    @State private var lastAnnouncementID: String?
 
     // The button resolves its fill from the accent; reading the bare
     // `Color.aw.accent` global inside the representable establishes no SwiftUI
@@ -111,13 +147,18 @@ struct RemotePaneDisconnectedView: View {
     // `updateNSView` (live smoke finding, PR #506). Passing the
     // environment-resolved accent down as an input does.
     @Environment(\.awAccent) private var accentResolver
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private var capturedTarget: RemoteTarget {
         state.context.target
     }
 
     private var content: RemotePaneDisconnectedContent {
-        .make(state: state, liveTarget: liveTarget)
+        .make(
+            state: state,
+            liveTarget: liveTarget,
+            backgroundSessionsEnabled: appSettingsStore.terminal.value.commandBridgeEnabled
+        )
     }
 
     private var isDisconnected: Bool {
@@ -149,10 +190,23 @@ struct RemotePaneDisconnectedView: View {
                     isEnabled: content.buttonEnabled,
                     accent: accentResolver.accent
                 ) {
+                    if liveTarget != nil,
+                        !appSettingsStore.terminal.value.commandBridgeEnabled
+                    {
+                        appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
+                        guard appSettingsStore.terminal.value.commandBridgeEnabled else { return }
+                    }
                     runtime.reconnectRemotePane(in: paneID)
                 }
                 .frame(height: 30)
                 .fixedSize()
+
+                if let settingsErrorMessage {
+                    Text(settingsErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(32)
         }
@@ -167,11 +221,22 @@ struct RemotePaneDisconnectedView: View {
     }
 
     private var containerAccessibilityLabel: String {
-        if isDisconnected {
+        if needsBackgroundSessions {
             return String(
-                localized: "Remote pane disconnected from \(capturedTarget.host)",
-                comment: "Accessibility label for the overlay container shown over a remote pane whose SSH connection died"
+                localized: "Remote pane disconnected from \(capturedTarget.host). Background sessions are off.",
+                comment: "Accessibility label for a managed SSH pane blocked because background terminal sessions are disabled"
             )
+        }
+        if isDisconnected {
+            let failure = String(
+                localized: "SSH connection to \(capturedTarget.host) failed.",
+                comment: "Accessibility label for a remote pane whose SSH connection failed"
+            )
+            let guidance = String(
+                localized: "Check that the hostname or SSH config alias exists and is reachable.",
+                comment: "Accessibility guidance after a remote pane's SSH connection fails"
+            )
+            return failure + " " + guidance
         }
         return String(
             localized: "Remote pane reconnecting to \(capturedTarget.host)",
@@ -179,26 +244,37 @@ struct RemotePaneDisconnectedView: View {
         )
     }
 
+    private var needsBackgroundSessions: Bool {
+        isDisconnected
+            && liveTarget != nil
+            && !appSettingsStore.terminal.value.commandBridgeEnabled
+    }
+
+    private var settingsErrorMessage: String? {
+        needsBackgroundSessions ? appSettingsStore.latestError?.displayText : nil
+    }
+
     private var announcementStateID: String {
-        "\(capturedTarget.host)\u{0}\(isDisconnected)"
+        "\(capturedTarget.host)\u{0}\(isDisconnected)\u{0}\(needsBackgroundSessions)"
     }
 
     private func announceDisconnectedIfNeeded() {
         guard isDisconnected else {
             // `.reconnecting` (or a future non-disconnected case) clears the
             // guard so a subsequent re-latch on the SAME host announces again
-            // instead of being silently deduped by a stale `lastAnnouncedHost`.
-            lastAnnouncedHost = nil
+            // instead of being silently deduped by stale state.
+            lastAnnouncementID = nil
             return
         }
 
         let host = capturedTarget.host
-        guard host != lastAnnouncedHost else { return }
-        lastAnnouncedHost = host
+        guard announcementStateID != lastAnnouncementID else { return }
+        lastAnnouncementID = announcementStateID
 
         TerminalAccessibilityAnnouncer.announceRemoteDisconnected(
             host: host,
-            paneDescriptor: paneDescriptor
+            paneDescriptor: paneDescriptor,
+            backgroundSessionsEnabled: !needsBackgroundSessions
         )
     }
 }

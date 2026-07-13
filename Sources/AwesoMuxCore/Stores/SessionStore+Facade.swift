@@ -661,6 +661,20 @@ extension SessionStore {
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
     }
 
+    public func consumeManagedSSHWorkspaceOffer(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> RemoteTarget? {
+        guard let rawTarget = session(id: sessionID)?.layout.pane(id: paneID)?.remoteSSHTarget,
+            let target = RemoteTarget(parsing: rawTarget),
+            target.isSafeSSHDestination,
+            mutatePane(sessionID: sessionID, paneID: paneID, { $0.remoteSSHTarget = nil })
+        else {
+            return nil
+        }
+        return target
+    }
+
     public func markRemotePanesPossiblyStale() {
         guard !index.remotePaneIDs.isEmpty else {
             return

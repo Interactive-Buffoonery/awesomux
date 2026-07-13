@@ -11,16 +11,6 @@ struct WorkspaceTreeReducer: Sendable {
         agentKind: AgentKind,
         groupName: String
     ) -> TerminalSession.ID {
-        let syntheticTitle: SyntheticSessionTitle?
-        let resolvedTitle: String
-        if let title {
-            syntheticTitle = nil
-            resolvedTitle = title
-        } else {
-            let generated = nextSyntheticSessionTitle(in: groups, for: agentKind)
-            syntheticTitle = generated
-            resolvedTitle = generated.localizedTitle()
-        }
         let lookupKey = SessionStoreText.groupLookupKey(groupName)
         let groupIndex = groups.firstIndex(where: {
             SessionStoreText.groupLookupKey($0.name)
@@ -30,12 +20,12 @@ struct WorkspaceTreeReducer: Sendable {
             groupIndex.flatMap { groups[$0].remote }
             .map { PaneExecutionPlan.ssh(SSHExecution(target: $0)) }
             ?? .local
-        let session = TerminalSession(
-            title: resolvedTitle,
-            workingDirectory: workingDirectory ?? selectedSession?.workingDirectory ?? "~",
-            syntheticTitle: syntheticTitle,
+        let session = mintSession(
+            in: groups,
+            title: title,
+            workingDirectory: workingDirectory,
+            selectedSession: selectedSession,
             agentKind: agentKind,
-            agentState: agentKind.initialSessionState,
             executionPlan: executionPlan
         )
 
@@ -71,6 +61,54 @@ struct WorkspaceTreeReducer: Sendable {
         } else {
             groups.append(SessionGroup(name: lookupKey, sessions: [session]))
         }
+    }
+
+    @discardableResult
+    static func addSession(
+        to groups: inout [SessionGroup],
+        selectedSession: TerminalSession?,
+        groupID: SessionGroup.ID,
+        executionPlan: PaneExecutionPlan
+    ) -> TerminalSession.ID? {
+        guard let groupIndex = groups.firstIndex(where: { $0.id == groupID }) else { return nil }
+        let session = mintSession(
+            in: groups,
+            title: nil,
+            workingDirectory: nil,
+            selectedSession: selectedSession,
+            agentKind: .shell,
+            executionPlan: executionPlan
+        )
+        groups[groupIndex].sessions.append(session)
+        return session.id
+    }
+
+    private static func mintSession(
+        in groups: [SessionGroup],
+        title: String?,
+        workingDirectory: String?,
+        selectedSession: TerminalSession?,
+        agentKind: AgentKind,
+        executionPlan: PaneExecutionPlan
+    ) -> TerminalSession {
+        let syntheticTitle: SyntheticSessionTitle?
+        let resolvedTitle: String
+        if let title {
+            syntheticTitle = nil
+            resolvedTitle = title
+        } else {
+            let generated = nextSyntheticSessionTitle(in: groups, for: agentKind)
+            syntheticTitle = generated
+            resolvedTitle = generated.localizedTitle()
+        }
+        return TerminalSession(
+            title: resolvedTitle,
+            workingDirectory: workingDirectory ?? selectedSession?.workingDirectory ?? "~",
+            syntheticTitle: syntheticTitle,
+            agentKind: agentKind,
+            agentState: agentKind.initialSessionState,
+            executionPlan: executionPlan
+        )
     }
 
     @discardableResult

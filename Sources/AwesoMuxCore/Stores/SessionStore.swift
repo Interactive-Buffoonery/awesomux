@@ -428,6 +428,24 @@ public final class SessionStore {
     }
 
     @discardableResult
+    public func addSSHSession(
+        target: RemoteTarget,
+        toGroupID groupID: SessionGroup.ID
+    ) -> TerminalSession.ID? {
+        guard target.isSafeSSHDestination else { return nil }
+        guard
+            let sessionID = WorkspaceTreeReducer.addSession(
+                to: &_groups,
+                selectedSession: selectedSession,
+                groupID: groupID,
+                executionPlan: .ssh(SSHExecution(target: target))
+            )
+        else { return nil }
+        commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
+        return sessionID
+    }
+
+    @discardableResult
     public func addWorkspaceGroup(
         named rawGroupName: String,
         workingDirectory: String? = nil,
@@ -480,6 +498,7 @@ public final class SessionStore {
         named rawGroupName: String,
         target: RemoteTarget
     ) -> TerminalSession.ID? {
+        guard target.isSafeSSHDestination else { return nil }
         let seeded = WorkspaceTreeReducer.addWorkspaceGroup(
             to: &_groups,
             selectedSession: selectedSession,
@@ -1078,11 +1097,38 @@ public final class SessionStore {
 
     @discardableResult
     public func recycleActivePane(in sessionID: TerminalSession.ID? = nil) -> TerminalPane.ID? {
+        recycleActivePane(in: sessionID, executionPlan: nil)
+    }
+
+    @discardableResult
+    public func convertPaneToManagedSSH(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        target: RemoteTarget
+    ) -> TerminalPane.ID? {
+        guard target.isSafeSSHDestination,
+            let pane = session(id: sessionID)?.activePane,
+            pane.id == paneID,
+            pane.executionPlan == .local
+        else {
+            return nil
+        }
+        return recycleActivePane(
+            in: sessionID,
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+    }
+
+    private func recycleActivePane(
+        in sessionID: TerminalSession.ID?,
+        executionPlan: PaneExecutionPlan?
+    ) -> TerminalPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
             let position = position(for: sessionID),
             let result = PaneLayoutReducer.recycleActivePane(
                 in: _groups[position.groupIndex].sessions[position.sessionIndex],
-                now: Date()
+                now: Date(),
+                executionPlan: executionPlan
             )
         else {
             return nil

@@ -50,8 +50,23 @@ struct AmxBackendAttachCommandTests {
         #expect(command.contains("/%C'"))
         #expect(command.contains("ControlPersist=60"))
         #expect(command.contains("ServerAliveInterval=15"))
-        #expect(command.contains("ForwardAgent=no")) // agent forwarding forced off (ADR-0022)
-        #expect(command.hasSuffix("'alice@box'"))
+        // The user's SSH config remains authoritative.
+        #expect(!command.contains("ForwardAgent"))
+        #expect(command.hasSuffix("'--' 'alice@box'"))
+    }
+
+    @Test("ssh option parsing ends before an unsafe persisted destination")
+    func attachCommandTerminatesOptionsBeforeDestination() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-unsafe"))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/opt/awesomux/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                remote: RemoteTarget(parsing: "-oProxyCommand=example")!
+            ))
+
+        #expect(command.hasSuffix("'--' '-oProxyCommand=example'"))
     }
 
     @Test("unchanged when not remote")

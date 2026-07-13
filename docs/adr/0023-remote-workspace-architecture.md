@@ -37,7 +37,8 @@ Related prior decisions:
   that connection identity.
 - [ADR-0022](0022-ssh-credential-custody-and-transport.md) — awesoMux never
   custodies SSH credentials and injects only transport config (`ControlMaster`,
-  keepalive, `ForwardAgent=no`). This ADR inherits that boundary wholesale.
+  keepalive). Host-specific OpenSSH configuration, including agent forwarding,
+  remains authoritative. This ADR inherits that boundary wholesale.
 
 ## Decision
 
@@ -118,9 +119,9 @@ an addition on top.
   injects only transport config it fully owns — connection multiplexing
   (`ControlMaster=auto`, a stable per-profile `ControlPath` in the verified
   owner-only `~/.awesomux/ssh*` directory, `ControlPersist=60`), keepalive
-  (`ServerAliveInterval=15`) — and forces
-  `ForwardAgent=no` on managed panes so a user's `ForwardAgent yes` cannot
-  silently expose the local agent to remote hosts through our automation. The
+  (`ServerAliveInterval=15`). Host-specific OpenSSH configuration remains
+  authoritative, including an explicit per-host `ForwardAgent yes`; awesoMux
+  neither enables agent forwarding nor overrides the user's choice. The
   `ControlPath` directory is lstat-verified as a real owner-only directory and
   falls back to a short `mkdtemp` directory on any custody failure. The stable
   primary path is required so forwards borrowed by a persistent zmx session
@@ -136,7 +137,7 @@ an addition on top.
   local shell masquerading as the remote host is the ADR-0022 trust violation
   and would invite typing secrets into the wrong machine.
 - **File transfer.** File handoff (`scp`/`sftp`) rides the same transport config
-  and the same `ForwardAgent=no` posture; no credential custody. It is
+  and user-controlled OpenSSH forwarding posture; no credential custody. It is
   best-effort: a host that needs interactive authentication for every new
   connection may fail a non-interactive transfer even when the interactive pane
   works (the ADR-0021 constraint, generalized).

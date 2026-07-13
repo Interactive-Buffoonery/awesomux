@@ -539,7 +539,8 @@ struct PaneLayoutReducer: Sendable {
 
     static func recycleActivePane(
         in session: TerminalSession,
-        now: Date
+        now: Date,
+        executionPlan: PaneExecutionPlan? = nil
     ) -> RecycleResult? {
         var session = session
         guard let activePane = session.activePane else {
@@ -551,7 +552,7 @@ struct PaneLayoutReducer: Sendable {
             workingDirectory: activePane.workingDirectory,
             color: activePane.color,
             lastAgentStateChangeAt: now,
-            executionPlan: activePane.executionPlan
+            executionPlan: executionPlan ?? activePane.executionPlan
         )
         guard
             var layout = session.layout.replacingPane(
@@ -695,9 +696,10 @@ struct PaneLayoutReducer: Sendable {
             return nil
         }
 
-        guard let target = RemoteSSHCommandTarget.parseSubmittedCommand(command) else {
+        guard RemoteSSHCommandTarget.parseSubmittedCommand(command) != nil else {
             return nil
         }
+        let target = RemoteSSHCommandTarget.parseManagedWorkspaceOffer(command)
         guard pane.pendingRemoteSSHTarget != target else {
             return nil
         }
