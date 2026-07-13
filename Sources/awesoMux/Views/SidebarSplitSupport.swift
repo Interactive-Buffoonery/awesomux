@@ -24,6 +24,11 @@ enum AppTitlebarColumn: Equatable {
     case detail
 }
 
+enum AppTitlebarLockupAlignment: Equatable {
+    case leading
+    case trailing
+}
+
 struct SidebarPresentationLayoutPolicy {
     let position: AppearanceConfig.SidebarPosition
 
@@ -35,6 +40,10 @@ struct SidebarPresentationLayoutPolicy {
     var trafficLightColumn: AppTitlebarColumn { titlebarColumns[0] }
     var dividerGutterColumn: AppTitlebarColumn { position == .left ? .detail : .sidebar }
     var dividerGutterEdge: SidebarPhysicalEdge { .leading }
+    var titlebarLockupAlignment: AppTitlebarLockupAlignment {
+        position == .left ? .leading : .trailing
+    }
+    var titlebarLockupOuterPadding: CGFloat { AppTitlebarMetrics.lockupPadding }
 }
 
 /// Live sidebar width published on every divider tick (INT-535, A4).
