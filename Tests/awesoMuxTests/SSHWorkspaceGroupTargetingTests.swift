@@ -9,6 +9,10 @@ struct SSHWorkspaceGroupTargetingTests {
         #expect(SSHWorkspaceDestinationValidation.target(from: "my-server")?.sshDestination == "my-server")
         #expect(SSHWorkspaceDestinationValidation.target(from: "alice@my-server")?.sshDestination == "alice@my-server")
         #expect(SSHWorkspaceDestinationValidation.target(from: "-oProxyCommand=example") == nil)
+        #expect(SSHWorkspaceDestinationValidation.message(for: "") == nil)
+        #expect(SSHWorkspaceDestinationValidation.message(for: "my-server") == nil)
+        #expect(SSHWorkspaceDestinationValidation.message(for: "user@") != nil)
+        #expect(SSHWorkspaceDestinationValidation.message(for: "-oProxyCommand=example") != nil)
     }
 
     @Test("default group matching is case insensitive when nothing is selected")
