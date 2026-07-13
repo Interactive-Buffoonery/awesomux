@@ -44,9 +44,22 @@ check_pattern() {
     fi
 }
 
+check_pcre2_pattern() {
+    local message="$1"
+    local pattern="$2"
+    if rg -n --hidden --text --pcre2 "${private_globs[@]}" "$pattern" .; then
+        echo "error: $message" >&2
+        failed=1
+    fi
+}
+
+check_pcre2_pattern \
+    "non-issue Linear workspace URL remains in the public seed surface" \
+    'linear\.app/interactive-buffoonery/(?!issue/INT-[0-9]+(?:/|[?#[:space:]"'"'"']|$))'
+
 check_pattern \
-    "private URL, repository name, or cockpit token remains in the public seed surface" \
-    '(linear\.app/interactive-buffoonery|contact@interactivebuffoonery\.app|awesomux-(private|internal)|COCKPIT_[A-Z_]+|script/cockpit/)'
+    "private contact, repository name, or cockpit token remains in the public seed surface" \
+    '(contact@interactivebuffoonery\.app|awesomux-(private|internal)|COCKPIT_[A-Z_]+|script/cockpit/)'
 check_pattern \
     "real maintainer fixture path or host remains in the public seed surface" \
     '(/Users/(sarah|ed|edequalsawesome)(/|["'"'"'[:space:]]|$)|(sarah|serabi|edequalsawesome)@|purple-imac|JiggyBrain)'
