@@ -267,5 +267,9 @@ private struct SidebarGroupHitTargetHarness: View {
         )
         .frame(width: width, height: 80, alignment: .topLeading)
         .environment(\.dynamicTypeSize, .large)
+        // The collapsed header now reads `SidebarPeekModel` for its group
+        // roster peek trigger (Task 5) — an ancestor must supply it, same as
+        // `ContentView` does in production, or the read is fatal.
+        .environment(SidebarPeekModel())
     }
 }
