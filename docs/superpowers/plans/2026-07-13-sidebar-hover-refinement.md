@@ -22,6 +22,7 @@
 - Reduce Motion makes pointer-driven divider movement immediate; cue opacity may still fade briefly.
 - Hidden and intermediate animation widths are never persisted.
 - Left/right behavior is symmetric and derives distance from current local bounds, not cached screen coordinates.
+- A right-positioned sidebar aligns the complete existing awesoMux icon-and-title lockup to the sidebar's trailing edge with the same 10-point outer titlebar padding; icon-before-text order is unchanged and left positioning is unchanged.
 - Use targeted `script/format.sh` only on intentionally changed Swift files.
 - Follow test-driven development: run each focused test and observe RED before production implementation.
 
@@ -31,13 +32,16 @@
 - `Sources/awesoMux/Views/SidebarEdgeTrackingView.swift`: pass-through AppKit tracking surface and local left/right distance conversion.
 - `Sources/awesoMux/Views/SidebarSplitController.swift`: hosts the split plus tracking surface, updates tracking geometry, and performs/cancels hover divider animations.
 - `Sources/awesoMux/Views/SidebarSplitView.swift`: carries tracking callbacks and explicit/hover visibility commands across the SwiftUI/AppKit boundary.
-- `Sources/awesoMux/Views/SidebarSplitSupport.swift`: defines the typed proxy transition API shared by `ContentView` and `SidebarSplitController`.
+- `Sources/awesoMux/Views/SidebarSplitSupport.swift`: defines the typed proxy transition API and pure titlebar lockup layout policy used by `ContentView`.
 - `Sources/awesoMux/Views/ContentView.swift`: renders the 4-point cue, routes proximity events, permits hidden width selection, and keeps explicit actions instantaneous.
+- `Sources/awesoMux/Views/AppTitlebarMetrics.swift`: names the existing 10-point titlebar lockup padding shared by left/right placement.
 - `Tests/awesoMuxTests/SidebarPresentationModelTests.swift`: boundary, state-machine, grace, lifecycle, and stale-token coverage.
 - `Tests/awesoMuxTests/SidebarEdgeTrackingViewTests.swift`: local geometry, resize, pass-through input, and responder preservation.
 - `Tests/awesoMuxTests/SidebarSplitControllerTests.swift`: animation policy, interruption, side symmetry, resize, Reduce Motion, focus, and persistence guards.
 - `Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift`: structural regression proving representable updates cannot enact runtime visibility.
 - `Tests/awesoMuxTests/SidebarHoverIntegrationTests.swift`: pure orchestration policy for hidden width toggles and explicit-versus-hover transitions.
+- `Tests/awesoMuxTests/SidebarPresentationLayoutTests.swift`: left/right titlebar lockup alignment, padding, item order, and presentation-state invariants.
+- `Tests/awesoMuxTests/BrandmarkStructureTests.swift`: structural regression pinning icon-before-text order inside the unchanged lockup.
 
 ## Interfaces Shared Across Tasks
 
@@ -730,7 +734,221 @@ Commit: `feat(sidebar): add proximity cue and hidden width toggle`
 
 ---
 
-### Task 5: Harden Lifecycle, Regression, and Live Interaction
+### Task 5: Align the Right-Side Title Lockup
+
+**Files:**
+- Modify: `Sources/awesoMux/Views/AppTitlebarMetrics.swift`
+- Modify: `Sources/awesoMux/Views/SidebarSplitSupport.swift`
+- Modify: `Sources/awesoMux/Views/ContentView.swift`
+- Modify: `Tests/awesoMuxTests/AppTitlebarMetricsTests.swift`
+- Modify: `Tests/awesoMuxTests/SidebarPresentationLayoutTests.swift`
+- Create: `Tests/awesoMuxTests/BrandmarkStructureTests.swift`
+
+**Interfaces:**
+- Consumes: `AppearanceConfig.SidebarPosition`, existing `Brandmark`, existing sidebar live width/visibility.
+- Produces: `AppTitlebarMetrics.lockupPadding: CGFloat == 10`, `AppTitlebarLockupAlignment`, and `SidebarPresentationLayoutPolicy.titlebarLockupAlignment`.
+- Preserves: `Brandmark` internals and its icon-before-text `HStack`; existing left-sidebar padding, thresholds, and alignment; no new preference or animation.
+
+- [ ] **Step 1: Write failing titlebar alignment, padding, and order tests**
+
+Extend the pure layout-policy suite:
+
+```swift
+@Test("title lockup alignment follows sidebar position")
+func titleLockupAlignment() {
+    #expect(
+        SidebarPresentationLayoutPolicy(position: .left).titlebarLockupAlignment
+            == .leading
+    )
+    #expect(
+        SidebarPresentationLayoutPolicy(position: .right).titlebarLockupAlignment
+            == .trailing
+    )
+}
+
+@Test("title lockup contract is stable across presentation states")
+func titleLockupPresentationMatrix() {
+    let states: [(width: CGFloat, persistent: Bool, temporary: Bool)] = [
+        (SidebarWidthPolicy.collapsedWidth, true, false),
+        (SidebarWidthPolicy.expandedWidth, true, false),
+        (SidebarWidthPolicy.collapsedWidth, false, true),
+        (SidebarWidthPolicy.expandedWidth, false, true),
+    ]
+    for state in states {
+        _ = state // Width/visibility decide whether the existing lockup renders, not its ordering.
+        let policy = SidebarPresentationLayoutPolicy(position: .right)
+        #expect(policy.titlebarLockupAlignment == .trailing)
+        #expect(policy.titlebarLockupOuterPadding == 10)
+    }
+}
+```
+
+Extend `AppTitlebarMetricsTests`:
+
+```swift
+#expect(AppTitlebarMetrics.lockupPadding == 10)
+```
+
+Add `import AwesoMuxCore` to `SidebarPresentationLayoutTests.swift` for the rail/full constants. Create a structural `Brandmark` regression so item order is checked against the real lockup rather than duplicated in a policy enum:
+
+```swift
+@Test("brandmark keeps icon before title text")
+func iconPrecedesTitle() throws {
+    let testURL = URL(fileURLWithPath: #filePath)
+    let root = testURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let source = try String(
+        contentsOf: root.appendingPathComponent("Sources/awesoMux/Views/Brandmark.swift"),
+        encoding: .utf8
+    )
+    let icon = try #require(source.range(of: "ShrugMark("))
+    let title = try #require(source.range(of: "Text(\"awesoMux\")"))
+    #expect(icon.lowerBound < title.lowerBound)
+}
+```
+
+The presentation matrix explicitly covers persistent rail, persistent full, temporary rail, and temporary full. It does not create separate layout state because position alone owns alignment.
+
+- [ ] **Step 2: Run focused tests and verify RED**
+
+Run:
+
+```bash
+./script/swift-test.sh --filter SidebarPresentationLayoutTests
+./script/swift-test.sh --filter AppTitlebarMetricsTests
+./script/swift-test.sh --filter BrandmarkStructureTests
+```
+
+Expected: layout/metrics compilation fails because `AppTitlebarLockupAlignment`, `titlebarLockupAlignment`, `titlebarLockupOuterPadding`, and `lockupPadding` do not exist. `BrandmarkStructureTests` passes against the unchanged existing lockup and remains a regression guard during implementation.
+
+- [ ] **Step 3: Add the minimal pure layout contract**
+
+In `AppTitlebarMetrics.swift` name the existing literal rather than changing its value:
+
+```swift
+static let lockupPadding: CGFloat = 10
+```
+
+In `SidebarSplitSupport.swift` add:
+
+```swift
+enum AppTitlebarLockupAlignment: Equatable {
+    case leading
+    case trailing
+}
+
+extension SidebarPresentationLayoutPolicy {
+    var titlebarLockupAlignment: AppTitlebarLockupAlignment {
+        position == .left ? .leading : .trailing
+    }
+
+    var titlebarLockupOuterPadding: CGFloat { AppTitlebarMetrics.lockupPadding }
+}
+```
+
+Do not add width, persistent/temporary state, or animation to this policy: those inputs decide visibility/size elsewhere and must not change horizontal alignment or item order.
+
+- [ ] **Step 4: Run focused tests and verify the policy is GREEN**
+
+Run:
+
+```bash
+./script/swift-test.sh --filter SidebarPresentationLayoutTests
+./script/swift-test.sh --filter AppTitlebarMetricsTests
+./script/swift-test.sh --filter BrandmarkStructureTests
+```
+
+Expected: all three suites pass.
+
+- [ ] **Step 5: Apply the policy to the complete existing lockup**
+
+In `AppTitlebarView.sidebarColumn`, extract only the existing conditional `Brandmark` selection into a helper; do not edit `Brandmark.swift`:
+
+```swift
+@ViewBuilder
+private var titleLockup: some View {
+    if sidebarWidth >= Self.brandWithTextMinimumWidth {
+        Brandmark().allowsHitTesting(false)
+    } else if sidebarWidth >= Self.brandIconMinimumWidth {
+        Brandmark(showsText: false).allowsHitTesting(false)
+    }
+}
+```
+
+Place that whole helper before or after the single spacer according to position:
+
+```swift
+HStack(spacing: 0) {
+    if layoutPolicy.titlebarLockupAlignment == .trailing {
+        Spacer(minLength: 0)
+        titleLockup
+    } else {
+        titleLockup
+        Spacer(minLength: 0)
+    }
+}
+```
+
+Keep the existing left leading calculation byte-for-byte equivalent. Replace only the existing magic trailing `10` with `AppTitlebarMetrics.lockupPadding`, then use that same value as the right sidebar's physical trailing inset. Set the frame alignment from the policy:
+
+```swift
+.frame(
+    width: sidebarWidth,
+    alignment: layoutPolicy.titlebarLockupAlignment == .trailing ? .trailing : .leading
+)
+```
+
+Do not reverse `Brandmark` itself: `ShrugMark` remains the first child and `Text("awesoMux")` remains second. Hidden state still produces zero titlebar sidebar width; persistent and temporary reveals reuse the same `AppTitlebarView` path.
+
+- [ ] **Step 6: Format and run focused/full titlebar checks**
+
+Run:
+
+```bash
+script/format.sh Sources/awesoMux/Views/AppTitlebarMetrics.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/AppTitlebarMetricsTests.swift Tests/awesoMuxTests/SidebarPresentationLayoutTests.swift Tests/awesoMuxTests/BrandmarkStructureTests.swift
+./script/swift-test.sh --filter SidebarPresentationLayoutTests
+./script/swift-test.sh --filter AppTitlebarMetricsTests
+./script/swift-test.sh --filter BrandmarkStructureTests
+./script/swift-test.sh --filter SidebarHoverIntegrationTests
+./script/swift-test.sh --filter SidebarSplitControllerTests
+git diff --check
+```
+
+Expected: all focused suites pass, left-side assertions remain unchanged, and diff check emits no output.
+
+- [ ] **Step 7: Build and capture the titlebar screenshot matrix**
+
+Run: `./script/build_and_run.sh`
+
+Expected: the development app builds, launches, and remains running.
+
+Capture focused window screenshots with the macOS screenshot crosshair after arranging each named state:
+
+```bash
+screencapture -i /tmp/awesomux-title-left-full-persistent.png
+screencapture -i /tmp/awesomux-title-left-rail-persistent.png
+screencapture -i /tmp/awesomux-title-right-full-persistent.png
+screencapture -i /tmp/awesomux-title-right-rail-persistent.png
+screencapture -i /tmp/awesomux-title-right-full-temporary.png
+screencapture -i /tmp/awesomux-title-right-rail-temporary.png
+```
+
+Expected visual evidence:
+
+- both left images match the pre-change placement and padding;
+- right full images show the entire `icon → awesoMux` lockup anchored 10 points from the physical right edge, never text-before-icon;
+- right rail images preserve the existing narrow-width suppression (no clipped or misplaced lockup remnant); if a future width crosses the existing icon-only threshold, that icon uses the same trailing inset;
+- persistent and temporary images for a given width have identical titlebar alignment—the hover animation moves the column width but does not animate or independently reposition the lockup;
+- use representative narrow and wide windows and preserve at least one focused left/right full comparison for the eventual visible-UI PR body.
+
+Do not add `/tmp` screenshots to git.
+
+- [ ] **Step 8: Commit the isolated titlebar change**
+
+Commit: `fix(sidebar): align right title lockup`
+
+---
+
+### Task 6: Harden Lifecycle, Regression, and Live Interaction
 
 **Files:**
 - Modify: `Tests/awesoMuxTests/SidebarPresentationModelTests.swift`
@@ -796,9 +1014,9 @@ In `SidebarSplitController.viewDidLayout`, if bounds change while `isHoverAnimat
 Run:
 
 ```bash
-script/format.sh Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/SidebarPresentationModelTests.swift Tests/awesoMuxTests/SidebarEdgeTrackingViewTests.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift Tests/awesoMuxTests/SidebarHoverIntegrationTests.swift
+script/format.sh Sources/awesoMux/Views/AppTitlebarMetrics.swift Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/AppTitlebarMetricsTests.swift Tests/awesoMuxTests/SidebarPresentationLayoutTests.swift Tests/awesoMuxTests/BrandmarkStructureTests.swift Tests/awesoMuxTests/SidebarPresentationModelTests.swift Tests/awesoMuxTests/SidebarEdgeTrackingViewTests.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift Tests/awesoMuxTests/SidebarHoverIntegrationTests.swift
 ./script/swift-test.sh
-script/format.sh --lint Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift
+script/format.sh --lint Sources/awesoMux/Views/AppTitlebarMetrics.swift Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift
 git diff --check
 ```
 
@@ -826,6 +1044,9 @@ Verify manually in the development bundle on both left and right:
 12. Deactivate or detach the development window during cue/reveal; cue and sidebar settle hidden immediately and do not resurrect on stale completion.
 13. Enable Reduce Motion in System Settings; hover movement becomes immediate while the cue remains legible.
 14. Quit while persistently hidden, relaunch, and confirm hidden cold launch remains stable.
+15. At representative narrow and wide window sizes, compare the saved left/right titlebar screenshots: left is unchanged; right anchors the whole lockup to the trailing edge with matching 10-point padding.
+16. Confirm full right-side persistent and hover-revealed screenshots retain `icon → awesoMux` order; 60-point rail screenshots retain the existing hidden-lockup treatment without clipping or a misplaced remnant.
+17. Switch rail/full while hidden, then hover reveal: the title lockup immediately uses the selected width but remains trailing-aligned throughout the temporary presentation.
 
 - [ ] **Step 6: Run preflight, refresh overlap, and commit verification hardening**
 
@@ -846,8 +1067,8 @@ Commit: `test(sidebar): harden hover refinement regressions`
 
 ## Subagent-Driven Execution Notes
 
-- Dispatch one fresh implementation subagent per task in order; Tasks 2–4 share central files and must not write concurrently.
+- Dispatch one fresh implementation subagent per task in order; Tasks 2–5 share central files and must not write concurrently.
 - After each task, dispatch a spec-compliance reviewer, then a code-quality reviewer. Fix findings before starting the next task.
 - Give every worker this plan path, the approved refinement spec, the original sidebar presentation spec, the task number, and the current commit SHA.
 - Each worker must preserve user changes, show the focused RED result before production edits, run the task's GREEN commands, and commit only its task.
-- After Task 5, run one whole-branch review against `origin/main...HEAD`; implementation is not publication-ready until that review and live verification are clean.
+- After Task 6, run one whole-branch review against `origin/main...HEAD`; implementation is not publication-ready until that review, titlebar screenshot comparison, and live verification are clean.
