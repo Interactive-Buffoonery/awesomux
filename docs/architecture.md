@@ -59,7 +59,7 @@ Native UI work should follow the shipped SwiftUI/AppKit patterns and shared toke
 
 - **Workspace group** — `SessionGroup`: named folder in the sidebar; contains ordered `TerminalSession` values.
 - **Session** — `TerminalSession`: one sidebar row; has `agentKind`, `agentState`, title, cwd metadata, and a **layout** of panes (`TerminalPane` tree via splits).
-- **Pane** — `TerminalPane`: one terminal slot; at runtime backed by a libghostty surface when visible.
+- **Pane** — `TerminalPane`: one terminal slot; at runtime backed by a libghostty surface when visible. Its durable `PaneExecutionPlan` declares local or SSH execution and is the authority for command routing and host-aware resource identity.
 - **Workspace tree** — `SessionGroup -> TerminalSession -> TerminalPaneLayout`: the hierarchy that backs sidebar groups, workspace rows, and split panes.
 - **Snapshot** — `SessionSnapshot`: Codable aggregate written to disk for restore (groups + selection + layout); see Persistence.
 
@@ -142,6 +142,7 @@ announcement intents.
 - **Location:** profile-scoped Application Support JSON (see `SessionPersistence.supportDirectoryURL`): installed/production builds use `Application Support/awesoMux/session-state.json`; the primary checkout's dev bundle (`com.interactivebuffoonery.awesomux.dev`) uses `Application Support/awesoMux-dev/session-state.json`; linked worktrees use `Application Support/awesoMux-dev-<worktree-id>/session-state.json`.
 - **Format:** JSON via `JSONEncoder` / `SessionSnapshot`; debounced writes to avoid thrashing.
 - **Safety:** size cap, corruption detection with archive-and-reset behavior, conservative restore sanitization (titles, cwd paths, layout depth, duplicate group names) so tampered files cannot violate UI invariants.
+- **Execution-plan migration:** pane plans are additive and do not bump the snapshot schema. A missing or null pane plan inherits the owning group's legacy `RemoteTarget` during restore; only a successfully decoded, non-null plan is authoritative. A true v1 session with no `layout` key follows the same inheritance rule for its synthesized pane. Malformed active pane plans fail decoding and trigger the normal archive-and-reset path, while malformed recently-closed rows remain isolated to that disposable row.
 
 The same runtime profile split scopes runtime event files, rendered integration
 artifacts, daemon pins, settings config, and the command-bridge socket namespace.

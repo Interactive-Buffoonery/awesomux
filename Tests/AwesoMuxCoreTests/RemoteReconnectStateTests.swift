@@ -1,11 +1,12 @@
 import Foundation
 import Testing
+
 @testable import AwesoMuxCore
 
 @MainActor
 @Suite("RemoteReconnectState")
 struct RemoteReconnectStateTests {
-    private let target = RemoteTarget(user: "ed", host: "box.example.com")
+    private let target = RemoteTarget(user: "ed", host: "box.example.com")!
 
     private func makeStore(
         session: TerminalSession,
@@ -16,11 +17,24 @@ struct RemoteReconnectStateTests {
         ])
     }
 
+    private func makeRemoteSession(
+        agentKind: AgentKind? = nil,
+        agentExecutionState: AgentExecutionState? = nil
+    ) -> TerminalSession {
+        TerminalSession(
+            title: "remote",
+            workingDirectory: "~",
+            agentKind: agentKind,
+            agentExecutionState: agentExecutionState,
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+    }
+
     // MARK: - recordPaneProcessError
 
     @Test("latches disconnected for a remote-group pane")
     func latchesDisconnectedForRemoteGroup() {
-        let session = TerminalSession(title: "remote", workingDirectory: "~")
+        let session = makeRemoteSession()
         let store = makeStore(session: session, remote: target)
 
         let recorded = store.recordPaneProcessError(
@@ -54,12 +68,7 @@ struct RemoteReconnectStateTests {
 
     @Test("clears state and resets a bridge-death error execution state")
     func clearsStateAndResetsErrorState() {
-        let session = TerminalSession(
-            title: "remote",
-            workingDirectory: "~",
-            agentKind: .claudeCode,
-            agentExecutionState: .running
-        )
+        let session = makeRemoteSession(agentKind: .claudeCode, agentExecutionState: .running)
         let store = makeStore(session: session, remote: target)
         store.recordPaneProcessError(
             in: session.id,
@@ -68,7 +77,10 @@ struct RemoteReconnectStateTests {
         )
         // Sanity: the bridge death actually latched .error + .disconnected
         // before we assert the confirm path clears both.
-        #expect(store.session(id: session.id)?.layout.pane(id: session.activePaneID)?.agentExecutionState == .error)
+        #expect(
+            store.session(id: session.id)?.layout.pane(id: session.activePaneID)?
+                .agentExecutionState
+                == .error)
 
         let confirmed = store.confirmPaneRemoteReconnected(
             sessionID: session.id,
@@ -90,12 +102,7 @@ struct RemoteReconnectStateTests {
         // Output-set error BEFORE the bridge died: the pane was already `.error`,
         // so the latch didn't displace a non-error state — confirm must NOT clear
         // it (INT-697 fix #2).
-        let outputError = TerminalSession(
-            title: "remote",
-            workingDirectory: "~",
-            agentKind: .claudeCode,
-            agentExecutionState: .error
-        )
+        let outputError = makeRemoteSession(agentKind: .claudeCode, agentExecutionState: .error)
         let storeA = makeStore(session: outputError, remote: target)
         storeA.recordPaneProcessError(
             in: outputError.id,
@@ -113,12 +120,7 @@ struct RemoteReconnectStateTests {
 
         // Clean pane whose bridge died: the latch DID displace a non-error
         // state, so confirm clears `.error`.
-        let cleanPane = TerminalSession(
-            title: "remote",
-            workingDirectory: "~",
-            agentKind: .claudeCode,
-            agentExecutionState: .running
-        )
+        let cleanPane = makeRemoteSession(agentKind: .claudeCode, agentExecutionState: .running)
         let storeB = makeStore(session: cleanPane, remote: target)
         storeB.recordPaneProcessError(
             in: cleanPane.id,
@@ -143,19 +145,16 @@ struct RemoteReconnectStateTests {
         // via `healCommandBridgePaneInPlace`, NOT the status `.attached` confirm.
         // Folding the clear into heal is what keeps that path from stranding the
         // "Reconnecting…" overlay over a healthy pane (INT-697 fix #1).
-        let session = TerminalSession(
-            title: "remote",
-            workingDirectory: "~",
-            agentKind: .claudeCode,
-            agentExecutionState: .running
-        )
+        let session = makeRemoteSession(agentKind: .claudeCode, agentExecutionState: .running)
         let store = makeStore(session: session, remote: target)
         store.recordPaneProcessError(
             in: session.id,
             paneID: session.activePaneID,
             terminalIsFocused: false
         )
-        #expect(store.session(id: session.id)?.layout.pane(id: session.activePaneID)?.remoteReconnect != nil)
+        #expect(
+            store.session(id: session.id)?.layout.pane(id: session.activePaneID)?.remoteReconnect
+                != nil)
 
         let healed = store.healCommandBridgePaneInPlace(
             sessionID: session.id,
@@ -171,7 +170,7 @@ struct RemoteReconnectStateTests {
 
     @Test("no-ops and returns false when nothing was latched")
     func noOpsWhenNothingLatched() {
-        let session = TerminalSession(title: "remote", workingDirectory: "~")
+        let session = makeRemoteSession()
         let store = makeStore(session: session, remote: target)
 
         let confirmed = store.confirmPaneRemoteReconnected(
@@ -189,7 +188,7 @@ struct RemoteReconnectStateTests {
 
     @Test("remoteReconnect is excluded from Codable")
     func excludedFromCodable() throws {
-        var pane = TerminalPane(title: "remote", workingDirectory: "~")
+        var pane = TerminalPane(title: "remote", workingDirectory: "~", executionPlan: .local)
         pane.remoteReconnect = .disconnected(.init(target: target))
 
         let data = try JSONEncoder().encode(pane)
@@ -200,13 +199,13 @@ struct RemoteReconnectStateTests {
 
     // MARK: - Moved while latched
 
-    @Test("moving to a local group preserves latched state and captured target")
+    @Test("moving to a local group preserves pane identity and latched target")
     func movedToLocalGroupPreservesState() {
-        let session = TerminalSession(title: "remote", workingDirectory: "~")
+        let session = makeRemoteSession()
         let localGroup = SessionGroup(name: "local", sessions: [])
         let store = SessionStore(groups: [
             SessionGroup(name: "remote-a", remote: target, sessions: [session]),
-            localGroup
+            localGroup,
         ])
         store.recordPaneProcessError(
             in: session.id,
@@ -218,17 +217,17 @@ struct RemoteReconnectStateTests {
 
         let pane = store.session(id: session.id)?.layout.pane(id: session.activePaneID)
         #expect(pane?.remoteReconnect == .disconnected(.init(target: target)))
-        #expect(store.remoteTarget(forSessionID: session.id) == nil)
+        #expect(store.remoteTarget(forSessionID: session.id) == target)
     }
 
     @Test("moving to another remote group preserves state and resolves the new live target")
     func movedToAnotherRemoteGroupPreservesStateAndResolvesNewTarget() {
-        let otherTarget = RemoteTarget(user: "ed", host: "other.example.com")
-        let session = TerminalSession(title: "remote", workingDirectory: "~")
+        let otherTarget = RemoteTarget(user: "ed", host: "other.example.com")!
+        let session = makeRemoteSession()
         let remoteGroupB = SessionGroup(name: "remote-b", remote: otherTarget, sessions: [])
         let store = SessionStore(groups: [
             SessionGroup(name: "remote-a", remote: target, sessions: [session]),
-            remoteGroupB
+            remoteGroupB,
         ])
         store.recordPaneProcessError(
             in: session.id,
@@ -241,8 +240,8 @@ struct RemoteReconnectStateTests {
         let pane = store.session(id: session.id)?.layout.pane(id: session.activePaneID)
         // The captured target at latch time survives unchanged...
         #expect(pane?.remoteReconnect == .disconnected(.init(target: target)))
-        // ...even though the LIVE group target now resolves to B (the overlay
-        // uses this for its button label per the plan's live-target-wins rule).
-        #expect(store.remoteTarget(forSessionID: session.id) == otherTarget)
+        // Moving groups does not retarget an existing pane; pane identity remains
+        // authoritative until an explicit retarget operation exists.
+        #expect(store.remoteTarget(forSessionID: session.id) == target)
     }
 }

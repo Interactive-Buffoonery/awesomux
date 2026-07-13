@@ -6,7 +6,7 @@ import Testing
 struct PaneLayoutReducerCloseTests {
     @Test("closePane returns session result when closing last pane")
     func closePaneReturnsSessionForLastPane() {
-        let pane = TerminalPane(title: "only", workingDirectory: "~")
+        let pane = TerminalPane(title: "only", workingDirectory: "~", executionPlan: .local)
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "~",
@@ -23,9 +23,9 @@ struct PaneLayoutReducerCloseTests {
 
     @Test("closePane picks adjacent pane as replacement when active pane is closed")
     func closePanePicksAdjacentReplacement() throws {
-        let first = TerminalPane(title: "first", workingDirectory: "/a")
-        let second = TerminalPane(title: "second", workingDirectory: "/b")
-        let third = TerminalPane(title: "third", workingDirectory: "/c")
+        let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
+        let third = TerminalPane(title: "third", workingDirectory: "/c", executionPlan: .local)
         let leftSplit = TerminalSplit(
             orientation: .vertical,
             first: .pane(first),
@@ -57,8 +57,8 @@ struct PaneLayoutReducerCloseTests {
 
     @Test("closePane keeps current active when closing non-active pane")
     func closePaneKeepsActiveWhenClosingOther() throws {
-        let first = TerminalPane(title: "first", workingDirectory: "/a")
-        let second = TerminalPane(title: "second", workingDirectory: "/b")
+        let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(first),
@@ -83,9 +83,9 @@ struct PaneLayoutReducerCloseTests {
 
     @Test("closePane adopts a surviving user-edited pane title after split collapse")
     func closePaneAdoptsSurvivingUserEditedPaneTitle() throws {
-        var surviving = TerminalPane(title: "My Backend", workingDirectory: "/a")
+        var surviving = TerminalPane(title: "My Backend", workingDirectory: "/a", executionPlan: .local)
         surviving.isTitleUserEdited = true
-        let closing = TerminalPane(title: "logs", workingDirectory: "/b")
+        let closing = TerminalPane(title: "logs", workingDirectory: "/b", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(surviving),
@@ -109,8 +109,8 @@ struct PaneLayoutReducerCloseTests {
 
     @Test("setActivePane syncs session chrome to new active pane")
     func setActivePaneSyncsChrome() throws {
-        let first = TerminalPane(title: "first", workingDirectory: "/a")
-        let second = TerminalPane(title: "second", workingDirectory: "/b")
+        let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(first),
@@ -132,7 +132,7 @@ struct PaneLayoutReducerCloseTests {
 
     @Test("setActivePane returns nil for same pane")
     func setActivePaneReturnsNilForSamePane() {
-        let pane = TerminalPane(title: "only", workingDirectory: "~")
+        let pane = TerminalPane(title: "only", workingDirectory: "~", executionPlan: .local)
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "~",
@@ -145,7 +145,7 @@ struct PaneLayoutReducerCloseTests {
 
     @Test("setActivePane returns nil for nonexistent pane")
     func setActivePaneReturnsNilForMissingPane() {
-        let pane = TerminalPane(title: "only", workingDirectory: "~")
+        let pane = TerminalPane(title: "only", workingDirectory: "~", executionPlan: .local)
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "~",

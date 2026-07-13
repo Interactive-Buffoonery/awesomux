@@ -15,13 +15,15 @@ struct GhosttySurfaceAttentionTests {
             title: "codex",
             workingDirectory: "~",
             agentKind: .codex,
-            agentExecutionState: .running
+            agentExecutionState: .running,
+            executionPlan: .local
         )
         let sibling = TerminalPane(
             title: "claude",
             workingDirectory: "~",
             agentKind: .claudeCode,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",

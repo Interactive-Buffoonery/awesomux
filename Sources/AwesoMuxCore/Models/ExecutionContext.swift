@@ -1,0 +1,45 @@
+import Foundation
+
+public enum ExecutionOperation: Hashable, Sendable {
+    case inspectLocalFilesystem
+    case revealInFinder
+    case launchLocalShellFallback
+}
+
+public enum CapabilityDenialReason: Hashable, Sendable {
+    case requiresLocalExecution
+}
+
+public enum CapabilityDecision: Hashable, Sendable {
+    case allowed
+    case denied(CapabilityDenialReason)
+
+    public var isAllowed: Bool {
+        self == .allowed
+    }
+}
+
+public struct ExecutionContext: Hashable, Sendable {
+    public let plan: PaneExecutionPlan
+
+    public init(plan: PaneExecutionPlan) {
+        self.plan = plan
+    }
+
+    public func capability(_ operation: ExecutionOperation) -> CapabilityDecision {
+        switch (plan, operation) {
+        case (.local, .inspectLocalFilesystem),
+            (.local, .revealInFinder),
+            (.local, .launchLocalShellFallback):
+            .allowed
+        case (.ssh, .inspectLocalFilesystem),
+            (.ssh, .revealInFinder),
+            (.ssh, .launchLocalShellFallback):
+            .denied(.requiresLocalExecution)
+        }
+    }
+
+    public func resourceIdentity(for path: ResourcePath) -> ResourceIdentity {
+        ResourceIdentity(location: plan.location, path: path)
+    }
+}

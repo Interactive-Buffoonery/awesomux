@@ -11,7 +11,7 @@ import Testing
 struct BridgeDoctorSignalsTests {
     private static let context = BridgeDoctorSignals.Context(
         controlPath: "/tmp/ctl/%C",
-        remote: RemoteTarget(user: "ed", host: "box"),
+        remote: RemoteTarget(user: "ed", host: "box")!,
         helperPath: "/home/ed/.awesomux/bin/awesomux-bridge-helper",
         session: TerminalSessionID(rawValue: "abc-session")!,
         stateFilePath: "/home/ed/.awesomux/bridge/abc-session.json"
@@ -192,7 +192,7 @@ struct BridgeDoctorSignalsTests {
         )
         let context = BridgeDoctorSignals.Context(
             controlPath: "/tmp/ctl/%C",
-            remote: RemoteTarget(user: "ed", host: "box"),
+            remote: RemoteTarget(user: "ed", host: "box")!,
             helperPath: "/home/ed/.awesomux/bin/awesomux-bridge-helper",
             session: TerminalSessionID(rawValue: "abc-session")!,
             stateFilePath: "/home/ed/.awesomux/bridge/\(hostileToken).json"

@@ -21,7 +21,8 @@ struct PanePeekItemTests {
             agentKind: kind,
             agentExecutionState: execution,
             attentionReason: attention,
-            unreadNotificationCount: unread
+            unreadNotificationCount: unread,
+            executionPlan: .local
         )
     }
 
@@ -159,7 +160,8 @@ struct PanePeekItemTests {
         )
         let busy = TerminalPane(
             id: calm.id, title: "a", workingDirectory: "~",
-            agentKind: .codex, agentExecutionState: .running
+            agentKind: .codex, agentExecutionState: .running,
+            executionPlan: .local
         )
         let busySession = TerminalSession(
             title: "ws", workingDirectory: "~",

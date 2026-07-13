@@ -215,6 +215,9 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             in: reidentifiedLayout(
                 entry.layout,
                 indexHint: insertionIndex + 1,
+                legacyExecutionPlan: entry.groupRemote.map {
+                    PaneExecutionPlan.ssh(SSHExecution(target: $0))
+                } ?? .local,
                 paneIDRemap: &paneIDRemap,
                 seenTerminalSessionIDs: &seenTerminalSessionIDs,
                 seenPaneIDs: &seenPaneIDs
@@ -322,6 +325,9 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         if session.layout.hasMultiplePanes {
             return true
         }
+        if session.panes.contains(where: { $0.executionPlan.remoteTarget != nil }) {
+            return true
+        }
         if hasMeaningfulWorkingDirectory(session.workingDirectory) {
             return true
         }
@@ -345,6 +351,7 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
     static func reidentifiedLayout(
         _ layout: TerminalPaneLayout,
         indexHint: Int,
+        legacyExecutionPlan: PaneExecutionPlan = .local,
         paneIDRemap: inout [TerminalPane.ID: TerminalPane.ID],
         seenTerminalSessionIDs: inout Set<TerminalSessionID>,
         seenPaneIDs: inout Set<TerminalPane.ID>
@@ -420,13 +427,18 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 color: pane.color,
                 agentKind: pane.agentKind,
                 agentExecutionState: preservedDaemonIdentity
-                    ? SessionRestoreReducer.restoredAgentExecutionState(pane.agentExecutionState)
-                    : .idle
+                        ? SessionRestoreReducer.restoredAgentExecutionState(
+                            pane.agentExecutionState)
+                        : .idle,
+                    executionPlan: pane.hasExplicitExecutionPlan
+                        ? pane.executionPlan
+                        : legacyExecutionPlan
             ))
         case .split(let split):
             let first = reidentifiedLayout(
                 split.first,
                 indexHint: indexHint,
+                legacyExecutionPlan: legacyExecutionPlan,
                 paneIDRemap: &paneIDRemap,
                 seenTerminalSessionIDs: &seenTerminalSessionIDs,
                 seenPaneIDs: &seenPaneIDs
@@ -434,11 +446,13 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             let second = reidentifiedLayout(
                 split.second,
                 indexHint: indexHint,
+                legacyExecutionPlan: legacyExecutionPlan,
                 paneIDRemap: &paneIDRemap,
                 seenTerminalSessionIDs: &seenTerminalSessionIDs,
                 seenPaneIDs: &seenPaneIDs
             )
-            return .split(TerminalSplit(
+            return .split(
+                TerminalSplit(
                 id: UUID(),
                 orientation: split.orientation,
                 first: first,

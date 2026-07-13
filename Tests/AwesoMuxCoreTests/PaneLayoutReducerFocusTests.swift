@@ -8,9 +8,9 @@ struct PaneLayoutReducerFocusTests {
     private func makeThreePaneSession(
         active: (TerminalPane, TerminalPane, TerminalPane) -> TerminalPane
     ) -> (session: TerminalSession, panes: (TerminalPane, TerminalPane, TerminalPane)) {
-        let first = TerminalPane(title: "first", workingDirectory: "/a")
-        let second = TerminalPane(title: "second", workingDirectory: "/b")
-        let third = TerminalPane(title: "third", workingDirectory: "/c")
+        let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
+        let third = TerminalPane(title: "third", workingDirectory: "/c", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .split(TerminalSplit(
@@ -63,7 +63,7 @@ struct PaneLayoutReducerFocusTests {
 
     @Test("focusPane(at:) returns nil on a single-pane session")
     func nilForSinglePane() {
-        let pane = TerminalPane(title: "only", workingDirectory: "~")
+        let pane = TerminalPane(title: "only", workingDirectory: "~", executionPlan: .local)
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "~",

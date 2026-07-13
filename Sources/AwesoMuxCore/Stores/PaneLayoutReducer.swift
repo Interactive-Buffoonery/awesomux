@@ -31,7 +31,8 @@ struct PaneLayoutReducer: Sendable {
         let newPane = TerminalPane(
             title: Self.freshPaneSeedTitle(from: activePane),
             workingDirectory: activePane.workingDirectory,
-            lastAgentStateChangeAt: now
+            lastAgentStateChangeAt: now,
+            executionPlan: activePane.executionPlan
         )
 
         // `.done` outranks `.idle`, so clear stale completion before adding a
@@ -510,12 +511,15 @@ struct PaneLayoutReducer: Sendable {
             title: Self.freshPaneSeedTitle(from: activePane),
             workingDirectory: activePane.workingDirectory,
             color: activePane.color,
-            lastAgentStateChangeAt: now
+            lastAgentStateChangeAt: now,
+            executionPlan: activePane.executionPlan
         )
-        guard var layout = session.layout.replacingPane(
+        guard
+            var layout = session.layout.replacingPane(
             id: activePane.id,
             with: .pane(recycledPane)
-        ) else {
+            )
+        else {
             return nil
         }
 

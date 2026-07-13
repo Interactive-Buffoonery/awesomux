@@ -5,6 +5,7 @@ Read this before doing any work in this repo. This file is the shared source of 
 ## Read first
 
 - Start with [`CONTEXT.md`](CONTEXT.md), [`docs/architecture.md`](docs/architecture.md), [`docs/ghostty-integration.md`](docs/ghostty-integration.md), and relevant ADRs in [`docs/adr/`](docs/adr/).
+- If `.agents/AGENTS.md` exists, read it for checkout-local notes that supplement these shared instructions.
 - For UI/design work, follow the existing SwiftUI/AppKit patterns and the tokens under [`Sources/DesignSystem/`](Sources/DesignSystem/).
 
 ## Project

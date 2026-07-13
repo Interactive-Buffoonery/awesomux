@@ -696,11 +696,13 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
         // pane B newly crosses — the banner should still show A's kind.
         let paneA = TerminalPane(
             title: "claude", workingDirectory: "~", agentKind: .claudeCode,
-            attentionReason: .userInputRequired, unreadNotificationCount: 1
+            attentionReason: .userInputRequired, unreadNotificationCount: 1,
+            executionPlan: .local
         )
         let paneB = TerminalPane(
             title: "codex", workingDirectory: "~", agentKind: .codex,
-            unreadNotificationCount: 0
+            unreadNotificationCount: 0,
+            executionPlan: .local
         )
         let initial = TerminalSession(
             title: "split",
@@ -718,7 +720,8 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
 
         let paneBUpdated = TerminalPane(
             id: paneB.id, title: "codex", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt, unreadNotificationCount: 1
+            attentionReason: .permissionPrompt, unreadNotificationCount: 1,
+            executionPlan: .local
         )
         let updated = TerminalSession(
             id: initial.id,
@@ -900,21 +903,23 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
 
         let events = tracker.notificationEvents(
             afterUpdating: [
-                SessionGroup(name: "awesoMux", sessions: [
-                    makeSession(
-                        id: muted.id,
-                        title: "muted",
-                        state: .needsAttention,
-                        unreadNotificationCount: 1,
-                        notificationsMuted: true
-                    ),
-                    makeSession(
-                        id: loud.id,
-                        title: "loud",
-                        state: .needsAttention,
-                        unreadNotificationCount: 1
-                    )
-                ])
+                SessionGroup(
+                    name: "awesoMux",
+                    sessions: [
+                        makeSession(
+                            id: muted.id,
+                            title: "muted",
+                            state: .needsAttention,
+                            unreadNotificationCount: 1,
+                            notificationsMuted: true
+                        ),
+                        makeSession(
+                            id: loud.id,
+                            title: "loud",
+                            state: .needsAttention,
+                            unreadNotificationCount: 1
+                        ),
+                    ])
             ],
             selectedSessionID: nil,
             isAppActive: false
@@ -931,11 +936,13 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
         // which pane the loop reaches first.
         let turnDone = TerminalPane(
             title: "codex", workingDirectory: "~", agentKind: .codex,
-            agentExecutionState: .waiting, attentionReason: nil
+            agentExecutionState: .waiting, attentionReason: nil,
+            executionPlan: .local
         )
         let needy = TerminalPane(
             title: "claude", workingDirectory: "~", agentKind: .claudeCode,
-            agentExecutionState: .waiting, attentionReason: .permissionPrompt
+            agentExecutionState: .waiting, attentionReason: .permissionPrompt,
+            executionPlan: .local,
         )
         let session = makeSplitSession(first: turnDone, second: needy)
         var tracker = WorkspaceNotificationTracker(groups: [
@@ -964,11 +971,13 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
         // its own baseline and consuming the one-per-workspace slot.
         let needy = TerminalPane(
             title: "claude", workingDirectory: "~", agentKind: .claudeCode,
-            agentExecutionState: .waiting, attentionReason: .permissionPrompt
+            agentExecutionState: .waiting, attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let turnDone = TerminalPane(
             title: "codex", workingDirectory: "~", agentKind: .codex,
-            agentExecutionState: .waiting, attentionReason: nil
+            agentExecutionState: .waiting, attentionReason: nil,
+            executionPlan: .local
         )
         let session = makeSplitSession(first: needy, second: turnDone)
         var tracker = WorkspaceNotificationTracker(groups: [
@@ -999,7 +1008,8 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
             agentKind: pane.agentKind,
             agentExecutionState: pane.agentExecutionState,
             attentionReason: pane.attentionReason,
-            unreadNotificationCount: pane.unreadNotificationCount + 1
+            unreadNotificationCount: pane.unreadNotificationCount + 1,
+            executionPlan: .local
         )
     }
 
@@ -1040,7 +1050,8 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 agentKind: .claudeCode,
                 agentState: state,
-                unreadNotificationCount: unreadNotificationCount
+                    unreadNotificationCount: unreadNotificationCount,
+                    executionPlan: .local
             ))
         }
         return TerminalSession(

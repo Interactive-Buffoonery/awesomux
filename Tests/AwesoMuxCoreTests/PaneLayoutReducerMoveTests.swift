@@ -10,8 +10,8 @@ struct PaneLayoutReducerMoveTests {
     private func makeSideBySideSession(
         active: (TerminalPane, TerminalPane) -> TerminalPane
     ) -> (session: TerminalSession, left: TerminalPane, right: TerminalPane) {
-        let left = TerminalPane(title: "left", workingDirectory: "/l")
-        let right = TerminalPane(title: "right", workingDirectory: "/r")
+        let left = TerminalPane(title: "left", workingDirectory: "/l", executionPlan: .local)
+        let right = TerminalPane(title: "right", workingDirectory: "/r", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(left),
@@ -33,9 +33,9 @@ struct PaneLayoutReducerMoveTests {
     private func makeThreePaneSession(
         active: (TerminalPane, TerminalPane, TerminalPane) -> TerminalPane
     ) -> (session: TerminalSession, panes: (TerminalPane, TerminalPane, TerminalPane)) {
-        let a = TerminalPane(title: "a", workingDirectory: "/a")
-        let b = TerminalPane(title: "b", workingDirectory: "/b")
-        let c = TerminalPane(title: "c", workingDirectory: "/c")
+        let a = TerminalPane(title: "a", workingDirectory: "/a", executionPlan: .local)
+        let b = TerminalPane(title: "b", workingDirectory: "/b", executionPlan: .local)
+        let c = TerminalPane(title: "c", workingDirectory: "/c", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .horizontal,
             first: .split(TerminalSplit(
@@ -133,7 +133,7 @@ struct PaneLayoutReducerMoveTests {
 
     @Test("single-pane layout rejects every workspace-edge move")
     func singlePaneRejectsWorkspaceEdgeMove() {
-        let pane = TerminalPane(title: "only", workingDirectory: "~")
+        let pane = TerminalPane(title: "only", workingDirectory: "~", executionPlan: .local)
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "~",
@@ -224,7 +224,7 @@ struct PaneLayoutReducerMoveTests {
 
     @Test("adjacent move in a single-pane layout is rejected")
     func adjacentMoveSinglePaneRejected() {
-        let pane = TerminalPane(title: "only", workingDirectory: "~")
+        let pane = TerminalPane(title: "only", workingDirectory: "~", executionPlan: .local)
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "~",

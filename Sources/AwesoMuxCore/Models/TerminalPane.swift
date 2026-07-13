@@ -10,14 +10,24 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// `TerminalSession.isTitleUserEdited`. Reset clears it. Persisted.
     public var isTitleUserEdited: Bool
     public var workingDirectory: String
+    /// Durable authority for where this pane executes and who owns its
+    /// persistent terminal session. Observed title/connection metadata below
+    /// may enrich presentation but never retarget this plan.
+    public var executionPlan: PaneExecutionPlan
+    /// Decode-only migration marker. Missing legacy plan state is represented
+    /// as a local placeholder until a group-aware restore reducer replaces it.
+    /// Excluded from Codable/equality/hash and discharged before restored state
+    /// becomes usable.
+    var hasExplicitExecutionPlan: Bool
     /// The pane's name-plate tint, shown on the per-pane title bar. `nil` = the
     /// default neutral chrome band; there is no inheritance. Persisted.
     public var color: PaneColor?
     /// The remote host when this pane is in an SSH/remote session, else nil.
     /// Detected from the terminal title and cleared by a local OSC 7 pwd event
     /// (see `RemoteSessionDetector` / `SessionStore.updatePane`). **Ephemeral —
-    /// deliberately excluded from `Codable`:** a restored pane is local until the
-    /// live shell proves otherwise, so it must never come back "remote" from disk.
+    /// deliberately excluded from `Codable`:** restore retains declared location
+    /// through `executionPlan`, while this observed signal starts empty until the
+    /// live shell proves the connection's presentation state.
     public var remoteHost: String?
     /// Runtime-only SSH target captured from the submitted `ssh` command. This
     /// may be an SSH config alias, unlike `remoteHost`, which comes from the
@@ -102,7 +112,8 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         needsTerminalQuitConfirmation: Bool = false,
         foregroundProcessLiveness: ForegroundProcessLiveness = .unsampled,
         progressReport: TerminalProgressReport? = nil,
-        unreadNotificationCount: Int = 0
+        unreadNotificationCount: Int = 0,
+        executionPlan: PaneExecutionPlan
     ) {
         self.id = id
         self.terminalSessionID = terminalSessionID
@@ -110,6 +121,8 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.title = title
         self.isTitleUserEdited = isTitleUserEdited
         self.workingDirectory = workingDirectory
+        self.executionPlan = executionPlan
+        hasExplicitExecutionPlan = true
         self.color = color
         self.remoteHost = remoteHost
         self.remoteSSHTarget = remoteSSHTarget
@@ -245,11 +258,12 @@ public extension TerminalPane {
     // runtime-mutable (`empty` → `established` on attach) and nothing renders
     // it, so folding it into equality would spuriously re-render on establish —
     // the exact failure mode the runtime-field exclusion exists to prevent.
-    static func == (lhs: TerminalPane, rhs: TerminalPane) -> Bool {
+    public static func == (lhs: TerminalPane, rhs: TerminalPane) -> Bool {
         lhs.id == rhs.id
             && lhs.title == rhs.title
             && lhs.isTitleUserEdited == rhs.isTitleUserEdited
             && lhs.workingDirectory == rhs.workingDirectory
+            && lhs.executionPlan == rhs.executionPlan
             && lhs.color == rhs.color
             && lhs.remoteHost == rhs.remoteHost
             && lhs.remoteSSHTarget == rhs.remoteSSHTarget
@@ -262,11 +276,12 @@ public extension TerminalPane {
             && lhs.remoteReconnect == rhs.remoteReconnect
     }
 
-    func hash(into hasher: inout Hasher) {
+    public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
         hasher.combine(title)
         hasher.combine(isTitleUserEdited)
         hasher.combine(workingDirectory)
+        hasher.combine(executionPlan)
         hasher.combine(color)
         hasher.combine(remoteHost)
         hasher.combine(remoteSSHTarget)

@@ -144,10 +144,7 @@ final class CommandBridgeEnactor {
         let channel: AmxStatusChannel? = bridgeEnabled
             ? AmxBackend.makeStatusChannel(for: pane.terminalSessionID)
             : nil
-        // ponytail: a local (non-remote) group returns `remote == nil`, so the
-        // attach string is byte-identical to today — this change is inert for
-        // every existing pane.
-        let remote = sessionStore.remoteTarget(forSessionID: hostSessionID)
+        let remote = pane.executionPlan.remoteTarget
         let attachCommand: String? = {
             guard bridgeEnabled else { return nil }
             if let channel {
@@ -158,7 +155,7 @@ final class CommandBridgeEnactor {
         let policyResult = BridgeSurfaceCommandPolicy.command(
             bridgeEnabled: bridgeEnabled,
             attachCommandAvailable: attachCommand != nil,
-            isRemote: remote != nil
+            executionPlan: pane.executionPlan
         )
         switch policyResult {
         case .bridgeAttach:
@@ -674,7 +671,7 @@ final class CommandBridgeEnactor {
     private func decideExitFromStatus() {
         let reason = latestSessionEndReason
         let exitCode = latestSessionEndCode
-        let isRemote = sessionStore.remoteTarget(forSessionID: hostSessionID) != nil
+        let isRemote = host.pane.executionPlan.remoteTarget != nil
         let command = BridgeSessionEndPolicy.decide(
             reason: reason,
             bridgeEnabled: runtime.isCommandBridgeEnabled,

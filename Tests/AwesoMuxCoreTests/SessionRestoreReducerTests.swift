@@ -11,7 +11,7 @@ struct SessionRestoreReducerTests {
         var seenPanes: Set<TerminalPane.ID> = [collidingID] // pre-seed so this pane collides
         var seenTerminalSessionIDs: Set<TerminalSessionID> = []
         let layout = TerminalPaneLayout.pane(
-            TerminalPane(id: collidingID, title: "agent", workingDirectory: "/tmp")
+            TerminalPane(id: collidingID, title: "agent", workingDirectory: "/tmp", executionPlan: .local)
         )
 
         let result = SessionRestoreReducer.restoredLayout(
@@ -89,7 +89,7 @@ struct SessionRestoreReducerTests {
     @Test("restore sanitizes visible fields, merges duplicate groups, and preserves waiting")
     func restoreSanitizesAndPreservesWaiting() throws {
         let sharedSessionID = UUID()
-        let pane = TerminalPane(id: UUID(), title: "\u{202E}", workingDirectory: "\u{0000}")
+        let pane = TerminalPane(id: UUID(), title: "\u{202E}", workingDirectory: "\u{0000}", executionPlan: .local)
         let dirty = TerminalSession(
             id: sharedSessionID,
             title: "\u{202E}",
@@ -135,27 +135,31 @@ struct SessionRestoreReducerTests {
             title: "",
             workingDirectory: "~",
             agentKind: .codex,
-            agentExecutionState: .thinking
+            agentExecutionState: .thinking,
+            executionPlan: .local
         )
         let staleAttention = TerminalPane(
             title: "stale-attention",
             workingDirectory: "~",
             agentKind: .codex,
             agentExecutionState: .error,
-            attentionReason: .processError
+            attentionReason: .processError,
+            executionPlan: .local
         )
         let waiting = TerminalPane(
             title: "waiting",
             workingDirectory: "~",
             agentKind: .claudeCode,
-            agentExecutionState: .waiting
+            agentExecutionState: .waiting,
+            executionPlan: .local
         )
         let livePrompt = TerminalPane(
             title: "prompt",
             workingDirectory: "~",
             agentKind: .codex,
             agentExecutionState: .thinking,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "",
@@ -227,7 +231,7 @@ struct SessionRestoreReducerTests {
 
     @Test("restore preserves a remote workgroup's target")
     func restorePreservesRemoteTarget() {
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         let session = TerminalSession(title: "shell 1", workingDirectory: "~", agentKind: .shell)
         let snapshot = SessionSnapshot(
             groups: [SessionGroup(name: "box", remote: target, sessions: [session])],
@@ -248,7 +252,7 @@ struct SessionRestoreReducerTests {
     @Test("duplicate group id reassignment preserves persisted group fields")
     func duplicateGroupIDReassignmentPreservesRemoteTarget() {
         let sharedGroupID = UUID()
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         let first = TerminalSession(title: "first", workingDirectory: "~", agentKind: .shell)
         let second = TerminalSession(title: "second", workingDirectory: "~", agentKind: .shell)
         let snapshot = SessionSnapshot(
@@ -281,7 +285,7 @@ struct SessionRestoreReducerTests {
         arguments: [true, false]
     )
     func sameNameMergeRefusesTransportMismatch(remoteFirst: Bool) {
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         let localSession = TerminalSession(title: "local", workingDirectory: "~", agentKind: .shell)
         let remoteSession = TerminalSession(title: "remote", workingDirectory: "~", agentKind: .shell)
         let localGroup = SessionGroup(name: "box", sessions: [localSession])
@@ -315,7 +319,7 @@ struct SessionRestoreReducerTests {
 
     @Test("a synthetic disambiguated name never swallows a legitimate later group")
     func syntheticNameDodgesLegitimateLaterGroup() {
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         let localSession = TerminalSession(title: "local", workingDirectory: "~", agentKind: .shell)
         let remoteSession = TerminalSession(title: "remote", workingDirectory: "~", agentKind: .shell)
         let preexisting = TerminalSession(title: "always-two", workingDirectory: "~", agentKind: .shell)
@@ -344,7 +348,7 @@ struct SessionRestoreReducerTests {
 
     @Test("same-name merge with an equal remote target still folds")
     func sameNameMergeWithEqualRemoteStillMerges() {
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         let first = TerminalSession(title: "first", workingDirectory: "~", agentKind: .shell)
         let second = TerminalSession(title: "second", workingDirectory: "~", agentKind: .shell)
         let snapshot = SessionSnapshot(

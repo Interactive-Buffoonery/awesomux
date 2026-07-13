@@ -12,7 +12,7 @@ import Testing
 @MainActor
 @Suite("Bridge attach teardown wiring")
 struct BridgeAttachTeardownWiringTests {
-    private static let remote = RemoteTarget(user: "alice", host: "box")
+    private static let remote = RemoteTarget(user: "alice", host: "box")!
 
     // MARK: - Fixture
 
@@ -30,7 +30,8 @@ struct BridgeAttachTeardownWiringTests {
         let pane = TerminalPane(
             terminalSessionID: terminalSessionID,
             title: "bridge",
-            workingDirectory: "/tmp/bridge"
+            workingDirectory: "/tmp/bridge",
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "session",

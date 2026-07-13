@@ -8,8 +8,8 @@ import Testing
 /// exercisable via GUI smoke.
 @Suite("Remote pane disconnected overlay content")
 struct RemotePaneDisconnectedContentTests {
-    private let capturedTarget = RemoteTarget(user: "deploy", host: "prod.example")
-    private let movedTarget = RemoteTarget(user: "deploy", host: "staging.example")
+    private let capturedTarget = RemoteTarget(user: "deploy", host: "prod.example")!
+    private let movedTarget = RemoteTarget(user: "deploy", host: "staging.example")!
 
     @Test("disconnected with a live target: enabled button naming the LIVE host")
     func disconnectedWithLiveTarget() {

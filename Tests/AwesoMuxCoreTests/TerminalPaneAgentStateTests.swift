@@ -6,16 +6,16 @@ import Foundation
 struct TerminalPaneAgentStateTests {
     @Test("A fresh agent pane seeds its execution state from the kind")
     func seedsInitialStateFromKind() {
-        let codex = TerminalPane(title: "t", workingDirectory: "~", agentKind: .codex)
+        let codex = TerminalPane(title: "t", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
         #expect(codex.agentExecutionState == .running)
 
-        let shell = TerminalPane(title: "t", workingDirectory: "~", agentKind: .shell)
+        let shell = TerminalPane(title: "t", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         #expect(shell.agentExecutionState == .idle)
     }
 
     @Test("agentState folds execution + attention like the session projection did")
     func agentStateProjection() {
-        var pane = TerminalPane(title: "t", workingDirectory: "~", agentKind: .codex)
+        var pane = TerminalPane(title: "t", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
         pane.agentExecutionState = .thinking
         #expect(pane.agentState == .thinking)
 
@@ -25,7 +25,7 @@ struct TerminalPaneAgentStateTests {
 
     @Test("effectiveChromeState collapses idle shells, keeps explicit attention")
     func effectiveChromeStateForShell() {
-        var shell = TerminalPane(title: "t", workingDirectory: "~", agentKind: .shell)
+        var shell = TerminalPane(title: "t", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         shell.agentExecutionState = .running
         shell.shellActivity = .idle
         #expect(shell.effectiveChromeState == .idle)
@@ -40,7 +40,7 @@ struct TerminalPaneAgentStateTests {
 
     @Test("effectiveChromeState collapses a stale shell .done at an idle prompt")
     func effectiveChromeStateCollapsesStaleShellDone() {
-        var shell = TerminalPane(title: "t", workingDirectory: "~", agentKind: .shell)
+        var shell = TerminalPane(title: "t", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         shell.agentExecutionState = .done
 
         shell.shellActivity = .idle
@@ -57,7 +57,7 @@ struct TerminalPaneAgentStateTests {
     @Test("quit risk: running agent pane is at risk until it ages out")
     func quitRiskAgesOut() {
         let now = Date()
-        var pane = TerminalPane(title: "t", workingDirectory: "~", agentKind: .codex)
+        var pane = TerminalPane(title: "t", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
         pane.agentExecutionState = .running
         pane.lastAgentStateChangeAt = now
         #expect(pane.isQuitRisk(at: now) == true)
@@ -68,7 +68,7 @@ struct TerminalPaneAgentStateTests {
 
     @Test("quit risk: idle shell at a prompt is safe, away from prompt is risky")
     func quitRiskShell() {
-        var shell = TerminalPane(title: "t", workingDirectory: "~", agentKind: .shell)
+        var shell = TerminalPane(title: "t", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         #expect(shell.isQuitRisk() == false)
 
         shell.needsTerminalQuitConfirmation = true
@@ -77,7 +77,7 @@ struct TerminalPaneAgentStateTests {
 
     @Test("the four durable agent fields round-trip through Codable; runtime fields reset")
     func codableRoundTrip() throws {
-        var pane = TerminalPane(title: "t", workingDirectory: "~", agentKind: .codex)
+        var pane = TerminalPane(title: "t", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
         pane.agentExecutionState = .thinking
         pane.attentionReason = .permissionPrompt
         pane.unreadNotificationCount = 3

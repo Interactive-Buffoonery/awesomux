@@ -6,8 +6,8 @@ import Testing
 @Suite
 struct SetPaneColorTests {
     private func splitSession() -> (TerminalSession, TerminalPane.ID, TerminalPane.ID) {
-        let left = TerminalPane(title: "left", workingDirectory: "/l")
-        let right = TerminalPane(title: "right", workingDirectory: "/r")
+        let left = TerminalPane(title: "left", workingDirectory: "/l", executionPlan: .local)
+        let right = TerminalPane(title: "right", workingDirectory: "/r", executionPlan: .local)
         let session = TerminalSession(
             title: "ws",
             workingDirectory: "~",
@@ -77,9 +77,9 @@ struct SetPaneColorTests {
     func setsColorOnDeepPaneInNestedSplit() throws {
         // Tree: root split → (left pane, inner split → (innerLeft, innerRight))
         // Confirms the reducer walks more than one level deep.
-        let left = TerminalPane(title: "left", workingDirectory: "/l")
-        let innerLeft = TerminalPane(title: "innerLeft", workingDirectory: "/il")
-        let innerRight = TerminalPane(title: "innerRight", workingDirectory: "/ir")
+        let left = TerminalPane(title: "left", workingDirectory: "/l", executionPlan: .local)
+        let innerLeft = TerminalPane(title: "innerLeft", workingDirectory: "/il", executionPlan: .local)
+        let innerRight = TerminalPane(title: "innerRight", workingDirectory: "/ir", executionPlan: .local)
         let innerSplit = TerminalSplit(
             orientation: .horizontal,
             first: .pane(innerLeft),

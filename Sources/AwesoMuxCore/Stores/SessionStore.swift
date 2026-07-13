@@ -492,11 +492,12 @@ public final class SessionStore {
         return seeded
     }
 
-    /// The declared SSH target of the group that owns `id`, if any. Read-only —
-    /// no publish. Used by the bridge spawn path to decide ssh-vs-local-shell.
+    /// The active pane's declared SSH target, if any. Read-only — no publish.
+    /// Used by the bridge spawn path to decide ssh-vs-local-shell.
     public func remoteTarget(forSessionID id: TerminalSession.ID) -> RemoteTarget? {
         guard let position = position(for: id) else { return nil }
-        return _groups[position.groupIndex].remote
+        let session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        return session.activePane?.executionPlan.remoteTarget
     }
 
     /// Acknowledges the session's ACTIVE pane (selection dwell / per-row clear).

@@ -238,7 +238,8 @@ struct WorkspaceMutationCommitTests {
             remoteHost: "remote.example",
             agentKind: .codex,
             agentExecutionState: .thinking,
-            unreadNotificationCount: 3
+            unreadNotificationCount: 3,
+            executionPlan: .local
         )
         let replacement = TerminalSession(
             title: "replacement",

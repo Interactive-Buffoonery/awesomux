@@ -16,8 +16,8 @@ import Testing
     }
 
     @Test func layoutWithoutGroupsIsUnchanged() {
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp")
-        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp")
+        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp", executionPlan: .local)
+        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical, first: .pane(t1), second: .pane(t2)
         ))
@@ -25,7 +25,7 @@ import Testing
     }
 
     @Test func singleGroupBackfillsAssociationInPlace() throws {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let tab = makeTab("a.md")
         let group = singleTabGroup(tab)
         let layout = TerminalPaneLayout.split(TerminalSplit(
@@ -57,8 +57,8 @@ import Testing
         // Pre-v5 shape after layer-1 decode: each doc is a single-tab group at
         // its original split position, each beside a DIFFERENT terminal:
         // .split(.split(t1, groupA), .split(t2, groupB))
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp")
-        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp")
+        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp", executionPlan: .local)
+        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp", executionPlan: .local)
         let tabA = makeTab("a.md")
         let tabB = makeTab("b.md")
         let groupA = singleTabGroup(tabA)
@@ -92,7 +92,7 @@ import Testing
     }
 
     @Test func existingAssociationIsNotOverwrittenByBackfill() throws {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let recordedID = TerminalPane.ID()
         var tab = makeTab("a.md")
         tab.associatedTerminalPaneID = recordedID

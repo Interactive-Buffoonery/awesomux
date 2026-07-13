@@ -17,7 +17,7 @@ import Testing
 
     @Test("closing the last tab removes the viewer and leaves activePaneID unchanged")
     func closingLastTabRemovesViewerKeepsTerminal() throws {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let doc = makeDoc()
         let session = TerminalSession(
             title: "s",
@@ -52,7 +52,7 @@ import Testing
 
     @Test("closing one tab keeps the group, other tabs, and their associations intact")
     func closingOneTabPreservesOthers() throws {
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp")
+        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp", executionPlan: .local)
         var docA = makeDoc()
         docA.associatedTerminalPaneID = t1.id
         var docB = makeDoc()
@@ -90,7 +90,7 @@ import Testing
 
     @Test("closing an unselected tab keeps the current selection")
     func closingUnselectedTabKeepsSelection() throws {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let docA = makeDoc()
         let docB = makeDoc()
         let session = TerminalSession(
@@ -114,7 +114,7 @@ import Testing
 
     @Test("closing the selected middle tab selects the tab that took its index")
     func closingSelectedMiddleTabSelectsNeighbor() throws {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let docA = makeDoc()
         let docB = makeDoc()
         let docC = makeDoc()
@@ -138,7 +138,7 @@ import Testing
 
     @Test("closeDocumentPane with unknown id is a no-op")
     func closeDocumentPaneUnknownIDIsNoOp() throws {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let doc = makeDoc()
         let session = TerminalSession(
             title: "s",

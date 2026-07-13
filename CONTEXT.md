@@ -37,6 +37,8 @@ Add rows here when a term is used repeatedly in code, issues, or ADRs and the me
 | **Workspace tree** | The `SessionGroup -> TerminalSession -> TerminalPaneLayout` hierarchy. |
 | **Workspace group color** | Optional per-`SessionGroup` sidebar tint override. It drives group identity chrome — the group dot/header tint plus row accent chrome such as the active rail/glow or a future collapsed-sidebar dot. It is decorative for row backgrounds: sidebar tile row text stays on stable semantic surfaces (verified by `script/check_tint_contrast.py`), and the tint does not affect terminal colors. |
 | **Pane** | `TerminalPane` — one terminal slot; backed by a libghostty surface when attached. |
+| **Execution location** | `ExecutionLocation` — value-semantic local or SSH-host identity. A pane's durable `PaneExecutionPlan` is authoritative; a workspace group's `RemoteTarget` only seeds new panes and migrates legacy snapshots. |
+| **Resource identity** | `ResourceIdentity` — an execution location plus a path. Equal path strings on different hosts identify different resources. |
 | **Document pane** | `DocumentPane` — auxiliary Markdown viewer leaf in a workspace layout; validates local `.md`/`.markdown` files, renders comments/highlights, and stays paired with a terminal pane for agent nudges. |
 | **Shell activity** | Runtime-only busy/idle signal for shell sessions. It is derived from Ghostty prompt markers after at least one prompt has been observed, debounced for chrome, not persisted, and separate from the raw quit-confirmation signal. |
 | **Session snapshot** | On-disk JSON (`Application Support/…/session-state.json`) representing groups, layout, and selection for restore. |

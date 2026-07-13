@@ -65,13 +65,15 @@ struct WaitingAnnouncementRuntimeEventTests {
             title: "agent",
             workingDirectory: "/tmp/a",
             agentKind: .claudeCode,
-            agentExecutionState: .running
+            agentExecutionState: .running,
+            executionPlan: .local
         )
         let paneB = TerminalPane(
             title: "sibling",
             workingDirectory: "/tmp/b",
             agentKind: .claudeCode,
-            agentExecutionState: .error
+            agentExecutionState: .error,
+            executionPlan: .local
         )
         let (store, session) = makeSplitStore(paneA: paneA, paneB: paneB)
 
@@ -95,9 +97,10 @@ struct WaitingAnnouncementRuntimeEventTests {
             title: "agent",
             workingDirectory: "/tmp/a",
             agentKind: .claudeCode,
-            agentExecutionState: .thinking
+            agentExecutionState: .thinking,
+            executionPlan: .local
         )
-        let sibling = TerminalPane(title: "sibling", workingDirectory: "/tmp/b")
+        let sibling = TerminalPane(title: "sibling", workingDirectory: "/tmp/b", executionPlan: .local)
         let (store, session) = makeSplitStore(paneA: pane, paneB: sibling)
 
         // Claude Code "Stop" shape after INT-650: turn-end rests directly on
@@ -127,9 +130,10 @@ struct WaitingAnnouncementRuntimeEventTests {
             title: "agent",
             workingDirectory: "/tmp/a",
             agentKind: .claudeCode,
-            agentExecutionState: .running
+            agentExecutionState: .running,
+            executionPlan: .local
         )
-        let sibling = TerminalPane(title: "sibling", workingDirectory: "/tmp/b")
+        let sibling = TerminalPane(title: "sibling", workingDirectory: "/tmp/b", executionPlan: .local)
         let (store, session) = makeSplitStore(paneA: pane, paneB: sibling)
         let base = Date()
 
@@ -156,9 +160,10 @@ struct WaitingAnnouncementRuntimeEventTests {
             title: "agent",
             workingDirectory: "/tmp/a",
             agentKind: .claudeCode,
-            agentExecutionState: .error
+            agentExecutionState: .error,
+            executionPlan: .local
         )
-        let sibling = TerminalPane(title: "sibling", workingDirectory: "/tmp/b")
+        let sibling = TerminalPane(title: "sibling", workingDirectory: "/tmp/b", executionPlan: .local)
         let (store, session) = makeSplitStore(paneA: pane, paneB: sibling)
 
         let intent = intentAfterApplying(

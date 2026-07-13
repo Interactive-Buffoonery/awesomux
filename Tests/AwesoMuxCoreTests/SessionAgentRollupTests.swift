@@ -32,11 +32,13 @@ struct SessionAgentRollupTests {
         // chrome-collapsed display state.
         let needy = TerminalPane(
             title: "a", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let calm = TerminalPane(
             title: "b", workingDirectory: "~", agentKind: .claudeCode,
-            agentExecutionState: .done
+            agentExecutionState: .done,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",

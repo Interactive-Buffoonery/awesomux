@@ -93,7 +93,8 @@ struct RemoteReconnectViewTests {
         // is preserved (no `resetPaneAgentChromeToShell`); the confirmation hook
         // is the only thing that un-sticks the bridge-death `.error`.
         view.handleCommandBridgeStatusEvents([
-            try #require(Self.attachedEvent(
+            try #require(
+                Self.attachedEvent(
                 token: "tok",
                 terminalSessionID: fixture.sessionID,
                 created: false,
@@ -221,7 +222,8 @@ struct RemoteReconnectViewTests {
         view.beginCommandBridgeStatusWatch(channel: channel)
         #expect(view.commandBridgeStatusWatcher?.isArmed == true)
 
-        let event = try #require(Self.sessionEndEvent(
+        let event = try #require(
+            Self.sessionEndEvent(
             token: channel.token,
             terminalSessionID: terminalSessionID,
             reason: .shellExit,
@@ -267,10 +269,11 @@ struct RemoteReconnectViewTests {
     // MARK: - Fixtures
 
     private func makeRemoteAgentFixture() throws -> RemoteAgentFixture {
-        let sessionID = try #require(TerminalSessionID(
+        let sessionID = try #require(
+            TerminalSessionID(
             rawValue: "22222222-2222-4222-8222-222222222222"
         ))
-        let target = RemoteTarget(user: "deploy", host: "prod.example")
+        let target = RemoteTarget(user: "deploy", host: "prod.example")!
         let pane = TerminalPane(
             terminalSessionID: sessionID,
             terminalBackendMetadata: establishedMetadata,
@@ -278,8 +281,8 @@ struct RemoteReconnectViewTests {
             workingDirectory: "/home/deploy",
             agentKind: .codex,
             agentExecutionState: .thinking,
-            attentionReason: .permissionPrompt
-        )
+            attentionReason: .permissionPrompt,
+            executionPlan: .ssh(SSHExecution(target: target)))
         let session = TerminalSession(
             title: "remote agent",
             workingDirectory: "/home/deploy",
@@ -300,28 +303,31 @@ struct RemoteReconnectViewTests {
     }
 
     private func makeRemoteSplitFixture() throws -> RemoteSplitFixture {
-        let sessionIDA = try #require(TerminalSessionID(
+        let sessionIDA = try #require(
+            TerminalSessionID(
             rawValue: "33333333-3333-4333-8333-333333333333"
         ))
-        let sessionIDB = try #require(TerminalSessionID(
+        let sessionIDB = try #require(
+            TerminalSessionID(
             rawValue: "44444444-4444-4444-8444-444444444444"
         ))
-        let target = RemoteTarget(user: "deploy", host: "prod.example")
+        let target = RemoteTarget(user: "deploy", host: "prod.example")!
         let paneA = TerminalPane(
             terminalSessionID: sessionIDA,
             terminalBackendMetadata: establishedMetadata,
             title: "pane A",
-            workingDirectory: "/home/deploy/a"
-        )
+            workingDirectory: "/home/deploy/a",
+            executionPlan: .ssh(SSHExecution(target: target)))
         let paneB = TerminalPane(
             terminalSessionID: sessionIDB,
             terminalBackendMetadata: establishedMetadata,
             title: "pane B",
             workingDirectory: "/home/deploy/b",
             agentKind: .codex,
-            agentExecutionState: .thinking
-        )
-        let layout = TerminalPaneLayout.split(TerminalSplit(
+            agentExecutionState: .thinking,
+            executionPlan: .ssh(SSHExecution(target: target)))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
             orientation: .vertical,
             first: .pane(paneA),
             second: .pane(paneB),

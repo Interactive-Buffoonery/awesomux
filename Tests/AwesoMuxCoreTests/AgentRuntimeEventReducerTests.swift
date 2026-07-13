@@ -6,8 +6,8 @@ import Testing
 struct AgentRuntimeEventReducerTests {
     @Test("dedupe and staleness are scoped by pane")
     func dedupeAndStalenessArePaneScoped() throws {
-        let firstPane = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell)
-        let secondPane = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell)
+        let firstPane = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
+        let secondPane = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let session = TerminalSession(
             title: "split",
             workingDirectory: "~",
@@ -134,7 +134,7 @@ struct AgentRuntimeEventReducerTests {
     // MARK: - Rename events (routed through the same dedupe/staleness gate)
 
     private func singlePaneSession() -> (TerminalSession, TerminalPane.ID) {
-        let pane = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell)
+        let pane = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let session = TerminalSession(title: "ws", workingDirectory: "~", layout: .pane(pane))
         return (session, pane.id)
     }

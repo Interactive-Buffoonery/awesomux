@@ -20,6 +20,7 @@ struct ResolveKey: Equatable {
     let paneTitle: String
     let fallbackProject: String
     let isActive: Bool
+    let executionPlan: PaneExecutionPlan
     /// Re-resolve when remote state flips even if cwd/title are unchanged.
     let remoteHost: String?
     let remoteConnectionHealth: RemoteConnectionHealth
@@ -47,6 +48,65 @@ struct RemoteIndicatorCopy: Equatable {
     let help: String
     let accessibilityLabel: String
     let accessibilityHint: String
+}
+
+enum PathBarExecutionAnnouncementState: Equatable {
+    case local
+    case remote(host: String, health: RemoteConnectionHealth)
+
+    init(pane: TerminalPane?) {
+        guard let remote = pane?.executionPlan.remoteTarget else {
+            self = .local
+            return
+        }
+        self = .remote(
+            host: remote.host,
+            health: pane?.remoteConnectionHealth ?? .active
+        )
+    }
+}
+
+enum PathBarExecutionAnnouncement {
+    static func message(
+        from previous: PathBarExecutionAnnouncementState,
+        to current: PathBarExecutionAnnouncementState
+    ) -> String? {
+        switch (previous, current) {
+        case (.local, .local):
+            nil
+        case (_, let .remote(host, _)) where remoteHost(in: previous) != host:
+            String(
+                localized: "Pane now runs on \(host).",
+                comment: "VoiceOver announcement when the focused pane changes to remote execution"
+            )
+        case (.remote, .local):
+            String(
+                localized: "Pane now runs locally.",
+                comment: "VoiceOver announcement when the focused pane changes to local execution"
+            )
+        case (let .remote(host, oldHealth), .remote(_, let newHealth))
+        where oldHealth != newHealth:
+            switch newHealth {
+            case .active:
+                String(
+                    localized: "Connection to \(host) is active.",
+                    comment: "VoiceOver announcement when a remote pane connection recovers"
+                )
+            case .possiblyStale:
+                String(
+                    localized: "Connection to \(host) may be stale.",
+                    comment: "VoiceOver announcement when a remote pane connection may be stale"
+                )
+            }
+        default:
+            nil
+        }
+    }
+
+    private static func remoteHost(in state: PathBarExecutionAnnouncementState) -> String? {
+        guard case let .remote(host, _) = state else { return nil }
+        return host
+    }
 }
 
 /// One completed Path Bar lookup, tagged so the task group can paint the local
