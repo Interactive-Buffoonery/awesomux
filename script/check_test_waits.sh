@@ -17,7 +17,7 @@ if ! git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null; then
     exit 2
 fi
 
-wait_pattern='((Task|Thread)\.sleep|Darwin\.poll)[[:space:]]*\(|(^|[^[:alnum:]_.])(sleep|usleep|poll|eventually)[[:space:]]*\('
+wait_pattern='((Task|Thread)\.sleep|Darwin\.poll)[[:space:]]*\(|(^|[^[:alnum:]_.])(((Darwin|Glibc)\.)?nanosleep|sleep|usleep|poll|eventually)[[:space:]]*\('
 found=0
 
 check_line() {
@@ -35,7 +35,8 @@ check_line() {
 while IFS=$'\t' read -r file line content; do
     check_line "$file" "$line" "$content"
 done < <(
-    git diff --unified=0 --no-ext-diff --diff-filter=ACMR "$base_ref" -- \
+    git diff --src-prefix=a/ --dst-prefix=b/ --unified=0 --no-ext-diff \
+        --diff-filter=ACMR "$base_ref" -- \
         ':(glob)Sources/**/*.swift' ':(glob)Tests/**/*.swift' \
         | awk '
             /^\+\+\+ b\// { file = substr($0, 7); next }
