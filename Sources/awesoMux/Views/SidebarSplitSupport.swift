@@ -48,6 +48,13 @@ final class SidebarPeekModel {
     /// hovering repaints. Empty for a single-pane workspace (card shows the
     /// summary instead).
     private(set) var paneItems: [PanePeekItem] = []
+
+    /// Group-roster peek state — mutually exclusive with `session` above.
+    /// `showGroup` clears `session`/`location`/`paneItems`; `show` clears
+    /// these. Only one card (session or group) is ever displayed.
+    private(set) var group: SessionGroup?
+    private(set) var groupSessionItems: [SessionPeekItem] = []
+
     private(set) var anchorY: CGFloat = 0
     private(set) var tileHeight: CGFloat = 0
     /// The hovered row's right edge in the split's `.global` space. The card's
@@ -62,6 +69,16 @@ final class SidebarPeekModel {
     /// it. Takes the session ID so the handler doesn't depend on `session` still
     /// being the same one by the time the click lands.
     @ObservationIgnored var onSelectPane: ((TerminalSession.ID, TerminalPane.ID) -> Void)?
+
+    /// Routes a group-roster row click up to `ContentView` (select
+    /// workspace + focus its active pane). Set once when the overlay is
+    /// installed, same shape as `onSelectPane`. Carries the invoking group's
+    /// ID too — a VoiceOver "Jump to X" action can fire for a DIFFERENT
+    /// group than whichever peek happens to be showing (e.g. group A's card
+    /// is still open inside its hide grace when a VoiceOver action fires for
+    /// group B), so the handler must target the group the action actually
+    /// came from, not `group?.id` read off the model at call time.
+    @ObservationIgnored var onSelectGroupSession: ((SessionGroup.ID, TerminalSession.ID) -> Void)?
 
     /// True while the pointer rests over the (hittable) multi-pane card. Gates
     /// the graced hide so the card can't vanish under a cursor reaching for a
@@ -100,6 +117,8 @@ final class SidebarPeekModel {
         // stuck — permanently blocking B's `requestHide` at the `!isPointerOverCard`
         // gate, stranding B's card open (Codex 538 review).
         isPointerOverCard = false
+        group = nil
+        groupSessionItems = []
         self.session = session
         self.location = location
         self.tint = tint
@@ -172,6 +191,87 @@ final class SidebarPeekModel {
             await sleep(.milliseconds(220))
             guard !Task.isCancelled, let self, !self.isPointerOverCard else { return }
             self.hide(for: id)
+        }
+    }
+
+    func showGroup(
+        group: SessionGroup,
+        tint: ProjectTint,
+        sessions: [TerminalSession],
+        activeSessionID: TerminalSession.ID?,
+        frame: CGRect
+    ) {
+        hideGraceTask?.cancel()
+        hideGraceTask = nil
+        isPointerOverCard = false
+        session = nil
+        location = nil
+        paneItems = []
+        self.group = group
+        self.tint = tint
+        groupSessionItems = SessionPeekItem.items(for: sessions, activeSessionID: activeSessionID)
+        anchorY = frame.minY
+        tileHeight = frame.height
+        anchorX = frame.maxX
+    }
+
+    /// Keep the card tracking its header as the rail scrolls or resizes.
+    /// No-op unless the given group currently owns the peek.
+    func updateGroupFrame(for id: SessionGroup.ID, frame: CGRect) {
+        guard group?.id == id else { return }
+        anchorY = frame.minY
+        tileHeight = frame.height
+        anchorX = frame.maxX
+    }
+
+    /// Refresh the displayed content if this group owns the peek — same
+    /// staleness problem `refresh(session:...)` solves one level down.
+    func refreshGroup(
+        group: SessionGroup,
+        tint: ProjectTint,
+        sessions: [TerminalSession],
+        activeSessionID: TerminalSession.ID?
+    ) {
+        guard self.group?.id == group.id else { return }
+        self.group = group
+        self.tint = tint
+        groupSessionItems = SessionPeekItem.items(for: sessions, activeSessionID: activeSessionID)
+    }
+
+    /// Clear only if this group owns the peek — guards the hover hand-off,
+    /// same as `hide(for:)`.
+    func hideGroup(for id: SessionGroup.ID) {
+        guard group?.id == id else { return }
+        hideGraceTask?.cancel()
+        hideGraceTask = nil
+        isPointerOverCard = false
+        group = nil
+        tint = nil
+        groupSessionItems = []
+    }
+
+    /// Pointer entered/left the hittable group-roster card — same grace
+    /// cancel/request shape as `setPointerOverCard(_:for:)`.
+    func setPointerOverGroupCard(_ over: Bool, for id: SessionGroup.ID) {
+        guard group?.id == id else { return }
+        isPointerOverCard = over
+        if over {
+            hideGraceTask?.cancel()
+            hideGraceTask = nil
+        } else {
+            requestHideGroup(for: id)
+        }
+    }
+
+    /// Hide after the same short grace `requestHide(for:)` uses, covering
+    /// the header→card pointer gap.
+    func requestHideGroup(for id: SessionGroup.ID) {
+        guard group?.id == id else { return }
+        hideGraceTask?.cancel()
+        hideGraceTask = Task { @MainActor [weak self, sleep] in
+            await sleep(.milliseconds(220))
+            guard !Task.isCancelled, let self, !self.isPointerOverCard else { return }
+            self.hideGroup(for: id)
         }
     }
 }
