@@ -351,7 +351,7 @@ struct SessionSnapshotMigrationTests {
         // Update this literal on every schema bump — it forces a conscious review
         // of the version-gated migration folds (see TerminalSession's `< 2` and
         // `< 5` gates).
-        #expect(SessionSnapshot.currentSchemaVersion == 6)
+        #expect(SessionSnapshot.currentSchemaVersion == 7)
     }
 
     @Test("v6 sessions round-trip structured synthetic title metadata")

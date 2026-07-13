@@ -568,7 +568,7 @@ struct SessionRestoreReducer: Sendable {
                     fileURL: tab.fileURL,
                     title: tab.title,
                     associatedTerminalPaneID: tab.associatedTerminalPaneID,
-                    remoteSnapshotOrigin: tab.remoteSnapshotOrigin
+                    remoteResourceIdentity: tab.remoteResourceIdentity
                 )
                 seenPaneIDs.insert(remintedTab.id)
                 if restoredGroup.selectedTabID == tab.id {

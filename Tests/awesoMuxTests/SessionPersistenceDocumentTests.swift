@@ -10,7 +10,7 @@ import Testing
 // associations (INT-748), and v6 added structured synthetic workspace titles
 // (INT-612). Invariants:
 //
-//  1. `currentSchemaVersion` is 6.
+//  1. `currentSchemaVersion` is 7.
 //  2. A legacy v2 terminal-only snapshot round-trips cleanly under v6 (the v1
 //     agent-state fold must NOT activate for v2 data — `foldsLegacyAgentState`
 //     must stay gated on `schemaVersion < 2`, NOT `< currentSchemaVersion`).
@@ -25,9 +25,9 @@ struct SessionPersistenceDocumentTests {
 
     // MARK: - Schema version constant
 
-    @Test("currentSchemaVersion is 6")
+    @Test("currentSchemaVersion is 7")
     func currentSchemaIsV6() {
-        #expect(SessionSnapshot.currentSchemaVersion == 6)
+        #expect(SessionSnapshot.currentSchemaVersion == 7)
     }
 
     // MARK: - Legacy v2 round-trip (fold guard verification)
@@ -202,7 +202,7 @@ struct SessionPersistenceDocumentTests {
 
             // Confirm the encoded snapshot carries the current schema version.
             let versionPeek = try JSONDecoder().decode(SchemaVersionForTest.self, from: data)
-            #expect(versionPeek.schemaVersion == 6)
+            #expect(versionPeek.schemaVersion == 7)
 
             // Write and reload via the real persistence path.
             try FileManager.default.createDirectory(

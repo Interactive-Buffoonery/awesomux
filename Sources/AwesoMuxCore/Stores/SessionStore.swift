@@ -846,7 +846,7 @@ public final class SessionStore {
         fileURL: URL,
         in sessionID: TerminalSession.ID? = nil,
         associatedWith associatedTerminalPaneID: TerminalPane.ID? = nil,
-        remoteSnapshotOrigin: String? = nil,
+        remoteResourceIdentity: ResourceIdentity? = nil,
         associationPolicy: DocumentPaneAssociationPolicy = .captureActivePaneWhenNil
     ) -> DocumentPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
@@ -860,7 +860,7 @@ public final class SessionStore {
         guard let result = PaneLayoutReducer.openDocumentTab(
             fileURL: fileURL,
             associatedTerminalPaneID: resolvedAssociation,
-            remoteSnapshotOrigin: remoteSnapshotOrigin,
+                remoteResourceIdentity: remoteResourceIdentity,
             in: session,
             now: Date(),
             // A selection swap remounts the document view; while a comment

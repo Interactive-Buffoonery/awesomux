@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by the declared execution identity model (INT-812 and INT-821).
 
 ## Context
 
@@ -45,3 +45,15 @@ connection model instead of this lightweight submitted-command bridge.
 The current fetch still requires a non-interactive SSH read from awesoMux. If a
 host needs an interactive password prompt for every new connection, the snapshot
 fetch can still fail even though the already-open terminal session is usable.
+
+## Superseding decision
+
+Each pane now persists a `PaneExecutionPlan`. Remote Markdown fetches are
+authorized only by an SSH plan and use its exact declared `RemoteTarget`; title
+hostnames and submitted-command observations cannot create or retarget a fetch.
+The snapshot persists a `ResourceIdentity` containing that execution location
+and its remote path, while its local cache URL remains implementation state.
+Relative paths require explicitly reported remote working-directory metadata,
+and missing or malformed identity fails closed without local filesystem
+fallback. The bounded non-interactive SSH transport described above remains
+unchanged.

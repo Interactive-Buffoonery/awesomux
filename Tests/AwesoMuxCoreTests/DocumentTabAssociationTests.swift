@@ -6,17 +6,23 @@ import Testing
 // target. These tests pin the association lifecycle: captured at open, immune
 // to dedup, per-tab across closes, and following a recycled pane's new id.
 @Suite struct DocumentTabAssociationTests {
+    private let remoteIdentity = ResourceIdentity(
+        location: .remote(RemoteTarget(parsing: "devbox")!),
+        path: ResourcePath(rawValue: "/srv/skills/network-hosts/SKILL.md")
+    )
+
     private func makeTwoTerminalSession() -> (session: TerminalSession, t1: TerminalPane, t2: TerminalPane) {
         let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp", executionPlan: .local)
         let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(
             title: "s",
             workingDirectory: "/tmp",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(t1),
-                second: .pane(t2)
-            ))
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(t1),
+                    second: .pane(t2)
+                ))
         )
         session.activePaneID = t1.id
         return (session, t1, t2)
@@ -49,66 +55,132 @@ import Testing
     @Test func remoteSnapshotTabUsesRemoteFileNameAsTitle() throws {
         let (session, t1, _) = makeTwoTerminalSession()
 
-        let (opened, tabID) = try #require(PaneLayoutReducer.openDocumentTab(
-            fileURL: URL(fileURLWithPath: "/tmp/3a70fb49e7a91c2.md"),
-            associatedTerminalPaneID: t1.id,
-            remoteSnapshotOrigin: "devbox:/srv/skills/network-hosts/SKILL.md",
-            in: session,
-            now: Date()
-        ))
+        let (opened, tabID) = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: URL(fileURLWithPath: "/tmp/3a70fb49e7a91c2.md"),
+                associatedTerminalPaneID: t1.id,
+                remoteResourceIdentity: remoteIdentity,
+                in: session,
+                now: Date()
+            ))
 
         let group = try #require(opened.layout.firstDocumentGroup)
         #expect(group.tab(id: tabID)?.title == "SKILL.md")
     }
 
-    @Test func reopeningRemoteSnapshotRepairsCacheHashTitle() throws {
+    @Test func remoteSnapshotDoesNotRetargetLocalCacheTab() throws {
         let (session, t1, _) = makeTwoTerminalSession()
         let url = URL(fileURLWithPath: "/tmp/3a70fb49e7a91c2.md")
-        let (opened, tabID) = try #require(PaneLayoutReducer.openDocumentTab(
-            fileURL: url,
-            associatedTerminalPaneID: t1.id,
-            in: session,
-            now: Date()
-        ))
+        let (opened, tabID) = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: url,
+                associatedTerminalPaneID: t1.id,
+                in: session,
+                now: Date()
+            ))
 
-        let (reopened, reopenedTabID) = try #require(PaneLayoutReducer.openDocumentTab(
-            fileURL: url,
-            associatedTerminalPaneID: t1.id,
-            remoteSnapshotOrigin: "devbox:/srv/skills/network-hosts/SKILL.md",
-            in: opened,
-            now: Date()
-        ))
+        let (reopened, reopenedTabID) = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: url,
+                associatedTerminalPaneID: t1.id,
+                remoteResourceIdentity: remoteIdentity,
+                in: opened,
+                now: Date()
+            ))
 
         let group = try #require(reopened.layout.firstDocumentGroup)
-        #expect(reopenedTabID == tabID)
-        #expect(group.tab(id: tabID)?.title == "SKILL.md")
+        #expect(reopenedTabID != tabID)
+        #expect(group.tabs.count == 2)
+        #expect(group.tab(id: tabID)?.title == "3a70fb49e7a91c2.md")
+        #expect(group.tab(id: reopenedTabID)?.title == "SKILL.md")
     }
 
     @Test func localReopenOfSnapshotCacheFilePreservesReadOnlyOrigin() throws {
         let (session, t1, _) = makeTwoTerminalSession()
         let url = URL(fileURLWithPath: "/tmp/3a70fb49e7a91c2.md")
-        let origin = "devbox:/srv/skills/network-hosts/SKILL.md"
-        let (opened, tabID) = try #require(PaneLayoutReducer.openDocumentTab(
-            fileURL: url,
-            associatedTerminalPaneID: t1.id,
-            remoteSnapshotOrigin: origin,
-            in: session,
-            now: Date()
-        ))
+        let (opened, tabID) = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: url,
+                associatedTerminalPaneID: t1.id,
+                remoteResourceIdentity: remoteIdentity,
+                in: session,
+                now: Date()
+            ))
 
         // Opening the same cache file through a local (nil-origin) path must not
         // strip the snapshot's read-only provenance and turn it writable.
-        let (reopened, reopenedTabID) = try #require(PaneLayoutReducer.openDocumentTab(
-            fileURL: url,
-            associatedTerminalPaneID: t1.id,
-            in: opened,
-            now: Date()
-        ))
+        let (reopened, reopenedTabID) = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: url,
+                associatedTerminalPaneID: t1.id,
+                in: opened,
+                now: Date()
+            ))
 
         #expect(reopenedTabID == tabID)
         let group = try #require(reopened.layout.firstDocumentGroup)
-        #expect(group.tab(id: tabID)?.remoteSnapshotOrigin == origin)
+        #expect(group.tab(id: tabID)?.remoteResourceIdentity == remoteIdentity)
         #expect(group.tab(id: tabID)?.title == "SKILL.md")
+    }
+
+    @Test func samePathOnLocalAndTwoHostsStaysDistinct() throws {
+        let (session, t1, _) = makeTwoTerminalSession()
+        let localURL = URL(fileURLWithPath: "/repo/README.md")
+        let cacheURL = URL(fileURLWithPath: "/tmp/remote-cache.md")
+        let hostA = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "host-a")!),
+            path: ResourcePath(rawValue: "/repo/README.md")
+        )
+        let hostB = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "host-b")!),
+            path: ResourcePath(rawValue: "/repo/README.md")
+        )
+
+        let (localOpened, localID) = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: localURL,
+                associatedTerminalPaneID: t1.id,
+                in: session,
+                now: Date()
+            ))
+        let (hostAOpened, hostAID) = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: cacheURL,
+                associatedTerminalPaneID: t1.id,
+                remoteResourceIdentity: hostA,
+                in: localOpened,
+                now: Date()
+            ))
+        let (hostBOpened, hostBID) = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: cacheURL,
+                associatedTerminalPaneID: t1.id,
+                remoteResourceIdentity: hostB,
+                in: hostAOpened,
+                now: Date()
+            ))
+
+        #expect(Set([localID, hostAID, hostBID]).count == 3)
+        #expect(hostBOpened.layout.firstDocumentGroup?.tabs.count == 3)
+    }
+
+    @Test func remoteSnapshotCannotBeReplacedInPlace() throws {
+        let (session, t1, _) = makeTwoTerminalSession()
+        let (opened, tabID) = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: URL(fileURLWithPath: "/tmp/cache.md"),
+                associatedTerminalPaneID: t1.id,
+                remoteResourceIdentity: remoteIdentity,
+                in: session,
+                now: Date()
+            ))
+
+        #expect(
+            PaneLayoutReducer.replaceDocumentTab(
+                tabID: tabID,
+                fileURL: URL(fileURLWithPath: "/tmp/local.md"),
+                in: opened
+            ) == nil)
     }
 
     @Test func selectingTabNeverMutatesActivePane() throws {
@@ -193,13 +265,14 @@ import Testing
         let (session, t1, t2) = makeTwoTerminalSession()
 
         let (first, tabA) = try #require(openTab("/tmp/a.md", associatedWith: t1.id, in: session))
-        let result = try #require(PaneLayoutReducer.openDocumentTab(
-            fileURL: URL(fileURLWithPath: "/tmp/b.md"),
-            associatedTerminalPaneID: t2.id,
-            in: first,
-            now: Date(),
-            selectingNewTab: false
-        ))
+        let result = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: URL(fileURLWithPath: "/tmp/b.md"),
+                associatedTerminalPaneID: t2.id,
+                in: first,
+                now: Date(),
+                selectingNewTab: false
+            ))
 
         let group = try #require(result.session.layout.firstDocumentGroup)
         #expect(group.tabs.count == 2)
@@ -320,15 +393,17 @@ import Testing
             associatedTerminalPaneID: t2.id
         )
         let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .pane(t2),
-            second: .split(TerminalSplit(
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
                 orientation: .vertical,
-                first: .pane(t1),
-                second: .documentGroup(group)
+                first: .pane(t2),
+                second: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(t1),
+                        second: .documentGroup(group)
+                    ))
             ))
-        ))
 
         #expect(layout.documentSendTarget(for: doc.id)?.id == t2.id)
     }
@@ -341,11 +416,12 @@ import Testing
             associatedTerminalPaneID: nil
         )
         let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .pane(terminal),
-            second: .documentGroup(group)
-        ))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(terminal),
+                second: .documentGroup(group)
+            ))
 
         #expect(layout.documentSendTarget(for: doc.id)?.id == terminal.id)
     }
@@ -359,15 +435,17 @@ import Testing
             associatedTerminalPaneID: nil
         )
         let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .split(TerminalSplit(
-                orientation: .horizontal,
-                first: .pane(t1),
-                second: .pane(t2)
-            )),
-            second: .documentGroup(group)
-        ))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .split(
+                    TerminalSplit(
+                        orientation: .horizontal,
+                        first: .pane(t1),
+                        second: .pane(t2)
+                    )),
+                second: .documentGroup(group)
+            ))
 
         #expect(layout.documentSendTarget(for: doc.id) == nil)
     }
@@ -380,11 +458,12 @@ import Testing
             associatedTerminalPaneID: TerminalPane.ID()
         )
         let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .pane(terminal),
-            second: .documentGroup(group)
-        ))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(terminal),
+                second: .documentGroup(group)
+            ))
 
         #expect(layout.documentSendTarget(for: doc.id) == nil)
     }
