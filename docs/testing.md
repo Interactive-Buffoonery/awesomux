@@ -92,11 +92,48 @@ guards and app launch verification.
 | `./script/test.sh system` | 1,608 | Failed with 3 issues |
 | `./script/test.sh all` | 3,483 | Passed |
 
-The isolated system run exposes an existing ordering dependency in
-`AppearanceUIFontResolutionTests`: two tests expect the bundled Geist font to
-have been registered by another test target. The full suite passes because
-that registration happens elsewhere during the run. This baseline records the
-isolation failure without broadening the system group or hiding it.
+The isolated system run exposes an existing cross-target dependency in
+`AppearanceUIFontResolutionTests`. Although the tests call
+`registerBundledFonts()`, Geist becomes available only when the full run also
+executes `DesignSystemTests.FontRegistrationTests` in the shared test process.
+This baseline records the isolation failure without broadening the system group
+or hiding it.
+
+## W0 boundaries
+
+This baseline and rules PR deliberately does not:
+
+- change production behavior;
+- rewrite, move, skip, quarantine, or weaken tests;
+- repair the isolated Geist registration failure;
+- enable parallel test-group execution;
+- increase timeouts or add retries;
+- add a testing dependency or framework;
+- change the Ghostty build or integration; or
+- restore hosted native Swift CI.
+
+Those changes require their own measured follow-up work after this starting
+point is agreed.
+
+## Final W0 verification
+
+The final verification ran after rebasing this work onto the latest
+`origin/main`. Main added seven tests and one suite after the initial baseline,
+which accounts for the higher final count.
+
+| Field | Value |
+| --- | --- |
+| Captured | 2026-07-13 17:57 UTC |
+| Verified commit | `0bc936fed6070e171f6f4fdf6fdc17ae859b90f5` |
+| Command | `./script/preflight.sh` |
+| Wait guard tests | Passed |
+| Changed-line wait guard | Passed |
+| Swift result | 3,490 tests in 381 suites passed |
+| App build, signing, and launch verification | Passed |
+| Wall time | 185.25 seconds |
+
+The raw preflight log remains uncommitted under
+`.build/test-results/w0-final-preflight.log`.
 
 ## Test organization rules
 
