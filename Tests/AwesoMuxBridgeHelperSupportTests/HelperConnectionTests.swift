@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -35,10 +36,11 @@ struct HelperConnectionTests {
                 guard case .permissionRequest(let payload) = request.message else {
                     throw TestSocketError.invalidFrame
                 }
-                try server.write(BridgeEnvelope(
-                    token: "token", session: "session", id: "wrong-direction", ts: Date().timeIntervalSince1970,
-                    message: .paneRename(title: "drop me")
-                ).encodedLine())
+                try server.write(
+                    BridgeEnvelope(
+                        token: "token", session: "session", id: "wrong-direction", ts: Date().timeIntervalSince1970,
+                        message: .paneRename(title: "drop me")
+                    ).encodedLine())
                 try server.write(
                     BridgeEnvelope(
                         token: "token", session: "session", id: "decision", ts: Date().timeIntervalSince1970,
@@ -62,9 +64,11 @@ struct HelperConnectionTests {
             let decision = try client.readPermissionDecision(
                 deadline: HelperConnection.defaultMonotonicNow().addingTimeInterval(0.1)
             )
-            #expect(decision?.message == .permissionDecision(
-                PermissionDecision(inReplyTo: "request", decision: .deny, scope: .once, target: "build")
-            ))
+            #expect(
+                decision?.message
+                    == .permissionDecision(
+                        PermissionDecision(inReplyTo: "request", decision: .deny, scope: .once, target: "build")
+                    ))
             guard let decision else {
                 Issue.record("expected permission decision")
                 return
@@ -78,9 +82,9 @@ struct HelperConnectionTests {
     @Test
     func emitCommandRunsHandshakeAndPermissionFlowEndToEnd() async throws {
         let server = try TestUnixServer()
-        let fixtureURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("awesomux-fixture-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: fixtureURL) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-helper-fixture")
+        let fixtureURL = temporaryDirectory.url.appending(path: "events.jsonl")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let expiresAt = Date().addingTimeInterval(1).timeIntervalSince1970
         try "{\"type\":\"permission-request\",\"id\":\"request\",\"tool\":\"Bash\",\"target\":\"build\",\"expiresAt\":\(expiresAt)}\n"
             .write(to: fixtureURL, atomically: true, encoding: .utf8)
@@ -88,12 +92,13 @@ struct HelperConnectionTests {
         let serverTask = Task.detached {
             try server.acceptHelloAndAck()
             let request = try server.readEnvelope()
-            try server.write(BridgeEnvelope(
-                token: "token", session: "session", id: "decision", ts: Date().timeIntervalSince1970,
-                message: .permissionDecision(
-                    PermissionDecision(inReplyTo: request.id, decision: .allow, scope: .once, target: "build")
-                )
-            ).encodedLine())
+            try server.write(
+                BridgeEnvelope(
+                    token: "token", session: "session", id: "decision", ts: Date().timeIntervalSince1970,
+                    message: .permissionDecision(
+                        PermissionDecision(inReplyTo: request.id, decision: .allow, scope: .once, target: "build")
+                    )
+                ).encodedLine())
         }
 
         let state = BridgeStateFile(proto: "awesomux-bridge-v1", gen: 1, socket: server.path, token: "token")
@@ -115,17 +120,17 @@ struct HelperConnectionTests {
         // fail-closed denying. The fix routes the pre-expired case through
         // the same timeout throw the mid-read expiry takes.
         let server = try TestUnixServer()
-        let fixtureURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("awesomux-fixture-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: fixtureURL) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-helper-fixture")
+        let fixtureURL = temporaryDirectory.url.appending(path: "events.jsonl")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let expiresAt = Date().addingTimeInterval(-1).timeIntervalSince1970
         try "{\"type\":\"permission-request\",\"id\":\"stale\",\"tool\":\"Bash\",\"target\":\"build\",\"expiresAt\":\(expiresAt)}\n"
             .write(to: fixtureURL, atomically: true, encoding: .utf8)
 
         let serverTask = Task.detached { () -> BridgeEnvelope in
             try server.acceptHelloAndAck()
-            _ = try server.readEnvelope() // the permission-request
-            return try server.readEnvelope() // must be the expiry resolution
+            _ = try server.readEnvelope()  // the permission-request
+            return try server.readEnvelope()  // must be the expiry resolution
         }
 
         let state = BridgeStateFile(proto: "awesomux-bridge-v1", gen: 1, socket: server.path, token: "token")
@@ -162,7 +167,8 @@ private final class TestUnixServer: @unchecked Sendable {
     private var connection: Int32 = -1
 
     init() throws {
-        path = FileManager.default.temporaryDirectory
+        path =
+            FileManager.default.temporaryDirectory
             .appendingPathComponent("awesomux-helper-\(UUID().uuidString.prefix(8)).sock").path
         listener = socket(AF_UNIX, SOCK_STREAM, 0)
         guard listener >= 0 else { throw TestSocketError.system }

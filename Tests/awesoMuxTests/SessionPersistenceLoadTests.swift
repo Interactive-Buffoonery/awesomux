@@ -1,4 +1,5 @@
 @testable import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -42,7 +43,8 @@ struct SessionPersistenceLoadTests {
             #expect(archiveURL.deletingLastPathComponent() == tempDir)
             #expect(archiveURL.lastPathComponent.contains("session-state.sanitized-"))
             // The archive can mirror sensitive cwds, so it must be private.
-            let permissions = try FileManager.default
+            let permissions =
+                try FileManager.default
                 .attributesOfItem(atPath: archiveURL.path)[.posixPermissions] as? NSNumber
             #expect(permissions?.int16Value == 0o600)
         }
@@ -262,11 +264,12 @@ struct SessionPersistenceLoadTests {
             let session = TerminalSession(
                 title: "shell",
                 workingDirectory: "~",
-                layout: .split(TerminalSplit(
-                    orientation: .vertical,
-                    first: .pane(terminal),
-                    second: .documentGroup(DocumentGroup(tabs: [doc], selectedTabID: doc.id))
-                )),
+                layout: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(terminal),
+                        second: .documentGroup(DocumentGroup(tabs: [doc], selectedTabID: doc.id))
+                    )),
                 activePaneID: terminal.id
             )
             try Self.write(
@@ -305,11 +308,12 @@ struct SessionPersistenceLoadTests {
                     path: ResourcePath(rawValue: "/repo/recent.md")
                 )
             )
-            let layout = TerminalPaneLayout.split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(terminal),
-                second: .documentGroup(DocumentGroup(tabs: [doc], selectedTabID: doc.id))
-            ))
+            let layout = TerminalPaneLayout.split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(terminal),
+                    second: .documentGroup(DocumentGroup(tabs: [doc], selectedTabID: doc.id))
+                ))
             let recent = RecentlyClosedWorkspace(
                 sessionID: UUID(),
                 title: "remote docs",
@@ -323,11 +327,12 @@ struct SessionPersistenceLoadTests {
                 indexInGroup: 0,
                 closedAt: Date()
             )
-            let store = SessionStore(restoring: SessionSnapshot(
-                groups: [SessionGroup(name: "ops", sessions: [])],
-                selectedSessionID: nil,
-                recentlyClosed: [recent]
-            ))
+            let store = SessionStore(
+                restoring: SessionSnapshot(
+                    groups: [SessionGroup(name: "ops", sessions: [])],
+                    selectedSessionID: nil,
+                    recentlyClosed: [recent]
+                ))
 
             SessionPersistence.pruneRemoteMarkdownSnapshotsForTesting(keeping: store)
 
@@ -361,19 +366,19 @@ struct SessionPersistenceLoadTests {
         try Self.withTemporarySupportDirectory { tempDir in
             let groupID = UUID()
             let json = """
-            {
-              "schemaVersion": \(SessionSnapshot.currentSchemaVersion),
-              "groups": [
                 {
-                  "id": "\(groupID.uuidString)",
-                  "name": "remote",
-                  "remote": { "user": "ed" },
-                  "sessions": []
+                  "schemaVersion": \(SessionSnapshot.currentSchemaVersion),
+                  "groups": [
+                    {
+                      "id": "\(groupID.uuidString)",
+                      "name": "remote",
+                      "remote": { "user": "ed" },
+                      "sessions": []
+                    }
+                  ],
+                  "selectedSessionID": null
                 }
-              ],
-              "selectedSessionID": null
-            }
-            """
+                """
             try FileManager.default.createDirectory(
                 at: tempDir,
                 withIntermediateDirectories: true
@@ -583,11 +588,12 @@ struct SessionPersistenceLoadTests {
                 TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local)
             )
             for _ in 0..<60 {
-                layout = .split(TerminalSplit(
-                    orientation: .vertical,
+                layout = .split(
+                    TerminalSplit(
+                        orientation: .vertical,
                         first: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
-                    second: layout
-                ))
+                        second: layout
+                    ))
             }
             let session = TerminalSession(
                 title: "deep",
@@ -633,11 +639,12 @@ struct SessionPersistenceLoadTests {
             TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local)
         )
         for _ in 0..<TerminalSplit.maxDecodedSplitDepth {
-            layout = .split(TerminalSplit(
-                orientation: .vertical,
+            layout = .split(
+                TerminalSplit(
+                    orientation: .vertical,
                     first: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
-                second: layout
-            ))
+                    second: layout
+                ))
         }
         let session = TerminalSession(
             title: "deep",
@@ -664,7 +671,8 @@ struct SessionPersistenceLoadTests {
         }
         var layout = pane()
         for _ in 0..<depth {
-            layout = "{\"split\":{\"id\":\"\(UUID().uuidString)\",\"orientation\":\"vertical\","
+            layout =
+                "{\"split\":{\"id\":\"\(UUID().uuidString)\",\"orientation\":\"vertical\","
                 + "\"firstFraction\":0.5,\"first\":\(pane()),\"second\":\(layout)}}"
         }
         let sessionID = UUID().uuidString
@@ -686,12 +694,9 @@ struct SessionPersistenceLoadTests {
     private static func withTemporarySupportDirectory(
         _ operation: (URL) throws -> Void
     ) throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "awesomux-session-persistence-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-session-persistence")
+        let tempDir = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
 
         try SessionPersistence.withTemporarySupportDirectory(tempDir) {
             try operation(tempDir)

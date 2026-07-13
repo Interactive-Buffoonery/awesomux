@@ -83,6 +83,9 @@ Arguments after the group are passed to `swift test`. For example,
 `./script/preflight.sh` remains the complete local check, including non-Swift
 guards and app launch verification.
 
+`AwesoMuxTestSupportTests` belongs to the unit group. The shared support target
+is test-only; production targets must not depend on it.
+
 ### Initial group check
 
 | Command | Selected tests | Result |
