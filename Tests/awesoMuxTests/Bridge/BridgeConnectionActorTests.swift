@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -26,10 +27,9 @@ struct BridgeConnectionActorTests {
 
     @Test("path budget violation fails closed and removes the fresh directory")
     func pathBudgetViolationFailsClosed() throws {
-        let parent = FileManager.default.temporaryDirectory
-            .appendingPathComponent("bridge-path-budget-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: parent) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "bridge-path-budget")
+        let parent = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let template = parent.appendingPathComponent("listener-XXXXXX").path
 
         #expect(throws: BridgeListenerDirectory.DirectoryError.socketPathTooLong) {
@@ -48,15 +48,18 @@ struct BridgeConnectionActorTests {
         )
         await actor.start()
         defer { Task { await actor.shutdown() } }
-        let squatter = try RawUnixClient(path: actor.socketPath)
+        let squatter = try UnixSocketClient(path: actor.socketPath)
         #expect(squatter.waitForEOF(timeoutMilliseconds: 200))
 
-        let replacement = try RawUnixClient(path: actor.socketPath)
+        let replacement = try UnixSocketClient(path: actor.socketPath)
         try replacement.write(helloLine)
         let delivery = try await nextFrame(from: actor.frames, timeout: .milliseconds(200))
-        #expect(delivery.frame == .handshake(.hello(
-            proto: "awesomux-bridge-v1", token: "token", session: "session", ts: 1, helper: "test"
-        )))
+        #expect(
+            delivery.frame
+                == .handshake(
+                    .hello(
+                        proto: "awesomux-bridge-v1", token: "token", session: "session", ts: 1, helper: "test"
+                    )))
     }
 
     @Test("bogus hello is closed at the deadline and frees its slot")
@@ -66,20 +69,24 @@ struct BridgeConnectionActorTests {
         )
         await actor.start()
         defer { Task { await actor.shutdown() } }
-        let squatter = try RawUnixClient(path: actor.socketPath)
-        try squatter.write(try BridgeHandshake.hello(
-            proto: "awesomux-bridge-v1", token: "bogus", session: "session", ts: 1, helper: "test"
-        ).encodedLine())
+        let squatter = try UnixSocketClient(path: actor.socketPath)
+        try squatter.write(
+            try BridgeHandshake.hello(
+                proto: "awesomux-bridge-v1", token: "bogus", session: "session", ts: 1, helper: "test"
+            ).encodedLine())
         _ = try await nextFrame(from: actor.frames)
 
         #expect(squatter.waitForEOF(timeoutMilliseconds: 200))
 
-        let replacement = try RawUnixClient(path: actor.socketPath)
+        let replacement = try UnixSocketClient(path: actor.socketPath)
         try replacement.write(helloLine)
         let delivery = try await nextFrame(from: actor.frames, timeout: .milliseconds(200))
-        #expect(delivery.frame == .handshake(.hello(
-            proto: "awesomux-bridge-v1", token: "token", session: "session", ts: 1, helper: "test"
-        )))
+        #expect(
+            delivery.frame
+                == .handshake(
+                    .hello(
+                        proto: "awesomux-bridge-v1", token: "token", session: "session", ts: 1, helper: "test"
+                    )))
     }
 
     @Test("second handshake frame closes the connection")
@@ -87,7 +94,7 @@ struct BridgeConnectionActorTests {
         let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
         await actor.start()
         defer { Task { await actor.shutdown() } }
-        let client = try RawUnixClient(path: actor.socketPath)
+        let client = try UnixSocketClient(path: actor.socketPath)
         try client.write(helloLine)
         _ = try await nextFrame(from: actor.frames)
 
@@ -101,11 +108,12 @@ struct BridgeConnectionActorTests {
         let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
         await actor.start()
         defer { Task { await actor.shutdown() } }
-        let client = try RawUnixClient(path: actor.socketPath)
+        let client = try UnixSocketClient(path: actor.socketPath)
 
-        try client.write(try BridgeHandshake.helloAck(
-            session: "session", proto: "awesomux-bridge-v1", ts: 1
-        ).encodedLine())
+        try client.write(
+            try BridgeHandshake.helloAck(
+                session: "session", proto: "awesomux-bridge-v1", ts: 1
+            ).encodedLine())
 
         #expect(client.waitForEOF(timeoutMilliseconds: 200))
     }
@@ -115,7 +123,7 @@ struct BridgeConnectionActorTests {
         let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
         await actor.start()
         defer { Task { await actor.shutdown() } }
-        let client = try RawUnixClient(path: actor.socketPath)
+        let client = try UnixSocketClient(path: actor.socketPath)
         try client.write(try envelope(.paneRename(title: "premature"), id: "before-hello").encodedLine())
 
         #expect(client.waitForEOF(timeoutMilliseconds: 200))
@@ -127,16 +135,16 @@ struct BridgeConnectionActorTests {
         await actor.start()
         defer { Task { await actor.shutdown() } }
 
-        let active = try RawUnixClient(path: actor.socketPath)
+        let active = try UnixSocketClient(path: actor.socketPath)
         try active.write(helloLine)
         let activeHello = try await nextFrame(from: actor.frames)
         _ = try #require(await actor.promoteToActive(activeHello.connection) != nil)
 
-        let handshaking = try RawUnixClient(path: actor.socketPath)
+        let handshaking = try UnixSocketClient(path: actor.socketPath)
         try handshaking.write(helloLine)
         _ = try await nextFrame(from: actor.frames)
 
-        let refused = try RawUnixClient(path: actor.socketPath)
+        let refused = try UnixSocketClient(path: actor.socketPath)
         #expect(refused.waitForEOF(timeoutMilliseconds: 200))
     }
 
@@ -145,22 +153,26 @@ struct BridgeConnectionActorTests {
         let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
         await actor.start()
         defer { Task { await actor.shutdown() } }
-        let client = try RawUnixClient(path: actor.socketPath)
+        let client = try UnixSocketClient(path: actor.socketPath)
         try client.write(helloLine)
         let hello = try await nextFrame(from: actor.frames)
         _ = await actor.promoteToActive(hello.connection)
 
         // `permission-decision` is app→helper: an inbound one is misdirected and
         // must be dropped — it never surfaces on `frames`.
-        try client.write(try envelope(.permissionDecision(
-            PermissionDecision(inReplyTo: "request", decision: .allow, scope: .once, target: "build")
-        ), id: "wrong").encodedLine())
+        try client.write(
+            try envelope(
+                .permissionDecision(
+                    PermissionDecision(inReplyTo: "request", decision: .allow, scope: .once, target: "build")
+                ), id: "wrong"
+            ).encodedLine())
         // `permission-resolved` is helper→app (spec): it MUST surface so E1's
         // `handleHelperResolved` can tear the prompt down. Regression guard for
         // the C1 allowlist fix (INT-698 D4 — it was previously dropped inbound).
-        let resolved = envelope(.permissionResolved(
-            PermissionResolved(inReplyTo: "request", reason: .expired)
-        ), id: "resolved")
+        let resolved = envelope(
+            .permissionResolved(
+                PermissionResolved(inReplyTo: "request", reason: .expired)
+            ), id: "resolved")
         try client.write(try resolved.encodedLine())
         let rename = envelope(.paneRename(title: "Backend"), id: "right")
         try client.write(try rename.encodedLine())
@@ -179,12 +191,12 @@ struct BridgeConnectionActorTests {
         await actor.start()
         defer { Task { await actor.shutdown() } }
 
-        let oldClient = try RawUnixClient(path: actor.socketPath)
+        let oldClient = try UnixSocketClient(path: actor.socketPath)
         try oldClient.write(helloLine)
         let oldHello = try await nextFrame(from: actor.frames)
         let first = try #require(await actor.promoteToActive(oldHello.connection))
 
-        let newClient = try RawUnixClient(path: actor.socketPath)
+        let newClient = try UnixSocketClient(path: actor.socketPath)
         try newClient.write(helloLine)
         let newHello = try await nextFrame(from: actor.frames)
         let second = try #require(await actor.promoteToActive(newHello.connection))
@@ -195,9 +207,11 @@ struct BridgeConnectionActorTests {
         #expect(await actor.send(.helloAck(session: "session", proto: "awesomux-bridge-v1", ts: 2), generation: first.generation) == false)
         #expect(newClient.waitForReadable(timeoutMilliseconds: 50) == false)
         #expect(await actor.send(.helloAck(session: "session", proto: "awesomux-bridge-v1", ts: 2), generation: second.generation))
-        #expect(BridgeHandshake.parse(line: try newClient.readLine()) == .helloAck(
-            session: "session", proto: "awesomux-bridge-v1", ts: 2
-        ))
+        #expect(
+            BridgeHandshake.parse(line: try newClient.readLine())
+                == .helloAck(
+                    session: "session", proto: "awesomux-bridge-v1", ts: 2
+                ))
     }
 
     @Test("shutdown closes connections, unlinks the socket, and removes the directory")
@@ -206,7 +220,7 @@ struct BridgeConnectionActorTests {
         await actor.start()
         let socketPath = actor.socketPath
         let directoryPath = (socketPath as NSString).deletingLastPathComponent
-        let client = try RawUnixClient(path: socketPath)
+        let client = try UnixSocketClient(path: socketPath)
 
         await actor.shutdown()
 
@@ -253,59 +267,3 @@ struct BridgeConnectionActorTests {
 }
 
 private enum TestSocketError: Error { case system, closed, timedOut, invalidLine }
-
-private final class RawUnixClient {
-    private let fd: Int32
-
-    init(path: String) throws {
-        fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw TestSocketError.system }
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { throw TestSocketError.system }
-        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
-        let length = socklen_t(MemoryLayout<sa_family_t>.size + bytes.count + 1)
-        let result = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, length) }
-        }
-        guard result == 0 else { throw TestSocketError.system }
-    }
-
-    deinit { Darwin.close(fd) }
-
-    func write(_ line: String) throws {
-        let data = Data((line + "\n").utf8)
-        try data.withUnsafeBytes { bytes in
-            var offset = 0
-            while offset < bytes.count {
-                let count = Darwin.write(fd, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
-                if count < 0, errno == EINTR { continue }
-                guard count > 0 else { throw TestSocketError.system }
-                offset += count
-            }
-        }
-    }
-
-    func readLine() throws -> String {
-        var bytes: [UInt8] = []
-        while true {
-            var byte: UInt8 = 0
-            let count = Darwin.read(fd, &byte, 1)
-            guard count == 1 else { throw TestSocketError.closed }
-            if byte == 0x0A { return String(decoding: bytes, as: UTF8.self) }
-            bytes.append(byte)
-        }
-    }
-
-    func waitForEOF(timeoutMilliseconds: Int32) -> Bool {
-        guard waitForReadable(timeoutMilliseconds: timeoutMilliseconds) else { return false }
-        var byte: UInt8 = 0
-        return Darwin.read(fd, &byte, 1) == 0
-    }
-
-    func waitForReadable(timeoutMilliseconds: Int32) -> Bool {
-        var descriptor = pollfd(fd: fd, events: Int16(POLLIN | POLLHUP | POLLERR), revents: 0)
-        return Darwin.poll(&descriptor, 1, timeoutMilliseconds) > 0
-    }
-}

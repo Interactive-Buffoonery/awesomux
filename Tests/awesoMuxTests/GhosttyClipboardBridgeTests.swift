@@ -1,6 +1,7 @@
 import AppKit
-import Testing
 import AwesoMuxConfig
+import AwesoMuxTestSupport
+import Testing
 @testable import awesoMux
 
 /// Stand-in for the write-confirmation dialog: records every prompt and holds
@@ -36,15 +37,12 @@ private final class ClipboardDialogRecorder {
 /// the recorder are drained so `async let` writes still complete, letting the
 /// test return instead of wedging at its implicit child-task await.
 @MainActor
-private func eventually(
+private func awaitCondition(
     _ what: String,
     draining dialog: ClipboardDialogRecorder,
     _ condition: @MainActor () -> Bool
 ) async -> Bool {
-    for _ in 0..<100_000 {
-        if condition() { return true }
-        await Task.yield()
-    }
+    guard !(await waitUntil(attempts: 100_000, condition)) else { return true }
     Issue.record("timed out waiting for \(what)")
     GhosttyRuntime.resetClipboardWriteConfirmationProviderForTesting()
     dialog.closeAll(confirmed: false)
@@ -138,19 +136,23 @@ struct GhosttyClipboardBridgeTests {
         }
 
         async let first = GhosttyRuntime.shouldWriteClipboard("first", policy: .ask, confirm: true)
-        guard await eventually("first prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
+        guard await awaitCondition("first prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
 
         async let second = GhosttyRuntime.shouldWriteClipboard("second", policy: .ask, confirm: true)
-        guard await eventually("second write parked", draining: dialog, {
-            GhosttyRuntime.pendingClipboardWriteTextForTesting == "second"
-        }) else { return }
+        guard
+            await awaitCondition(
+                "second write parked", draining: dialog,
+                {
+                    GhosttyRuntime.pendingClipboardWriteTextForTesting == "second"
+                })
+        else { return }
 
         // A duplicate of the waiting write drops immediately, without a slot.
         #expect(!(await GhosttyRuntime.shouldWriteClipboard("second", policy: .ask, confirm: true)))
 
         dialog.close("first", confirmed: true)
         #expect(await first)
-        guard await eventually("second prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
+        guard await awaitCondition("second prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
         dialog.close("second", confirmed: true)
         #expect(await second)
         #expect(dialog.promptedTexts == ["first", "second"])
@@ -168,23 +170,31 @@ struct GhosttyClipboardBridgeTests {
         }
 
         async let first = GhosttyRuntime.shouldWriteClipboard("first", policy: .ask, confirm: true)
-        guard await eventually("first prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
+        guard await awaitCondition("first prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
 
         async let second = GhosttyRuntime.shouldWriteClipboard("second", policy: .ask, confirm: true)
-        guard await eventually("second write parked", draining: dialog, {
-            GhosttyRuntime.pendingClipboardWriteTextForTesting == "second"
-        }) else { return }
+        guard
+            await awaitCondition(
+                "second write parked", draining: dialog,
+                {
+                    GhosttyRuntime.pendingClipboardWriteTextForTesting == "second"
+                })
+        else { return }
 
         async let third = GhosttyRuntime.shouldWriteClipboard("third", policy: .ask, confirm: true)
-        guard await eventually("third write superseding second", draining: dialog, {
-            GhosttyRuntime.pendingClipboardWriteTextForTesting == "third"
-        }) else { return }
+        guard
+            await awaitCondition(
+                "third write superseding second", draining: dialog,
+                {
+                    GhosttyRuntime.pendingClipboardWriteTextForTesting == "third"
+                })
+        else { return }
 
         #expect(!(await second))
 
         dialog.close("first", confirmed: false)
         #expect(!(await first))
-        guard await eventually("third prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
+        guard await awaitCondition("third prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
         dialog.close("third", confirmed: true)
         #expect(await third)
         #expect(dialog.promptedTexts == ["first", "third"])
@@ -205,7 +215,7 @@ struct GhosttyClipboardBridgeTests {
         installRecorder()
 
         async let first = GhosttyRuntime.shouldWriteClipboard("first", policy: .ask, confirm: true)
-        guard await eventually("first prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
+        guard await awaitCondition("first prompt", draining: dialog, { dialog.openPrompt != nil }) else { return }
 
         // Rebuild the gate while "first" is still suspended in its dialog —
         // the shape of a reset racing an open confirmation.
@@ -213,9 +223,13 @@ struct GhosttyClipboardBridgeTests {
         installRecorder()
 
         async let second = GhosttyRuntime.shouldWriteClipboard("second", policy: .ask, confirm: true)
-        guard await eventually("second prompt", draining: dialog, {
-            dialog.openPrompts["second"] != nil
-        }) else { return }
+        guard
+            await awaitCondition(
+                "second prompt", draining: dialog,
+                {
+                    dialog.openPrompts["second"] != nil
+                })
+        else { return }
 
         // Closing the pre-reset dialog must not release the gate "second" owns.
         dialog.close("first", confirmed: false)
@@ -225,15 +239,23 @@ struct GhosttyClipboardBridgeTests {
         // The rebuilt gate still queues: a distinct write parks rather than
         // presenting a stacked dialog.
         async let third = GhosttyRuntime.shouldWriteClipboard("third", policy: .ask, confirm: true)
-        guard await eventually("third write parked", draining: dialog, {
-            GhosttyRuntime.pendingClipboardWriteTextForTesting == "third"
-        }) else { return }
+        guard
+            await awaitCondition(
+                "third write parked", draining: dialog,
+                {
+                    GhosttyRuntime.pendingClipboardWriteTextForTesting == "third"
+                })
+        else { return }
 
         dialog.close("second", confirmed: true)
         #expect(await second)
-        guard await eventually("third prompt", draining: dialog, {
-            dialog.openPrompts["third"] != nil
-        }) else { return }
+        guard
+            await awaitCondition(
+                "third prompt", draining: dialog,
+                {
+                    dialog.openPrompts["third"] != nil
+                })
+        else { return }
         dialog.close("third", confirmed: true)
         #expect(await third)
         #expect(!GhosttyRuntime.isClipboardWriteAlertPresented)
@@ -269,12 +291,13 @@ struct GhosttyClipboardBridgeTests {
             return true
         }
 
-        #expect(await GhosttyRuntime.shouldWriteClipboard(
-            "payload",
-            policy: .ask,
-            confirm: true,
-            parentWindow: window
-        ))
+        #expect(
+            await GhosttyRuntime.shouldWriteClipboard(
+                "payload",
+                policy: .ask,
+                confirm: true,
+                parentWindow: window
+            ))
     }
 
     @Test("confirmation body sanitizes preview")
@@ -362,14 +385,18 @@ struct GhosttyClipboardBridgeTests {
 
     @Test("nil userdata on read-confirm logs instead of silently dropping")
     func nilUserdataLogsInsteadOfDropping() {
-        #expect(GhosttyRuntime.describeNilUserdataReadConfirm() ==
-            "confirmReadClipboard called with nil userdata — pending libghostty read request cannot be completed (no surface handle available)")
+        #expect(
+            GhosttyRuntime.describeNilUserdataReadConfirm()
+                == "confirmReadClipboard called with nil userdata — pending libghostty read request cannot be completed (no surface handle available)"
+        )
     }
 
     @Test("nil userdata on read-start logs instead of silently dropping")
     func nilUserdataOnReadStartLogsInsteadOfDropping() {
-        #expect(GhosttyRuntime.describeNilUserdataReadClipboard() ==
-            "readClipboard called with nil userdata — libghostty invoked the callback without a registered surface view (request cannot start)")
+        #expect(
+            GhosttyRuntime.describeNilUserdataReadClipboard()
+                == "readClipboard called with nil userdata — libghostty invoked the callback without a registered surface view (request cannot start)"
+        )
     }
 
     @Test("OSC 52 read confirmation asks before completing with clipboard data")

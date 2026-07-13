@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -21,11 +22,9 @@ struct DocumentFileWatcherTests {
         initialContent: String = "initial",
         body: (URL) async throws -> Void
     ) async throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DocumentFileWatcherTests", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "DocumentFileWatcherTests")
+        let dir = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
 
         let url = dir.appendingPathComponent("test.md")
         try initialContent.write(to: url, atomically: false, encoding: .utf8)

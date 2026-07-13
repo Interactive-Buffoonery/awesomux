@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AwesoMuxTestSupport
 @testable import awesoMux
 
 // MARK: - Helpers
@@ -22,26 +23,6 @@ private func ghJSON(
         object["reviewDecision"] = NSNull()
     }
     return try! JSONSerialization.data(withJSONObject: object)
-}
-
-/// Test clock with a mutable "now"; safe to read from the resolver's `@Sendable`
-/// closure while a test advances it.
-private final class MutableClock: @unchecked Sendable {
-    private let lock = NSLock()
-    private var current: Date
-
-    init(_ start: Date = Date(timeIntervalSince1970: 1_000_000)) {
-        current = start
-    }
-
-    var date: Date {
-        lock.lock(); defer { lock.unlock() }
-        return current
-    }
-
-    func advance(by interval: TimeInterval) {
-        lock.lock(); current += interval; lock.unlock()
-    }
 }
 
 /// Records how many times it ran and returns a fixed payload, optionally after a
@@ -202,42 +183,42 @@ struct PullRequestResolverTests {
 
     @Test("a positive result re-resolves after the positive TTL")
     func positiveTTLExpiry() async {
-        let clock = MutableClock()
+        let clock = TestClock()
         let runner = RecordingRunner(response: ghJSON())
         let resolver = PullRequestResolver(
             runner: { await runner.run(repoRoot: $0, branch: $1) },
             positiveTTL: 90,
             negativeTTL: 20,
-            now: { clock.date }
+            now: { clock.now }
         )
 
         _ = await resolver.pullRequest(repoRoot: "/repo", branch: "main")
         clock.advance(by: 60)
         _ = await resolver.pullRequest(repoRoot: "/repo", branch: "main")
-        #expect(await runner.count() == 1) // still inside 90s
+        #expect(await runner.count() == 1)  // still inside 90s
 
-        clock.advance(by: 31) // now 91s past resolution
+        clock.advance(by: 31)  // now 91s past resolution
         _ = await resolver.pullRequest(repoRoot: "/repo", branch: "main")
         #expect(await runner.count() == 2)
     }
 
     @Test("a negative result re-resolves on the shorter negative TTL")
     func negativeTTLExpiry() async {
-        let clock = MutableClock()
+        let clock = TestClock()
         let runner = RecordingRunner(response: nil)
         let resolver = PullRequestResolver(
             runner: { await runner.run(repoRoot: $0, branch: $1) },
             positiveTTL: 90,
             negativeTTL: 20,
-            now: { clock.date }
+            now: { clock.now }
         )
 
         #expect(await resolver.pullRequest(repoRoot: "/repo", branch: "main") == nil)
         clock.advance(by: 10)
         _ = await resolver.pullRequest(repoRoot: "/repo", branch: "main")
-        #expect(await runner.count() == 1) // inside 20s
+        #expect(await runner.count() == 1)  // inside 20s
 
-        clock.advance(by: 11) // 21s — negative entry expired sooner than positive would
+        clock.advance(by: 11)  // 21s — negative entry expired sooner than positive would
         _ = await resolver.pullRequest(repoRoot: "/repo", branch: "main")
         #expect(await runner.count() == 2)
     }
@@ -264,7 +245,7 @@ struct PullRequestResolverTests {
 
     @Test("an evicted in-flight lookup cannot clobber a refetched entry's TTL")
     func evictedInFlightDoesNotClobber() async {
-        let clock = MutableClock()
+        let clock = TestClock()
         // call 0 = A1 (positive, held in flight), 1 = B (negative), 2 = A2
         // (negative, held in flight), 3 = A re-lookup (negative).
         let runner = ScriptedRunner(responses: [ghJSON(), nil, nil, nil])
@@ -273,7 +254,7 @@ struct PullRequestResolverTests {
             positiveTTL: 90,
             negativeTTL: 20,
             cacheCap: 1,
-            now: { clock.date }
+            now: { clock.now }
         )
 
         // A1 in flight.
@@ -297,10 +278,10 @@ struct PullRequestResolverTests {
 
         // A2 is negative → expires on the 20s negative TTL. If A1's positive had
         // clobbered it, the entry would carry the 90s positive TTL and survive.
-        await runner.release(call: 3) // let the re-fetch complete
+        await runner.release(call: 3)  // let the re-fetch complete
         clock.advance(by: 30)
         _ = await resolver.pullRequest(repoRoot: "/r", branch: "a")
-        #expect(await runner.count() == 4) // re-fetched → guard held
+        #expect(await runner.count() == 4)  // re-fetched → guard held
     }
 
     @Test("least-recently-used entries are evicted past the cap")
@@ -308,15 +289,15 @@ struct PullRequestResolverTests {
         let runner = RecordingRunner(response: ghJSON())
         let resolver = PullRequestResolver(runner: { await runner.run(repoRoot: $0, branch: $1) }, cacheCap: 2)
 
-        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "a") // count 1
-        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "b") // count 2
-        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "c") // count 3, evicts "a"
+        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "a")  // count 1
+        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "b")  // count 2
+        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "c")  // count 3, evicts "a"
         #expect(await runner.count() == 3)
 
-        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "a") // re-fetch, count 4
+        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "a")  // re-fetch, count 4
         #expect(await runner.count() == 4)
 
-        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "c") // still cached, no new run
+        _ = await resolver.pullRequest(repoRoot: "/repo", branch: "c")  // still cached, no new run
         #expect(await runner.count() == 4)
     }
 }

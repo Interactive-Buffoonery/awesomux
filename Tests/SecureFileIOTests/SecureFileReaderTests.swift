@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -7,10 +8,9 @@ import Testing
 struct SecureFileReaderTests {
     @Test("reads from the opened descriptor after the path is replaced")
     func readsFromOpenedDescriptorAfterPathReplacement() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-secure-read-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-read")
+        let directory = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
 
         let file = directory.appending(path: "document.md")
         let replacement = directory.appending(path: "replacement.md")
@@ -32,8 +32,9 @@ struct SecureFileReaderTests {
 
     @Test("rejects growth past the byte cap after opening")
     func rejectsGrowthPastByteCapAfterOpening() throws {
-        let directory = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-read")
+        let directory = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let file = directory.appending(path: "config.toml")
         try Data("1234".utf8).write(to: file)
 
@@ -53,8 +54,9 @@ struct SecureFileReaderTests {
 
     @Test("opens a supported symlink target with close-on-exec")
     func opensSymlinkTargetWithCloseOnExec() throws {
-        let directory = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-read")
+        let directory = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let target = directory.appending(path: "target.md")
         let symlink = directory.appending(path: "document.md")
         try Data("content".utf8).write(to: target)
@@ -85,8 +87,9 @@ struct SecureFileReaderTests {
 
     @Test("rejects a sparse oversized file before reading")
     func rejectsSparseOversizedFileBeforeReading() throws {
-        let directory = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-read")
+        let directory = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let file = directory.appending(path: "oversized.toml")
         _ = FileManager.default.createFile(atPath: file.path, contents: nil)
         let handle = try FileHandle(forWritingTo: file)
@@ -100,8 +103,9 @@ struct SecureFileReaderTests {
 
     @Test("rejects a FIFO without blocking")
     func rejectsFIFOWithoutBlocking() throws {
-        let directory = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-read")
+        let directory = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let fifo = directory.appending(path: "pipe.md")
         try #require(mkfifo(fifo.path, 0o600) == 0)
 
@@ -112,8 +116,9 @@ struct SecureFileReaderTests {
 
     @Test("rejects a symlink to a device")
     func rejectsSymlinkToDevice() throws {
-        let directory = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-read")
+        let directory = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let symlink = directory.appending(path: "device.md")
         try FileManager.default.createSymbolicLink(
             at: symlink,
@@ -125,10 +130,4 @@ struct SecureFileReaderTests {
         }
     }
 
-    private func temporaryDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-secure-read-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
-    }
 }
