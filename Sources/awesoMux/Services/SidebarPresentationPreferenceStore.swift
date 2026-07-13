@@ -9,20 +9,11 @@ struct SidebarPresentationPreferenceStore {
         self.defaults = defaults
     }
 
-    func isHidden(windowID: String? = nil) -> Bool {
-        defaults.bool(forKey: key(Self.hiddenKey, windowID: windowID))
+    func isHidden() -> Bool {
+        defaults.bool(forKey: Self.hiddenKey)
     }
 
-    func saveHidden(_ isHidden: Bool, windowID: String? = nil) {
-        defaults.set(isHidden, forKey: key(Self.hiddenKey, windowID: windowID))
-    }
-
-    private func key(_ base: String, windowID: String?) -> String {
-        guard let windowID,
-            !windowID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            return base
-        }
-        return "\(base).\(windowID)"
+    func saveHidden(_ isHidden: Bool) {
+        defaults.set(isHidden, forKey: Self.hiddenKey)
     }
 }

@@ -23,17 +23,15 @@ struct SidebarPresentationPreferenceStoreTests {
         #expect(!store.isHidden())
     }
 
-    @Test("window IDs use non-empty suffixes")
-    func windowIDsUseNonEmptySuffixes() throws {
+    @Test("saving hidden state uses the app-wide base key")
+    func savingHiddenStateUsesAppWideBaseKey() throws {
         let (store, defaults, suiteName) = try makePresentationStore()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        store.saveHidden(true, windowID: "primary")
-        store.saveHidden(true, windowID: "  ")
+        store.saveHidden(true)
 
-        #expect(store.isHidden(windowID: "primary"))
-        #expect(defaults.bool(forKey: "\(SidebarPresentationPreferenceStore.hiddenKey).primary"))
-        #expect(store.isHidden())
+        #expect(defaults.object(forKey: SidebarPresentationPreferenceStore.hiddenKey) != nil)
+        #expect(defaults.bool(forKey: SidebarPresentationPreferenceStore.hiddenKey))
     }
 
     @Test("saving hidden state leaves width preferences unchanged")
