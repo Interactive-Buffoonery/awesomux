@@ -557,6 +557,7 @@ struct DiagnosticsModelTests {
         #expect(model.presentation.events.events.isEmpty)
         #expect(model.presentation.processSnapshot == nil)
         model.stopSampling()
+        scheduler.advanceOneCycle()
     }
 
     @Test("sampling task does not retain the model")
@@ -661,6 +662,7 @@ struct DiagnosticsModelTests {
         scheduler.advanceOneCycle()
         #expect(await waitUntil { callCount == 2 })
         model.stopSampling()
+        scheduler.advanceOneCycle()
     }
 
     @Test("stopping visible sampling prevents later captures")
