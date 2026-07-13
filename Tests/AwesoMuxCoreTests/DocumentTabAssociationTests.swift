@@ -261,6 +261,49 @@ import Testing
         )
     }
 
+    @Test func newTabDropsDeadIncomingAssociation() throws {
+        let (session, _, _) = makeTwoTerminalSession()
+        let result = try #require(
+            openTab(
+                "/tmp/a.md",
+                associatedWith: TerminalPane.ID(),
+                in: session
+            ))
+
+        #expect(
+            result.session.layout.firstDocumentGroup?
+                .tab(id: result.newTabID)?.associatedTerminalPaneID == nil
+        )
+    }
+
+    @Test func remoteIdentityReopenReconcilesCacheURL() throws {
+        let (session, t1, _) = makeTwoTerminalSession()
+        let firstURL = URL(fileURLWithPath: "/tmp/old-cache.md")
+        let secondURL = URL(fileURLWithPath: "/tmp/new-cache.md")
+        let first = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: firstURL,
+                associatedTerminalPaneID: t1.id,
+                remoteResourceIdentity: remoteIdentity,
+                in: session,
+                now: Date()
+            ))
+        let reopened = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: secondURL,
+                associatedTerminalPaneID: t1.id,
+                remoteResourceIdentity: remoteIdentity,
+                in: first.session,
+                now: Date()
+            ))
+
+        #expect(reopened.newTabID == first.newTabID)
+        #expect(
+            reopened.session.layout.firstDocumentGroup?
+                .tab(id: reopened.newTabID)?.fileURL == secondURL
+        )
+    }
+
     @Test func openWithoutSelectingAppendsInBackground() throws {
         let (session, t1, t2) = makeTwoTerminalSession()
 

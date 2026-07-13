@@ -30,7 +30,7 @@ public extension ResourceIdentity {
     }
 
     var isSupportedRemoteMarkdownSnapshot: Bool {
-        guard remoteTarget != nil else { return false }
+        guard remoteTarget?.isSafeSSHDestination == true else { return false }
         return Self.isSupportedRemoteMarkdownPath(path.rawValue)
     }
 

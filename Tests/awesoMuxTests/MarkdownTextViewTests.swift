@@ -9,6 +9,21 @@ import SwiftUI
 @Suite("MarkdownAttributedStringBuilder")
 struct MarkdownTextViewTests {
 
+    @Test("read-only snapshots render document links as plain text")
+    func readOnlySnapshotDocumentLinksArePlainText() throws {
+        let doc = AttributedMarkdownBuilder.build("[local](next.md) [web](https://example.com)")
+        let attr = MarkdownAttributedStringBuilder.attributedString(
+            for: doc,
+            relativeLinkBaseURL: URL(fileURLWithPath: "/tmp"),
+            allowsDocumentLinks: false
+        )
+        let localRange = try #require(attr.string.range(of: "local"))
+        let webRange = try #require(attr.string.range(of: "web"))
+
+        #expect(attr.attribute(.link, at: NSRange(localRange, in: attr.string).location, effectiveRange: nil) == nil)
+        #expect(attr.attribute(.link, at: NSRange(webRange, in: attr.string).location, effectiveRange: nil) != nil)
+    }
+
     // MARK: - (a) 1:1 invariant
 
     /// The NSAttributedString's plain-text string must exactly equal the joined
@@ -77,11 +92,13 @@ struct MarkdownTextViewTests {
             let attrMarkID = attr.attribute(.markID, at: nsRange.location, effectiveRange: nil) as? String
 
             if let expectedID = run.markID {
-                #expect(attrMarkID == expectedID,
-                        "run '\(run.text)' has markID=\(expectedID) but attr has \(String(describing: attrMarkID))")
+                #expect(
+                    attrMarkID == expectedID,
+                    "run '\(run.text)' has markID=\(expectedID) but attr has \(String(describing: attrMarkID))")
             } else {
-                #expect(attrMarkID == nil,
-                        "run '\(run.text)' has no markID but attr has \(String(describing: attrMarkID))")
+                #expect(
+                    attrMarkID == nil,
+                    "run '\(run.text)' has no markID but attr has \(String(describing: attrMarkID))")
             }
             charOffset += run.text.utf16.count
         }
@@ -145,8 +162,9 @@ struct MarkdownTextViewTests {
         let bgLum = relativeLuminance(darkBg)
         let textLum = relativeLuminance(textColor)
 
-        #expect(textLum > bgLum,
-                "text luminance \(textLum) must be > background luminance \(bgLum) for dark terminal")
+        #expect(
+            textLum > bgLum,
+            "text luminance \(textLum) must be > background luminance \(bgLum) for dark terminal")
     }
 
     /// Passing textColor must not alter the attributed string's plain text (1:1 invariant).
@@ -158,8 +176,9 @@ struct MarkdownTextViewTests {
         let attrWithColor = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: textColor)
         let attrNoColor = MarkdownAttributedStringBuilder.attributedString(for: doc)
 
-        #expect(attrWithColor.string == attrNoColor.string,
-                "textColor must not change the attributed string's plain text content")
+        #expect(
+            attrWithColor.string == attrNoColor.string,
+            "textColor must not change the attributed string's plain text content")
     }
 
     // MARK: - Document links
@@ -266,16 +285,16 @@ struct MarkdownTextViewTests {
     @Test("bare relative markdown paths in verbatim runs stay plain text")
     func bareRelativeMarkdownPathsInVerbatimRunsStayPlainText() throws {
         let source = """
-        ---
-        path: docs/front-matter.md
-        ---
+            ---
+            path: docs/front-matter.md
+            ---
 
-        `docs/inline-code.md`
+            `docs/inline-code.md`
 
-        ```sh
-        cat docs/code-block.md
-        ```
-        """
+            ```sh
+            cat docs/code-block.md
+            ```
+            """
         let doc = AttributedMarkdownBuilder.build(source)
         let attr = MarkdownAttributedStringBuilder.attributedString(
             for: doc,
@@ -338,8 +357,8 @@ struct MarkdownTextViewTests {
             return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
         }
         return 0.2126 * linearize(srgb.redComponent)
-             + 0.7152 * linearize(srgb.greenComponent)
-             + 0.0722 * linearize(srgb.blueComponent)
+            + 0.7152 * linearize(srgb.greenComponent)
+            + 0.0722 * linearize(srgb.blueComponent)
     }
 
     private func linkAttribute(in attr: NSAttributedString, for text: String) -> Any? {
@@ -501,8 +520,9 @@ struct CommentBadgePillGeometryTests {
         let pill = CommentBadgeOverlay.pillRect(afterTrailingRect: trailing)
         // Pill's left edge must be to the RIGHT of the glyph's trailing edge — never
         // at line-end and never before the text.
-        #expect(pill.minX > trailing.maxX,
-                "pill left edge \(pill.minX) must be right of trailing edge \(trailing.maxX)")
+        #expect(
+            pill.minX > trailing.maxX,
+            "pill left edge \(pill.minX) must be right of trailing edge \(trailing.maxX)")
     }
 
     @Test("pill is vertically centred on the glyph rect (flipped-space safe)")
@@ -512,8 +532,9 @@ struct CommentBadgePillGeometryTests {
         // midY must match within a sub-pixel — the pill rides the line, not the
         // pane top/bottom. This is the invariant that breaks if the overlay's flip
         // doesn't match the text view's.
-        #expect(abs(pill.midY - trailing.midY) < 0.01,
-                "pill midY \(pill.midY) must equal trailing midY \(trailing.midY)")
+        #expect(
+            abs(pill.midY - trailing.midY) < 0.01,
+            "pill midY \(pill.midY) must equal trailing midY \(trailing.midY)")
     }
 
     @Test("pill rect has positive size")
@@ -532,8 +553,9 @@ struct CommentBadgePillGeometryTests {
         let bottomGlyph = NSRect(x: 50, y: 900, width: 8, height: 16)
         let topPill = CommentBadgeOverlay.pillRect(afterTrailingRect: topGlyph)
         let bottomPill = CommentBadgeOverlay.pillRect(afterTrailingRect: bottomGlyph)
-        #expect(topPill.midY < bottomPill.midY,
-                "a top-of-document mark's pill must have a smaller Y than a lower mark's")
+        #expect(
+            topPill.midY < bottomPill.midY,
+            "a top-of-document mark's pill must have a smaller Y than a lower mark's")
     }
 
     @Test("glyphTrailingRectInTextView returns nil for an empty range")
@@ -616,7 +638,8 @@ struct ScrollAnchorRestoreTests {
 
         // The paragraph's FIRST line restores to inset(20) - 4 = 16. A mid-paragraph
         // byte must land on a later wrapped line, i.e. scroll well past that.
-        #expect(scrollView.contentView.bounds.origin.y > 100,
-                "mid-paragraph restore must scroll to the containing wrapped line, not the paragraph top")
+        #expect(
+            scrollView.contentView.bounds.origin.y > 100,
+            "mid-paragraph restore must scroll to the containing wrapped line, not the paragraph top")
     }
 }

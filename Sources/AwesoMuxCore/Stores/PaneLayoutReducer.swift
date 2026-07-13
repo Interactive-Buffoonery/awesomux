@@ -82,6 +82,9 @@ struct PaneLayoutReducer: Sendable {
         selectingNewTab: Bool = true
     ) -> (session: TerminalSession, newTabID: DocumentPane.ID)? {
         let normalizedURL = fileURL.standardizedFileURL
+        let liveIncomingAssociation = associatedTerminalPaneID.flatMap {
+            session.layout.pane(id: $0)?.id
+        }
         let title = documentTabTitle(
             fileURL: normalizedURL,
             remoteResourceIdentity: remoteResourceIdentity
@@ -105,7 +108,7 @@ struct PaneLayoutReducer: Sendable {
                     existing.associatedTerminalPaneID
                     .map { session.layout.pane(id: $0) == nil } ?? true
                 if storedAssociationIsDead,
-                    let incoming = associatedTerminalPaneID,
+                    let incoming = liveIncomingAssociation,
                     incoming != existing.associatedTerminalPaneID
                 {
                     existing.associatedTerminalPaneID = incoming
@@ -138,6 +141,15 @@ struct PaneLayoutReducer: Sendable {
                     }
                     changed = true
                 }
+                if remoteResourceIdentity != nil,
+                    existing.fileURL.standardizedFileURL != normalizedURL
+                {
+                    existing.fileURL = normalizedURL
+                    if let index = group.tabs.firstIndex(where: { $0.id == existing.id }) {
+                        group.tabs[index] = existing
+                    }
+                    changed = true
+                }
                 if selectingNewTab, group.selectedTabID != existing.id {
                     group.selectedTabID = existing.id
                     changed = true
@@ -155,7 +167,7 @@ struct PaneLayoutReducer: Sendable {
             let tab = DocumentPane(
                 fileURL: normalizedURL,
                 title: title,
-                associatedTerminalPaneID: associatedTerminalPaneID,
+                associatedTerminalPaneID: liveIncomingAssociation,
                 remoteResourceIdentity: remoteResourceIdentity
             )
             group.tabs.append(tab)
@@ -172,7 +184,7 @@ struct PaneLayoutReducer: Sendable {
         let tab = DocumentPane(
             fileURL: normalizedURL,
             title: title,
-            associatedTerminalPaneID: associatedTerminalPaneID,
+            associatedTerminalPaneID: liveIncomingAssociation,
             remoteResourceIdentity: remoteResourceIdentity
         )
         session.layout = .split(

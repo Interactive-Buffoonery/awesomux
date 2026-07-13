@@ -23,6 +23,18 @@ extension TerminalPaneLayout: Codable {
     }
 
     public init(from decoder: Decoder) throws {
+        guard let decoded = try Self.decodeRecoveringEmptyDocumentGroup(from: decoder) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: DocumentGroup.emptyAfterRecoveryDescription
+                )
+            )
+        }
+        self = decoded
+    }
+
+    static func decodeRecoveringEmptyDocumentGroup(from decoder: Decoder) throws -> Self? {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         // Mirror the synthesized enum shape: exactly one case key, whose payload
         // sits under an "_0" wrapper.
@@ -37,14 +49,24 @@ extension TerminalPaneLayout: Codable {
         let payload = try container.nestedContainer(keyedBy: PayloadKeys.self, forKey: key)
         switch key {
         case .pane:
-            self = .pane(try payload.decode(TerminalPane.self, forKey: .value))
+            return .pane(try payload.decode(TerminalPane.self, forKey: .value))
         case .split:
-            self = .split(try payload.decode(TerminalSplit.self, forKey: .value))
+            do {
+                return .split(try payload.decode(TerminalSplit.self, forKey: .value))
+            } catch let error as CollapsedTerminalSplitDecodingError {
+                return error.survivingLayout
+            }
         case .documentGroup:
-            self = .documentGroup(try payload.decode(DocumentGroup.self, forKey: .value))
+            do {
+                return .documentGroup(try payload.decode(DocumentGroup.self, forKey: .value))
+            } catch let DecodingError.dataCorrupted(context)
+                where context.debugDescription == DocumentGroup.emptyAfterRecoveryDescription
+            {
+                return nil
+            }
         case .document:
             let legacy = try payload.decode(DocumentPane.self, forKey: .value)
-            self = .documentGroup(DocumentGroup(tabs: [legacy], selectedTabID: legacy.id))
+            return .documentGroup(DocumentGroup(tabs: [legacy], selectedTabID: legacy.id))
         }
     }
 

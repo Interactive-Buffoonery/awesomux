@@ -39,9 +39,6 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         guard identity.isSupportedRemoteMarkdownSnapshot else {
             return nil
         }
-        guard !execution.target.sshDestination.hasPrefix("-") else {
-            return nil
-        }
         return RemoteMarkdownReference(identity: identity)
     }
 
@@ -123,7 +120,34 @@ struct RemoteMarkdownSnapshot: Equatable, Sendable {
     let identity: ResourceIdentity
 }
 
-struct RemoteMarkdownSnapshotFetcher {
+private actor RemoteMarkdownFetchCoordinator {
+    struct Key: Hashable, Sendable {
+        let identity: ResourceIdentity
+        let cacheDirectoryPath: String
+    }
+
+    static let shared = RemoteMarkdownFetchCoordinator()
+
+    private var inFlight: [Key: Task<RemoteMarkdownSnapshot?, Never>] = [:]
+
+    func value(
+        for key: Key,
+        operation: @escaping @Sendable () async -> RemoteMarkdownSnapshot?
+    ) async -> RemoteMarkdownSnapshot? {
+        if let existing = inFlight[key] {
+            return await existing.value
+        }
+        let task = Task(operation: operation)
+        inFlight[key] = task
+        let result = await task.value
+        inFlight[key] = nil
+        return result
+    }
+}
+
+// FileManager is documented as safe to use from multiple threads, but does not
+// yet declare Sendable in Foundation. The remaining stored values are Sendable.
+struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     var cacheDirectoryURL: URL = SessionPersistence.supportDirectoryURL
         .appending(path: "remote-markdown", directoryHint: .isDirectory)
     var runner = BoundedCommandRunner(
@@ -132,8 +156,21 @@ struct RemoteMarkdownSnapshotFetcher {
         maxOutputBytes: DocumentURLValidator.maxFileSizeBytes + 1
     )
     var fileManager: FileManager = .default
+    var fetchOverride: (@Sendable (RemoteMarkdownReference) async -> Data?)?
 
     func fetch(_ reference: RemoteMarkdownReference) async -> RemoteMarkdownSnapshot? {
+        let key = RemoteMarkdownFetchCoordinator.Key(
+            identity: reference.identity,
+            cacheDirectoryPath: cacheDirectoryURL.standardizedFileURL.path
+        )
+        return await RemoteMarkdownFetchCoordinator.shared.value(for: key) {
+            await fetchUncoordinated(reference)
+        }
+    }
+
+    private func fetchUncoordinated(
+        _ reference: RemoteMarkdownReference
+    ) async -> RemoteMarkdownSnapshot? {
         let output = await fetchOutput(for: reference)
         let content: Data
         if let output, output.count <= DocumentURLValidator.maxFileSizeBytes {
@@ -170,7 +207,10 @@ struct RemoteMarkdownSnapshotFetcher {
     }
 
     private func fetchOutput(for reference: RemoteMarkdownReference) async -> Data? {
-        await runner.run(
+        if let fetchOverride {
+            return await fetchOverride(reference)
+        }
+        return await runner.run(
             arguments: sshArguments(target: reference.sshTarget, path: reference.remotePath),
             inDirectory: FileManager.default.currentDirectoryPath
         )
