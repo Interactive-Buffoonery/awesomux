@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxConfig
 import AwesoMuxCore
 
 /// Native split host for the sidebar/detail divider (INT-535).
@@ -31,6 +32,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private let splitView = DividerTrackingSplitView()
     private let sidebarChild: NSViewController
     private let detailChild: NSViewController
+    var sidebarViewController: NSViewController { sidebarChild }
+    var detailViewController: NSViewController { detailChild }
+    private var sidebarPosition: AppearanceConfig.SidebarPosition = .left
+    private var isSidebarHidden = false
 
     /// Set around our own `setPosition` calls so `splitViewDidResizeSubviews` (which
     /// also fires for programmatic position changes and window layout) does not echo
@@ -66,19 +71,29 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // A user divider drag runs a synchronous tracking loop inside the split
         // view's mouseDown; commit the settled width when it returns.
         splitView.onDragEnded = { [weak self] in
-            guard let self else { return }
+            guard let self, !self.isSidebarHidden else { return }
             self.onCommitWidth?(self.sidebarPaneWidth)
         }
+        splitView.sidebarWidthProvider = { [weak self] in self?.sidebarPaneWidth }
         addChild(sidebarChild)
         addChild(detailChild)
         // NSSplitView treats its direct subviews as panes (index 0 = leading).
-        splitView.addSubview(sidebarChild.view)
-        splitView.addSubview(detailChild.view)
+        if sidebarPosition == .left {
+            splitView.addSubview(sidebarChild.view)
+            splitView.addSubview(detailChild.view)
+        } else {
+            splitView.addSubview(detailChild.view)
+            splitView.addSubview(sidebarChild.view)
+        }
         view = splitView
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        guard !isSidebarHidden else {
+            applyHiddenPosition()
+            return
+        }
         if let pending = pendingWidth, splitView.bounds.width > 0 {
             pendingWidth = nil
             applyPosition(pending)
@@ -105,6 +120,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // straight to the rail, so restore-on-grow would otherwise hand back the
         // policy default instead of the user's persisted width.
         recordIfExpanded(width)
+        if isSidebarHidden {
+            pendingWidth = width
+            return
+        }
         guard isViewLoaded, splitView.bounds.width > 0 else {
             pendingWidth = width
             return
@@ -113,7 +132,63 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     var maxSidebarWidth: CGFloat {
-        max(SidebarWidthPolicy.collapsedWidth, splitView.bounds.width - terminalMinimumWidth)
+        max(SidebarWidthPolicy.collapsedWidth, paneExtent - terminalMinimumWidth)
+    }
+
+    func setSidebarPosition(_ position: AppearanceConfig.SidebarPosition) {
+        guard position != sidebarPosition else { return }
+        let width = sidebarPaneWidth
+        sidebarPosition = position
+        guard isViewLoaded else { return }
+        let responder = view.window?.firstResponder
+        let ownsResponder = [sidebarChild.view, detailChild.view].contains { root in
+            guard let responderView = responder as? NSView else { return false }
+            return responderView === root || responderView.isDescendant(of: root)
+        }
+        splitView.sortSubviews(
+            { lhs, rhs, _ in
+                lhs.frame.minX < rhs.frame.minX ? .orderedDescending : .orderedAscending
+            }, context: nil)
+        splitView.adjustSubviews()
+        if isSidebarHidden { applyHiddenPosition() } else { applyPosition(width) }
+        if ownsResponder, view.window?.firstResponder !== responder {
+            view.window?.makeFirstResponder(responder)
+        }
+    }
+
+    func setSidebarHidden(_ hidden: Bool) {
+        guard hidden != isSidebarHidden else { return }
+        if hidden {
+            pendingWidth = sidebarPaneWidth
+            recordIfExpanded(sidebarPaneWidth)
+            isSidebarHidden = true
+            applyHiddenPosition()
+        } else {
+            isSidebarHidden = false
+            let width = pendingWidth ?? lastExpandedPaneWidth
+            pendingWidth = nil
+            applyPosition(width)
+        }
+    }
+
+    static func dividerCoordinate(
+        forSidebarWidth width: CGFloat,
+        paneExtent: CGFloat,
+        position: AppearanceConfig.SidebarPosition
+    ) -> CGFloat {
+        let extent = paneExtent.isFinite ? max(0, paneExtent) : 0
+        let safeWidth = width.isFinite ? min(max(0, width), extent) : 0
+        return position == .left ? safeWidth : extent - safeWidth
+    }
+
+    static func sidebarWidth(
+        forDividerCoordinate coordinate: CGFloat,
+        paneExtent: CGFloat,
+        position: AppearanceConfig.SidebarPosition
+    ) -> CGFloat {
+        let extent = paneExtent.isFinite ? max(0, paneExtent) : 0
+        let safeCoordinate = coordinate.isFinite ? min(max(0, coordinate), extent) : 0
+        return position == .left ? safeCoordinate : extent - safeCoordinate
     }
 
     /// Pure clamp, factored out for unit testing.
@@ -151,9 +226,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         isDraggingDivider: Bool
     ) -> ReclampAction {
         if !isDraggingDivider,
-           SidebarWidthPolicy.shouldRestoreExpanded(
-            currentWidth: currentWidth, maxWidth: maxWidth, userChoseRail: userChoseRail
-           ) {
+            SidebarWidthPolicy.shouldRestoreExpanded(
+                currentWidth: currentWidth, maxWidth: maxWidth, userChoseRail: userChoseRail
+            )
+        {
             return .restoreExpanded(lastExpandedWidth)
         }
         let clamped = clampedWidth(currentWidth, maxWidth: maxWidth)
@@ -168,10 +244,18 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         sidebarChild.view.frame.width
     }
 
+    private var paneExtent: CGFloat {
+        max(0, splitView.bounds.width - splitView.dividerThickness)
+    }
+
     private func applyPosition(_ width: CGFloat) {
         let target = Self.clampedWidth(width, maxWidth: maxSidebarWidth)
         isSettingPositionProgrammatically = true
-        splitView.setPosition(target, ofDividerAt: 0)
+        let coordinate = Self.dividerCoordinate(
+            forSidebarWidth: target, paneExtent: paneExtent, position: sidebarPosition
+        )
+        splitView.setPosition(coordinate, ofDividerAt: 0)
+        splitView.layoutSubtreeIfNeeded()
         isSettingPositionProgrammatically = false
         let rendered = sidebarPaneWidth
         recordIfExpanded(rendered)
@@ -179,6 +263,14 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // can preserve a wider child during first layout or constraint pressure;
         // SwiftUI's sidebar mode must follow the pane that actually rendered.
         onLiveWidthChange?(rendered)
+    }
+
+    private func applyHiddenPosition() {
+        guard isViewLoaded, splitView.bounds.width > 0 else { return }
+        isSettingPositionProgrammatically = true
+        splitView.setPosition(sidebarPosition == .left ? 0 : paneExtent, ofDividerAt: 0)
+        splitView.layoutSubtreeIfNeeded()
+        isSettingPositionProgrammatically = false
     }
 
     /// Remember the last expanded width so restore-on-grow has a target. Rail
@@ -214,7 +306,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         constrainMinCoordinate proposedMinimumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        SidebarWidthPolicy.collapsedWidth
+        if isSidebarHidden { return sidebarPosition == .left ? 0 : paneExtent }
+        return sidebarPosition == .left
+            ? SidebarWidthPolicy.collapsedWidth
+            : terminalMinimumWidth
     }
 
     func splitView(
@@ -222,7 +317,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         constrainMaxCoordinate proposedMaximumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        maxSidebarWidth
+        if isSidebarHidden { return sidebarPosition == .left ? 0 : paneExtent }
+        return sidebarPosition == .left
+            ? maxSidebarWidth
+            : paneExtent - SidebarWidthPolicy.collapsedWidth
     }
 
     /// The sidebar is either the tight rail or a readable full-rows width — never
@@ -234,10 +332,17 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         constrainSplitPosition proposedPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
+        if isSidebarHidden { return sidebarPosition == .left ? 0 : paneExtent }
+        let width = Self.sidebarWidth(
+            forDividerCoordinate: proposedPosition, paneExtent: paneExtent, position: sidebarPosition
+        )
         let rail = SidebarWidthPolicy.collapsedWidth
         let full = SidebarWidthPolicy.railThreshold
-        guard proposedPosition > rail, proposedPosition < full else { return proposedPosition }
-        return proposedPosition < (rail + full) / 2 ? rail : full
+        guard width > rail, width < full else { return proposedPosition }
+        let snapped = width < (rail + full) / 2 ? rail : full
+        return Self.dividerCoordinate(
+            forSidebarWidth: snapped, paneExtent: paneExtent, position: sidebarPosition
+        )
     }
 
     /// Sidebar holds its absolute width; the detail/terminal pane absorbs window
@@ -247,7 +352,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard !isSettingPositionProgrammatically else { return }
+        guard !isSettingPositionProgrammatically, !isSidebarHidden else { return }
         let width = sidebarPaneWidth
         // A user divider drag into expanded territory is the other source of a
         // restore target, so record it here too.
@@ -261,6 +366,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 /// drag finishes — the moment to commit the settled width.
 final class DividerTrackingSplitView: NSSplitView {
     var onDragEnded: (() -> Void)?
+    var sidebarWidthProvider: (() -> CGFloat?)?
 
     /// True for the duration of a user divider drag's synchronous tracking loop.
     /// Restore-on-grow must not fire inside that loop or it fights the drag and the
@@ -269,10 +375,10 @@ final class DividerTrackingSplitView: NSSplitView {
     private(set) var isTrackingDividerDrag = false
 
     override func mouseDown(with event: NSEvent) {
-        // subviews[0] is the leading (sidebar) pane. Only commit if the divider
-        // actually moved during the tracking loop — a bare click on the divider
+        // Compare the semantic sidebar width supplied by the controller. Only
+        // commit if the divider actually moved during the tracking loop — a bare click on the divider
         // (or a cancelled drag) leaves the width unchanged and shouldn't persist.
-        let widthBefore = subviews.first?.frame.width
+        let widthBefore = sidebarWidthProvider?()
         isTrackingDividerDrag = true
         // `defer` (not a trailing assignment) so an ObjC exception unwinding through
         // AppKit's nested tracking loop can't weld the flag true and permanently
@@ -280,7 +386,7 @@ final class DividerTrackingSplitView: NSSplitView {
         // set while the commit flips `userChoseRail` — no flag-clear/stale-flag gap.
         defer { isTrackingDividerDrag = false }
         super.mouseDown(with: event)
-        if subviews.first?.frame.width != widthBefore {
+        if sidebarWidthProvider?() != widthBefore {
             onDragEnded?()
         }
     }
