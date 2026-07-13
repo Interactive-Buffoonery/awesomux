@@ -36,15 +36,16 @@ Treat a toolchain update as a deliberate maintenance change:
 
 1. Choose the newest stable Swift patch release available in Xcode and on the
    GitHub Actions Ubuntu image.
-2. Update `.swift-version` and the first-line `swift-tools-version` declaration
-   in `Package.swift` to the selected Swift minor release.
-3. Update each platform entry in `.swift-format-version` to the
+2. Update `.swift-version` to the full Swift patch release, such as `6.3.3`.
+3. Update the first-line `swift-tools-version` declaration in `Package.swift`
+   to the matching minor release, such as `6.3`.
+4. Update each platform entry in `.swift-format-version` to the
    `swift format --version` shipped with that platform's toolchain.
-4. Run `./script/check-toolchain.sh` locally.
-5. Run `./script/test-format.sh` and `./script/format.sh --lint` without applying
+5. Run `./script/check-toolchain.sh` locally.
+6. Run `./script/test-format.sh` and `./script/format.sh --lint` without applying
    a repository-wide reformat.
-6. Run `./script/preflight.sh` before opening the pull request.
-7. Confirm the Cheap guards workflow passes with the same pinned versions.
+7. Run `./script/preflight.sh` before opening the pull request.
+8. Confirm the Cheap guards workflow passes with the same pinned versions.
 
 If the new formatter reports existing debt, keep CI scoped to changed lines.
 Do not combine a toolchain bump with whole-codebase formatting unless that
