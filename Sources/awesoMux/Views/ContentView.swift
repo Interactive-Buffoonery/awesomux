@@ -515,14 +515,13 @@ private struct AppTitlebarView: View {
     /// instead of clipping the brand into the content column.
     private func sidebarColumn(isPhysicalLeading: Bool) -> some View {
         HStack(spacing: 0) {
-            if sidebarWidth >= Self.brandWithTextMinimumWidth {
-                Brandmark()
-                    .allowsHitTesting(false)
-            } else if sidebarWidth >= Self.brandIconMinimumWidth {
-                Brandmark(showsText: false)
-                    .allowsHitTesting(false)
+            if layoutPolicy.titlebarLockupAlignment == .trailing {
+                Spacer(minLength: 0)
+                titleLockup
+            } else {
+                titleLockup
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
         }
         .padding(
             .leading,
@@ -531,8 +530,22 @@ private struct AppTitlebarView: View {
                 : layoutPolicy.dividerGutterColumn == .sidebar
                     ? AppTitlebarMetrics.contentColumnGutter : 10
         )
-        .padding(.trailing, 10)
-        .frame(width: sidebarWidth, alignment: .leading)
+        .padding(.trailing, layoutPolicy.titlebarLockupOuterPadding)
+        .frame(
+            width: sidebarWidth,
+            alignment: layoutPolicy.titlebarLockupAlignment == .trailing ? .trailing : .leading
+        )
+    }
+
+    @ViewBuilder
+    private var titleLockup: some View {
+        if sidebarWidth >= Self.brandWithTextMinimumWidth {
+            Brandmark()
+                .allowsHitTesting(false)
+        } else if sidebarWidth >= Self.brandIconMinimumWidth {
+            Brandmark(showsText: false)
+                .allowsHitTesting(false)
+        }
     }
 
     /// Workspace cluster anchored to the start of the content pane (i.e. the
