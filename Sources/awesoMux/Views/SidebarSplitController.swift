@@ -317,7 +317,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             forSidebarWidth: target, paneExtent: paneExtent, position: sidebarPosition
         )
         splitView.setPosition(coordinate, ofDividerAt: 0)
-        splitView.layoutSubtreeIfNeeded()
         isSettingPositionProgrammatically = false
         let rendered = sidebarPaneWidth
         recordIfExpanded(rendered)
@@ -328,10 +327,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func applyHiddenPosition() {
-        guard isViewLoaded, splitView.bounds.width > 0 else { return }
+        guard isViewLoaded, splitView.bounds.width > 0, sidebarPaneWidth > 0 else { return }
         isSettingPositionProgrammatically = true
         splitView.setPosition(sidebarPosition == .left ? 0 : paneExtent, ofDividerAt: 0)
-        splitView.layoutSubtreeIfNeeded()
         isSettingPositionProgrammatically = false
     }
 
