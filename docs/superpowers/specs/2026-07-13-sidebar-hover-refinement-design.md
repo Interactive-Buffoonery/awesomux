@@ -98,6 +98,12 @@ Explicit Hide/Show, Focus Sidebar, side changes, and restoration cancel any acti
 - Reduce Motion removes content-moving hover animation as described above.
 - Explicit hiding transfers focus out of the sidebar using the existing focus-preservation behavior before the instantaneous collapse.
 
+## Right-Side Title Lockup Alignment
+
+When `appearance.sidebar_position` is `right`, the awesoMux icon-and-title lockup in the sidebar titlebar is aligned to the sidebar's trailing/right edge. It retains the same titlebar padding used by the left-side layout, and the icon remains before the title text; only the lockup's horizontal alignment changes.
+
+The existing left-side titlebar behavior remains unchanged. This alignment follows the configured sidebar position for persistent and temporary presentations, including rail/full selection and hover reveal, without introducing a separate preference or animation.
+
 ## Failure and Interruption Behavior
 
 - **Rapid reversal:** cancel the active animator, use its current visual width as the new starting point, and settle at the newest pointer state.
@@ -120,10 +126,12 @@ Follow test-driven development and extend the existing sidebar presentation and 
 5. Split-controller tests for 140-millisecond hover reveal/hide requests, correct left/right divider targets, interrupted reversal from current presentation width, completion-token invalidation, resize reclamping, and no intermediate-width persistence.
 6. Reduce Motion tests proving divider changes are immediate while any cue opacity transition remains independent.
 7. Regression tests for cold launch while persistently hidden, terminal first-responder retention, divider dragging, remembered expanded width, and existing visible rail/full behavior.
-8. Live verification in the worktree app for cue clarity, 40/16-point thresholds, left/right placement, terminal clicking/dragging/scrolling within the tracking zone, rapid pointer reversal, resizing mid-animation, hidden width selection, keyboard immediacy, and Reduce Motion.
+8. Titlebar layout tests proving the lockup uses leading alignment for a left sidebar and trailing alignment for a right sidebar, while preserving padding and icon-before-text order in both rail and full presentations.
+9. Live verification in the worktree app for cue clarity, 40/16-point thresholds, left/right placement, terminal clicking/dragging/scrolling within the tracking zone, rapid pointer reversal, resizing mid-animation, hidden width selection, keyboard immediacy, and Reduce Motion.
+10. Focused titlebar live QA at representative narrow and wide window sizes: left placement remains unchanged; right placement anchors the complete awesoMux lockup to the sidebar's trailing edge with matching padding; icon/text order, rail/full modes, persistent show, and hover reveal remain visually correct.
 
 ## Integration Notes
 
-This document refines only the hidden-sidebar edge interaction in the original design. The original persistence, command routing, semantic split roles, position setting, titlebar behavior, peek direction, and Markdown alignment decisions remain authoritative unless this document explicitly supersedes them.
+This document refines the hidden-sidebar edge interaction and explicitly supersedes the original titlebar alignment only for the right-side awesoMux lockup. The original persistence, command routing, semantic split roles, position setting, other titlebar behavior, peek direction, and Markdown alignment decisions remain authoritative unless this document explicitly supersedes them.
 
 Before publishing, refresh open pull-request overlap because the implementation continues to touch central content, command-routing, and sidebar layout surfaces.
