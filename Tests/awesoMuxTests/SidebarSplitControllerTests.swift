@@ -315,11 +315,43 @@ struct SidebarSplitControllerTests {
     func equalTargetSkipsAnimation() {
         let (controller, _, harness) = makeControlledController()
         controller.setSidebarWidth(300)
+        let generation = controller.animationGenerationForTesting
 
         controller.setSidebarVisible(
             true, transition: .hover(duration: 0.140), reduceMotion: false)
 
         #expect(harness.requests.isEmpty)
+        #expect(controller.animationGenerationForTesting == generation)
+    }
+
+    @Test("production animation reverses from its visible presentation width")
+    func productionAnimationReversesVisibleMotion() throws {
+        let (controller, sidebar, _) = makeController()
+        let window = NSWindow(contentViewController: controller)
+        window.setContentSize(CGSize(width: 1_200, height: 800))
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 1), reduceMotion: false
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+        let revealedPresentation = sidebar.view.frame.width
+        #expect(revealedPresentation > 0)
+        #expect(revealedPresentation < 300)
+
+        controller.setSidebarVisible(
+            false, transition: .hover(duration: 1), reduceMotion: false
+        )
+        let reversal = try #require(controller.lastAnimationForTesting)
+        #expect(abs(reversal.fromWidth - revealedPresentation) < 3)
+        #expect(reversal.toWidth == 0)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+        let hidingPresentation = sidebar.view.frame.width
+        #expect(hidingPresentation < revealedPresentation)
+        #expect(hidingPresentation >= 0)
     }
 
     @Test("immediate visibility invalidates active hover and suppresses persistence")
