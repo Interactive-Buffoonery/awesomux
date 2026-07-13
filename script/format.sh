@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CONFIG_PATH="$ROOT_DIR/.swift-format"
+FORMATTER_VERSION_PATH="$ROOT_DIR/.swift-format-version"
 
 usage() {
     cat <<'EOF'
@@ -16,12 +17,29 @@ modifying the working tree. Set FORMAT_LINT_BASE to override the comparison ref.
 EOF
 }
 
-if command -v swift-format >/dev/null 2>&1; then
-    FORMATTER=(swift-format)
-elif swift format --version >/dev/null 2>&1; then
-    FORMATTER=(swift format)
-else
-    echo "error: swift-format is unavailable; install a Swift toolchain that includes it" >&2
+if ! swift format --version >/dev/null 2>&1; then
+    echo "error: the toolchain-integrated 'swift format' command is unavailable" >&2
+    exit 1
+fi
+FORMATTER=(swift format)
+
+case "$(uname -s)" in
+    Darwin) formatter_platform="darwin" ;;
+    Linux) formatter_platform="linux" ;;
+    *)
+        echo "error: unsupported formatter platform: $(uname -s)" >&2
+        exit 1
+        ;;
+esac
+expected_formatter_version="$(awk -F= -v platform="$formatter_platform" '$1 == platform { print $2 }' "$FORMATTER_VERSION_PATH")"
+if [[ -z "$expected_formatter_version" ]]; then
+    echo "error: no swift-format version is pinned for $formatter_platform" >&2
+    exit 1
+fi
+actual_formatter_version="$("${FORMATTER[@]}" --version | tr -d '[:space:]')"
+if [[ "$actual_formatter_version" != "$expected_formatter_version" ]]; then
+    echo "error: swift-format $expected_formatter_version is required; found $actual_formatter_version" >&2
+    echo "See docs/toolchain.md for installation and upgrade instructions." >&2
     exit 1
 fi
 

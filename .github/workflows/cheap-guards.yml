@@ -12,7 +12,7 @@ permissions:
 jobs:
   review-automation-and-plurals:
     name: Review automation and plurals
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -26,6 +26,9 @@ jobs:
 
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Verify Swift toolchain
+        run: ./script/check-toolchain.sh
 
       - name: Review-automation unit tests
         run: ./script/test-review-automation.sh
