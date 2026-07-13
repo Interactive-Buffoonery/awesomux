@@ -1,28 +1,9 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
 
 // MARK: - Helpers
-
-/// Test clock with a mutable "now"; safe to read from the resolver's `@Sendable`
-/// closure while a test advances it.
-private final class MutableClock: @unchecked Sendable {
-    private let lock = NSLock()
-    private var current: Date
-
-    init(_ start: Date = Date(timeIntervalSince1970: 1_000_000)) {
-        current = start
-    }
-
-    var date: Date {
-        lock.lock(); defer { lock.unlock() }
-        return current
-    }
-
-    func advance(by interval: TimeInterval) {
-        lock.lock(); current += interval; lock.unlock()
-    }
-}
 
 private actor RecordingGitStatusRunner {
     private(set) var callCount = 0
@@ -50,12 +31,13 @@ private func porcelain(_ lines: String...) -> Data {
 struct GitStatusInfoParsingTests {
     @Test("a clean, in-sync repo parses to all-zero / isClean")
     func clean() {
-        let info = GitStatusInfo(parsingPorcelainV2: porcelain(
-            "# branch.oid abc123",
-            "# branch.head main",
-            "# branch.upstream origin/main",
-            "# branch.ab +0 -0"
-        ))
+        let info = GitStatusInfo(
+            parsingPorcelainV2: porcelain(
+                "# branch.oid abc123",
+                "# branch.head main",
+                "# branch.upstream origin/main",
+                "# branch.ab +0 -0"
+            ))
         #expect(info.dirtyCount == 0)
         #expect(info.ahead == 0)
         #expect(info.behind == 0)
@@ -64,41 +46,45 @@ struct GitStatusInfoParsingTests {
 
     @Test("changed + untracked entries all count toward dirty")
     func dirtyCount() {
-        let info = GitStatusInfo(parsingPorcelainV2: porcelain(
-            "# branch.head main",
-            "# branch.ab +0 -0",
-            "1 .M N... 100644 100644 100644 aaa bbb file1.txt",
-            "1 M. N... 100644 100644 100644 ccc ddd file2.txt",
-            "? untracked.txt"
-        ))
+        let info = GitStatusInfo(
+            parsingPorcelainV2: porcelain(
+                "# branch.head main",
+                "# branch.ab +0 -0",
+                "1 .M N... 100644 100644 100644 aaa bbb file1.txt",
+                "1 M. N... 100644 100644 100644 ccc ddd file2.txt",
+                "? untracked.txt"
+            ))
         #expect(info.dirtyCount == 3)
         #expect(!info.isClean)
     }
 
     @Test("a rename is a single dirty entry")
     func renameIsOneEntry() {
-        let info = GitStatusInfo(parsingPorcelainV2: porcelain(
-            "# branch.head main",
-            "2 R. N... 100644 100644 100644 aaa bbb R100 new.txt\told.txt"
-        ))
+        let info = GitStatusInfo(
+            parsingPorcelainV2: porcelain(
+                "# branch.head main",
+                "2 R. N... 100644 100644 100644 aaa bbb R100 new.txt\told.txt"
+            ))
         #expect(info.dirtyCount == 1)
     }
 
     @Test("an unmerged path is a single dirty entry")
     func unmergedIsOneEntry() {
-        let info = GitStatusInfo(parsingPorcelainV2: porcelain(
-            "# branch.head main",
-            "u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt"
-        ))
+        let info = GitStatusInfo(
+            parsingPorcelainV2: porcelain(
+                "# branch.head main",
+                "u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt"
+            ))
         #expect(info.dirtyCount == 1)
     }
 
     @Test("ahead and behind are read from the branch.ab header")
     func aheadBehind() {
-        let info = GitStatusInfo(parsingPorcelainV2: porcelain(
-            "# branch.head main",
-            "# branch.ab +2 -3"
-        ))
+        let info = GitStatusInfo(
+            parsingPorcelainV2: porcelain(
+                "# branch.head main",
+                "# branch.ab +2 -3"
+            ))
         #expect(info.ahead == 2)
         #expect(info.behind == 3)
         #expect(info.dirtyCount == 0)
@@ -107,20 +93,22 @@ struct GitStatusInfoParsingTests {
 
     @Test("ahead-only suppresses the behind side")
     func aheadOnly() {
-        let info = GitStatusInfo(parsingPorcelainV2: porcelain(
-            "# branch.head main",
-            "# branch.ab +5 -0"
-        ))
+        let info = GitStatusInfo(
+            parsingPorcelainV2: porcelain(
+                "# branch.head main",
+                "# branch.ab +5 -0"
+            ))
         #expect(info.ahead == 5)
         #expect(info.behind == 0)
     }
 
     @Test("no upstream (no branch.ab line) yields zero ahead/behind")
     func noUpstream() {
-        let info = GitStatusInfo(parsingPorcelainV2: porcelain(
-            "# branch.oid abc123",
-            "# branch.head my-feature"
-        ))
+        let info = GitStatusInfo(
+            parsingPorcelainV2: porcelain(
+                "# branch.oid abc123",
+                "# branch.head my-feature"
+            ))
         #expect(info.ahead == 0)
         #expect(info.behind == 0)
         #expect(info.isClean)
@@ -128,11 +116,12 @@ struct GitStatusInfoParsingTests {
 
     @Test("detached HEAD with dirty files still counts dirt, zero ahead/behind")
     func detachedDirty() {
-        let info = GitStatusInfo(parsingPorcelainV2: porcelain(
-            "# branch.oid abc123",
-            "# branch.head (detached)",
-            "1 .M N... 100644 100644 100644 aaa bbb file.txt"
-        ))
+        let info = GitStatusInfo(
+            parsingPorcelainV2: porcelain(
+                "# branch.oid abc123",
+                "# branch.head (detached)",
+                "1 .M N... 100644 100644 100644 aaa bbb file.txt"
+            ))
         #expect(info.dirtyCount == 1)
         #expect(info.ahead == 0)
         #expect(info.behind == 0)
@@ -171,16 +160,16 @@ struct GitStatusResolverTests {
 
     @Test("the status re-resolves after the TTL")
     func ttlExpiry() async {
-        let clock = MutableClock()
+        let clock = TestClock()
         let runner = RecordingGitStatusRunner(response: Self.dirtyOutput)
-        let resolver = GitStatusResolver(runner: { root, _ in await runner.run(repoRoot: root) }, ttl: 8, now: { clock.date })
+        let resolver = GitStatusResolver(runner: { root, _ in await runner.run(repoRoot: root) }, ttl: 8, now: { clock.now })
 
         _ = await resolver.status(repoRoot: "/r", branch: "main")
         clock.advance(by: 5)
         _ = await resolver.status(repoRoot: "/r", branch: "main")
-        #expect(await runner.count() == 1) // still inside 8s
+        #expect(await runner.count() == 1)  // still inside 8s
 
-        clock.advance(by: 4) // now 9s past resolution
+        clock.advance(by: 4)  // now 9s past resolution
         _ = await resolver.status(repoRoot: "/r", branch: "main")
         #expect(await runner.count() == 2)
     }
@@ -259,8 +248,8 @@ struct BoundedCommandRunnerTests {
         let data = await runner.run(arguments: ["-c", "sleep 3 &"], inDirectory: NSTemporaryDirectory())
         let elapsed = Date().timeIntervalSince(start)
 
-        #expect(data == nil) // undrained → unknown, not a partial result
-        #expect(elapsed < 2.5) // ~500ms grace, not the 3s sleep
+        #expect(data == nil)  // undrained → unknown, not a partial result
+        #expect(elapsed < 2.5)  // ~500ms grace, not the 3s sleep
     }
 
     @Test("a child that outlives the timeout is killed and yields nil")
@@ -275,6 +264,6 @@ struct BoundedCommandRunnerTests {
         let elapsed = Date().timeIntervalSince(start)
 
         #expect(result == nil)
-        #expect(elapsed < 5) // timeout (1s) + SIGKILL grace (1s), not the 30s sleep
+        #expect(elapsed < 5)  // timeout (1s) + SIGKILL grace (1s), not the 30s sleep
     }
 }

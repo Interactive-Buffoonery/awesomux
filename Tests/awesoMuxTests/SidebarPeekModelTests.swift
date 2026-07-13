@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import CoreGraphics
 import Testing
 @testable import awesoMux
@@ -7,9 +8,9 @@ import Testing
 @Suite("Sidebar peek model hover handoff (INT-538)")
 struct SidebarPeekModelTests {
     private func twoPaneSession(_ title: String) -> TerminalSession {
-        let first = TerminalPane(title: "a", workingDirectory: "~", executionPlan: .local)
-        let second = TerminalPane(title: "b", workingDirectory: "~", executionPlan: .local)
-        return TerminalSession(
+        let first = TestData.pane(title: "a", workingDirectory: "~")
+        let second = TestData.pane(title: "b", workingDirectory: "~")
+        return TestData.session(
             title: title,
             workingDirectory: "~",
             layout: .split(
@@ -27,21 +28,21 @@ struct SidebarPeekModelTests {
 
     @Test("requestHide hides after the grace when the pointer never reaches the card")
     func requestHideHidesAfterGrace() async {
-        let gate = ManualDelayGate()
-        let model = SidebarPeekModel(sleep: { _ in await gate.wait() })
+        let gate = TestScheduler()
+        let model = SidebarPeekModel(sleep: { duration in await gate.wait(for: duration) })
         let a = twoPaneSession("A")
         model.show(session: a, location: location, tint: tint, frame: .zero)
         model.requestHide(for: a.id)
-        #expect(await waitUntil { gate.waiterCount == 1 })
-        gate.release()
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        gate.advance()
         #expect(await waitUntil { model.session == nil })
         #expect(model.session == nil)
     }
 
     @Test("pointer reaching the card cancels the pending hide")
     func pointerOverCardCancelsHide() async {
-        let gate = ManualDelayGate()
-        let model = SidebarPeekModel(sleep: { _ in await gate.wait() })
+        let gate = TestScheduler()
+        let model = SidebarPeekModel(sleep: { duration in await gate.wait(for: duration) })
         let a = twoPaneSession("A")
         model.show(session: a, location: location, tint: tint, frame: .zero)
         model.requestHide(for: a.id)
@@ -49,9 +50,9 @@ struct SidebarPeekModelTests {
         // pointer lands, so this exercises cancel-of-a-pending-grace (and, via
         // the release below, that the resumed task no-ops on its guards) —
         // not cancel-before-start.
-        #expect(await waitUntil { gate.waiterCount == 1 })
+        #expect(await waitUntil { gate.sleeperCount == 1 })
         model.setPointerOverCard(true, for: a.id)
-        gate.release()
+        gate.advance()
         await drainMainQueue()
         #expect(model.session?.id == a.id)
     }
@@ -62,8 +63,8 @@ struct SidebarPeekModelTests {
         // before A's `onHover(false)` lands. A's late false no-ops on the
         // session-id guard. Without `show` resetting `isPointerOverCard`, B's
         // requestHide would never fire and B's card would strand open.
-        let gate = ManualDelayGate()
-        let model = SidebarPeekModel(sleep: { _ in await gate.wait() })
+        let gate = TestScheduler()
+        let model = SidebarPeekModel(sleep: { duration in await gate.wait(for: duration) })
         let a = twoPaneSession("A")
         let b = twoPaneSession("B")
         model.show(session: a, location: location, tint: tint, frame: .zero)
@@ -72,16 +73,16 @@ struct SidebarPeekModelTests {
         #expect(model.session?.id == b.id)
 
         model.requestHide(for: b.id)
-        #expect(await waitUntil { gate.waiterCount == 1 })
-        gate.release()
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        gate.advance()
         #expect(await waitUntil { model.session == nil })
         #expect(model.session == nil)
     }
 
     @Test("a stale grace fire cannot hide a card a newer show put up")
     func staleGraceDoesNotHideNewSession() async {
-        let gate = ManualDelayGate()
-        let model = SidebarPeekModel(sleep: { _ in await gate.wait() })
+        let gate = TestScheduler()
+        let model = SidebarPeekModel(sleep: { duration in await gate.wait(for: duration) })
         let a = twoPaneSession("A")
         let b = twoPaneSession("B")
         model.show(session: a, location: location, tint: tint, frame: .zero)
@@ -89,17 +90,17 @@ struct SidebarPeekModelTests {
         // Suspend A's grace at its delay point BEFORE B's takeover, so the
         // release below resumes a genuinely stale task — it must no-op via the
         // cancel guard and the session-id re-guard.
-        #expect(await waitUntil { gate.waiterCount == 1 })
+        #expect(await waitUntil { gate.sleeperCount == 1 })
         model.show(session: b, location: location, tint: tint, frame: .zero)  // cancels it
-        gate.release()
+        gate.advance()
         await drainMainQueue()
         #expect(model.session?.id == b.id)  // B survived
     }
 
     private func twoSessionGroup(_ name: String) -> (SessionGroup, TerminalSession, TerminalSession) {
-        let a = TerminalSession(title: "A", workingDirectory: "~", agentKind: .shell, agentState: .idle)
-        let b = TerminalSession(title: "B", workingDirectory: "~", agentKind: .shell, agentState: .idle)
-        let group = SessionGroup(name: name, sessions: [a, b])
+        let a = TestData.session(title: "A", workingDirectory: "~")
+        let b = TestData.session(title: "B", workingDirectory: "~")
+        let group = TestData.workspace(name: name, sessions: [a, b])
         return (group, a, b)
     }
 
@@ -125,27 +126,27 @@ struct SidebarPeekModelTests {
 
     @Test("requestHideGroup hides after the grace when the pointer never reaches the card")
     func requestHideGroupHidesAfterGrace() async {
-        let gate = ManualDelayGate()
-        let model = SidebarPeekModel(sleep: { _ in await gate.wait() })
+        let gate = TestScheduler()
+        let model = SidebarPeekModel(sleep: { duration in await gate.wait(for: duration) })
         let (group, ga, gb) = twoSessionGroup("Code")
         model.showGroup(group: group, tint: tint, sessions: [ga, gb], activeSessionID: nil, frame: .zero)
         model.requestHideGroup(for: group.id)
-        #expect(await waitUntil { gate.waiterCount == 1 })
-        gate.release()
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        gate.advance()
         #expect(await waitUntil { model.group == nil })
         #expect(model.group == nil)
     }
 
     @Test("pointer reaching the group card cancels the pending hide")
     func pointerOverGroupCardCancelsHide() async {
-        let gate = ManualDelayGate()
-        let model = SidebarPeekModel(sleep: { _ in await gate.wait() })
+        let gate = TestScheduler()
+        let model = SidebarPeekModel(sleep: { duration in await gate.wait(for: duration) })
         let (group, ga, gb) = twoSessionGroup("Code")
         model.showGroup(group: group, tint: tint, sessions: [ga, gb], activeSessionID: nil, frame: .zero)
         model.requestHideGroup(for: group.id)
-        #expect(await waitUntil { gate.waiterCount == 1 })
+        #expect(await waitUntil { gate.sleeperCount == 1 })
         model.setPointerOverGroupCard(true, for: group.id)
-        gate.release()
+        gate.advance()
         await drainMainQueue()
         #expect(model.group?.id == group.id)
     }
@@ -167,19 +168,4 @@ struct SidebarPeekModelTests {
         #expect(model.groupSessionItems[0].isActive == true)
     }
 
-    /// Yield-poll with a bound: deterministic (no wall clock — pending
-    /// main-actor jobs run whenever this suspends), and a condition that never
-    /// comes reports a failure rather than hanging the suite.
-    private func waitUntil(
-        _ condition: () -> Bool,
-        attempts: Int = 10_000
-    ) async -> Bool {
-        for _ in 0..<attempts {
-            if condition() {
-                return true
-            }
-            await Task.yield()
-        }
-        return condition()
-    }
 }

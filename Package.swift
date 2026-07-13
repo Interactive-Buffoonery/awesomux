@@ -14,11 +14,11 @@ let package = Package(
         .executable(name: "awesoMuxBridgeHelper", targets: ["awesoMuxBridgeHelper"]),
         .library(name: "AwesoMuxCore", targets: ["AwesoMuxCore"]),
         .library(name: "AwesoMuxConfig", targets: ["AwesoMuxConfig"]),
-        .library(name: "DesignSystem", targets: ["DesignSystem"])
+        .library(name: "DesignSystem", targets: ["DesignSystem"]),
     ],
     dependencies: [
         .package(url: "https://github.com/mattt/swift-toml.git", from: "2.0.0"),
-        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0")
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
     ],
     targets: [
         .executableTarget(
@@ -29,7 +29,7 @@ let package = Package(
                 "DesignSystem",
                 "UnicodeHygiene",
                 "GhosttyKit",
-                "GhosttyKitLinker"
+                "GhosttyKitLinker",
             ]
         ),
         .target(
@@ -37,7 +37,7 @@ let package = Package(
             dependencies: [
                 "SecureFileIO",
                 "UnicodeHygiene",
-                .product(name: "TOML", package: "swift-toml")
+                .product(name: "TOML", package: "swift-toml"),
             ]
         ),
         .target(
@@ -45,7 +45,7 @@ let package = Package(
             dependencies: [
                 "SecureFileIO",
                 "UnicodeHygiene",
-                .product(name: "Markdown", package: "swift-markdown")
+                .product(name: "Markdown", package: "swift-markdown"),
             ]
         ),
         .target(
@@ -75,6 +75,11 @@ let package = Package(
             resources: [.copy("Resources/Fonts")]
         ),
         .target(name: "SecureFileIO"),
+        .target(
+            name: "AwesoMuxTestSupport",
+            dependencies: ["AwesoMuxCore"],
+            path: "Tests/AwesoMuxTestSupport"
+        ),
         .systemLibrary(
             name: "GhosttyKit",
             path: "Sources/GhosttyKit"
@@ -111,17 +116,17 @@ let package = Package(
                     // here as libghostty-fat.a). Force-loading it alone replaces
                     // the old fat-plus-15-individual-archives list; the split
                     // also dropped libutfcpp.a entirely.
-                    ".build/ghostty/GhosttyKit.xcframework/macos-arm64/libghostty-fat.a"
-                ])
+                    ".build/ghostty/GhosttyKit.xcframework/macos-arm64/libghostty-fat.a",
+                ]),
             ]
         ),
         .testTarget(
             name: "AwesoMuxCoreTests",
-            dependencies: ["AwesoMuxCore"]
+            dependencies: ["AwesoMuxCore", "AwesoMuxTestSupport"]
         ),
         .testTarget(
             name: "AwesoMuxConfigTests",
-            dependencies: ["AwesoMuxConfig"]
+            dependencies: ["AwesoMuxConfig", "AwesoMuxTestSupport"]
         ),
         .testTarget(
             name: "AwesoMuxAgentHookSupportTests",
@@ -129,7 +134,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AwesoMuxBridgeHelperSupportTests",
-            dependencies: ["AwesoMuxBridgeHelperSupport", "AwesoMuxCore"]
+            dependencies: ["AwesoMuxBridgeHelperSupport", "AwesoMuxCore", "AwesoMuxTestSupport"]
         ),
         .testTarget(
             name: "UnicodeHygieneTests",
@@ -137,15 +142,19 @@ let package = Package(
         ),
         .testTarget(
             name: "SecureFileIOTests",
-            dependencies: ["SecureFileIO"]
+            dependencies: ["SecureFileIO", "AwesoMuxTestSupport"]
         ),
         .testTarget(
             name: "awesoMuxTests",
-            dependencies: ["awesoMux", "AwesoMuxCore", "DesignSystem"]
+            dependencies: ["awesoMux", "AwesoMuxCore", "AwesoMuxTestSupport", "DesignSystem"]
+        ),
+        .testTarget(
+            name: "AwesoMuxTestSupportTests",
+            dependencies: ["AwesoMuxTestSupport"]
         ),
         .testTarget(
             name: "DesignSystemTests",
             dependencies: ["DesignSystem"]
-        )
+        ),
     ]
 )
