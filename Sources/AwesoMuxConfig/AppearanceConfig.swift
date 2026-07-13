@@ -12,6 +12,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
     @TOMLDefault<DefaultCRTScanlines> public var crtScanlines: Bool
     @TOMLDefault<DefaultCursorGlow> public var cursorGlow: Bool
     @TOMLDefault<DefaultAlwaysShowJumpNumbers> public var alwaysShowJumpNumbers: Bool
+    @TOMLDefault<DefaultSidebarPosition> public var sidebarPosition: SidebarPosition
     @TOMLDefault<DefaultTerminalThemeID> public var terminalThemeID: String?
     @TOMLDefault<DefaultTerminalBackgroundMode> public var terminalBackgroundMode: TerminalBackgroundMode
     @TOMLDefault<DefaultTerminalBackgroundColor> public var terminalBackgroundColor: String
@@ -29,6 +30,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         crtScanlines: Bool = DefaultCRTScanlines.defaultValue,
         cursorGlow: Bool = DefaultCursorGlow.defaultValue,
         alwaysShowJumpNumbers: Bool = DefaultAlwaysShowJumpNumbers.defaultValue,
+        sidebarPosition: SidebarPosition = DefaultSidebarPosition.defaultValue,
         terminalThemeID: String? = DefaultTerminalThemeID.defaultValue,
         terminalBackgroundMode: TerminalBackgroundMode = DefaultTerminalBackgroundMode.defaultValue,
         terminalBackgroundColor: String = DefaultTerminalBackgroundColor.defaultValue
@@ -43,6 +45,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         self.crtScanlines = crtScanlines
         self.cursorGlow = cursorGlow
         self.alwaysShowJumpNumbers = alwaysShowJumpNumbers
+        self.sidebarPosition = sidebarPosition
         self.terminalThemeID = terminalThemeID
         self.terminalBackgroundMode = terminalBackgroundMode
         self.terminalBackgroundColor = terminalBackgroundColor
@@ -59,6 +62,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         case crtScanlines = "crt_scanlines"
         case cursorGlow = "cursor_glow"
         case alwaysShowJumpNumbers = "always_show_jump_numbers"
+        case sidebarPosition = "sidebar_position"
         case terminalThemeID = "terminal_theme_id"
         case terminalBackgroundMode = "terminal_background_mode"
         case terminalBackgroundColor = "terminal_background_color"
@@ -75,9 +79,10 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         CodingKeys.crtScanlines.rawValue,
         CodingKeys.cursorGlow.rawValue,
         CodingKeys.alwaysShowJumpNumbers.rawValue,
+        CodingKeys.sidebarPosition.rawValue,
         CodingKeys.terminalThemeID.rawValue,
         CodingKeys.terminalBackgroundMode.rawValue,
-        CodingKeys.terminalBackgroundColor.rawValue
+        CodingKeys.terminalBackgroundColor.rawValue,
     ]
 }
 
@@ -121,6 +126,10 @@ public struct DefaultAlwaysShowJumpNumbers: DefaultProvider {
     public static let defaultValue = false
 }
 
+public struct DefaultSidebarPosition: DefaultProvider {
+    public static let defaultValue: AppearanceConfig.SidebarPosition = .left
+}
+
 public struct DefaultTerminalThemeID: DefaultProvider {
     public static let defaultValue: String? = nil
 }
@@ -147,6 +156,11 @@ public extension AppearanceConfig {
         case green
     }
 
+    enum SidebarPosition: String, Codable, CaseIterable, Equatable, Sendable {
+        case left
+        case right
+    }
+
     enum TerminalBackgroundMode: String, Codable, CaseIterable, Equatable, Sendable {
         case ghostty
         case catppuccinTheme = "catppuccin_theme"
@@ -159,7 +173,7 @@ extension AppearanceConfig {
         // Match the runtime clamp in `TerminalAppearancePreferences.ghosttyFontSize`
         // so values that survive validation also survive the libghostty boundary
         // without silent renormalization.
-        guard (6.0 ... 72.0).contains(fontSize) else {
+        guard (6.0...72.0).contains(fontSize) else {
             throw .invalidValue(
                 path: "appearance.font_size",
                 message: "Font size must be between 6 and 72"
@@ -171,14 +185,14 @@ extension AppearanceConfig {
         // deliberately. KEEP IN SYNC — change both together. Matching it means a
         // hand-edited TOML value that survives validation also survives the
         // scaling path without silent renormalization on first slider touch.
-        guard (0.85 ... 1.35).contains(uiTextScale) else {
+        guard (0.85...1.35).contains(uiTextScale) else {
             throw .invalidValue(
                 path: "appearance.ui_text_scale",
                 message: "UI text scale must be between 0.85 and 1.35"
             )
         }
 
-        guard (0.0 ... 1.0).contains(glowStrength) else {
+        guard (0.0...1.0).contains(glowStrength) else {
             throw .invalidValue(
                 path: "appearance.glow_strength",
                 message: "Glow strength must be between 0.0 and 1.0"

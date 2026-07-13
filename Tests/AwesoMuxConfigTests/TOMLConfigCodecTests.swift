@@ -54,12 +54,16 @@ struct TOMLConfigCodecTests {
         #expect(decoded.appearance.terminalThemeID == nil)
         #expect(decoded.appearance.terminalBackgroundMode == .ghostty)
         #expect(decoded.appearance.terminalBackgroundColor == "#1e1e2e")
-        #expect(decoded.notifications.notifyOnNeedsAttention
-            == NotificationConfig.defaultValue.notifyOnNeedsAttention)
-        #expect(decoded.notifications.dockBounceOnNeedsAttention
-            == NotificationConfig.defaultValue.dockBounceOnNeedsAttention)
-        #expect(decoded.notifications.showWorkspaceDetails
-            == NotificationConfig.defaultValue.showWorkspaceDetails)
+        #expect(decoded.appearance.sidebarPosition == .left)
+        #expect(
+            decoded.notifications.notifyOnNeedsAttention
+                == NotificationConfig.defaultValue.notifyOnNeedsAttention)
+        #expect(
+            decoded.notifications.dockBounceOnNeedsAttention
+                == NotificationConfig.defaultValue.dockBounceOnNeedsAttention)
+        #expect(
+            decoded.notifications.showWorkspaceDetails
+                == NotificationConfig.defaultValue.showWorkspaceDetails)
         #expect(decoded.terminal == TerminalConfig.defaultValue)
         #expect(decoded.advanced.configSchemaVersion == 1)
     }
@@ -255,7 +259,7 @@ struct TOMLConfigCodecTests {
     func daemonIdleCapRoundTrip() throws {
         var config = AwesoMuxConfig.defaultValue
         config.terminal.daemonIdleCapEnabled = true
-        config.terminal.daemonIdleCapMinutes = 4320   // 3 days
+        config.terminal.daemonIdleCapMinutes = 4320  // 3 days
         let encoded = try codec.encodeString(config)
         let decoded = try codec.decode(encoded)
         #expect(decoded.terminal.daemonIdleCapEnabled == true)
@@ -334,6 +338,22 @@ struct TOMLConfigCodecTests {
         let decoded = try codec.decode(toml)
 
         #expect(decoded.appearance == AppearanceConfig.defaultValue)
+        #expect(decoded.appearance.sidebarPosition == .left)
+    }
+
+    @Test("invalid sidebar position fails decoding")
+    func invalidSidebarPositionFailsDecoding() throws {
+        let toml = Self.defaultTOML.replacing(
+            "always_show_jump_numbers = true",
+            with: """
+                always_show_jump_numbers = true
+                sidebar_position = "middle"
+                """
+        )
+
+        #expect(throws: (any Error).self) {
+            _ = try codec.decode(toml)
+        }
     }
 
     @Test("notifications table missing every owned key decodes to all defaults")
@@ -504,11 +524,12 @@ struct TOMLConfigCodecTests {
 
     @Test("missing Claude Code and Codex providers decode to defaults")
     func missingClaudeCodeAndCodexProvidersDecodeToDefaults() throws {
-        let toml = Self.defaultTOML + """
+        let toml =
+            Self.defaultTOML + """
 
-        [agent_integrations.open_code]
-        binary_path = "/opt/homebrew/bin/opencode"
-        """
+                [agent_integrations.open_code]
+                binary_path = "/opt/homebrew/bin/opencode"
+                """
 
         let decoded = try codec.decode(toml)
 
@@ -557,20 +578,21 @@ struct TOMLConfigCodecTests {
 
     @Test("agent integration paths without enabled remain disabled")
     func agentIntegrationPathsWithoutEnabledRemainDisabled() throws {
-        let toml = Self.defaultTOML + """
+        let toml =
+            Self.defaultTOML + """
 
-        [agent_integrations.open_code]
-        binary_path = "/opt/homebrew/bin/opencode"
-        config_home = "/Users/example/.config/opencode"
+                [agent_integrations.open_code]
+                binary_path = "/opt/homebrew/bin/opencode"
+                config_home = "/Users/example/.config/opencode"
 
-        [agent_integrations.pi]
-        binary_path = "/opt/homebrew/bin/pi"
-        config_home = "/Users/example/.pi/agent"
+                [agent_integrations.pi]
+                binary_path = "/opt/homebrew/bin/pi"
+                config_home = "/Users/example/.pi/agent"
 
-        [agent_integrations.grok]
-        binary_path = "/Users/example/.grok/bin/grok"
-        config_home = "/Users/example/.grok"
-        """
+                [agent_integrations.grok]
+                binary_path = "/Users/example/.grok/bin/grok"
+                config_home = "/Users/example/.grok"
+                """
 
         let decoded = try codec.decode(toml)
 
@@ -584,12 +606,13 @@ struct TOMLConfigCodecTests {
 
     @Test("unknown top-level table survives load and save")
     func unknownTopLevelTableSurvivesLoadAndSave() throws {
-        let toml = Self.defaultTOML + """
+        let toml =
+            Self.defaultTOML + """
 
-        [external_tool]
-        enabled = true
-        note = "kept outside awesoMux schema"
-        """
+                [external_tool]
+                enabled = true
+                note = "kept outside awesoMux schema"
+                """
 
         let decoded = try codec.decode(toml)
         let reEncoded = try codec.encodeString(decoded)
@@ -606,9 +629,9 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             #"clipboard_write_policy = "ask""#,
             with: """
-            clipboard_write_policy = "ask"
-            custom_shell_integration = true
-            """
+                clipboard_write_policy = "ask"
+                custom_shell_integration = true
+                """
         )
 
         let decoded = try codec.decode(toml)
@@ -628,11 +651,11 @@ struct TOMLConfigCodecTests {
             confirm_clipboard_read = true
             """,
             with: """
-            clipboard_write_policy = "deny"
-            confirm_clipboard_read = false
-            copy_on_select = "off"
-            custom_shell_integration = true
-            """
+                clipboard_write_policy = "deny"
+                confirm_clipboard_read = false
+                copy_on_select = "off"
+                custom_shell_integration = true
+                """
         )
 
         var decoded = try codec.decode(toml)
@@ -662,9 +685,9 @@ struct TOMLConfigCodecTests {
             let toml = Self.defaultTOML.replacing(
                 "confirm_clipboard_read = true",
                 with: """
-                confirm_clipboard_read = true
-                copy_on_select = \(legacy)
-                """
+                    confirm_clipboard_read = true
+                    copy_on_select = \(legacy)
+                    """
             )
 
             let decoded = try codec.decode(toml)
@@ -679,9 +702,9 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             "confirm_clipboard_read = true",
             with: """
-            confirm_clipboard_read = true
-            copy_on_select = true
-            """
+                confirm_clipboard_read = true
+                copy_on_select = true
+                """
         )
 
         let decoded = try codec.decode(toml)
@@ -696,9 +719,9 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             "confirm_clipboard_read = true",
             with: """
-            confirm_clipboard_read = true
-            copy_on_select = "sometimes"
-            """
+                confirm_clipboard_read = true
+                copy_on_select = "sometimes"
+                """
         )
 
         #expect(throws: (any Error).self) { try codec.decode(toml) }
@@ -715,7 +738,7 @@ struct TOMLConfigCodecTests {
             "[not_a_table]",
             "second line",
             "\"\"\"",
-            "custom_map = { a = 1, b = 2 }"
+            "custom_map = { a = 1, b = 2 }",
         ].joined(separator: "\n")
         let toml = Self.defaultTOML.replacing(
             "glow_strength = 0.65",
@@ -730,13 +753,15 @@ struct TOMLConfigCodecTests {
         #expect(decoded.unknownAppearanceTableLines.contains("font_ligatures = true"))
         #expect(reEncoded.contains("font_ligatures = true"))
         #expect(reEncoded.contains(#"custom_note = "value # not a comment""#))
-        #expect(reEncoded.contains("""
-        custom_multiline = \"\"\"
-        first line
-        [not_a_table]
-        second line
-        \"\"\"
-        """))
+        #expect(
+            reEncoded.contains(
+                """
+                custom_multiline = \"\"\"
+                first line
+                [not_a_table]
+                second line
+                \"\"\"
+                """))
         #expect(reEncoded.contains("custom_map = { a = 1, b = 2 }"))
         #expect(reEncoded.contains("glow_strength = 0.65"))
         #expect(reDecoded.unknownAppearanceTableLines.contains("font_ligatures = true"))
@@ -752,7 +777,7 @@ struct TOMLConfigCodecTests {
             #"\""""#,
             "[not_a_table]",
             "still content",
-            "\"\"\""
+            "\"\"\"",
         ].joined(separator: "\n")
         let toml = Self.defaultTOML.replacing("glow_strength = 0.65", with: appearanceExtras)
 
@@ -777,7 +802,7 @@ struct TOMLConfigCodecTests {
             "[not_a_table]",
             "\"\"\",",
             #""beta""#,
-            "]"
+            "]",
         ].joined(separator: "\n")
         let toml = Self.defaultTOML.replacing("glow_strength = 0.65", with: appearanceExtras)
 
@@ -829,11 +854,11 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             #"clipboard_write_policy = "ask""#,
             with: """
-            clipboard_write_policy = "ask"
-            copy_on_select = "on"
-            custom_shell_integration = true
-            # keep this terminal note
-            """
+                clipboard_write_policy = "ask"
+                copy_on_select = "on"
+                custom_shell_integration = true
+                # keep this terminal note
+                """
         )
 
         let decoded = try codec.decode(toml)
@@ -853,9 +878,9 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             #"clipboard_write_policy = "ask""#,
             with: """
-            "clipboard_write_policy" = "allow"
-            "copy_on_select" = "on"
-            """
+                "clipboard_write_policy" = "allow"
+                "copy_on_select" = "on"
+                """
         )
 
         let decoded = try codec.decode(toml)
@@ -877,9 +902,9 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             #"clipboard_write_policy = "ask""#,
             with: """
-            'clipboard_write_policy' = "allow"
-            'copy_on_select' = "on"
-            """
+                'clipboard_write_policy' = "allow"
+                'copy_on_select' = "on"
+                """
         )
 
         let decoded = try codec.decode(toml)
@@ -902,9 +927,9 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             #"clipboard_write_policy = "ask""#,
             with: """
-            "copy\\u005Fon_select" = "on"
-            clipboard_write_policy = "ask"
-            """
+                "copy\\u005Fon_select" = "on"
+                clipboard_write_policy = "ask"
+                """
         )
 
         let decoded = try codec.decode(toml)
@@ -924,9 +949,9 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             #"clipboard_write_policy = "ask""#,
             with: """
-            clipboard_write_policy = "ask"
-            "emoji_\\U0001F600_key" = true
-            """
+                clipboard_write_policy = "ask"
+                "emoji_\\U0001F600_key" = true
+                """
         )
 
         let decoded = try codec.decode(toml)
@@ -958,9 +983,9 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             #"clipboard_write_policy = "ask""#,
             with: """
-            clipboard_write_policy = "ask"
-            "custom_shell_integration" = true
-            """
+                clipboard_write_policy = "ask"
+                "custom_shell_integration" = true
+                """
         )
 
         let decoded = try codec.decode(toml)
@@ -979,12 +1004,12 @@ struct TOMLConfigCodecTests {
         let toml = Self.defaultTOML.replacing(
             "[workspaces]",
             with: """
-            [terminal.cursor]
-            style = "block"
-            blink = false
+                [terminal.cursor]
+                style = "block"
+                blink = false
 
-            [workspaces]
-            """
+                [workspaces]
+                """
         )
 
         let decoded = try codec.decode(toml)
@@ -1007,11 +1032,11 @@ struct TOMLConfigCodecTests {
             let toml = Self.defaultTOML.replacing(
                 "[workspaces]",
                 with: """
-                \(header)
-                style = "block"
+                    \(header)
+                    style = "block"
 
-                [workspaces]
-                """
+                    [workspaces]
+                    """
             )
 
             let decoded = try codec.decode(toml)
@@ -1032,11 +1057,11 @@ struct TOMLConfigCodecTests {
             confirm_clipboard_read = true
             """,
             with: """
-            # custom clipboard policy note
-            clipboard_write_policy = "deny"
-            custom_shell_integration = true
-            confirm_clipboard_read = false
-            """
+                # custom clipboard policy note
+                clipboard_write_policy = "deny"
+                custom_shell_integration = true
+                confirm_clipboard_read = false
+                """
         )
 
         var decoded = try codec.decode(toml)
@@ -1070,42 +1095,49 @@ struct TOMLConfigCodecTests {
                     copyOnSelect: .inherit
                 )
 
-                #expect(config.ghosttyOverrideConfigContents == """
-                clipboard-write = \(policy.rawValue)
-                clipboard-read = \(confirmClipboardRead ? "ask" : "deny")
-                clipboard-paste-protection = true
+                #expect(
+                    config.ghosttyOverrideConfigContents == """
+                        clipboard-write = \(policy.rawValue)
+                        clipboard-read = \(confirmClipboardRead ? "ask" : "deny")
+                        clipboard-paste-protection = true
 
-                """)
+                        """)
             }
         }
     }
 
     @Test("terminal config maps copy-on-select tri-state to Ghostty values")
     func terminalConfigMapsCopyOnSelectToGhosttyValues() {
-        #expect(TerminalConfig(copyOnSelect: .off).ghosttyOverrideConfigContents
-            .contains("copy-on-select = false"))
+        #expect(
+            TerminalConfig(copyOnSelect: .off).ghosttyOverrideConfigContents
+                .contains("copy-on-select = false"))
         // macOS has no selection clipboard, so `clipboard` is what actually
         // lands selections on the system pasteboard — `true` would be a no-op.
-        #expect(TerminalConfig(copyOnSelect: .on).ghosttyOverrideConfigContents
-            .contains("copy-on-select = clipboard"))
-        #expect(!TerminalConfig(copyOnSelect: .inherit).ghosttyOverrideConfigContents
-            .contains("copy-on-select"))
+        #expect(
+            TerminalConfig(copyOnSelect: .on).ghosttyOverrideConfigContents
+                .contains("copy-on-select = clipboard"))
+        #expect(
+            !TerminalConfig(copyOnSelect: .inherit).ghosttyOverrideConfigContents
+                .contains("copy-on-select"))
     }
 
     @Test("terminal config force-overrides clipboard-read from confirmClipboardRead")
     func terminalConfigForceOverridesClipboardRead() {
-        #expect(TerminalConfig(confirmClipboardRead: true).ghosttyOverrideConfigContents
-            .contains("clipboard-read = ask"))
-        #expect(TerminalConfig(confirmClipboardRead: false).ghosttyOverrideConfigContents
-            .contains("clipboard-read = deny"))
+        #expect(
+            TerminalConfig(confirmClipboardRead: true).ghosttyOverrideConfigContents
+                .contains("clipboard-read = ask"))
+        #expect(
+            TerminalConfig(confirmClipboardRead: false).ghosttyOverrideConfigContents
+                .contains("clipboard-read = deny"))
     }
 
     @Test("terminal config does not override clipboard-paste-bracketed-safe")
     func terminalConfigDoesNotOverrideClipboardPasteBracketedSafe() {
         // Ghostty's default (true) treats bracketed-paste-aware programs as
         // safe paste targets, so leave the key to Ghostty / the user's own config.
-        #expect(!TerminalConfig.defaultValue.ghosttyOverrideConfigContents
-            .contains("clipboard-paste-bracketed-safe"))
+        #expect(
+            !TerminalConfig.defaultValue.ghosttyOverrideConfigContents
+                .contains("clipboard-paste-bracketed-safe"))
     }
 
     @Test("terminal config force-overrides clipboard-paste-protection")
@@ -1115,8 +1147,9 @@ struct TOMLConfigCodecTests {
         // the whole check when it's off). No app-level toggle exists for it —
         // force it on unconditionally so a user's own ghostty config can't
         // silently disable the confirm dialog.
-        #expect(TerminalConfig.defaultValue.ghosttyOverrideConfigContents
-            .contains("clipboard-paste-protection = true"))
+        #expect(
+            TerminalConfig.defaultValue.ghosttyOverrideConfigContents
+                .contains("clipboard-paste-protection = true"))
     }
 
     @Test("clipboard_write_policy invalid value reports terminal path")
@@ -1178,10 +1211,11 @@ struct TOMLConfigCodecTests {
     @Test("invalid TOML syntax reports line and column")
     func invalidSyntaxReportsLineAndColumn() throws {
         do {
-            _ = try codec.decode("""
-            [appearance]
-            theme =
-            """)
+            _ = try codec.decode(
+                """
+                [appearance]
+                theme =
+                """)
             Issue.record("Expected invalid syntax, but decode succeeded")
         } catch ConfigLoadError.invalidSyntax(let line, let column, let message) {
             #expect(line > 0)
@@ -1422,74 +1456,74 @@ struct TOMLConfigCodecTests {
     }
 
     private static let v1DefaultTOML = """
-    [appearance]
-    theme = "system"
-    accent = "peach"
-    ui_font = "system"
-    mono_font = "system-monospace"
-    font_size = 13.0
-    glow_strength = 0.65
+        [appearance]
+        theme = "system"
+        accent = "peach"
+        ui_font = "system"
+        mono_font = "system-monospace"
+        font_size = 13.0
+        glow_strength = 0.65
 
-    [notifications]
-    muted = false
-    sound = true
-    respect_do_not_disturb = true
+        [notifications]
+        muted = false
+        sound = true
+        respect_do_not_disturb = true
 
-    [agents]
-    permission_posture = "ask_every_time"
-    remember_tool_trust = true
+        [agents]
+        permission_posture = "ask_every_time"
+        remember_tool_trust = true
 
-    [workspaces]
-    default_group = "awesoMux"
-    output_marks_needs_attention = true
+        [workspaces]
+        default_group = "awesoMux"
+        output_marks_needs_attention = true
 
-    [advanced]
-    config_schema_version = 1
-    """
+        [advanced]
+        config_schema_version = 1
+        """
 
     private static let defaultTOML = """
-    [general]
-    restore_workspaces = true
-    sidebar_compact_mode = false
-    show_menu_bar_mini_status = false
+        [general]
+        restore_workspaces = true
+        sidebar_compact_mode = false
+        show_menu_bar_mini_status = false
 
-    [appearance]
-    theme = "system"
-    accent = "peach"
-    ui_font = "system"
-    mono_font = "system-monospace"
-    font_size = 13.0
-    glow_strength = 0.65
-    crt_scanlines = false
-    cursor_glow = false
-    always_show_jump_numbers = true
-    terminal_theme_id = "catppuccin-latte"
-    terminal_background_mode = "ghostty"
-    terminal_background_color = "#1e1e2e"
+        [appearance]
+        theme = "system"
+        accent = "peach"
+        ui_font = "system"
+        mono_font = "system-monospace"
+        font_size = 13.0
+        glow_strength = 0.65
+        crt_scanlines = false
+        cursor_glow = false
+        always_show_jump_numbers = true
+        terminal_theme_id = "catppuccin-latte"
+        terminal_background_mode = "ghostty"
+        terminal_background_color = "#1e1e2e"
 
-    [notifications]
-    muted = false
-    sound = true
-    respect_do_not_disturb = true
-    notify_on_needs_attention = true
-    dock_bounce_on_needs_attention = false
-    show_workspace_details = false
+        [notifications]
+        muted = false
+        sound = true
+        respect_do_not_disturb = true
+        notify_on_needs_attention = true
+        dock_bounce_on_needs_attention = false
+        show_workspace_details = false
 
-    [agents]
-    permission_posture = "ask_every_time"
-    remember_tool_trust = true
+        [agents]
+        permission_posture = "ask_every_time"
+        remember_tool_trust = true
 
-    [terminal]
-    clipboard_write_policy = "ask"
-    confirm_clipboard_read = true
+        [terminal]
+        clipboard_write_policy = "ask"
+        confirm_clipboard_read = true
 
-    [workspaces]
-    default_group = "awesoMux"
-    output_marks_needs_attention = true
-    confirm_close_with_running_agent = false
-    confirm_destructive_pane_action_with_running_agent = false
+        [workspaces]
+        default_group = "awesoMux"
+        output_marks_needs_attention = true
+        confirm_close_with_running_agent = false
+        confirm_destructive_pane_action_with_running_agent = false
 
-    [advanced]
-    config_schema_version = 2
-    """
+        [advanced]
+        config_schema_version = 2
+        """
 }
