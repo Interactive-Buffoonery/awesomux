@@ -30,6 +30,23 @@ struct SSHWorkspaceGroupTargetingTests {
         #expect(resolved.id == expected.id)
     }
 
+    @Test("confusable default name diverts to the canonical group like all routing")
+    func confusableDefaultGroupDiverts() throws {
+        let canonical = SessionGroup(name: "awesoMux", sessions: [])
+        let decoy = SessionGroup(name: "Work", sessions: [])
+
+        let resolved = try #require(
+            SSHWorkspaceGroupTargeting.resolve(
+                groups: [decoy, canonical],
+                selectedSessionID: nil,
+                // Cyrillic С/а/е mixed into Latin — groupLookupKey sends this
+                // to the canonical default (INT-485); the resolver must agree.
+                defaultGroupName: "\u{0421}l\u{0430}ud\u{0435}"
+            ))
+
+        #expect(resolved.id == canonical.id)
+    }
+
     @Test("selected workspace group wins over the configured default")
     func selectedGroupWins() throws {
         let selected = TerminalSession(title: "shell 1", workingDirectory: "~")

@@ -1,21 +1,6 @@
 import AwesoMuxCore
 import SwiftUI
 
-enum SSHWorkspaceDestinationValidation {
-    static func target(from text: String) -> RemoteTarget? {
-        guard let target = RemoteTarget(parsing: text), target.isSafeSSHDestination else { return nil }
-        return target
-    }
-
-    static func message(for text: String) -> String? {
-        guard !text.isEmpty, target(from: text) == nil else { return nil }
-        return String(
-            localized: "Enter an SSH alias, hostname, or user@host, not a command option.",
-            comment: "Validation message when a managed SSH workspace destination is invalid"
-        )
-    }
-}
-
 struct SSHWorkspaceConnectSheet: View {
     let groupName: String
     let onCancel: () -> Void
@@ -58,7 +43,14 @@ struct SSHWorkspaceConnectSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(target == nil)
-                .accessibilityHint(validationMessage ?? "Enter a destination to enable Connect", isEnabled: target == nil)
+                .accessibilityHint(
+                    validationMessage
+                        ?? String(
+                            localized: "Enter a destination to enable Connect",
+                            comment: "Accessibility hint for the disabled Connect button in the Connect via SSH sheet"
+                        ),
+                    isEnabled: target == nil
+                )
             }
         }
         .padding(20)

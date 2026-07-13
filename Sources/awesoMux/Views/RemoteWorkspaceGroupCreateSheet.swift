@@ -10,7 +10,10 @@ struct RemoteWorkspaceGroupCreateSheet: View {
     @FocusState private var isHostFocused: Bool
 
     var body: some View {
-        let target = RemoteTarget(parsing: draftHost)
+        // Shared validator, not bare RemoteTarget(parsing:): option-like
+        // destinations must be rejected at every creation boundary, and the
+        // store guard returning nil would otherwise leave a dead Create button.
+        let target = SSHWorkspaceDestinationValidation.target(from: draftHost)
         let canCreate = target != nil
 
         return VStack(alignment: .leading, spacing: 16) {
@@ -39,7 +42,7 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 .accessibilityLabel("Remote host")
                 .onSubmit { submit(target: target, canCreate: canCreate) }
 
-            if let validation = validationMessage(target: target) {
+            if let validation = SSHWorkspaceDestinationValidation.message(for: draftHost) {
                 Text(validation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -62,8 +65,10 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 // Conditional hint on one stable button identity — an if/else
                 // over two button copies resets focus mid-edit.
                 .accessibilityHint(
-                    validationMessage(target: target)
-                        ?? String(localized: "Enter a host to enable Create", comment: "Accessibility hint for the disabled Create button in the New Remote Workspace Group sheet"),
+                    SSHWorkspaceDestinationValidation.message(for: draftHost)
+                        ?? String(
+                            localized: "Enter a host to enable Create",
+                            comment: "Accessibility hint for the disabled Create button in the New Remote Workspace Group sheet"),
                     isEnabled: !canCreate
                 )
             }
@@ -75,16 +80,6 @@ struct RemoteWorkspaceGroupCreateSheet: View {
         .onAppear {
             isHostFocused = true
         }
-    }
-
-    private func validationMessage(target: RemoteTarget?) -> String? {
-        guard target == nil, !draftHost.isEmpty else {
-            return nil
-        }
-        return String(
-            localized: "Enter a host to connect to, like user@example.com.",
-            comment: "Validation message when the remote workspace group's host field doesn't parse to a usable SSH target"
-        )
     }
 
     private func submit(target: RemoteTarget?, canCreate: Bool) {
