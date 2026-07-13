@@ -428,6 +428,23 @@ public final class SessionStore {
     }
 
     @discardableResult
+    public func addSSHSession(
+        target: RemoteTarget,
+        toGroupID groupID: SessionGroup.ID
+    ) -> TerminalSession.ID? {
+        guard
+            let sessionID = WorkspaceTreeReducer.addSession(
+                to: &_groups,
+                selectedSession: selectedSession,
+                groupID: groupID,
+                executionPlan: .ssh(SSHExecution(target: target))
+            )
+        else { return nil }
+        commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
+        return sessionID
+    }
+
+    @discardableResult
     public func addWorkspaceGroup(
         named rawGroupName: String,
         workingDirectory: String? = nil,

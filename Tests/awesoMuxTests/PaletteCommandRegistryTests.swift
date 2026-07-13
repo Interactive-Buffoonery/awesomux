@@ -19,6 +19,7 @@ struct PaletteCommandRegistryTests {
             KeyboardShortcutCatalog.newWorkspaceInCurrentDirectory.id,
             KeyboardShortcutCatalog.newWorkspaceGroup.id,
             "newRemoteWorkspaceGroup",
+                "connectViaSSH",
             KeyboardShortcutCatalog.renameWorkspace.id,
             KeyboardShortcutCatalog.renamePane.id,
             "resetPaneTitle",

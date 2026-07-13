@@ -57,6 +57,14 @@ struct RemotePaneDisconnectedContent {
                 comment: "Second description line on the remote-disconnected overlay when the workspace moved to a different remote host than the one that dropped"
             )
         }
+        if !isReconnecting {
+            description +=
+                "\n"
+                + String(
+                    localized: "For more details, try the same destination with ordinary ssh in a local workspace.",
+                    comment: "Safe diagnostic guidance shown after a managed SSH workspace disconnects"
+                )
+        }
 
         guard buttonEnabled else {
             let reconnectingLabel = String(

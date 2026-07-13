@@ -74,6 +74,27 @@ struct WorkspaceTreeReducer: Sendable {
     }
 
     @discardableResult
+    static func addSession(
+        to groups: inout [SessionGroup],
+        selectedSession: TerminalSession?,
+        groupID: SessionGroup.ID,
+        executionPlan: PaneExecutionPlan
+    ) -> TerminalSession.ID? {
+        guard let groupIndex = groups.firstIndex(where: { $0.id == groupID }) else { return nil }
+        let syntheticTitle = nextSyntheticSessionTitle(in: groups, for: .shell)
+        let session = TerminalSession(
+            title: syntheticTitle.localizedTitle(),
+            workingDirectory: selectedSession?.workingDirectory ?? "~",
+            syntheticTitle: syntheticTitle,
+            agentKind: .shell,
+            agentState: AgentKind.shell.initialSessionState,
+            executionPlan: executionPlan
+        )
+        groups[groupIndex].sessions.append(session)
+        return session.id
+    }
+
+    @discardableResult
     static func addWorkspaceGroup(
         to groups: inout [SessionGroup],
         selectedSession: TerminalSession?,
