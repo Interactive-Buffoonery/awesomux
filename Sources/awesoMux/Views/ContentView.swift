@@ -294,7 +294,6 @@ struct ContentView: View {
             }
             .overlay(alignment: layoutPolicy.edge == .leading ? .leading : .trailing) {
                 SidebarProximityCue(
-                    edge: layoutPolicy.edge,
                     visible: sidebarPresentation.isCueVisible
                 )
             }
@@ -306,7 +305,7 @@ struct ContentView: View {
                         userWantsHidden: sidebarPresentation.userWantsHidden
                     ),
                     SidebarHoverTransitionPolicy.transition(
-                        for: .pointer,
+                        for: sidebarPresentation.visibilitySource,
                         reduceMotion: reduceMotion
                     ),
                     reduceMotion
@@ -420,7 +419,6 @@ struct ContentView: View {
 }
 
 private struct SidebarProximityCue: View {
-    let edge: SidebarPhysicalEdge
     let visible: Bool
     @Environment(\.awAccent) private var accentResolver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

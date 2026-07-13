@@ -17,6 +17,7 @@ final class SidebarPresentationModel {
 
     private(set) var userWantsHidden: Bool
     private(set) var proximityState: ProximityState = .dormant
+    @ObservationIgnored private(set) var visibilitySource: SidebarVisibilitySource = .explicit
 
     var isTemporarilyRevealed: Bool {
         proximityState == .revealed
@@ -133,6 +134,7 @@ final class SidebarPresentationModel {
 
     private func transition(to next: ProximityState) {
         cancelDelayedHide()
+        visibilitySource = .pointer
         proximityState = next
     }
 
@@ -149,6 +151,7 @@ final class SidebarPresentationModel {
             else {
                 return
             }
+            self.visibilitySource = .pointer
             self.proximityState = next
             self.delayedHideTask = nil
         }
@@ -164,6 +167,7 @@ final class SidebarPresentationModel {
         cancelDelayedHide()
         trackerState = .dormant
         sidebarPointerPresent = false
+        visibilitySource = .explicit
         proximityState = .dormant
     }
 }

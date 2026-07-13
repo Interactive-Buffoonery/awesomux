@@ -226,6 +226,35 @@ struct SidebarPresentationModelTests {
         #expect(model.proximityState == .dormant)
     }
 
+    @Test("availability loss from cue and reveal is explicit")
+    func availabilityLossIsExplicit() throws {
+        for x in [30.0, 15.0] {
+            let (model, _, defaults, suiteName) = try makeHiddenModel()
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            model.pointerMoved(x: x, width: 100, position: .left)
+            #expect(model.visibilitySource == .pointer)
+
+            model.invalidateTransientState()
+
+            #expect(model.proximityState == .dormant)
+            #expect(model.visibilitySource == .explicit)
+        }
+    }
+
+    @Test("explicit invalidation from cue and reveal remains explicit")
+    func explicitInvalidationSource() throws {
+        for x in [30.0, 15.0] {
+            let (model, _, defaults, suiteName) = try makeHiddenModel()
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            model.pointerMoved(x: x, width: 100, position: .left)
+
+            model.positionDidChange()
+
+            #expect(model.proximityState == .dormant)
+            #expect(model.visibilitySource == .explicit)
+        }
+    }
+
     @Test("hidden width selection leaves presentation dormant and hidden")
     func hiddenWidthSelectionPreservesPresentation() throws {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
