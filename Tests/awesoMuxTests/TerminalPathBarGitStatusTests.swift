@@ -281,5 +281,6 @@ struct BoundedCommandRunnerTests {
         #expect(await waitUntil { scheduler.requestedDurations.first == .seconds(1) })
         scheduler.advanceOneCycle()
         #expect(await run.value == nil)
+        scheduler.advanceOneCycle()
     }
 }
