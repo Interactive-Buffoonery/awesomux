@@ -18,9 +18,13 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     let proxy: SidebarSplitProxy
     var position: AppearanceConfig.SidebarPosition = .left
     var isHidden = false
+    var edgeTrackingEnabled = false
     var onLiveWidthChange: ((CGFloat) -> Void)?
     var onCommitWidth: ((CGFloat) -> Void)?
     var onSidebarFocusHandoff: (() -> Bool)?
+    var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
+    var onEdgeExit: (() -> Void)?
+    var onTrackingAvailabilityLost: (() -> Void)?
     @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var detail: () -> Detail
 
@@ -33,8 +37,12 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.onLiveWidthChange = onLiveWidthChange
         controller.onCommitWidth = onCommitWidth
         controller.onSidebarFocusHandoff = onSidebarFocusHandoff
+        controller.onEdgePointerMove = onEdgePointerMove
+        controller.onEdgeExit = onEdgeExit
+        controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
         controller.setSidebarPosition(position)
         controller.setSidebarHidden(isHidden)
+        controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
         controller.setSidebarWidth(initialWidth)
         proxy.setWidth = { [weak controller] width in controller?.setSidebarWidth(width) }
         proxy.setPosition = { [weak controller] position in controller?.setSidebarPosition(position) }
@@ -47,8 +55,12 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.onLiveWidthChange = onLiveWidthChange
         controller.onCommitWidth = onCommitWidth
         controller.onSidebarFocusHandoff = onSidebarFocusHandoff
+        controller.onEdgePointerMove = onEdgePointerMove
+        controller.onEdgeExit = onEdgeExit
+        controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
         controller.setSidebarPosition(position)
         controller.setSidebarHidden(isHidden)
+        controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
         // Re-host each pane's root view so @Observable / @Bindable updates inside the
         // panes propagate. SwiftUI diffs the new root against the old, so this is
         // cheap when nothing changed; it does not rebuild the hosting controllers.
