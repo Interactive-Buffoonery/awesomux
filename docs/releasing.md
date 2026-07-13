@@ -137,7 +137,7 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [x] build number (default: `git rev-list --count HEAD`)
   - [x] signing identity
   - [x] output directory
-  - [x] notarization profile or credentials
+  - [x] notarization keychain profile (`--notary-profile`)
 - [ ] Build from a clean checkout:
   - [ ] `git submodule update --init --recursive`
   - [ ] `./script/ensure_ghostty_artifacts.sh`

@@ -81,7 +81,17 @@ if [[ -n "$(git -C "$ROOT_DIR" status --porcelain)" ]]; then
 fi
 RELEASE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 
-BUILD_NUMBER="${BUILD_NUMBER:-$(git -C "$ROOT_DIR" rev-list --count HEAD)}"
+# The commit-count default only works with full history: a shallow checkout
+# (e.g. actions/checkout's fetch-depth 1) would yield a CFBundleVersion LOWER
+# than earlier releases. Explicit --build-number bypasses the guard.
+if [[ -z "$BUILD_NUMBER" ]]; then
+  if [[ "$(git -C "$ROOT_DIR" rev-parse --is-shallow-repository)" == "true" ]]; then
+    echo "error: shallow checkout — the default build number (commit count) would regress." >&2
+    echo "       Fetch full history (git fetch --unshallow) or pass --build-number explicitly." >&2
+    exit 1
+  fi
+  BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD)"
+fi
 
 # Fail before the expensive build, not after it: a fresh machine without the
 # signing identity or notary profile should learn that in seconds.
