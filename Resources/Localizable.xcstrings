@@ -190,16 +190,6 @@
         }
       }
     },
-    "%arg · %arg client%arg" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg · %2$arg client%3$arg"
-          }
-        }
-      }
-    },
     "%arg · %arg · %arg" : {
       "localizations" : {
         "en" : {
@@ -328,6 +318,9 @@
     "A background workspace is waiting for you." : {
       "comment" : "Notification body for workspace-needs-attention banners."
     },
+    "A command or agent is still running. Closing ends this Terminal Companion session." : {
+      "comment" : "Explanation in the confirmation shown before closing a Terminal Companion with running work."
+    },
     "Accent" : {
       "comment" : "Appearance settings section title"
     },
@@ -398,7 +391,13 @@
       "comment" : "Diagnostics severity filter"
     },
     "Allow" : {
-      "comment" : "Button on the OSC 52 clipboard-read confirmation dialog. Allows the terminal program to read the clipboard."
+      "comment" : "Button on the OSC 52 clipboard-read confirmation dialog. Allows the terminal program to read the clipboard.\nButton that allows a remote agent's permission request"
+    },
+    "Allow (Command-Return when focused)" : {
+      "comment" : "Tooltip for the allow button on the remote permission banner"
+    },
+    "Allow permission request. Command-Return when focused." : {
+      "comment" : "Accessibility label for the allow button on the remote permission banner, including keyboard shortcut"
     },
     "Allow terminal program to read the clipboard" : {
       "comment" : "VoiceOver label for approving an OSC 52 clipboard read."
@@ -463,6 +462,9 @@
     "Background sessions" : {
 
     },
+    "Background sessions are off" : {
+      "comment" : "Title on a managed SSH pane blocked because background terminal sessions are disabled"
+    },
     "Background sessions. Pin a session to exempt it from auto-cleanup, or reap it to kill it." : {
 
     },
@@ -489,6 +491,12 @@
     "Bridge" : {
       "comment" : "Diagnostics process type"
     },
+    "Bridge handshake" : {
+      "comment" : "Bridge doctor check title"
+    },
+    "Bundled UI font" : {
+      "comment" : "About settings field label for the bundled interface font attribution"
+    },
     "CPU" : {
       "comment" : "Diagnostics process table column\nDiagnostics resource metric"
     },
@@ -496,7 +504,7 @@
 
     },
     "Cancel" : {
-      "comment" : "Button title that cancels choosing an IDE.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the clear-workspace confirmation dialog. Cancels the clear.\nDefault button on the close-group confirmation dialog. Cancels the close.\nDefault button on the close-workspace confirmation dialog. Cancels the close.\nDefault button on the destructive pane-action confirmation dialog. Cancels the action.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the remote-group close/removal confirmation dialog. Cancels the close.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
+      "comment" : "Button title that cancels choosing an IDE.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -507,6 +515,9 @@
     "Cancel check" : {
 
     },
+    "Cannot Open Remote Markdown" : {
+      "comment" : "Title for a remote Markdown path that cannot be resolved safely"
+    },
     "Catppuccin" : {
 
     },
@@ -515,6 +526,15 @@
     },
     "Check status" : {
 
+    },
+    "Check that %arg is a valid hostname or SSH config alias and is reachable." : {
+      "comment" : "Guidance shown after a managed SSH connection fails"
+    },
+    "Check that the hostname or SSH config alias exists and is reachable." : {
+      "comment" : "Accessibility guidance after a remote pane's SSH connection fails"
+    },
+    "Check that the hostname or SSH config alias exists and is reachable. Reconnect available." : {
+      "comment" : "VoiceOver recovery guidance after an SSH connection fails"
     },
     "Checked %arg" : {
       "comment" : "Diagnostics freshness using a localized relative time"
@@ -585,6 +605,15 @@
     "Close Pane" : {
       "comment" : "Destructive button on the close-pane confirmation dialog."
     },
+    "Close Terminal" : {
+      "comment" : "Destructive confirmation button that closes the Terminal Companion."
+    },
+    "Close Terminal Companion" : {
+      "comment" : "Accessibility label for the Terminal Companion close button."
+    },
+    "Close Terminal Companion?" : {
+      "comment" : "Title of the confirmation shown before closing a Terminal Companion with running work."
+    },
     "Close Workspace" : {
       "comment" : "Destructive button on the close-workspace confirmation dialog.",
       "localizations" : {
@@ -598,6 +627,9 @@
     },
     "Close agent activity panel" : {
       "comment" : "Accessibility label for the agent activity panel's close button"
+    },
+    "Close and reopen Terminal Companion to start a new session." : {
+      "comment" : "Placeholder guidance in the Terminal Companion when no session exists."
     },
     "Close cancelled for %arg" : {
       "comment" : "VoiceOver announcement when the user cancels a close confirmation dialog; argument is the workspace title or workspace group name."
@@ -659,6 +691,9 @@
     "Command Palette" : {
 
     },
+    "Command W minimizes the Terminal Companion" : {
+      "comment" : "Accessibility label for the Terminal Companion minimize shortcut hint."
+    },
     "Command name" : {
 
     },
@@ -666,9 +701,6 @@
 
     },
     "Command palette search" : {
-
-    },
-    "Command palette unavailable" : {
 
     },
     "Command run: %arg %arg" : {
@@ -724,6 +756,18 @@
     "Confirm reap of %arg" : {
 
     },
+    "Connect via SSH" : {
+
+    },
+    "Connect via SSH…" : {
+
+    },
+    "Connection to %arg is active." : {
+      "comment" : "VoiceOver announcement when a remote pane connection recovers"
+    },
+    "Connection to %arg may be stale." : {
+      "comment" : "VoiceOver announcement when a remote pane connection may be stale"
+    },
     "Controls whether terminal programs and escape sequences can replace the macOS clipboard." : {
 
     },
@@ -750,6 +794,9 @@
     },
     "Could Not Resolve Project Folder" : {
       "comment" : "Alert title shown when awesoMux cannot resolve a local folder for Open in IDE."
+    },
+    "Could not connect to %arg, or the connection ended." : {
+      "comment" : "Description under the SSH connection failed overlay title, naming the remote host"
     },
     "Could not create a new tab for %arg." : {
       "comment" : "Accessibility announcement when opening a new tab for a palette command fails"
@@ -801,6 +848,9 @@
         }
       }
     },
+    "Creates a managed SSH workspace in “%arg.”\nOpenSSH will use your existing config and credentials." : {
+
+    },
     "Current" : {
 
     },
@@ -833,6 +883,18 @@
     },
     "Denied" : {
       "comment" : "Settings label when macOS notification permission is denied."
+    },
+    "Deny" : {
+      "comment" : "Button that denies a remote agent's permission request"
+    },
+    "Deny (Escape when focused)" : {
+      "comment" : "Tooltip for the deny button on the remote permission banner"
+    },
+    "Deny permission request. Escape when focused." : {
+      "comment" : "Accessibility label for the deny button on the remote permission banner, including keyboard shortcut"
+    },
+    "Destination" : {
+
     },
     "Diagnostic events" : {
       "comment" : "Diagnostics settings section title"
@@ -878,22 +940,19 @@
     "Diagnostics summary: %arg" : {
 
     },
-    "Disconnected" : {
-      "comment" : "Title on the overlay covering a remote pane whose SSH connection died"
-    },
-    "Disconnected from %arg in %arg. Reconnect available." : {
-      "comment" : "VoiceOver announcement when a remote pane's SSH connection dies in a split, naming the host and pane",
+    "Disconnected from %arg in %arg. Background sessions are off. Enable them to reconnect." : {
+      "comment" : "VoiceOver announcement when a managed SSH pane in a split is blocked because background terminal sessions are disabled",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Disconnected from %1$arg in %2$arg. Reconnect available."
+            "value" : "Disconnected from %1$arg in %2$arg. Background sessions are off. Enable them to reconnect."
           }
         }
       }
     },
-    "Disconnected from %arg. Reconnect available." : {
-      "comment" : "VoiceOver announcement when a remote pane's SSH connection dies and a reconnect affordance appears"
+    "Disconnected from %arg. Background sessions are off. Enable them to reconnect." : {
+      "comment" : "VoiceOver announcement when a managed SSH pane is blocked because background terminal sessions are disabled"
     },
     "Dismiss revision indicator" : {
       "comment" : "Tooltip and accessibility label for the button that hides the document revision indicator"
@@ -966,11 +1025,14 @@
     "Enable %arg" : {
 
     },
+    "Enable and reconnect to %arg" : {
+      "comment" : "Button that enables background terminal sessions and reconnects a managed SSH pane"
+    },
     "Enter a command." : {
       "comment" : "Validation message when the custom command text is empty"
     },
-    "Enter a host to connect to, like user@example.com." : {
-      "comment" : "Validation message when the remote workspace group's host field doesn't parse to a usable SSH target"
+    "Enter a destination to enable Connect" : {
+      "comment" : "Accessibility hint for the disabled Connect button in the Connect via SSH sheet"
     },
     "Enter a host to enable Create" : {
       "comment" : "Accessibility hint for the disabled Create button in the New Remote Workspace Group sheet"
@@ -986,6 +1048,9 @@
     },
     "Enter a workspace name to enable Save" : {
 
+    },
+    "Enter an SSH alias, hostname, or user@host, not a command option." : {
+      "comment" : "Validation message when a managed SSH workspace destination is invalid"
     },
     "Error" : {
       "comment" : "Agent state label\nDiagnostics event severity",
@@ -1073,8 +1138,14 @@
     "Fonts" : {
       "comment" : "Appearance settings section title"
     },
+    "For more details, try ssh %arg in a local workspace." : {
+      "comment" : "Safe ordinary SSH diagnostic shown after a managed SSH connection fails"
+    },
     "Full URL: %arg" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the full (possibly truncated) URL. Argument is the URL string."
+    },
+    "Geist Sans — Copyright 2024 The Geist Project Authors. SIL Open Font License 1.1." : {
+      "comment" : "About settings attribution for the bundled Geist Sans interface font"
     },
     "Ghostty" : {
 
@@ -1246,17 +1317,26 @@
     "Loading document" : {
 
     },
+    "Local listener permissions" : {
+      "comment" : "Bridge doctor check title"
+    },
     "Local only" : {
 
-    },
-    "Lost connection to %arg." : {
-      "comment" : "Description under the Disconnected overlay title, naming the remote host that dropped"
     },
     "MIT" : {
 
     },
     "Malformed runtime event was ignored" : {
       "comment" : "Diagnostics event summary"
+    },
+    "Managed SSH requires background terminal sessions." : {
+      "comment" : "Explanation on a managed SSH pane blocked because background terminal sessions are disabled"
+    },
+    "Managed SSH requires background terminal sessions. awesoMux will turn them on when you connect." : {
+
+    },
+    "Managed SSH requires background terminal sessions. awesoMux will turn them on when you create the group." : {
+
     },
     "Manual" : {
       "comment" : "Diagnostics configuration reload trigger"
@@ -1280,6 +1360,12 @@
     },
     "Memory" : {
       "comment" : "Diagnostics process table column\nDiagnostics resource metric"
+    },
+    "Minimize Terminal Companion" : {
+      "comment" : "Accessibility label for the Terminal Companion minimize button.\nTooltip on the Terminal Companion minimize button."
+    },
+    "Minimized Terminal Companion" : {
+      "comment" : "Accessibility label for the minimized Terminal Companion corner tab window.\nAppKit window title for the minimized Terminal Companion corner tab."
     },
     "Mixing Latin with Cyrillic or Greek letters isn't allowed here — use one alphabet." : {
       "comment" : "Validation message when a workspace group name mixes visually confusable alphabets"
@@ -1325,6 +1411,9 @@
     },
     "Move to Previous Group (%arg)" : {
 
+    },
+    "Moved Terminal Companion to workspace." : {
+      "comment" : "VoiceOver announcement after promoting the Terminal Companion into the workspace list."
     },
     "Moved pane next to target" : {
       "comment" : "VoiceOver announcement after a drag drops a pane onto an edge of another pane."
@@ -1428,6 +1517,9 @@
     "New command" : {
       "comment" : "Settings field label for the add-custom-command button"
     },
+    "New workspace" : {
+
+    },
     "New workspace in empty group" : {
 
     },
@@ -1439,6 +1531,12 @@
     },
     "Next Workspace" : {
 
+    },
+    "Next permission request in %arg." : {
+      "comment" : "VoiceOver announcement when a queued remote permission prompt becomes active in a named split pane\nVoiceOver announcement when a queued remote permission prompt becomes active, naming the workspace"
+    },
+    "Next permission request." : {
+      "comment" : "VoiceOver announcement when a queued remote permission prompt becomes active"
     },
     "No Recent Workspaces" : {
       "comment" : "Placeholder shown in the Dock menu's Recent Workspaces submenu when nothing has been closed recently."
@@ -1475,6 +1573,9 @@
     },
     "No workspace overrides" : {
 
+    },
+    "Not Now" : {
+      "comment" : "Button: dismiss the wedged terminal event loop alert without acting"
     },
     "Not checked yet" : {
       "comment" : "Diagnostics freshness"
@@ -1566,6 +1667,12 @@
     "Opens menu" : {
 
     },
+    "Opens the Terminal Companion" : {
+      "comment" : "Accessibility hint on the minimized Terminal Companion corner tab."
+    },
+    "Opens the command palette to search workspaces and actions." : {
+
+    },
     "Opens the macOS Notifications settings pane for awesoMux." : {
 
     },
@@ -1613,6 +1720,12 @@
     "Pane name" : {
 
     },
+    "Pane now runs locally." : {
+      "comment" : "VoiceOver announcement when the focused pane changes to local execution"
+    },
+    "Pane now runs on %arg." : {
+      "comment" : "VoiceOver announcement when the focused pane changes to remote execution"
+    },
     "Pane: %arg%arg" : {
       "localizations" : {
         "en" : {
@@ -1649,6 +1762,53 @@
         }
       }
     },
+    "Permission denied in %arg." : {
+      "comment" : "VoiceOver announcement confirming the user denied a remote permission request in a named split pane\nVoiceOver announcement confirming the user denied a remote permission request, naming the workspace"
+    },
+    "Permission denied." : {
+      "comment" : "VoiceOver announcement confirming the user denied a remote permission request"
+    },
+    "Permission granted in %arg." : {
+      "comment" : "VoiceOver announcement confirming the user allowed a remote permission request in a named split pane\nVoiceOver announcement confirming the user allowed a remote permission request, naming the workspace"
+    },
+    "Permission granted." : {
+      "comment" : "VoiceOver announcement confirming the user allowed a remote permission request"
+    },
+    "Permission prompt focused in %arg." : {
+      "comment" : "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to a named split pane's remote permission banner\nVoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner, naming the workspace"
+    },
+    "Permission prompt focused." : {
+      "comment" : "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner"
+    },
+    "Permission request cancelled in %arg." : {
+      "comment" : "VoiceOver announcement when a remote permission prompt is cancelled in a named split pane\nVoiceOver announcement when a remote permission prompt is cancelled, naming the workspace"
+    },
+    "Permission request cancelled." : {
+      "comment" : "VoiceOver announcement when a remote permission prompt is cancelled"
+    },
+    "Permission request timed out in %arg." : {
+      "comment" : "VoiceOver announcement when a remote permission prompt expires (denied) in a named split pane\nVoiceOver announcement when a remote permission prompt expires (denied), naming the workspace"
+    },
+    "Permission request timed out." : {
+      "comment" : "VoiceOver announcement when a remote permission prompt expires and is denied"
+    },
+    "Permission requested in %arg." : {
+      "comment" : "VoiceOver announcement when a remote agent asks for a permission decision in a named split pane\nVoiceOver announcement when a remote agent asks for a permission decision, naming the workspace"
+    },
+    "Permission requested." : {
+      "comment" : "VoiceOver announcement when a remote agent asks for a permission decision"
+    },
+    "Permission requested: %arg, %arg." : {
+      "comment" : "Accessibility label for the remote permission banner. Arguments: tool name, full requested target.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Permission requested: %1$arg, %2$arg."
+          }
+        }
+      }
+    },
     "Pin" : {
       "comment" : "Sidebar workspace context-menu action that pins the workspace to the top of the sidebar."
     },
@@ -1678,6 +1838,9 @@
     "Pinned, from %arg" : {
       "comment" : "VoiceOver value fragment on a pinned sidebar workspace naming its origin group."
     },
+    "Press Command-W or use Minimize to minimize. Use Close to end the terminal." : {
+      "comment" : "Accessibility hint on the expanded Terminal Companion window."
+    },
     "Press ⌘Return to allow. Esc cancels." : {
       "comment" : "Keyboard hint line on the OSC 52 clipboard-read confirmation dialog."
     },
@@ -1689,6 +1852,9 @@
     },
     "Press ⌘Return to close pane. Esc cancels." : {
       "comment" : "Keyboard hint line on the close-pane confirmation dialog."
+    },
+    "Press ⌘Return to close terminal. Esc cancels." : {
+      "comment" : "Keyboard hint line on the Terminal Companion close confirmation dialog."
     },
     "Press ⌘Return to close workspace. Esc cancels." : {
       "comment" : "Keyboard hint line on the close-workspace confirmation dialog."
@@ -1737,6 +1903,9 @@
     },
     "Process resource sample was unavailable" : {
       "comment" : "Diagnostics event summary"
+    },
+    "Promote to workspace, Command Return" : {
+      "comment" : "Accessibility label for the Terminal Companion promote button; action first, shortcut second."
     },
     "Pull request %arg, %arg" : {
       "localizations" : {
@@ -1863,17 +2032,26 @@
     "Remember approvals per workspace" : {
 
     },
+    "Remote helper" : {
+      "comment" : "Bridge doctor check title"
+    },
     "Remote host" : {
 
     },
-    "Remote pane disconnected from %arg" : {
-      "comment" : "Accessibility label for the overlay container shown over a remote pane whose SSH connection died"
+    "Remote pane disconnected from %arg. Background sessions are off." : {
+      "comment" : "Accessibility label for a managed SSH pane blocked because background terminal sessions are disabled"
     },
     "Remote pane reconnecting to %arg" : {
       "comment" : "Accessibility label for the overlay container while a remote pane's manual reconnect is in flight"
     },
     "Remote snapshot from %arg" : {
       "comment" : "Help text for the Files toggle when the visible document is a read-only remote snapshot"
+    },
+    "Remote socket permissions" : {
+      "comment" : "Bridge doctor check title"
+    },
+    "Remote terminal works; rich agent features are off." : {
+      "comment" : "Bridge doctor degradation banner when the bridge is down"
     },
     "Remove" : {
       "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command"
@@ -2003,6 +2181,9 @@
     "Restart Shell" : {
       "comment" : "Destructive button on the restart-shell confirmation dialog."
     },
+    "Restart Terminal Engine" : {
+      "comment" : "Button: recover from a wedged terminal event loop by reloading it"
+    },
     "Restart pane" : {
       "comment" : "Button label on the remote-disconnected overlay when the pane's session has moved to a local group, so there is no remote host to reconnect to"
     },
@@ -2014,6 +2195,20 @@
     },
     "Restore" : {
       "comment" : "Diagnostics event category"
+    },
+    "Restore Terminal Companion, %arg, %arg, %arg" : {
+      "comment" : "Accessibility label for the minimized Terminal Companion corner tab: command, status, directory.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Restore Terminal Companion, %1$arg, %2$arg, %3$arg"
+          }
+        }
+      }
+    },
+    "Restore Terminal Companion, session ended, %arg" : {
+      "comment" : "Accessibility label for the minimized Terminal Companion corner tab when the shell has exited."
     },
     "Restore workspaces" : {
 
@@ -2059,6 +2254,32 @@
     "Runtime issues plus restore, configuration, and terminal outcomes from this launch." : {
       "comment" : "Diagnostics settings section subtitle"
     },
+    "SSH Unix-socket forwarding is disabled on the remote host." : {
+      "comment" : "Bridge doctor failure reason"
+    },
+    "SSH connection failed" : {
+      "comment" : "Title on the overlay covering a remote pane whose SSH connection failed or ended"
+    },
+    "SSH connection to %arg failed." : {
+      "comment" : "Accessibility label for a remote pane whose SSH connection failed\nVoiceOver announcement when a remote pane's SSH connection fails"
+    },
+    "SSH connection to %arg in %arg failed." : {
+      "comment" : "VoiceOver announcement when a remote pane's SSH connection fails in a split",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "SSH connection to %1$arg in %2$arg failed."
+          }
+        }
+      }
+    },
+    "SSH destination" : {
+
+    },
+    "SSH forwarding" : {
+      "comment" : "Bridge doctor check title"
+    },
     "Save" : {
 
     },
@@ -2098,6 +2319,9 @@
     "Search shortcuts" : {
 
     },
+    "Search workspaces and actions (%arg)" : {
+
+    },
     "Security warning: %arg" : {
       "comment" : "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
     },
@@ -2119,6 +2343,9 @@
     "Session daemons could not be listed. App process data is current." : {
       "comment" : "Diagnostics partial refresh status"
     },
+    "Session ended" : {
+      "comment" : "Corner tab label when the companion shell has exited while minimized."
+    },
     "Sessions idle longer than this threshold are cleaned up at launch." : {
 
     },
@@ -2135,7 +2362,7 @@
       "comment" : "Dock right-click menu item that opens the Settings window."
     },
     "Shell" : {
-      "comment" : "Diagnostics process type\nGeneric agent name for a plain shell in an accessibility label.\nGeneric agent-kind display name for a plain shell session (not an AI agent brand name)",
+      "comment" : "Corner tab command label when the companion runs a plain shell.\nDiagnostics process type\nGeneric agent name for a plain shell in an accessibility label.\nGeneric agent-kind display name for a plain shell session (not an AI agent brand name)",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2174,6 +2401,9 @@
     },
     "Show Scrollback" : {
 
+    },
+    "Show Terminal Companion" : {
+      "comment" : "Dock right-click menu item that shows the Terminal Companion."
     },
     "Show in menu bar" : {
 
@@ -2248,6 +2478,9 @@
     "Start with a Catppuccin preset, then adjust the color if needed." : {
 
     },
+    "State file custody" : {
+      "comment" : "Bridge doctor check title"
+    },
     "Steady" : {
       "comment" : "Diagnostics resource trend"
     },
@@ -2269,6 +2502,9 @@
     "Swapped with pane %arg" : {
       "comment" : "VoiceOver announcement after swapping the active pane with the next pane in depth-first order; argument is the 1-based pane index."
     },
+    "System (SF Pro)" : {
+      "comment" : "Font picker entry for the built-in macOS interface font"
+    },
     "System default" : {
       "comment" : "Font picker entry for the built-in system font\nSpoken name for the terminal's default monospace font when no override is set."
     },
@@ -2285,6 +2521,35 @@
     },
     "Terminal" : {
       "comment" : "Diagnostics event category"
+    },
+    "Terminal Companion" : {
+      "comment" : "Window title and accessibility label for the Terminal Companion."
+    },
+    "Terminal Companion closed." : {
+      "comment" : "VoiceOver announcement after explicitly closing the Terminal Companion."
+    },
+    "Terminal Companion minimized. Running work remains active." : {
+      "comment" : "VoiceOver announcement after minimizing the app-wide Terminal Companion."
+    },
+    "Terminal Companion restored and focused." : {
+      "comment" : "VoiceOver announcement after restoring the app-wide Terminal Companion."
+    },
+    "Terminal Companion unavailable" : {
+      "comment" : "Accessibility label when the Terminal Companion store has no selected session."
+    },
+    "Terminal Companion, %arg, %arg" : {
+      "comment" : "Accessibility label containing the Terminal Companion directory and status.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Terminal Companion, %1$arg, %2$arg"
+          }
+        }
+      }
+    },
+    "Terminal Engine Unresponsive" : {
+      "comment" : "Title for the alert offering to recover from a wedged terminal event loop"
     },
     "Terminal Unavailable" : {
 
@@ -2327,6 +2592,12 @@
     "Terminal runtime reloaded" : {
       "comment" : "Diagnostics event summary"
     },
+    "Terminal session unavailable" : {
+      "comment" : "Placeholder title in the Terminal Companion when no session exists."
+    },
+    "Terminal unavailable" : {
+      "comment" : "Fallback header shown when the Terminal Companion store has no selected session."
+    },
     "That command is too long — the limit is 4,096 bytes." : {
       "comment" : "Validation message when the custom command text exceeds the stored-command length cap"
     },
@@ -2339,14 +2610,23 @@
     "The active pane in %arg has activity that will be interrupted. Closing the pane will terminate the running process." : {
       "comment" : "Body of the close-pane confirmation dialog. Argument is the bidi-isolated workspace title."
     },
-    "The command palette is tracked by INT-252 and is not available yet." : {
-
+    "The awesoMux remote helper is missing or reports an incompatible protocol version." : {
+      "comment" : "Bridge doctor failure reason"
+    },
+    "The bridge handshake did not complete." : {
+      "comment" : "Bridge doctor failure reason"
     },
     "The config file on disk is invalid. Changes made here won't be saved until it's fixed." : {
 
     },
     "The group is empty, but removing it forgets its SSH target. Sessions on the remote host are not affected." : {
       "comment" : "Body of the empty-remote-group removal confirmation dialog."
+    },
+    "The remote bridge socket is group- or world-accessible." : {
+      "comment" : "Bridge doctor failure reason"
+    },
+    "The remote helper cannot read the bridge state file under its custody rules." : {
+      "comment" : "Bridge doctor failure reason"
     },
     "Theme" : {
       "comment" : "Appearance settings section title\nSettings field label for the theme picker"
@@ -2394,6 +2674,9 @@
     },
     "This paste could run a command before you finish pasting. Paste anyway?" : {
       "comment" : "Title of the unsafe-paste confirmation dialog."
+    },
+    "This request mixes character scripts and may be disguised." : {
+      "comment" : "Tooltip on the remote permission banner warning that the request text mixes writing systems (a homograph-spoof signal)"
     },
     "This terminal" : {
       "comment" : "Fallback subject in clipboard confirmation dialogs when the pane has no title."
@@ -2482,11 +2765,14 @@
     "Use awesoMux shortcuts" : {
 
     },
-    "Used across the sidebar, panels, and settings. Unavailable fonts fall back to the system font. Choose System default to restore the standard font." : {
+    "Used across the sidebar, panels, and settings. Unavailable fonts fall back to the system font. Choose System (SF Pro) to restore the standard font." : {
       "comment" : "Settings field hint for the app UI font picker, including how to recover from a missing font"
     },
     "Used by the libghostty terminal surface." : {
       "comment" : "Settings field hint for the terminal font picker"
+    },
+    "View license" : {
+      "comment" : "Button that opens the bundled Geist Sans license"
     },
     "Visible prefix: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated `user@` prefix that disguises the real host."
@@ -2507,6 +2793,9 @@
     },
     "Warning: %arg" : {
 
+    },
+    "Warning: this request mixes character scripts and may be disguised." : {
+      "comment" : "Accessibility warning appended to the remote permission banner when the request text mixes writing systems (a homograph-spoof signal)"
     },
     "We found a problem with your saved session and set it aside safely. Create a workspace with Command-N to start fresh." : {
       "comment" : "Recovery explanation shown after an invalid saved session was quarantined.",
@@ -2608,6 +2897,12 @@
     "awesoMux color preview" : {
 
     },
+    "awesoMux could not create an owner-only local listener." : {
+      "comment" : "Bridge doctor failure reason"
+    },
+    "awesoMux could not establish a trusted remote path for this link." : {
+      "comment" : "Explanation for rejecting an unsafe or unresolved remote Markdown path"
+    },
     "awesoMux could not find a local folder to open for the active pane." : {
       "comment" : "Alert text shown when Open in IDE cannot resolve a target folder."
     },
@@ -2619,6 +2914,9 @@
     },
     "awesoMux workspace needs input" : {
       "comment" : "Accessibility label for the menu bar mini-status item when any workspace needs input.\nTooltip for the menu bar mini-status item when any workspace needs input."
+    },
+    "awesoMux's terminal engine has stopped responding. Restarting it will reload all open panes." : {
+      "comment" : "Body text for the alert offering to recover from a wedged terminal event loop"
     },
     "awesoMux, background sessions, shells, agents, and command-bridge daemons." : {
       "comment" : "Diagnostics settings section subtitle"
@@ -2649,6 +2947,12 @@
     },
     "macOS will quit awesoMux automatically in a few seconds unless you cancel." : {
       "comment" : "System quit warning body explaining the alert times out and defaults to quitting."
+    },
+    "minimize" : {
+      "comment" : "Footer pill label for the Terminal Companion minimize shortcut hint."
+    },
+    "my-server" : {
+
     },
     "navigate" : {
 
@@ -2696,6 +3000,9 @@
     },
     "pinned are exempt" : {
 
+    },
+    "promote" : {
+      "comment" : "Footer pill label for promoting the Terminal Companion to a workspace."
     },
     "run" : {
 
