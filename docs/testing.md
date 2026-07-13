@@ -141,3 +141,13 @@ changes them.
 - Do not serialize a suite to hide a race or timing failure. Replace the shared
   state or timing dependency instead.
 - Serialize the smallest affected suite, not the full test group.
+
+### Sleeps and polling
+
+- Use controlled clocks, gates, or event sources in production, unit, and
+  adapter tests.
+- Real sleeps and polling are allowed only in the current system-test bucket,
+  `Tests/awesoMuxTests`, and must remain bounded.
+- `script/check_test_waits.sh` checks added Swift lines for direct sleeps,
+  `poll`, and `eventually` calls. Existing occurrences are baseline debt and do
+  not fail the guard until changed.
