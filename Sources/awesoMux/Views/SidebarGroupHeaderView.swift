@@ -93,6 +93,13 @@ struct SidebarGroupHeaderRow: View {
     @Binding var isKeyboardNavigating: Bool
 
     @State private var isHeaderHovered = false
+    @State private var isPeekVisible = false
+    @State private var peekTask: Task<Void, Never>?
+    /// This header's box in the sidebar pane's `.global` space — handed to
+    /// `SidebarPeekModel` so `ContentView` can draw the peek card aligned
+    /// with the header, above the split. Mirrors `SidebarSessionTile.tileFrame`.
+    @State private var headerFrame: CGRect = .zero
+    @Environment(SidebarPeekModel.self) private var peekModel
     @Environment(\.colorSchemeContrast) private var contrast
     // Mirror the count badge's scaling: it renders with `.awFont(.Mono.meta)`,
     // whose point size is `@ScaledMetric(relativeTo: .subheadline)` off
@@ -106,6 +113,37 @@ struct SidebarGroupHeaderRow: View {
 
     private var sessions: [TerminalSession] {
         entries.map(\.session)
+    }
+
+    /// Only the collapsed rail's header shows the group roster — the
+    /// expanded header already lists every workspace inline, and hovering
+    /// an individual tile keeps showing the existing single-session peek
+    /// (mutually exclusive by construction: this trigger and the tile's
+    /// trigger call different `SidebarPeekModel` methods).
+    private var canPeek: Bool {
+        displayMode == .collapsed
+    }
+
+    private func updatePeekVisibility() {
+        guard canPeek, isHeaderHovered else {
+            cancelPeek()
+            return
+        }
+        guard !isPeekVisible else { return }
+
+        peekTask?.cancel()
+        peekTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            isPeekVisible = true
+        }
+    }
+
+    private func cancelPeek() {
+        peekTask?.cancel()
+        peekTask = nil
+        guard isPeekVisible else { return }
+        isPeekVisible = false
     }
 
     /// The count text's scale relative to its 100% size, so the close-X can
@@ -193,6 +231,14 @@ struct SidebarGroupHeaderRow: View {
         // TapGesture. Order is load-bearing: this must stay AFTER
         // .simultaneousGesture and .onDrag, or the parent tap fires too.
         .overlay(alignment: .trailing) { groupCloseButton }
+        .background {
+            if canPeek {
+                Color.clear
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .global)
+                    } action: { headerFrame = $0 }
+            }
+        }
         // .onHover must sit ABOVE the overlay (mirrors the session tile's
         // order), so the X counts as part of the hovered region. Attached
         // below it, the hover-gated hittable X occludes the header, which
@@ -205,12 +251,17 @@ struct SidebarGroupHeaderRow: View {
             if hovering {
                 isKeyboardNavigating = false
             }
+            updatePeekVisibility()
         }
         // mouseExited isn't delivered when the header is torn out from
         // under a stationary pointer (filter removes the group, structural
         // rebuild) — same reset the session tile carries. Without it a
         // stale-true flag re-arms the X on reappear with no live hover.
-        .onDisappear { isHeaderHovered = false }
+        .onDisappear {
+            isHeaderHovered = false
+            cancelPeek()
+            peekModel.hideGroup(for: group.id)
+        }
         // A drag suppresses tracking-area exit events, so the origin
         // header's hover flag would strand true (and the close X strand
         // visible) after the group lands elsewhere. (Was a parent-level
@@ -227,6 +278,40 @@ struct SidebarGroupHeaderRow: View {
         // family). (Was a parent-level `.onChange(of: isFiltering)`.)
         .onChange(of: isFiltering) { _, _ in
             isHeaderHovered = false
+        }
+        .onChange(of: isPeekVisible) { _, visible in
+            if visible {
+                peekModel.showGroup(
+                    group: group,
+                    tint: tint,
+                    sessions: sessions,
+                    activeSessionID: selectedSessionID,
+                    frame: headerFrame
+                )
+            } else {
+                // Always hittable (every row jumps), so always request the
+                // graced hide — never the immediate one — matching the
+                // multi-pane tile's card, not the single-pane summary path.
+                peekModel.requestHideGroup(for: group.id)
+            }
+        }
+        .onChange(of: headerFrame) { _, frame in
+            peekModel.updateGroupFrame(for: group.id, frame: frame)
+        }
+        .onChange(of: entries) { _, _ in
+            peekModel.refreshGroup(
+                group: group,
+                tint: tint,
+                sessions: sessions,
+                activeSessionID: selectedSessionID
+            )
+        }
+        .onChange(of: displayMode) { _, _ in
+            // Re-evaluate on a ⌘\ toggle even when the pointer never moves
+            // — expanding the rail must dismiss a showing group peek
+            // (`canPeek` gates it off), matching the tile's own
+            // displayMode re-check.
+            updatePeekVisibility()
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
@@ -290,13 +375,9 @@ struct SidebarGroupHeaderRow: View {
                 }
             }
             .frame(width: 40)
-            .frame(minHeight: 14)
+            .frame(minHeight: 26)
             .frame(maxWidth: .infinity)
-            // Without this, hover-hit-testing for .help() only fires over the
-            // drawn tint-bar/chevron pixels, not the full row — the tooltip
-            // would feel broken across most of the collapsed header's area.
             .contentShape(Rectangle())
-            .help(group.name)
         } else {
             HStack(spacing: 8) {
                 Image(systemName: "chevron.down")
@@ -500,6 +581,22 @@ struct SidebarGroupHeaderRow: View {
            ) {
             Button("Close Group") {
                 onCloseGroup()
+            }
+        }
+
+        // The only interactive-content peek in the app without a non-mouse
+        // path otherwise — mirrors `SidebarSessionTile`'s per-pane jump
+        // actions (`PanePeekItem`) for the group roster peek card. Gated on
+        // `isCollapsed` too, not just `displayMode == .collapsed`: an
+        // *expanded* group that's simply collapsed-shut already exposes each
+        // workspace as an ordinary focusable/actionable row once
+        // uncollapsed, and duplicate jump actions on a group that's already
+        // fully visible would be redundant.
+        if isCollapsed, displayMode == .collapsed {
+            ForEach(sessions) { session in
+                Button("Jump to \(session.title)") {
+                    peekModel.onSelectGroupSession?(session.id)
+                }
             }
         }
     }
