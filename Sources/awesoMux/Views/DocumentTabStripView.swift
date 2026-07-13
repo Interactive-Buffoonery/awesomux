@@ -17,11 +17,11 @@ import SwiftUI
 /// which only reclaims keyboard focus when the first responder is vacant — a
 /// SwiftUI button would hold it and blank the survivor (INT-562 PR1).
 ///
-    /// `Equatable` + `.equatable()` at the call site skip re-rendering the whole
-    /// strip when a sibling terminal retitles (the same gate `PaneTitleBarView`
-    /// uses). Accent and Increase Contrast arrive as VALUES, not
-    /// environment reads, because the gate can't be trusted to pass env
-    /// invalidation through (see `TerminalPaneLayoutView.accentResolver`).
+/// `Equatable` + `.equatable()` at the call site skip re-rendering the whole
+/// strip when a sibling terminal retitles (the same gate `PaneTitleBarView`
+/// uses). Accent and Increase Contrast arrive as VALUES, not
+/// environment reads, because the gate can't be trusted to pass env
+/// invalidation through (see `TerminalPaneLayoutView.accentResolver`).
 struct DocumentTabStripView: View {
     let group: AwesoMuxCore.DocumentGroup
     let isBrowsingFiles: Bool
@@ -98,17 +98,18 @@ struct DocumentTabStripView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DocumentPaneChrome.barBackground)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(String(
-            localized: "Document tabs",
-            comment: "Accessibility label for the document viewer's tab strip"
-        ))
+        .accessibilityLabel(
+            String(
+                localized: "Document tabs",
+                comment: "Accessibility label for the document viewer's tab strip"
+            ))
     }
 
     private var expandedRevision: LineDiffCount? {
         guard !isBrowsingFiles,
-              let tab = group.selectedTab,
-              let indicator = revisionIndicators.indicator(for: tab),
-              indicator.presentation == .expanded
+            let tab = group.selectedTab,
+            let indicator = revisionIndicators.indicator(for: tab),
+            indicator.presentation == .expanded
         else {
             return nil
         }
@@ -165,10 +166,13 @@ struct DocumentTabStripView: View {
         .help(filesToggleHelp)
         .disabled(!canBrowseFiles)
         .opacity(canBrowseFiles ? 1 : 0.45)
-        .accessibilityLabel(String(
-            localized: isBrowsingFiles ? "Back to document" : "Browse Markdown files",
-            comment: "Accessibility label for the document viewer's Files toggle button"
-        ))
+        .accessibilityLabel(
+            String(
+                localized: isBrowsingFiles ? "Back to document" : "Browse Markdown files",
+                comment: "Accessibility label for the document viewer's Files toggle button"
+            )
+        )
+        .accessibilityHint(filesToggleHelp)
     }
 }
 
@@ -364,14 +368,17 @@ private struct DocumentTabPill: View {
         .frame(width: 22, height: 24)
         .foregroundStyle(accentColor)
         .help(label)
-        .accessibilityLabel(String(
-            localized: "\(tab.title): \(label)",
-            comment: "Accessibility label for a compact document revision indicator"
-        ))
-        .accessibilityHint(String(
-            localized: "Show revision details",
-            comment: "Accessibility hint for a compact document revision indicator"
-        ))
+        .accessibilityLabel(
+            String(
+                localized: "\(tab.title): \(label)",
+                comment: "Accessibility label for a compact document revision indicator"
+            )
+        )
+        .accessibilityHint(
+            String(
+                localized: "Show revision details",
+                comment: "Accessibility hint for a compact document revision indicator"
+            ))
     }
 
     private var titleColor: Color {
@@ -394,15 +401,17 @@ private struct DocumentTabPill: View {
     private var accessibilityLabel: String {
         var parts = [tab.title]
         if let taskProgress {
-            parts.append(LocalizedPluralStrings.documentTaskProgress(
-                done: taskProgress.done,
-                total: taskProgress.total
-            ))
+            parts.append(
+                LocalizedPluralStrings.documentTaskProgress(
+                    done: taskProgress.done,
+                    total: taskProgress.total
+                ))
         }
-        parts.append(String(
-            localized: "tab \(tabIndex) of \(tabCount)",
-            comment: "Position of a document tab within its tab strip"
-        ))
+        parts.append(
+            String(
+                localized: "tab \(tabIndex) of \(tabCount)",
+                comment: "Position of a document tab within its tab strip"
+            ))
         return parts.joined(separator: ", ")
     }
 }

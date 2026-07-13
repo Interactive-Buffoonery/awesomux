@@ -236,23 +236,23 @@ public final class SessionStore {
     }
 
     #if DEBUG
-    /// Verifies the cached quit-risk sets agree with a brute-force recompute
-    /// using the SAME `now` on both sides, so this can't spuriously fail near
-    /// the 60s staleness boundary (INT-420). Skipped under duplicate session IDs
-    /// for the same reason the sibling `unreadNotificationTotal` assert above
-    /// skips itself: the cache sets dedupe by ID while the brute-force sum does
-    /// not, so the two are not comparable when IDs collide (a tolerated existing
-    /// anomaly, not something this cache needs to define new semantics for).
-    func assertQuitRiskCacheMatches(now: Date) {
-        guard hasUniqueSessionIDs else { return }
-        // Compare full ID sets, not just counts: a count-only comparison can
-        // mask one stale false positive canceling out one stale false negative.
-        let cachedIDs = Set(sessionsAtRiskOnQuit(at: now).map(\.id))
-        let bruteForceIDs = Set(
-            _groups.lazy.flatMap(\.sessions).filter { $0.isQuitRisk(at: now) }.map(\.id)
-        )
-        assert(cachedIDs == bruteForceIDs, "sessionsAtRiskOnQuitCount cache drift detected")
-    }
+        /// Verifies the cached quit-risk sets agree with a brute-force recompute
+        /// using the SAME `now` on both sides, so this can't spuriously fail near
+        /// the 60s staleness boundary (INT-420). Skipped under duplicate session IDs
+        /// for the same reason the sibling `unreadNotificationTotal` assert above
+        /// skips itself: the cache sets dedupe by ID while the brute-force sum does
+        /// not, so the two are not comparable when IDs collide (a tolerated existing
+        /// anomaly, not something this cache needs to define new semantics for).
+        func assertQuitRiskCacheMatches(now: Date) {
+            guard hasUniqueSessionIDs else { return }
+            // Compare full ID sets, not just counts: a count-only comparison can
+            // mask one stale false positive canceling out one stale false negative.
+            let cachedIDs = Set(sessionsAtRiskOnQuit(at: now).map(\.id))
+            let bruteForceIDs = Set(
+                _groups.lazy.flatMap(\.sessions).filter { $0.isQuitRisk(at: now) }.map(\.id)
+            )
+            assert(cachedIDs == bruteForceIDs, "sessionsAtRiskOnQuitCount cache drift detected")
+        }
     #endif
 
     /// How long the freshness stamp is allowed to coast before a new activity
@@ -288,7 +288,8 @@ public final class SessionStore {
         paneID: TerminalPane.ID? = nil
     ) {
         guard let position = position(for: id),
-              let targetPaneID = resolvedPaneID(sessionID: id, paneID: paneID) else {
+            let targetPaneID = resolvedPaneID(sessionID: id, paneID: paneID)
+        else {
             return
         }
         let now = Date()
@@ -297,13 +298,16 @@ public final class SessionStore {
         // @Observable for a pane that no longer exists — a phantom no-op publish,
         // the exact thing this coarsening exists to avoid. Skip the mutation
         // entirely when the existing stamp is still fresh enough.
-        guard let currentPane = _groups[position.groupIndex]
-            .sessions[position.sessionIndex]
-            .layout.pane(id: targetPaneID) else {
+        guard
+            let currentPane = _groups[position.groupIndex]
+                .sessions[position.sessionIndex]
+                .layout.pane(id: targetPaneID)
+        else {
             return
         }
         if now.timeIntervalSince(currentPane.lastAgentStateChangeAt)
-            < Self.agentActivityFreshnessCoarsening {
+            < Self.agentActivityFreshnessCoarsening
+        {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex].layout =
@@ -429,13 +433,15 @@ public final class SessionStore {
         workingDirectory: String? = nil,
         agentKind: AgentKind = .shell
     ) -> TerminalSession.ID? {
-        guard let sessionID = WorkspaceTreeReducer.addWorkspaceGroup(
-            to: &_groups,
-            selectedSession: selectedSession,
-            named: rawGroupName,
-            workingDirectory: workingDirectory,
-            agentKind: agentKind
-        ) else {
+        guard
+            let sessionID = WorkspaceTreeReducer.addWorkspaceGroup(
+                to: &_groups,
+                selectedSession: selectedSession,
+                named: rawGroupName,
+                workingDirectory: workingDirectory,
+                agentKind: agentKind
+            )
+        else {
             return nil
         }
         commit(
@@ -589,7 +595,8 @@ public final class SessionStore {
             }
         }
 
-        let selectedReplacementID = selectedSessionID == id
+        let selectedReplacementID =
+            selectedSessionID == id
             ? WorkspaceTreeReducer.replacementSelectionAfterClosingSession(
                 in: _groups,
                 at: position
@@ -744,24 +751,28 @@ public final class SessionStore {
         toGroupID destinationGroupID: SessionGroup.ID,
         atIndex targetIndex: Int
     ) {
-        guard WorkspaceTreeReducer.moveSession(
-            in: &_groups,
-            index: index,
-            id: sessionID,
-            toGroupID: destinationGroupID,
-            atIndex: targetIndex
-        ) else {
+        guard
+            WorkspaceTreeReducer.moveSession(
+                in: &_groups,
+                index: index,
+                id: sessionID,
+                toGroupID: destinationGroupID,
+                atIndex: targetIndex
+            )
+        else {
             return
         }
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
     }
 
     public func moveGroup(from sourceIndex: Int, to targetIndex: Int) {
-        guard WorkspaceTreeReducer.moveGroup(
-            in: &_groups,
-            from: sourceIndex,
-            to: targetIndex
-        ) else {
+        guard
+            WorkspaceTreeReducer.moveGroup(
+                in: &_groups,
+                from: sourceIndex,
+                to: targetIndex
+            )
+        else {
             return
         }
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
@@ -816,12 +827,13 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) -> TerminalPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let result = PaneLayoutReducer.splitActivePane(
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex],
-                  orientation: orientation,
-                  now: Date()
-              ) else {
+            let position = position(for: sessionID),
+            let result = PaneLayoutReducer.splitActivePane(
+                in: _groups[position.groupIndex].sessions[position.sessionIndex],
+                orientation: orientation,
+                now: Date()
+            )
+        else {
             return nil
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = result.session
@@ -846,30 +858,33 @@ public final class SessionStore {
         fileURL: URL,
         in sessionID: TerminalSession.ID? = nil,
         associatedWith associatedTerminalPaneID: TerminalPane.ID? = nil,
-        remoteSnapshotOrigin: String? = nil,
+        remoteResourceIdentity: ResourceIdentity? = nil,
         associationPolicy: DocumentPaneAssociationPolicy = .captureActivePaneWhenNil
     ) -> DocumentPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID)
+            let position = position(for: sessionID)
         else {
             return nil
         }
         let session = _groups[position.groupIndex].sessions[position.sessionIndex]
-        let resolvedAssociation = associatedTerminalPaneID
+        let resolvedAssociation =
+            associatedTerminalPaneID
             ?? (associationPolicy == .captureActivePaneWhenNil ? session.activePaneID : nil)
-        guard let result = PaneLayoutReducer.openDocumentTab(
-            fileURL: fileURL,
-            associatedTerminalPaneID: resolvedAssociation,
-            remoteSnapshotOrigin: remoteSnapshotOrigin,
-            in: session,
-            now: Date(),
-            // A selection swap remounts the document view; while a comment
-            // popover holds a typed draft over the current tab, append without
-            // selecting instead of destroying it (INT-748). Only agent-driven
-            // opens can observe true — any user-initiated open involved a
-            // click that already dismissed the transient popover.
-            selectingNewTab: !DocumentComposeGuard.isComposing()
-        ) else {
+        guard
+            let result = PaneLayoutReducer.openDocumentTab(
+                fileURL: fileURL,
+                associatedTerminalPaneID: resolvedAssociation,
+                remoteResourceIdentity: remoteResourceIdentity,
+                in: session,
+                now: Date(),
+                // A selection swap remounts the document view; while a comment
+                // popover holds a typed draft over the current tab, append without
+                // selecting instead of destroying it (INT-748). Only agent-driven
+                // opens can observe true — any user-initiated open involved a
+                // click that already dismissed the transient popover.
+                selectingNewTab: !DocumentComposeGuard.isComposing()
+            )
+        else {
             return nil
         }
         // Dedup of an already-selected tab returns the session untouched — skip
@@ -891,11 +906,12 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.selectDocumentTab(
-                  tabID: tabID,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.selectDocumentTab(
+                tabID: tabID,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -910,12 +926,13 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.closeDocumentTab(
-                  tabID: documentID,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex],
-                  now: Date()
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.closeDocumentTab(
+                tabID: documentID,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex],
+                now: Date()
+            )
+        else {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -934,12 +951,13 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) -> Bool {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.replaceDocumentTab(
-                  tabID: documentID,
-                  fileURL: fileURL,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.replaceDocumentTab(
+                tabID: documentID,
+                fileURL: fileURL,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -949,10 +967,11 @@ public final class SessionStore {
 
     public func setActivePane(id paneID: TerminalPane.ID, in sessionID: TerminalSession.ID) {
         if let position = position(for: sessionID),
-           let session = PaneLayoutReducer.setActivePane(
-               id: paneID,
-               in: _groups[position.groupIndex].sessions[position.sessionIndex]
-           ) {
+            let session = PaneLayoutReducer.setActivePane(
+                id: paneID,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        {
             _groups[position.groupIndex].sessions[position.sessionIndex] = session
         }
         // Re-arm the dwell on focus activation even when the pane was already
@@ -967,11 +986,12 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.focusPane(
-                  direction,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.focusPane(
+                direction,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -987,11 +1007,12 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) -> Bool {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.focusPane(
-                  at: index,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.focusPane(
+                at: index,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -1015,12 +1036,13 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.resizeSplit(
-                  id: splitID,
-                  firstFraction: firstFraction,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.resizeSplit(
+                id: splitID,
+                firstFraction: firstFraction,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -1028,11 +1050,12 @@ public final class SessionStore {
 
     public func resizeActiveSplit(by delta: Double, in sessionID: TerminalSession.ID? = nil) {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.resizeActiveSplit(
-                  by: delta,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.resizeActiveSplit(
+                by: delta,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -1041,12 +1064,13 @@ public final class SessionStore {
     @discardableResult
     public func closeActivePane(in sessionID: TerminalSession.ID? = nil) -> TerminalPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              _groups[position.groupIndex].sessions[position.sessionIndex].layout.hasMultiplePanes,
-              case let .pane(closedPaneID) = closePane(
-                  id: _groups[position.groupIndex].sessions[position.sessionIndex].activePaneID,
-                  in: sessionID
-              ) else {
+            let position = position(for: sessionID),
+            _groups[position.groupIndex].sessions[position.sessionIndex].layout.hasMultiplePanes,
+            case let .pane(closedPaneID) = closePane(
+                id: _groups[position.groupIndex].sessions[position.sessionIndex].activePaneID,
+                in: sessionID
+            )
+        else {
             return nil
         }
         return closedPaneID
@@ -1055,11 +1079,12 @@ public final class SessionStore {
     @discardableResult
     public func recycleActivePane(in sessionID: TerminalSession.ID? = nil) -> TerminalPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let result = PaneLayoutReducer.recycleActivePane(
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex],
-                  now: Date()
-              ) else {
+            let position = position(for: sessionID),
+            let result = PaneLayoutReducer.recycleActivePane(
+                in: _groups[position.groupIndex].sessions[position.sessionIndex],
+                now: Date()
+            )
+        else {
             return nil
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = result.session
@@ -1076,10 +1101,11 @@ public final class SessionStore {
     @discardableResult
     public func closePane(id paneID: TerminalPane.ID, in sessionID: TerminalSession.ID) -> PaneCloseResult? {
         guard let position = position(for: sessionID),
-              let close = PaneLayoutReducer.closePane(
-                  id: paneID,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let close = PaneLayoutReducer.closePane(
+                id: paneID,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return nil
         }
 
@@ -1109,12 +1135,13 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) -> Bool {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.movePane(
-                  id: paneID,
-                  toWorkspaceEdge: edge,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.movePane(
+                id: paneID,
+                toWorkspaceEdge: edge,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -1132,13 +1159,14 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) -> Bool {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.movePane(
-                  id: paneID,
-                  adjacentToPane: targetID,
-                  onEdge: edge,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.movePane(
+                id: paneID,
+                adjacentToPane: targetID,
+                onEdge: edge,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -1155,12 +1183,13 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) -> Bool {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID),
-              let session = PaneLayoutReducer.swapPanes(
-                  firstID: firstID,
-                  secondID: secondID,
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex]
-              ) else {
+            let position = position(for: sessionID),
+            let session = PaneLayoutReducer.swapPanes(
+                firstID: firstID,
+                secondID: secondID,
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -1174,7 +1203,8 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) -> Bool {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID) else {
+            let position = position(for: sessionID)
+        else {
             return false
         }
         return PaneLayoutReducer.canMovePane(
@@ -1191,7 +1221,8 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) -> Bool {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID) else {
+            let position = position(for: sessionID)
+        else {
             return false
         }
         return PaneLayoutReducer.canMovePane(
@@ -1208,7 +1239,8 @@ public final class SessionStore {
         in sessionID: TerminalSession.ID? = nil
     ) -> Bool {
         guard let sessionID = sessionID ?? selectedSessionID,
-              let position = position(for: sessionID) else {
+            let position = position(for: sessionID)
+        else {
             return false
         }
         return PaneLayoutReducer.canSwapPanes(

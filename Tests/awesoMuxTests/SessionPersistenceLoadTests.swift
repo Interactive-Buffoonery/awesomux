@@ -128,6 +128,118 @@ struct SessionPersistenceLoadTests {
         }
     }
 
+    @Test("genuine v6 snapshot warns and archives while preserving healthy remote tabs")
+    func genuineV6MixedSnapshotRecoversThroughFullLoadPipeline() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let fixtureData = try Data(contentsOf: Self.v6MixedSnapshotFixtureURL)
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            try fixtureData.write(to: tempDir.appending(path: "session-state.json"))
+
+            let result = SessionPersistence.load()
+
+            guard
+                case let .sanitizedRestore(summary, archiveURL, archiveError) =
+                    result.recoveryWarning?.kind
+            else {
+                Issue.record("expected a visible sanitized-restore warning")
+                return
+            }
+            #expect(summary.droppedDocumentTabs == 2)
+            #expect(archiveError == nil)
+            #expect(try Data(contentsOf: #require(archiveURL)) == fixtureData)
+            #expect(try Self.sanitizedArchives(in: tempDir).count == 1)
+            #expect(try Self.corruptedArchives(in: tempDir).isEmpty)
+            #expect(result.store.groups.map(\.name) == ["mixed", "fallback"])
+            #expect(result.store.selectedSessionID == UUID(uuidString: "40000000-0000-0000-0000-000000000001"))
+
+            let mixedSession = try #require(result.store.groups.first?.sessions.first)
+            guard case let .split(split) = mixedSession.layout,
+                case let .documentGroup(documentGroup) = split.second
+            else {
+                Issue.record("expected the healthy mixed document group to survive")
+                return
+            }
+            #expect(
+                documentGroup.tabs.map(\.id) == [
+                    UUID(uuidString: "20000000-0000-0000-0000-000000000001"),
+                    UUID(uuidString: "20000000-0000-0000-0000-000000000002"),
+                ])
+            #expect(documentGroup.selectedTabID == UUID(uuidString: "20000000-0000-0000-0000-000000000001"))
+            let remoteDocument = try #require(documentGroup.tabs.last)
+            #expect(remoteDocument.remoteResourceIdentity?.remoteTarget?.sshDestination == "devbox")
+            #expect(remoteDocument.remoteResourceIdentity?.path.rawValue == "/repo/generated:/README.md")
+
+            let fallbackSession = try #require(result.store.groups.last?.sessions.first)
+            guard case let .pane(fallbackPane) = fallbackSession.layout else {
+                Issue.record("expected an empty recovered document leaf to collapse to its terminal sibling")
+                return
+            }
+            #expect(fallbackPane.id == UUID(uuidString: "10000000-0000-0000-0000-000000000002"))
+        }
+    }
+
+    @Test("typed remote markdown restores while its SSH pane is disconnected")
+    func typedRemoteMarkdownRestoresWhilePaneIsDisconnected() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            let cachedSnapshot = cacheDir.appending(path: "offline.md")
+            try Data("# Offline snapshot".utf8).write(to: cachedSnapshot)
+
+            let target = try #require(RemoteTarget(parsing: "alice@devbox"))
+            let terminal = TerminalPane(
+                title: "remote shell",
+                workingDirectory: "~",
+                executionPlan: .ssh(SSHExecution(target: target))
+            )
+            let document = DocumentPane(
+                fileURL: cachedSnapshot,
+                title: "offline.md",
+                associatedTerminalPaneID: terminal.id,
+                remoteResourceIdentity: ResourceIdentity(
+                    location: .remote(target),
+                    path: ResourcePath(rawValue: "/repo/offline.md")
+                )
+            )
+            let session = TerminalSession(
+                title: "remote shell",
+                workingDirectory: "~",
+                layout: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(terminal),
+                        second: .documentGroup(
+                            DocumentGroup(
+                                tabs: [document],
+                                selectedTabID: document.id
+                            ))
+                    )),
+                activePaneID: terminal.id
+            )
+            try Self.write(
+                SessionSnapshot(
+                    groups: [SessionGroup(name: "remote", sessions: [session])],
+                    selectedSessionID: session.id
+                ),
+                to: tempDir
+            )
+
+            let result = SessionPersistence.load()
+
+            #expect(result.recoveryWarning == nil)
+            let restoredSession = try #require(result.store.session(id: session.id))
+            let restoredTerminal = try #require(restoredSession.layout.pane(id: terminal.id))
+            #expect(restoredTerminal.executionPlan == .ssh(SSHExecution(target: target)))
+            #expect(restoredTerminal.remoteHost == nil)
+            #expect(restoredTerminal.remoteWorkingDirectory == nil)
+            let restoredDocument = try #require(restoredSession.layout.firstDocumentGroup?.selectedTab)
+            #expect(restoredDocument.remoteResourceIdentity == document.remoteResourceIdentity)
+            #expect(restoredDocument.associatedTerminalPaneID == terminal.id)
+            #expect(restoredDocument.fileURL == cachedSnapshot)
+            #expect(FileManager.default.fileExists(atPath: cachedSnapshot.path))
+        }
+    }
+
     @Test("remote markdown cache prunes unreferenced snapshots after successful load")
     func remoteMarkdownCachePrunesUnreferencedSnapshotsAfterSuccessfulLoad() throws {
         try Self.withTemporarySupportDirectory { tempDir in
@@ -142,7 +254,10 @@ struct SessionPersistenceLoadTests {
             let doc = DocumentPane(
                 fileURL: kept,
                 title: "kept.md",
-                remoteSnapshotOrigin: "devbox:/repo/kept.md"
+                remoteResourceIdentity: ResourceIdentity(
+                    location: .remote(RemoteTarget(parsing: "devbox")!),
+                    path: ResourcePath(rawValue: "/repo/kept.md")
+                )
             )
             let session = TerminalSession(
                 title: "shell",
@@ -185,7 +300,10 @@ struct SessionPersistenceLoadTests {
             let doc = DocumentPane(
                 fileURL: kept,
                 title: "recent.md",
-                remoteSnapshotOrigin: "devbox:/repo/recent.md"
+                remoteResourceIdentity: ResourceIdentity(
+                    location: .remote(RemoteTarget(parsing: "devbox")!),
+                    path: ResourcePath(rawValue: "/repo/recent.md")
+                )
             )
             let layout = TerminalPaneLayout.split(TerminalSplit(
                 orientation: .vertical,
@@ -555,6 +673,14 @@ struct SessionPersistenceLoadTests {
             + "\"workingDirectory\":\"~\",\"isTitleUserEdited\":false,"
             + "\"layout\":\(layout),\"activePaneID\":\"\(UUID().uuidString)\"}]}],"
             + "\"selectedSessionID\":\"\(sessionID)\"}"
+    }
+
+    private static var v6MixedSnapshotFixtureURL: URL {
+        // Generated with JSONEncoder from the schema-v6 models at d432831.
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Fixtures/session-state-v6-mixed-documents.json")
     }
 
     private static func withTemporarySupportDirectory(

@@ -33,4 +33,18 @@ import Testing
         let data = try JSONEncoder().encode(target)
         #expect(try JSONDecoder().decode(RemoteTarget.self, from: data) == target)
     }
+
+    @Test func rejectsUnsafeRoutingScalarsAndDashLeadingDestinations() {
+        #expect(RemoteTarget(user: "ed\u{202E}", host: "box") == nil)
+        #expect(RemoteTarget(user: "ed", host: "bo\u{200B}x") == nil)
+        #expect(RemoteTarget(parsing: "-oProxyCommand=bad")?.isSafeSSHDestination == false)
+        #expect(RemoteTarget(parsing: "ed@-host")?.isSafeSSHDestination == true)
+    }
+
+    @Test func decodingRejectsUnsafeRoutingScalars() {
+        let data = Data(#"{"user":"ed","host":"bo\u202ex"}"#.utf8)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(RemoteTarget.self, from: data)
+        }
+    }
 }

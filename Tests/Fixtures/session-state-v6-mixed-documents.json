@@ -1,0 +1,131 @@
+{
+  "groups" : [
+    {
+      "id" : "60000000-0000-0000-0000-000000000001",
+      "name" : "mixed",
+      "sessions" : [
+        {
+          "activePaneID" : "10000000-0000-0000-0000-000000000001",
+          "id" : "40000000-0000-0000-0000-000000000001",
+          "isTitleUserEdited" : false,
+          "layout" : {
+            "split" : {
+              "_0" : {
+                "first" : {
+                  "pane" : {
+                    "_0" : {
+                      "agentExecutionState" : "idle",
+                      "agentKind" : "Shell",
+                      "executionPlan" : {
+                        "kind" : "local"
+                      },
+                      "id" : "10000000-0000-0000-0000-000000000001",
+                      "isTitleUserEdited" : false,
+                      "terminalSessionID" : "366c468a-ddba-469a-8275-2c6bd05cc2c5",
+                      "title" : "shell-one",
+                      "unreadNotificationCount" : 0,
+                      "workingDirectory" : "~"
+                    }
+                  }
+                },
+                "firstFraction" : 0.5,
+                "id" : "50000000-0000-0000-0000-000000000001",
+                "orientation" : "vertical",
+                "second" : {
+                  "documentGroup" : {
+                    "_0" : {
+                      "id" : "30000000-0000-0000-0000-000000000001",
+                      "selectedTabID" : "20000000-0000-0000-0000-000000000003",
+                      "tabs" : [
+                        {
+                          "associatedTerminalPaneID" : "10000000-0000-0000-0000-000000000001",
+                          "fileURL" : "file:\/\/\/tmp\/awesomux-v6-cache\/local.md",
+                          "id" : "20000000-0000-0000-0000-000000000001",
+                          "title" : "local.md"
+                        },
+                        {
+                          "associatedTerminalPaneID" : "10000000-0000-0000-0000-000000000001",
+                          "fileURL" : "file:\/\/\/tmp\/awesomux-v6-cache\/remote.md",
+                          "id" : "20000000-0000-0000-0000-000000000002",
+                          "remoteSnapshotOrigin" : "devbox:\/repo\/generated:\/README.md",
+                          "title" : "README.md"
+                        },
+                        {
+                          "associatedTerminalPaneID" : "10000000-0000-0000-0000-000000000001",
+                          "fileURL" : "file:\/\/\/tmp\/awesomux-v6-cache\/malformed.md",
+                          "id" : "20000000-0000-0000-0000-000000000003",
+                          "remoteSnapshotOrigin" : "malformed-origin",
+                          "title" : "malformed.md"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "title" : "mixed-documents",
+          "workingDirectory" : "~"
+        }
+      ]
+    },
+    {
+      "id" : "60000000-0000-0000-0000-000000000002",
+      "name" : "fallback",
+      "sessions" : [
+        {
+          "activePaneID" : "10000000-0000-0000-0000-000000000002",
+          "id" : "40000000-0000-0000-0000-000000000002",
+          "isTitleUserEdited" : false,
+          "layout" : {
+            "split" : {
+              "_0" : {
+                "first" : {
+                  "pane" : {
+                    "_0" : {
+                      "agentExecutionState" : "idle",
+                      "agentKind" : "Shell",
+                      "executionPlan" : {
+                        "kind" : "local"
+                      },
+                      "id" : "10000000-0000-0000-0000-000000000002",
+                      "isTitleUserEdited" : false,
+                      "terminalSessionID" : "b8512953-6687-482c-9d15-e366f25f0d13",
+                      "title" : "shell-two",
+                      "unreadNotificationCount" : 0,
+                      "workingDirectory" : "~"
+                    }
+                  }
+                },
+                "firstFraction" : 0.5,
+                "id" : "50000000-0000-0000-0000-000000000002",
+                "orientation" : "vertical",
+                "second" : {
+                  "documentGroup" : {
+                    "_0" : {
+                      "id" : "30000000-0000-0000-0000-000000000002",
+                      "selectedTabID" : "20000000-0000-0000-0000-000000000004",
+                      "tabs" : [
+                        {
+                          "associatedTerminalPaneID" : "10000000-0000-0000-0000-000000000002",
+                          "fileURL" : "file:\/\/\/tmp\/awesomux-v6-cache\/malformed-only.md",
+                          "id" : "20000000-0000-0000-0000-000000000004",
+                          "remoteSnapshotOrigin" : "also-malformed",
+                          "title" : "malformed-only.md"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "title" : "invalid-document-leaf",
+          "workingDirectory" : "~"
+        }
+      ]
+    }
+  ],
+  "schemaVersion" : 6,
+  "selectedSessionID" : "40000000-0000-0000-0000-000000000001"
+}

@@ -40,9 +40,9 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// excluded from persistence with `remoteHost`; restored panes start active
     /// until live terminal signals prove they are remote/stale.
     public var remoteConnectionHealth: RemoteConnectionHealth
-    /// Runtime-only best-known remote prompt directory. Kept from the last
-    /// `user@host:~/path` title so tools that rewrite the live title, like Codex,
-    /// do not erase the base path for remote Markdown links.
+    /// Runtime-only directory explicitly reported by the remote terminal through
+    /// OSC 7 / Ghostty's PWD action. Title-derived paths must never populate this
+    /// field because it authorizes relative remote Markdown resolution.
     public var remoteWorkingDirectory: String?
     /// Runtime-only cache of the most recent live OSC 0/2 terminal title, kept
     /// even while `isTitleUserEdited` freezes the displayed `title`. Reset reads

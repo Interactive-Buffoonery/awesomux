@@ -60,6 +60,11 @@ Native UI work should follow the shipped SwiftUI/AppKit patterns and shared toke
 - **Workspace group** — `SessionGroup`: named folder in the sidebar; contains ordered `TerminalSession` values.
 - **Session** — `TerminalSession`: one sidebar row; has `agentKind`, `agentState`, title, cwd metadata, and a **layout** of panes (`TerminalPane` tree via splits).
 - **Pane** — `TerminalPane`: one terminal slot; at runtime backed by a libghostty surface when visible. Its durable `PaneExecutionPlan` declares local or SSH execution and is the authority for command routing and host-aware resource identity.
+- **Remote document snapshot** — a read-only `DocumentPane` whose
+  `ResourceIdentity` combines the declared remote execution location with its
+  remote Markdown path. Its `fileURL` points only to the local rendering cache;
+  identity and read-only behavior survive disconnect, offline restore, and a
+  missing runtime attachment.
 - **Workspace tree** — `SessionGroup -> TerminalSession -> TerminalPaneLayout`: the hierarchy that backs sidebar groups, workspace rows, and split panes.
 - **Snapshot** — `SessionSnapshot`: Codable aggregate written to disk for restore (groups + selection + layout); see Persistence.
 
@@ -152,6 +157,13 @@ socket directory. Agent integration install manifests are the exception: their
 provider targets are global, so both manifests live under the production
 `Application Support/awesoMux/AgentIntegrations` root and serialize mutations
 with a cross-process lock.
+
+Remote Markdown cache entries are keyed by the full typed resource identity,
+so the same path on local, host A, and host B cannot share provenance or a tab.
+SSH fetches use only the active pane's declared `RemoteTarget`; prompt titles,
+display hostnames, and submitted-command observations remain presentation or
+diagnostic signals. Relative remote Markdown paths resolve only from explicit
+remote-directory metadata and otherwise fail closed.
 
 Older sketch docs assumed UserDefaults for v0; **the shipped direction is JSON on disk** for session/workspace restore.
 

@@ -24,7 +24,9 @@ struct SessionRestoreReducer: Sendable {
         var seenSplitIDs = Set<TerminalSplit.ID>()
         var seenPaneIDs = Set<TerminalPane.ID>()
         var seenTerminalSessionIDs = Set<TerminalSessionID>()
-        var sanitizationSummary = SessionRestoreSanitizationSummary()
+        var sanitizationSummary = SessionRestoreSanitizationSummary(
+            droppedDocumentTabs: snapshot.droppedDocumentTabCountDuringDecoding
+        )
 
         var restoredGroups: [SessionGroup] = []
         for group in snapshot.groups {
@@ -568,7 +570,7 @@ struct SessionRestoreReducer: Sendable {
                     fileURL: tab.fileURL,
                     title: tab.title,
                     associatedTerminalPaneID: tab.associatedTerminalPaneID,
-                    remoteSnapshotOrigin: tab.remoteSnapshotOrigin
+                    remoteResourceIdentity: tab.remoteResourceIdentity
                 )
                 seenPaneIDs.insert(remintedTab.id)
                 if restoredGroup.selectedTabID == tab.id {

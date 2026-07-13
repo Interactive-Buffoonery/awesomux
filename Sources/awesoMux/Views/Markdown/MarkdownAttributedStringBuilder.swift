@@ -45,7 +45,8 @@ enum MarkdownAttributedStringBuilder {
             .map(NSRegularExpression.escapedPattern(for:))
             .joined(separator: "|")
         let pathSegment = #"[A-Za-z0-9_+@%.-]+"#
-        let pattern = #"(?<![A-Za-z0-9_./~%-])(?:(?:\.{1,2})/)*"#
+        let pattern =
+            #"(?<![A-Za-z0-9_./~%-])(?:(?:\.{1,2})/)*"#
             + pathSegment
             + #"(?:/"#
             + pathSegment
@@ -62,9 +63,11 @@ enum MarkdownAttributedStringBuilder {
     /// `HighlightContrast` so text and highlight contrast agree.
     static func textColor(forTerminalBackground bg: NSColor) -> NSColor {
         // Normalize to sRGB so component access doesn't throw on pattern/catalog colors.
-        let srgb = bg.usingColorSpace(.sRGB) ?? NSColor(
-            srgbRed: 0x1e / 255, green: 0x1e / 255, blue: 0x2e / 255, alpha: 1
-        )
+        let srgb =
+            bg.usingColorSpace(.sRGB)
+            ?? NSColor(
+                srgbRed: 0x1e / 255, green: 0x1e / 255, blue: 0x2e / 255, alpha: 1
+            )
         let luminance = relativeLuminance(srgb)
         if luminance < 0.18 {
             return NSColor(srgbRed: 0.80, green: 0.84, blue: 0.96, alpha: 1)
@@ -76,7 +79,8 @@ enum MarkdownAttributedStringBuilder {
     static func attributedString(
         for doc: RenderedDocument,
         textColor: NSColor? = nil,
-        relativeLinkBaseURL: URL? = nil
+        relativeLinkBaseURL: URL? = nil,
+        allowsDocumentLinks: Bool = true
     ) -> NSAttributedString {
         // Pre-join so the backing storage allocates once; appending one
         // attributed substring per run is noticeably expensive on long documents.
@@ -114,8 +118,9 @@ enum MarkdownAttributedStringBuilder {
                 result.addAttribute(.markID, value: markID, range: range)
             }
             if run.strikethrough {
-                result.addAttribute(.strikethroughStyle,
-                                    value: NSUnderlineStyle.single.rawValue, range: range)
+                result.addAttribute(
+                    .strikethroughStyle,
+                    value: NSUnderlineStyle.single.rawValue, range: range)
             }
             // Only http(s) and Markdown document links become clickable. The
             // coordinator intercepts `.link` clicks and routes them through the
@@ -124,8 +129,10 @@ enum MarkdownAttributedStringBuilder {
             if let dest = run.linkDestination {
                 let linkURL: URL?
                 if let url = URL(string: dest),
-                   let scheme = url.scheme?.lowercased() {
-                    let isAllowed = scheme == "https" || scheme == "http"
+                    let scheme = url.scheme?.lowercased()
+                {
+                    let isAllowed =
+                        scheme == "https" || scheme == "http"
                         || MarkdownLinkIntercept.shouldOpenAsDocument(url)
                     linkURL = isAllowed ? url : nil
                 } else {
@@ -134,10 +141,12 @@ enum MarkdownAttributedStringBuilder {
                         relativeTo: relativeLinkBaseURL
                     )
                 }
-                if let linkURL {
+                if let linkURL,
+                    allowsDocumentLinks || !isDocumentLink(linkURL)
+                {
                     applyLinkAttributes(to: result, url: linkURL, range: range)
                 }
-            } else if shouldAutoLinkBareRelativePaths(in: run) {
+            } else if allowsDocumentLinks, shouldAutoLinkBareRelativePaths(in: run) {
                 applyBareRelativeDocumentLinks(
                     to: result,
                     runText: run.text,
@@ -148,6 +157,13 @@ enum MarkdownAttributedStringBuilder {
         }
         applyTableLayout(result, doc: doc)
         return result
+    }
+
+    private static func isDocumentLink(_ url: URL) -> Bool {
+        if case .document = MarkdownLinkRouting.route(url) {
+            return true
+        }
+        return false
     }
 
     private static func shouldAutoLinkBareRelativePaths(in run: RenderedRun) -> Bool {
@@ -173,10 +189,12 @@ enum MarkdownAttributedStringBuilder {
         bareRelativeMarkdownPathRegex.enumerateMatches(in: runText, range: fullRange) { match, _, _ in
             guard let match else { return }
             let candidate = nsText.substring(with: match.range)
-            guard let linkURL = MarkdownLinkIntercept.documentURL(
-                forMarkdownDestination: candidate,
-                relativeTo: relativeLinkBaseURL
-            ) else {
+            guard
+                let linkURL = MarkdownLinkIntercept.documentURL(
+                    forMarkdownDestination: candidate,
+                    relativeTo: relativeLinkBaseURL
+                )
+            else {
                 return
             }
 
@@ -343,8 +361,8 @@ enum MarkdownAttributedStringBuilder {
             return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
         }
         return 0.2126 * linearize(color.redComponent)
-             + 0.7152 * linearize(color.greenComponent)
-             + 0.0722 * linearize(color.blueComponent)
+            + 0.7152 * linearize(color.greenComponent)
+            + 0.0722 * linearize(color.blueComponent)
     }
 
     // MARK: - Font resolution
