@@ -917,8 +917,8 @@ struct AwesoMuxApp: App {
                     .disabled(isAnySheetPresented)
 
                 Button("Hide/Show Sidebar", action: requestSidebarVisibilityToggle)
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarVisibility))
-                .disabled(isAnySheetPresented)
+                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarVisibility))
+                    .disabled(isAnySheetPresented)
 
                 let jumpRows = DockRecentWorkspaceMenu.openWorkspaceRows(
                     groups: sessionStore.groups,
@@ -3399,12 +3399,13 @@ struct AwesoMuxApp: App {
 
     private func focusActiveTerminal() -> Bool {
         guard let session = sessionStore.selectedSession,
-              let window = NSApp.mainWindow ?? NSApp.keyWindow,
-              let surface = Self.terminalSurface(
-                  in: window.contentView,
-                  sessionID: session.id,
-                  paneID: session.activePaneID
-              ) else {
+            let window = NSApp.mainWindow ?? NSApp.keyWindow,
+            let surface = Self.terminalSurface(
+                in: window.contentView,
+                sessionID: session.id,
+                paneID: session.activePaneID
+            )
+        else {
             return false
         }
         return window.makeFirstResponder(surface)

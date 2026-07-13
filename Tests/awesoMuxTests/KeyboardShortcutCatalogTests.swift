@@ -595,8 +595,20 @@ struct KeyboardShortcutCatalogTests {
     func sidebarVisibilityToggleMatcherFollowsCachedBinding() throws {
         let originalKeyboard = CurrentKeyboardShortcuts.keyboard
         defer { CurrentKeyboardShortcuts.keyboard = originalKeyboard }
-        let defaultEvent = try #require(makeKeyEvent(modifierFlags: [.command, .shift], characters: "|", charactersIgnoringModifiers: "\\", keyCode: 0x2A))
-        let overrideEvent = try #require(makeKeyEvent(modifierFlags: [.command, .option], characters: ";", charactersIgnoringModifiers: ";", keyCode: 0x29))
+        let defaultEvent = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command, .shift],
+                characters: "|",
+                charactersIgnoringModifiers: "\\",
+                keyCode: 0x2A
+            ))
+        let overrideEvent = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command, .option],
+                characters: ";",
+                charactersIgnoringModifiers: ";",
+                keyCode: 0x29
+            ))
         CurrentKeyboardShortcuts.keyboard = KeyboardConfig(shortcuts: [
             KeyboardShortcutCatalog.toggleSidebarVisibility.id: ShortcutBindingConfig(key: ";", modifiers: [.command, .option])
         ])
@@ -607,7 +619,14 @@ struct KeyboardShortcutCatalogTests {
     @Test("sidebar visibility toggle matcher ignores repeats")
     @MainActor
     func sidebarVisibilityToggleMatcherIgnoresRepeats() throws {
-        let event = try #require(makeKeyEvent(modifierFlags: [.command, .shift], characters: "|", charactersIgnoringModifiers: "\\", isARepeat: true, keyCode: 0x2A))
+        let event = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command, .shift],
+                characters: "|",
+                charactersIgnoringModifiers: "\\",
+                isARepeat: true,
+                keyCode: 0x2A
+            ))
         #expect(!SidebarVisibilityToggleShortcut.matches(event))
         #expect(SidebarVisibilityToggleShortcut.isRepeat(ofToggleSidebarVisibilityChord: event))
     }
