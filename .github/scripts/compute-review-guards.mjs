@@ -14,11 +14,12 @@
 //   BASE_REF        — base ref for diff computation (default: main)
 //   DIFF_THRESHOLD  — max diff lines before skip (default: 2000)
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
 const files = (process.env.CHANGED_FILES || "").split("\n").filter(Boolean);
 const baseRef = process.env.BASE_REF || "main";
+const baseRange = process.env.BASE_RANGE || `origin/${baseRef}...HEAD`;
 const threshold = parseInt(process.env.DIFF_THRESHOLD || "2000", 10);
 const githubOutput = process.env.GITHUB_OUTPUT || "";
 
@@ -46,10 +47,9 @@ const allDocs = files.length > 0 && files.every(isDocsFile);
 
 // --- Diff size check ---
 
-let diffLines = 0;
-try {
-  const baseRange = `origin/${baseRef}...HEAD`;
-  const numstat = execSync(`git diff --numstat "${baseRange}"`, {
+export function countChangedLines(range, runGit = execFileSync) {
+  let diffLines = 0;
+  const numstat = runGit("git", ["diff", "--numstat", range, "--"], {
     encoding: "utf-8",
   }).trim();
   for (const line of numstat.split("\n")) {
@@ -58,6 +58,12 @@ try {
     diffLines += parseInt(additions, 10) || 0;
     diffLines += parseInt(deletions, 10) || 0;
   }
+  return diffLines;
+}
+
+let diffLines = 0;
+try {
+  diffLines = countChangedLines(baseRange);
 } catch {
   // If git diff fails, don't skip — let the review proceed.
 }
@@ -76,16 +82,11 @@ if (allDocs) {
 } else if (diffLines > threshold) {
   skip = true;
   skipTitle = `Skipped: large diff (${diffLines} lines)`;
-  skipBody = `## OpenCode review skipped\n\nThis PR has ${diffLines} changed lines, exceeding the ${threshold}-line auto-review threshold. A full automated review would consume significant tokens and produce less focused feedback.\n\n**Manual review recommended.** Comment with exactly \`/codereview\` to request a review.`;
+  skipBody = `## OpenCode automatic review skipped\n\nThis pull request changes ${diffLines} lines, exceeding the ${threshold}-line automatic-review limit. Automatic review was skipped successfully. Comment with exactly \`/codereview\` to trigger OpenCode review manually.`;
 }
 
 if (githubOutput) {
-  const lines = [
-    `skip=${skip}`,
-    `skip_body<<BODY_EOF`,
-    skipBody,
-    `BODY_EOF`,
-  ];
+  const lines = [`skip=${skip}`, `skip_body<<BODY_EOF`, skipBody, `BODY_EOF`];
   appendFileSync(githubOutput, lines.join("\n") + "\n");
 }
 
