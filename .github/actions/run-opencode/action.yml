@@ -78,6 +78,12 @@ outputs:
   diff_too_large:
     description: "true when the exact diff exceeded this invocation's bounded preview."
     value: ${{ steps.run.outputs.diff_too_large }}
+  failure_kind:
+    description: "Stable category for a failed OpenCode review invocation."
+    value: ${{ steps.run.outputs.failure_kind }}
+  failure_message:
+    description: "Sanitized user-facing detail for a failed OpenCode review invocation."
+    value: ${{ steps.run.outputs.failure_message }}
 
 runs:
   using: composite
