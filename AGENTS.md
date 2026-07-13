@@ -1,12 +1,6 @@
 # Agent instructions - awesoMux
 
-Read this before doing any work in this repo. This file is the shared source of truth for Claude Code and Codex; `CLAUDE.md` imports it.
-
-## Read first
-
-- Start with [`CONTEXT.md`](CONTEXT.md), [`docs/architecture.md`](docs/architecture.md), [`docs/ghostty-integration.md`](docs/ghostty-integration.md), and relevant ADRs in [`docs/adr/`](docs/adr/).
-- If `.agents/AGENTS.md` exists, read it for checkout-local notes that supplement these shared instructions.
-- For UI/design work, follow the existing SwiftUI/AppKit patterns and the tokens under [`Sources/DesignSystem/`](Sources/DesignSystem/).
+Shared rules for Claude Code and Codex (`CLAUDE.md` imports this file).
 
 ## Project
 
@@ -14,18 +8,22 @@ Read this before doing any work in this repo. This file is the shared source of 
 
 The product direction is a native single-window sidebar/session shell, not a multi-window manager or tmux replacement. Claude Code and Codex are the first intended agent integrations, with the surface designed so other agents can follow. The repo is MIT and maintains a strict GPL/source-read firewall.
 
-## Source-of-truth map
+## Where to look
 
-- Targets, products, dependencies, platforms, and test targets: [`Package.swift`](Package.swift).
-- Architecture, product model, persistence, and runtime composition: [`docs/architecture.md`](docs/architecture.md) and [`docs/adr/`](docs/adr/).
-- Ghostty sourcing, build, link, runtime resources, and terminal identity: [`docs/ghostty-integration.md`](docs/ghostty-integration.md), [`.gitmodules`](.gitmodules), and the scripts under [`script/`](script/).
-- Build, run, test, and local preflight commands: [`README.md`](README.md), [`script/preflight.sh`](script/preflight.sh), [`script/swift-test.sh`](script/swift-test.sh), and [`script/build_and_run.sh`](script/build_and_run.sh).
-- macOS distribution, signing, Hardened Runtime, notarization, and App Sandbox posture: [ADR-0019](docs/adr/0019-macos-distribution-signing-and-sandbox-posture.md). Keep the ADR as the source of truth; GitHub issues and PR bodies track work but do not decide this policy.
-- CI behavior: [`.github/workflows/swift.yml`](.github/workflows/swift.yml).
-- Scripted pane automation (`amx` send/history, `AWESOMUX_AMX`, `$ZMX_SESSION` addressing): [`docs/amx-automation.md`](docs/amx-automation.md).
-- UI tokens and atoms: [`Sources/DesignSystem/`](Sources/DesignSystem/).
-- Bundled fonts, app-icon sources, integration templates, and third-party license files are tracked directly under [`Resources/`](Resources/); fresh clones must not depend on Git LFS or a private asset fetch.
-- Product and implementation decisions not already recorded in code, docs, or ADRs: [GitHub Issues](https://github.com/Interactive-Buffoonery/awesomux/issues).
+Read the docs for the area you are changing before editing.
+
+- Orientation / glossary: [`CONTEXT.md`](CONTEXT.md)
+- Checkout-local notes (if present): [`.agents/AGENTS.md`](.agents/AGENTS.md)
+- Targets, products, dependencies, platforms, and test targets: [`Package.swift`](Package.swift)
+- Architecture, product model, persistence, and runtime composition: [`docs/architecture.md`](docs/architecture.md) and [`docs/adr/`](docs/adr/)
+- Ghostty sourcing, build, link, runtime resources, and terminal identity: [`docs/ghostty-integration.md`](docs/ghostty-integration.md), [`.gitmodules`](.gitmodules), and the scripts under [`script/`](script/)
+- Build, run, test, and local preflight: [`README.md`](README.md), [`script/preflight.sh`](script/preflight.sh), [`script/swift-test.sh`](script/swift-test.sh), [`script/build_and_run.sh`](script/build_and_run.sh)
+- macOS distribution / signing / notarization / sandbox posture: [ADR-0019](docs/adr/0019-macos-distribution-signing-and-sandbox-posture.md) (not GitHub issues or PR bodies)
+- CI: [`.github/workflows/cheap-guards.yml`](.github/workflows/cheap-guards.yml), [`.github/workflows/tint-contrast.yml`](.github/workflows/tint-contrast.yml), OpenCode review in [`docs/code-review.md`](docs/code-review.md)
+- Scripted pane automation (`amx` send/history, `AWESOMUX_AMX`, `$ZMX_SESSION`): [`docs/amx-automation.md`](docs/amx-automation.md)
+- UI tokens and SwiftUI/AppKit patterns: [`Sources/DesignSystem/`](Sources/DesignSystem/)
+- Bundled fonts, icons, templates, and third-party licenses: [`Resources/`](Resources/) (tracked in-repo; no Git LFS or private asset fetch)
+- Decisions not yet in code, docs, or ADRs: [GitHub Issues](https://github.com/Interactive-Buffoonery/awesomux/issues)
 
 ## Non-negotiable rules
 
@@ -35,7 +33,9 @@ The product direction is a native single-window sidebar/session shell, not a mul
   its GPL-licensed source while implementing analogous behavior.
 - Never commit `vendor/ghostty` contents directly. It is a submodule.
 - Never push to `main` directly without explicit user approval.
-- Public artifacts use neutral wording such as "review", "specialist review", or "code review findings". Do not mention internal reviewer/persona names in PR titles, PR bodies, commits, issue comments, or other public surfaces.
+- In public PRs, commits, and comments, use neutral wording such as "review",
+  "specialist review", or "code review findings". Do not name internal
+  reviewer personas.
 - awesoMux owns app/window/workspace command routing through SwiftUI/AppKit
   menus, the command palette, and `KeyboardShortcutCatalog`. Do not route
   Ghostty app-action keybindings into awesoMux commands or document them as a
@@ -50,53 +50,60 @@ The product direction is a native single-window sidebar/session shell, not a mul
 
 ## Collaboration workflow
 
-Use GitHub Issues as the public handoff contract and GitHub PRs as the implementation and review artifact.
+Plan in GitHub Issues; ship and review in pull requests.
+Link a PR to its issue when one exists.
 
-One agent owns branch writes at a time:
+Only the issue assignee should push to the branch and update the PR.
+Everyone else reviews on GitHub — don’t push competing commits unless
+ownership is handed off. Reply to specific review comments, not the
+whole review in general.
 
-- The issue assignee is the current implementation owner.
-- The implementation owner may edit files, push commits, and update the PR.
-- The reviewing agent stays read-only on that branch unless ownership is explicitly transferred.
-- Review output lands as GitHub review comments or follow-up GitHub issues.
-- The implementing agent responds only to concrete review comments or explicit issue follow-ups.
+### Public roadmap and Linear
 
-GitHub issue and PR state carry the public lifecycle. Link each implementation PR to its issue when one exists.
+Some GitHub Issues sync with Linear. Treat everything on those issues as public.
 
-### Public roadmap and Linear synchronization
-
-GitHub Issues are the public planning and discussion surface for awesoMux.
-Internal implementation planning may be maintained separately in Linear.
-
-Some GitHub Issues are synchronized with Linear. Treat all titles,
-descriptions, comments, labels, statuses, and relationships on synchronized
-issues as public information, regardless of which system you edit them from.
-
-- Do not publish internal implementation notes, private links, credentials,
-  security-sensitive details, or private tracker references.
+- Do not publish internal notes, private links, credentials, or private tracker refs.
 - Do not create, merge, re-parent, or restructure synchronized roadmap issues
-  without explicit maintainer approval.
-- Public roadmap issues describe user-facing outcomes. Implementation details
-  belong in implementation issues or pull requests intended for public view.
-- Draft new roadmap issues for maintainer review before publishing them.
+  without maintainer approval.
+- Roadmap issues describe user-facing outcomes; implementation detail belongs in
+  implementation issues or PRs.
+- Draft new roadmap issues for maintainer review before publishing.
 - Preserve existing labels when editing issue metadata.
-- GitHub Issues and pull requests remain the public handoff and review
-  artifacts for contributors.
 
-Before opening a PR, agents must ask the contributor what AI assistance level to put in the PR template (`none`, `light`, `moderate`, or `substantial`). Do not infer this from tool usage. The contributor may have reviewed, rewritten, or shaped the work enough that the right disclosure level differs from the agent's raw contribution.
+Before opening a PR, ask the contributor the AI assistance level for the PR
+template (`none`, `light`, `moderate`, or `substantial`). Do not infer it from
+tool usage.
+
+## Stack & decisions (open)
+
+Unresolved choices until they land in code or an ADR.
+[`docs/architecture.md`](docs/architecture.md) indexes this section.
+
+| Topic | Status / direction |
+| --- | --- |
+| **Ghostty XCFramework prebuilds** | Fresh clones build locally via `./script/build_ghostty_xcframework.sh`. No published/cached macOS Ghostty XCFramework yet. |
+| **Richer session persistence** | Local layout restore is JSON snapshots ([ADR 0005](docs/adr/0005-session-persistence-json-snapshot.md)). Remote identity and durable remote resume are roadmap — public issues [#1](https://github.com/Interactive-Buffoonery/awesomux/issues/1)–[#6](https://github.com/Interactive-Buffoonery/awesomux/issues/6), [ADR 0023](docs/adr/0023-remote-workspace-architecture.md). |
+| **Richer agent adapters** | Opt-in / deeper per-agent setup beyond the shipped Claude Code, Codex, and Grok plugins remains follow-up (see agent-state notes in [`docs/architecture.md`](docs/architecture.md)). |
 
 ## Build and verification
 
-- Run the app locally with `./script/build_and_run.sh`.
+- Run the app with `./script/build_and_run.sh`.
 - Run tests with `./script/swift-test.sh`.
-- Before opening any PR that is more than docs/Markdown changes, run `./script/preflight.sh`.
-- First Ghostty builds require the `vendor/ghostty` submodule and a compatible Zig toolchain. Let the Ghostty scripts own exact artifact, worktree, and optimize-mode behavior.
-- Local development builds stay ad-hoc signed. Public macOS distribution must follow ADR-0019: Developer ID Application signing, Hardened Runtime, notarization, stapling, no App Sandbox for the direct-release terminal app, and no copied Ghostty entitlement set without evidence from a failing signed release build.
+- Before opening a non-docs PR, run `./script/preflight.sh`.
+- First Ghostty builds need the `vendor/ghostty` submodule and a compatible Zig
+  toolchain. Let the Ghostty scripts own how that build is staged.
+- Local builds stay ad-hoc signed. Public macOS distribution follows ADR-0019
+  (Developer ID, Hardened Runtime, notarization, stapling, no App Sandbox for
+  the direct-release terminal app). Do not copy Ghostty’s entitlement set
+  without evidence from a failing signed release build.
 
-Do not bypass local commit/PR hooks. If a pre-merge review hook runs, address concrete findings or explain why they do not apply.
+Do not bypass local commit/PR hooks. If a pre-merge review hook runs, address
+the findings or explain why they do not apply.
 
 ## Codex approvals and sandboxing
 
-Use least privilege for the task, avoid unnecessary package downloads or arbitrary external fetches, and do not weaken environment or file protections without a specific reason.
+Prefer least privilege. Don’t download packages or hit the network without a
+reason, and don’t weaken environment or file protections casually.
 
 ## Code style
 
