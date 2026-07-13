@@ -231,6 +231,17 @@ struct ContentView: View {
                 )
             )
         }
+        peekModel.onSelectGroupSession = { [weak peekModel] sessionID in
+            guard let live = sessionStore.session(id: sessionID) else {
+                peekModel?.hideGroup(for: sessionID)
+                return
+            }
+            sessionStore.selectedSessionID = sessionID
+            sessionStore.acknowledgeSession(id: sessionID)
+            if let groupID = peekModel?.group?.id {
+                peekModel?.hideGroup(for: groupID)
+            }
+        }
     }
 
     /// Persist a free-drag width on commit (drag end). Preserves the exact width
@@ -567,9 +578,34 @@ private struct SidebarPeekCardOverlay: View {
                             ? .identity
                             : .opacity.combined(with: .scale(scale: 0.98, anchor: .leading))
                     )
+            } else if let group = model.group,
+                      let tint = model.tint {
+                let overlayOrigin = proxy.frame(in: .global).origin
+                SidebarGroupPeekCard(
+                    group: group,
+                    tint: tint,
+                    items: model.groupSessionItems,
+                    onSelectSession: { sessionID in model.onSelectGroupSession?(sessionID) },
+                    onHoverChanged: { over in model.setPointerOverGroupCard(over, for: group.id) }
+                )
+                    // Always hittable — every row jumps, unlike the
+                    // session card's single-pane summary variant.
+                    .frame(width: SidebarPeekMetrics.cardWidth, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
+                    .position(
+                        x: model.anchorX - overlayOrigin.x + SidebarPeekMetrics.cardGap + SidebarPeekMetrics.cardWidth / 2,
+                        y: clampedCenterY(containerHeight: proxy.size.height, overlayOriginY: overlayOrigin.y)
+                    )
+                    .transition(
+                        reduceMotion
+                            ? .identity
+                            : .opacity.combined(with: .scale(scale: 0.98, anchor: .leading))
+                    )
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: model.session?.id)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: model.group?.id)
     }
 
     private func clampedCenterY(containerHeight: CGFloat, overlayOriginY: CGFloat) -> CGFloat {
