@@ -6,22 +6,48 @@ import Testing
 @MainActor
 @Suite("SidebarPresentationModel")
 struct SidebarPresentationModelTests {
-    @Test("hidden sidebar reveals at edge and stays visible during sidebar handoff")
-    func edgeRevealHandsOffToSidebar() async throws {
-        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+    @Test("40 points cues and inside 16 points reveals on both sides")
+    func exactProximityBoundaries() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(model.userWantsHidden)
+        model.pointerMoved(x: 60, width: 100, position: .right)
+        #expect(model.proximityState == .cue)
+        #expect(model.isCueVisible)
         #expect(!model.isSidebarVisible)
-        #expect(!model.permitsWidthChanges)
-        model.edgePointerChanged(true)
-        #expect(model.isTemporarilyRevealed)
-        #expect(model.isSidebarVisible)
-        model.edgePointerChanged(false)
-        model.sidebarPointerChanged(true)
-        gate.advance()
-        await drainMainQueue()
-        #expect(model.isSidebarVisible)
+
+        model.pointerMoved(x: 84, width: 100, position: .right)
+        #expect(model.proximityState == .cue)
+        model.pointerMoved(x: 84.5, width: 100, position: .right)
+        #expect(model.proximityState == .revealed)
+
+        model.invalidateTransientState()
+        model.pointerMoved(x: 40, width: 100, position: .left)
+        #expect(model.proximityState == .cue)
+        model.pointerMoved(x: 15.5, width: 100, position: .left)
+        #expect(model.proximityState == .revealed)
+    }
+
+    @Test("distance outside 40 points is dormant")
+    func outsideCueZoneIsDormant() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 40.5, width: 100, position: .left)
+        #expect(model.proximityState == .dormant)
+    }
+
+    @Test("threshold jitter always classifies into one stable state")
+    func thresholdJitterIsDeterministic() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        for (x, expected) in [(40.0, .cue), (39.9, .cue), (16.0, .cue), (15.9, .revealed)]
+            as [(CGFloat, SidebarPresentationModel.ProximityState)]
+        {
+            model.pointerMoved(x: x, width: 100, position: .left)
+            #expect(model.proximityState == expected)
+        }
     }
 
     @Test("persistent toggle saves hide intent and clears temporary reveal")
@@ -29,7 +55,7 @@ struct SidebarPresentationModelTests {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        model.edgePointerChanged(true)
+        model.pointerMoved(x: 15, width: 100, position: .left)
         model.togglePersistentVisibility()
         #expect(!model.userWantsHidden)
         #expect(model.permitsWidthChanges)
@@ -48,7 +74,7 @@ struct SidebarPresentationModelTests {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        model.edgePointerChanged(true)
+        model.pointerMoved(x: 15, width: 100, position: .left)
         model.showPersistently()
 
         #expect(!model.userWantsHidden)
@@ -62,14 +88,14 @@ struct SidebarPresentationModelTests {
         let (model, gate, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        model.edgePointerChanged(true)
+        model.pointerMoved(x: 15, width: 100, position: .left)
         model.sidebarPointerChanged(true)
         model.showPersistently()
         model.sidebarPointerChanged(false)
 
         model.togglePersistentVisibility()
-        model.edgePointerChanged(true)
-        model.edgePointerChanged(false)
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
         #expect(await waitUntil { gate.sleeperCount == 1 })
 
         gate.advance()
@@ -80,8 +106,8 @@ struct SidebarPresentationModelTests {
     func leavingBothRegionsHidesAfterGrace() async throws {
         let (model, gate, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        model.edgePointerChanged(true)
-        model.edgePointerChanged(false)
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
         #expect(await waitUntil { gate.sleeperCount == 1 })
 
         gate.advance()
@@ -93,11 +119,11 @@ struct SidebarPresentationModelTests {
     func reentryCancelsPendingHide() async throws {
         let (model, gate, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        model.edgePointerChanged(true)
-        model.edgePointerChanged(false)
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
         #expect(await waitUntil { gate.sleeperCount == 1 })
 
-        model.edgePointerChanged(true)
+        model.pointerMoved(x: 15, width: 100, position: .left)
         gate.advance()
         await drainMainQueue()
         #expect(model.isTemporarilyRevealed)
@@ -107,12 +133,12 @@ struct SidebarPresentationModelTests {
     func staleDelayCannotHideNewReveal() async throws {
         let (model, gate, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        model.edgePointerChanged(true)
-        model.edgePointerChanged(false)
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
         #expect(await waitUntil { gate.sleeperCount == 1 })
-        model.edgePointerChanged(true)
+        model.pointerMoved(x: 15, width: 100, position: .left)
         model.sidebarPointerChanged(true)
-        model.edgePointerChanged(false)
+        model.trackingRegionExited()
 
         gate.advance()
         await drainMainQueue()
@@ -125,8 +151,8 @@ struct SidebarPresentationModelTests {
         let (model, gate, defaults, suiteName) = try makeVisibleModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        model.edgePointerChanged(true)
-        model.edgePointerChanged(false)
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
         model.sidebarPointerChanged(true)
         model.sidebarPointerChanged(false)
         await drainMainQueue()
@@ -134,6 +160,69 @@ struct SidebarPresentationModelTests {
         #expect(model.isSidebarVisible)
         #expect(!model.isTemporarilyRevealed)
         #expect(gate.sleepCallCount == 0)
+    }
+
+    @Test("sidebar handoff cancels grace and remains authoritative")
+    func sidebarHandoffCancelsGrace() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        model.sidebarPointerChanged(true)
+        gate.advance()
+        await drainMainQueue()
+        #expect(model.proximityState == .revealed)
+
+        model.pointerMoved(x: 30, width: 100, position: .left)
+        #expect(model.proximityState == .revealed)
+    }
+
+    @Test("newer cue transition survives stale grace completion")
+    func newerCueSurvivesStaleGrace() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.sidebarPointerChanged(true)
+        model.pointerMoved(x: 30, width: 100, position: .left)
+        model.sidebarPointerChanged(false)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        model.pointerMoved(x: 30, width: 100, position: .left)
+        gate.advance()
+        await drainMainQueue()
+        #expect(model.proximityState == .cue)
+    }
+
+    @Test("sidebar overlap event order cannot downgrade reveal")
+    func sidebarOverlapOrderIsStable() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 15, width: 40, position: .left)
+        model.sidebarPointerChanged(true)
+        model.pointerMoved(x: 30, width: 40, position: .left)
+        #expect(model.proximityState == .revealed)
+
+        model.invalidateTransientState()
+        model.sidebarPointerChanged(true)
+        model.pointerMoved(x: 30, width: 40, position: .left)
+        #expect(model.proximityState == .revealed)
+    }
+
+    @Test("lifecycle invalidation cancels delayed collapse")
+    func lifecycleInvalidationCancelsGrace() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        model.invalidateTransientState()
+        gate.advance()
+        await drainMainQueue()
+        #expect(model.proximityState == .dormant)
     }
 
     private func makeHiddenModel() throws -> ModelFixture {
