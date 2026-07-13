@@ -303,7 +303,7 @@ struct AppearanceSettingsPane: View {
         draftColorHex = appearance.terminalBackgroundColor
         // Only announce success if the fields we just tried to reset actually landed.
         // `attemptPersist` writes the whole candidate config atomically — if it failed,
-        // none of the 8 fields above changed — so this check is equivalent to checking
+        // none of the fields above changed — so this check is equivalent to checking
         // the persist's own success, without `AppearanceStore.update` needing to expose
         // one. Skipping the announcement on failure matters here specifically: telling
         // VoiceOver "reset to defaults" when the disk write silently failed is worse
