@@ -9,6 +9,7 @@ public struct SessionRestoreSanitizationSummary: Equatable, Sendable {
     public internal(set) var collapsedLayouts: Int
     public internal(set) var activePaneFallbacks: Int
     public internal(set) var selectedSessionFallbacks: Int
+    public internal(set) var droppedDocumentTabs: Int
     /// Duplicate group/session/split/pane IDs rewritten to fresh UUIDs during restore.
     /// These are structural-hygiene changes the user can't perceive, so they
     /// produce no `severitySummaryLines` — but they still alter the persisted
@@ -27,6 +28,7 @@ public struct SessionRestoreSanitizationSummary: Equatable, Sendable {
         collapsedLayouts: Int = 0,
         activePaneFallbacks: Int = 0,
         selectedSessionFallbacks: Int = 0,
+        droppedDocumentTabs: Int = 0,
         idReassignments: Int = 0
     ) {
         self.groupNameAdjustments = groupNameAdjustments
@@ -39,6 +41,7 @@ public struct SessionRestoreSanitizationSummary: Equatable, Sendable {
         self.collapsedLayouts = collapsedLayouts
         self.activePaneFallbacks = activePaneFallbacks
         self.selectedSessionFallbacks = selectedSessionFallbacks
+        self.droppedDocumentTabs = droppedDocumentTabs
         self.idReassignments = idReassignments
     }
 
@@ -53,6 +56,7 @@ public struct SessionRestoreSanitizationSummary: Equatable, Sendable {
             + collapsedLayouts
             + activePaneFallbacks
             + selectedSessionFallbacks
+            + droppedDocumentTabs
             + idReassignments
     }
 
@@ -69,7 +73,7 @@ public struct SessionRestoreSanitizationSummary: Equatable, Sendable {
     }
 
     public var removedItemCount: Int {
-        droppedGroups + collapsedLayouts
+        droppedGroups + collapsedLayouts + droppedDocumentTabs
     }
 
     public var changedItemCount: Int {
@@ -96,7 +100,7 @@ public struct SessionRestoreSanitizationSummary: Equatable, Sendable {
                 : nil,
             fallbackItemCount > 0
                 ? "\(fallbackItemCount) fallback \(Self.valueNoun(for: fallbackItemCount)) \(Self.wasWere(for: fallbackItemCount)) used."
-                : nil
+                : nil,
         ].compactMap { $0 }
     }
 

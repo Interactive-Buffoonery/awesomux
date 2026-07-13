@@ -115,50 +115,6 @@ public enum RemoteSessionDetector {
         return .remote(host: hostString)
     }
 
-    public static func promptDirectory(title: String) -> String? {
-        var scanner = Substring(title.prefix(scanLimit))
-        while let first = scanner.first, first == " " || first == "\t" {
-            scanner = scanner.dropFirst()
-        }
-        guard let atIndex = scanner.firstIndex(of: "@") else {
-            return nil
-        }
-
-        let afterAt = scanner[scanner.index(after: atIndex)...]
-        let hostEnd: Substring.Index
-        if afterAt.first == "[" {
-            guard let close = afterAt.firstIndex(of: "]") else {
-                return nil
-            }
-            hostEnd = afterAt.index(after: close)
-        } else {
-            let host = afterAt.prefix { character in
-                guard let scalar = character.unicodeScalars.first,
-                      character.unicodeScalars.count == 1,
-                      scalar.isASCII else {
-                    return false
-                }
-                return character.isLetter || character.isNumber
-                    || character == "." || character == "-" || character == "_"
-            }
-            hostEnd = host.endIndex
-        }
-
-        var rest = afterAt[hostEnd...]
-        if rest.first == ":" {
-            rest = rest.dropFirst()
-            let digits = rest.prefix(while: \.isNumber)
-            rest = rest[digits.endIndex...]
-        }
-        while rest.first == " " || rest.first == "\t" {
-            rest = rest.dropFirst()
-        }
-        guard rest.first == "/" || rest.first == "~" else {
-            return nil
-        }
-        return String(rest.prefix { $0 != " " && $0 != "\t" })
-    }
-
     private static func isUsernameCharacter(_ character: Character) -> Bool {
         guard character.unicodeScalars.count == 1,
               let scalar = character.unicodeScalars.first, scalar.isASCII else {

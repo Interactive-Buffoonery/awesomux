@@ -612,17 +612,13 @@ struct PaneLayoutReducer: Sendable {
                     title: sanitized,
                     localNames: localHostnames
                 ) {
-                    let previousHost = pane.remoteHost
                     pane.remoteHost = host
                     if let pendingTarget = pane.pendingRemoteSSHTarget {
                         pane.remoteSSHTarget = pendingTarget
                         pane.pendingRemoteSSHTarget = nil
-                    } else if previousHost != host {
+                    } else if originalPane.remoteHost != host {
                         pane.remoteSSHTarget = nil
                     }
-                    pane.remoteWorkingDirectory =
-                        RemoteSessionDetector.promptDirectory(title: sanitized)
-                        ?? (previousHost == host ? pane.remoteWorkingDirectory : nil)
                     pane.remoteConnectionHealth = .active
                 }
 
@@ -632,20 +628,26 @@ struct PaneLayoutReducer: Sendable {
             }
         }
 
-        var didApplyWorkingDirectory = false
-        if let workingDirectory = workingDirectory.flatMap({
-            WorkingDirectoryValidator.validatedReportedDirectory($0)
-        }) {
-            pane.workingDirectory = workingDirectory
-            didApplyWorkingDirectory = true
-        }
-
-        if didApplyWorkingDirectory {
-            pane.remoteHost = nil
-            pane.remoteSSHTarget = nil
-            pane.pendingRemoteSSHTarget = nil
-            pane.remoteWorkingDirectory = nil
-            pane.remoteConnectionHealth = .active
+        if let workingDirectory {
+            switch pane.executionPlan {
+            case .ssh:
+                if let remoteDirectory = RemoteWorkingDirectoryValidator.validatedReportedDirectory(
+                    workingDirectory
+                ) {
+                    pane.remoteWorkingDirectory = remoteDirectory
+                }
+            case .local:
+                if let localDirectory = WorkingDirectoryValidator.validatedReportedDirectory(
+                    workingDirectory
+                ) {
+                    pane.workingDirectory = localDirectory
+                    pane.remoteHost = nil
+                    pane.remoteSSHTarget = nil
+                    pane.pendingRemoteSSHTarget = nil
+                    pane.remoteWorkingDirectory = nil
+                    pane.remoteConnectionHealth = .active
+                }
+            }
         }
 
         if let progressReport {

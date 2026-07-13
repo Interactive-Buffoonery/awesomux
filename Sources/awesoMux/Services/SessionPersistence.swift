@@ -196,6 +196,8 @@ enum SessionPersistence {
                 .schemaVersion ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
             let versionedDecoder = JSONDecoder()
             versionedDecoder.userInfo[.snapshotSchemaVersion] = peekedVersion
+            versionedDecoder.userInfo[.snapshotDecodeRecoveryRecorder] =
+                SessionSnapshotDecodeRecoveryRecorder()
             let snapshot = try versionedDecoder.decode(SessionSnapshot.self, from: data)
             let restored = SessionStore.restore(from: snapshot)
             scheduleRemoteMarkdownSnapshotPrune(keeping: restored.store)
