@@ -140,11 +140,10 @@ extension DocumentPane: Codable {
         _ origin: String,
         in container: KeyedDecodingContainer<CodingKeys>
     ) throws -> ResourceIdentity {
-        let separators = [":~/", ":/"]
-        let matches = separators.flatMap { separator in
-            origin.ranges(of: separator).map { (separator, $0) }
-        }
-        guard matches.count == 1, let match = matches.first else {
+        let match = [":~/", ":/"]
+            .compactMap { separator in origin.range(of: separator).map { (separator, $0) } }
+            .min { $0.1.lowerBound < $1.1.lowerBound }
+        guard let match else {
             throw DecodingError.dataCorruptedError(
                 forKey: .remoteSnapshotOrigin,
                 in: container,
@@ -173,20 +172,6 @@ extension DocumentPane: Codable {
             )
         }
         return identity
-    }
-}
-
-private extension String {
-    func ranges(of substring: String) -> [Range<String.Index>] {
-        var ranges: [Range<String.Index>] = []
-        var searchStart = startIndex
-        while searchStart < endIndex,
-            let range = range(of: substring, range: searchStart..<endIndex)
-        {
-            ranges.append(range)
-            searchStart = range.upperBound
-        }
-        return ranges
     }
 }
 
@@ -245,6 +230,9 @@ public struct DocumentGroup: Identifiable, Hashable, Sendable {
 }
 
 extension DocumentGroup: Codable {
+    static let emptyAfterRecoveryDescription =
+        "DocumentGroup has no valid tabs after dropping malformed entries"
+
     private enum CodingKeys: String, CodingKey {
         case id
         case tabs
@@ -253,14 +241,21 @@ extension DocumentGroup: Codable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let tabs = try container.decode([DocumentPane].self, forKey: .tabs)
+        var tabsContainer = try container.nestedUnkeyedContainer(forKey: .tabs)
+        var tabs: [DocumentPane] = []
+        while !tabsContainer.isAtEnd {
+            let tabDecoder = try tabsContainer.superDecoder()
+            do {
+                tabs.append(try DocumentPane(from: tabDecoder))
+            } catch {}
+        }
         // Keep decode catchable: empty groups are invalid, while a stale
         // selectedTabID is disposable UI state and clamps in init.
         guard !tabs.isEmpty else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
-                    debugDescription: "DocumentGroup has no tabs; empty groups are invalid"
+                    debugDescription: Self.emptyAfterRecoveryDescription
                 )
             )
         }

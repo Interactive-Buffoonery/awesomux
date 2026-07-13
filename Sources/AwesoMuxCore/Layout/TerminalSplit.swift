@@ -79,24 +79,41 @@ extension TerminalSplit {
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
                     debugDescription: """
-                    TerminalPaneLayout nesting exceeds the decode limit of \
-                    \(Self.maxDecodedSplitDepth) splits; snapshot rejected to \
-                    avoid unbounded decode recursion.
-                    """
+                        TerminalPaneLayout nesting exceeds the decode limit of \
+                        \(Self.maxDecodedSplitDepth) splits; snapshot rejected to \
+                        avoid unbounded decode recursion.
+                        """
                 )
             )
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
+        let first = try TerminalPaneLayout.decodeRecoveringEmptyDocumentGroup(
+            from: container.superDecoder(forKey: .first)
+        )
+        let second = try TerminalPaneLayout.decodeRecoveringEmptyDocumentGroup(
+            from: container.superDecoder(forKey: .second)
+        )
+        guard let first, let second else {
+            guard let survivingLayout = first ?? second else {
+                throw CollapsedTerminalSplitDecodingError(survivingLayout: nil)
+            }
+            throw CollapsedTerminalSplitDecodingError(survivingLayout: survivingLayout)
+        }
+
         self.init(
             id: try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID(),
             orientation: try container.decode(TerminalSplitOrientation.self, forKey: .orientation),
-            first: try container.decode(TerminalPaneLayout.self, forKey: .first),
-            second: try container.decode(TerminalPaneLayout.self, forKey: .second),
+            first: first,
+            second: second,
             firstFraction: try container.decodeIfPresent(Double.self, forKey: .firstFraction) ?? 0.5
         )
     }
+}
+
+struct CollapsedTerminalSplitDecodingError: Error {
+    let survivingLayout: TerminalPaneLayout?
 }
 
 public enum TerminalSplitOrientation: String, Codable, Hashable, Sendable {
@@ -141,7 +158,6 @@ public enum PaneMoveEdge: Hashable, Sendable {
         }
     }
 }
-
 
 private extension Double {
     var clampedSplitFraction: Double {

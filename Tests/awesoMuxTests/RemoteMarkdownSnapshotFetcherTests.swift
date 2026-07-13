@@ -5,6 +5,13 @@ import Testing
 
 @Suite
 struct RemoteMarkdownReferenceTests {
+    private actor CallCounter {
+        private(set) var count = 0
+
+        func record() {
+            count += 1
+        }
+    }
     private func remotePane(
         target: String = "my-purple",
         title: String = "alice@devbox:/repo",
@@ -182,5 +189,69 @@ struct RemoteMarkdownReferenceTests {
 
     @Test func markdownInlineCodeStripsBackticks() {
         #expect(RemoteMarkdownSnapshotFetcher.markdownInlineCode("dev:/tmp/a`b.md") == "dev:/tmp/ab.md")
+    }
+
+    @Test func concurrentFetchesForSameIdentityAreCoalesced() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane()
+            ))
+        let counter = CallCounter()
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let fetcher = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in
+                await counter.record()
+                try? await Task.sleep(for: .milliseconds(50))
+                return Data("current".utf8)
+            }
+        )
+
+        async let first = fetcher.fetch(reference)
+        async let second = fetcher.fetch(reference)
+        let results = await [first, second]
+
+        #expect(await counter.count == 1)
+        #expect(results[0]?.fileURL == results[1]?.fileURL)
+        #expect(try Data(contentsOf: #require(results[0]?.fileURL)) == Data("current".utf8))
+    }
+
+    @Test func differentCacheDirectoriesDoNotShareInFlightResults() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane()
+            ))
+        let counter = CallCounter()
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: root.appending(path: "first", directoryHint: .isDirectory),
+            fetchOverride: { _ in
+                await counter.record()
+                try? await Task.sleep(for: .milliseconds(50))
+                return Data("first".utf8)
+            }
+        )
+        let second = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: root.appending(path: "second", directoryHint: .isDirectory),
+            fetchOverride: { _ in
+                await counter.record()
+                try? await Task.sleep(for: .milliseconds(50))
+                return Data("second".utf8)
+            }
+        )
+
+        async let firstResult = first.fetch(reference)
+        async let secondResult = second.fetch(reference)
+        let results = await [firstResult, secondResult]
+
+        #expect(await counter.count == 2)
+        #expect(results[0]?.fileURL.deletingLastPathComponent().lastPathComponent == "first")
+        #expect(results[1]?.fileURL.deletingLastPathComponent().lastPathComponent == "second")
     }
 }
