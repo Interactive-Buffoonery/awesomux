@@ -1,6 +1,7 @@
 import AwesoMuxCore
 import AwesoMuxConfig
 import CoreGraphics
+import Foundation
 import Observation
 
 enum SidebarPhysicalEdge: Equatable {
@@ -11,6 +12,11 @@ enum SidebarPhysicalEdge: Equatable {
 enum SidebarPeekDirection: Equatable {
     case left
     case right
+}
+
+enum SidebarSplitTransition: Equatable {
+    case immediate
+    case hover(duration: TimeInterval)
 }
 
 enum AppTitlebarColumn: Equatable {
@@ -352,4 +358,5 @@ final class SidebarSplitProxy {
     @ObservationIgnored var setWidth: ((CGFloat) -> Void)?
     @ObservationIgnored var setPosition: ((AppearanceConfig.SidebarPosition) -> Void)?
     @ObservationIgnored var setHidden: ((Bool) -> Void)?
+    @ObservationIgnored var setVisibility: ((Bool, SidebarSplitTransition, Bool) -> Void)?
 }

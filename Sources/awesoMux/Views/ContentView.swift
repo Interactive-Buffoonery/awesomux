@@ -170,7 +170,7 @@ struct ContentView: View {
                 initialWidth: sidebarWidth,
                 proxy: splitProxy,
                 position: sidebarPosition,
-                isHidden: !sidebarPresentation.isSidebarVisible,
+                initiallyHidden: !sidebarPresentation.isSidebarVisible,
                 onLiveWidthChange: { width in sidebarLiveWidth.value = width },
                 onCommitWidth: { width in commitSidebarWidth(width) },
                 onSidebarFocusHandoff: onFocusActiveTerminal,
