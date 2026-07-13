@@ -649,7 +649,7 @@ struct RecentlyClosedWorkspaceReducerTests {
         return .split(TerminalSplit(
             orientation: .vertical,
             first: deepLayout(depth: depth - 1),
-            second: .pane(TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local))
+                second: .pane(TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local))
         ))
     }
 }

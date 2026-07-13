@@ -62,7 +62,8 @@ extension TerminalPane {
         // Only a successfully decoded non-null plan may suppress the owning
         // group's migration fallback. Malformed non-null plans still throw so
         // remote routing corruption can never silently downgrade to local.
-        hasExplicitExecutionPlan = try container.contains(.executionPlan)
+        hasExplicitExecutionPlan =
+            try container.contains(.executionPlan)
             && !container.decodeNil(forKey: .executionPlan)
     }
 

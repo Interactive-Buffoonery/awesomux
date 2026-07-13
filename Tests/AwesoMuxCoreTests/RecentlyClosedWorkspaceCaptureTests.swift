@@ -310,7 +310,7 @@ struct RecentlyClosedWorkspaceCaptureTests {
             title: "entry",
             isTitleUserEdited: true,
             agentKind: .codex,
-            layout: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
+                layout: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
             activePaneID: UUID(),
             groupID: groupID,
             groupName: "main",

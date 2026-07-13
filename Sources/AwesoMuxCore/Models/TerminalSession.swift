@@ -397,10 +397,11 @@ extension TerminalSession: Codable {
         // legacy remote target.
         if layout == nil, var synthesizedPane = activePane {
             synthesizedPane.hasExplicitExecutionPlan = false
-            self.layout = self.layout.replacingPane(
-                id: synthesizedPane.id,
-                with: .pane(synthesizedPane)
-            ) ?? self.layout
+            self.layout =
+                self.layout.replacingPane(
+                    id: synthesizedPane.id,
+                    with: .pane(synthesizedPane)
+                ) ?? self.layout
         }
     }
 
