@@ -21,6 +21,18 @@ struct SidebarSplitControllerTests {
         return (controller, sidebar, detail)
     }
 
+    private func hostInFixedWindow(_ controller: SidebarSplitController) -> NSWindow {
+        controller.loadViewIfNeeded()
+        let frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        let window = NSWindow(contentRect: frame, styleMask: [], backing: .buffered, defer: false)
+        let contentView = NSView(frame: frame)
+        window.contentView = contentView
+        controller.view.frame = contentView.bounds
+        contentView.addSubview(controller.view)
+        controller.view.layoutSubtreeIfNeeded()
+        return window
+    }
+
     @Test("sidebar geometry mirrors across the pane extent")
     func mirroredGeometry() {
         let extent: CGFloat = 1_199
@@ -123,20 +135,21 @@ struct SidebarSplitControllerTests {
         let destination = FirstResponderView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
         detail.view.addSubview(destination)
         let controller = SidebarSplitController(sidebar: sidebar, detail: detail)
-        let window = NSWindow(contentViewController: controller)
-        window.setContentSize(CGSize(width: 1_200, height: 800))
-        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
-        controller.view.layoutSubtreeIfNeeded()
+        let window = hostInFixedWindow(controller)
         #expect(window.makeFirstResponder(sentinel))
         var handoffCount = 0
+        var widthDuringHandoff: CGFloat?
         controller.onSidebarFocusHandoff = {
             handoffCount += 1
+            widthDuringHandoff = sidebar.view.frame.width
             return window.makeFirstResponder(destination)
         }
 
-        controller.simulateSidebarFocusHandoffForTesting()
+        controller.setSidebarHidden(true)
 
         #expect(handoffCount == 1)
+        #expect((widthDuringHandoff ?? 0) > 0)
+        #expect(sidebar.view.frame.width == 0)
         #expect(window.firstResponder === destination)
         #expect(window.firstResponder !== sentinel)
     }
@@ -148,10 +161,7 @@ struct SidebarSplitControllerTests {
         let sentinel = FirstResponderView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
         detail.view.addSubview(sentinel)
         let controller = SidebarSplitController(sidebar: sidebar, detail: detail)
-        let window = NSWindow(contentViewController: controller)
-        window.setContentSize(CGSize(width: 1_200, height: 800))
-        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
-        controller.view.layoutSubtreeIfNeeded()
+        let window = hostInFixedWindow(controller)
         #expect(window.makeFirstResponder(sentinel))
         var handoffCount = 0
         controller.onSidebarFocusHandoff = {
@@ -159,9 +169,10 @@ struct SidebarSplitControllerTests {
             return false
         }
 
-        controller.simulateSidebarFocusHandoffForTesting()
+        controller.setSidebarHidden(true)
 
         #expect(handoffCount == 0)
+        #expect(sidebar.view.frame.width == 0)
         #expect(window.firstResponder === sentinel)
     }
 
@@ -171,15 +182,13 @@ struct SidebarSplitControllerTests {
         let sentinel = FirstResponderView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
         sidebar.view.addSubview(sentinel)
         let controller = SidebarSplitController(sidebar: sidebar, detail: NSViewController())
-        let window = NSWindow(contentViewController: controller)
-        window.setContentSize(CGSize(width: 1_200, height: 800))
-        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
-        controller.view.layoutSubtreeIfNeeded()
+        let window = hostInFixedWindow(controller)
         #expect(window.makeFirstResponder(sentinel))
         controller.onSidebarFocusHandoff = { false }
 
-        controller.simulateSidebarFocusHandoffForTesting()
+        controller.setSidebarHidden(true)
 
+        #expect(sidebar.view.frame.width == 0)
         #expect(window.firstResponder !== sentinel)
     }
 
