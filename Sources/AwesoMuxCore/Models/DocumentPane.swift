@@ -32,6 +32,8 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
         self.fileURL = fileURL
         self.title = title
         self.associatedTerminalPaneID = associatedTerminalPaneID
+        // Runtime construction is a trusted programming boundary. Persisted
+        // identities use the throwing Codable path before reaching this invariant.
         precondition(
             remoteResourceIdentity?.isSupportedRemoteMarkdownSnapshot != false,
             "A remote document requires a valid remote Markdown identity"
