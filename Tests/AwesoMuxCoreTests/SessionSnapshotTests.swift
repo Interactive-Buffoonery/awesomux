@@ -229,12 +229,12 @@ final class SessionSnapshotTests: XCTestCase {
     func testRemoteTargetRoundTrips() throws {
         let group = SessionGroup(
             id: UUID(), name: "Box", color: nil,
-            remote: RemoteTarget(user: "ed", host: "box"),
+            remote: RemoteTarget(user: "ed", host: "box")!,
             sessions: []
         )
         let data = try JSONEncoder().encode(group)
         let decoded = try JSONDecoder().decode(SessionGroup.self, from: data)
-        XCTAssertEqual(decoded.remote, RemoteTarget(user: "ed", host: "box"))
+        XCTAssertEqual(decoded.remote, RemoteTarget(user: "ed", host: "box")!)
     }
 
     func testDecodesLegacyGroupWithoutRemoteKeyAsNil() throws {

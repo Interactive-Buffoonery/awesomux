@@ -194,7 +194,7 @@ struct TerminalPaneLayoutView: View {
                             if let remoteReconnect = pane.remoteReconnect {
                                 RemotePaneDisconnectedView(
                                     state: remoteReconnect,
-                                    liveTarget: sessionStore.remoteTarget(forSessionID: session.id),
+                                    liveTarget: pane.executionPlan.remoteTarget,
                                     runtime: runtime,
                                     paneID: pane.id,
                                     paneDescriptor: TerminalAccessibilityAnnouncer.paneDescriptor(

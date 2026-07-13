@@ -12,7 +12,7 @@ struct BridgeAttachPreflightTests {
     private static let session = TerminalSessionID(rawValue: "abc123-bridge")!
     private static let request = BridgeAttachPreflight.Request(
         session: session,
-        remote: RemoteTarget(user: "alice", host: "box"),
+        remote: RemoteTarget(user: "alice", host: "box")!,
         controlPath: "/tmp/ctl/%C",
         remoteHome: "/Users/example",
         helperPath: "/usr/local/bin/awesomux-remote-helper",
@@ -132,7 +132,7 @@ struct BridgeAttachPreflightTests {
         let harness = Harness()
         let request = BridgeAttachPreflight.Request(
             session: Self.session,
-            remote: RemoteTarget(user: "alice", host: "box"),
+            remote: RemoteTarget(user: "alice", host: "box")!,
             controlPath: "/tmp/ctl/%C",
             remoteHome: "/Users/example",
             helperPath: "/usr/local/bin/awesomux-remote-helper",

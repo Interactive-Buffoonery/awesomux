@@ -335,6 +335,9 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         if session.layout.hasMultiplePanes {
             return true
         }
+        if session.panes.contains(where: { $0.executionPlan.remoteTarget != nil }) {
+            return true
+        }
         if hasMeaningfulWorkingDirectory(session.workingDirectory) {
             return true
         }

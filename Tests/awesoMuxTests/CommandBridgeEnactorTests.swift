@@ -584,7 +584,7 @@ struct CommandBridgeEnactorTests {
             workingDirectory: "/tmp",
             executionPlan: .ssh(
                 SSHExecution(
-                    target: RemoteTarget(user: "ed", host: "example.invalid")
+                    target: RemoteTarget(user: "ed", host: "example.invalid")!
                 )))
         let session = TerminalSession(
             title: "remote session",
@@ -596,7 +596,7 @@ struct CommandBridgeEnactorTests {
             groups: [
                 SessionGroup(
                     name: "remote group",
-                    remote: RemoteTarget(user: "ed", host: "example.invalid"),
+                    remote: RemoteTarget(user: "ed", host: "example.invalid")!,
                     sessions: [session]
                 )
             ],

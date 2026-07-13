@@ -416,7 +416,7 @@ struct SessionStoreWorkspaceGroupTests {
     @Test("createRemoteWorkspaceGroup creates a remote group and returns seeded session")
     func createRemoteWorkspaceGroupCreatesGroupAndReturnsSessionID() {
         let store = SessionStore(groups: [])
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         let sessionID = store.createRemoteWorkspaceGroup(
             named: "box",
             target: target
@@ -432,7 +432,7 @@ struct SessionStoreWorkspaceGroupTests {
 
     @Test("remoteTarget finds the active pane's declared target")
     func remoteTargetLookupFindsActivePanePlan() {
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         let session = TerminalSession(
             title: "shell 1",
             workingDirectory: "~",
@@ -452,7 +452,7 @@ struct SessionStoreWorkspaceGroupTests {
 
     @Test("an explicit local pane is not retargeted by its remote group")
     func remoteGroupDoesNotOverrideExplicitLocalPane() {
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         let session = TerminalSession(
             title: "local utility",
             workingDirectory: "~"
@@ -466,7 +466,7 @@ struct SessionStoreWorkspaceGroupTests {
     @Test("a workspace added to a remote group after a persistence round-trip attaches remote")
     func addSessionAfterPersistenceRoundTripResolvesRemoteTarget() throws {
         let store = SessionStore(groups: [])
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         _ = store.createRemoteWorkspaceGroup(named: "box", target: target)
 
         // Full persistence boundary — encode/decode the snapshot, not just the

@@ -12,7 +12,7 @@ import Testing
 @Suite("Bridge generation registry")
 struct BridgeGenerationRegistryTests {
     private static let session = TerminalSessionID(rawValue: "abc123-bridge")!
-    static let remote = RemoteTarget(user: "ed", host: "box")
+    static let remote = RemoteTarget(user: "ed", host: "box")!
     static let controlPath = "/tmp/ctl/%C"
 
     private static func channel(

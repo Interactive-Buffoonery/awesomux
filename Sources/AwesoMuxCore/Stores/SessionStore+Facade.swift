@@ -320,7 +320,7 @@ extension SessionStore {
             now: now
         )
 
-        if let target = remoteTarget(forSessionID: sessionID) {
+        if let target = pane.executionPlan.remoteTarget {
             mutatePane(sessionID: sessionID, paneID: paneID) { errorPane in
                 errorPane.remoteReconnect = .disconnected(
                     .init(target: target, displacedNonErrorState: displacedNonErrorState)
@@ -422,13 +422,11 @@ extension SessionStore {
             return false
         }
 
-        // Refresh the payload target to the LIVE group target at dial time so
-        // the recovery announcement names the host actually dialed — a session
-        // moved to another remote host dials (and reports) that host; one moved
-        // to a LOCAL group dials a plain restart and announces host-agnostic
-        // (INT-697 fix #9).
+        // Refresh from the pane's durable execution plan at dial time so the
+        // recovery announcement names the host this pane actually dials.
         var newContext = context
-        if let liveTarget = remoteTarget(forSessionID: sessionID) {
+        if let liveTarget = session(id: sessionID)?.layout.pane(id: paneID)?
+            .executionPlan.remoteTarget {
             newContext.target = liveTarget
             newContext.dialedLocalRestart = false
         } else {

@@ -167,7 +167,7 @@ struct WorkspaceTreeReducerGroupTests {
     @Test("addWorkspaceGroup carries remote target when provided")
     func addWorkspaceGroupCarriesRemoteTarget() {
         var groups: [SessionGroup] = []
-        let target = RemoteTarget(user: "ed", host: "box")
+        let target = RemoteTarget(user: "ed", host: "box")!
         let seeded = WorkspaceTreeReducer.addWorkspaceGroup(
             to: &groups,
             selectedSession: nil,

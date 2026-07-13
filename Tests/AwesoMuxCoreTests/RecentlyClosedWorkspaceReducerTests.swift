@@ -441,7 +441,7 @@ struct RecentlyClosedWorkspaceReducerTests {
 
     @Test("reopen recreates a deleted remote group with its SSH target (INT-773)")
     func reopenRecreatesDeletedRemoteGroupWithTarget() throws {
-        let target = RemoteTarget(user: "ed", host: "pi")
+        let target = RemoteTarget(user: "ed", host: "pi")!
         let pane = TerminalPane(title: "pane", workingDirectory: "~", executionPlan: .local)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -490,7 +490,7 @@ struct RecentlyClosedWorkspaceReducerTests {
             activePaneID: pane.id,
             groupID: groupID,
             groupName: "group",
-            groupRemote: RemoteTarget(user: "ed", host: "old-host"),
+            groupRemote: RemoteTarget(user: "ed", host: "old-host")!,
             indexInGroup: 0,
             closedAt: Date(timeIntervalSince1970: 10)
         )
@@ -515,7 +515,7 @@ struct RecentlyClosedWorkspaceReducerTests {
         // re-local-ize the session (the INT-773 bug through the side door),
         // and a duplicate name breaks name-keyed session routing — so the
         // recreated group must disambiguate, mirroring the restore path.
-        let target = RemoteTarget(user: "ed", host: "pi")
+        let target = RemoteTarget(user: "ed", host: "pi")!
         let pane = TerminalPane(title: "pane", workingDirectory: "~", executionPlan: .local)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -560,7 +560,7 @@ struct RecentlyClosedWorkspaceReducerTests {
         // group's ID), the sibling entry folds into it — never a "staging 3",
         // and its own captured target is deliberately discarded in favor of
         // the recreated group's.
-        let target = RemoteTarget(user: "ed", host: "pi")
+        let target = RemoteTarget(user: "ed", host: "pi")!
         let deadGroupID = UUID()
         func entry(_ title: String, closedAt: TimeInterval) -> RecentlyClosedWorkspace {
             let pane = TerminalPane(title: title, workingDirectory: "~", executionPlan: .local)
@@ -600,7 +600,7 @@ struct RecentlyClosedWorkspaceReducerTests {
 
     @Test("captureDecision records the owning group's SSH target")
     func captureRecordsGroupRemote() {
-        let target = RemoteTarget(user: "ed", host: "pi")
+        let target = RemoteTarget(user: "ed", host: "pi")!
         let session = TerminalSession(title: "ws", workingDirectory: "~")
         let group = SessionGroup(name: "remote group", remote: target, sessions: [session])
 
@@ -626,7 +626,7 @@ struct RecentlyClosedWorkspaceReducerTests {
             activePaneID: pane.id,
             groupID: UUID(),
             groupName: "group",
-            groupRemote: RemoteTarget(user: "ed", host: "pi"),
+            groupRemote: RemoteTarget(user: "ed", host: "pi")!,
             indexInGroup: 0,
             closedAt: Date(timeIntervalSince1970: 10)
         )

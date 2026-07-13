@@ -11,7 +11,7 @@ import Testing
 @Suite("Bridge attach decisions")
 struct BridgeAttachDecisionTests {
     private static let session = TerminalSessionID(rawValue: "d4-decisions")!
-    private static let remote = RemoteTarget(user: "alice", host: "box")
+    private static let remote = RemoteTarget(user: "alice", host: "box")!
 
     // MARK: - Enable gate
 

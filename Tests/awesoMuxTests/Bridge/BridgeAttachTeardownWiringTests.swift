@@ -12,7 +12,7 @@ import Testing
 @MainActor
 @Suite("Bridge attach teardown wiring")
 struct BridgeAttachTeardownWiringTests {
-    private static let remote = RemoteTarget(user: "alice", host: "box")
+    private static let remote = RemoteTarget(user: "alice", host: "box")!
 
     // MARK: - Fixture
 

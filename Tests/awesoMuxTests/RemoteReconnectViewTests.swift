@@ -274,7 +274,7 @@ struct RemoteReconnectViewTests {
             TerminalSessionID(
                 rawValue: "22222222-2222-4222-8222-222222222222"
             ))
-        let target = RemoteTarget(user: "deploy", host: "prod.example")
+        let target = RemoteTarget(user: "deploy", host: "prod.example")!
         let pane = TerminalPane(
             terminalSessionID: sessionID,
             terminalBackendMetadata: establishedMetadata,
@@ -312,7 +312,7 @@ struct RemoteReconnectViewTests {
             TerminalSessionID(
                 rawValue: "44444444-4444-4444-8444-444444444444"
             ))
-        let target = RemoteTarget(user: "deploy", host: "prod.example")
+        let target = RemoteTarget(user: "deploy", host: "prod.example")!
         let paneA = TerminalPane(
             terminalSessionID: sessionIDA,
             terminalBackendMetadata: establishedMetadata,

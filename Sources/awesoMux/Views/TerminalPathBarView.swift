@@ -56,6 +56,14 @@ struct TerminalPathBarView: View {
 
     var body: some View {
         content
+            .onChange(of: PathBarExecutionAnnouncementState(pane: session.activePane)) {
+                previous, current in
+                guard let message = PathBarExecutionAnnouncement.message(
+                    from: previous,
+                    to: current
+                ) else { return }
+                TerminalAccessibilityAnnouncer.announce(message)
+            }
             // The model walks the filesystem and reads git state. That work must
             // never run on the render path (it would beachball under a chatty
             // PTY on a slow/network volume), so it runs in a detached task keyed
