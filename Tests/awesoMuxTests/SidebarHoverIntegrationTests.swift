@@ -56,6 +56,16 @@ struct SidebarHoverIntegrationTests {
         )
     }
 
+    @Test("availability and explicit invalidation transitions are immediate")
+    func invalidationTransitionsAreImmediate() {
+        for source in [SidebarVisibilitySource.explicit, .explicit] {
+            #expect(
+                SidebarHoverTransitionPolicy.transition(for: source, reduceMotion: false)
+                    == .immediate
+            )
+        }
+    }
+
     @Test("persistent visibility ignores a stale dormant pointer transition")
     func persistentVisibilityWinsPointerOrdering() {
         #expect(
