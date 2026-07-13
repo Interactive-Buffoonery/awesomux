@@ -58,11 +58,26 @@ inputs:
       Enable for automatic and /codereview review workflows.
     required: false
     default: "false"
+  max_diff_lines:
+    description: Maximum exact diff lines available to this review invocation.
+    required: false
+    default: "2000"
+  max_diff_bytes:
+    description: Maximum exact diff bytes available to this review invocation.
+    required: false
+    default: "262144"
+  large_diff_mode:
+    description: Use "skip" for automatic review; explicit review defaults to "fail".
+    required: false
+    default: "fail"
 
 outputs:
   opencode_unavailable:
     description: "true when OpenCode was skipped because of a usage, billing, quota, or zero-balance limit."
     value: ${{ steps.run.outputs.opencode_unavailable }}
+  diff_too_large:
+    description: "true when the exact diff exceeded this invocation's bounded preview."
+    value: ${{ steps.run.outputs.diff_too_large }}
 
 runs:
   using: composite
@@ -128,3 +143,6 @@ runs:
           ${{ inputs.prompt_context }}
         REVIEW_GUARD: ${{ inputs.review_guard }}
         ISSUE_NUMBER: ${{ inputs.issue_number }}
+        MAX_DIFF_LINES: ${{ inputs.max_diff_lines }}
+        MAX_DIFF_BYTES: ${{ inputs.max_diff_bytes }}
+        LARGE_DIFF_MODE: ${{ inputs.large_diff_mode }}

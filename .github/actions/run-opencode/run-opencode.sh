@@ -13,6 +13,15 @@ diff_lines="unknown"
 diff_bytes="unknown"
 : > "$telemetry_file"
 
+set_action_output() {
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "$1=$2" >> "$GITHUB_OUTPUT"
+  fi
+}
+
+set_action_output opencode_unavailable false
+set_action_output diff_too_large false
+
 write_telemetry_summary() {
   [ -n "${GITHUB_STEP_SUMMARY:-}" ] || return
   {
@@ -36,12 +45,25 @@ if [ -n "${BASE_RANGE:-}" ]; then
   diff_bytes="$(wc -c < "$diff_probe" | tr -d ' ')"
   if [ "$diff_lines" -gt "${MAX_DIFF_LINES:-2000}" ] || [ "$diff_bytes" -gt "${MAX_DIFF_BYTES:-262144}" ]; then
     final_outcome="diff too large"
+    set_action_output diff_too_large true
     if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-      {
-        echo "### OpenCode review requires human review"
-        echo
-        echo "The exact diff exceeds the bounded review preview (${diff_lines} lines, ${diff_bytes} bytes)."
-      } >> "$GITHUB_STEP_SUMMARY"
+      if [ "${LARGE_DIFF_MODE:-fail}" = "skip" ]; then
+        {
+          echo "### OpenCode automatic review skipped"
+          echo
+          echo "The exact diff exceeds the bounded automatic-review preview (${diff_lines} lines, ${diff_bytes} bytes). Use /codereview to trigger a manual review."
+        } >> "$GITHUB_STEP_SUMMARY"
+      else
+        {
+          echo "### OpenCode review requires human review"
+          echo
+          echo "The exact diff exceeds the bounded review preview (${diff_lines} lines, ${diff_bytes} bytes)."
+        } >> "$GITHUB_STEP_SUMMARY"
+      fi
+    fi
+    if [ "${LARGE_DIFF_MODE:-fail}" = "skip" ]; then
+      echo "::notice title=OpenCode automatic review skipped::The exact diff exceeds the bounded automatic-review preview (${diff_lines} lines, ${diff_bytes} bytes); automatic review was skipped successfully. Use /codereview to trigger a manual review." >&2
+      exit 0
     fi
     echo "::error title=OpenCode diff too large::The exact diff exceeds the bounded review preview (${diff_lines} lines, ${diff_bytes} bytes); human review is required." >&2
     exit 1
@@ -49,12 +71,8 @@ if [ -n "${BASE_RANGE:-}" ]; then
 fi
 
 set_opencode_unavailable_output() {
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    echo "opencode_unavailable=$1" >> "$GITHUB_OUTPUT"
-  fi
+  set_action_output opencode_unavailable "$1"
 }
-
-set_opencode_unavailable_output false
 
 report_opencode_unavailable() {
   local message="OpenCode reported a usage, billing, quota, or zero-balance limit. Stopping now and failing the review job."

@@ -107,7 +107,10 @@ describe("opencode automatic review eligibility", () => {
   test("skips an automatic rerun when Actions already reviewed the PR", () => {
     assert.match(body, /name:\s*Check for an existing automatic review/);
     assert.match(body, /awesomux-opencode-review/);
-    assert.match(body, /startsWith\("## Code Review"\)|startswith\("## Code Review"\)/);
+    assert.match(
+      body,
+      /startsWith\("## Code Review"\)|startswith\("## Code Review"\)/,
+    );
     assert.match(
       body,
       /name:\s*Run opencode review\s*\n\s*if:\s*steps\.existing_review\.outputs\.skip != 'true'[^\n]*\n\s*id:\s*opencode/,
@@ -128,6 +131,17 @@ describe("opencode review tool output", () => {
   test("keeps normal pull request diffs visible within a bounded preview", () => {
     assert.equal(config.tool_output?.max_lines, 2000);
     assert.equal(config.tool_output?.max_bytes, 262144);
+  });
+
+  test("scopes the larger bounded preview to explicit manual review", () => {
+    assert.match(body, /large_diff_mode:\s*skip/);
+    assert.match(commentWorkflow, /max_diff_lines:\s*["']10000["']/);
+    assert.match(commentWorkflow, /max_diff_bytes:\s*["']524288["']/);
+    assert.match(
+      commentWorkflow,
+      /"tool_output":\{"max_lines":10000,"max_bytes":524288\}/,
+    );
+    assert.doesNotMatch(body, /max_diff_lines:\s*["']10000["']/);
   });
 });
 
@@ -368,19 +382,32 @@ describe("opencode-review trusted-helper checkout", () => {
     assert.match(runner, /for attempt in 1 2 3/);
   });
 
-  test("fails clearly before review when the exact diff exceeds its preview", () => {
+  test("bounds exact diffs and lets automatic review skip oversized previews", () => {
     assert.match(runner, /git diff "\$BASE_RANGE" -- > "\$diff_probe"/);
     assert.match(runner, /MAX_DIFF_LINES:-2000/);
     assert.match(runner, /MAX_DIFF_BYTES:-262144/);
-    assert.match(body, /BASE_RANGE:\s*\$\{\{\s*steps\.review_context\.outputs\.base_range\s*\}\}/);
-    assert.match(commentWorkflow, /BASE_RANGE:\s*\$\{\{\s*steps\.review_context\.outputs\.base_range\s*\}\}/);
+    assert.match(
+      body,
+      /BASE_RANGE:\s*\$\{\{\s*steps\.review_context\.outputs\.base_range\s*\}\}/,
+    );
+    assert.match(
+      commentWorkflow,
+      /BASE_RANGE:\s*\$\{\{\s*steps\.review_context\.outputs\.base_range\s*\}\}/,
+    );
+    assert.match(action, /diff_too_large:/);
+    assert.match(runner, /LARGE_DIFF_MODE:-fail/);
+    assert.match(body, /steps\.opencode\.outputs\.diff_too_large == 'true'/);
+    assert.match(body, /awesomux-opencode-skip/);
   });
 
   test("publishes safe per-attempt telemetry to the Actions summary", () => {
     assert.match(runner, /### OpenCode review telemetry/);
     assert.match(runner, /Tool output truncated/);
     assert.match(runner, /summarize-log\.mjs/);
-    assert.doesNotMatch(runner, /cat "\$attempt_log" >> "\$GITHUB_STEP_SUMMARY"/);
+    assert.doesNotMatch(
+      runner,
+      /cat "\$attempt_log" >> "\$GITHUB_STEP_SUMMARY"/,
+    );
   });
 
   test("keeps comment-triggered permission tied to the allowlisted command author", () => {
@@ -440,7 +467,10 @@ describe("opencode-review trusted-helper checkout", () => {
 
   test("installs a versioned OpenCode archive only after SHA-256 verification", () => {
     assert.doesNotMatch(action, /opencode\.ai\/install|curl[^\n]*\|\s*bash/);
-    assert.match(action, /releases\/download\/v\$\{OPENCODE_VERSION\}\/opencode-linux-x64\.tar\.gz/);
+    assert.match(
+      action,
+      /releases\/download\/v\$\{OPENCODE_VERSION\}\/opencode-linux-x64\.tar\.gz/,
+    );
     assert.match(action, /OPENCODE_ARCHIVE_SHA256:\s*["']?[a-f0-9]{64}["']?/);
     assert.match(action, /sha256sum --check --strict/);
   });

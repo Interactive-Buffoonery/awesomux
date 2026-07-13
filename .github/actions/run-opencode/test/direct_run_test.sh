@@ -110,7 +110,9 @@ run_wrapper() {
     GH_BODY_CAPTURE="$temp_dir/gh-body-$mode" \
     GH_EXISTING_COMMENT_IDS="${GH_EXISTING_COMMENT_IDS:-}" \
     GITHUB_STEP_SUMMARY="$temp_dir/summary-$mode" \
+    GITHUB_OUTPUT="$temp_dir/output-$mode" \
     BASE_RANGE="${BASE_RANGE_OVERRIDE:-}" \
+    LARGE_DIFF_MODE="${LARGE_DIFF_MODE_OVERRIDE:-fail}" \
     OVERSIZED_DIFF="${OVERSIZED_DIFF:-false}" \
     PRODUCTION_DIFF="${PRODUCTION_DIFF:-false}" \
     PRODUCTION_DIFF_CAPTURE="$temp_dir/production-diff-$mode" \
@@ -162,6 +164,14 @@ unset BASE_RANGE_OVERRIDE OVERSIZED_DIFF
 test "$oversized_status" -ne 0
 test ! -e "$temp_dir/opencode-count-oversized"
 grep -Fq "diff exceeds the bounded review preview" "$temp_dir/summary-oversized"
+
+BASE_RANGE_OVERRIDE="base...head" OVERSIZED_DIFF=true LARGE_DIFF_MODE_OVERRIDE="skip"
+export BASE_RANGE_OVERRIDE OVERSIZED_DIFF LARGE_DIFF_MODE_OVERRIDE
+run_wrapper oversized_skip
+unset BASE_RANGE_OVERRIDE OVERSIZED_DIFF LARGE_DIFF_MODE_OVERRIDE
+test ! -e "$temp_dir/opencode-count-oversized_skip"
+grep -Fq "OpenCode automatic review skipped" "$temp_dir/summary-oversized_skip"
+grep -Fq "diff_too_large=true" "$temp_dir/output-oversized_skip"
 
 BASE_RANGE_OVERRIDE="base...head" PRODUCTION_DIFF=true
 export BASE_RANGE_OVERRIDE PRODUCTION_DIFF

@@ -14,6 +14,7 @@ fi
 echo "test-review-automation: OpenCode review trust boundaries"
 node --test \
     .github/actions/run-opencode/test/summarize-log.test.mjs \
+    .github/scripts/test/compute-review-guards.test.mjs \
     .github/scripts/test/extract-opencode-review.test.mjs \
     .github/scripts/test/opencode-review-trust-boundary.test.mjs \
     .github/scripts/test/parse-review-findings.test.mjs \
