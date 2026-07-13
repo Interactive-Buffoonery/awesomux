@@ -229,6 +229,7 @@ private struct SidebarGroupHitTargetHarness: View {
             onToggle: onToggle,
             onSelect: { _ in },
             onNewSessionInGroup: onNewSessionInGroup,
+            onConnectViaSSH: {},
             onNewSessionHere: { _ in },
             onNewGroup: {},
             onRenameGroup: {},

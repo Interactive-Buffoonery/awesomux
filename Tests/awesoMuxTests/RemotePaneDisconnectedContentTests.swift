@@ -20,8 +20,10 @@ struct RemotePaneDisconnectedContentTests {
 
         #expect(content.title == "Disconnected")
         // Moved to a different host → the second reconciling line appears (#11).
-        #expect(content.description ==
-            "Lost connection to prod.example.\nThis workspace now targets staging.example.")
+        #expect(
+            content.description
+                == "Lost connection to prod.example.\nThis workspace now targets staging.example.\nFor more details, try the same destination with ordinary ssh in a local workspace."
+        )
         #expect(content.buttonLabel == "Reconnect to staging.example")
         #expect(content.buttonEnabled)
     }
@@ -34,7 +36,10 @@ struct RemotePaneDisconnectedContentTests {
         )
 
         #expect(content.title == "Disconnected")
-        #expect(content.description == "Lost connection to prod.example.")
+        #expect(
+            content.description
+                == "Lost connection to prod.example.\nFor more details, try the same destination with ordinary ssh in a local workspace."
+        )
         #expect(content.buttonLabel == "Restart pane")
         #expect(content.buttonEnabled)
     }
@@ -67,7 +72,10 @@ struct RemotePaneDisconnectedContentTests {
         #expect(content.buttonLabel == "Reconnect to prod.example")
         #expect(content.buttonEnabled)
         // Same host both places → no contradictory second description line.
-        #expect(content.description == "Lost connection to prod.example.")
+        #expect(
+            content.description
+                == "Lost connection to prod.example.\nFor more details, try the same destination with ordinary ssh in a local workspace."
+        )
     }
 
     @Test("disconnected with a DIFFERENT live host appends the moved-target line")
@@ -79,8 +87,10 @@ struct RemotePaneDisconnectedContentTests {
 
         // The two hostnames are reconciled: description names the dropped host,
         // a second line names where the workspace now points (INT-697 fix #11).
-        #expect(content.description ==
-            "Lost connection to prod.example.\nThis workspace now targets staging.example.")
+        #expect(
+            content.description
+                == "Lost connection to prod.example.\nThis workspace now targets staging.example.\nFor more details, try the same destination with ordinary ssh in a local workspace."
+        )
         #expect(content.buttonLabel == "Reconnect to staging.example")
     }
 }

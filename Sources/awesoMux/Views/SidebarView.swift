@@ -18,6 +18,7 @@ struct SidebarView: View {
     let onRenameWorkspace: (TerminalSession) -> Void
     let onRenameWorkspaceGroup: (SessionGroup) -> Void
     let onNewWorkspaceGroup: () -> Void
+    let onConnectViaSSH: (SessionGroup) -> Void
     let onOpenQuickSettings: () -> Void
     /// Opens the command palette from the collapsed rail's search button —
     /// the rail is too narrow for the inline search field (INT-537).
@@ -202,6 +203,7 @@ struct SidebarView: View {
                                 onNewSessionInGroup: {
                                     sessionStore.addSession(groupName: entry.group.name)
                                 },
+                                onConnectViaSSH: { onConnectViaSSH(entry.group) },
                                 onNewSessionHere: { session in
                                     sessionStore.addSession(
                                         workingDirectory: session.workingDirectory,
