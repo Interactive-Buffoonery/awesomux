@@ -99,6 +99,11 @@ Use least privilege for the task, avoid unnecessary package downloads or arbitra
 
 ## Code style
 
+For targeted changes, never run a repository-wide formatter. Use
+`script/format.sh` only with the Swift files you intentionally changed, and
+inspect the resulting diff before continuing. Use `script/format.sh --lint` for
+the non-mutating repository check.
+
 ### Swift
 
 - Follow the Swift API Design Guidelines.
