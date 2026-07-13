@@ -181,14 +181,4 @@ struct SidebarPeekModelTests {
         }
         return condition()
     }
-
-    /// The orphan rescue defers its check one main-queue turn past the detach;
-    /// enqueueing behind it and awaiting guarantees the check has run.
-    private func drainMainQueue() async {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                continuation.resume()
-            }
-        }
-    }
 }
