@@ -71,8 +71,69 @@ struct SidebarSplitControllerTests {
 
         #expect(sidebar.view === sidebarView)
         #expect(detail.view === detailView)
-        #expect(controller.view.subviews.first === detailView)
+        #expect(controller.splitPaneViewsForTesting.first === detailView)
         #expect(abs(sidebarView.frame.width - 300) < 1)
+    }
+
+    @Test("edge tracker mirrors against live root width outside split panes")
+    func edgeTrackerGeometry() {
+        let (controller, sidebar, detail) = makeController()
+        controller.setEdgeTrackingEnabled(true)
+
+        #expect(controller.edgeTrackingFrameForTesting == CGRect(x: 0, y: 0, width: 40, height: 800))
+        #expect(controller.splitPaneViewsForTesting.count == 2)
+        #expect(controller.splitPaneViewsForTesting.contains { $0 === sidebar.view })
+        #expect(controller.splitPaneViewsForTesting.contains { $0 === detail.view })
+
+        controller.setSidebarPosition(.right)
+        controller.view.frame.size.width = 900
+        controller.view.layoutSubtreeIfNeeded()
+
+        #expect(controller.edgeTrackingFrameForTesting == CGRect(x: 860, y: 0, width: 40, height: 800))
+        #expect(controller.splitPaneViewsForTesting.count == 2)
+    }
+
+    @Test("edge tracker geometry updates preserve detail first responder")
+    func edgeTrackerPreservesFirstResponder() {
+        let detail = NSViewController()
+        let sentinel = FirstResponderView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        detail.view.addSubview(sentinel)
+        let controller = SidebarSplitController(sidebar: NSViewController(), detail: detail)
+        let window = hostInFixedWindow(controller)
+        #expect(window.makeFirstResponder(sentinel))
+
+        controller.setEdgeTrackingEnabled(true)
+        controller.setSidebarPosition(.right)
+        controller.view.frame.size.width = 900
+        controller.view.layoutSubtreeIfNeeded()
+
+        #expect(window.firstResponder === sentinel)
+    }
+
+    @Test("disabling tracker hides it and exits once")
+    func disablingEdgeTracker() {
+        let (controller, _, _) = makeController()
+        var exitCount = 0
+        controller.onEdgeExit = { exitCount += 1 }
+        controller.setEdgeTrackingEnabled(true)
+        #expect(controller.isEdgeTrackingVisibleForTesting)
+
+        controller.setEdgeTrackingEnabled(false)
+        controller.setEdgeTrackingEnabled(false)
+
+        #expect(!controller.isEdgeTrackingVisibleForTesting)
+        #expect(exitCount == 1)
+    }
+
+    @Test("tracker availability loss is forwarded")
+    func edgeTrackerAvailabilityLoss() {
+        let (controller, _, _) = makeController()
+        var lossCount = 0
+        controller.onTrackingAvailabilityLost = { lossCount += 1 }
+
+        controller.simulateTrackingAvailabilityLostForTesting()
+
+        #expect(lossCount == 1)
     }
 
     @Test("changing sides preserves a child first responder")

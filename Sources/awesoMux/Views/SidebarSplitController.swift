@@ -56,6 +56,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// whether the caller established a visible first responder.
     var onSidebarFocusHandoff: (() -> Bool)?
 
+    var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
+    var onEdgeExit: (() -> Void)?
+    var onTrackingAvailabilityLost: (() -> Void)?
+
     /// Minimum width the detail/terminal pane must retain. The sidebar's dynamic
     /// maximum is `splitView.bounds.width - terminalMinimumWidth`, evaluated live so
     /// it self-adjusts as the window resizes. Tunable.
@@ -64,12 +68,14 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private let splitView = DividerTrackingSplitView()
+    private let edgeTrackingView = SidebarEdgeTrackingView(position: .left)
     private let sidebarChild: NSViewController
     private let detailChild: NSViewController
     var sidebarViewController: NSViewController { sidebarChild }
     var detailViewController: NSViewController { detailChild }
     private var sidebarPosition: AppearanceConfig.SidebarPosition = .left
     private var isSidebarHidden = false
+    private var isEdgeTrackingEnabled = false
 
     /// Set around our own `setPosition` calls so `splitViewDidResizeSubviews` (which
     /// also fires for programmatic position changes and window layout) does not echo
@@ -119,11 +125,33 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             splitView.addSubview(detailChild.view)
             splitView.addSubview(sidebarChild.view)
         }
-        view = splitView
+        edgeTrackingView.isHidden = !isEdgeTrackingEnabled
+        edgeTrackingView.position = sidebarPosition
+        edgeTrackingView.onPointerMove = { [weak self] x, width in
+            self?.onEdgePointerMove?(x, width)
+        }
+        edgeTrackingView.onExit = { [weak self] in
+            self?.onEdgeExit?()
+        }
+        edgeTrackingView.onAvailabilityLost = { [weak self] in
+            self?.onTrackingAvailabilityLost?()
+        }
+        let root = NSView()
+        root.addSubview(splitView)
+        root.addSubview(edgeTrackingView)
+        view = root
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        splitView.frame = view.bounds
+        let trackingWidth = min(SidebarPresentationModel.cueDistance, view.bounds.width)
+        edgeTrackingView.frame = CGRect(
+            x: sidebarPosition == .left ? 0 : view.bounds.width - trackingWidth,
+            y: 0,
+            width: trackingWidth,
+            height: view.bounds.height
+        )
         guard !isSidebarHidden else {
             applyHiddenPosition()
             return
@@ -173,6 +201,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         guard position != sidebarPosition else { return }
         let width = sidebarPaneWidth
         sidebarPosition = position
+        edgeTrackingView.position = position
         guard isViewLoaded else { return }
         let responder = view.window?.firstResponder
         let ownsResponder = [sidebarChild.view, detailChild.view].contains { root in
@@ -211,8 +240,26 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
     }
 
+    func setEdgeTrackingEnabled(_ enabled: Bool) {
+        guard enabled != isEdgeTrackingEnabled else { return }
+        isEdgeTrackingEnabled = enabled
+        guard isViewLoaded else { return }
+        edgeTrackingView.isHidden = !enabled
+        if !enabled {
+            onEdgeExit?()
+        }
+    }
+
     func simulateDividerDragCompletionForTesting() {
         splitView.onDragEnded?()
+    }
+
+    var edgeTrackingFrameForTesting: CGRect { edgeTrackingView.frame }
+    var isEdgeTrackingVisibleForTesting: Bool { !edgeTrackingView.isHidden }
+    var splitPaneViewsForTesting: [NSView] { splitView.subviews }
+
+    func simulateTrackingAvailabilityLostForTesting() {
+        onTrackingAvailabilityLost?()
     }
 
     static func dividerCoordinate(
