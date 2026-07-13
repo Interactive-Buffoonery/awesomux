@@ -756,8 +756,11 @@
     "Confirm reap of %arg" : {
 
     },
+    "Connect" : {
+      "comment" : "Button that creates a managed SSH workspace"
+    },
     "Connect via SSH" : {
-
+      "comment" : "Title of the Connect via SSH sheet"
     },
     "Connect via SSH…" : {
 
@@ -816,6 +819,9 @@
     "Create" : {
 
     },
+    "Create Managed Workspace" : {
+      "comment" : "Button that creates a managed workspace from an ordinary SSH connection"
+    },
     "Create a new workspace" : {
       "localizations" : {
         "en" : {
@@ -849,7 +855,7 @@
       }
     },
     "Creates a managed SSH workspace in “%arg.”\nOpenSSH will use your existing config and credentials." : {
-
+      "comment" : "Explanation in the Connect via SSH sheet"
     },
     "Current" : {
 
@@ -1024,6 +1030,12 @@
     },
     "Enable %arg" : {
 
+    },
+    "Enable and Connect" : {
+      "comment" : "Button that enables background sessions and creates a managed SSH workspace"
+    },
+    "Enable and Create" : {
+      "comment" : "Button that enables background sessions and creates a managed SSH workspace"
     },
     "Enable and reconnect to %arg" : {
       "comment" : "Button that enables background terminal sessions and reconnects a managed SSH pane"
@@ -1633,6 +1645,9 @@
     },
     "Open URL with non-standard scheme?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL's scheme is outside http/https/mailto."
+    },
+    "Open as Managed SSH Workspace?" : {
+      "comment" : "Title of the prompt shown after an ordinary SSH connection is detected"
     },
     "Open at Login" : {
       "comment" : "Settings field and VoiceOver label for controlling whether awesoMux opens when the user logs in."
@@ -2855,6 +2870,9 @@
           }
         }
       }
+    },
+    "You connected with regular SSH. This creates a separate managed SSH workspace in “%arg” and leaves the current connection open." : {
+      "comment" : "Explanation when offering to turn an observed regular SSH connection into a separate managed workspace"
     },
     "Your Ghostty config controls the terminal background." : {
 

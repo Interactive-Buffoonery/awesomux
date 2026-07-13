@@ -4,18 +4,32 @@ import SwiftUI
 
 struct SSHWorkspaceConnectSheet: View {
     let groupName: String
+    let initialDestination: String?
     let onCancel: () -> Void
     let onConnect: (RemoteTarget) -> Void
 
     @Environment(AppSettingsStore.self) private var appSettingsStore
-    @State private var destination = ""
+    @State private var destination: String
     @FocusState private var isFocused: Bool
+
+    init(
+        groupName: String,
+        initialDestination: String? = nil,
+        onCancel: @escaping () -> Void,
+        onConnect: @escaping (RemoteTarget) -> Void
+    ) {
+        self.groupName = groupName
+        self.initialDestination = initialDestination
+        self.onCancel = onCancel
+        self.onConnect = onConnect
+        _destination = State(initialValue: initialDestination ?? "")
+    }
 
     var body: some View {
         let target = SSHWorkspaceDestinationValidation.target(from: destination)
         let validationMessage = SSHWorkspaceDestinationValidation.message(for: destination)
         VStack(alignment: .leading, spacing: 16) {
-            Text("Connect via SSH")
+            Text(sheetTitle)
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             Text("Destination")
@@ -32,7 +46,7 @@ struct SSHWorkspaceConnectSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Text("Creates a managed SSH workspace in “\(groupName).”\nOpenSSH will use your existing config and credentials.")
+            Text(explanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -67,7 +81,7 @@ struct SSHWorkspaceConnectSheet: View {
         .padding(20)
         .frame(minWidth: 360, idealWidth: 420)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Connect via SSH")
+        .accessibilityLabel(sheetTitle)
         .onAppear { isFocused = true }
     }
 
@@ -81,8 +95,50 @@ struct SSHWorkspaceConnectSheet: View {
         appSettingsStore.terminal.value.commandBridgeEnabled
     }
 
-    private var primaryButtonLabel: LocalizedStringKey {
-        backgroundSessionsEnabled ? "Connect" : "Enable and Connect"
+    private var primaryButtonLabel: String {
+        if initialDestination != nil {
+            if backgroundSessionsEnabled {
+                return String(
+                    localized: "Create Managed Workspace",
+                    comment: "Button that creates a managed workspace from an ordinary SSH connection"
+                )
+            }
+            return String(
+                localized: "Enable and Create",
+                comment: "Button that enables background sessions and creates a managed SSH workspace"
+            )
+        }
+        if backgroundSessionsEnabled {
+            return String(localized: "Connect", comment: "Button that creates a managed SSH workspace")
+        }
+        return String(
+            localized: "Enable and Connect",
+            comment: "Button that enables background sessions and creates a managed SSH workspace"
+        )
+    }
+
+    private var sheetTitle: String {
+        if initialDestination == nil {
+            return String(localized: "Connect via SSH", comment: "Title of the Connect via SSH sheet")
+        }
+        return String(
+            localized: "Open as Managed SSH Workspace?",
+            comment: "Title of the prompt shown after an ordinary SSH connection is detected"
+        )
+    }
+
+    private var explanation: String {
+        if initialDestination != nil {
+            return String(
+                localized:
+                    "You connected with regular SSH. This creates a separate managed SSH workspace in “\(groupName)” and leaves the current connection open.",
+                comment: "Explanation when offering to turn an observed regular SSH connection into a separate managed workspace"
+            )
+        }
+        return String(
+            localized: "Creates a managed SSH workspace in “\(groupName).”\nOpenSSH will use your existing config and credentials.",
+            comment: "Explanation in the Connect via SSH sheet"
+        )
     }
 
     private var settingsErrorMessage: String? {

@@ -222,6 +222,28 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteSSHTarget(store, pid) == "devbox")
     }
 
+    @Test("managed workspace offer is consumed once")
+    func managedWorkspaceOfferIsConsumedOnce() {
+        let (store, sid, pid) = makeStore()
+
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh devbox")
+        store.updatePane(sessionID: sid, paneID: pid, title: "alice@devbox: ~/app")
+
+        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid)?.sshDestination == "devbox")
+        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid) == nil)
+    }
+
+    @Test("ssh commands with extra options do not become managed workspace offers")
+    func optionedSSHCommandDoesNotBecomeManagedWorkspaceOffer() {
+        let (store, sid, pid) = makeStore()
+
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh -p 2222 devbox")
+        store.updatePane(sessionID: sid, paneID: pid, title: "alice@devbox: ~/app")
+
+        #expect(remoteHost(store, pid) == "devbox")
+        #expect(remoteSSHTarget(store, pid) == nil)
+    }
+
     @Test("submitted ssh config alias survives prompt hostname")
     func submittedSSHConfigAliasSurvivesPromptHostname() {
         let (store, sid, pid) = makeStore()

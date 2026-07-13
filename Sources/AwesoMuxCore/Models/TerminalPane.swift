@@ -36,6 +36,8 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// Runtime-only submitted SSH target waiting for the terminal title to prove
     /// the pane actually became remote.
     public var pendingRemoteSSHTarget: String?
+    /// Whether the pending command can be recreated from its target alone.
+    public var pendingRemoteSSHTargetIsManagedOfferEligible: Bool
     /// Runtime-only health for the current remote connection. This is intentionally
     /// excluded from persistence with `remoteHost`; restored panes start active
     /// until live terminal signals prove they are remote/stale.
@@ -100,6 +102,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         remoteHost: String? = nil,
         remoteSSHTarget: String? = nil,
         pendingRemoteSSHTarget: String? = nil,
+        pendingRemoteSSHTargetIsManagedOfferEligible: Bool = false,
         remoteConnectionHealth: RemoteConnectionHealth = .active,
         remoteWorkingDirectory: String? = nil,
         liveTerminalTitle: String? = nil,
@@ -127,6 +130,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.remoteHost = remoteHost
         self.remoteSSHTarget = remoteSSHTarget
         self.pendingRemoteSSHTarget = pendingRemoteSSHTarget
+        self.pendingRemoteSSHTargetIsManagedOfferEligible = pendingRemoteSSHTargetIsManagedOfferEligible
         self.remoteConnectionHealth = remoteConnectionHealth
         self.remoteWorkingDirectory = remoteWorkingDirectory
         self.liveTerminalTitle = liveTerminalTitle
@@ -268,6 +272,7 @@ public extension TerminalPane {
             && lhs.remoteHost == rhs.remoteHost
             && lhs.remoteSSHTarget == rhs.remoteSSHTarget
             && lhs.pendingRemoteSSHTarget == rhs.pendingRemoteSSHTarget
+            && lhs.pendingRemoteSSHTargetIsManagedOfferEligible == rhs.pendingRemoteSSHTargetIsManagedOfferEligible
             && lhs.agentKind == rhs.agentKind
             && lhs.agentExecutionState == rhs.agentExecutionState
             && lhs.attentionReason == rhs.attentionReason
@@ -286,6 +291,7 @@ public extension TerminalPane {
         hasher.combine(remoteHost)
         hasher.combine(remoteSSHTarget)
         hasher.combine(pendingRemoteSSHTarget)
+        hasher.combine(pendingRemoteSSHTargetIsManagedOfferEligible)
         hasher.combine(agentKind)
         hasher.combine(agentExecutionState)
         hasher.combine(attentionReason)
