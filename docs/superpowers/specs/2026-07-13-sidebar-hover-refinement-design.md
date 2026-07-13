@@ -45,7 +45,7 @@ The strip's opacity may use a brief transition when it appears or disappears. It
 
 ### Pointer-driven animation
 
-Crossing from cue to revealed animates the split divider to the selected sidebar width over approximately 140 milliseconds with an ease-in-out timing curve. Leaving reverses that pointer-driven movement with the same restrained duration and curve. The animation should feel comparable to the existing rail-to-full transition, without spring overshoot or delayed settling.
+Crossing from cue to revealed animates the split divider to the selected sidebar width over 140 milliseconds with an ease-in-out timing curve. Leaving reverses that pointer-driven movement with the same restrained duration and curve. The animation should feel comparable to the existing rail-to-full transition, without spring overshoot or delayed settling.
 
 Only hover reveal and hover hide animate. `Command-Shift-Backslash` persistently hides or shows the sidebar immediately. Focus Sidebar, position changes, restoration, and other explicit commands also settle immediately.
 
@@ -117,7 +117,7 @@ Follow test-driven development and extend the existing sidebar presentation and 
 2. Tracking-view tests proving its hit test passes through and pointer reporting follows resized local bounds on both sides without changing first responder.
 3. Hidden width-mode tests proving `Command-Backslash` toggles rail/full selection without revealing, displaying a cue, moving the divider, or changing hidden persistence, and that the next reveal uses the selected width.
 4. Command tests proving `Command-Shift-Backslash`, Focus Sidebar, and position changes cancel transient state and active hover animation and settle instantly.
-5. Split-controller tests for approximately 140-millisecond hover reveal/hide requests, correct left/right divider targets, interrupted reversal from current presentation width, completion-token invalidation, resize reclamping, and no intermediate-width persistence.
+5. Split-controller tests for 140-millisecond hover reveal/hide requests, correct left/right divider targets, interrupted reversal from current presentation width, completion-token invalidation, resize reclamping, and no intermediate-width persistence.
 6. Reduce Motion tests proving divider changes are immediate while any cue opacity transition remains independent.
 7. Regression tests for cold launch while persistently hidden, terminal first-responder retention, divider dragging, remembered expanded width, and existing visible rail/full behavior.
 8. Live verification in the worktree app for cue clarity, 40/16-point thresholds, left/right placement, terminal clicking/dragging/scrolling within the tracking zone, rapid pointer reversal, resizing mid-animation, hidden width selection, keyboard immediacy, and Reduce Motion.
