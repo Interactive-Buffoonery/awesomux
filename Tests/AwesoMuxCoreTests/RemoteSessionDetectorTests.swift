@@ -349,6 +349,22 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteSSHTarget(store, pid) == "my-purple")
     }
 
+    @Test("a failed nested ssh keeps the original explicit conversion target")
+    func failedNestedSSHRetainsOriginalTarget() {
+        let (store, sid, pid) = makeStore()
+
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh host-a")
+        store.updatePane(sessionID: sid, paneID: pid, title: "alice@host-a: ~")
+        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid)?.sshDestination == "host-a")
+
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh host-b")
+        store.updatePane(sessionID: sid, paneID: pid, title: "alice@host-a: ~")
+
+        #expect(remoteSSHTarget(store, pid) == "host-a")
+        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid) == nil)
+        #expect(store.managedSSHConversionTarget(sessionID: sid, paneID: pid)?.sshDestination == "host-a")
+    }
+
     @Test("an indeterminate tool title cannot recover a title-derived remote directory")
     func indeterminateTitleDoesNotRecoverRemoteWorkingDirectory() {
         let (store, sid, pid) = makeStore()
@@ -436,11 +452,12 @@ struct SessionStoreRemoteSessionTests {
             title: "w",
             workingDirectory: "/tmp",
             agentKind: .shell,
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(remotePane),
-                second: .pane(localPane)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(remotePane),
+                    second: .pane(localPane)
+                )),
             activePaneID: remotePane.id
         )
         let store = SessionStore(groups: [SessionGroup(name: "g", sessions: [session])])
@@ -459,7 +476,7 @@ struct SessionStoreRemoteSessionTests {
         store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
         // The remote shell retitles to the running command — no user@host token.
         store.updatePane(sessionID: sid, paneID: pid, title: "make")
-        #expect(remoteHost(store, pid) == "webserver") // not cleared by churn
+        #expect(remoteHost(store, pid) == "webserver")  // not cleared by churn
     }
 
     @Test("a local-looking title does NOT clear remote — only a pwd event does")
