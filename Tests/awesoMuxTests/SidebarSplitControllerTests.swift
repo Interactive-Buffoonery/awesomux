@@ -1,5 +1,6 @@
 import CoreGraphics
 import AppKit
+import AwesoMuxConfig
 import Testing
 @testable import AwesoMuxCore
 @testable import awesoMux
@@ -202,6 +203,25 @@ struct SidebarSplitControllerTests {
         controller.view.layoutSubtreeIfNeeded()
 
         #expect(sidebar.view.frame.width == 0)
+    }
+
+    @Test("persisted hidden state survives the first live window layout")
+    func persistedHiddenColdLaunch() {
+        for position in [AppearanceConfig.SidebarPosition.left, .right] {
+            let sidebar = NSViewController()
+            let controller = SidebarSplitController(sidebar: sidebar, detail: NSViewController())
+            controller.setSidebarPosition(position)
+            controller.setSidebarHidden(true)
+
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(CGSize(width: 1_200, height: 800))
+            window.makeKeyAndOrderFront(nil)
+            controller.view.layoutSubtreeIfNeeded()
+
+            #expect(window.isVisible)
+            #expect(sidebar.view.frame.width == 0)
+            window.orderOut(nil)
+        }
     }
 
     @Test("hidden drag completion cannot commit zero width")
