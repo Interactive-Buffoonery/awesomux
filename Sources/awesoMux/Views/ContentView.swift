@@ -38,6 +38,7 @@ struct ContentView: View {
     let onTerminalFooterHeightChange: (CGFloat) -> Void
     /// Jump to an exact agent pane from the sidebar activity panel (INT-722).
     let onFocusAgentPane: (TerminalSession.ID, UUID) -> Void
+    let onFocusActiveTerminal: () -> Bool
     let sidebarFocusRequestID: UUID?
     let sidebarWidthToggleRequestID: UUID?
     let sidebarVisibilityToggleRequestID: UUID?
@@ -172,6 +173,7 @@ struct ContentView: View {
                 isHidden: !sidebarPresentation.isSidebarVisible,
                 onLiveWidthChange: { width in sidebarLiveWidth.value = width },
                 onCommitWidth: { width in commitSidebarWidth(width) },
+                onSidebarFocusHandoff: onFocusActiveTerminal,
                 sidebar: {
                     SidebarView(
                         sessionStore: sessionStore,

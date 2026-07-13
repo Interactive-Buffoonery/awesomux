@@ -4,7 +4,7 @@ import Testing
 @testable import AwesoMuxCore
 @testable import awesoMux
 
-@Suite("SidebarSplitController clamp")
+@Suite("SidebarSplitController clamp", .serialized)
 @MainActor
 struct SidebarSplitControllerTests {
     private final class FirstResponderView: NSView {
@@ -112,6 +112,75 @@ struct SidebarSplitControllerTests {
 
         controller.setSidebarHidden(false)
         #expect(abs(sidebar.view.frame.width - 300) < 1)
+    }
+
+    @Test("hiding hands sidebar focus off before applying hidden geometry")
+    func hidingHandsSidebarFocusOff() {
+        let sidebar = NSViewController()
+        let sentinel = FirstResponderView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        sidebar.view.addSubview(sentinel)
+        let detail = NSViewController()
+        let destination = FirstResponderView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        detail.view.addSubview(destination)
+        let controller = SidebarSplitController(sidebar: sidebar, detail: detail)
+        let window = NSWindow(contentViewController: controller)
+        window.setContentSize(CGSize(width: 1_200, height: 800))
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        #expect(window.makeFirstResponder(sentinel))
+        var handoffCount = 0
+        controller.onSidebarFocusHandoff = {
+            handoffCount += 1
+            return window.makeFirstResponder(destination)
+        }
+
+        controller.simulateSidebarFocusHandoffForTesting()
+
+        #expect(handoffCount == 1)
+        #expect(window.firstResponder === destination)
+        #expect(window.firstResponder !== sentinel)
+    }
+
+    @Test("hiding leaves a detail first responder alone")
+    func hidingLeavesDetailFocusAlone() {
+        let sidebar = NSViewController()
+        let detail = NSViewController()
+        let sentinel = FirstResponderView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        detail.view.addSubview(sentinel)
+        let controller = SidebarSplitController(sidebar: sidebar, detail: detail)
+        let window = NSWindow(contentViewController: controller)
+        window.setContentSize(CGSize(width: 1_200, height: 800))
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        #expect(window.makeFirstResponder(sentinel))
+        var handoffCount = 0
+        controller.onSidebarFocusHandoff = {
+            handoffCount += 1
+            return false
+        }
+
+        controller.simulateSidebarFocusHandoffForTesting()
+
+        #expect(handoffCount == 0)
+        #expect(window.firstResponder === sentinel)
+    }
+
+    @Test("failed sidebar focus handoff clears first responder")
+    func failedSidebarFocusHandoffClearsFirstResponder() {
+        let sidebar = NSViewController()
+        let sentinel = FirstResponderView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        sidebar.view.addSubview(sentinel)
+        let controller = SidebarSplitController(sidebar: sidebar, detail: NSViewController())
+        let window = NSWindow(contentViewController: controller)
+        window.setContentSize(CGSize(width: 1_200, height: 800))
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        #expect(window.makeFirstResponder(sentinel))
+        controller.onSidebarFocusHandoff = { false }
+
+        controller.simulateSidebarFocusHandoffForTesting()
+
+        #expect(window.firstResponder !== sentinel)
     }
 
     @Test("layout while hidden stays hidden without restoring expanded width")

@@ -52,6 +52,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// Fires once when a user divider drag ends (wired in A6).
     var onCommitWidth: ((CGFloat) -> Void)?
 
+    /// Moves focus out of the sidebar before it becomes zero-width. Returns
+    /// whether the caller established a visible first responder.
+    var onSidebarFocusHandoff: (() -> Bool)?
+
     /// Minimum width the detail/terminal pane must retain. The sidebar's dynamic
     /// maximum is `splitView.bounds.width - terminalMinimumWidth`, evaluated live so
     /// it self-adjusts as the window resizes. Tunable.
@@ -194,6 +198,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     func setSidebarHidden(_ hidden: Bool) {
         guard hidden != isSidebarHidden else { return }
         if hidden {
+            handOffSidebarFocusIfNeeded()
             pendingWidth = sidebarPaneWidth
             recordIfExpanded(sidebarPaneWidth)
             isSidebarHidden = true
@@ -208,6 +213,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     func simulateDividerDragCompletionForTesting() {
         splitView.onDragEnded?()
+    }
+
+    func simulateSidebarFocusHandoffForTesting() {
+        handOffSidebarFocusIfNeeded()
     }
 
     static func dividerCoordinate(
@@ -276,6 +285,24 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     // MARK: - Internals
+
+    private func handOffSidebarFocusIfNeeded() {
+        guard let window = view.window,
+            let responderView = window.firstResponder as? NSView,
+            responderView === sidebarChild.view || responderView.isDescendant(of: sidebarChild.view)
+        else {
+            return
+        }
+
+        let establishedVisibleResponder = onSidebarFocusHandoff?() == true
+        let currentResponderIsStillInSidebar =
+            (window.firstResponder as? NSView).map {
+                $0 === sidebarChild.view || $0.isDescendant(of: sidebarChild.view)
+            } ?? false
+        if !establishedVisibleResponder || currentResponderIsStillInSidebar {
+            window.makeFirstResponder(nil)
+        }
+    }
 
     /// Read the sidebar child's view width directly — unambiguous, vs. guessing
     /// which `subviews`/`arrangedSubviews` index is the leading pane.
