@@ -17,7 +17,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     /// Channel for `ContentView` to command the divider (the `⌘\` toggle).
     let proxy: SidebarSplitProxy
     var position: AppearanceConfig.SidebarPosition = .left
-    var isHidden = false
+    var initiallyHidden = false
     var edgeTrackingEnabled = false
     var onLiveWidthChange: ((CGFloat) -> Void)?
     var onCommitWidth: ((CGFloat) -> Void)?
@@ -41,12 +41,13 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.onEdgeExit = onEdgeExit
         controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
         controller.setSidebarPosition(position)
-        controller.setSidebarHidden(isHidden)
-        controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
+        controller.setSidebarHidden(initiallyHidden)
         controller.setSidebarWidth(initialWidth)
+        controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
         proxy.setWidth = { [weak controller] width in controller?.setSidebarWidth(width) }
         proxy.setPosition = { [weak controller] position in controller?.setSidebarPosition(position) }
         proxy.setHidden = { [weak controller] hidden in controller?.setSidebarHidden(hidden) }
+        controller.installVisibilityHandler(on: proxy)
         return controller
     }
 
@@ -59,7 +60,6 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.onEdgeExit = onEdgeExit
         controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
         controller.setSidebarPosition(position)
-        controller.setSidebarHidden(isHidden)
         controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
         // Re-host each pane's root view so @Observable / @Bindable updates inside the
         // panes propagate. SwiftUI diffs the new root against the old, so this is

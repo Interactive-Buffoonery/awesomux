@@ -8,6 +8,24 @@ import Testing
 @Suite("SidebarSplitController clamp", .serialized)
 @MainActor
 struct SidebarSplitControllerTests {
+    private final class AnimationHarness {
+        struct Request {
+            let duration: TimeInterval
+            let changes: () -> Void
+            let completion: () -> Void
+        }
+
+        var requests: [Request] = []
+
+        func run(
+            duration: TimeInterval,
+            changes: @escaping () -> Void,
+            completion: @escaping () -> Void
+        ) {
+            requests.append(.init(duration: duration, changes: changes, completion: completion))
+        }
+    }
+
     private final class FirstResponderView: NSView {
         override var acceptsFirstResponder: Bool { true }
     }
@@ -20,6 +38,22 @@ struct SidebarSplitControllerTests {
         controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 800)
         controller.view.layoutSubtreeIfNeeded()
         return (controller, sidebar, detail)
+    }
+
+    private func makeControlledController(
+        width: CGFloat = 1_200
+    ) -> (SidebarSplitController, NSViewController, AnimationHarness) {
+        let sidebar = NSViewController()
+        let harness = AnimationHarness()
+        let controller = SidebarSplitController(
+            sidebar: sidebar,
+            detail: NSViewController(),
+            animationRunner: harness.run
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        return (controller, sidebar, harness)
     }
 
     private func hostInFixedWindow(_ controller: SidebarSplitController) -> NSWindow {
@@ -186,6 +220,185 @@ struct SidebarSplitControllerTests {
 
         controller.setSidebarHidden(false)
         #expect(abs(sidebar.view.frame.width - 300) < 1)
+    }
+
+    @Test("hover reveal animates from hidden width on both sides")
+    func hoverRevealTargetsRememberedWidth() {
+        for position in [AppearanceConfig.SidebarPosition.left, .right] {
+            let (controller, _, _) = makeController()
+            controller.setSidebarPosition(position)
+            controller.setSidebarWidth(300)
+            controller.setSidebarHidden(true)
+
+            controller.setSidebarVisible(
+                true, transition: .hover(duration: 0.140), reduceMotion: false)
+
+            #expect(
+                controller.lastAnimationForTesting
+                    == .init(fromWidth: 0, toWidth: 300, duration: 0.140)
+            )
+            #expect(
+                controller.lastAnimationTargetCoordinateForTesting
+                    == SidebarSplitController.dividerCoordinate(
+                        forSidebarWidth: 300,
+                        paneExtent: controller.paneExtentForTesting,
+                        position: position
+                    )
+            )
+        }
+    }
+
+    @Test("reduce motion makes hover visibility immediate")
+    func reduceMotionHoverIsImmediate() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: true)
+        controller.setSidebarVisible(
+            false, transition: .hover(duration: 0.140), reduceMotion: true)
+
+        #expect(controller.lastAnimationForTesting == nil)
+        #expect(sidebar.view.frame.width == 0)
+    }
+
+    @Test("interrupted hover starts from current presentation width and ignores stale completion")
+    func interruptedHoverUsesCurrentWidth() async {
+        let (controller, sidebar, harness) = makeControlledController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false)
+        #expect(harness.requests.count == 1)
+
+        controller.setSidebarPaneWidthForTesting(120)
+        controller.setSidebarVisible(
+            false, transition: .hover(duration: 0.140), reduceMotion: false)
+
+        #expect(
+            controller.lastAnimationForTesting
+                == .init(fromWidth: 120, toWidth: 0, duration: 0.140)
+        )
+        #expect(harness.requests.count == 2)
+        harness.requests[0].completion()
+        await Task.yield()
+        #expect(sidebar.view.frame.width == 120)
+        harness.requests[1].changes()
+        harness.requests[1].completion()
+        await Task.yield()
+        #expect(sidebar.view.frame.width == 0)
+
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false
+        )
+        #expect(controller.lastAnimationForTesting?.toWidth == 300)
+    }
+
+    @Test("matching hover request is idempotent")
+    func matchingHoverIsIdempotent() {
+        let (controller, _, harness) = makeControlledController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false)
+        let generation = controller.animationGenerationForTesting
+
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false)
+
+        #expect(harness.requests.count == 1)
+        #expect(controller.animationGenerationForTesting == generation)
+    }
+
+    @Test("current-width target normalizes without running animation")
+    func equalTargetSkipsAnimation() {
+        let (controller, _, harness) = makeControlledController()
+        controller.setSidebarWidth(300)
+
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false)
+
+        #expect(harness.requests.isEmpty)
+    }
+
+    @Test("immediate visibility invalidates active hover and suppresses persistence")
+    func immediateInvalidatesHover() async {
+        let (controller, sidebar, harness) = makeControlledController()
+        var live: [CGFloat] = []
+        var commits: [CGFloat] = []
+        controller.onLiveWidthChange = { live.append($0) }
+        controller.onCommitWidth = { commits.append($0) }
+        controller.setSidebarWidth(300)
+        live.removeAll()
+        controller.setSidebarHidden(true)
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false)
+
+        controller.setSidebarVisible(false, transition: .immediate, reduceMotion: false)
+        harness.requests[0].completion()
+        await Task.yield()
+
+        #expect(sidebar.view.frame.width == 0)
+        #expect(live.isEmpty)
+        #expect(commits.isEmpty)
+    }
+
+    @Test("hover animation bypasses divider dead zone on both sides only while active")
+    func hoverBypassesDeadZone() {
+        for position in [AppearanceConfig.SidebarPosition.left, .right] {
+            let (controller, _, _) = makeControlledController()
+            controller.setSidebarPosition(position)
+            controller.setSidebarWidth(300)
+            controller.setSidebarHidden(true)
+            let width = (SidebarWidthPolicy.collapsedWidth + SidebarWidthPolicy.railThreshold) / 2
+            let coordinate = SidebarSplitController.dividerCoordinate(
+                forSidebarWidth: width,
+                paneExtent: controller.paneExtentForTesting,
+                position: position
+            )
+            let normal = controller.splitView(
+                NSSplitView(), constrainSplitPosition: coordinate, ofSubviewAt: 0
+            )
+            #expect(normal != coordinate)
+
+            controller.setSidebarVisible(
+                true, transition: .hover(duration: 0.140), reduceMotion: false)
+            let animated = controller.splitView(
+                NSSplitView(), constrainSplitPosition: coordinate, ofSubviewAt: 0
+            )
+            #expect(animated == coordinate)
+        }
+    }
+
+    @Test("resize cancels hover and clamps the requested target")
+    func resizeCancelsAndClampsHover() {
+        let (controller, sidebar, harness) = makeControlledController()
+        controller.setSidebarWidth(600)
+        controller.setSidebarHidden(true)
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false)
+        let generation = controller.animationGenerationForTesting
+
+        controller.view.frame.size.width = 720
+        controller.view.layoutSubtreeIfNeeded()
+
+        #expect(controller.animationGenerationForTesting > generation)
+        #expect(sidebar.view.frame.width == SidebarWidthPolicy.collapsedWidth)
+        #expect(harness.requests.count == 1)
+    }
+
+    @Test("proxy routes the provided hover duration exactly once")
+    func proxyRoutesHoverDuration() {
+        let (controller, _, harness) = makeControlledController()
+        let proxy = SidebarSplitProxy()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.installVisibilityHandler(on: proxy)
+
+        proxy.setVisibility?(true, .hover(duration: 0.140), false)
+
+        #expect(harness.requests.map(\.duration) == [0.140])
     }
 
     @Test("hiding hands sidebar focus off before applying hidden geometry")
