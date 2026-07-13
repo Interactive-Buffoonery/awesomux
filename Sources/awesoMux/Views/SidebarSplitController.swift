@@ -2,6 +2,36 @@ import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
 
+private final class SidebarSubviewOrder {
+    let sidebar: NSView
+    let detail: NSView
+    let position: AppearanceConfig.SidebarPosition
+
+    init(sidebar: NSView, detail: NSView, position: AppearanceConfig.SidebarPosition) {
+        self.sidebar = sidebar
+        self.detail = detail
+        self.position = position
+    }
+
+    func compare(_ lhs: NSView, _ rhs: NSView) -> ComparisonResult {
+        let lhsRank = rank(of: lhs)
+        let rhsRank = rank(of: rhs)
+        if lhsRank != rhsRank { return lhsRank < rhsRank ? .orderedAscending : .orderedDescending }
+        if lhs === rhs { return .orderedSame }
+        let lhsAddress = UInt(bitPattern: Unmanaged.passUnretained(lhs).toOpaque())
+        let rhsAddress = UInt(bitPattern: Unmanaged.passUnretained(rhs).toOpaque())
+        return lhsAddress < rhsAddress ? .orderedAscending : .orderedDescending
+    }
+
+    private func rank(of view: NSView) -> Int {
+        let leading = position == .left ? sidebar : detail
+        let trailing = position == .left ? detail : sidebar
+        if view === leading { return 0 }
+        if view === trailing { return 1 }
+        return 2
+    }
+}
+
 /// Native split host for the sidebar/detail divider (INT-535).
 ///
 /// Hosts a bare `NSSplitView` inside a plain `NSViewController`. We deliberately do
@@ -145,10 +175,15 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             guard let responderView = responder as? NSView else { return false }
             return responderView === root || responderView.isDescendant(of: root)
         }
+        let order = SidebarSubviewOrder(
+            sidebar: sidebarChild.view, detail: detailChild.view, position: position
+        )
         splitView.sortSubviews(
-            { lhs, rhs, _ in
-                lhs.frame.minX < rhs.frame.minX ? .orderedDescending : .orderedAscending
-            }, context: nil)
+            { lhs, rhs, context in
+                guard let context else { return .orderedSame }
+                return Unmanaged<SidebarSubviewOrder>.fromOpaque(context)
+                    .takeUnretainedValue().compare(lhs, rhs)
+            }, context: Unmanaged.passUnretained(order).toOpaque())
         splitView.adjustSubviews()
         if isSidebarHidden { applyHiddenPosition() } else { applyPosition(width) }
         if ownsResponder, view.window?.firstResponder !== responder {
@@ -169,6 +204,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             pendingWidth = nil
             applyPosition(width)
         }
+    }
+
+    func simulateDividerDragCompletionForTesting() {
+        splitView.onDragEnded?()
     }
 
     static func dividerCoordinate(

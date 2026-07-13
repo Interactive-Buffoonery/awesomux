@@ -7,6 +7,20 @@ import Testing
 @Suite("SidebarSplitController clamp")
 @MainActor
 struct SidebarSplitControllerTests {
+    private final class FirstResponderView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    private func makeController(width: CGFloat = 1_200) -> (SidebarSplitController, NSViewController, NSViewController) {
+        let sidebar = NSViewController()
+        let detail = NSViewController()
+        let controller = SidebarSplitController(sidebar: sidebar, detail: detail)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        return (controller, sidebar, detail)
+    }
+
     @Test("sidebar geometry mirrors across the pane extent")
     func mirroredGeometry() {
         let extent: CGFloat = 1_199
@@ -48,6 +62,36 @@ struct SidebarSplitControllerTests {
         #expect(abs(sidebarView.frame.width - 300) < 1)
     }
 
+    @Test("changing sides preserves a child first responder")
+    func changingSidesPreservesFirstResponder() {
+        let sidebar = NSViewController()
+        let sentinel = FirstResponderView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        sidebar.view.addSubview(sentinel)
+        let controller = SidebarSplitController(sidebar: sidebar, detail: NSViewController())
+        let window = NSWindow(contentViewController: controller)
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        controller.setSidebarWidth(300)
+        #expect(window.makeFirstResponder(sentinel))
+
+        controller.setSidebarPosition(.right)
+
+        #expect(window.firstResponder === sentinel)
+    }
+
+    @Test("right sidebar uses semantic width for max and resize reclamp")
+    func rightSideMaxAndReclamp() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarPosition(.right)
+        controller.setSidebarWidth(600)
+        #expect(controller.maxSidebarWidth == 719)
+
+        controller.view.frame.size.width = 720
+        controller.view.layoutSubtreeIfNeeded()
+
+        #expect(sidebar.view.frame.width == SidebarWidthPolicy.collapsedWidth)
+    }
+
     @Test("hide suppresses callbacks and reveal restores width")
     func hideAndReveal() {
         let sidebar = NSViewController()
@@ -68,6 +112,43 @@ struct SidebarSplitControllerTests {
 
         controller.setSidebarHidden(false)
         #expect(abs(sidebar.view.frame.width - 300) < 1)
+    }
+
+    @Test("layout while hidden stays hidden without restoring expanded width")
+    func hiddenResizeDoesNotRestore() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+
+        controller.view.frame.size.width = 1_600
+        controller.view.layoutSubtreeIfNeeded()
+
+        #expect(sidebar.view.frame.width == 0)
+    }
+
+    @Test("hidden drag completion cannot commit zero width")
+    func hiddenDragDoesNotCommit() {
+        let (controller, _, _) = makeController()
+        var commits: [CGFloat] = []
+        controller.onCommitWidth = { commits.append($0) }
+        controller.setSidebarHidden(true)
+
+        controller.simulateDividerDragCompletionForTesting()
+
+        #expect(commits.isEmpty)
+    }
+
+    @Test("setting width while hidden records reveal width without showing")
+    func hiddenWidthRequest() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+
+        controller.setSidebarWidth(420)
+        #expect(sidebar.view.frame.width == 0)
+        controller.setSidebarHidden(false)
+
+        #expect(abs(sidebar.view.frame.width - 420) < 1)
     }
 
     @Test("rail-zone widths snap while expanded widths are preserved")
