@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -99,6 +100,7 @@ struct SidebarGroupHeaderRow: View {
     /// with the header, above the split. Mirrors `SidebarSessionTile.tileFrame`.
     @State private var headerFrame: CGRect = .zero
     @Environment(SidebarPeekModel.self) private var peekModel
+    @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.colorSchemeContrast) private var contrast
     // Mirror the count badge's scaling: it renders with `.awFont(.Mono.meta)`,
     // whose point size is `@ScaledMetric(relativeTo: .subheadline)` off
@@ -345,7 +347,8 @@ struct SidebarGroupHeaderRow: View {
                         tint: tint,
                         sessions: sessions,
                         activeSessionID: selectedSessionID,
-                        frame: headerFrame
+                        frame: headerFrame,
+                        position: appSettingsStore.appearance.value.sidebarPosition
                     )
                 } else if canPeek {
                     // Always hittable (every row jumps), so always request the
@@ -362,7 +365,11 @@ struct SidebarGroupHeaderRow: View {
                 }
             }
             .onChange(of: headerFrame) { _, frame in
-                peekModel.updateGroupFrame(for: group.id, frame: frame)
+                peekModel.updateGroupFrame(
+                    for: group.id,
+                    frame: frame,
+                    position: appSettingsStore.appearance.value.sidebarPosition
+                )
             }
             // Keyed on `peekRefreshKey` (not just `entries`' plain equality) so
             // a per-session state change entries' `==` excludes (e.g. a shell

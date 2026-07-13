@@ -192,7 +192,8 @@ struct SidebarSessionTile: View {
                         session: session,
                         location: location,
                         tint: tint,
-                        frame: tileFrame
+                        frame: tileFrame,
+                        position: appSettingsStore.appearance.value.sidebarPosition
                     )
                 } else if session.layout.paneCount > 1 {
                     // Multi-pane card is hittable — graced hide so the pointer
@@ -204,7 +205,11 @@ struct SidebarSessionTile: View {
                 }
             }
             .onChange(of: tileFrame) { _, frame in
-                peekModel.updateFrame(for: session.id, frame: frame)
+                peekModel.updateFrame(
+                    for: session.id,
+                    frame: frame,
+                    position: appSettingsStore.appearance.value.sidebarPosition
+                )
             }
             .onChange(of: session.peekRefreshKey) { _, _ in
                 // Keep a live peek's content fresh — agent state / title / cwd can
