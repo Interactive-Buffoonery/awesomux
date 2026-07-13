@@ -40,6 +40,27 @@ final class AwesoMuxApplication: NSApplication {
             return
         }
 
+        if SidebarVisibilityToggleShortcut.matches(event) {
+            guard canHandleAppShortcut else {
+                ShortcutDiagnostics.log("stage=sendEvent toggleSidebarVisibility=true blocked=modalOrNoWindow")
+                super.sendEvent(event)
+                return
+            }
+            ShortcutDiagnostics.log("stage=sendEvent toggleSidebarVisibility=true action=toggleSidebarVisibility")
+            NotificationCenter.default.post(name: .awesoMuxToggleSidebarVisibilityRequested, object: self)
+            return
+        }
+
+        if SidebarVisibilityToggleShortcut.isRepeat(ofToggleSidebarVisibilityChord: event) {
+            guard canHandleAppShortcut else {
+                ShortcutDiagnostics.log("stage=sendEvent toggleSidebarVisibility=false repeat=true blocked=modalOrNoWindow")
+                super.sendEvent(event)
+                return
+            }
+            ShortcutDiagnostics.log("stage=sendEvent toggleSidebarVisibility=false repeat=true action=ignore")
+            return
+        }
+
         if SidebarWidthToggleShortcut.matches(event) {
             guard canHandleAppShortcut else {
                 ShortcutDiagnostics.log("stage=sendEvent toggleSidebarWidth=true blocked=modalOrNoWindow")

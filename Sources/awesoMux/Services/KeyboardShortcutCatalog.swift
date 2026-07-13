@@ -465,6 +465,11 @@ enum KeyboardShortcutCatalog {
         keySpokenName: "Backslash"
     )
 
+    static let toggleSidebarVisibility = KeyBinding(
+        id: "toggleSidebarVisibility", action: "Hide/Show Sidebar", key: "\\",
+        modifiers: [.command, .shift], keyDisplay: "\\", keySpokenName: "Backslash"
+    )
+
     static let jumpWorkspaces: [KeyBinding] = (1...9).map { index in
         let key = String(index)
         return KeyBinding(
@@ -557,6 +562,7 @@ enum KeyboardShortcutCatalog {
         let focusSidebar = resolved(Self.focusSidebar, keyboard: keyboard)
         let sessionManager = resolved(Self.sessionManager, keyboard: keyboard)
         let toggleSidebarWidth = resolved(Self.toggleSidebarWidth, keyboard: keyboard)
+        let toggleSidebarVisibility = resolved(Self.toggleSidebarVisibility, keyboard: keyboard)
         let jumpWorkspaces = resolved(Self.jumpWorkspaces, keyboard: keyboard)
         let toggleFloatingPanel = resolved(Self.toggleFloatingPanel, keyboard: keyboard)
         let togglePopUpTerminal = resolved(Self.togglePopUpTerminal, keyboard: keyboard)
@@ -596,6 +602,7 @@ enum KeyboardShortcutCatalog {
                 KeyboardShortcutEntry(acknowledgeWorkspace, detail: "Clear attention on the active workspace"),
                 KeyboardShortcutEntry(focusSidebar, detail: "Move keyboard focus to sidebar search"),
                 KeyboardShortcutEntry(toggleSidebarWidth, detail: "Collapse or expand the sidebar"),
+                KeyboardShortcutEntry(toggleSidebarVisibility, detail: "Hide or show the sidebar"),
             ] + jumpWorkspaces.map {
                 KeyboardShortcutEntry($0, detail: "Jump by flattened sidebar order")
             } + [

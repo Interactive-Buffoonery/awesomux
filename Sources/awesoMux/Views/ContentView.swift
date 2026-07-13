@@ -39,7 +39,8 @@ struct ContentView: View {
     /// Jump to an exact agent pane from the sidebar activity panel (INT-722).
     let onFocusAgentPane: (TerminalSession.ID, UUID) -> Void
     let sidebarFocusRequestID: UUID?
-    let sidebarToggleRequestID: UUID?
+    let sidebarWidthToggleRequestID: UUID?
+    let sidebarVisibilityToggleRequestID: UUID?
 
     @State private var sidebarWidth = SidebarWidthPreferenceStore().width()
     @State private var lastNonCollapsedSidebarWidth =
@@ -107,7 +108,11 @@ struct ContentView: View {
                 // dispatched, so a click into search can establish focus afterward.
                 clearInitialEmptyFocusIfEligible()
             }
-            .onChange(of: sidebarToggleRequestID) { _, requestID in
+            .onChange(of: sidebarWidthToggleRequestID) { _, requestID in
+                guard requestID != nil else { return }
+                toggleSidebarWidth()
+            }
+            .onChange(of: sidebarVisibilityToggleRequestID) { _, requestID in
                 guard requestID != nil else {
                     return
                 }

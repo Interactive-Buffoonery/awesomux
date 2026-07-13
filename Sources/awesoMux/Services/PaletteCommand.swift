@@ -91,6 +91,7 @@ struct PaletteAppActions {
     let toggleCommandPalette: @MainActor () -> Void
     let focusSidebar: @MainActor () -> Void
     let toggleSidebarWidth: @MainActor () -> Void
+    let toggleSidebarVisibility: @MainActor () -> Void
     let jumpWorkspace: @MainActor (Int) -> Void
     let previousWorkspace: @MainActor () -> Void
     let nextWorkspace: @MainActor () -> Void
@@ -147,6 +148,7 @@ struct PaletteAppActions {
             toggleCommandPalette: action,
             focusSidebar: action,
             toggleSidebarWidth: action,
+            toggleSidebarVisibility: action,
             jumpWorkspace: indexedAction,
             previousWorkspace: action,
             nextWorkspace: action,
@@ -619,6 +621,14 @@ enum PaletteCommandRegistry {
                 shortcut: KeyboardShortcutCatalog.toggleSidebarWidth,
                 isEnabled: !availability.isAnySheetPresented,
                 run: actions.toggleSidebarWidth
+            ),
+            PaletteCommand(
+                id: KeyboardShortcutCatalog.toggleSidebarVisibility.id,
+                title: "Hide/Show Sidebar", subtitle: nil,
+                keywords: ["toggle", "hide", "show", "workspace list"],
+                shortcut: KeyboardShortcutCatalog.toggleSidebarVisibility,
+                isEnabled: !availability.isAnySheetPresented,
+                run: actions.toggleSidebarVisibility
             )
         ])
 
