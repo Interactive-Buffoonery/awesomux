@@ -39,6 +39,14 @@ jobs:
       - name: Plural localization guards
         run: ./script/check_plural_guards.sh
 
+      - name: Test wait guardrail tests
+        run: ./script/test-test-wait-guard.sh
+
+      - name: Test wait policy
+        env:
+          TEST_WAIT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: ./script/check_test_waits.sh
+
       - name: Formatter guardrail tests
         run: ./script/test-format.sh
 
