@@ -602,6 +602,11 @@ struct AwesoMuxApp: App {
                 Button("Connect via SSH…") { requestConnectViaSSH() }
                     .disabled(isAnySheetPresented)
 
+                Button("Make This Workspace Managed…") {
+                    requestManagedSSHWorkspaceConversion()
+                }
+                .disabled(selectedManagedSSHConversionTarget == nil || isAnySheetPresented)
+
                 Divider()
 
                 Button("Rename Workspace…") {
@@ -1836,6 +1841,14 @@ struct AwesoMuxApp: App {
         return session.unreadNotificationCount > 0 || session.needsAcknowledgement
     }
 
+    private var selectedManagedSSHConversionTarget: RemoteTarget? {
+        guard let session = sessionStore.selectedSession else { return nil }
+        return sessionStore.managedSSHConversionTarget(
+            sessionID: session.id,
+            paneID: session.activePaneID
+        )
+    }
+
     // Counts sessions across all groups, not groups: "Previous/Next Workspace"
     // walks the flattened session list, so the commands are only meaningful when
     // there's more than one session to move between.
@@ -2216,6 +2229,17 @@ struct AwesoMuxApp: App {
             initialDestination: target.sshDestination,
             action: .convertPane(sessionID: sessionID, paneID: paneID)
         )
+    }
+
+    private func requestManagedSSHWorkspaceConversion() {
+        guard !isAnySheetPresented,
+            let request = SSHWorkspaceConnectRequest.managedConversion(
+                sessionStore: sessionStore
+            )
+        else {
+            return
+        }
+        sshWorkspaceConnectRequest = request
     }
 
     private func requestRenameWorkspaceGroup(_ group: SessionGroup) {
@@ -2679,6 +2703,7 @@ struct AwesoMuxApp: App {
             newWorkspaceGroup: requestNewWorkspaceGroup,
             newRemoteWorkspaceGroup: requestNewRemoteWorkspaceGroup,
             connectViaSSH: { requestConnectViaSSH() },
+            makeThisWorkspaceManaged: requestManagedSSHWorkspaceConversion,
             renameWorkspace: requestRenameSelectedWorkspace,
             renamePane: requestRenameActivePane,
             resetPaneTitle: requestResetActivePaneTitle,
@@ -3176,13 +3201,29 @@ private struct RemoteWorkspaceGroupCreateRequest: Identifiable, Sendable {
     let id = UUID()
 }
 
-private struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
+struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
     let id = UUID()
     let initialDestination: String?
     let action: SSHWorkspaceConnectAction
+
+    @MainActor
+    static func managedConversion(sessionStore: SessionStore) -> Self? {
+        guard let session = sessionStore.selectedSession,
+            let target = sessionStore.managedSSHConversionTarget(
+                sessionID: session.id,
+                paneID: session.activePaneID
+            )
+        else {
+            return nil
+        }
+        return Self(
+            initialDestination: target.sshDestination,
+            action: .convertPane(sessionID: session.id, paneID: session.activePaneID)
+        )
+    }
 }
 
-private enum SSHWorkspaceConnectAction: Sendable {
+enum SSHWorkspaceConnectAction: Sendable {
     case addToGroup(id: SessionGroup.ID, name: String)
     case convertPane(sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
 

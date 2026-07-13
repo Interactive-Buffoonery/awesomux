@@ -20,6 +20,7 @@ struct PaletteCommandRegistryTests {
             KeyboardShortcutCatalog.newWorkspaceGroup.id,
             "newRemoteWorkspaceGroup",
                 "connectViaSSH",
+                "makeThisWorkspaceManaged",
             KeyboardShortcutCatalog.renameWorkspace.id,
             KeyboardShortcutCatalog.renamePane.id,
             "resetPaneTitle",
@@ -136,6 +137,78 @@ struct PaletteCommandRegistryTests {
             actions: .noop
         )
         #expect(commands.contains { $0.id == "newRemoteWorkspaceGroup" })
+    }
+
+    @Test("managed conversion palette action mirrors menu eligibility and exact destination")
+    @MainActor
+    func managedConversionActionEligibility() throws {
+        let pane = TerminalPane(
+            title: "ssh",
+            workingDirectory: "~",
+            remoteHost: "server.example",
+            remoteSSHTarget: "deploy@server-alias",
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "ssh",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Work", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        let command = try #require(
+            PaletteCommandRegistry.command(
+                id: "makeThisWorkspaceManaged",
+                in: PaletteCommandRegistry.commands(
+                    sessionStore: store,
+                    availability: .init(),
+                    actions: .noop
+                )
+            ))
+        #expect(command.title == "Make This Workspace Managed…")
+        #expect(command.subtitle == "deploy@server-alias")
+        #expect(command.isEnabled)
+        #expect(command.shortcut == nil)
+
+        let request = try #require(
+            SSHWorkspaceConnectRequest.managedConversion(sessionStore: store)
+        )
+        #expect(request.initialDestination == "deploy@server-alias")
+        switch request.action {
+        case .convertPane(let sessionID, let paneID):
+            #expect(sessionID == session.id)
+            #expect(paneID == pane.id)
+        case .addToGroup:
+            Issue.record("Expected an in-place pane conversion request")
+        }
+
+        _ = store.consumeManagedSSHWorkspaceOffer(sessionID: session.id, paneID: pane.id)
+        let afterDismissal = try #require(
+            PaletteCommandRegistry.command(
+                id: "makeThisWorkspaceManaged",
+                in: PaletteCommandRegistry.commands(
+                    sessionStore: store,
+                    availability: .init(),
+                    actions: .noop
+                )
+            ))
+        #expect(afterDismissal.isEnabled)
+        #expect(afterDismissal.subtitle == "deploy@server-alias")
+
+        let withSheet = try #require(
+            PaletteCommandRegistry.command(
+                id: "makeThisWorkspaceManaged",
+                in: PaletteCommandRegistry.commands(
+                    sessionStore: store,
+                    availability: .init(isAnySheetPresented: true),
+                    actions: .noop
+                )
+            ))
+        #expect(!withSheet.isEnabled)
     }
 
     @Test("Rename Pane is gated to multi-pane workspaces")
