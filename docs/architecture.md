@@ -279,8 +279,7 @@ open -n dist/awesoMux.app
 | Ghostty app actions and awesoMux command ownership | [0020 - Ghostty app actions are not an awesoMux command surface](adr/0020-ghostty-app-actions-are-not-an-awesomux-command-surface.md) |
 | Remote workspaces: local `amx`, remote `zmx`, SSH composition | [0023 - Remote workspace architecture](adr/0023-remote-workspace-architecture.md) |
 | Ghostty submodule, XCFramework, linker, resources | [`docs/ghostty-integration.md`](ghostty-integration.md) |
-| CI / Cloud Agent limits (Linux vs macOS) | [`AGENTS.md`](../AGENTS.md) |
-| Ghostty artifact prebuilds, richer persistence | Open items in [`AGENTS.md`](../AGENTS.md) **Stack & decisions (open)** |
+| Ghostty XCFramework prebuilds, richer persistence | Open items in [`AGENTS.md`](../AGENTS.md) **Stack & decisions (open)** |
 
 ## What’s intentionally out of date in older notes
 
