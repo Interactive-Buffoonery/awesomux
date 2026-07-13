@@ -66,3 +66,47 @@ that every test in that target is end-to-end.
 | Adapter | 10 | 113 |
 | System | 180 | 1,608 |
 | **Total** | **346** | **3,483** |
+
+## Test organization rules
+
+These rules apply to new tests and tests changed as part of feature work.
+Existing exceptions remain part of the baseline until a focused follow-up
+changes them.
+
+### Naming
+
+- Name files `<Subject>Tests.swift` after the behavior or production type under
+  test.
+- Name suites after the subject they cover.
+- Name tests for the condition and expected outcome.
+- Do not use issue or pull request numbers as the main test name.
+
+### Folders
+
+- Put tests under `Tests/<ProductionTarget>Tests`.
+- Use a feature subfolder when several related test files are easier to find
+  together. Keep a single test file at the target root.
+- Do not create a separate folder hierarchy that duplicates production folders
+  without making the tests easier to find.
+
+### Ownership
+
+- Put a test in the lowest production target that can exercise the behavior.
+- Unit tests use controlled inputs and do not require the running app or a real
+  external boundary.
+- Adapter tests exercise one boundary, such as a helper protocol or process
+  interface, while keeping the behavior on the other side controlled.
+- System tests exercise app or operating-system integration. Tests that import
+  the `awesoMux` executable remain in the system group until a later change
+  extracts the behavior into a lower target.
+
+### Serialization
+
+- Tests run concurrently by default.
+- Use `.serialized` only when tests share process-wide or operating-system state
+  that cannot be isolated, such as AppKit lifecycle state, environment changes,
+  or one fixed socket endpoint.
+- A serialized suite must restore the shared state it changes.
+- Do not serialize a suite to hide a race or timing failure. Replace the shared
+  state or timing dependency instead.
+- Serialize the smallest affected suite, not the full test group.
