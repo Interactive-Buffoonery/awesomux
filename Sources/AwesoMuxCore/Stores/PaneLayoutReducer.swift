@@ -618,9 +618,11 @@ struct PaneLayoutReducer: Sendable {
                     pane.remoteHost = host
                     if let pendingTarget = pane.pendingRemoteSSHTarget {
                         pane.remoteSSHTarget = pendingTarget
+                        pane.hasConsumedManagedSSHWorkspaceOffer = false
                         pane.pendingRemoteSSHTarget = nil
                     } else if originalPane.remoteHost != host {
                         pane.remoteSSHTarget = nil
+                        pane.hasConsumedManagedSSHWorkspaceOffer = false
                     }
                     pane.remoteConnectionHealth = .active
                 }
@@ -646,6 +648,7 @@ struct PaneLayoutReducer: Sendable {
                     pane.workingDirectory = localDirectory
                     pane.remoteHost = nil
                     pane.remoteSSHTarget = nil
+                    pane.hasConsumedManagedSSHWorkspaceOffer = false
                     pane.pendingRemoteSSHTarget = nil
                     pane.remoteWorkingDirectory = nil
                     pane.remoteConnectionHealth = .active
@@ -667,6 +670,7 @@ struct PaneLayoutReducer: Sendable {
                 || pane.workingDirectory != originalPane.workingDirectory
                 || pane.remoteHost != originalPane.remoteHost
                 || pane.remoteSSHTarget != originalPane.remoteSSHTarget
+                || pane.hasConsumedManagedSSHWorkspaceOffer != originalPane.hasConsumedManagedSSHWorkspaceOffer
                 || pane.pendingRemoteSSHTarget != originalPane.pendingRemoteSSHTarget
                 || pane.remoteWorkingDirectory != originalPane.remoteWorkingDirectory
                 || pane.remoteConnectionHealth != originalPane.remoteConnectionHealth

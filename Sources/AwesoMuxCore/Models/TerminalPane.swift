@@ -33,6 +33,9 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// may be an SSH config alias, unlike `remoteHost`, which comes from the
     /// remote prompt.
     public var remoteSSHTarget: String?
+    /// Runtime-only one-shot state for the automatic managed-workspace offer.
+    /// The safely observed target remains available for an explicit conversion.
+    public var hasConsumedManagedSSHWorkspaceOffer: Bool
     /// Runtime-only submitted SSH target waiting for the terminal title to prove
     /// the pane actually became remote.
     public var pendingRemoteSSHTarget: String?
@@ -99,6 +102,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         color: PaneColor? = nil,
         remoteHost: String? = nil,
         remoteSSHTarget: String? = nil,
+        hasConsumedManagedSSHWorkspaceOffer: Bool = false,
         pendingRemoteSSHTarget: String? = nil,
         remoteConnectionHealth: RemoteConnectionHealth = .active,
         remoteWorkingDirectory: String? = nil,
@@ -126,6 +130,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.color = color
         self.remoteHost = remoteHost
         self.remoteSSHTarget = remoteSSHTarget
+        self.hasConsumedManagedSSHWorkspaceOffer = hasConsumedManagedSSHWorkspaceOffer
         self.pendingRemoteSSHTarget = pendingRemoteSSHTarget
         self.remoteConnectionHealth = remoteConnectionHealth
         self.remoteWorkingDirectory = remoteWorkingDirectory

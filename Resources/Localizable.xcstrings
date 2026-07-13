@@ -1338,6 +1338,9 @@
     "MIT" : {
 
     },
+    "Make This Workspace Managed…" : {
+      "comment" : "Workspace menu and command palette action for converting the selected ordinary SSH pane"
+    },
     "Make This Workspace Managed?" : {
       "comment" : "Title of the prompt to reconnect an ordinary SSH pane as managed"
     },

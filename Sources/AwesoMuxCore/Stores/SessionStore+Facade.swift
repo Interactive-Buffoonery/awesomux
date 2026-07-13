@@ -665,10 +665,33 @@ extension SessionStore {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID
     ) -> RemoteTarget? {
-        guard let rawTarget = session(id: sessionID)?.layout.pane(id: paneID)?.remoteSSHTarget,
+        guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            !pane.hasConsumedManagedSSHWorkspaceOffer,
+            let target = managedSSHConversionTarget(sessionID: sessionID, paneID: paneID),
+            mutatePane(
+                sessionID: sessionID, paneID: paneID,
+                {
+                    $0.hasConsumedManagedSSHWorkspaceOffer = true
+                })
+        else {
+            return nil
+        }
+        return target
+    }
+
+    public func managedSSHConversionTarget(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> RemoteTarget? {
+        guard let session = session(id: sessionID),
+            session.activePaneID == paneID,
+            let pane = session.layout.pane(id: paneID),
+            pane.executionPlan == .local,
+            pane.remoteConnectionHealth == .active,
+            pane.remoteHost != nil,
+            let rawTarget = pane.remoteSSHTarget,
             let target = RemoteTarget(parsing: rawTarget),
-            target.isSafeSSHDestination,
-            mutatePane(sessionID: sessionID, paneID: paneID, { $0.remoteSSHTarget = nil })
+            target.isSafeSSHDestination
         else {
             return nil
         }
