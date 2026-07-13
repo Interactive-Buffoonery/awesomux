@@ -103,7 +103,8 @@ Use least privilege for the task, avoid unnecessary package downloads or arbitra
 For targeted changes, never run a repository-wide formatter. Use
 `script/format.sh` only with the Swift files you intentionally changed, and
 inspect the resulting diff before continuing. Use `script/format.sh --lint` for
-the non-mutating repository check.
+the non-mutating repository check. Follow `docs/toolchain.md` when updating the
+pinned Swift or `swift-format` versions.
 
 ### Swift
 
