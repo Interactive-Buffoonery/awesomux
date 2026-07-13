@@ -272,7 +272,7 @@ struct GhosttyConfigEnvironmentTests {
     }
 }
 
-private final class TemporaryHomeFixture {
+private struct TemporaryHomeFixture {
     private let directory: TemporaryDirectory
     var homeURL: URL { directory.url }
 

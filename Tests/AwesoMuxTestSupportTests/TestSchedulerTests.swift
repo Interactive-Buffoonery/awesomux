@@ -13,10 +13,7 @@ struct TestSchedulerTests {
             return true
         }
 
-        for _ in 0..<10_000 where scheduler.sleeperCount == 0 {
-            await Task.yield()
-        }
-        #expect(scheduler.sleeperCount == 1)
+        #expect(await waitUntil { scheduler.sleeperCount == 1 })
         scheduler.advance()
         #expect(await delayed.value)
     }
