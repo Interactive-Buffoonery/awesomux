@@ -2,7 +2,12 @@
 
 ## Status
 
-Superseded by the declared execution identity model (INT-812 and INT-821).
+Superseded by the declared execution identity model tracked in
+[GitHub issue #2](https://github.com/Interactive-Buffoonery/awesomux/issues/2).
+The corresponding implementation work is tracked secondarily in Linear as
+[INT-812](https://linear.app/interactive-buffoonery/issue/INT-812/define-execution-location-and-host-aware-resource-identity)
+and
+[INT-821](https://linear.app/interactive-buffoonery/issue/INT-821/migrate-remote-markdown-snapshots-to-declared-identity).
 
 ## Context
 
