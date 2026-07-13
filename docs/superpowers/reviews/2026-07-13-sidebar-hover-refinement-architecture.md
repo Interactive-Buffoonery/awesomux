@@ -1,9 +1,25 @@
 ## J'onn J'onzz — Architecture Review
 
 **Proposal:** Sidebar Hover Refinement Implementation Plan
-**Clarity rating:** FORMING
+**Clarity rating:** CRYSTALLINE
 
-The interaction is precise and proportionate. The component boundaries are nearly ready. One boundary, however, currently has two owners for runtime visibility, and those owners request contradictory transition semantics. That must be resolved before implementation.
+The interaction is precise and proportionate. The revised plan now gives runtime visibility one owner, names the overlap arbitration rule, bypasses only the divider constraint that would corrupt animation, and closes the tracker lifecycle path end to end.
+
+### Re-review Verdict — Commit `837558a`
+
+All architecture blockers from the initial review are resolved in the plan:
+
+| Initial blocker | Revised-plan resolution | Verdict |
+|---|---|---|
+| Dual runtime visibility enactors | `makeNSViewController` owns one-shot restoration; `SidebarSplitProxy.setVisibility` is the sole runtime route; `updateNSViewController` is forbidden from calling visibility setters and receives a structural regression test | Resolved |
+| Rail/full dead-zone snapping during animation | `isHoverAnimating` bypasses only `constrainSplitPosition` snapping; targets remain clamped and min/max policy remains active; both sides receive tests | Resolved |
+| Tracker/sidebar overlap arbitration | `sidebarPointerPresent` is authoritative; both event-order permutations are tested | Resolved |
+| Silent entry | `mouseEntered` and `mouseMoved` share one coordinate-report helper and a synthetic entry test | Resolved |
+| Incomplete availability-loss path | Callback is carried tracker → controller → representable → model/proxy; it invalidates both generations and immediately settles hidden | Resolved |
+| Repeated/equal request churn | Same-intent in-flight requests no-op; equal current/target requests normalize synchronously; runner-count tests enforce both | Resolved |
+| Insufficient real AppKit evidence | Live verification explicitly covers dead-zone traversal, both sides and widths, overlap, pass-through input, deactivation, reversal, and Reduce Motion | Resolved |
+
+No unresolved blocker remains before implementation. The remaining uncertainties are deliberately classified as verification work rather than architectural ambiguity.
 
 ### System Diagram
 
@@ -192,15 +208,14 @@ Do not add hysteresis, global event monitoring, configurable thresholds, or gene
 - Immediate explicit commands and Reduce Motion policy.
 - Hidden/intermediate widths excluded from persistence.
 
-**Sand — must be compacted before implementation**
+**Sand — now compacted by the revised plan; verify during implementation**
 
-- Runtime visibility currently has two enactors: representable update and proxy.
-- Animation behavior across the existing rail/full dead-zone constraint is unspecified.
-- Tracker/sidebar overlap arbitration is implicit.
-- `mouseEntered` and availability-loss plumbing are incomplete in the task steps.
-- Unit animation seams cannot substitute for one real AppKit animation verification on both sides.
+- Runtime visibility ownership is protected by an explicit construction/runtime boundary and a structural regression test.
+- Dead-zone traversal and overlap arbitration are now named, implemented through narrow policies, and tested on both sides.
+- `mouseEntered` and availability-loss plumbing are specified end to end.
+- The closure seam remains intentionally incomplete evidence; the revised live checklist supplies the required real AppKit verification on both sides.
 
-### Concrete Plan Revisions
+### Concrete Plan Revisions Applied in `837558a`
 
 1. **Make `SidebarSplitController` the sole runtime visibility enactor via `SidebarSplitProxy.setVisibility`.** `makeNSViewController` applies cold-launch/restoration immediately. Remove ordinary runtime `setSidebarHidden(isHidden)` from `updateNSViewController`, or replace the input with an explicit versioned command that cannot race the proxy. Prefer removal because the proxy already exists.
 2. **Add a test for the ownership rule.** A proximity state render/update must not invoke an immediate visibility setter; exactly one pointer transition reaches the controller and retains `.hover(0.140)`.
@@ -213,6 +228,8 @@ Do not add hysteresis, global event monitoring, configurable thresholds, or gene
 
 ### J'onn's Recommendation
 
-I sense no need to rethink the feature. Its shape is correct, restrained, and faithful to the approved interaction. Yet the implementation plan is not ready to execute unchanged: runtime visibility must have one owner. Human frameworks often tolerate duplicate statements of the same truth; stateful UI systems do not. One statement will arrive later, and timing will masquerade as design.
+The plan is ready to implement. I no longer sense two competing truths at the SwiftUI/AppKit boundary: construction restores once, the proxy enacts runtime intent, and the controller alone moves the divider. The revised tests make that boundary falsifiable rather than aspirational.
 
-Revise the plan so the proxy/controller exclusively enact runtime visibility, explicitly bypass divider snapping during hover animation, and define tracker/sidebar overlap arbitration. Once those three questions are answered in the plan and covered by tests, the remaining concerns are hardening rather than blockers. Then implementation may proceed.
+Proceed task by task with the specified red-green discipline. Treat the real AppKit checks as release evidence, not optional polish: the pass-through tracker and animated divider still depend on framework behavior that pure seams cannot prove. If those live checks expose different event ordering or presentation geometry, preserve the plan's ownership invariants and adjust the narrow adapter—not the state model.
+
+There are no architecture questions that must be answered before writing code.
