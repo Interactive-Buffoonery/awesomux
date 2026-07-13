@@ -298,8 +298,8 @@ struct ShellActivityTests {
     @Test("one busy pane in a split folds the session rollup to running")
     func trustedSplitPanesORFoldToSessionBusy() {
         let t0 = Date(timeIntervalSinceReferenceDate: 5_000)
-        let paneAObj = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell)
-        let paneBObj = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell)
+        let paneAObj = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
+        let paneBObj = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let shell = TerminalSession(
             title: "shell",
             workingDirectory: "~",
@@ -343,8 +343,8 @@ struct ShellActivityTests {
     @Test("an unseen pane cannot force a split session to running")
     func unseenSplitPaneCannotForceSessionRunning() {
         let t0 = Date(timeIntervalSinceReferenceDate: 6_000)
-        let paneAObj = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell)
-        let paneBObj = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell)
+        let paneAObj = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
+        let paneBObj = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let shell = TerminalSession(
             title: "shell",
             workingDirectory: "~",

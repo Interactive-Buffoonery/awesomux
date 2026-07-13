@@ -92,7 +92,7 @@ struct PaneTitleFreezeRuleTests {
     @Test
     func resetWithNoCachedLiveTitleFallsBackToCwdBasename() throws {
         // A restored frozen pane has no liveTerminalTitle yet (runtime-only).
-        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux")
+        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux", executionPlan: .local)
         pane.isTitleUserEdited = true
         let s = TerminalSession(title: "ws", workingDirectory: "~", layout: .pane(pane))
         let reset = try #require(PaneLayoutReducer.resetPaneTitle(in: s, paneID: pane.id))
@@ -321,7 +321,7 @@ struct PaneTitleFreezeRuleTests {
     @Test
     func splittingRestoredFrozenPaneSeedsCwdNotCustomName() throws {
         // A restored frozen pane: custom title, user-edited, liveTerminalTitle nil.
-        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux")
+        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux", executionPlan: .local)
         pane.isTitleUserEdited = true
         let s = TerminalSession(title: "ws", workingDirectory: "~", layout: .pane(pane))
 
@@ -337,7 +337,7 @@ struct PaneTitleFreezeRuleTests {
 
     @Test
     func recyclingRestoredFrozenPaneSeedsCwdNotCustomName() throws {
-        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux")
+        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux", executionPlan: .local)
         pane.isTitleUserEdited = true
         let s = TerminalSession(title: "ws", workingDirectory: "~", layout: .pane(pane))
 

@@ -10,7 +10,7 @@ import Testing
 @Suite("Bridge attach command assembly")
 struct BridgeAttachAssemblyTests {
     private static let sessionID = TerminalSessionID(rawValue: "abc123-bridge")!
-    private static let remote = RemoteTarget(user: "alice", host: "box")
+    private static let remote = RemoteTarget(user: "alice", host: "box")!
 
     /// Every pane-scoped agent key plus the status pair — the exact-name
     /// expansion of the spec's `AWESOMUX_AGENT_*` / `AMX_STATUS_*` scrub

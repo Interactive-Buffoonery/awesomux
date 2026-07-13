@@ -28,6 +28,7 @@ enum TerminalPathBarResolvePolicy {
     struct ResolveInputs: Equatable {
         var activePaneID: TerminalPane.ID?
         var workingDirectory: String
+        var executionPlan: PaneExecutionPlan
         var remoteHost: String?
         var remoteConnectionHealth: RemoteConnectionHealth
         var isActive: Bool
@@ -35,12 +36,14 @@ enum TerminalPathBarResolvePolicy {
         init(
             activePaneID: TerminalPane.ID?,
             workingDirectory: String,
+            executionPlan: PaneExecutionPlan,
             remoteHost: String?,
             remoteConnectionHealth: RemoteConnectionHealth,
             isActive: Bool
         ) {
             self.activePaneID = activePaneID
             self.workingDirectory = workingDirectory
+            self.executionPlan = executionPlan
             self.remoteHost = remoteHost
             self.remoteConnectionHealth = remoteConnectionHealth
             self.isActive = isActive

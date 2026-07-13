@@ -7,8 +7,8 @@ import Testing
 @Suite("Sidebar peek model hover handoff (INT-538)")
 struct SidebarPeekModelTests {
     private func twoPaneSession(_ title: String) -> TerminalSession {
-        let first = TerminalPane(title: "a", workingDirectory: "~")
-        let second = TerminalPane(title: "b", workingDirectory: "~")
+        let first = TerminalPane(title: "a", workingDirectory: "~", executionPlan: .local)
+        let second = TerminalPane(title: "b", workingDirectory: "~", executionPlan: .local)
         return TerminalSession(
             title: title,
             workingDirectory: "~",

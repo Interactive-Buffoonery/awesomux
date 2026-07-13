@@ -32,7 +32,8 @@ final class SessionSnapshotTests: XCTestCase {
             terminalSessionID: terminalSessionID,
             terminalBackendMetadata: TerminalBackendMetadata(rawValue: "private-backend-payload"),
             title: "zsh",
-            workingDirectory: "~"
+            workingDirectory: "~",
+            executionPlan: .local
         )
 
         let data = try JSONEncoder().encode(pane)
@@ -72,12 +73,14 @@ final class SessionSnapshotTests: XCTestCase {
         let first = TerminalPane(
             terminalSessionID: sharedID,
             title: "first",
-            workingDirectory: "~"
+            workingDirectory: "~",
+            executionPlan: .local
         )
         let second = TerminalPane(
             terminalSessionID: sharedID,
             title: "second",
-            workingDirectory: "~"
+            workingDirectory: "~",
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",
@@ -226,12 +229,12 @@ final class SessionSnapshotTests: XCTestCase {
     func testRemoteTargetRoundTrips() throws {
         let group = SessionGroup(
             id: UUID(), name: "Box", color: nil,
-            remote: RemoteTarget(user: "ed", host: "box"),
+            remote: RemoteTarget(user: "ed", host: "box")!,
             sessions: []
         )
         let data = try JSONEncoder().encode(group)
         let decoded = try JSONDecoder().decode(SessionGroup.self, from: data)
-        XCTAssertEqual(decoded.remote, RemoteTarget(user: "ed", host: "box"))
+        XCTAssertEqual(decoded.remote, RemoteTarget(user: "ed", host: "box")!)
     }
 
     func testDecodesLegacyGroupWithoutRemoteKeyAsNil() throws {
@@ -331,10 +334,10 @@ final class SessionSnapshotTests: XCTestCase {
     /// same code path the persistence service invokes.
     func testNestedSplitWithUnknownPaneColorDecodesWithoutQuarantine() throws {
         // Build a snapshot in memory with a nested split: root → (left, inner → (innerLeft, innerRight))
-        let leftPane = TerminalPane(title: "left", workingDirectory: "/l")
-        var innerRightPane = TerminalPane(title: "innerRight", workingDirectory: "/ir")
+        let leftPane = TerminalPane(title: "left", workingDirectory: "/l", executionPlan: .local)
+        var innerRightPane = TerminalPane(title: "innerRight", workingDirectory: "/ir", executionPlan: .local)
         innerRightPane.color = .palette(.teal)  // known good color — will survive
-        let innerLeftPane = TerminalPane(title: "innerLeft", workingDirectory: "/il")
+        let innerLeftPane = TerminalPane(title: "innerLeft", workingDirectory: "/il", executionPlan: .local)
 
         let innerSplit = TerminalSplit(
             orientation: .horizontal,

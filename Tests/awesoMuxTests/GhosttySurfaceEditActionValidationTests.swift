@@ -154,7 +154,7 @@ struct GhosttySurfaceEditActionValidationTests {
     }
 
     private func makePaneFixture() -> PaneFixture {
-        let pane = TerminalPane(title: "terminal", workingDirectory: "/tmp")
+        let pane = TerminalPane(title: "terminal", workingDirectory: "/tmp", executionPlan: .local)
         let session = TerminalSession(
             title: "session",
             workingDirectory: "/tmp",

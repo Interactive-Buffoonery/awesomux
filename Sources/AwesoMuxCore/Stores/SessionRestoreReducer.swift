@@ -53,6 +53,9 @@ struct SessionRestoreReducer: Sendable {
             restoredGroup.sessions = group.sessions.enumerated().map { offset, session in
                 restoredSession(
                     from: session,
+                    legacyExecutionPlan: group.remote
+                        .map { .ssh(SSHExecution(target: $0)) }
+                        ?? .local,
                     fallbackIndex: offset + 1,
                     seenSessionIDs: &seenSessionIDs,
                     seenSplitIDs: &seenSplitIDs,
@@ -145,6 +148,7 @@ struct SessionRestoreReducer: Sendable {
 
     static func restoredSession(
         from session: TerminalSession,
+        legacyExecutionPlan: PaneExecutionPlan = .local,
         fallbackIndex: Int,
         seenSessionIDs: inout Set<TerminalSession.ID>,
         seenSplitIDs: inout Set<TerminalSplit.ID>,
@@ -203,7 +207,10 @@ struct SessionRestoreReducer: Sendable {
                 notificationsMuted: session.notificationsMuted,
                 agentKind: activeAgentKind,
                 agentExecutionState: activeExecutionState,
-                attentionReason: activeAttentionReason
+                attentionReason: activeAttentionReason,
+                executionPlan: session.activePane?.hasExplicitExecutionPlan == true
+                    ? session.activePane?.executionPlan ?? legacyExecutionPlan
+                    : legacyExecutionPlan
             )
         }
 
@@ -242,6 +249,10 @@ struct SessionRestoreReducer: Sendable {
             // Preserve only still-live restored agent identity. A prompt-ready
             // `.waiting` pane or preserved blocking prompt keeps its provider
             // chrome; stale idle metadata falls back to shell.
+            let executionPlan =
+                pane.hasExplicitExecutionPlan
+                ? pane.executionPlan
+                : legacyExecutionPlan
             return TerminalPane(
                 id: pane.id,
                 terminalSessionID: pane.terminalSessionID,
@@ -256,7 +267,8 @@ struct SessionRestoreReducer: Sendable {
                 color: pane.color,
                 agentKind: agentKind,
                 agentExecutionState: executionState,
-                attentionReason: attentionReason
+                attentionReason: attentionReason,
+                executionPlan: executionPlan
             )
         }
         let layout = layoutResult.layout
@@ -285,7 +297,10 @@ struct SessionRestoreReducer: Sendable {
                 workingDirectory: fallbackWorkingDirectory,
                 syntheticTitle: fallbackSyntheticTitle,
                 isTitleUserEdited: session.isTitleUserEdited,
-                notificationsMuted: session.notificationsMuted
+                notificationsMuted: session.notificationsMuted,
+                executionPlan: session.activePane?.hasExplicitExecutionPlan == true
+                    ? session.activePane?.executionPlan ?? legacyExecutionPlan
+                    : legacyExecutionPlan
             )
         }
 
@@ -463,7 +478,8 @@ struct SessionRestoreReducer: Sendable {
                     agentKind: restoredPane.agentKind,
                     agentExecutionState: restoredPane.agentExecutionState,
                     attentionReason: restoredPane.attentionReason,
-                    unreadNotificationCount: restoredPane.unreadNotificationCount
+                    unreadNotificationCount: restoredPane.unreadNotificationCount,
+                    executionPlan: restoredPane.executionPlan
                 )
                 seenPaneIDs.insert(restoredPane.id)
                 idReassignments += 1
@@ -483,13 +499,14 @@ struct SessionRestoreReducer: Sendable {
                     agentKind: restoredPane.agentKind,
                     agentExecutionState: restoredPane.agentExecutionState,
                     attentionReason: restoredPane.attentionReason,
-                    unreadNotificationCount: restoredPane.unreadNotificationCount
+                    unreadNotificationCount: restoredPane.unreadNotificationCount,
+                    executionPlan: restoredPane.executionPlan
                 )
                 idReassignments += 1
             }
             return (.pane(restoredPane), idReassignments)
 
-        case let .split(split):
+        case .split(let split):
             var idReassignments = 0
             let restoredID: TerminalSplit.ID
             if seenSplitIDs.insert(split.id).inserted {

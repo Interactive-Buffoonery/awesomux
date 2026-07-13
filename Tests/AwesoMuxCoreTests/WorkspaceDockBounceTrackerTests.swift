@@ -138,12 +138,14 @@ struct WorkspaceDockBounceTrackerTests {
         let first = TerminalPane(
             title: "claude",
             workingDirectory: "~",
-            agentKind: .claudeCode
+            agentKind: .claudeCode,
+            executionPlan: .local
         )
         let second = TerminalPane(
             title: "codex",
             workingDirectory: "~",
-            agentKind: .codex
+            agentKind: .codex,
+            executionPlan: .local
         )
         let initial = makeSplitSession(first: first, second: second)
         var tracker = WorkspaceDockBounceTracker(groups: [
@@ -182,12 +184,14 @@ struct WorkspaceDockBounceTrackerTests {
         let first = TerminalPane(
             title: "claude",
             workingDirectory: "~",
-            agentKind: .claudeCode
+            agentKind: .claudeCode,
+            executionPlan: .local
         )
         let second = TerminalPane(
             title: "codex",
             workingDirectory: "~",
-            agentKind: .codex
+            agentKind: .codex,
+            executionPlan: .local
         )
         let initial = makeSplitSession(first: first, second: second)
         var tracker = WorkspaceDockBounceTracker(groups: [
@@ -368,7 +372,8 @@ struct WorkspaceDockBounceTrackerTests {
             title: source.title,
             workingDirectory: source.workingDirectory,
             agentKind: source.agentKind,
-            attentionReason: attentionReason
+            attentionReason: attentionReason,
+            executionPlan: .local
         )
     }
 }

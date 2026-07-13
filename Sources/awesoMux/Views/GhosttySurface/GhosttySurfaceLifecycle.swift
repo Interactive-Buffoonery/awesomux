@@ -188,7 +188,7 @@ extension GhosttySurfaceNSView {
         // make-before-break bridge preflight instead of the synchronous spawn.
         // Every other pane (local, or bridge chrome off) is byte-identical to
         // today — the sync `finishSurfaceCreation` below is the untouched path.
-        let isRemote = sessionStore.remoteTarget(forSessionID: sessionID) != nil
+        let isRemote = pane.executionPlan.remoteTarget != nil
         if BridgeAttachDecision.shouldRunPreflight(
             bridgeEnabled: commandBridgeEnabled,
             isRemote: isRemote,
@@ -281,7 +281,7 @@ extension GhosttySurfaceNSView {
     /// (the ssh work runs off-main inside `BridgeExecChannel`), mirroring
     /// `beginExitSupervision`'s `Task { @MainActor … await AmxBackend.sessionExists }`.
     private func beginBridgePreflight(baseCommand: String) {
-        guard let remote = sessionStore.remoteTarget(forSessionID: sessionID) else {
+        guard let remote = pane.executionPlan.remoteTarget else {
             // Lost the remote target between the gate and here — fail open.
             finishSurfaceCreation(command: baseCommand)
             return

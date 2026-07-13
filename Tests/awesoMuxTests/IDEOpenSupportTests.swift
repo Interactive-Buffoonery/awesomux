@@ -192,11 +192,12 @@ struct IDEOpenSupportTests {
 
     @Test("remote active panes are not eligible and do not trigger filesystem resolution")
     func remoteActivePaneIsIneligible() async {
-        let localPane = TerminalPane(title: "local", workingDirectory: "/tmp/local")
+        let localPane = TerminalPane(title: "local", workingDirectory: "/tmp/local", executionPlan: .local)
         let remotePane = TerminalPane(
             title: "remote",
             workingDirectory: "/tmp/stale-local",
-            remoteHost: "buildbox"
+            remoteHost: "buildbox",
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "remote workspace",
@@ -263,6 +264,7 @@ private func makePathBarModel(
         gitStatus: nil,
         ciStatus: nil,
         remoteHost: nil,
+        executionPlan: .local,
         remoteConnectionHealth: .active
     )
 }

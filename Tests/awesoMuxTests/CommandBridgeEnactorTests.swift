@@ -1,6 +1,7 @@
 import AwesoMuxCore
 import Foundation
 import Testing
+
 @testable import awesoMux
 
 /// Full-lifecycle SEQUENCE coverage for ``CommandBridgeEnactor`` (INT-613): the
@@ -120,7 +121,8 @@ struct CommandBridgeEnactorTests {
         #expect(fixture.livePane == nil)
     }
 
-    @Test("a remote abnormal exit (dropped connection, non-zero code) latches error without closing")
+    @Test(
+        "a remote abnormal exit (dropped connection, non-zero code) latches error without closing")
     func remoteAbnormalShellExitLatchesErrorWithoutClosing() throws {
         let fixture = try makeRemoteFixture()
         let enactor = fixture.view.commandBridgeEnactor
@@ -155,7 +157,9 @@ struct CommandBridgeEnactorTests {
         #expect(enactor.statusChannel == nil)
     }
 
-    @Test("a remote-tagged pane whose attach command is unavailable never falls back to a local shell")
+    @Test(
+        "a remote-tagged pane whose attach command is unavailable never falls back to a local shell"
+    )
     func remoteUnavailableNeverSpawnsLocalShell() async throws {
         let fixture = try makeRemoteFixture()
 
@@ -183,7 +187,9 @@ struct CommandBridgeEnactorTests {
         #expect(pane.agentExecutionState == .error)
     }
 
-    @Test("a remote-tagged pane never falls back to a local shell when the bridge is globally disabled")
+    @Test(
+        "a remote-tagged pane never falls back to a local shell when the bridge is globally disabled"
+    )
     func remoteWithBridgeDisabledNeverSpawnsLocalShell() async throws {
         let fixture = try makeRemoteFixture(bridgeEnabled: false)
 
@@ -357,7 +363,8 @@ struct CommandBridgeEnactorTests {
         let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
         defer { try? FileManager.default.removeItem(at: channel.fileURL) }
         enactor.beginStatusWatch(channel: channel)
-        let event = try #require(Self.sessionEndEvent(
+        let event = try #require(
+            Self.sessionEndEvent(
             token: channel.token,
             terminalSessionID: fixture.sessionID,
             reason: .detached
@@ -485,7 +492,8 @@ struct CommandBridgeEnactorTests {
         enactor.beginStatusWatch(channel: channel)
         #expect(enactor.statusWatcher?.isArmed == true)
 
-        let event = try #require(Self.sessionEndEvent(
+        let event = try #require(
+            Self.sessionEndEvent(
             token: channel.token,
             terminalSessionID: fixture.sessionID,
             reason: reason,
@@ -532,20 +540,21 @@ struct CommandBridgeEnactorTests {
     // MARK: - Fixtures
 
     private func makeFixture() throws -> Fixture {
-        let sessionID = try #require(TerminalSessionID(
+        let sessionID = try #require(
+            TerminalSessionID(
             rawValue: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
         ))
         let pane = TerminalPane(
             terminalSessionID: sessionID,
             terminalBackendMetadata: establishedMetadata,
             title: "bridge",
-            workingDirectory: "/tmp/bridge"
-        )
+            workingDirectory: "/tmp/bridge", executionPlan: .local)
         return try makeFixture(sessionID: sessionID, pane: pane)
     }
 
     private func makeAgentFixture() throws -> Fixture {
-        let sessionID = try #require(TerminalSessionID(
+        let sessionID = try #require(
+            TerminalSessionID(
             rawValue: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         ))
         let pane = TerminalPane(
@@ -555,8 +564,7 @@ struct CommandBridgeEnactorTests {
             workingDirectory: "/tmp/agent",
             agentKind: .codex,
             agentExecutionState: .thinking,
-            attentionReason: .permissionPrompt
-        )
+            attentionReason: .permissionPrompt, executionPlan: .local)
         return try makeFixture(sessionID: sessionID, pane: pane)
     }
 
@@ -566,14 +574,18 @@ struct CommandBridgeEnactorTests {
     /// contrived one. `bridgeEnabled: false` models the global command-bridge
     /// toggle being off, which must still error rather than spawn a local shell.
     private func makeRemoteFixture(bridgeEnabled: Bool = true) throws -> Fixture {
-        let sessionID = try #require(TerminalSessionID(
+        let sessionID = try #require(
+            TerminalSessionID(
             rawValue: "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
         ))
         let pane = TerminalPane(
             terminalSessionID: sessionID,
             title: "remote",
-            workingDirectory: "/tmp"
-        )
+            workingDirectory: "/tmp",
+            executionPlan: .ssh(
+                SSHExecution(
+                    target: RemoteTarget(user: "ed", host: "example.invalid")!
+                )))
         let session = TerminalSession(
             title: "remote session",
             workingDirectory: pane.workingDirectory,
@@ -581,11 +593,13 @@ struct CommandBridgeEnactorTests {
             activePaneID: pane.id
         )
         let store = SessionStore(
-            groups: [SessionGroup(
+            groups: [
+                SessionGroup(
                 name: "remote group",
-                remote: RemoteTarget(user: "ed", host: "example.invalid"),
+                    remote: RemoteTarget(user: "ed", host: "example.invalid")!,
                 sessions: [session]
-            )],
+                )
+            ],
             selectedSessionID: session.id
         )
         let runtime = GhosttyRuntime(initialCommandBridgeEnabled: bridgeEnabled)

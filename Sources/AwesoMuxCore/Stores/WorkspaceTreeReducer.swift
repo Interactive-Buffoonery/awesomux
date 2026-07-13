@@ -21,19 +21,25 @@ struct WorkspaceTreeReducer: Sendable {
             syntheticTitle = generated
             resolvedTitle = generated.localizedTitle()
         }
+        let lookupKey = SessionStoreText.groupLookupKey(groupName)
+        let groupIndex = groups.firstIndex(where: {
+            SessionStoreText.groupLookupKey($0.name)
+                .caseInsensitiveCompare(lookupKey) == .orderedSame
+        })
+        let executionPlan =
+            groupIndex.flatMap { groups[$0].remote }
+            .map { PaneExecutionPlan.ssh(SSHExecution(target: $0)) }
+            ?? .local
         let session = TerminalSession(
             title: resolvedTitle,
             workingDirectory: workingDirectory ?? selectedSession?.workingDirectory ?? "~",
             syntheticTitle: syntheticTitle,
             agentKind: agentKind,
-            agentState: agentKind.initialSessionState
+            agentState: agentKind.initialSessionState,
+            executionPlan: executionPlan
         )
 
-        let lookupKey = SessionStoreText.groupLookupKey(groupName)
-        if let groupIndex = groups.firstIndex(where: {
-            SessionStoreText.groupLookupKey($0.name)
-                .caseInsensitiveCompare(lookupKey) == .orderedSame
-        }) {
+        if let groupIndex {
             groups[groupIndex].sessions.append(session)
         } else {
             groups.append(SessionGroup(name: lookupKey, sessions: [session]))
@@ -89,7 +95,11 @@ struct WorkspaceTreeReducer: Sendable {
             workingDirectory: workingDirectory ?? selectedSession?.workingDirectory ?? "~",
             syntheticTitle: syntheticTitle,
             agentKind: agentKind,
-            agentState: agentKind.initialSessionState
+            agentState: agentKind.initialSessionState,
+            executionPlan:
+                remote
+                .map { .ssh(SSHExecution(target: $0)) }
+                ?? .local
         )
 
         groups.append(SessionGroup(name: groupName, remote: remote, sessions: [session]))

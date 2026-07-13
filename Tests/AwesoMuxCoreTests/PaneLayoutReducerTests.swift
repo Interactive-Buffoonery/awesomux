@@ -6,8 +6,8 @@ import Testing
 struct PaneLayoutReducerTests {
     @Test("recycle replaces only the active pane and clears transient session state")
     func recycleReplacesActivePaneAndClearsState() throws {
-        let firstPane = TerminalPane(title: "one", workingDirectory: "/one")
-        let secondPane = TerminalPane(title: "two", workingDirectory: "/two")
+        let firstPane = TerminalPane(title: "one", workingDirectory: "/one", executionPlan: .local)
+        let secondPane = TerminalPane(title: "two", workingDirectory: "/two", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(firstPane),
@@ -46,7 +46,8 @@ struct PaneLayoutReducerTests {
             title: "agent",
             workingDirectory: "~",
             agentKind: .codex,
-            agentExecutionState: .done
+            agentExecutionState: .done,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "ws",
@@ -80,7 +81,8 @@ struct PaneLayoutReducerTests {
             title: "agent",
             workingDirectory: "~",
             agentKind: .codex,
-            agentExecutionState: .running
+            agentExecutionState: .running,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "ws",
@@ -103,7 +105,7 @@ struct PaneLayoutReducerTests {
     @Test("recycle mints the fresh pane with the reducer's now")
     func recycleThreadsNowIntoMintedPane() throws {
         let now = Date(timeIntervalSince1970: 250)
-        let active = TerminalPane(title: "shell", workingDirectory: "~", agentKind: .shell)
+        let active = TerminalPane(title: "shell", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let session = TerminalSession(
             title: "ws",
             workingDirectory: "~",
@@ -120,7 +122,7 @@ struct PaneLayoutReducerTests {
     @Test("recycle preserves the active pane's color on the recycled pane")
     func recyclePreservesPaneColor() throws {
         let now = Date(timeIntervalSince1970: 300)
-        var active = TerminalPane(title: "shell", workingDirectory: "~", agentKind: .shell)
+        var active = TerminalPane(title: "shell", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         active.color = .palette(.teal)
         let session = TerminalSession(
             title: "ws",
@@ -135,9 +137,41 @@ struct PaneLayoutReducerTests {
         #expect(recycled?.color == .palette(.teal))
     }
 
+    @Test("split and recycle preserve the active pane execution plan")
+    func paneCreationPreservesExecutionPlan() throws {
+        let target = RemoteTarget(user: "alice", host: "buildbox")!
+        let plan = PaneExecutionPlan.ssh(SSHExecution(target: target))
+        let pane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/srv/app",
+            executionPlan: plan
+        )
+        let session = TerminalSession(
+            title: "remote",
+            workingDirectory: "/srv/app",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        let split = try #require(
+            PaneLayoutReducer.splitActivePane(
+                in: session,
+                orientation: .vertical,
+                now: .now
+            ))
+        #expect(split.session.activePane?.executionPlan == plan)
+
+        let recycled = try #require(
+            PaneLayoutReducer.recycleActivePane(
+                in: split.session,
+                now: .now
+            ))
+        #expect(recycled.session.activePane?.executionPlan == plan)
+    }
+
     @Test("pwd updates clear sticky remote host while local-looking titles do not")
     func paneUpdatePreservesRemoteStickinessUntilPwd() throws {
-        let pane = TerminalPane(title: "alice@remote", workingDirectory: "~")
+        let pane = TerminalPane(title: "alice@remote", workingDirectory: "~", executionPlan: .local)
         var session = TerminalSession(
             title: "alice@remote",
             workingDirectory: "~",
@@ -183,7 +217,8 @@ struct PaneLayoutReducerTests {
             workingDirectory: "/work",
             agentKind: .claudeCode,
             agentExecutionState: .waiting,
-            attentionReason: .userInputRequired
+            attentionReason: .userInputRequired,
+            executionPlan: .local
         )
         // INT-609: progressReport is pane-scoped store state, not surface-scoped —
         // a fresh daemon incarnation must clear it or a stale progress bar from
@@ -219,7 +254,8 @@ struct PaneLayoutReducerTests {
             color: .palette(.teal),
             agentKind: .codex,
             agentExecutionState: .running,
-            attentionReason: .userInputRequired
+            attentionReason: .userInputRequired,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "ws",
@@ -248,7 +284,7 @@ struct PaneLayoutReducerTests {
 
     @Test("resetPaneAgentChromeToShell returns nil for unknown pane ID")
     func resetPaneAgentChromeToShellReturnsNilForUnknownPane() {
-        let pane = TerminalPane(title: "shell", workingDirectory: "/")
+        let pane = TerminalPane(title: "shell", workingDirectory: "/", executionPlan: .local)
         let session = TerminalSession(
             title: "ws",
             workingDirectory: "/",
@@ -270,7 +306,8 @@ struct PaneLayoutReducerTests {
             workingDirectory: "/work",
             agentKind: .claudeCode,
             agentExecutionState: .waiting,
-            attentionReason: .userInputRequired
+            attentionReason: .userInputRequired,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "ws",

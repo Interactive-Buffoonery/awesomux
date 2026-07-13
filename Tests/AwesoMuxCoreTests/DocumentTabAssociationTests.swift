@@ -7,8 +7,8 @@ import Testing
 // to dedup, per-tab across closes, and following a recycled pane's new id.
 @Suite struct DocumentTabAssociationTests {
     private func makeTwoTerminalSession() -> (session: TerminalSession, t1: TerminalPane, t2: TerminalPane) {
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp")
-        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp")
+        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp", executionPlan: .local)
+        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp", executionPlan: .local)
         var session = TerminalSession(
             title: "s",
             workingDirectory: "/tmp",
@@ -312,8 +312,8 @@ import Testing
     }
 
     @Test func documentSendTargetUsesLiveStoredAssociation() throws {
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp/one")
-        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp/two")
+        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp/one", executionPlan: .local)
+        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp/two", executionPlan: .local)
         let doc = DocumentPane(
             fileURL: URL(fileURLWithPath: "/tmp/a.md"),
             title: "a.md",
@@ -334,7 +334,7 @@ import Testing
     }
 
     @Test func documentSendTargetUsesDirectSiblingForNilAssociation() throws {
-        let terminal = TerminalPane(title: "t1", workingDirectory: "/tmp/one")
+        let terminal = TerminalPane(title: "t1", workingDirectory: "/tmp/one", executionPlan: .local)
         let doc = DocumentPane(
             fileURL: URL(fileURLWithPath: "/tmp/a.md"),
             title: "a.md",
@@ -351,8 +351,8 @@ import Testing
     }
 
     @Test func documentSendTargetFailsClosedForAmbiguousNilAssociationSibling() throws {
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp/one")
-        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp/two")
+        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp/one", executionPlan: .local)
+        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp/two", executionPlan: .local)
         let doc = DocumentPane(
             fileURL: URL(fileURLWithPath: "/tmp/a.md"),
             title: "a.md",
@@ -373,7 +373,7 @@ import Testing
     }
 
     @Test func documentSendTargetFailsClosedForStaleExplicitAssociation() throws {
-        let terminal = TerminalPane(title: "t1", workingDirectory: "/tmp/one")
+        let terminal = TerminalPane(title: "t1", workingDirectory: "/tmp/one", executionPlan: .local)
         let doc = DocumentPane(
             fileURL: URL(fileURLWithPath: "/tmp/a.md"),
             title: "a.md",

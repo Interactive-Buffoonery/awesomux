@@ -145,13 +145,15 @@ struct WorkspaceAttentionReducerTests {
             title: "codex",
             workingDirectory: "~",
             agentKind: .codex,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let sibling = TerminalPane(
             title: "claude",
             workingDirectory: "~",
             agentKind: .claudeCode,
-            attentionReason: .userInputRequired
+            attentionReason: .userInputRequired,
+            executionPlan: .local
         )
         var session = TerminalSession(
             title: "split",
@@ -204,8 +206,8 @@ struct WorkspaceAttentionReducerTests {
 
     @Test("recordPaneExitError lands the error on the named pane, not the active one")
     func paneErrorLandsOnNamedPane() throws {
-        let active = TerminalPane(title: "active", workingDirectory: "~", agentKind: .shell)
-        let dead = TerminalPane(title: "dead", workingDirectory: "~", agentKind: .codex)
+        let active = TerminalPane(title: "active", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
+        let dead = TerminalPane(title: "dead", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
         var session = TerminalSession(
             title: "split",
             workingDirectory: "~",
@@ -292,11 +294,13 @@ struct WorkspaceAttentionReducerTests {
     func acknowledgeAllClearsEveryPane() {
         let a = TerminalPane(
             title: "a", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt, unreadNotificationCount: 2
+            attentionReason: .permissionPrompt, unreadNotificationCount: 2,
+            executionPlan: .local
         )
         let b = TerminalPane(
             title: "b", workingDirectory: "~", agentKind: .claudeCode,
-            attentionReason: .userInputRequired, unreadNotificationCount: 1
+            attentionReason: .userInputRequired, unreadNotificationCount: 1,
+            executionPlan: .local
         )
         var groups = [SessionGroup(name: "main", sessions: [
             TerminalSession(
@@ -322,11 +326,13 @@ struct WorkspaceAttentionReducerTests {
     func acknowledgeAllPanesClearsEveryPaneInSession() {
         let a = TerminalPane(
             title: "a", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt, unreadNotificationCount: 2
+            attentionReason: .permissionPrompt, unreadNotificationCount: 2,
+            executionPlan: .local
         )
         let b = TerminalPane(
             title: "b", workingDirectory: "~", agentKind: .claudeCode,
-            attentionReason: .userInputRequired, unreadNotificationCount: 1
+            attentionReason: .userInputRequired, unreadNotificationCount: 1,
+            executionPlan: .local
         )
         var session = TerminalSession(
             title: "split",

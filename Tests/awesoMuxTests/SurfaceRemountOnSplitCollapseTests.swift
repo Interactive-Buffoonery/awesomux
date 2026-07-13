@@ -305,11 +305,13 @@ struct SurfaceRemountOnSplitCollapseTests {
     private func makeSplitFixture(deadPaneIsActive: Bool = false) throws -> SplitFixture {
         let deadPane = TerminalPane(
             title: "closing pane",
-            workingDirectory: "/tmp/dead"
+            workingDirectory: "/tmp/dead",
+            executionPlan: .local
         )
         let siblingPane = TerminalPane(
             title: "survivor",
-            workingDirectory: "/tmp/survivor"
+            workingDirectory: "/tmp/survivor",
+            executionPlan: .local
         )
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,

@@ -102,8 +102,9 @@ an addition on top.
 
 - **Host aliases / `RemoteTarget`.** A `RemoteTarget` is `{user, host}` parsed
   permissively from `user@host` (split on the last `@`; user optional). It is
-  **declared configuration, not a secret** — persisted in the workspace snapshot
-  as group state, distinct from the disposable, title-derived
+  **declared configuration, not a secret**. It is persisted in each pane's
+  `PaneExecutionPlan`; group state remains the creation default and legacy
+  migration source, not runtime authority. Both are distinct from the disposable, title-derived
   `TerminalPane.remoteHost` detection signal ([ADR-0021](0021-remote-markdown-uses-submitted-ssh-target.md)).
   awesoMux does not resolve, validate, or expand the host; `ssh` and the user's
   `~/.ssh/config` are the sole authority on what it means and whether it

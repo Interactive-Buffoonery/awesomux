@@ -36,6 +36,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
     /// suppresses every local-only affordance — the cwd/git state is the stale
     /// LOCAL machine's and must not be acted on.
     var remoteHost: String?
+    var executionPlan: PaneExecutionPlan
     /// Runtime-only remote connection health for the active pane.
     var remoteConnectionHealth: RemoteConnectionHealth
 
@@ -62,6 +63,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
         gitStatus: nil,
         ciStatus: nil,
         remoteHost: nil,
+        executionPlan: .local,
         remoteConnectionHealth: .active
     )
 
@@ -72,10 +74,16 @@ struct TerminalPathBarModel: Equatable, Sendable {
         session: TerminalSession,
         homeDirectory: URL = TerminalPathBarModel.defaultHomeDirectory
     ) -> TerminalPathBarModel {
-        let pane = session.activePane ?? TerminalPane(
-            title: session.title,
-            workingDirectory: session.workingDirectory
-        )
+        let pane =
+            session.activePane
+            ?? TerminalPane(
+                title: session.title,
+                workingDirectory: session.workingDirectory,
+                executionPlan: .local
+            )
+        if let remoteModel = remoteModel(for: pane) {
+            return remoteModel
+        }
         let info = PathInfo(previewing: pane.workingDirectory, homeDirectory: homeDirectory)
         return TerminalPathBarModel(
             project: info.project,
@@ -91,6 +99,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
             gitStatus: nil,
             ciStatus: nil,
             remoteHost: pane.remoteHost,
+            executionPlan: pane.executionPlan,
             remoteConnectionHealth: pane.remoteConnectionHealth
         )
     }
@@ -102,10 +111,16 @@ struct TerminalPathBarModel: Equatable, Sendable {
         fileManager: FileManager = .default,
         homeDirectory: URL = TerminalPathBarModel.defaultHomeDirectory
     ) -> TerminalPathBarModel {
-        let pane = session.activePane ?? TerminalPane(
-            title: session.title,
-            workingDirectory: session.workingDirectory
-        )
+        let pane =
+            session.activePane
+            ?? TerminalPane(
+                title: session.title,
+                workingDirectory: session.workingDirectory,
+                executionPlan: .local
+            )
+        if let remoteModel = remoteModel(for: pane) {
+            return remoteModel
+        }
         let pathInfo = PathInfo(
             workingDirectory: pane.workingDirectory,
             fallbackProject: session.title,
@@ -127,6 +142,30 @@ struct TerminalPathBarModel: Equatable, Sendable {
             gitStatus: nil,
             ciStatus: nil,
             remoteHost: pane.remoteHost,
+            executionPlan: pane.executionPlan,
+            remoteConnectionHealth: pane.remoteConnectionHealth
+        )
+    }
+
+    private static func remoteModel(for pane: TerminalPane) -> TerminalPathBarModel? {
+        guard let target = pane.executionPlan.remoteTarget else { return nil }
+        let rawPath = pane.workingDirectory.trimmingCharacters(in: .newlines)
+        let displayPath = rawPath.isEmpty ? "~" : rawPath
+        return TerminalPathBarModel(
+            project: (displayPath as NSString).lastPathComponent,
+            path: displayPath,
+            activePaneTitle: TerminalAccessibilityPathFormatter.sanitizedForSpeech(pane.title),
+            branch: nil,
+            revealURL: nil,
+            copyPath: displayPath,
+            repoRootPath: nil,
+            validatedRepoRootPath: nil,
+            gitBranch: nil,
+            pullRequest: nil,
+            gitStatus: nil,
+            ciStatus: nil,
+            remoteHost: pane.remoteHost ?? target.sshDestination,
+            executionPlan: pane.executionPlan,
             remoteConnectionHealth: pane.remoteConnectionHealth
         )
     }

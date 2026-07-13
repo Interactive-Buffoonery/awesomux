@@ -40,7 +40,7 @@ struct FloatingPanelRetainedPaneIDTests {
     }
 
     private func makeSingleSession(title: String) -> SessionFixture {
-        let pane = TerminalPane(title: "\(title) pane", workingDirectory: "/tmp/\(title)")
+        let pane = TerminalPane(title: "\(title) pane", workingDirectory: "/tmp/\(title)", executionPlan: .local)
         let session = TerminalSession(
             title: title,
             workingDirectory: pane.workingDirectory,
@@ -51,8 +51,8 @@ struct FloatingPanelRetainedPaneIDTests {
     }
 
     private func makeSplitSession(title: String) -> SessionFixture {
-        let first = TerminalPane(title: "\(title) first", workingDirectory: "/tmp/\(title)-1")
-        let second = TerminalPane(title: "\(title) second", workingDirectory: "/tmp/\(title)-2")
+        let first = TerminalPane(title: "\(title) first", workingDirectory: "/tmp/\(title)-1", executionPlan: .local)
+        let second = TerminalPane(title: "\(title) second", workingDirectory: "/tmp/\(title)-2", executionPlan: .local)
         let session = TerminalSession(
             title: title,
             workingDirectory: first.workingDirectory,
@@ -67,9 +67,9 @@ struct FloatingPanelRetainedPaneIDTests {
     }
 
     private func makeNestedSplitSession(title: String) -> SessionFixture {
-        let first = TerminalPane(title: "\(title) first", workingDirectory: "/tmp/\(title)-1")
-        let second = TerminalPane(title: "\(title) second", workingDirectory: "/tmp/\(title)-2")
-        let third = TerminalPane(title: "\(title) third", workingDirectory: "/tmp/\(title)-3")
+        let first = TerminalPane(title: "\(title) first", workingDirectory: "/tmp/\(title)-1", executionPlan: .local)
+        let second = TerminalPane(title: "\(title) second", workingDirectory: "/tmp/\(title)-2", executionPlan: .local)
+        let third = TerminalPane(title: "\(title) third", workingDirectory: "/tmp/\(title)-3", executionPlan: .local)
         let session = TerminalSession(
             title: title,
             workingDirectory: first.workingDirectory,

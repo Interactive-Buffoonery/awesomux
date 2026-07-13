@@ -315,20 +315,20 @@ struct QuitRiskTests {
 
     @Test("a live foreground process makes an idle-exec pane a quit risk")
     func liveForegroundProcessIsRisk() {
-        var pane = TerminalPane(title: "claude", workingDirectory: "~", agentKind: .claudeCode)
+        var pane = TerminalPane(title: "claude", workingDirectory: "~", agentKind: .claudeCode, executionPlan: .local)
         pane.agentExecutionState = .idle
         pane.foregroundProcessLiveness = .liveCommand
         #expect(pane.isQuitRisk())
 
-        var idle = TerminalPane(title: "zsh", workingDirectory: "~", agentKind: .shell)
+        var idle = TerminalPane(title: "zsh", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         idle.foregroundProcessLiveness = .idleShell
         #expect(!idle.isQuitRisk())
 
-        var bg = TerminalPane(title: "zsh", workingDirectory: "~", agentKind: .shell)
+        var bg = TerminalPane(title: "zsh", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         bg.foregroundProcessLiveness = .busyShell
         #expect(bg.isQuitRisk())
 
-        var bridged = TerminalPane(title: "zsh", workingDirectory: "~", agentKind: .shell)
+        var bridged = TerminalPane(title: "zsh", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         bridged.foregroundProcessLiveness = .bridged
         bridged.needsTerminalQuitConfirmation = true   // even away-from-prompt
         #expect(!bridged.isQuitRisk())

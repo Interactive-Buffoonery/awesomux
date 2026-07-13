@@ -15,9 +15,9 @@ struct RemotePaneDisconnectedContent {
 
     /// - Parameters:
     ///   - state: the latched pane's `remoteReconnect` value.
-    ///   - liveTarget: `sessionStore.remoteTarget(forSessionID:)` read fresh at
-    ///     render time — may differ from (or be nil vs) the target captured in
-    ///     `state` if the session moved groups while latched.
+    ///   - liveTarget: the pane's durable execution target read fresh at render
+    ///     time. It may differ from the target captured in `state` after an
+    ///     explicit pane retarget operation.
     static func make(state: RemoteReconnectState, liveTarget: RemoteTarget?) -> Self {
         let captured = state.context.target
         let buttonEnabled: Bool

@@ -36,7 +36,7 @@ struct AmxBackendAttachCommandTests {
             executablePath: "/opt/awesomux/amx",
             sessionID: id,
             socketDirectory: "/tmp/amx",
-            remote: RemoteTarget(user: "alice", host: "box")
+                remote: RemoteTarget(user: "alice", host: "box")!
         ))
         #expect(command.contains("attach"))
         #expect(command.contains("ssh"))

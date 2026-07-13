@@ -432,13 +432,15 @@ struct CommandBridgeRuntimeDeathHealViewTests {
             terminalSessionID: deadSessionID,
             terminalBackendMetadata: establishedMetadata,
             title: "dead daemon",
-            workingDirectory: "/tmp/dead"
+            workingDirectory: "/tmp/dead",
+            executionPlan: .local
         )
         let siblingPane = TerminalPane(
             terminalSessionID: siblingSessionID,
             terminalBackendMetadata: establishedMetadata,
             title: "sibling",
-            workingDirectory: "/tmp/sibling"
+            workingDirectory: "/tmp/sibling",
+            executionPlan: .local
         )
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
@@ -477,7 +479,8 @@ struct CommandBridgeRuntimeDeathHealViewTests {
             workingDirectory: "/tmp/agent",
             agentKind: .codex,
             agentExecutionState: .thinking,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "agent",

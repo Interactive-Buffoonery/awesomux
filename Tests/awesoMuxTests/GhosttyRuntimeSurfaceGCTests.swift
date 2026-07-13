@@ -58,8 +58,8 @@ struct GhosttyRuntimeSurfaceGCTests {
     }
 
     private func makeFixture() -> Fixture {
-        let retainedPane = TerminalPane(title: "retained", workingDirectory: "/tmp/retained")
-        let stalePane = TerminalPane(title: "stale", workingDirectory: "/tmp/stale")
+        let retainedPane = TerminalPane(title: "retained", workingDirectory: "/tmp/retained", executionPlan: .local)
+        let stalePane = TerminalPane(title: "stale", workingDirectory: "/tmp/stale", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(retainedPane),

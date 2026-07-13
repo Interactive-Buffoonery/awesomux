@@ -56,6 +56,16 @@ struct TerminalPathBarView: View {
 
     var body: some View {
         content
+            .onChange(of: PathBarExecutionAnnouncementState(pane: session.activePane)) {
+                previous, current in
+                guard
+                    let message = PathBarExecutionAnnouncement.message(
+                        from: previous,
+                        to: current
+                    )
+                else { return }
+                TerminalAccessibilityAnnouncer.announce(message)
+            }
             // The model walks the filesystem and reads git state. That work must
             // never run on the render path (it would beachball under a chatty
             // PTY on a slow/network volume), so it runs in a detached task keyed
@@ -145,6 +155,7 @@ struct TerminalPathBarView: View {
                 // on an ACTUAL change so a same-pane title spinner (INT-523) doesn't
                 // re-invalidate the view on every OSC title tick.
                 let activeHost = session.activePane?.remoteHost
+                let activeExecutionPlan = session.activePane?.executionPlan ?? .local
                 let activeHealth = session.activePane?.remoteConnectionHealth ?? .active
                 if model.remoteHost != activeHost { model.remoteHost = activeHost }
                 if model.remoteConnectionHealth != activeHealth {
@@ -160,6 +171,7 @@ struct TerminalPathBarView: View {
                     activePaneID: activePaneID,
                     workingDirectory: session.activePane?.workingDirectory
                         ?? session.workingDirectory,
+                    executionPlan: activeExecutionPlan,
                     remoteHost: activeHost,
                     remoteConnectionHealth: activeHealth,
                     isActive: controlActiveState != .inactive
@@ -170,7 +182,7 @@ struct TerminalPathBarView: View {
                 // discarded — skip them entirely (title churn over SSH would repeat
                 // the work). The remote indicator renders from model.remoteHost. Clear
                 // chips only when set, for the same no-churn reason as the flip above.
-                if activeHost != nil {
+                if activeExecutionPlan.remoteTarget != nil {
                     if model.pullRequest != nil { model.pullRequest = nil }
                     if model.gitStatus != nil { model.gitStatus = nil }
                     if model.ciStatus != nil { model.ciStatus = nil }
@@ -318,6 +330,7 @@ struct TerminalPathBarView: View {
             paneTitle: pane?.title ?? session.title,
             fallbackProject: session.title,
             isActive: controlActiveState != .inactive,
+            executionPlan: pane?.executionPlan ?? .local,
             remoteHost: pane?.remoteHost,
             remoteConnectionHealth: pane?.remoteConnectionHealth ?? .active
         )
@@ -377,7 +390,10 @@ struct TerminalPathBarView: View {
     }
 
     private var canOpenInIDE: Bool {
-        isOpenInIDEEnabled && model.remoteHost == nil && model.revealURL != nil
+        isOpenInIDEEnabled
+            && ExecutionContext(plan: model.executionPlan)
+                .capability(.inspectLocalFilesystem).isAllowed
+            && model.revealURL != nil
     }
 
     private var content: some View {
@@ -894,6 +910,10 @@ struct TerminalPathBarView: View {
     }
 
     private func revealInFinder(_ revealURL: URL) {
+        guard
+            ExecutionContext(plan: model.executionPlan)
+                .capability(.revealInFinder).isAllowed
+        else { return }
         NSWorkspace.shared.activateFileViewerSelecting([revealURL])
     }
 

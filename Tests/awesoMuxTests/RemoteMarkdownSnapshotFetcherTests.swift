@@ -10,7 +10,8 @@ struct RemoteMarkdownReferenceTests {
             title: "alice@devbox:/repo",
             workingDirectory: "/local",
             remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox:/repo"
+            liveTerminalTitle: "alice@devbox:/repo",
+            executionPlan: .local
         )
 
         let reference = try #require(RemoteMarkdownReference.make(
@@ -34,7 +35,8 @@ struct RemoteMarkdownReferenceTests {
             title: "alice@devbox:/repo",
             workingDirectory: "/local",
             remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox:/repo"
+            liveTerminalTitle: "alice@devbox:/repo",
+            executionPlan: .local
         )
 
         #expect(RemoteMarkdownReference.isPotentialPayload("/repo/README.md."))
@@ -53,7 +55,8 @@ struct RemoteMarkdownReferenceTests {
             workingDirectory: "/local",
             remoteHost: "devbox",
             remoteSSHTarget: "my-purple",
-            liveTerminalTitle: "alice@devbox:/repo"
+            liveTerminalTitle: "alice@devbox:/repo",
+            executionPlan: .local
         )
 
         let reference = try #require(RemoteMarkdownReference.make(
@@ -70,7 +73,8 @@ struct RemoteMarkdownReferenceTests {
             title: "alice@devbox:~/repo",
             workingDirectory: "/local",
             remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox:~/repo"
+            liveTerminalTitle: "alice@devbox:~/repo",
+            executionPlan: .local
         )
 
         let reference = try #require(RemoteMarkdownReference.make(
@@ -87,7 +91,8 @@ struct RemoteMarkdownReferenceTests {
             workingDirectory: "/local",
             remoteHost: "devbox",
             remoteWorkingDirectory: "~/repo",
-            liveTerminalTitle: "codex"
+            liveTerminalTitle: "codex",
+            executionPlan: .local
         )
 
         let reference = try #require(RemoteMarkdownReference.make(
@@ -103,7 +108,8 @@ struct RemoteMarkdownReferenceTests {
             title: "ed@[2001:db8::1]:~/repo",
             workingDirectory: "/local",
             remoteHost: "[2001:db8::1]",
-            liveTerminalTitle: "ed@[2001:db8::1]:~/repo"
+            liveTerminalTitle: "ed@[2001:db8::1]:~/repo",
+            executionPlan: .local
         )
 
         let reference = try #require(RemoteMarkdownReference.make(
@@ -120,7 +126,8 @@ struct RemoteMarkdownReferenceTests {
             title: "ed@devbox - Mail",
             workingDirectory: "/local",
             remoteHost: "devbox",
-            liveTerminalTitle: "ed@devbox - Mail"
+            liveTerminalTitle: "ed@devbox - Mail",
+            executionPlan: .local
         )
 
         let reference = try #require(RemoteMarkdownReference.make(
@@ -136,7 +143,8 @@ struct RemoteMarkdownReferenceTests {
             title: "alice@devbox",
             workingDirectory: "/local",
             remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox"
+            liveTerminalTitle: "alice@devbox",
+            executionPlan: .local
         )
 
         #expect(RemoteMarkdownReference.make(payload: "docs/plan.md", pane: pane) == nil)
@@ -147,7 +155,8 @@ struct RemoteMarkdownReferenceTests {
             title: "alice@devbox:/repo",
             workingDirectory: "/local",
             remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox:/repo"
+            liveTerminalTitle: "alice@devbox:/repo",
+            executionPlan: .local
         )
 
         #expect(RemoteMarkdownReference.make(payload: "/repo/script.sh", pane: pane) == nil)
@@ -162,7 +171,8 @@ struct RemoteMarkdownReferenceTests {
             title: "-i@devbox:/repo",
             workingDirectory: "/local",
             remoteHost: "devbox",
-            liveTerminalTitle: "-i@devbox:/repo"
+            liveTerminalTitle: "-i@devbox:/repo",
+            executionPlan: .local
         )
 
         #expect(RemoteMarkdownReference.make(payload: "/repo/README.md", pane: pane) == nil)
@@ -173,7 +183,8 @@ struct RemoteMarkdownReferenceTests {
             title: "alice@devbox:/repo",
             workingDirectory: "/local",
             remoteHost: "devbox",
-            liveTerminalTitle: "alice@devbox:/repo"
+            liveTerminalTitle: "alice@devbox:/repo",
+            executionPlan: .local
         )
 
         let reference = try #require(RemoteMarkdownReference.make(

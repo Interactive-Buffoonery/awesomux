@@ -7,7 +7,7 @@ struct RecentlyClosedWorkspaceReducerTests {
     @Test("reopen preserves structured synthetic title metadata")
     func reopenPreservesSyntheticTitleMetadata() throws {
         let groupID = UUID()
-        let pane = TerminalPane(title: "shell", workingDirectory: "/work")
+        let pane = TerminalPane(title: "shell", workingDirectory: "/work", executionPlan: .local)
         let syntheticTitle = SyntheticSessionTitle(agentKind: .shell, index: 4)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -42,7 +42,7 @@ struct RecentlyClosedWorkspaceReducerTests {
     func reopenReallocatesCollidingSyntheticTitleMetadata() throws {
         let groupID = UUID()
         let reusedTitle = SyntheticSessionTitle(agentKind: .shell, index: 2)
-        let closedPane = TerminalPane(title: "shell", workingDirectory: "/closed")
+        let closedPane = TerminalPane(title: "shell", workingDirectory: "/closed", executionPlan: .local)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: reusedTitle.canonicalTitle,
@@ -90,7 +90,7 @@ struct RecentlyClosedWorkspaceReducerTests {
     @Test("reopen picks newest tier, drains twins, mints a fresh session id, preserves the pane id")
     func reopenPicksNewestTierAndRemapsIDs() throws {
         let groupID = UUID()
-        let pane = TerminalPane(title: "pane", workingDirectory: "/work")
+        let pane = TerminalPane(title: "pane", workingDirectory: "/work", executionPlan: .local)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "workspace",
@@ -135,7 +135,8 @@ struct RecentlyClosedWorkspaceReducerTests {
             terminalSessionID: sessionID,
             terminalBackendMetadata: metadata,
             title: "pane",
-            workingDirectory: "/work"
+            workingDirectory: "/work",
+            executionPlan: .local
         )
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -182,13 +183,15 @@ struct RecentlyClosedWorkspaceReducerTests {
             terminalSessionID: firstID,
             terminalBackendMetadata: firstMeta,
             title: "a",
-            workingDirectory: "/a"
+            workingDirectory: "/a",
+            executionPlan: .local
         )
         let second = TerminalPane(
             terminalSessionID: secondID,
             terminalBackendMetadata: secondMeta,
             title: "b",
-            workingDirectory: "/b"
+            workingDirectory: "/b",
+            executionPlan: .local
         )
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -237,13 +240,15 @@ struct RecentlyClosedWorkspaceReducerTests {
             terminalSessionID: dup,
             terminalBackendMetadata: TerminalBackendMetadata(rawValue: "a"),
             title: "a",
-            workingDirectory: "/a"
+            workingDirectory: "/a",
+            executionPlan: .local
         )
         let second = TerminalPane(
             terminalSessionID: dup,
             terminalBackendMetadata: TerminalBackendMetadata(rawValue: "b"),
             title: "b",
-            workingDirectory: "/b"
+            workingDirectory: "/b",
+            executionPlan: .local
         )
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -294,7 +299,8 @@ struct RecentlyClosedWorkspaceReducerTests {
         let livePane = TerminalPane(
             terminalSessionID: sharedID,
             title: "live",
-            workingDirectory: "/live"
+            workingDirectory: "/live",
+            executionPlan: .local
         )
         let liveSession = TerminalSession(
             title: "live",
@@ -306,7 +312,8 @@ struct RecentlyClosedWorkspaceReducerTests {
             terminalSessionID: sharedID,
             terminalBackendMetadata: TerminalBackendMetadata(rawValue: "stale"),
             title: "closed",
-            workingDirectory: "/closed"
+            workingDirectory: "/closed",
+            executionPlan: .local
         )
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -345,7 +352,7 @@ struct RecentlyClosedWorkspaceReducerTests {
         // file. The reopened twin must NOT keep it, or two panes would watch one
         // event file (mirrors restore's pane-id dedup).
         let sharedPaneID = UUID()
-        let livePane = TerminalPane(id: sharedPaneID, title: "live", workingDirectory: "/live")
+        let livePane = TerminalPane(id: sharedPaneID, title: "live", workingDirectory: "/live", executionPlan: .local)
         let liveSession = TerminalSession(
             title: "live",
             workingDirectory: "/live",
@@ -363,7 +370,8 @@ struct RecentlyClosedWorkspaceReducerTests {
             terminalSessionID: uniqueDaemon,
             terminalBackendMetadata: TerminalBackendMetadata(rawValue: "stale"),
             title: "closed",
-            workingDirectory: "/closed"
+            workingDirectory: "/closed",
+            executionPlan: .local
         )
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -433,8 +441,8 @@ struct RecentlyClosedWorkspaceReducerTests {
 
     @Test("reopen recreates a deleted remote group with its SSH target (INT-773)")
     func reopenRecreatesDeletedRemoteGroupWithTarget() throws {
-        let target = RemoteTarget(user: "ed", host: "pi")
-        let pane = TerminalPane(title: "pane", workingDirectory: "~")
+        let target = RemoteTarget(user: "ed", host: "pi")!
+        let pane = TerminalPane(title: "pane", workingDirectory: "~", executionPlan: .local)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "workspace",
@@ -472,7 +480,7 @@ struct RecentlyClosedWorkspaceReducerTests {
         // been de-tagged (or re-tagged) — the live group is authoritative, the
         // stale capture must not overwrite it.
         let groupID = UUID()
-        let pane = TerminalPane(title: "pane", workingDirectory: "~")
+        let pane = TerminalPane(title: "pane", workingDirectory: "~", executionPlan: .local)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "workspace",
@@ -482,7 +490,7 @@ struct RecentlyClosedWorkspaceReducerTests {
             activePaneID: pane.id,
             groupID: groupID,
             groupName: "group",
-            groupRemote: RemoteTarget(user: "ed", host: "old-host"),
+            groupRemote: RemoteTarget(user: "ed", host: "old-host")!,
             indexInGroup: 0,
             closedAt: Date(timeIntervalSince1970: 10)
         )
@@ -507,8 +515,8 @@ struct RecentlyClosedWorkspaceReducerTests {
         // re-local-ize the session (the INT-773 bug through the side door),
         // and a duplicate name breaks name-keyed session routing — so the
         // recreated group must disambiguate, mirroring the restore path.
-        let target = RemoteTarget(user: "ed", host: "pi")
-        let pane = TerminalPane(title: "pane", workingDirectory: "~")
+        let target = RemoteTarget(user: "ed", host: "pi")!
+        let pane = TerminalPane(title: "pane", workingDirectory: "~", executionPlan: .local)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "workspace",
@@ -552,10 +560,10 @@ struct RecentlyClosedWorkspaceReducerTests {
         // group's ID), the sibling entry folds into it — never a "staging 3",
         // and its own captured target is deliberately discarded in favor of
         // the recreated group's.
-        let target = RemoteTarget(user: "ed", host: "pi")
+        let target = RemoteTarget(user: "ed", host: "pi")!
         let deadGroupID = UUID()
         func entry(_ title: String, closedAt: TimeInterval) -> RecentlyClosedWorkspace {
-            let pane = TerminalPane(title: title, workingDirectory: "~")
+            let pane = TerminalPane(title: title, workingDirectory: "~", executionPlan: .local)
             return RecentlyClosedWorkspace(
                 sessionID: UUID(),
                 title: title,
@@ -592,7 +600,7 @@ struct RecentlyClosedWorkspaceReducerTests {
 
     @Test("captureDecision records the owning group's SSH target")
     func captureRecordsGroupRemote() {
-        let target = RemoteTarget(user: "ed", host: "pi")
+        let target = RemoteTarget(user: "ed", host: "pi")!
         let session = TerminalSession(title: "ws", workingDirectory: "~")
         let group = SessionGroup(name: "remote group", remote: target, sessions: [session])
 
@@ -608,7 +616,7 @@ struct RecentlyClosedWorkspaceReducerTests {
 
     @Test("entries without a groupRemote key decode with nil (pre-fix snapshots)")
     func legacyEntryDecodesWithoutGroupRemote() throws {
-        let pane = TerminalPane(title: "pane", workingDirectory: "~")
+        let pane = TerminalPane(title: "pane", workingDirectory: "~", executionPlan: .local)
         let modern = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "workspace",
@@ -618,7 +626,7 @@ struct RecentlyClosedWorkspaceReducerTests {
             activePaneID: pane.id,
             groupID: UUID(),
             groupName: "group",
-            groupRemote: RemoteTarget(user: "ed", host: "pi"),
+            groupRemote: RemoteTarget(user: "ed", host: "pi")!,
             indexInGroup: 0,
             closedAt: Date(timeIntervalSince1970: 10)
         )
@@ -636,12 +644,12 @@ struct RecentlyClosedWorkspaceReducerTests {
 
     private static func deepLayout(depth: Int) -> TerminalPaneLayout {
         guard depth > 1 else {
-            return .pane(TerminalPane(title: "leaf", workingDirectory: "~"))
+            return .pane(TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local))
         }
         return .split(TerminalSplit(
             orientation: .vertical,
             first: deepLayout(depth: depth - 1),
-            second: .pane(TerminalPane(title: "leaf", workingDirectory: "~"))
+                second: .pane(TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local))
         ))
     }
 }
