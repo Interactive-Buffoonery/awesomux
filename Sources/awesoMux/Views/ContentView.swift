@@ -232,8 +232,10 @@ struct ContentView: View {
             )
         }
         peekModel.onSelectGroupSession = { [weak peekModel] sessionID in
-            guard let live = sessionStore.session(id: sessionID) else {
-                peekModel?.hideGroup(for: sessionID)
+            guard sessionStore.session(id: sessionID) != nil else {
+                if let groupID = peekModel?.group?.id {
+                    peekModel?.hideGroup(for: groupID)
+                }
                 return
             }
             sessionStore.selectedSessionID = sessionID
