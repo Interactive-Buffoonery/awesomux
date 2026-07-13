@@ -398,6 +398,18 @@ extension TerminalSession: Codable {
             layout: layout,
             activePaneID: activePaneID
         )
+
+        // A true v1 session has no layout key. The memberwise initializer must
+        // synthesize a pane for it, but that pane's default local plan is not
+        // persisted evidence: restore still needs to inherit the group's
+        // legacy remote target.
+        if layout == nil, var synthesizedPane = activePane {
+            synthesizedPane.hasExplicitExecutionPlan = false
+            self.layout = self.layout.replacingPane(
+                id: synthesizedPane.id,
+                with: .pane(synthesizedPane)
+            ) ?? self.layout
+        }
     }
 
     public func encode(to encoder: Encoder) throws {

@@ -48,7 +48,7 @@ struct BridgeSurfaceCommandPolicyTests {
     func remoteGroupWithNoAttachCommandIsUnavailableNotLocalShell() {
         let remotePlan = PaneExecutionPlan.ssh(
             SSHExecution(
-                target: RemoteTarget(user: "ed", host: "box")
+                target: RemoteTarget(user: "ed", host: "box")!
             ))
         #expect(
             BridgeSurfaceCommandPolicy.command(
@@ -70,7 +70,7 @@ struct BridgeSurfaceCommandPolicyTests {
     func remoteGroupWithBridgeDisabledIsUnavailableNotLocalShell() {
         let remotePlan = PaneExecutionPlan.ssh(
             SSHExecution(
-                target: RemoteTarget(user: "ed", host: "box")
+                target: RemoteTarget(user: "ed", host: "box")!
             ))
         // A disabled bridge means no `amx attach`, so a remote group has no
         // way to reach its host — it must error, not silently spawn a local

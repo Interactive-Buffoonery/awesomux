@@ -85,7 +85,7 @@ struct TerminalPathBarModelTests {
 
     @Test("declared SSH panes never probe the local filesystem")
     func declaredSSHSkipsLocalFilesystem() {
-        let target = RemoteTarget(user: "alice", host: "buildbox")
+        let target = RemoteTarget(user: "alice", host: "buildbox")!
         let pane = TerminalPane(
             title: "remote",
             workingDirectory: "/srv/app",
@@ -121,6 +121,46 @@ struct TerminalPathBarModelTests {
                 == "Network changed; this SSH session may be disconnected until SSH recovers or reports failure."
         )
         #expect(copy.accessibilityHint == copy.help)
+    }
+
+    @Test("execution-location changes produce concise VoiceOver announcements")
+    func executionLocationAnnouncements() {
+        let local = PathBarExecutionAnnouncementState.local
+        let remote = PathBarExecutionAnnouncementState.remote(
+            host: "buildbox",
+            health: .active
+        )
+
+        #expect(
+            PathBarExecutionAnnouncement.message(from: local, to: remote)
+                == "Pane now runs on buildbox."
+        )
+        #expect(
+            PathBarExecutionAnnouncement.message(from: remote, to: local)
+                == "Pane now runs locally."
+        )
+    }
+
+    @Test("remote-health changes produce VoiceOver announcements")
+    func remoteHealthAnnouncements() {
+        let active = PathBarExecutionAnnouncementState.remote(
+            host: "buildbox",
+            health: .active
+        )
+        let stale = PathBarExecutionAnnouncementState.remote(
+            host: "buildbox",
+            health: .possiblyStale
+        )
+
+        #expect(
+            PathBarExecutionAnnouncement.message(from: active, to: stale)
+                == "Connection to buildbox may be stale."
+        )
+        #expect(
+            PathBarExecutionAnnouncement.message(from: stale, to: active)
+                == "Connection to buildbox is active."
+        )
+        #expect(PathBarExecutionAnnouncement.message(from: active, to: active) == nil)
     }
 
     @Test("repo subdirectory displays path relative to repo root")

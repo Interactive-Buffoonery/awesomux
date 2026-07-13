@@ -32,7 +32,7 @@ public enum BridgeSurfaceCommandPolicy {
         executionPlan: PaneExecutionPlan = .local
     ) -> BridgeSurfaceCommand {
         if bridgeEnabled, attachCommandAvailable { return .bridgeAttach }
-        // `isRemote` wins regardless of `bridgeEnabled`: a remote-tagged group
+        // A remote execution plan wins regardless of `bridgeEnabled`: a pane
         // with no usable attach command (bridge off, or `amx` missing) must
         // error, never silently spawn a local shell that looks like the host.
         let context = ExecutionContext(plan: executionPlan)

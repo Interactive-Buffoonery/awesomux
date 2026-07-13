@@ -75,7 +75,7 @@ struct TerminalPathBarResolvePolicyTests {
 
     @Test("execution-plan flip walks immediately before shell observation")
     func executionPlanFlip() {
-        let target = RemoteTarget(user: "", host: "webserver")
+        let target = RemoteTarget(user: "", host: "webserver")!
         #expect(
             TerminalPathBarResolvePolicy.classify(
                 previous: inputs(executionPlan: .local),

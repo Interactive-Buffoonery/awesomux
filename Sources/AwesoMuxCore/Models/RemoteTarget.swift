@@ -7,7 +7,8 @@ public struct RemoteTarget: Equatable, Hashable, Sendable {
     public var user: String
     public var host: String
 
-    public init(user: String, host: String) {
+    public init?(user: String, host: String) {
+        guard !host.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         self.user = user
         self.host = host
     }
@@ -22,9 +23,11 @@ public struct RemoteTarget: Equatable, Hashable, Sendable {
         if let at = trimmed.lastIndex(of: "@") {
             let host = String(trimmed[trimmed.index(after: at)...])
             guard !host.isEmpty else { return nil }
-            self.init(user: String(trimmed[..<at]), host: host)
+            guard let target = Self(user: String(trimmed[..<at]), host: host) else { return nil }
+            self = target
         } else {
-            self.init(user: "", host: trimmed)
+            guard let target = Self(user: "", host: trimmed) else { return nil }
+            self = target
         }
     }
 
@@ -45,14 +48,14 @@ extension RemoteTarget: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let user = try container.decode(String.self, forKey: .user)
         let host = try container.decode(String.self, forKey: .host)
-        guard !host.trimmingCharacters(in: .whitespaces).isEmpty else {
+        guard let target = Self(user: user, host: host) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .host,
                 in: container,
                 debugDescription: "A remote target host cannot be empty."
             )
         }
-        self.init(user: user, host: host)
+        self = target
     }
 
     public func encode(to encoder: Encoder) throws {

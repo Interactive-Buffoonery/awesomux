@@ -142,7 +142,7 @@ struct PaneLayoutReducerTests {
 
     @Test("split and recycle preserve the active pane execution plan")
     func paneCreationPreservesExecutionPlan() throws {
-        let target = RemoteTarget(user: "alice", host: "buildbox")
+        let target = RemoteTarget(user: "alice", host: "buildbox")!
         let plan = PaneExecutionPlan.ssh(SSHExecution(target: target))
         let pane = TerminalPane(
             title: "remote",

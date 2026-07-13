@@ -61,6 +61,18 @@ struct RecentlyClosedWorkspaceCaptureTests {
         #expect(RecentlyClosedWorkspaceReducer.isWorthRecording(session))
     }
 
+    @Test("isWorthRecording returns true for remote shell sessions")
+    func isWorthRecordingRemoteShell() {
+        let session = TerminalSession(
+            title: "shell 1",
+            workingDirectory: "~",
+            executionPlan: .ssh(
+                SSHExecution(target: RemoteTarget(user: "alice", host: "prod-host")!)
+            )
+        )
+        #expect(RecentlyClosedWorkspaceReducer.isWorthRecording(session))
+    }
+
     @Test("isWorthRecording returns false for vanilla shell session")
     func isWorthRecordingVanillaShell() {
         let session = TerminalSession(

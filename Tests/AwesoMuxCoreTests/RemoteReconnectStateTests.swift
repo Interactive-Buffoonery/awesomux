@@ -6,7 +6,7 @@ import Testing
 @MainActor
 @Suite("RemoteReconnectState")
 struct RemoteReconnectStateTests {
-    private let target = RemoteTarget(user: "ed", host: "box.example.com")
+    private let target = RemoteTarget(user: "ed", host: "box.example.com")!
 
     private func makeStore(
         session: TerminalSession,
@@ -222,7 +222,7 @@ struct RemoteReconnectStateTests {
 
     @Test("moving to another remote group preserves state and resolves the new live target")
     func movedToAnotherRemoteGroupPreservesStateAndResolvesNewTarget() {
-        let otherTarget = RemoteTarget(user: "ed", host: "other.example.com")
+        let otherTarget = RemoteTarget(user: "ed", host: "other.example.com")!
         let session = makeRemoteSession()
         let remoteGroupB = SessionGroup(name: "remote-b", remote: otherTarget, sessions: [])
         let store = SessionStore(groups: [
