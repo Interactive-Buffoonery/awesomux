@@ -41,6 +41,12 @@ check_pattern() {
     if rg -n --hidden --text "${private_globs[@]}" "$pattern" .; then
         echo "error: $message" >&2
         failed=1
+    else
+        local status=$?
+        if [[ "$status" -gt 1 ]]; then
+            echo "error: public seed source scan failed for pattern: $pattern" >&2
+            failed=1
+        fi
     fi
 }
 
@@ -50,6 +56,12 @@ check_pcre2_pattern() {
     if rg -n --hidden --text --pcre2 "${private_globs[@]}" "$pattern" .; then
         echo "error: $message" >&2
         failed=1
+    else
+        local status=$?
+        if [[ "$status" -gt 1 ]]; then
+            echo "error: public seed source scan failed for PCRE2 pattern: $pattern" >&2
+            failed=1
+        fi
     fi
 }
 
