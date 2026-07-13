@@ -467,7 +467,7 @@ struct SessionPersistenceLoadTests {
             for _ in 0..<60 {
                 layout = .split(TerminalSplit(
                     orientation: .vertical,
-                    first: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
+                        first: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
                     second: layout
                 ))
             }
@@ -517,7 +517,7 @@ struct SessionPersistenceLoadTests {
         for _ in 0..<TerminalSplit.maxDecodedSplitDepth {
             layout = .split(TerminalSplit(
                 orientation: .vertical,
-                first: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
+                    first: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
                 second: layout
             ))
         }

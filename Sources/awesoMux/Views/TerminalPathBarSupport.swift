@@ -85,7 +85,7 @@ enum PathBarExecutionAnnouncement {
                 comment: "VoiceOver announcement when the focused pane changes to local execution"
             )
         case (let .remote(host, oldHealth), .remote(_, let newHealth))
-            where oldHealth != newHealth:
+        where oldHealth != newHealth:
             switch newHealth {
             case .active:
                 String(

@@ -526,8 +526,8 @@ struct RecentlyClosedWorkspaceTests {
                 first: pathologicalLayout,
                 second: .pane(TerminalPane(
                     title: "stub",
-                    workingDirectory: NSHomeDirectory(),
-                    executionPlan: .local
+                            workingDirectory: NSHomeDirectory(),
+                            executionPlan: .local
                 ))
             ))
         }
@@ -879,8 +879,8 @@ struct RecentlyClosedWorkspaceTests {
                 first: layout,
                 second: .pane(TerminalPane(
                     title: "stub",
-                    workingDirectory: NSHomeDirectory(),
-                    executionPlan: .local
+                            workingDirectory: NSHomeDirectory(),
+                            executionPlan: .local
                 ))
             ))
         }

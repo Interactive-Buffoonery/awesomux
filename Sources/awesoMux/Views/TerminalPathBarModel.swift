@@ -74,11 +74,13 @@ struct TerminalPathBarModel: Equatable, Sendable {
         session: TerminalSession,
         homeDirectory: URL = TerminalPathBarModel.defaultHomeDirectory
     ) -> TerminalPathBarModel {
-        let pane = session.activePane ?? TerminalPane(
-            title: session.title,
-            workingDirectory: session.workingDirectory,
-            executionPlan: .local
-        )
+        let pane =
+            session.activePane
+            ?? TerminalPane(
+                title: session.title,
+                workingDirectory: session.workingDirectory,
+                executionPlan: .local
+            )
         if let remoteModel = remoteModel(for: pane) {
             return remoteModel
         }
@@ -109,11 +111,13 @@ struct TerminalPathBarModel: Equatable, Sendable {
         fileManager: FileManager = .default,
         homeDirectory: URL = TerminalPathBarModel.defaultHomeDirectory
     ) -> TerminalPathBarModel {
-        let pane = session.activePane ?? TerminalPane(
-            title: session.title,
-            workingDirectory: session.workingDirectory,
-            executionPlan: .local
-        )
+        let pane =
+            session.activePane
+            ?? TerminalPane(
+                title: session.title,
+                workingDirectory: session.workingDirectory,
+                executionPlan: .local
+            )
         if let remoteModel = remoteModel(for: pane) {
             return remoteModel
         }

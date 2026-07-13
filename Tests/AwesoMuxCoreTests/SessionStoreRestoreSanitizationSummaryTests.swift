@@ -500,8 +500,8 @@ struct SessionStoreRestoreSanitizationSummaryTests {
                 first: layout,
                 second: .pane(TerminalPane(
                     title: "sibling \(index)",
-                    workingDirectory: "~",
-                    executionPlan: .local
+                            workingDirectory: "~",
+                            executionPlan: .local
                 ))
             ))
         }

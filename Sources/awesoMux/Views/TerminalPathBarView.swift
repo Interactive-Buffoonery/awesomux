@@ -58,10 +58,12 @@ struct TerminalPathBarView: View {
         content
             .onChange(of: PathBarExecutionAnnouncementState(pane: session.activePane)) {
                 previous, current in
-                guard let message = PathBarExecutionAnnouncement.message(
-                    from: previous,
-                    to: current
-                ) else { return }
+                guard
+                    let message = PathBarExecutionAnnouncement.message(
+                        from: previous,
+                        to: current
+                    )
+                else { return }
                 TerminalAccessibilityAnnouncer.announce(message)
             }
             // The model walks the filesystem and reads git state. That work must

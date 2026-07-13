@@ -426,7 +426,8 @@ extension SessionStore {
         // recovery announcement names the host this pane actually dials.
         var newContext = context
         if let liveTarget = session(id: sessionID)?.layout.pane(id: paneID)?
-            .executionPlan.remoteTarget {
+            .executionPlan.remoteTarget
+        {
             newContext.target = liveTarget
             newContext.dialedLocalRestart = false
         } else {

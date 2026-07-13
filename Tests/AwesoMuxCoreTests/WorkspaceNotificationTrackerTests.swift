@@ -903,21 +903,23 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
 
         let events = tracker.notificationEvents(
             afterUpdating: [
-                SessionGroup(name: "awesoMux", sessions: [
-                    makeSession(
-                        id: muted.id,
-                        title: "muted",
-                        state: .needsAttention,
-                        unreadNotificationCount: 1,
-                        notificationsMuted: true
-                    ),
-                    makeSession(
-                        id: loud.id,
-                        title: "loud",
-                        state: .needsAttention,
-                        unreadNotificationCount: 1
-                    )
-                ])
+                SessionGroup(
+                    name: "awesoMux",
+                    sessions: [
+                        makeSession(
+                            id: muted.id,
+                            title: "muted",
+                            state: .needsAttention,
+                            unreadNotificationCount: 1,
+                            notificationsMuted: true
+                        ),
+                        makeSession(
+                            id: loud.id,
+                            title: "loud",
+                            state: .needsAttention,
+                            unreadNotificationCount: 1
+                        ),
+                    ])
             ],
             selectedSessionID: nil,
             isAppActive: false
@@ -940,7 +942,7 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
         let needy = TerminalPane(
             title: "claude", workingDirectory: "~", agentKind: .claudeCode,
             agentExecutionState: .waiting, attentionReason: .permissionPrompt,
-            executionPlan: .local
+            executionPlan: .local,
         )
         let session = makeSplitSession(first: turnDone, second: needy)
         var tracker = WorkspaceNotificationTracker(groups: [
@@ -1048,8 +1050,8 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 agentKind: .claudeCode,
                 agentState: state,
-                unreadNotificationCount: unreadNotificationCount,
-                executionPlan: .local
+                    unreadNotificationCount: unreadNotificationCount,
+                    executionPlan: .local
             ))
         }
         return TerminalSession(
