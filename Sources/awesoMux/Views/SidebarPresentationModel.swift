@@ -59,6 +59,13 @@ final class SidebarPresentationModel {
         pointerPresenceChanged(isPresent)
     }
 
+    func positionDidChange() {
+        cancelDelayedHide()
+        edgePointerPresent = false
+        sidebarPointerPresent = false
+        isTemporarilyRevealed = false
+    }
+
     private func pointerPresenceChanged(_ isPresent: Bool) {
         if isPresent {
             cancelDelayedHide()

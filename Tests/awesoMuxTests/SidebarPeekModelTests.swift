@@ -26,6 +26,43 @@ struct SidebarPeekModelTests {
     private var tint: ProjectTint { ProjectTint(groupName: "g", color: nil, index: 0) }
     private var location: SidebarSessionLocation { .local("~") }
 
+    @Test("session peek stores the inward edge for either sidebar position")
+    func sessionPeekUsesPositionAwareInwardEdge() {
+        let model = SidebarPeekModel()
+        let session = twoPaneSession("A")
+        let frame = CGRect(x: 40, y: 10, width: 80, height: 30)
+
+        model.show(session: session, location: location, tint: tint, frame: frame, position: .left)
+        #expect(model.anchorX == frame.maxX)
+        #expect(model.peekDirection == .right)
+
+        model.updateFrame(for: session.id, frame: frame, position: .right)
+        #expect(model.anchorX == frame.minX)
+        #expect(model.peekDirection == .left)
+    }
+
+    @Test("group peek stores the inward edge for either sidebar position")
+    func groupPeekUsesPositionAwareInwardEdge() {
+        let model = SidebarPeekModel()
+        let (group, a, b) = twoSessionGroup("Code")
+        let frame = CGRect(x: 40, y: 10, width: 80, height: 30)
+
+        model.showGroup(
+            group: group,
+            tint: tint,
+            sessions: [a, b],
+            activeSessionID: a.id,
+            frame: frame,
+            position: .right
+        )
+        #expect(model.anchorX == frame.minX)
+        #expect(model.peekDirection == .left)
+
+        model.updateGroupFrame(for: group.id, frame: frame, position: .left)
+        #expect(model.anchorX == frame.maxX)
+        #expect(model.peekDirection == .right)
+    }
+
     @Test("requestHide hides after the grace when the pointer never reaches the card")
     func requestHideHidesAfterGrace() async {
         let gate = TestScheduler()

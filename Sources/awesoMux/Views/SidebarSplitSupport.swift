@@ -3,6 +3,32 @@ import AwesoMuxConfig
 import CoreGraphics
 import Observation
 
+enum SidebarPhysicalEdge: Equatable {
+    case leading
+    case trailing
+}
+
+enum SidebarPeekDirection: Equatable {
+    case left
+    case right
+}
+
+enum AppTitlebarColumn: Equatable {
+    case sidebar
+    case detail
+}
+
+struct SidebarPresentationLayoutPolicy {
+    let position: AppearanceConfig.SidebarPosition
+
+    var edge: SidebarPhysicalEdge { position == .left ? .leading : .trailing }
+    var peekDirection: SidebarPeekDirection { position == .left ? .right : .left }
+    var titlebarColumns: [AppTitlebarColumn] {
+        position == .left ? [.sidebar, .detail] : [.detail, .sidebar]
+    }
+    var trafficLightColumn: AppTitlebarColumn { titlebarColumns[0] }
+}
+
 /// Live sidebar width published on every divider tick (INT-535, A4).
 ///
 /// Scoped deliberately: only the titlebar and the sidebar pane read `value`, so a
@@ -63,6 +89,8 @@ final class SidebarPeekModel {
     /// collapsed AND right of the full-width row when expanded — one anchor,
     /// both modes (INT-538 expanded support).
     private(set) var anchorX: CGFloat = 0
+    private(set) var peekDirection: SidebarPeekDirection = .right
+    @ObservationIgnored private var anchorFrame: CGRect = .zero
 
     /// Routes a pane-row click up to `ContentView` (select workspace + focus
     /// pane + acknowledge). Set once when the overlay is installed — the same
@@ -108,7 +136,8 @@ final class SidebarPeekModel {
         session: TerminalSession,
         location: SidebarSessionLocation,
         tint: ProjectTint,
-        frame: CGRect
+        frame: CGRect,
+        position: AppearanceConfig.SidebarPosition = .left
     ) {
         hideGraceTask?.cancel()
         hideGraceTask = nil
@@ -126,17 +155,21 @@ final class SidebarPeekModel {
         self.paneItems = PanePeekItem.items(for: session)
         anchorY = frame.minY
         tileHeight = frame.height
-        anchorX = frame.maxX
+        updateAnchor(frame: frame, position: position)
     }
 
     /// Keep the card tracking its tile as the rail scrolls or resizes. No-op
     /// unless the given tile currently owns the peek, so a non-hovered tile's
     /// geometry churn can't yank the card.
-    func updateFrame(for id: TerminalSession.ID, frame: CGRect) {
+    func updateFrame(
+        for id: TerminalSession.ID,
+        frame: CGRect,
+        position: AppearanceConfig.SidebarPosition = .left
+    ) {
         guard session?.id == id else { return }
         anchorY = frame.minY
         tileHeight = frame.height
-        anchorX = frame.maxX
+        updateAnchor(frame: frame, position: position)
     }
 
     /// Refresh the displayed content if this tile owns the peek. The model holds
@@ -200,7 +233,8 @@ final class SidebarPeekModel {
         tint: ProjectTint,
         sessions: [TerminalSession],
         activeSessionID: TerminalSession.ID?,
-        frame: CGRect
+        frame: CGRect,
+        position: AppearanceConfig.SidebarPosition = .left
     ) {
         hideGraceTask?.cancel()
         hideGraceTask = nil
@@ -213,16 +247,43 @@ final class SidebarPeekModel {
         groupSessionItems = SessionPeekItem.items(for: sessions, activeSessionID: activeSessionID)
         anchorY = frame.minY
         tileHeight = frame.height
-        anchorX = frame.maxX
+        updateAnchor(frame: frame, position: position)
     }
 
     /// Keep the card tracking its header as the rail scrolls or resizes.
     /// No-op unless the given group currently owns the peek.
-    func updateGroupFrame(for id: SessionGroup.ID, frame: CGRect) {
+    func updateGroupFrame(
+        for id: SessionGroup.ID,
+        frame: CGRect,
+        position: AppearanceConfig.SidebarPosition = .left
+    ) {
         guard group?.id == id else { return }
         anchorY = frame.minY
         tileHeight = frame.height
-        anchorX = frame.maxX
+        updateAnchor(frame: frame, position: position)
+    }
+
+    func hideAll() {
+        hideGraceTask?.cancel()
+        hideGraceTask = nil
+        isPointerOverCard = false
+        session = nil
+        location = nil
+        group = nil
+        tint = nil
+        paneItems = []
+        groupSessionItems = []
+    }
+
+    func updatePosition(_ position: AppearanceConfig.SidebarPosition) {
+        updateAnchor(frame: anchorFrame, position: position)
+    }
+
+    private func updateAnchor(frame: CGRect, position: AppearanceConfig.SidebarPosition) {
+        anchorFrame = frame
+        let policy = SidebarPresentationLayoutPolicy(position: position)
+        peekDirection = policy.peekDirection
+        anchorX = position == .left ? frame.maxX : frame.minX
     }
 
     /// Refresh the displayed content if this group owns the peek — same

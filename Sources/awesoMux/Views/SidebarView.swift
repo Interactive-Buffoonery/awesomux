@@ -34,6 +34,7 @@ struct SidebarView: View {
     /// switches live as the drag crosses width bands — without re-rendering
     /// `ContentView` or the terminal pane (INT-535).
     let sidebarLiveWidth: SidebarLiveWidth
+    let onSidebarHover: (Bool) -> Void
 
     @State private var searchText = ""
     @State private var collapsedGroupIDs = Set<SessionGroup.ID>()
@@ -433,6 +434,7 @@ struct SidebarView: View {
             )
         }
         .background(Color.aw.surface.sidebar)
+        .onHover(perform: onSidebarHover)
         .accessibilityRotor(
             "Workspaces",
             entries: rotorEntries,
