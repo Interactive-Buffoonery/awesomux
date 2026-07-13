@@ -1,4 +1,5 @@
 import Foundation
+import AwesoMuxTestSupport
 import Testing
 @testable import awesoMux
 
@@ -12,12 +13,13 @@ struct SidebarPresentationModelTests {
 
         #expect(model.userWantsHidden)
         #expect(!model.isSidebarVisible)
+        #expect(!model.permitsWidthChanges)
         model.edgePointerChanged(true)
         #expect(model.isTemporarilyRevealed)
         #expect(model.isSidebarVisible)
         model.edgePointerChanged(false)
         model.sidebarPointerChanged(true)
-        gate.release()
+        gate.advance()
         await drainMainQueue()
         #expect(model.isSidebarVisible)
     }
@@ -30,11 +32,13 @@ struct SidebarPresentationModelTests {
         model.edgePointerChanged(true)
         model.togglePersistentVisibility()
         #expect(!model.userWantsHidden)
+        #expect(model.permitsWidthChanges)
         #expect(!model.isTemporarilyRevealed)
         #expect(!SidebarPresentationPreferenceStore(defaults: defaults).isHidden())
 
         model.togglePersistentVisibility()
         #expect(model.userWantsHidden)
+        #expect(!model.permitsWidthChanges)
         #expect(!model.isSidebarVisible)
         #expect(SidebarPresentationPreferenceStore(defaults: defaults).isHidden())
     }
@@ -53,15 +57,34 @@ struct SidebarPresentationModelTests {
         #expect(!SidebarPresentationPreferenceStore(defaults: defaults).isHidden())
     }
 
+    @Test("explicit visibility changes clear stale hover presence")
+    func explicitVisibilityChangesClearStaleHoverPresence() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.edgePointerChanged(true)
+        model.sidebarPointerChanged(true)
+        model.showPersistently()
+        model.sidebarPointerChanged(false)
+
+        model.togglePersistentVisibility()
+        model.edgePointerChanged(true)
+        model.edgePointerChanged(false)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+
+        gate.advance()
+        #expect(await waitUntil { !model.isSidebarVisible })
+    }
+
     @Test("leaving both hover regions hides after the grace")
     func leavingBothRegionsHidesAfterGrace() async throws {
         let (model, gate, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         model.edgePointerChanged(true)
         model.edgePointerChanged(false)
-        #expect(await waitUntil { gate.waiterCount == 1 })
+        #expect(await waitUntil { gate.sleeperCount == 1 })
 
-        gate.release()
+        gate.advance()
         #expect(await waitUntil { !model.isTemporarilyRevealed })
         #expect(!model.isSidebarVisible)
     }
@@ -72,10 +95,10 @@ struct SidebarPresentationModelTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         model.edgePointerChanged(true)
         model.edgePointerChanged(false)
-        #expect(await waitUntil { gate.waiterCount == 1 })
+        #expect(await waitUntil { gate.sleeperCount == 1 })
 
         model.edgePointerChanged(true)
-        gate.release()
+        gate.advance()
         await drainMainQueue()
         #expect(model.isTemporarilyRevealed)
     }
@@ -86,12 +109,12 @@ struct SidebarPresentationModelTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         model.edgePointerChanged(true)
         model.edgePointerChanged(false)
-        #expect(await waitUntil { gate.waiterCount == 1 })
+        #expect(await waitUntil { gate.sleeperCount == 1 })
         model.edgePointerChanged(true)
         model.sidebarPointerChanged(true)
         model.edgePointerChanged(false)
 
-        gate.release()
+        gate.advance()
         await drainMainQueue()
         #expect(model.isSidebarVisible)
         #expect(model.isTemporarilyRevealed)
@@ -110,7 +133,7 @@ struct SidebarPresentationModelTests {
 
         #expect(model.isSidebarVisible)
         #expect(!model.isTemporarilyRevealed)
-        #expect(gate.waitCallCount == 0)
+        #expect(gate.sleepCallCount == 0)
     }
 
     private func makeHiddenModel() throws -> ModelFixture {
@@ -127,8 +150,8 @@ struct SidebarPresentationModelTests {
         defaults.removePersistentDomain(forName: suiteName)
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
         store.saveHidden(hidden)
-        let gate = ManualDelayGate()
-        let model = SidebarPresentationModel(store: store, sleep: { _ in await gate.wait() })
+        let gate = TestScheduler()
+        let model = SidebarPresentationModel(store: store, delay: { await gate.wait(for: $0) })
         return (model, gate, defaults, suiteName)
     }
 
@@ -146,7 +169,7 @@ struct SidebarPresentationModelTests {
 
 private typealias ModelFixture = (
     model: SidebarPresentationModel,
-    gate: ManualDelayGate,
+    gate: TestScheduler,
     defaults: UserDefaults,
     suiteName: String
 )

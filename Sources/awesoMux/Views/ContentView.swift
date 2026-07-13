@@ -317,6 +317,9 @@ struct ContentView: View {
     }
 
     private func toggleSidebarWidth() {
+        // Hidden is presentation state, not a third width. Preserve the exact
+        // pre-hide width instead of invisibly changing a later reveal.
+        guard sidebarPresentation.permitsWidthChanges else { return }
         // Read the LIVE rendered width, not the committed `sidebarWidth`: a
         // programmatic clamp (e.g. a window-narrow force-collapse) moves the live
         // width without re-committing, so the committed copy can be stale. Toggling

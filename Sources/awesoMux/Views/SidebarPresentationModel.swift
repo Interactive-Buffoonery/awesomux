@@ -11,8 +11,12 @@ final class SidebarPresentationModel {
         !userWantsHidden || isTemporarilyRevealed
     }
 
+    var permitsWidthChanges: Bool {
+        !userWantsHidden
+    }
+
     @ObservationIgnored private let store: SidebarPresentationPreferenceStore
-    @ObservationIgnored private let sleep: @Sendable (Duration) async -> Void
+    @ObservationIgnored private let delay: @Sendable (Duration) async -> Void
     @ObservationIgnored private var edgePointerPresent = false
     @ObservationIgnored private var sidebarPointerPresent = false
     @ObservationIgnored private var delayedHideTask: Task<Void, Never>?
@@ -20,12 +24,12 @@ final class SidebarPresentationModel {
 
     init(
         store: SidebarPresentationPreferenceStore = SidebarPresentationPreferenceStore(),
-        sleep: @Sendable @escaping (Duration) async -> Void = {
-            try? await Task.sleep(for: $0)
+        delay: @Sendable @escaping (Duration) async -> Void = {
+            try? await ContinuousClock().sleep(for: $0)
         }
     ) {
         self.store = store
-        self.sleep = sleep
+        self.delay = delay
         userWantsHidden = store.isHidden()
     }
 
@@ -34,6 +38,7 @@ final class SidebarPresentationModel {
             showPersistently()
         } else {
             cancelDelayedHide()
+            clearPointerPresence()
             userWantsHidden = true
             isTemporarilyRevealed = false
             store.saveHidden(true)
@@ -42,6 +47,7 @@ final class SidebarPresentationModel {
 
     func showPersistently() {
         cancelDelayedHide()
+        clearPointerPresence()
         userWantsHidden = false
         isTemporarilyRevealed = false
         store.saveHidden(false)
@@ -78,8 +84,8 @@ final class SidebarPresentationModel {
     private func scheduleDelayedHide() {
         cancelDelayedHide()
         let scheduledGeneration = generation
-        delayedHideTask = Task { @MainActor [weak self, sleep] in
-            await sleep(.milliseconds(220))
+        delayedHideTask = Task { @MainActor [weak self, delay] in
+            await delay(.milliseconds(220))
             guard let self,
                 !Task.isCancelled,
                 self.generation == scheduledGeneration,
@@ -98,5 +104,10 @@ final class SidebarPresentationModel {
         generation += 1
         delayedHideTask?.cancel()
         delayedHideTask = nil
+    }
+
+    private func clearPointerPresence() {
+        edgePointerPresent = false
+        sidebarPointerPresent = false
     }
 }

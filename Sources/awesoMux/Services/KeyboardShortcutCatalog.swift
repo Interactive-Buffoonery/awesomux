@@ -602,7 +602,7 @@ enum KeyboardShortcutCatalog {
                 KeyboardShortcutEntry(acknowledgeWorkspace, detail: "Clear attention on the active workspace"),
                 KeyboardShortcutEntry(focusSidebar, detail: "Move keyboard focus to sidebar search"),
                 KeyboardShortcutEntry(toggleSidebarWidth, detail: "Collapse or expand the sidebar"),
-                KeyboardShortcutEntry(toggleSidebarVisibility, detail: "Hide or show the sidebar"),
+                    KeyboardShortcutEntry(toggleSidebarVisibility, detail: "Hide or show the sidebar"),
             ] + jumpWorkspaces.map {
                 KeyboardShortcutEntry($0, detail: "Jump by flattened sidebar order")
             } + [

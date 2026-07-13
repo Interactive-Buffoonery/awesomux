@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxConfig
 import AwesoMuxCore
 import SwiftUI
 import Testing
@@ -277,5 +278,9 @@ private struct SidebarGroupHitTargetHarness: View {
         // roster peek trigger (Task 5) — an ancestor must supply it, same as
         // `ContentView` does in production, or the read is fatal.
         .environment(SidebarPeekModel())
+        // The peek direction follows the persisted sidebar side. Production
+        // injects this store at the content root; the hosting test must mirror
+        // that environment boundary before SwiftUI evaluates the row.
+        .environment(AppSettingsStore(legacySnapshotProvider: { nil }))
     }
 }
