@@ -32,7 +32,8 @@ struct SessionRestoreReducer: Sendable {
             // rejection, not an unusable value: quarantine the group under the
             // canonical default name so its sessions survive, and count it as
             // an adjustment — never a drop (INT-485).
-            let restoredName = UnicodeHygiene.hasSuspiciousScriptMixing(group.name)
+            let restoredName =
+                UnicodeHygiene.hasSuspiciousScriptMixing(group.name)
                 ? SessionStoreText.canonicalDefaultGroupName
                 : SessionStoreText.sanitizedGroupName(group.name)
             guard !restoredName.isEmpty else {
@@ -53,6 +54,9 @@ struct SessionRestoreReducer: Sendable {
             restoredGroup.sessions = group.sessions.enumerated().map { offset, session in
                 restoredSession(
                     from: session,
+                    legacyExecutionPlan: group.remote
+                        .map { .ssh(SSHExecution(target: $0)) }
+                        ?? .local,
                     fallbackIndex: offset + 1,
                     seenSessionIDs: &seenSessionIDs,
                     seenSplitIDs: &seenSplitIDs,
@@ -145,6 +149,7 @@ struct SessionRestoreReducer: Sendable {
 
     static func restoredSession(
         from session: TerminalSession,
+        legacyExecutionPlan: PaneExecutionPlan = .local,
         fallbackIndex: Int,
         seenSessionIDs: inout Set<TerminalSession.ID>,
         seenSplitIDs: inout Set<TerminalSplit.ID>,
@@ -170,10 +175,12 @@ struct SessionRestoreReducer: Sendable {
             attentionReason: activeAttentionReason
         )
         let sanitizedSessionTitle = SessionStoreText.sanitizedTitle(session.title)
-        let fallbackSyntheticTitle = sanitizedSessionTitle.isEmpty
+        let fallbackSyntheticTitle =
+            sanitizedSessionTitle.isEmpty
             ? SyntheticSessionTitle(agentKind: activeAgentKind, index: fallbackIndex)
             : session.syntheticTitle
-        let fallbackTitle = fallbackSyntheticTitle?.localizedTitle()
+        let fallbackTitle =
+            fallbackSyntheticTitle?.localizedTitle()
             ?? SessionStoreText.restoredTitle(
                 session.title,
                 fallbackForAgent: activeAgentKind,
@@ -203,7 +210,10 @@ struct SessionRestoreReducer: Sendable {
                 notificationsMuted: session.notificationsMuted,
                 agentKind: activeAgentKind,
                 agentExecutionState: activeExecutionState,
-                attentionReason: activeAttentionReason
+                attentionReason: activeAttentionReason,
+                executionPlan: session.activePane?.hasExplicitExecutionPlan == true
+                    ? session.activePane?.executionPlan ?? legacyExecutionPlan
+                    : legacyExecutionPlan
             )
         }
 
@@ -228,7 +238,7 @@ struct SessionRestoreReducer: Sendable {
             let agentKind = restoredAgentKind(
                 pane.agentKind,
                 executionState: executionState,
-                attentionReason: attentionReason
+                attentionReason: attentionReason,
             )
             let paneTitle = SessionStoreText.restoredTitle(
                 pane.title,
@@ -242,6 +252,10 @@ struct SessionRestoreReducer: Sendable {
             // Preserve only still-live restored agent identity. A prompt-ready
             // `.waiting` pane or preserved blocking prompt keeps its provider
             // chrome; stale idle metadata falls back to shell.
+            let executionPlan =
+                pane.hasExplicitExecutionPlan
+                ? pane.executionPlan
+                : legacyExecutionPlan
             return TerminalPane(
                 id: pane.id,
                 terminalSessionID: pane.terminalSessionID,
@@ -256,7 +270,8 @@ struct SessionRestoreReducer: Sendable {
                 color: pane.color,
                 agentKind: agentKind,
                 agentExecutionState: executionState,
-                attentionReason: attentionReason
+                attentionReason: attentionReason,
+                executionPlan: executionPlan
             )
         }
         let layout = layoutResult.layout
@@ -285,7 +300,10 @@ struct SessionRestoreReducer: Sendable {
                 workingDirectory: fallbackWorkingDirectory,
                 syntheticTitle: fallbackSyntheticTitle,
                 isTitleUserEdited: session.isTitleUserEdited,
-                notificationsMuted: session.notificationsMuted
+                notificationsMuted: session.notificationsMuted,
+                executionPlan: session.activePane?.hasExplicitExecutionPlan == true
+                    ? session.activePane?.executionPlan ?? legacyExecutionPlan
+                    : legacyExecutionPlan
             )
         }
 
@@ -296,8 +314,9 @@ struct SessionRestoreReducer: Sendable {
         // re-syncs). A user-renamed workspace still wins.
         let restoredTitle: String
         if !session.isTitleUserEdited,
-           !layout.hasMultiplePanes,
-           resolvedActivePane.isTitleUserEdited {
+            !layout.hasMultiplePanes,
+            resolvedActivePane.isTitleUserEdited
+        {
             restoredTitle = resolvedActivePane.title
         } else {
             restoredTitle = fallbackTitle
@@ -379,7 +398,7 @@ struct SessionRestoreReducer: Sendable {
         switch layout {
         case .pane:
             return 1
-        case let .split(split):
+        case .split(let split):
             return 1 + max(layoutDepth(split.first), layoutDepth(split.second))
         case .documentGroup:
             return 1
@@ -444,7 +463,7 @@ struct SessionRestoreReducer: Sendable {
         transformPane: (TerminalPane) -> TerminalPane
     ) -> (layout: TerminalPaneLayout, idReassignments: Int) {
         switch layout {
-        case let .pane(pane):
+        case .pane(let pane):
             var restoredPane = transformPane(pane)
             var idReassignments = 0
             if !seenPaneIDs.insert(restoredPane.id).inserted {
@@ -463,7 +482,8 @@ struct SessionRestoreReducer: Sendable {
                     agentKind: restoredPane.agentKind,
                     agentExecutionState: restoredPane.agentExecutionState,
                     attentionReason: restoredPane.attentionReason,
-                    unreadNotificationCount: restoredPane.unreadNotificationCount
+                    unreadNotificationCount: restoredPane.unreadNotificationCount,
+                    executionPlan: restoredPane.executionPlan
                 )
                 seenPaneIDs.insert(restoredPane.id)
                 idReassignments += 1
@@ -483,13 +503,14 @@ struct SessionRestoreReducer: Sendable {
                     agentKind: restoredPane.agentKind,
                     agentExecutionState: restoredPane.agentExecutionState,
                     attentionReason: restoredPane.attentionReason,
-                    unreadNotificationCount: restoredPane.unreadNotificationCount
+                    unreadNotificationCount: restoredPane.unreadNotificationCount,
+                    executionPlan: restoredPane.executionPlan
                 )
                 idReassignments += 1
             }
             return (.pane(restoredPane), idReassignments)
 
-        case let .split(split):
+        case .split(let split):
             var idReassignments = 0
             let restoredID: TerminalSplit.ID
             if seenSplitIDs.insert(split.id).inserted {
@@ -526,7 +547,7 @@ struct SessionRestoreReducer: Sendable {
                 idReassignments
             )
 
-        case let .documentGroup(group):
+        case .documentGroup(let group):
             var restoredGroup = group
             var idReassignments = 0
             // Group and tab ids share the pane-id dedup pool, matching how the

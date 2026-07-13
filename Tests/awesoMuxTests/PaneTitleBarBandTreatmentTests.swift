@@ -51,7 +51,7 @@ struct PaneTitleBarBandTreatmentTests {
 
     @Test("Reduce Transparency participates in equality for live environment updates")
     func settingParticipatesInEquality() {
-        let pane = TerminalPane(title: "left", workingDirectory: "/tmp")
+        let pane = TerminalPane(title: "left", workingDirectory: "/tmp", executionPlan: .local)
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "/tmp",

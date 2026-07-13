@@ -99,7 +99,8 @@ struct DestructivePaneActionConfirmationPolicyTests {
             title: title,
             workingDirectory: "/tmp",
             agentKind: agentExecutionState == .idle ? .shell : .claudeCode,
-            agentExecutionState: agentExecutionState
+            agentExecutionState: agentExecutionState,
+            executionPlan: .local
         )
     }
 

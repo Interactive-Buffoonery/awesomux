@@ -25,11 +25,13 @@ final class SessionStoreTests: XCTestCase {
         // "Clear All Notifications" command.
         let paneA = TerminalPane(
             title: "a", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt, unreadNotificationCount: 2
+            attentionReason: .permissionPrompt, unreadNotificationCount: 2,
+            executionPlan: .local
         )
         let paneB = TerminalPane(
             title: "b", workingDirectory: "~", agentKind: .claudeCode,
-            attentionReason: .userInputRequired, unreadNotificationCount: 1
+            attentionReason: .userInputRequired, unreadNotificationCount: 1,
+            executionPlan: .local
         )
         let workspace1 = TerminalSession(
             title: "w1",
@@ -43,7 +45,8 @@ final class SessionStoreTests: XCTestCase {
         )
         let otherPane = TerminalPane(
             title: "c", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .userInputRequired, unreadNotificationCount: 5
+            attentionReason: .userInputRequired, unreadNotificationCount: 5,
+            executionPlan: .local
         )
         let workspace2 = TerminalSession(
             title: "w2",
@@ -68,11 +71,13 @@ final class SessionStoreTests: XCTestCase {
     func testRestoreSelectsPersistedSessionAndNormalizesRuntimeState() {
         let firstPane = TerminalPane(
             title: "first pane",
-            workingDirectory: "~/first"
+            workingDirectory: "~/first",
+            executionPlan: .local
         )
         let secondPane = TerminalPane(
             title: "second pane",
-            workingDirectory: "~/second"
+            workingDirectory: "~/second",
+            executionPlan: .local
         )
         let layout = TerminalPaneLayout.split(
             TerminalSplit(
@@ -127,11 +132,13 @@ final class SessionStoreTests: XCTestCase {
         )
         let firstPane = TerminalPane(
             title: "  first\u{202E}\n  ",
-            workingDirectory: restoredRelativePath
+            workingDirectory: restoredRelativePath,
+            executionPlan: .local
         )
         let secondPane = TerminalPane(
             title: "second",
-            workingDirectory: restoredAbsolutePath
+            workingDirectory: restoredAbsolutePath,
+            executionPlan: .local
         )
         let layout = TerminalPaneLayout.split(
             TerminalSplit(
@@ -168,11 +175,13 @@ final class SessionStoreTests: XCTestCase {
     func testRestoreFallsBackToFirstPaneWhenActivePaneIDIsMissing() {
         let firstPane = TerminalPane(
             title: "first",
-            workingDirectory: "~/first"
+            workingDirectory: "~/first",
+            executionPlan: .local
         )
         let secondPane = TerminalPane(
             title: "second",
-            workingDirectory: "~/second"
+            workingDirectory: "~/second",
+            executionPlan: .local
         )
         let layout = TerminalPaneLayout.split(
             TerminalSplit(
@@ -255,12 +264,14 @@ final class SessionStoreTests: XCTestCase {
         let firstPane = TerminalPane(
             id: sharedPaneID,
             title: "first",
-            workingDirectory: "~"
+            workingDirectory: "~",
+            executionPlan: .local
         )
         let secondPane = TerminalPane(
             id: sharedPaneID,
             title: "second",
-            workingDirectory: "~"
+            workingDirectory: "~",
+            executionPlan: .local
         )
         let layout = TerminalPaneLayout.split(
             TerminalSplit(
@@ -272,7 +283,7 @@ final class SessionStoreTests: XCTestCase {
                         id: sharedSplitID,
                         orientation: .horizontal,
                         first: .pane(secondPane),
-                        second: .pane(TerminalPane(title: "third", workingDirectory: "~"))
+                        second: .pane(TerminalPane(title: "third", workingDirectory: "~", executionPlan: .local))
                     )
                 )
             )
@@ -725,10 +736,11 @@ final class SessionStoreTests: XCTestCase {
         // re-arm the selection dwell so the NEW active pane gets read-then-acked.
         // Without the reschedule the pending dwell (baselined on the old pane)
         // bails and the new active pane stays loud forever.
-        let paneA = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell)
+        let paneA = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let paneB = TerminalPane(
             title: "b", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .userInputRequired, unreadNotificationCount: 2
+            attentionReason: .userInputRequired, unreadNotificationCount: 2,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",
@@ -1819,8 +1831,8 @@ final class SessionStoreTests: XCTestCase {
         // keyboard focusPane / split / close paths. Pinned at the facade so the
         // live GhosttySurfaceView.becomeFirstResponder path stays covered, not just
         // the reducer in isolation.
-        let first = TerminalPane(title: "first", workingDirectory: "/a")
-        let second = TerminalPane(title: "second", workingDirectory: "/b")
+        let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(first),
@@ -1847,8 +1859,8 @@ final class SessionStoreTests: XCTestCase {
     func testSetActivePaneDoesNotOverrideUserEditedTitle() {
         // The chrome sync must respect isTitleUserEdited: workingDirectory follows
         // the focused pane, but a user-named workspace keeps its title.
-        let first = TerminalPane(title: "first", workingDirectory: "/a")
-        let second = TerminalPane(title: "second", workingDirectory: "/b")
+        let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(first),
@@ -1926,8 +1938,8 @@ final class SessionStoreTests: XCTestCase {
     }
 
     func testFocusPaneByIndexSelectsPaneAndSyncsChrome() {
-        let first = TerminalPane(title: "first", workingDirectory: "/a")
-        let second = TerminalPane(title: "second", workingDirectory: "/b")
+        let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(first),
@@ -2141,9 +2153,10 @@ struct SessionStoreSiblingPaneExitErrorTests {
         // prior close-first ordering no-oped because the dead pane was already
         // gone. The badge lands on the correct (exiting) pane and never on the
         // innocent survivor A.
-        let paneA = TerminalPane(title: "A", workingDirectory: "~", agentKind: .shell)
+        let paneA = TerminalPane(title: "A", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let paneB = TerminalPane(
-            title: "B", workingDirectory: "~", agentKind: .codex, agentState: .running
+            title: "B", workingDirectory: "~", agentKind: .codex, agentState: .running,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",
@@ -2182,9 +2195,10 @@ struct SessionStoreSiblingPaneExitErrorTests {
     func badgesExitingPaneWhenStillPresent() {
         // Forward-compat with INT-506: when the exiting pane is still in the
         // layout (a held-dead pane), the error attaches to IT, never a sibling.
-        let paneA = TerminalPane(title: "A", workingDirectory: "~", agentKind: .shell)
+        let paneA = TerminalPane(title: "A", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let paneB = TerminalPane(
-            title: "B", workingDirectory: "~", agentKind: .codex, agentState: .running
+            title: "B", workingDirectory: "~", agentKind: .codex, agentState: .running,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",

@@ -7,7 +7,7 @@ import Testing
 struct DockMenuSupportTests {
 
     private static func entry(title: String) -> RecentlyClosedWorkspace {
-        let pane = TerminalPane(title: title, workingDirectory: NSHomeDirectory())
+        let pane = TerminalPane(title: title, workingDirectory: NSHomeDirectory(), executionPlan: .local)
         return RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: title,
@@ -47,7 +47,7 @@ struct DockMenuSupportTests {
     @Test("a generated recent workspace resolves its localized title metadata")
     func generatedWorkspaceUsesLocalizedTitle() throws {
         let bundle = try #require(Self.frenchBundle)
-        let pane = TerminalPane(title: "shell", workingDirectory: "~")
+        let pane = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
         let workspace = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "shell 2",
@@ -80,7 +80,7 @@ struct DockMenuSupportTests {
     // MARK: - Open-workspaces section (INT-633 follow-up)
 
     private static func session(title: String) -> TerminalSession {
-        let pane = TerminalPane(title: title, workingDirectory: NSHomeDirectory())
+        let pane = TerminalPane(title: title, workingDirectory: NSHomeDirectory(), executionPlan: .local)
         return TerminalSession(title: title, workingDirectory: "~", layout: .pane(pane))
     }
 

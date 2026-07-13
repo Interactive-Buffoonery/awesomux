@@ -9,7 +9,7 @@ struct SessionSnapshotMigrationTests {
         // Build a modern single-pane session, then rewrite its JSON into the v1
         // shape: hoist agent state up to the session and strip it from the pane,
         // exactly as a pre-relocation snapshot stored it.
-        let pane = TerminalPane(id: UUID(), title: "codex", workingDirectory: "~")
+        let pane = TerminalPane(id: UUID(), title: "codex", workingDirectory: "~", executionPlan: .local)
         let modern = TerminalSession(
             title: "codex",
             workingDirectory: "~",
@@ -53,14 +53,16 @@ struct SessionSnapshotMigrationTests {
             workingDirectory: "~",
             agentKind: .codex,
             agentExecutionState: .thinking,
-            unreadNotificationCount: 3
+            unreadNotificationCount: 3,
+            executionPlan: .local
         )
         let claude = TerminalPane(
             title: "claude",
             workingDirectory: "~",
             agentKind: .claudeCode,
             attentionReason: .permissionPrompt,
-            unreadNotificationCount: 1
+            unreadNotificationCount: 1,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",
@@ -97,13 +99,15 @@ struct SessionSnapshotMigrationTests {
             workingDirectory: "~",
             agentKind: .codex,
             agentExecutionState: .thinking,
-            unreadNotificationCount: 3
+            unreadNotificationCount: 3,
+            executionPlan: .local
         )
         let claude = TerminalPane(
             title: "claude",
             workingDirectory: "~",
             agentKind: .claudeCode,
-            unreadNotificationCount: 1
+            unreadNotificationCount: 1,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",
@@ -134,7 +138,8 @@ struct SessionSnapshotMigrationTests {
         // (no schema-version in userInfo) defaults to v1, so this migration
         // still fires. Distinct from the unread/activity clobber M3 fixed.
         let active = TerminalPane(
-            title: "active", workingDirectory: "~", agentKind: .shell, agentExecutionState: .idle
+            title: "active", workingDirectory: "~", agentKind: .shell, agentExecutionState: .idle,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "ws",
@@ -162,7 +167,8 @@ struct SessionSnapshotMigrationTests {
             title: "active",
             workingDirectory: "~",
             agentKind: .shell,
-            agentExecutionState: .idle
+            agentExecutionState: .idle,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "ws",
@@ -205,13 +211,15 @@ struct SessionSnapshotMigrationTests {
             title: "codex",
             workingDirectory: "~",
             agentKind: .codex,
-            agentExecutionState: .thinking
+            agentExecutionState: .thinking,
+            executionPlan: .local
         )
         let claude = TerminalPane(
             title: "claude",
             workingDirectory: "~",
             agentKind: .claudeCode,
-            agentExecutionState: .waiting
+            agentExecutionState: .waiting,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",
@@ -248,7 +256,7 @@ struct SessionSnapshotMigrationTests {
         // M3 / R5: v1 stored one display state on the session. A stale
         // `needsAttention` must clear on the bump, NOT resurrect as
         // `AttentionReason.unknown` via the `agentState` fold path.
-        let pane = TerminalPane(id: UUID(), title: "codex", workingDirectory: "~")
+        let pane = TerminalPane(id: UUID(), title: "codex", workingDirectory: "~", executionPlan: .local)
         let modern = TerminalSession(
             title: "codex",
             workingDirectory: "~",
@@ -283,7 +291,8 @@ struct SessionSnapshotMigrationTests {
             title: "codex",
             workingDirectory: "~",
             agentKind: .codex,
-            agentExecutionState: .thinking
+            agentExecutionState: .thinking,
+            executionPlan: .local
         )
         var dict = try JSONSerialization.jsonObject(
             with: JSONEncoder().encode(pane)
@@ -299,12 +308,13 @@ struct SessionSnapshotMigrationTests {
 
     @Test("one corrupt inactive pane does not fail the whole workspace decode")
     func corruptInactivePaneDoesNotFailWorkspaceDecode() throws {
-        let active = TerminalPane(title: "active", workingDirectory: "~", agentKind: .shell)
+        let active = TerminalPane(title: "active", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let inactive = TerminalPane(
             title: "inactive",
             workingDirectory: "~",
             agentKind: .codex,
-            agentExecutionState: .thinking
+            agentExecutionState: .thinking,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",
@@ -436,13 +446,15 @@ struct SessionSnapshotMigrationTests {
             agentKind: .codex,
             agentExecutionState: .thinking,
             attentionReason: .permissionPrompt,
-            unreadNotificationCount: 5
+            unreadNotificationCount: 5,
+            executionPlan: .local
         )
         let claude = TerminalPane(
             title: "claude",
             workingDirectory: "~/work",
             agentKind: .claudeCode,
-            agentExecutionState: .waiting
+            agentExecutionState: .waiting,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "split",
@@ -481,7 +493,8 @@ struct SessionSnapshotMigrationTests {
             title: "codex",
             workingDirectory: "~",
             agentKind: .codex,
-            agentExecutionState: .thinking
+            agentExecutionState: .thinking,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "codex",
@@ -511,7 +524,8 @@ struct SessionSnapshotMigrationTests {
         // desktop notification, or a process error is stale runtime noise.
         func pane(_ kind: AgentKind, _ reason: AttentionReason) -> TerminalPane {
             TerminalPane(
-                title: "p", workingDirectory: "~", agentKind: kind, attentionReason: reason
+                title: "p", workingDirectory: "~", agentKind: kind, attentionReason: reason,
+                executionPlan: .local
             )
         }
         let userInput = pane(.codex, .userInputRequired)
@@ -554,7 +568,7 @@ struct SessionSnapshotMigrationTests {
         // R5 end-to-end: a pre-relocation snapshot that stored its prompt at the
         // session level must fold onto the active pane AND survive the restore
         // reducer, so the workspace comes back needing attention.
-        let pane = TerminalPane(id: UUID(), title: "codex", workingDirectory: "~")
+        let pane = TerminalPane(id: UUID(), title: "codex", workingDirectory: "~", executionPlan: .local)
         let session = TerminalSession(
             title: "codex", workingDirectory: "~", layout: .pane(pane), activePaneID: pane.id
         )
@@ -590,7 +604,8 @@ struct SessionSnapshotMigrationTests {
         // by the normal ack path — it is not permanently stuck.
         let pane = TerminalPane(
             title: "codex", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .userInputRequired, unreadNotificationCount: 4
+            attentionReason: .userInputRequired, unreadNotificationCount: 4,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "ws", workingDirectory: "~", layout: .pane(pane), activePaneID: pane.id

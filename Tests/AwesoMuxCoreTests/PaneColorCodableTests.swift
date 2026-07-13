@@ -33,7 +33,7 @@ struct PaneColorCodableTests {
 
     @Test
     func paneWithColorRoundTrips() throws {
-        var pane = TerminalPane(title: "build", workingDirectory: "~")
+        var pane = TerminalPane(title: "build", workingDirectory: "~", executionPlan: .local)
         pane.color = .palette(.sky)
         let decoded = try JSONDecoder().decode(
             TerminalPane.self, from: try JSONEncoder().encode(pane)
@@ -69,7 +69,7 @@ struct PaneColorCodableTests {
 
     @Test
     func equalityDistinguishesColor() {
-        let a = TerminalPane(id: UUID(), title: "x", workingDirectory: "~")
+        let a = TerminalPane(id: UUID(), title: "x", workingDirectory: "~", executionPlan: .local)
         var b = a
         b.color = .palette(.green)
         #expect(a != b)

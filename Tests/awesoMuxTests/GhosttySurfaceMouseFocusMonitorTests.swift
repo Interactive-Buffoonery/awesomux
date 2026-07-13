@@ -101,7 +101,7 @@ struct GhosttySurfaceMouseFocusMonitorTests {
     }
 
     private func makeFixture() -> Fixture {
-        let pane = TerminalPane(title: "monitor", workingDirectory: "/tmp/monitor")
+        let pane = TerminalPane(title: "monitor", workingDirectory: "/tmp/monitor", executionPlan: .local)
         let session = TerminalSession(
             title: "monitor",
             workingDirectory: "/tmp/monitor",

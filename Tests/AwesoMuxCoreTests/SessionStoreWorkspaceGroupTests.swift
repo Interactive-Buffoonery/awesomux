@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import AwesoMuxCore
 
 @MainActor
@@ -224,9 +225,9 @@ struct SessionStoreWorkspaceGroupTests {
         // share the canonical-default lookup key — they must merge, not split
         // into one phantom group each. (Pins the canonical fallback, which a
         // raw-input fallback would have failed.)
-        _ = store.addSession(groupName: "\u{202E}")       // RLO
-        _ = store.addSession(groupName: "\u{200B}\u{FEFF}") // zero-width + BOM
-        _ = store.addSession(groupName: "\u{0301}")        // combining mark only
+        _ = store.addSession(groupName: "\u{202E}")  // RLO
+        _ = store.addSession(groupName: "\u{200B}\u{FEFF}")  // zero-width + BOM
+        _ = store.addSession(groupName: "\u{0301}")  // combining mark only
 
         #expect(store.groups.count == 1)
         #expect(store.groups[0].sessions.count == 3)
@@ -315,7 +316,7 @@ struct SessionStoreWorkspaceGroupTests {
         let snapshot = SessionSnapshot(
             groups: [
                 SessionGroup(name: "scratch", sessions: [firstSession]),
-                SessionGroup(name: "scratch\u{200B}", sessions: [secondSession])
+                SessionGroup(name: "scratch\u{200B}", sessions: [secondSession]),
             ],
             selectedSessionID: firstSession.id
         )
@@ -400,7 +401,7 @@ struct SessionStoreWorkspaceGroupTests {
         let snapshot = SessionSnapshot(
             groups: [
                 SessionGroup(name: "scratch\u{200C}", sessions: [firstSession]),
-                SessionGroup(name: "scratch\u{200D}", sessions: [secondSession])
+                SessionGroup(name: "scratch\u{200D}", sessions: [secondSession]),
             ],
             selectedSessionID: firstSession.id
         )
@@ -429,14 +430,15 @@ struct SessionStoreWorkspaceGroupTests {
         #expect(store.selectedSessionID == sessionID)
     }
 
-    @Test("remoteTarget finds the target of a session's owning group")
-    func remoteTargetLookupFindsOwningGroup() {
+    @Test("remoteTarget finds the active pane's declared target")
+    func remoteTargetLookupFindsActivePanePlan() {
         let target = RemoteTarget(user: "ed", host: "box")
         let session = TerminalSession(
             title: "shell 1",
             workingDirectory: "~",
             agentKind: .shell,
-            agentState: .idle
+            agentState: .idle,
+            executionPlan: .ssh(SSHExecution(target: target))
         )
         let group = SessionGroup(
             name: "box",
@@ -446,6 +448,19 @@ struct SessionStoreWorkspaceGroupTests {
         let store = SessionStore(groups: [group], selectedSessionID: session.id)
 
         #expect(store.remoteTarget(forSessionID: session.id) == target)
+    }
+
+    @Test("an explicit local pane is not retargeted by its remote group")
+    func remoteGroupDoesNotOverrideExplicitLocalPane() {
+        let target = RemoteTarget(user: "ed", host: "box")
+        let session = TerminalSession(
+            title: "local utility",
+            workingDirectory: "~"
+        )
+        let group = SessionGroup(name: "box", remote: target, sessions: [session])
+        let store = SessionStore(groups: [group], selectedSessionID: session.id)
+
+        #expect(store.remoteTarget(forSessionID: session.id) == nil)
     }
 
     @Test("a workspace added to a remote group after a persistence round-trip attaches remote")

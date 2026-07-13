@@ -10,7 +10,7 @@ import Testing
 @Suite("nearestTerminalSibling (migration backfill)")
 struct NearestTerminalSiblingTests {
     private func makeTerminal(_ title: String = "zsh") -> TerminalPane {
-        TerminalPane(title: title, workingDirectory: "/tmp")
+        TerminalPane(title: title, workingDirectory: "/tmp", executionPlan: .local)
     }
 
     private func makeGroup() -> DocumentGroup {

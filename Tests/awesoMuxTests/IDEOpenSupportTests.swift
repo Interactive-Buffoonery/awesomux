@@ -2,6 +2,7 @@ import AppKit
 import AwesoMuxCore
 import Foundation
 import Testing
+
 @testable import awesoMux
 
 @Suite("IDE open support")
@@ -26,14 +27,16 @@ struct IDEOpenSupportTests {
             }
         }
 
-        #expect(installed.map(\.bundleIdentifier) == [
-            "com.microsoft.VSCode",
-            "dev.zed.Zed"
-        ])
-        #expect(installed.map(\.displayName) == [
-            "Visual Studio Code",
-            "Zed"
-        ])
+        #expect(
+            installed.map(\.bundleIdentifier) == [
+                "com.microsoft.VSCode",
+                "dev.zed.Zed",
+            ])
+        #expect(
+            installed.map(\.displayName) == [
+                "Visual Studio Code",
+                "Zed",
+            ])
     }
 
     @Test("extra bundle ids join discovery with a bundle-derived name and no duplicates")
@@ -54,11 +57,14 @@ struct IDEOpenSupportTests {
         // Known VSCode keeps its allowlist name and is not duplicated even
         // though it also appears in the extras. The custom app uses the
         // bundle-derived name. The unresolved extra is dropped.
-        #expect(installed.map(\.bundleIdentifier) == [
-            "com.microsoft.VSCode",
-            "com.example.Editor"
-        ])
-        #expect(installed.first(where: { $0.bundleIdentifier == "com.example.Editor" })?.displayName == "My Editor")
+        #expect(
+            installed.map(\.bundleIdentifier) == [
+                "com.microsoft.VSCode",
+                "com.example.Editor",
+            ])
+        #expect(
+            installed.first(where: { $0.bundleIdentifier == "com.example.Editor" })?.displayName
+                == "My Editor")
     }
 
     @Test("ordered() applies saved priority first, then falls back to known-IDE order")
@@ -192,21 +198,22 @@ struct IDEOpenSupportTests {
 
     @Test("remote active panes are not eligible and do not trigger filesystem resolution")
     func remoteActivePaneIsIneligible() async {
-        let localPane = TerminalPane(title: "local", workingDirectory: "/tmp/local")
+        let localPane = TerminalPane(
+            title: "local", workingDirectory: "/tmp/local", executionPlan: .local)
         let remotePane = TerminalPane(
             title: "remote",
             workingDirectory: "/tmp/stale-local",
-            remoteHost: "buildbox"
-        )
+            remoteHost: "buildbox", executionPlan: .local)
         let session = TerminalSession(
             title: "remote workspace",
             workingDirectory: "/tmp/local",
             agentKind: .shell,
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(localPane),
-                second: .pane(remotePane)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(localPane),
+                    second: .pane(remotePane)
+                )),
             activePaneID: remotePane.id
         )
 
@@ -263,6 +270,7 @@ private func makePathBarModel(
         gitStatus: nil,
         ciStatus: nil,
         remoteHost: nil,
+        executionPlan: .local,
         remoteConnectionHealth: .active
     )
 }
@@ -312,8 +320,8 @@ private final class IDEOpenFixture {
     }
 }
 
-private extension URL {
-    var resolvedPath: String {
+extension URL {
+    fileprivate var resolvedPath: String {
         resolvingSymlinksInPath().standardizedFileURL.path
     }
 }

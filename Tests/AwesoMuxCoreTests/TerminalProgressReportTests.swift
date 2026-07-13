@@ -7,7 +7,7 @@ import Testing
 struct TerminalProgressReportTests {
     @Test("fresh panes have no progress report")
     func freshPanesHaveNoProgressReport() {
-        let pane = TerminalPane(title: "shell", workingDirectory: "~")
+        let pane = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
 
         #expect(pane.progressReport == nil)
     }
@@ -17,7 +17,8 @@ struct TerminalProgressReportTests {
         let pane = TerminalPane(
             title: "build",
             workingDirectory: "~",
-            progressReport: TerminalProgressReport(state: .set, progress: 50)
+            progressReport: TerminalProgressReport(state: .set, progress: 50),
+            executionPlan: .local
         )
 
         let data = try JSONEncoder().encode(pane)
@@ -50,8 +51,8 @@ struct TerminalProgressReportTests {
 
     @Test("progress report survives active pane focus changes")
     func progressReportSurvivesFocusChange() throws {
-        let first = TerminalPane(title: "first", workingDirectory: "/a")
-        let second = TerminalPane(title: "second", workingDirectory: "/b")
+        let first = TerminalPane(title: "first", workingDirectory: "/a", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/b", executionPlan: .local)
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "/a",

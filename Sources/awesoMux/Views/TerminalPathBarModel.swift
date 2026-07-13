@@ -36,6 +36,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
     /// suppresses every local-only affordance — the cwd/git state is the stale
     /// LOCAL machine's and must not be acted on.
     var remoteHost: String?
+    var executionPlan: PaneExecutionPlan
     /// Runtime-only remote connection health for the active pane.
     var remoteConnectionHealth: RemoteConnectionHealth
 
@@ -62,6 +63,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
         gitStatus: nil,
         ciStatus: nil,
         remoteHost: nil,
+        executionPlan: .local,
         remoteConnectionHealth: .active
     )
 
@@ -72,10 +74,16 @@ struct TerminalPathBarModel: Equatable, Sendable {
         session: TerminalSession,
         homeDirectory: URL = TerminalPathBarModel.defaultHomeDirectory
     ) -> TerminalPathBarModel {
-        let pane = session.activePane ?? TerminalPane(
-            title: session.title,
-            workingDirectory: session.workingDirectory
-        )
+        let pane =
+            session.activePane
+            ?? TerminalPane(
+                title: session.title,
+                workingDirectory: session.workingDirectory,
+                executionPlan: .local
+            )
+        if let remoteModel = remoteModel(for: pane) {
+            return remoteModel
+        }
         let info = PathInfo(previewing: pane.workingDirectory, homeDirectory: homeDirectory)
         return TerminalPathBarModel(
             project: info.project,
@@ -91,6 +99,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
             gitStatus: nil,
             ciStatus: nil,
             remoteHost: pane.remoteHost,
+            executionPlan: pane.executionPlan,
             remoteConnectionHealth: pane.remoteConnectionHealth
         )
     }
@@ -102,10 +111,16 @@ struct TerminalPathBarModel: Equatable, Sendable {
         fileManager: FileManager = .default,
         homeDirectory: URL = TerminalPathBarModel.defaultHomeDirectory
     ) -> TerminalPathBarModel {
-        let pane = session.activePane ?? TerminalPane(
-            title: session.title,
-            workingDirectory: session.workingDirectory
-        )
+        let pane =
+            session.activePane
+            ?? TerminalPane(
+                title: session.title,
+                workingDirectory: session.workingDirectory,
+                executionPlan: .local
+            )
+        if let remoteModel = remoteModel(for: pane) {
+            return remoteModel
+        }
         let pathInfo = PathInfo(
             workingDirectory: pane.workingDirectory,
             fallbackProject: session.title,
@@ -127,6 +142,30 @@ struct TerminalPathBarModel: Equatable, Sendable {
             gitStatus: nil,
             ciStatus: nil,
             remoteHost: pane.remoteHost,
+            executionPlan: pane.executionPlan,
+            remoteConnectionHealth: pane.remoteConnectionHealth
+        )
+    }
+
+    private static func remoteModel(for pane: TerminalPane) -> TerminalPathBarModel? {
+        guard let target = pane.executionPlan.remoteTarget else { return nil }
+        let rawPath = pane.workingDirectory.trimmingCharacters(in: .newlines)
+        let displayPath = rawPath.isEmpty ? "~" : rawPath
+        return TerminalPathBarModel(
+            project: (displayPath as NSString).lastPathComponent,
+            path: displayPath,
+            activePaneTitle: TerminalAccessibilityPathFormatter.sanitizedForSpeech(pane.title),
+            branch: nil,
+            revealURL: nil,
+            copyPath: displayPath,
+            repoRootPath: nil,
+            validatedRepoRootPath: nil,
+            gitBranch: nil,
+            pullRequest: nil,
+            gitStatus: nil,
+            ciStatus: nil,
+            remoteHost: pane.remoteHost ?? target.sshDestination,
+            executionPlan: pane.executionPlan,
             remoteConnectionHealth: pane.remoteConnectionHealth
         )
     }
@@ -213,10 +252,11 @@ private struct PathInfo {
         // from under a shell, this backs off to a live directory so the label,
         // tooltip, Copy Path, and Reveal all agree on one real folder (INT-507
         // review: previously they could point at three different places).
-        let effectiveURL = Self.existingDirectoryURL(
-            startingAt: directoryURL,
-            fileManager: fileManager
-        ) ?? directoryURL
+        let effectiveURL =
+            Self.existingDirectoryURL(
+                startingAt: directoryURL,
+                fileManager: fileManager
+            ) ?? directoryURL
         let repoRootURL = Self.repoRootURL(startingAt: effectiveURL, fileManager: fileManager)
 
         let rawProject: String
@@ -237,7 +277,8 @@ private struct PathInfo {
                 fileManager: fileManager
             )
             validatedRepoRootPath = gitDirectoryURL == nil ? nil : repoRootURL.path
-            let head = gitDirectoryURL
+            let head =
+                gitDirectoryURL
                 .map { Self.headInfo(gitDirectoryURL: $0, fileManager: fileManager) }
             branch = head?.display
             gitBranch = head?.lookup
@@ -257,7 +298,8 @@ private struct PathInfo {
             gitBranch = nil
         }
 
-        project = Self.displayString(rawProject).nilIfEmpty
+        project =
+            Self.displayString(rawProject).nilIfEmpty
             ?? Self.displayString(fallbackProject).nilIfEmpty
             ?? "workspace"
         displayPath = Self.displayString(rawDisplayPath)
@@ -355,9 +397,11 @@ private struct PathInfo {
         // symlink. Reject a symlinked `.git` outright — following it would let an
         // attacker-planted link redirect the whole validated-gitdir contract at an
         // arbitrary target (and then `git` itself would operate there).
-        guard let isSymlink = try? dotGitURL.resourceValues(
-            forKeys: [.isSymbolicLinkKey]
-        ).isSymbolicLink, !isSymlink else {
+        guard
+            let isSymlink = try? dotGitURL.resourceValues(
+                forKeys: [.isSymbolicLinkKey]
+            ).isSymbolicLink, !isSymlink
+        else {
             return nil
         }
 
@@ -380,22 +424,25 @@ private struct PathInfo {
             return nil
         }
 
-        let gitDirectoryPath = trimmed
+        let gitDirectoryPath =
+            trimmed
             .dropFirst(marker.count)
             .trimmingCharacters(in: .whitespaces)
         guard !gitDirectoryPath.isEmpty else {
             return nil
         }
 
-        let candidate: URL = gitDirectoryPath.hasPrefix("/")
+        let candidate: URL =
+            gitDirectoryPath.hasPrefix("/")
             ? URL(fileURLWithPath: gitDirectoryPath)
             : repoRootURL.appendingPathComponent(gitDirectoryPath)
         let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
 
         var targetIsDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: resolved.path, isDirectory: &targetIsDirectory),
-              targetIsDirectory.boolValue,
-              isGitAdminDirectory(resolved, fileManager: fileManager) else {
+            targetIsDirectory.boolValue,
+            isGitAdminDirectory(resolved, fileManager: fileManager)
+        else {
             return nil
         }
 
@@ -404,11 +451,13 @@ private struct PathInfo {
         // this is the containment check that a redirected gitdir can't forge.
         let commondirURL = resolved.appendingPathComponent("commondir")
         if fileManager.fileExists(atPath: commondirURL.path) {
-            guard worktreeBacklinkMatches(
-                adminDirectory: resolved,
-                dotGitFileURL: dotGitURL,
-                fileManager: fileManager
-            ) else {
+            guard
+                worktreeBacklinkMatches(
+                    adminDirectory: resolved,
+                    dotGitFileURL: dotGitURL,
+                    fileManager: fileManager
+                )
+            else {
                 return nil
             }
         }
@@ -424,7 +473,8 @@ private struct PathInfo {
         let headURL = url.appendingPathComponent("HEAD")
         var headIsDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: headURL.path, isDirectory: &headIsDirectory),
-              !headIsDirectory.boolValue else {
+            !headIsDirectory.boolValue
+        else {
             return false
         }
 
@@ -434,14 +484,16 @@ private struct PathInfo {
 
         var objectsIsDirectory: ObjCBool = false
         var refsIsDirectory: ObjCBool = false
-        let hasObjects = fileManager.fileExists(
-            atPath: url.appendingPathComponent("objects").path,
-            isDirectory: &objectsIsDirectory
-        ) && objectsIsDirectory.boolValue
-        let hasRefs = fileManager.fileExists(
-            atPath: url.appendingPathComponent("refs").path,
-            isDirectory: &refsIsDirectory
-        ) && refsIsDirectory.boolValue
+        let hasObjects =
+            fileManager.fileExists(
+                atPath: url.appendingPathComponent("objects").path,
+                isDirectory: &objectsIsDirectory
+            ) && objectsIsDirectory.boolValue
+        let hasRefs =
+            fileManager.fileExists(
+                atPath: url.appendingPathComponent("refs").path,
+                isDirectory: &refsIsDirectory
+            ) && refsIsDirectory.boolValue
         return hasObjects && hasRefs
     }
 
@@ -460,7 +512,8 @@ private struct PathInfo {
             return false
         }
 
-        let backlinkURLResolved = (backlinkPath.hasPrefix("/")
+        let backlinkURLResolved =
+            (backlinkPath.hasPrefix("/")
             ? URL(fileURLWithPath: backlinkPath)
             : adminDirectory.appendingPathComponent(backlinkPath))
             .resolvingSymlinksInPath()
@@ -488,7 +541,8 @@ private struct PathInfo {
         let head = line.trimmingCharacters(in: .whitespacesAndNewlines)
         let refPrefix = "ref:"
         if head.hasPrefix(refPrefix) {
-            let ref = head
+            let ref =
+                head
                 .dropFirst(refPrefix.count)
                 .trimmingCharacters(in: .whitespaces)
             let branchPrefix = "refs/heads/"
@@ -530,7 +584,9 @@ private struct PathInfo {
     /// decision; only the spoofing-capable overrides are removed.
     private static func sanitizedBranch(_ raw: String) -> String? {
         let speechSafe = TerminalAccessibilityPathFormatter.sanitizedForSpeech(raw)
-        let filtered = speechSafe.unicodeScalars.filter { !BranchNameSanitizer.isBidiOverrideScalar($0) }
+        let filtered = speechSafe.unicodeScalars.filter {
+            !BranchNameSanitizer.isBidiOverrideScalar($0)
+        }
         let result = String(String.UnicodeScalarView(filtered))
             .trimmingCharacters(in: .whitespaces)
         guard !result.isEmpty else {
@@ -554,13 +610,16 @@ private struct PathInfo {
         // `attributesOfItem` follows symlinks (it reports the *target's* type), so
         // check the link itself first — otherwise a `HEAD` symlink pointing at an
         // arbitrary regular file would pass the type guard below.
-        guard let isSymbolicLink = try? url.resourceValues(
-            forKeys: [.isSymbolicLinkKey]
-        ).isSymbolicLink, !isSymbolicLink else {
+        guard
+            let isSymbolicLink = try? url.resourceValues(
+                forKeys: [.isSymbolicLinkKey]
+            ).isSymbolicLink, !isSymbolicLink
+        else {
             return nil
         }
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
-              (attributes[.type] as? FileAttributeType) == .typeRegular else {
+            (attributes[.type] as? FileAttributeType) == .typeRegular
+        else {
             return nil
         }
         guard let handle = try? FileHandle(forReadingFrom: url) else {
@@ -568,7 +627,8 @@ private struct PathInfo {
         }
         defer { try? handle.close() }
         guard let data = try? handle.read(upToCount: maxBytes),
-              let contents = String(data: data, encoding: .utf8) else {
+            let contents = String(data: data, encoding: .utf8)
+        else {
             return nil
         }
         // Take everything up to the first line break. `prefix(while:)` (unlike
@@ -585,7 +645,8 @@ private struct PathInfo {
         let directoryPath = directory.standardizedFileURL.path
 
         guard directoryPath != rootPath,
-              directoryPath.hasPrefix(rootPath + "/") else {
+            directoryPath.hasPrefix(rootPath + "/")
+        else {
             return ""
         }
 
@@ -593,8 +654,8 @@ private struct PathInfo {
     }
 }
 
-private extension String {
-    var nilIfEmpty: String? {
+extension String {
+    fileprivate var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
 }
@@ -612,8 +673,8 @@ enum BranchNameSanitizer {
     /// relies on. Bidi *marks* (LRM/RLM) are intentionally excluded.
     static func isBidiOverrideScalar(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
-        case 0x202A...0x202E, // LRE RLE PDF LRO RLO
-             0x2066...0x2069: // LRI RLI FSI PDI
+        case 0x202A...0x202E,  // LRE RLE PDF LRO RLO
+            0x2066...0x2069:  // LRI RLI FSI PDI
             true
         default:
             false

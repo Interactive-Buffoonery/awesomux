@@ -34,8 +34,8 @@ struct RecentlyClosedWorkspaceCaptureTests {
 
     @Test("isWorthRecording returns true for multi-pane sessions")
     func isWorthRecordingMultiPane() {
-        let first = TerminalPane(title: "a", workingDirectory: "~")
-        let second = TerminalPane(title: "b", workingDirectory: "~")
+        let first = TerminalPane(title: "a", workingDirectory: "~", executionPlan: .local)
+        let second = TerminalPane(title: "b", workingDirectory: "~", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(first),
@@ -163,7 +163,7 @@ struct RecentlyClosedWorkspaceCaptureTests {
                 title: "session \(i)",
                 isTitleUserEdited: true,
                 agentKind: .codex,
-                layout: .pane(TerminalPane(title: "p", workingDirectory: "~")),
+                layout: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
                 activePaneID: UUID(),
                 groupID: UUID(),
                 groupName: "main",
@@ -192,7 +192,7 @@ struct RecentlyClosedWorkspaceCaptureTests {
             title: "fresh",
             isTitleUserEdited: true,
             agentKind: .codex,
-            layout: .pane(TerminalPane(title: "p", workingDirectory: "~")),
+            layout: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),
             groupName: "main",
@@ -205,7 +205,7 @@ struct RecentlyClosedWorkspaceCaptureTests {
             title: "stale",
             isTitleUserEdited: true,
             agentKind: .codex,
-            layout: .pane(TerminalPane(title: "p", workingDirectory: "~")),
+            layout: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),
             groupName: "main",
@@ -230,7 +230,7 @@ struct RecentlyClosedWorkspaceCaptureTests {
     @Test("reopen picks persisted entry when it is newer than transient")
     func reopenPicksPersistedWhenNewer() throws {
         let groupID = UUID()
-        let pane = TerminalPane(title: "p", workingDirectory: "/work")
+        let pane = TerminalPane(title: "p", workingDirectory: "/work", executionPlan: .local)
         let persistedEntry = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "persisted",
@@ -249,7 +249,7 @@ struct RecentlyClosedWorkspaceCaptureTests {
             title: "transient",
             isTitleUserEdited: true,
             agentKind: .codex,
-            layout: .pane(TerminalPane(title: "p2", workingDirectory: "/other")),
+            layout: .pane(TerminalPane(title: "p2", workingDirectory: "/other", executionPlan: .local)),
             activePaneID: UUID(),
             groupID: groupID,
             groupName: "main",
@@ -298,7 +298,7 @@ struct RecentlyClosedWorkspaceCaptureTests {
             title: "entry",
             isTitleUserEdited: true,
             agentKind: .codex,
-            layout: .pane(TerminalPane(title: "p", workingDirectory: "~")),
+            layout: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
             activePaneID: UUID(),
             groupID: groupID,
             groupName: "main",
@@ -324,7 +324,7 @@ struct RecentlyClosedWorkspaceCaptureTests {
 
     @Test("reopen recreates the missing group when entry groupID has no live match")
     func reopenRecreatesGroupWhenGroupIDMissing() throws {
-        let pane = TerminalPane(title: "p", workingDirectory: "/work")
+        let pane = TerminalPane(title: "p", workingDirectory: "/work", executionPlan: .local)
         let missingGroupID = UUID()
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),

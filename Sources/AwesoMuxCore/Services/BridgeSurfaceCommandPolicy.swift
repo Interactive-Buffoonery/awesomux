@@ -29,13 +29,16 @@ public enum BridgeSurfaceCommandPolicy {
     public static func command(
         bridgeEnabled: Bool,
         attachCommandAvailable: Bool,
-        isRemote: Bool = false
+        executionPlan: PaneExecutionPlan = .local
     ) -> BridgeSurfaceCommand {
         if bridgeEnabled, attachCommandAvailable { return .bridgeAttach }
         // `isRemote` wins regardless of `bridgeEnabled`: a remote-tagged group
         // with no usable attach command (bridge off, or `amx` missing) must
         // error, never silently spawn a local shell that looks like the host.
-        if isRemote { return .remoteUnavailable }
+        let context = ExecutionContext(plan: executionPlan)
+        if !context.capability(.launchLocalShellFallback).isAllowed {
+            return .remoteUnavailable
+        }
         return .localShell
     }
 }

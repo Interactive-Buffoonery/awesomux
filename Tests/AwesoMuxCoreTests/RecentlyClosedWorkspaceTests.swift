@@ -90,7 +90,7 @@ struct RecentlyClosedWorkspaceTests {
             title: "stale",
             isTitleUserEdited: false,
             agentKind: .shell,
-            layout: .pane(TerminalPane(title: "stale", workingDirectory: NSHomeDirectory())),
+            layout: .pane(TerminalPane(title: "stale", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),
             groupName: "ghost-group",
@@ -103,7 +103,7 @@ struct RecentlyClosedWorkspaceTests {
             title: "fresh",
             isTitleUserEdited: false,
             agentKind: .shell,
-            layout: .pane(TerminalPane(title: "fresh", workingDirectory: NSHomeDirectory())),
+            layout: .pane(TerminalPane(title: "fresh", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),
             groupName: "live-group",
@@ -130,7 +130,7 @@ struct RecentlyClosedWorkspaceTests {
             title: "stale",
             isTitleUserEdited: false,
             agentKind: .shell,
-            layout: .pane(TerminalPane(title: "stale", workingDirectory: NSHomeDirectory())),
+            layout: .pane(TerminalPane(title: "stale", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),
             groupName: "ghost-group",
@@ -192,7 +192,7 @@ struct RecentlyClosedWorkspaceTests {
     @Test("restored empty tree can reopen persisted recently closed workspace")
     func restoredEmptyTreeCanReopenPersistedRecentlyClosedWorkspace() throws {
         let groupID = UUID()
-        let pane = TerminalPane(title: "closed", workingDirectory: NSHomeDirectory())
+        let pane = TerminalPane(title: "closed", workingDirectory: NSHomeDirectory(), executionPlan: .local)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "closed",
@@ -242,8 +242,8 @@ struct RecentlyClosedWorkspaceTests {
 
     @Test("split layouts round-trip — splits and per-pane data survive reopen")
     func splitLayoutRoundTrip() throws {
-        let leftPane = TerminalPane(title: "left", workingDirectory: NSHomeDirectory())
-        let rightPane = TerminalPane(title: "right", workingDirectory: NSHomeDirectory())
+        let leftPane = TerminalPane(title: "left", workingDirectory: NSHomeDirectory(), executionPlan: .local)
+        let rightPane = TerminalPane(title: "right", workingDirectory: NSHomeDirectory(), executionPlan: .local)
         let split = TerminalSplit(
             orientation: .vertical,
             first: .pane(leftPane),
@@ -307,7 +307,7 @@ struct RecentlyClosedWorkspaceTests {
             title: "vanished",
             isTitleUserEdited: true,  // gate-required signal
             agentKind: .shell,
-            layout: .pane(TerminalPane(title: "vanished", workingDirectory: bogusPath)),
+            layout: .pane(TerminalPane(title: "vanished", workingDirectory: bogusPath, executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),  // stale — the missing group is recreated
             groupName: "ghost",
@@ -518,7 +518,7 @@ struct RecentlyClosedWorkspaceTests {
         // there exactly so tests can stage adversarial state without
         // forging closes.
         var pathologicalLayout: TerminalPaneLayout = .pane(
-            TerminalPane(title: "deep", workingDirectory: NSHomeDirectory())
+            TerminalPane(title: "deep", workingDirectory: NSHomeDirectory(), executionPlan: .local)
         )
         for _ in 0..<100 {
             pathologicalLayout = .split(TerminalSplit(
@@ -526,7 +526,8 @@ struct RecentlyClosedWorkspaceTests {
                 first: pathologicalLayout,
                 second: .pane(TerminalPane(
                     title: "stub",
-                    workingDirectory: NSHomeDirectory()
+                    workingDirectory: NSHomeDirectory(),
+                    executionPlan: .local
                 ))
             ))
         }
@@ -626,7 +627,7 @@ struct RecentlyClosedWorkspaceTests {
             title: "orphan",
             isTitleUserEdited: false,
             agentKind: .shell,
-            layout: .pane(TerminalPane(title: "orphan", workingDirectory: NSHomeDirectory())),
+            layout: .pane(TerminalPane(title: "orphan", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
             groupID: ghostGroupID,  // never existed in this store
             groupName: "ghost",
@@ -658,7 +659,7 @@ struct RecentlyClosedWorkspaceTests {
                 title: "orphan",
                 isTitleUserEdited: false,
                 agentKind: .shell,
-                layout: .pane(TerminalPane(title: "orphan", workingDirectory: NSHomeDirectory())),
+                layout: .pane(TerminalPane(title: "orphan", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
                 activePaneID: UUID(),
                 groupID: groupID,
                 groupName: "ghost",
@@ -713,7 +714,7 @@ struct RecentlyClosedWorkspaceTests {
             title: "ok",
             isTitleUserEdited: false,
             agentKind: .shell,
-            layout: .pane(TerminalPane(title: "ok", workingDirectory: NSHomeDirectory())),
+            layout: .pane(TerminalPane(title: "ok", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),
             groupName: "g",
@@ -846,7 +847,7 @@ struct RecentlyClosedWorkspaceTests {
             title: "orphaned",
             isTitleUserEdited: false,
             agentKind: .shell,
-            layout: .pane(TerminalPane(title: "orphaned", workingDirectory: NSHomeDirectory())),
+            layout: .pane(TerminalPane(title: "orphaned", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),       // dead — group doesn't exist
             groupName: "ghost",
@@ -870,7 +871,7 @@ struct RecentlyClosedWorkspaceTests {
         // below 100, raise this; if it rises above 100, raise this.
         let deeperThanCap = 100
         var layout: TerminalPaneLayout = .pane(
-            TerminalPane(title: "leaf", workingDirectory: NSHomeDirectory())
+            TerminalPane(title: "leaf", workingDirectory: NSHomeDirectory(), executionPlan: .local)
         )
         for _ in 0..<deeperThanCap {
             layout = .split(TerminalSplit(
@@ -878,7 +879,8 @@ struct RecentlyClosedWorkspaceTests {
                 first: layout,
                 second: .pane(TerminalPane(
                     title: "stub",
-                    workingDirectory: NSHomeDirectory()
+                    workingDirectory: NSHomeDirectory(),
+                    executionPlan: .local
                 ))
             ))
         }
@@ -913,7 +915,7 @@ struct RecentlyClosedWorkspaceTests {
             title: "safe\u{202E}danger",
             isTitleUserEdited: true,
             agentKind: .shell,
-            layout: .pane(TerminalPane(title: "leaf", workingDirectory: NSHomeDirectory())),
+            layout: .pane(TerminalPane(title: "leaf", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),
             groupName: "g",
@@ -936,7 +938,7 @@ struct RecentlyClosedWorkspaceTests {
             title: "round",
             isTitleUserEdited: true,
             agentKind: .claudeCode,
-            layout: .pane(TerminalPane(title: "round", workingDirectory: NSHomeDirectory())),
+            layout: .pane(TerminalPane(title: "round", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),
             groupName: "g",

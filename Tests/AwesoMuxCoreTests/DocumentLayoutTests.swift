@@ -16,7 +16,7 @@ import Testing
     }
 
     @Test func documentGroupLeafIsInvisibleToTerminalEnumeration() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(terminal),
@@ -32,7 +32,7 @@ import Testing
     }
 
     @Test func terminalViewerSplitIsTerminalOnlyForPaneCount() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(terminal),
@@ -95,7 +95,7 @@ import Testing
     /// A2: Invariant — a session never reduces to document-only.
     /// Removing the last terminal from a split returns nil (caller closes the session).
     @Test func removingLastTerminalClosesSessionNotLeavesViewer() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical, first: .pane(terminal), second: .documentGroup(makeGroup())
         ))
@@ -110,8 +110,8 @@ import Testing
     @Test("removing the group's split-sibling terminal preserves the group beside the survivors")
     func removingGroupSiblingTerminalPreservesGroup() throws {
         // Layout after a drag-to-edge rearrangement: .split(.split(t2, G), t1)
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp")
-        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp")
+        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp", executionPlan: .local)
+        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp", executionPlan: .local)
         let group = makeGroup()
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
@@ -145,7 +145,7 @@ import Testing
 
     @Test("removingDocumentGroup collapses split to terminal sibling")
     func removingDocumentGroupCollapsesToTerminalSibling() throws {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let group = makeGroup()
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
@@ -164,7 +164,7 @@ import Testing
 
     @Test("removingDocumentGroup returns nil for unknown id")
     func removingDocumentGroupReturnsNilForUnknownID() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp")
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let layout = TerminalPaneLayout.split(TerminalSplit(
             orientation: .vertical,
             first: .pane(terminal),
@@ -176,8 +176,8 @@ import Testing
 
     @Test("removingDocumentGroup in nested split collapses only the owning split")
     func removingDocumentGroupInNestedSplitCollapsesOwningSplit() throws {
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp")
-        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp")
+        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp", executionPlan: .local)
+        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp", executionPlan: .local)
         let group = makeGroup()
         // .split(.pane(t1), .split(.pane(t2), .documentGroup(group)))
         let layout = TerminalPaneLayout.split(TerminalSplit(

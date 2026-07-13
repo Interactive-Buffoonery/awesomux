@@ -30,7 +30,8 @@ struct BridgeAttachTeardownWiringTests {
         let pane = TerminalPane(
             terminalSessionID: terminalSessionID,
             title: "bridge",
-            workingDirectory: "/tmp/bridge"
+            workingDirectory: "/tmp/bridge",
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "session",

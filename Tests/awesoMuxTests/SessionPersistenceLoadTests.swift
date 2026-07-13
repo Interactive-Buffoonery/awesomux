@@ -55,8 +55,8 @@ struct SessionPersistenceLoadTests {
             // structural change) but there's nothing user-facing to explain, so
             // the original is archived silently and no warning surfaces.
             let duplicateID = UUID()
-            let firstPane = TerminalPane(title: "a", workingDirectory: "~")
-            let secondPane = TerminalPane(title: "b", workingDirectory: "~")
+            let firstPane = TerminalPane(title: "a", workingDirectory: "~", executionPlan: .local)
+            let secondPane = TerminalPane(title: "b", workingDirectory: "~", executionPlan: .local)
             let first = TerminalSession(
                 id: duplicateID,
                 title: "a",
@@ -138,7 +138,7 @@ struct SessionPersistenceLoadTests {
             try Data("kept".utf8).write(to: kept)
             try Data("orphan".utf8).write(to: orphan)
 
-            let terminal = TerminalPane(title: "shell", workingDirectory: "~")
+            let terminal = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
             let doc = DocumentPane(
                 fileURL: kept,
                 title: "kept.md",
@@ -181,7 +181,7 @@ struct SessionPersistenceLoadTests {
             try Data("recent".utf8).write(to: kept)
             try Data("orphan".utf8).write(to: orphan)
 
-            let terminal = TerminalPane(title: "shell", workingDirectory: "~")
+            let terminal = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
             let doc = DocumentPane(
                 fileURL: kept,
                 title: "recent.md",
@@ -462,12 +462,12 @@ struct SessionPersistenceLoadTests {
             // cleanly — no quarantine. A legitimate layout never approaches even
             // this depth; real splits top out in the single digits.
             var layout: TerminalPaneLayout = .pane(
-                TerminalPane(title: "leaf", workingDirectory: "~")
+                TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local)
             )
             for _ in 0..<60 {
                 layout = .split(TerminalSplit(
                     orientation: .vertical,
-                    first: .pane(TerminalPane(title: "p", workingDirectory: "~")),
+                    first: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
                     second: layout
                 ))
             }
@@ -512,12 +512,12 @@ struct SessionPersistenceLoadTests {
         // survivor is strictly shallower than the cap). Encoding at the cap is
         // safe here: `@MainActor` runs this on the main thread's 8 MB stack.
         var layout: TerminalPaneLayout = .pane(
-            TerminalPane(title: "leaf", workingDirectory: "~")
+            TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local)
         )
         for _ in 0..<TerminalSplit.maxDecodedSplitDepth {
             layout = .split(TerminalSplit(
                 orientation: .vertical,
-                first: .pane(TerminalPane(title: "p", workingDirectory: "~")),
+                first: .pane(TerminalPane(title: "p", workingDirectory: "~", executionPlan: .local)),
                 second: layout
             ))
         }
@@ -608,7 +608,7 @@ struct SessionPersistenceLoadTests {
     }
 
     private static func snapshot(groupName: String) -> SessionSnapshot {
-        let pane = TerminalPane(title: "shell", workingDirectory: "~")
+        let pane = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
         let session = TerminalSession(
             title: "shell",
             workingDirectory: "~",

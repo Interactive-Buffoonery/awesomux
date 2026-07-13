@@ -6,13 +6,13 @@ import Testing
 struct TerminalPaneTitleEditFlagTests {
     @Test
     func defaultsToFalse() {
-        let pane = TerminalPane(title: "shell", workingDirectory: "~")
+        let pane = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
         #expect(pane.isTitleUserEdited == false)
     }
 
     @Test
     func roundTripsWhenTrue() throws {
-        var pane = TerminalPane(title: "My Backend", workingDirectory: "~")
+        var pane = TerminalPane(title: "My Backend", workingDirectory: "~", executionPlan: .local)
         pane.isTitleUserEdited = true
 
         let data = try JSONEncoder().encode(pane)
@@ -35,7 +35,7 @@ struct TerminalPaneTitleEditFlagTests {
 
     @Test
     func equalityDistinguishesFlag() {
-        let a = TerminalPane(id: UUID(), title: "x", workingDirectory: "~")
+        let a = TerminalPane(id: UUID(), title: "x", workingDirectory: "~", executionPlan: .local)
         var b = a
         b.isTitleUserEdited = true
         #expect(a != b)
@@ -49,7 +49,7 @@ struct TerminalPaneTitleEditFlagTests {
     /// the flag, plus a focused per-pane check through `SessionRestoreReducer`.
     @Test
     func frozenPaneSurvivesSnapshotRestoreStillFrozen() throws {
-        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux")
+        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux", executionPlan: .local)
         pane.isTitleUserEdited = true
         let session = TerminalSession(title: "ws", workingDirectory: "~", layout: .pane(pane))
         let group = SessionGroup(name: "g", sessions: [session])
@@ -78,7 +78,7 @@ struct TerminalPaneTitleEditFlagTests {
     /// the restore construction site.
     @Test
     func restoreAppliesLonePanePinToDriftedWorkspaceTitle() throws {
-        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux")
+        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux", executionPlan: .local)
         pane.isTitleUserEdited = true
         // Persisted session title disagrees with the pin (e.g. a pre-carve-out
         // snapshot where the live title owned the workspace name).
@@ -97,7 +97,7 @@ struct TerminalPaneTitleEditFlagTests {
     /// The carve-out must NOT clobber a user-renamed workspace on restore.
     @Test
     func restoreKeepsUserRenamedWorkspaceTitleOverLonePanePin() throws {
-        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux")
+        var pane = TerminalPane(title: "My Backend", workingDirectory: "~/Development/awesomux", executionPlan: .local)
         pane.isTitleUserEdited = true
         var session = TerminalSession(title: "My Workspace", workingDirectory: "~", layout: .pane(pane))
         session.isTitleUserEdited = true
@@ -124,13 +124,14 @@ struct TerminalPaneTitleEditFlagTests {
     func frozenPaneSurvivesDuplicateIDRebuildStillFrozen() throws {
         let sharedID = UUID()
         // First pane (unfrozen) wins the shared id via the main path.
-        let firstPane = TerminalPane(id: sharedID, title: "other", workingDirectory: "~")
+        let firstPane = TerminalPane(id: sharedID, title: "other", workingDirectory: "~", executionPlan: .local)
         // Second pane (frozen) collides → forced through the id-reassignment
         // rebuild. THIS is the site under test.
         var frozen = TerminalPane(
             id: sharedID,
             title: "My Backend",
-            workingDirectory: "~/Development/awesomux"
+            workingDirectory: "~/Development/awesomux",
+            executionPlan: .local
         )
         frozen.isTitleUserEdited = true
 
@@ -162,7 +163,8 @@ struct TerminalPaneTitleEditFlagTests {
         var frozen = TerminalPane(
             id: UUID(),
             title: "My Backend",
-            workingDirectory: "~/Development/awesomux"
+            workingDirectory: "~/Development/awesomux",
+            executionPlan: .local
         )
         frozen.isTitleUserEdited = true
 
@@ -190,7 +192,7 @@ struct TerminalPaneTitleEditFlagTests {
     /// (zero-width space + BOM) sanitizes to empty (see UnicodeHygieneTests).
     @Test
     func frozenPaneWithTitleSanitizedAwayUnpinsOnRestore() throws {
-        var pane = TerminalPane(title: "\u{200B}\u{FEFF}", workingDirectory: "~")
+        var pane = TerminalPane(title: "\u{200B}\u{FEFF}", workingDirectory: "~", executionPlan: .local)
         pane.isTitleUserEdited = true
         let session = TerminalSession(title: "ws", workingDirectory: "~", layout: .pane(pane))
         let group = SessionGroup(name: "g", sessions: [session])
@@ -212,7 +214,7 @@ struct TerminalPaneTitleEditFlagTests {
     /// both reconstruction sites, so both need a guarding test (Codex).
     @Test
     func frozenPaneWithTitleSanitizedAwayUnpinsOnReopen() throws {
-        var frozen = TerminalPane(id: UUID(), title: "\u{200B}\u{FEFF}", workingDirectory: "~")
+        var frozen = TerminalPane(id: UUID(), title: "\u{200B}\u{FEFF}", workingDirectory: "~", executionPlan: .local)
         frozen.isTitleUserEdited = true
 
         var remap: [TerminalPane.ID: TerminalPane.ID] = [:]
@@ -241,9 +243,9 @@ struct TerminalPaneTitleEditFlagTests {
     func splitLayoutThreadsFreezeFlagPerPane() throws {
         let frozenID = UUID()
         let liveID = UUID()
-        var frozen = TerminalPane(id: frozenID, title: "Backend", workingDirectory: "~")
+        var frozen = TerminalPane(id: frozenID, title: "Backend", workingDirectory: "~", executionPlan: .local)
         frozen.isTitleUserEdited = true
-        let live = TerminalPane(id: liveID, title: "logs", workingDirectory: "~")
+        let live = TerminalPane(id: liveID, title: "logs", workingDirectory: "~", executionPlan: .local)
 
         let split = TerminalSplit(
             orientation: .vertical,

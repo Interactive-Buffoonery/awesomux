@@ -174,7 +174,7 @@ struct DaemonGCPlanTests {
     // MARK: - Test factories
 
     private static func pane(_ sessionID: TerminalSessionID) -> TerminalPane {
-        var pane = TerminalPane(title: "t", workingDirectory: "/tmp")
+        var pane = TerminalPane(title: "t", workingDirectory: "/tmp", executionPlan: .local)
         pane.terminalSessionID = sessionID
         return pane
     }

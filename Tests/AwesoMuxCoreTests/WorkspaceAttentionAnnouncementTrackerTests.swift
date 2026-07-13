@@ -353,8 +353,8 @@ struct WorkspaceAttentionAnnouncementTrackerTests {
         // The dedup must be per-pane: suppress only when EVERY attention pane
         // is .processError.
         let selected = session(title: "active", kind: .shell, state: .idle)
-        let quietA = TerminalPane(title: "a", workingDirectory: "~", agentKind: .codex)
-        let quietB = TerminalPane(title: "b", workingDirectory: "~", agentKind: .codex)
+        let quietA = TerminalPane(title: "a", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
+        let quietB = TerminalPane(title: "b", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
         let sessionID = UUID()
         func splitSession(_ first: TerminalPane, _ second: TerminalPane) -> TerminalSession {
             TerminalSession(

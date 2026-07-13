@@ -6,8 +6,9 @@ extension TerminalPane {
     // `liveTerminalTitle`, and the four runtime-only agent fields
     // `lastAgentStateChangeAt` / `shellActivity` / `needsTerminalQuitConfirmation` /
     // `foregroundProcessLiveness`, plus `progressReport` and `remoteReconnect`) so
-    // restored panes come back local/active/idle with no progress chrome until
-    // live shell signals prove otherwise. The four durable agent fields persist.
+    // restored panes come back active/idle with no progress chrome until live
+    // shell signals prove otherwise. The durable execution plan and four durable
+    // agent fields persist.
     // Keep these in sync if stored properties change.
     private enum CodingKeys: String, CodingKey {
         case id
@@ -16,6 +17,7 @@ extension TerminalPane {
         case title
         case isTitleUserEdited
         case workingDirectory
+        case executionPlan
         case color
         case agentKind
         case agentExecutionState
@@ -45,20 +47,29 @@ extension TerminalPane {
             // Clamp at decode: a hand-edited/corrupt snapshot must not seed a
             // negative count that would mask a sibling pane's unread in the
             // session sum (runtime mutations are already max(0,…)-guarded).
-            unreadNotificationCount: max(0, try container.decodeIfPresent(
-                Int.self,
-                forKey: .unreadNotificationCount
-            ) ?? 0)
+            unreadNotificationCount: max(
+                0,
+                try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .unreadNotificationCount
+                ) ?? 0),
+            executionPlan: try container.decodeIfPresent(
+                PaneExecutionPlan.self,
+                forKey: .executionPlan
+            ) ?? .local
         )
+        hasExplicitExecutionPlan = container.contains(.executionPlan)
     }
 
     private static func decodeTerminalSessionID(
         from container: KeyedDecodingContainer<CodingKeys>
     ) -> TerminalSessionID {
-        guard let rawValue = try? container.decodeIfPresent(
-            String.self,
-            forKey: .terminalSessionID
-        ) else {
+        guard
+            let rawValue = try? container.decodeIfPresent(
+                String.self,
+                forKey: .terminalSessionID
+            )
+        else {
             return .generate()
         }
 
@@ -127,6 +138,7 @@ extension TerminalPane {
         try container.encode(title, forKey: .title)
         try container.encode(isTitleUserEdited, forKey: .isTitleUserEdited)
         try container.encode(workingDirectory, forKey: .workingDirectory)
+        try container.encode(executionPlan, forKey: .executionPlan)
         try container.encodeIfPresent(color, forKey: .color)
         try container.encode(agentKind, forKey: .agentKind)
         try container.encode(agentExecutionState, forKey: .agentExecutionState)

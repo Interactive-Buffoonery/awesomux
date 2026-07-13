@@ -62,7 +62,8 @@ struct GhosttySurfaceAccessibilityValueChangeDedupeTests {
         let pane = TerminalPane(
             terminalSessionID: sessionID,
             title: "test pane",
-            workingDirectory: "/tmp/test"
+            workingDirectory: "/tmp/test",
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "test session",

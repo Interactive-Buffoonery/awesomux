@@ -9,11 +9,13 @@ struct TerminalSessionDisplayTests {
     func peekRefreshKeyCatchesShellActivityFlip() {
         let sessionID = UUID()
         let idlePane = TerminalPane(
-            title: "sh", workingDirectory: "~", agentKind: .shell, shellActivity: .idle
+            title: "sh", workingDirectory: "~", agentKind: .shell, shellActivity: .idle,
+            executionPlan: .local
         )
         let busyPane = TerminalPane(
             id: idlePane.id, title: "sh", workingDirectory: "~", agentKind: .shell,
-            shellActivity: .busy
+            shellActivity: .busy,
+            executionPlan: .local
         )
         let idleSession = TerminalSession(
             id: sessionID, title: "ws", workingDirectory: "~",
@@ -37,7 +39,8 @@ struct TerminalSessionDisplayTests {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let pane = TerminalPane(
             title: "shell",
-            workingDirectory: "\(home)/Developer/awesomux"
+            workingDirectory: "\(home)/Developer/awesomux",
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "shell",
@@ -59,7 +62,8 @@ struct TerminalSessionDisplayTests {
         let pane = TerminalPane(
             title: "alice@devbox: ~/work",
             workingDirectory: "/Users/example/local-before-ssh",
-            remoteHost: "devbox"
+            remoteHost: "devbox",
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "shell",
@@ -78,11 +82,12 @@ struct TerminalSessionDisplayTests {
 
     @Test("inactive remote pane does not override local active pane")
     func inactiveRemotePaneDoesNotOverrideLocalActivePane() {
-        let localPane = TerminalPane(title: "local", workingDirectory: "/tmp/local")
+        let localPane = TerminalPane(title: "local", workingDirectory: "/tmp/local", executionPlan: .local)
         let remotePane = TerminalPane(
             title: "alice@devbox: ~/work",
             workingDirectory: "/tmp/stale",
-            remoteHost: "devbox"
+            remoteHost: "devbox",
+            executionPlan: .local
         )
         let layout = TerminalPaneLayout.split(
             TerminalSplit(
@@ -108,7 +113,8 @@ struct TerminalSessionDisplayTests {
         let remotePane = TerminalPane(
             title: "ssh",
             workingDirectory: "/tmp/local",
-            remoteHost: "devbox"
+            remoteHost: "devbox",
+            executionPlan: .local
         )
         let remote = TerminalSession(
             title: "shell",
@@ -164,10 +170,11 @@ struct TerminalSessionDisplayTests {
     @Test("chrome state reflects the loudest pane in a split (INT-504)")
     func chromeStateReflectsLoudestPane() {
         // Active pane is an idle shell; the sibling Codex pane needs input.
-        let shell = TerminalPane(title: "shell", workingDirectory: "~", agentKind: .shell)
+        let shell = TerminalPane(title: "shell", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let codex = TerminalPane(
             title: "codex", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let split = TerminalSession(
             title: "split",
@@ -195,7 +202,8 @@ struct FocusAccentAwStateTests {
     func focusAccentFollowsAcknowledgementLedgerNotRollup() {
         let deadWithBell = TerminalPane(
             title: "codex", workingDirectory: "~", agentKind: .codex,
-            agentExecutionState: .done, attentionReason: .bell
+            agentExecutionState: .done, attentionReason: .bell,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "codex", workingDirectory: "~",
@@ -225,7 +233,8 @@ struct FocusAccentAwStateTests {
     func focusAccentMatchesLiveNeeds() {
         let prompting = TerminalPane(
             title: "codex", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
         )
         let session = TerminalSession(
             title: "codex", workingDirectory: "~",
@@ -244,11 +253,13 @@ struct FocusAccentAwStateTests {
     func focusAccentFollowsNeedySiblingInSplit() {
         let idleActive = TerminalPane(
             title: "shell", workingDirectory: "~", agentKind: .shell,
-            shellActivity: .idle
+            shellActivity: .idle,
+            executionPlan: .local
         )
         let deadWithBell = TerminalPane(
             title: "codex", workingDirectory: "~", agentKind: .codex,
-            agentExecutionState: .done, attentionReason: .bell
+            agentExecutionState: .done, attentionReason: .bell,
+            executionPlan: .local
         )
         let split = TerminalSession(
             title: "split", workingDirectory: "~",
