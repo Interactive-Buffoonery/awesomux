@@ -3,6 +3,13 @@ import Testing
 
 @Suite
 struct RemoteSSHCommandTargetTests {
+    @Test func managedWorkspaceOfferAcceptsOnlySimpleDestinations() {
+        #expect(RemoteSSHCommandTarget.parseManagedWorkspaceOffer("ssh devbox") == "devbox")
+        #expect(RemoteSSHCommandTarget.parseManagedWorkspaceOffer("ssh alice@devbox") == "alice@devbox")
+        #expect(RemoteSSHCommandTarget.parseManagedWorkspaceOffer("ssh -p 2222 devbox") == nil)
+        #expect(RemoteSSHCommandTarget.parseManagedWorkspaceOffer("ssh devbox uptime") == nil)
+    }
+
     @Test func parsesSimpleTarget() {
         #expect(RemoteSSHCommandTarget.parseSubmittedCommand("ssh devbox") == "devbox")
     }

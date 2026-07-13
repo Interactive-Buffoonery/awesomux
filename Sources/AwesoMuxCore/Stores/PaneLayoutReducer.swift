@@ -616,8 +616,10 @@ struct PaneLayoutReducer: Sendable {
                 ) {
                     pane.remoteHost = host
                     if let pendingTarget = pane.pendingRemoteSSHTarget {
-                        pane.remoteSSHTarget = pendingTarget
+                        pane.remoteSSHTarget =
+                            pane.pendingRemoteSSHTargetIsManagedOfferEligible ? pendingTarget : nil
                         pane.pendingRemoteSSHTarget = nil
+                        pane.pendingRemoteSSHTargetIsManagedOfferEligible = false
                     } else if originalPane.remoteHost != host {
                         pane.remoteSSHTarget = nil
                     }
@@ -646,6 +648,7 @@ struct PaneLayoutReducer: Sendable {
                     pane.remoteHost = nil
                     pane.remoteSSHTarget = nil
                     pane.pendingRemoteSSHTarget = nil
+                    pane.pendingRemoteSSHTargetIsManagedOfferEligible = false
                     pane.remoteWorkingDirectory = nil
                     pane.remoteConnectionHealth = .active
                 }
@@ -667,6 +670,8 @@ struct PaneLayoutReducer: Sendable {
                 || pane.remoteHost != originalPane.remoteHost
                 || pane.remoteSSHTarget != originalPane.remoteSSHTarget
                 || pane.pendingRemoteSSHTarget != originalPane.pendingRemoteSSHTarget
+                || pane.pendingRemoteSSHTargetIsManagedOfferEligible
+                    != originalPane.pendingRemoteSSHTargetIsManagedOfferEligible
                 || pane.remoteWorkingDirectory != originalPane.remoteWorkingDirectory
                 || pane.remoteConnectionHealth != originalPane.remoteConnectionHealth
                 || pane.progressReport != originalPane.progressReport
@@ -698,10 +703,15 @@ struct PaneLayoutReducer: Sendable {
         guard let target = RemoteSSHCommandTarget.parseSubmittedCommand(command) else {
             return nil
         }
-        guard pane.pendingRemoteSSHTarget != target else {
+        let isManagedOfferEligible = RemoteSSHCommandTarget.parseManagedWorkspaceOffer(command) != nil
+        guard
+            pane.pendingRemoteSSHTarget != target
+                || pane.pendingRemoteSSHTargetIsManagedOfferEligible != isManagedOfferEligible
+        else {
             return nil
         }
         pane.pendingRemoteSSHTarget = target
+        pane.pendingRemoteSSHTargetIsManagedOfferEligible = isManagedOfferEligible
 
         guard let layout = session.layout.replacingPane(id: paneID, with: .pane(pane)) else {
             return nil

@@ -23,10 +23,23 @@ struct TerminalPaneView: View {
     let session: TerminalSession
     let sessionStore: SessionStore
     let ghosttyRuntime: GhosttyRuntime
+    let onManagedSSHWorkspaceOffer: ((TerminalSession.ID, TerminalPane.ID) -> Void)?
     // One drag coordinator per workspace pane tree. Owned here (the tree's entry
     // point) so a drag started on one leaf is visible to the drop overlays on
     // every other leaf; passed down by reference.
     @State private var dragCoordinator = PaneDragCoordinator()
+
+    init(
+        session: TerminalSession,
+        sessionStore: SessionStore,
+        ghosttyRuntime: GhosttyRuntime,
+        onManagedSSHWorkspaceOffer: ((TerminalSession.ID, TerminalPane.ID) -> Void)? = nil
+    ) {
+        self.session = session
+        self.sessionStore = sessionStore
+        self.ghosttyRuntime = ghosttyRuntime
+        self.onManagedSSHWorkspaceOffer = onManagedSSHWorkspaceOffer
+    }
 
     var body: some View {
         if ghosttyRuntime.isReady {
@@ -57,9 +70,23 @@ struct TerminalPaneView: View {
             .onChange(of: session.layout.paneIDs) { _, _ in
                 dragCoordinator.end()
             }
+            .task(id: managedSSHOfferPaneID) {
+                guard let paneID = managedSSHOfferPaneID else { return }
+                onManagedSSHWorkspaceOffer?(session.id, paneID)
+            }
         } else {
             RuntimeUnavailableView(ghosttyRuntime: ghosttyRuntime)
         }
+    }
+
+    private var managedSSHOfferPaneID: TerminalPane.ID? {
+        guard let pane = session.activePane,
+            pane.executionPlan == .local,
+            pane.remoteSSHTarget != nil
+        else {
+            return nil
+        }
+        return pane.id
     }
 }
 

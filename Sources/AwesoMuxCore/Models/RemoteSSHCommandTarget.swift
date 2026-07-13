@@ -1,6 +1,18 @@
 import Foundation
 
 public enum RemoteSSHCommandTarget {
+    public static func parseManagedWorkspaceOffer(_ command: String) -> String? {
+        let tokens = tokenize(command)
+        guard tokens.count == 2,
+            tokens[0] == "ssh",
+            let target = RemoteTarget(parsing: tokens[1]),
+            target.isSafeSSHDestination
+        else {
+            return nil
+        }
+        return target.sshDestination
+    }
+
     public static func parseSubmittedCommand(_ command: String) -> String? {
         var tokens = tokenize(command)
         guard tokens.first == "ssh" else {

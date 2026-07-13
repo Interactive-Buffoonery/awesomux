@@ -243,7 +243,8 @@ struct AwesoMuxApp: App {
                 onRenameWorkspace: requestRenameWorkspace,
                 onRenameWorkspaceGroup: requestRenameWorkspaceGroup,
                 onNewWorkspaceGroup: requestNewWorkspaceGroup,
-                onConnectViaSSH: requestConnectViaSSH,
+                onConnectViaSSH: { group in requestConnectViaSSH(group) },
+                onManagedSSHWorkspaceOffer: requestManagedSSHWorkspaceOffer,
                 onReopenClosedWorkspace: reopenMostRecentlyClosedWorkspace,
                 hasRecoveryWarning: recoveryWarning != nil,
                 onOpenQuickSettings: requestQuickSettings,
@@ -348,6 +349,7 @@ struct AwesoMuxApp: App {
             .sheet(item: $sshWorkspaceConnectRequest) { request in
                 SSHWorkspaceConnectSheet(
                     groupName: request.groupName,
+                    initialDestination: request.initialDestination,
                     onCancel: { sshWorkspaceConnectRequest = nil },
                     onConnect: { target in
                         guard sessionStore.addSSHSession(target: target, toGroupID: request.groupID) != nil else { return }
@@ -2158,7 +2160,10 @@ struct AwesoMuxApp: App {
         remoteWorkspaceGroupCreateRequest = RemoteWorkspaceGroupCreateRequest()
     }
 
-    private func requestConnectViaSSH(_ requestedGroup: SessionGroup? = nil) {
+    private func requestConnectViaSSH(
+        _ requestedGroup: SessionGroup? = nil,
+        initialDestination: String? = nil
+    ) {
         guard !isAnySheetPresented else { return }
         let group =
             requestedGroup
@@ -2168,7 +2173,29 @@ struct AwesoMuxApp: App {
                 defaultGroupName: appSettingsStore.workspaces.value.defaultGroup
             )
         guard let group else { return }
-        sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest(groupID: group.id, groupName: group.name)
+        sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest(
+            groupID: group.id,
+            groupName: group.name,
+            initialDestination: initialDestination
+        )
+    }
+
+    private func requestManagedSSHWorkspaceOffer(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) {
+        guard !isAnySheetPresented,
+            let group = sessionStore.groups.first(where: { group in
+                group.sessions.contains { $0.id == sessionID }
+            }),
+            let target = sessionStore.consumeManagedSSHWorkspaceOffer(
+                sessionID: sessionID,
+                paneID: paneID
+            )
+        else {
+            return
+        }
+        requestConnectViaSSH(group, initialDestination: target.sshDestination)
     }
 
     private func requestRenameWorkspaceGroup(_ group: SessionGroup) {
@@ -3133,6 +3160,7 @@ private struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
     let id = UUID()
     let groupID: SessionGroup.ID
     let groupName: String
+    let initialDestination: String?
 }
 
 private struct WorkspaceGroupRenameRequest: Identifiable, Sendable {
