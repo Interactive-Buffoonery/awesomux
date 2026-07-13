@@ -50,7 +50,8 @@ struct AmxBackendAttachCommandTests {
         #expect(command.contains("/%C'"))
         #expect(command.contains("ControlPersist=60"))
         #expect(command.contains("ServerAliveInterval=15"))
-        #expect(command.contains("ForwardAgent=no")) // agent forwarding forced off (ADR-0022)
+        // The user's SSH config remains authoritative.
+        #expect(!command.contains("ForwardAgent"))
         #expect(command.hasSuffix("'--' 'alice@box'"))
     }
 
