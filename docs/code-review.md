@@ -72,9 +72,12 @@ Public output begins with `## Code Review`, stays concise, and contains only
 actionable findings. A guard retries an incomplete narration-only response and
 fails after three attempts rather than accepting an empty review.
 
-Usage, quota, billing, provider, or output-contract failures fail the Actions
-job. Where possible, the workflow also posts a visible availability comment.
-A failed review must never be interpreted as a clean review.
+Usage, quota, billing, provider, setup, or output-contract failures fail the
+Actions job. Every failed automatic or requested review also posts or updates
+one marked pull-request comment with a sanitized reason and the Actions run
+link. Recognized provider errors preserve their specific message while
+redacting workspace links and identifiers. A failed review must never be
+interpreted as a clean review.
 
 An oversized automatic-review diff is not a review failure. The workflow exits
 successfully without invoking the model and posts or updates a marked comment

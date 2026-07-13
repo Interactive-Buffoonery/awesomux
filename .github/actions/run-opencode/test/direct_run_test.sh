@@ -40,6 +40,21 @@ case "$OPENCODE_FIXTURE_MODE" in
   malformed)
     printf '%s\n' 'not-json' '{"type":"tool_use","part":{}}'
     ;;
+  provider_error)
+    printf '%s\n' \
+      '[14:22:33.011] ERROR (#4052): stream error {' \
+      '  providerID: "synthetic",' \
+      '  error: {' \
+      '    message: "rate limit exceeded: 500 requests per 5 hours. Resets in 2hr 14min.",' \
+      '    statusCode: 429,' \
+      '  },' \
+      '}'
+    sleep 2
+    ;;
+  command_failure)
+    echo "provider transport closed unexpectedly" >&2
+    exit 7
+    ;;
 esac
 EOF
 
@@ -184,6 +199,24 @@ production_lines="$(wc -l < "$temp_dir/production-diff-production_diff" | tr -d 
 test "$production_lines" -ge 350
 test "$production_lines" -le 500
 
+set +e
+run_wrapper provider_error
+provider_status=$?
+set -e
+test "$provider_status" -ne 0
+grep -Fq "failure_kind=provider_unavailable" "$temp_dir/output-provider_error"
+grep -Fq "failure_message=The model provider rejected the review request: rate limit exceeded: 500 requests per 5 hours. Resets in 2hr 14min." \
+  "$temp_dir/output-provider_error"
+
+set +e
+run_wrapper command_failure
+command_status=$?
+set -e
+test "$command_status" -eq 7
+grep -Fq "failure_kind=command_failed" "$temp_dir/output-command_failure"
+grep -Fq "failure_message=OpenCode exited with status 7 before publishing a validated review." \
+  "$temp_dir/output-command_failure"
+
 for mode in narration malformed verbose_no_findings; do
   set +e
   run_wrapper "$mode"
@@ -198,6 +231,9 @@ for mode in narration malformed verbose_no_findings; do
     echo "$mode output must never be published" >&2
     exit 1
   fi
+  grep -Fq "failure_kind=incomplete_review" "$temp_dir/output-$mode"
+  grep -Fq "failure_message=OpenCode completed three attempts without producing a valid ## Code Review response." \
+    "$temp_dir/output-$mode"
 done
 
 echo "direct opencode run test passed"

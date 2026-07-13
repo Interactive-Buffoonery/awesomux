@@ -145,6 +145,41 @@ describe("opencode review tool output", () => {
   });
 });
 
+describe("opencode review failure reporting", () => {
+  test("posts one sanitized failure comment for automatic and manual reviews", () => {
+    for (const source of [body, commentWorkflow]) {
+      assert.match(source, /name:\s*Comment when OpenCode review fails/);
+      assert.match(source, /if:\s*always\(\) && failure\(\)/);
+      assert.match(
+        source,
+        /FAILURE_MESSAGE:\s*\$\{\{\s*steps\.opencode\.outputs\.failure_message\s*\}\}/,
+      );
+      assert.match(source, /<!-- awesomux-opencode-unavailable -->/);
+      assert.match(source, /## OpenCode review failed/);
+      assert.match(source, /actions\/runs\/%s/);
+      assert.match(source, /"\$GITHUB_RUN_ID"/);
+    }
+  });
+
+  test("keeps the trusted helper checkout available after an earlier failure", () => {
+    for (const source of [body, commentWorkflow]) {
+      assert.match(
+        source,
+        /name:\s*Checkout trusted workflow helpers\s*\n\s*if:\s*always\(\)/,
+      );
+    }
+  });
+
+  test("exports stable and sanitized failure details from the shared action", () => {
+    assert.match(action, /failure_kind:/);
+    assert.match(action, /failure_message:/);
+    assert.match(runner, /set_failure_outputs/);
+    assert.match(runner, /provider_unavailable/);
+    assert.match(runner, /command_failed/);
+    assert.match(runner, /incomplete_review/);
+  });
+});
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
