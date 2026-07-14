@@ -24,7 +24,19 @@ extension GhosttySurfaceNSView {
         sample: ForegroundProcessSample?
     ) {
         if commandBridgeSessionID != nil {
-            return (.bridged, nil)
+            guard
+                let rawPID = commandBridgeEnactor.respawnLedger.lastIncarnation?.pid,
+                let pid = pid_t(exactly: rawPID)
+            else {
+                return (.bridged, nil)
+            }
+            return (
+                ForegroundProcessLiveness.classifyBridged(
+                    rootComm: ProcessLivenessProbe.foregroundComm(pid: pid),
+                    rootHasChildren: ProcessLivenessProbe.hasChildren(pid: pid)
+                ),
+                nil
+            )
         }
         let sample = foregroundProcessSample()
         guard sample.hasLiveSurface else {
@@ -165,7 +177,11 @@ extension GhosttySurfaceNSView {
             return nil
         }
 
-        return ghostty_surface_needs_confirm_quit(surface)
+        let isAwayFromPrompt = ghostty_surface_needs_confirm_quit(surface)
+        if !isAwayFromPrompt {
+            terminalPromptObserved = true
+        }
+        return isAwayFromPrompt
     }
 
     // No `draw(_:)` override: libghostty owns presentation on its own renderer

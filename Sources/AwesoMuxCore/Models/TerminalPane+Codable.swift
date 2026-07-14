@@ -6,7 +6,8 @@ extension TerminalPane {
     // `remoteConnectionHealth`, `remoteWorkingDirectory`,
     // `liveTerminalTitle`, and the four runtime-only agent fields
     // `lastAgentStateChangeAt` / `shellActivity` / `needsTerminalQuitConfirmation` /
-    // `foregroundProcessLiveness`, plus `progressReport` and `remoteReconnect`) so
+    // `terminalPromptObserved` / `foregroundProcessLiveness`, plus
+    // `progressReport` and `remoteReconnect`) so
     // restored panes come back active/idle with no progress chrome until live
     // shell signals prove otherwise. The durable execution plan and four durable
     // agent fields persist.
