@@ -1,9 +1,9 @@
 name: Release
 
-# Phase 1 (this file): workflow_dispatch only, so it can be iterated on real
-# runs before the public v* tag trigger lands. Phase 2 is a follow-up PR that
-# adds `push: tags: ["v*"]` once a dispatch run has produced a valid draft
-# release end to end. See docs/releasing.md.
+# Two triggers: pushing a v* tag cuts a draft release automatically (the
+# normal path), and workflow_dispatch remains for pipeline iteration and
+# ad-hoc builds. Proven end to end by dispatch run 29339657043 (signed,
+# notarized, stapled, verified on-device). See docs/releasing.md.
 #
 # script/build_release.sh is the single source of signing/notarization
 # behavior; this workflow only reconstructs the environment it needs
@@ -11,6 +11,8 @@ name: Release
 # and calls it. No codesign/notarytool logic is inlined here.
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -54,26 +56,36 @@ jobs:
       # visible to ${{ }} expressions.
       AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
     steps:
-      - name: Validate dispatch ref and version input
+      - name: Validate ref and resolve release version
         env:
           VERSION_INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
           # Defense in depth on top of the `release` environment's deployment
-          # protection rules: dispatch can target any ref where this workflow
-          # file exists, so assert the ref ourselves too. Phase 2 widens this
-          # to refs/tags/v*.
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "::error::release.yml (Phase 1) only runs from refs/heads/main; got $GITHUB_REF" >&2
+          # protection rules: assert the ref ourselves too. Dispatch runs come
+          # from main; tag runs from v* refs only.
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+              echo "::error::tag runs only accept refs/tags/v*; got $GITHUB_REF" >&2
+              exit 1
+            fi
+            RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::dispatch runs only accept refs/heads/main; got $GITHUB_REF" >&2
+              exit 1
+            fi
+            RELEASE_VERSION="$VERSION_INPUT"
+          fi
+          # Fail before touching secrets or spending Zig/Xcode setup time on a
+          # malformed version — the v* pattern also matches tags like vbanana,
+          # and script/build_release.sh enforces this grammar only after the
+          # expensive setup below.
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release version must be X.Y.Z (three integers), got: $RELEASE_VERSION" >&2
             exit 1
           fi
-          # Fail before touching secrets or spending Zig/Xcode setup time on
-          # a malformed version — script/build_release.sh enforces the same
-          # grammar, but only after the expensive setup below.
-          if [[ ! "$VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::version input must be X.Y.Z (three integers), got: $VERSION_INPUT" >&2
-            exit 1
-          fi
+          echo "RELEASE_VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
 
       - name: Verify required release secrets are present
         env:
@@ -101,13 +113,13 @@ jobs:
             exit 1
           fi
 
-      - name: Fail fast if a draft release already exists for this version
-        if: inputs.create_draft_release
+      - name: Resolve release collisions for this version
+        if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          VERSION="$RELEASE_VERSION"
           # Deliberately before the build, not just before publish: a
           # re-dispatch that only needed to learn about a stale draft
           # shouldn't have to burn a full signed build to find out at the
@@ -118,11 +130,24 @@ jobs:
           # endpoint (releases/tags/<tag>) is blind to exactly the stale-draft
           # case this check exists for. The list DOES include drafts for this
           # token.
-          EXISTING="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            | jq -r --arg tag "v$VERSION" '[.[] | select(.tag_name == $tag)] | length')"
-          if [[ "$EXISTING" -gt 0 ]]; then
-            echo "::error::a release for v$VERSION already exists — delete the stale draft (gh release delete v$VERSION) or bump the version" >&2
+          PUBLISHED="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            | jq -r --arg tag "v$VERSION" '[.[] | select(.tag_name == $tag and (.draft | not))] | length')"
+          if [[ "$PUBLISHED" -gt 0 ]]; then
+            echo "::error::a PUBLISHED release for v$VERSION already exists — bump the version" >&2
             exit 1
+          fi
+          DRAFT_ID="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            | jq -r --arg tag "v$VERSION" '[.[] | select(.tag_name == $tag and .draft)][0].id // empty')"
+          if [[ -n "$DRAFT_ID" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+              # Tag re-runs are idempotent: replace the stale draft (drafts
+              # hold no tag ref, so deletion is public-surface-free).
+              echo "Replacing stale draft release $DRAFT_ID for v$VERSION (tag re-run)."
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$DRAFT_ID" >/dev/null
+            else
+              echo "::error::a draft release for v$VERSION already exists — delete it (gh release delete v$VERSION) or bump the version" >&2
+              exit 1
+            fi
           fi
 
       - name: Checkout repository
@@ -164,69 +189,23 @@ jobs:
             echo "zig_version=$ZIG_VERSION"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Restore cached Zig toolchain
-        id: zig-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/zig
-          key: zig-v1-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.zig_version }}
-
-      - name: Install Zig (first-party download, checksum-verified)
-        env:
-          ZIG_VERSION: ${{ steps.ghostty-pin.outputs.zig_version }}
-          ZIG_CACHE_HIT: ${{ steps.zig-cache.outputs.cache-hit }}
+      - name: Install Zig (Homebrew, pinned 0.15 formula)
         run: |
           set -euo pipefail
-          # macos-15 hosted runners are Apple Silicon today; derive from
-          # runner.arch instead of hardcoding so a future x86_64 runner
-          # doesn't silently install the wrong tarball.
-          case "$RUNNER_ARCH" in
-            ARM64) ZIG_TARGET="aarch64-macos" ;;
-            X64) ZIG_TARGET="x86_64-macos" ;;
-            *)
-              echo "::error::unsupported runner.arch '$RUNNER_ARCH' for Zig target selection" >&2
-              exit 1
-              ;;
-          esac
-
-          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig"
-
-          if [[ "$ZIG_CACHE_HIT" == "true" ]]; then
-            echo "Zig $ZIG_VERSION ($ZIG_TARGET) restored from cache; skipping download and verification."
-          else
-            # Looked up in repo content reviewed in a PR, not fetched from
-            # ziglang.org alongside the tarball: fetching bytes and their
-            # expected hash from the same origin verifies transport, not
-            # provenance.
-            EXPECTED_SHA256="$(awk -v v="$ZIG_VERSION" -v t="$ZIG_TARGET" '$1 == v && $2 == t { print $3 }' .github/zig-checksums.txt)"
-            if [[ -z "$EXPECTED_SHA256" ]]; then
-              echo "::error::no pinned checksum for Zig $ZIG_VERSION $ZIG_TARGET — fetch the shasum from ziglang.org/download and add a reviewed row to .github/zig-checksums.txt" >&2
-              exit 1
-            fi
-
-            TARBALL_URL="https://ziglang.org/download/$ZIG_VERSION/zig-$ZIG_TARGET-$ZIG_VERSION.tar.xz"
-            ARCHIVE="$RUNNER_TEMP/zig.tar.xz"
-            curl -fsSL --retry 3 "$TARBALL_URL" -o "$ARCHIVE"
-            ACTUAL_SHA256="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
-            if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
-              echo "::error::Zig tarball checksum mismatch (expected $EXPECTED_SHA256, got $ACTUAL_SHA256) — refusing to extract" >&2
-              exit 1
-            fi
-
-            mkdir -p "$ZIG_INSTALL_DIR"
-            tar -xJf "$ARCHIVE" -C "$ZIG_INSTALL_DIR" --strip-components=1
-            rm -f "$ARCHIVE"
-          fi
-
-          echo "$ZIG_INSTALL_DIR" >> "$GITHUB_PATH"
-          "$ZIG_INSTALL_DIR/zig" version
-
-      - name: Save Zig toolchain to cache
-        if: steps.zig-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/zig
-          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
+          # zig@0.15, not current zig: Ghostty requires same-minor 0.15 with
+          # patch >= 2, and select_zig in script/build_ghostty_xcframework.sh
+          # is the compatibility authority — it rejected brew's current 0.16
+          # formula in run 29333040790 and its error names this exact formula.
+          # (Homebrew, not the ziglang.org tarball: the upstream 0.15.2 binary
+          # cannot link libc against current macOS SDKs — run 29300808015,
+          # reproduced locally.)
+          brew install zig@0.15
+          ZIG_BIN="$(brew --prefix zig@0.15)/bin/zig"
+          "$ZIG_BIN" version
+          # AWESOMUX_ZIG is the build scripts' documented override; the keg-only
+          # formula isn't on PATH, and the scripts' own select_zig validates
+          # compatibility from here.
+          echo "AWESOMUX_ZIG=$ZIG_BIN" >> "$GITHUB_ENV"
 
       - name: Select Xcode toolchain matching the package's Swift requirement
         id: xcode
@@ -473,12 +452,10 @@ jobs:
             --keychain "$KEYCHAIN_PATH"
 
       - name: Build, sign, and notarize the release artifact
-        env:
-          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           ./script/build_release.sh \
-            --version "$VERSION" \
+            --version "$RELEASE_VERSION" \
             --identity "Developer ID Application: Interactive Buffoonery (7CNK4YPCQX)" \
             --notary-profile awesomux-notary \
             --output dist/release
@@ -513,19 +490,21 @@ jobs:
           retention-days: 7
 
       - name: Create draft GitHub Release
-        if: inputs.create_draft_release
+        if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          VERSION="$RELEASE_VERSION"
           # Draft releases do not create the tag ref until published (verified
-          # empirically with v0.1.0), so this stays public-surface-free.
+          # empirically with v0.1.0); on tag events the ref already exists and
+          # the draft attaches to it. Either way: a human reviews and clicks
+          # publish.
           gh release create "v$VERSION" \
             --draft \
             --target "$GITHUB_SHA" \
             --title "v$VERSION" \
-            --notes "Draft release created by release.yml (workflow_dispatch, Phase 1)." \
+            --notes "Draft release created by release.yml — review, edit notes, and publish." \
             "dist/release/awesoMux-$VERSION.zip" \
             "dist/release/awesoMux-$VERSION.zip.sha256"
 

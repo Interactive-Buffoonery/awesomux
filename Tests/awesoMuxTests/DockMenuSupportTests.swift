@@ -46,7 +46,7 @@ struct DockMenuSupportTests {
 
     @Test("a generated recent workspace resolves its localized title metadata")
     func generatedWorkspaceUsesLocalizedTitle() throws {
-        let bundle = try #require(Self.frenchBundle)
+        let bundle = try #require(AwesoMuxLocalizationTestSupport.bundle)
         let pane = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
         let workspace = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -63,11 +63,12 @@ struct DockMenuSupportTests {
             closedAt: Date()
         )
 
-        #expect(DockRecentWorkspaceMenu.displayTitle(
-            for: workspace,
-            bundle: bundle,
-            locale: Locale(identifier: "fr")
-        ) == "2 coquille")
+        #expect(
+            DockRecentWorkspaceMenu.displayTitle(
+                for: workspace,
+                bundle: bundle,
+                locale: AwesoMuxLocalizationTestSupport.pseudoLocale
+            ) == "⟦2:⟦shell⟧⟧")
     }
 
     @Test("the token round-trips the exact workspace it was built with")
@@ -91,7 +92,7 @@ struct DockMenuSupportTests {
         let c = Self.session(title: "c")
         let groups = [
             SessionGroup(name: "g1", sessions: [a, b]),
-            SessionGroup(name: "g2", sessions: [c])
+            SessionGroup(name: "g2", sessions: [c]),
         ]
         let rows = DockRecentWorkspaceMenu.openWorkspaceRows(
             groups: groups,
@@ -109,7 +110,7 @@ struct DockMenuSupportTests {
         let c = Self.session(title: "c")
         let groups = [
             SessionGroup(name: "g1", sessions: [a, b]),
-            SessionGroup(name: "g2", sessions: [c])
+            SessionGroup(name: "g2", sessions: [c]),
         ]
         let rows = DockRecentWorkspaceMenu.openWorkspaceRows(
             groups: groups,
@@ -168,16 +169,5 @@ struct DockMenuSupportTests {
         #expect(store.session(id: staleID) == nil)
         store.selectedSessionID = staleID
         #expect(store.selectedSession == nil)
-    }
-
-    private static var frenchBundle: Bundle? {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(
-                path: "Fixtures/INT612Localization.bundle/fr.lproj",
-                directoryHint: .isDirectory
-            )
-        return Bundle(url: url)
     }
 }
