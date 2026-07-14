@@ -404,6 +404,30 @@ struct RecentlyClosedWorkspaceTests {
         #expect(store.lastClosedTransient?.sessionID == bareShell.id)
     }
 
+    @Test("a process-exit auto-close persists a bare shell with an open document")
+    func processExitOriginClosePersistsBareShellWithOpenDocument() throws {
+        let bareShell = TerminalSession(
+            title: "shell",
+            workingDirectory: NSHomeDirectory(),
+            isTitleUserEdited: false,
+            agentKind: .shell,
+            agentState: .idle
+        )
+        let session = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: URL(fileURLWithPath: "/tmp/notes.md"),
+                associatedTerminalPaneID: bareShell.activePaneID,
+                in: bareShell,
+                now: Date()
+            )?.session
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "g", sessions: [session])])
+
+        store.closeSession(id: session.id, origin: .processExit)
+
+        #expect(store.recentlyClosed.first?.sessionID == session.id)
+    }
+
     @Test("a process-exit auto-close of a meaningful workspace still persists — gate passes as today")
     func processExitOriginClosePersistsAMeaningfulWorkspace() throws {
         let claudeSession = TerminalSession(

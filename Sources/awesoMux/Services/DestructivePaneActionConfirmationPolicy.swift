@@ -3,6 +3,12 @@ import AwesoMuxCore
 import Foundation
 
 enum DestructivePaneActionConfirmationPolicy {
+    enum ConfirmedCloseAction: Equatable {
+        case closePane
+        case closeWorkspace
+        case alreadyClosed
+    }
+
     enum Action: Equatable {
         case closePane
         case restartShell
@@ -69,5 +75,17 @@ enum DestructivePaneActionConfirmationPolicy {
             return .proceedWithoutPrompt(action)
         }
         return .prompt(action)
+    }
+
+    static func confirmedCloseAction(
+        session: TerminalSession?,
+        targetPaneID: TerminalPane.ID
+    ) -> ConfirmedCloseAction {
+        guard let session,
+            session.layout.pane(id: targetPaneID) != nil
+        else {
+            return .alreadyClosed
+        }
+        return session.layout.isSinglePane ? .closeWorkspace : .closePane
     }
 }

@@ -1395,6 +1395,17 @@ final class TerminalPanelController {
         workspacesWithBackgroundedRunningWork = slots.workspacesWithBackgroundedRunningWork
     }
 
+    func evictFloatingSlotsForClosedWorkspaces(in sessionStore: SessionStore) {
+        guard let slots else { return }
+        let liveWorkspaceIDs = Set(sessionStore.groups.flatMap(\.sessions).map(\.id))
+        for workspaceID in slots.workspaceIDs
+        where workspaceID != FloatingSlotBook.unattachedWorkspaceID
+            && !liveWorkspaceIDs.contains(workspaceID)
+        {
+            evictFloatingSlot(for: workspaceID)
+        }
+    }
+
     /// Free a floating slot's libghostty surfaces and drop the store. The next
     /// summon for this workspace allocates a fresh shell.
     private func tearDownFloatingSlot(
