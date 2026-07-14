@@ -210,6 +210,7 @@ extension GhosttySurfaceNSView {
     /// bare attach command on a degraded/no-bridge attach, or nil for a plain
     /// local shell.
     func finishSurfaceCreation(command: String?) {
+        terminalPromptObserved = false
         var environment = runtime.agentRuntimeEnvironment(
             sessionID: sessionID,
             paneID: paneID,

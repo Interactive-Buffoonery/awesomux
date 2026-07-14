@@ -165,7 +165,11 @@ extension GhosttySurfaceNSView {
             return nil
         }
 
-        return ghostty_surface_needs_confirm_quit(surface)
+        let isAwayFromPrompt = ghostty_surface_needs_confirm_quit(surface)
+        if !isAwayFromPrompt {
+            terminalPromptObserved = true
+        }
+        return isAwayFromPrompt
     }
 
     // No `draw(_:)` override: libghostty owns presentation on its own renderer
