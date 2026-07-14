@@ -1174,10 +1174,7 @@ struct DocumentPaneView: View {
             showAlert(title: "Read-Only Snapshot", message: "Remote Markdown snapshots cannot be edited in awesoMux yet.")
             return false
         }
-        let onDisk: String
-        do {
-            onDisk = try String(contentsOf: pane.fileURL, encoding: .utf8)
-        } catch {
+        guard let onDisk = DocumentLoader.readSource(pane.fileURL) else {
             showAlert(title: "Couldn't Save", message: "The document couldn't be read from disk.")
             return false
         }
