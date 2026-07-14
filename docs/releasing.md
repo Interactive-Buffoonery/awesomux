@@ -175,14 +175,24 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [ ] optional signed checksum file later
 - [ ] Add a tag-triggered GitHub Actions workflow:
   - [ ] only runs on protected `v*` tags or manual maintainer dispatch
+        (Phase 2 — pending first successful dispatch run; `.github/workflows/release.yml`
+        currently ships `workflow_dispatch` only, gated to `refs/heads/main`)
   - [ ] checks out submodules
-  - [ ] imports signing cert into a temporary keychain
-  - [ ] builds and signs
-  - [ ] notarizes and staples
-  - [ ] uploads artifacts/checksums to a draft GitHub Release
+  - [x] imports signing cert into a temporary keychain
+  - [x] builds and signs
+  - [x] notarizes and staples
+  - [x] uploads artifacts/checksums to a draft GitHub Release
   - [ ] never runs signing steps for `pull_request` from forks
 - [x] Add an unsigned local dry-run mode (`--unsigned`; needs full Xcode + Zig, but no signing credentials)
 - [ ] Document maintainer-only release prerequisites.
+
+**Environment/secret names contract:** the workflow runs under the GitHub
+Environment named `release`, which must hold five secrets:
+`RELEASE_P12_BASE64`, `RELEASE_P12_PASSWORD`, `NOTARY_KEY_P8`, `NOTARY_KEY_ID`,
+`NOTARY_ISSUER_ID`. These names are load-bearing — the workflow reads them
+verbatim via `secrets.<NAME>` — so renaming any of them in the GitHub
+Environment without a matching workflow change breaks the run at the
+signing/notarization step, not at dispatch time.
 
 ### Per-release checklist
 
