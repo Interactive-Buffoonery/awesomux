@@ -116,6 +116,14 @@ struct WorkspaceAttentionReducer: Sendable {
             didMutate = true
         }
 
+        // ponytail: `mappingPanes` reboxes the whole indirect-enum layout tree
+        // on every call, even for the untouched panes and even on a quiet
+        // same-state repeat that ends up mutating nothing — O(panes)
+        // allocations per event, discarded the moment `didMutate` stays
+        // false. Fine at today's pane counts; if a many-split session makes
+        // this show up in a trace, the upgrade path is a read-only pre-peek
+        // of the target pane (skip the rebox entirely when nothing about it
+        // would change) before falling back to this mapping pass.
         session.layout = session.layout.mappingPanes { pane in
             guard pane.id == paneID else { return pane }
             var pane = pane

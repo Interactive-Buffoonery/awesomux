@@ -259,10 +259,12 @@ extension SessionStore {
             update: update,
             now: now
         )
-        // Quiet same-state repeat: return true (the event WAS accepted — callers
-        // key suppression bookkeeping and announcement diffs on this Bool, and a
-        // false here would un-arm the visible-text detector suppression), but do
-        // not touch _groups and skip the commit.
+        // Quiet same-state repeat: the event was still legitimately accepted
+        // (the reducer just had nothing new to write), so `false` here would
+        // misreport acceptance — return `true` but skip the `_groups` write
+        // and commit. All four callers of this private helper discard the
+        // returned Bool; the Bool-dependent suppression path lives on the
+        // separate public `applyAgentRuntimeEvent` below, not here.
         guard outcome.didMutate else { return true }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
         commit(
