@@ -18,8 +18,8 @@ import Testing
 //   onClear (closure), onRename (closure), canMakeWorkspaceManaged,
 //   onMakeWorkspaceManaged (closure), onToggleNotificationsMute (closure),
 //   isPinned, onTogglePin (closure), pinnedOriginGroupName,
-//   onDragStarted (closure), focusedRowTarget, isKeyboardNavigating
-//   (@Binding), isHovered (@State), promotionPulseIsBright (@State),
+//   onDragStarted (closure), focusedRowTarget, isKeyboardNavigatingValue,
+//   isKeyboardNavigating (@Binding), isHovered (@State), promotionPulseIsBright (@State),
 //   promotionPulseTask (@State), isPeekVisible (@State), peekTask (@State),
 //   tileFrame (@State), peekModel (@Environment), contrast (@Environment),
 //   reduceMotion (@Environment), appSettingsStore (@Environment),
@@ -27,10 +27,11 @@ import Testing
 //
 // Every non-closure, non-@State, non-@Environment field above has a
 // `RenderKey`/`PaneChromeKey`/`NeighborKey` field EXCEPT `focusedRowTarget`
-// (a `Binding` — not comparable, and its rendered effect is already fully
-// captured by the separately-supplied `isKeyboardFocused`). See the
-// `RenderKey` doc comment in `SidebarSessionTile.swift` for the full
-// exclusion rationale.
+// and `isKeyboardNavigating` (both `Binding`s — not comparable, write-only
+// or already fully captured by a separately-supplied plain field:
+// `isKeyboardFocused` for `focusedRowTarget`, `isKeyboardNavigatingValue`
+// for `isKeyboardNavigating`). See the `RenderKey` doc comment in
+// `SidebarSessionTile.swift` for the full exclusion rationale.
 @MainActor
 @Suite("SidebarSessionTile render-key equality")
 struct SidebarSessionTileEquatableTests {
@@ -107,6 +108,12 @@ struct SidebarSessionTileEquatableTests {
         isActive: Bool = false,
         isKeyboardFocused: Bool = false,
         isKeyboardNavigating: Bool = false,
+        // Defaults to an independent `.constant` per call, matching every
+        // existing test's intent (fixed navigation state per tile). The
+        // shared-binding production shape (one binding handed to every row)
+        // is modeled explicitly in `isKeyboardNavigatingChangeRerenders`
+        // below by passing a real `Binding` here.
+        isKeyboardNavigatingBinding: Binding<Bool>? = nil,
         isPinned: Bool = false,
         pinnedOriginGroupName: String? = nil,
         activePaneID: TerminalPane.ID? = nil,
@@ -152,7 +159,8 @@ struct SidebarSessionTileEquatableTests {
             pinnedOriginGroupName: pinnedOriginGroupName,
             onDragStarted: { UUID() },
             focusedRowTarget: focusState.projectedValue,
-            isKeyboardNavigating: .constant(isKeyboardNavigating)
+            isKeyboardNavigatingValue: isKeyboardNavigating,
+            isKeyboardNavigating: isKeyboardNavigatingBinding ?? .constant(isKeyboardNavigating)
         )
     }
 
@@ -294,13 +302,37 @@ struct SidebarSessionTileEquatableTests {
         #expect(tileA != tileB)
     }
 
-    @Test("isKeyboardNavigating binding difference compares NOT equal")
+    @Test("isKeyboardNavigating snapshot difference compares NOT equal (shared binding, production shape)")
     func isKeyboardNavigatingChangeRerenders() {
         let onePane = pane()
         let sessionValue = session(panes: [onePane])
 
-        let tileA = tile(session: sessionValue, isKeyboardNavigating: false)
-        let tileB = tile(session: sessionValue, isKeyboardNavigating: true)
+        // Production reality: `SidebarGroupView`/`SidebarPinnedSectionView`
+        // hand ONE shared `@Binding` down to every row, so the OLD and NEW
+        // tile instances compared by `==` observe the SAME backing storage —
+        // not two independent bindings. Two `.constant` bindings (the
+        // previous version of this test) can't catch a live-binding read in
+        // `==`: each constant is permanently pinned to the value it was
+        // built with, so the bug (reading through the binding at comparison
+        // time instead of a captured snapshot) never surfaces. A single
+        // mutable var behind one real `Binding` reproduces the sharing.
+        var isKeyboardNavigating = false
+        let sharedBinding = Binding<Bool>(
+            get: { isKeyboardNavigating },
+            set: { isKeyboardNavigating = $0 }
+        )
+
+        let tileA = tile(
+            session: sessionValue,
+            isKeyboardNavigating: isKeyboardNavigating,
+            isKeyboardNavigatingBinding: sharedBinding
+        )
+        isKeyboardNavigating = true
+        let tileB = tile(
+            session: sessionValue,
+            isKeyboardNavigating: isKeyboardNavigating,
+            isKeyboardNavigatingBinding: sharedBinding
+        )
 
         #expect(tileA != tileB)
     }

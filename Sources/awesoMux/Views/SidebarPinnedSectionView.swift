@@ -250,6 +250,7 @@ struct SidebarPinnedSectionView: View {
             pinnedOriginGroupName: item.originGroup.name,
             onDragStarted: { onWorkspaceDragStarted(session.id) },
             focusedRowTarget: focusedRowTarget,
+            isKeyboardNavigatingValue: isKeyboardNavigating,
             isKeyboardNavigating: $isKeyboardNavigating
         )
         // Skips re-running this row's `body` (including its
