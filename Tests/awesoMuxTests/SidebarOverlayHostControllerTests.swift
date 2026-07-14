@@ -178,6 +178,19 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.overlayClipViewForTesting.isHidden)
     }
 
+    @Test("persistent controller disappearance preserves visible ownership")
+    func persistentDisappearPreservesSidebar() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+
+        controller.viewWillDisappear()
+
+        #expect(controller.hostModeForTesting == .persistent(width: 300))
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
+    }
+
     @Test("active accessibility focus retains overlay and cancels hide")
     func accessibilityFocusRetainsOverlay() {
         let driver = AnimationDriver()

@@ -511,7 +511,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func invalidateOverlayForDetach() {
-        guard isViewLoaded else { return }
+        guard isViewLoaded, isSidebarHidden, case .overlay = hostMode else { return }
         overlayAnimator?.cancelAndSettle(
             presented: false,
             width: overlayClipView.bounds.width,
