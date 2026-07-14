@@ -177,7 +177,7 @@ enum AmxBackend {
             logger.warning(
                 "ssh ControlPath temp-socket length \(estimatedLength, privacy: .public) exceeds the \(Self.sockaddrUnPathLimit, privacy: .public)-byte sockaddr_un limit; ControlMaster setup will fail and remote panes will not open"
             )
-            // ponytail: fail loud in dev where it's cheap to notice; never
+            // deliberate scope: fail loud in dev where it's cheap to notice; never
             // crash a release build — a warning plus the degraded path beats a
             // crash, and the short /tmp dir keeps this branch unreachable.
             #if DEBUG
@@ -221,6 +221,42 @@ enum AmxBackend {
         ]
         if remote != nil {
             tokens += AgentRuntimeEnvironmentKey.paneScopedKeys.map { "-u \($0)" }
+        }
+        return tokens
+    }
+
+    /// Shell-integration env tokens for the daemon-spawned shell (INT close-risk
+    /// fix): libghostty's own zsh injection never fires for the bridge because
+    /// the surface child is `env … amx attach`, not a recognized shell, so the
+    /// daemon's zsh starts without ghostty integration and never emits OSC-133
+    /// prompt marks — leaving `needs_confirm_quit` conservatively true forever.
+    /// Mirror ghostty's `setupZsh` (vendor/ghostty/src/termio/shell_integration.zig):
+    /// point ZDOTDIR at the bundled integration dir and preserve any pre-existing
+    /// ZDOTDIR via GHOSTTY_ZSH_ZDOTDIR so the integration .zshenv can chain back.
+    /// Every attach carries these, not just the first: a reattach that finds a
+    /// stale socket forks a REPLACEMENT daemon from its own environment (zmx
+    /// ensureSession recovery path), so the attach env is load-bearing there
+    /// too. Gated on the effective $SHELL being zsh — a ZDOTDIR left in a
+    /// bash/fish daemon's environment would leak into any nested zsh launched
+    /// later. Local attaches only: a remote session's daemon spawns `ssh`, and
+    /// the resources path doesn't exist on the far host.
+    /// deliberate scope ceiling — zsh only — bash/nu need argv rewriting zmx doesn't support;
+    /// add fish/elvish via XDG_DATA_DIRS if a non-zsh user reports the warning.
+    private static func shellIntegrationEnvTokens(
+        remote: RemoteTarget?,
+        ghosttyResourcesDir: String?,
+        inheritedZDOTDIR: String?,
+        shellPath: String?
+    ) -> [String] {
+        guard remote == nil,
+            let ghosttyResourcesDir, !ghosttyResourcesDir.isEmpty,
+            let shellPath, ShellRecognition.basename(shellPath) == "zsh"
+        else { return [] }
+        var tokens = [
+            shellQuote("ZDOTDIR=" + ghosttyResourcesDir + "/shell-integration/zsh")
+        ]
+        if let inheritedZDOTDIR {
+            tokens.append(shellQuote("GHOSTTY_ZSH_ZDOTDIR=" + inheritedZDOTDIR))
         }
         return tokens
     }
@@ -272,6 +308,24 @@ enum AmxBackend {
         return url
     }()
 
+    /// Env-derived inputs for shellIntegrationEnvTokens, resolved at attach
+    /// time (post app-init sanitization). The resources dir is forwarded only
+    /// when its zsh integration subdirectory actually exists — ghostty's own
+    /// setupZsh probes the directory before pinning ZDOTDIR, and pointing
+    /// ZDOTDIR at a missing dir makes zsh skip the user's dotfiles entirely
+    /// (a silently worse failure than missing OSC-133). Not cached: attach
+    /// commands assemble at surface-creation frequency, not per-frame.
+    static func shellIntegrationInputs(
+        from environment: [String: String],
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> (ghosttyResourcesDir: String?, inheritedZDOTDIR: String?, shellPath: String?) {
+        var resourcesDir = environment["GHOSTTY_RESOURCES_DIR"]
+        if let dir = resourcesDir, dir.isEmpty || !fileExists(dir + "/shell-integration/zsh") {
+            resourcesDir = nil
+        }
+        return (resourcesDir, environment["ZDOTDIR"], environment["SHELL"])
+    }
+
     static func attachCommand(
         for sessionID: TerminalSessionID,
         status: AmxStatusChannel? = nil,
@@ -280,12 +334,16 @@ enum AmxBackend {
         guard let executableURL = bundledExecutableURL() else {
             return nil
         }
+        let inputs = Self.shellIntegrationInputs(from: ProcessInfo.processInfo.environment)
         return attachCommand(
             executablePath: executableURL.path,
             sessionID: sessionID,
             socketDirectory: sessionSocketDirectory(),
             status: status,
-            remote: remote
+            remote: remote,
+            ghosttyResourcesDir: inputs.ghosttyResourcesDir,
+            inheritedZDOTDIR: inputs.inheritedZDOTDIR,
+            shellPath: inputs.shellPath
         )
     }
 
@@ -301,7 +359,10 @@ enum AmxBackend {
         sessionID: TerminalSessionID,
         socketDirectory: String,
         status: AmxStatusChannel? = nil,
-        remote: RemoteTarget? = nil
+        remote: RemoteTarget? = nil,
+        ghosttyResourcesDir: String? = nil,
+        inheritedZDOTDIR: String? = nil,
+        shellPath: String? = nil
     ) -> String? {
         guard TerminalSessionID.isValid(sessionID.rawValue) else {
             return nil
@@ -319,6 +380,12 @@ enum AmxBackend {
                 shellQuote("AMX_STATUS_TOKEN=" + status.token),
             ]
         }
+        tokens += shellIntegrationEnvTokens(
+            remote: remote,
+            ghosttyResourcesDir: ghosttyResourcesDir,
+            inheritedZDOTDIR: inheritedZDOTDIR,
+            shellPath: shellPath
+        )
         tokens += [
             shellQuote(executablePath),
             "attach",

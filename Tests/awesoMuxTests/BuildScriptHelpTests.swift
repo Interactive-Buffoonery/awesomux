@@ -67,6 +67,16 @@ struct BuildScriptHelpTests {
         #expect(script.contains("later app builds reuse the finished .build/ghostty artifacts"))
     }
 
+    @Test("release build creates and staples a disk image")
+    func releaseBuildCreatesAndStaplesDiskImage() throws {
+        let script = try Self.contents(of: "script/build_release.sh")
+
+        #expect(script.contains("hdiutil create"))
+        #expect(script.contains("xcrun stapler staple \"$DMG_PATH\""))
+        #expect(script.contains("hdiutil attach \"$DMG_PATH\" -readonly"))
+        #expect(!script.contains("ZIP_PATH"))
+    }
+
     private static let scripts = [
         "script/build_and_run.sh",
         "script/build_ghostty_xcframework.sh",
