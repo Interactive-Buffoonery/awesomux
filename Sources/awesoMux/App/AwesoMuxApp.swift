@@ -1162,20 +1162,19 @@ struct AwesoMuxApp: App {
     /// context-menu capture can't act on outdated membership, refresh
     /// prompt-marker quit state, then gate on one aggregate confirm before
     /// tearing down runtime surfaces and mutating the store. Empty groups
-    /// skip the confirm — there is nothing to interrupt.
+    /// confirm only when removal loses an SSH creation default.
     @MainActor
     private func closeWorkspaceGroup(_ group: SessionGroup) {
         guard let live = sessionStore.groups.first(where: { $0.id == group.id }) else { return }
         let voName = Self.compactTitle(live.name)
 
         if live.sessions.isEmpty {
-            // An empty LOCAL group removes without a confirm — nothing to
-            // lose. An empty REMOTE group still confirms: removal forgets
-            // the group's SSH target, which is not restorable (INT-767),
-            // and the one-click hover X (INT-770) must not reach that
-            // silently.
-            if live.remote != nil {
-                switch confirmForgetRemoteGroup(live, isEmpty: true) {
+            let remoteImpact = SessionGroupRemoteClosePresentation(
+                summary: SessionGroupExecutionSummary(group: live),
+                isEmpty: true
+            )
+            if remoteImpact.requiresConfirmation {
+                switch confirmRemoteGroupImpact(live, isEmpty: true) {
                 case .suppressed:
                     return
                 case .userCancelled:
@@ -1185,10 +1184,21 @@ struct AwesoMuxApp: App {
                     break
                 }
             }
+            guard let current = sessionStore.groups.first(where: { $0.id == live.id }) else { return }
+            if remoteImpact.requiresConfirmation,
+                SessionGroupCloseSafetySummary.hasMaterialChange(
+                    from: live,
+                    to: current,
+                    confirmedSessionIDs: []
+                )
+            {
+                showGroupCloseStateChanged()
+                return
+            }
             // `removeGroup` refuses the last group (stale context menu or
             // double-invoke can reach that here) — only announce a removal
             // that actually happened.
-            if sessionStore.removeGroup(id: live.id) {
+            if sessionStore.removeGroup(id: current.id) {
                 announceGroupClosed(name: voName)
             }
             return
@@ -1224,6 +1234,14 @@ struct AwesoMuxApp: App {
         // here and closeGroup, so the two operate on the same set.
         guard let liveGroup = sessionStore.groups.first(where: { $0.id == refreshed.id }) else { return }
         let confirmedSet = Set(confirmedIDs)
+        if SessionGroupCloseSafetySummary.hasMaterialChange(
+            from: refreshed,
+            to: liveGroup,
+            confirmedSessionIDs: confirmedSet
+        ) {
+            showGroupCloseStateChanged()
+            return
+        }
         let sessionsToClose = liveGroup.sessions.filter { confirmedSet.contains($0.id) }
         for session in sessionsToClose {
             floatingPanelController.evictFloatingSlot(for: session.id)
@@ -1266,14 +1284,15 @@ struct AwesoMuxApp: App {
                 $0.isCloseRisk(at: now) || floatingPanelController.hasRiskyFloatingSessionsOnClose(for: $0.id)
             })
             : 0
+        let remoteImpact = SessionGroupRemoteClosePresentation(
+            summary: SessionGroupExecutionSummary(group: group),
+            isEmpty: false
+        )
         guard riskyCount > 0 else {
-            // A quiet group closes silently — but closing a REMOTE group also
-            // forgets its declared SSH target (not restorable, INT-767), the
-            // same loss the empty-group branch confirms. Deliberately not
-            // gated on `confirmCloseWithRunningAgent`: that setting opts out
-            // of agent-interruption prompts, not of target-forgetting ones.
-            if group.remote != nil {
-                return confirmForgetRemoteGroup(group, isEmpty: false)
+            // The running-agent preference controls interruption prompts, not
+            // remote pane destruction or loss of the group's SSH default.
+            if remoteImpact.requiresConfirmation {
+                return confirmRemoteGroupImpact(group, isEmpty: false)
             }
             return .proceed
         }
@@ -1285,16 +1304,9 @@ struct AwesoMuxApp: App {
         let displayName = Self.sanitizedAlertTitle(group.name)
 
         var body = LocalizedPluralStrings.closeGroupRiskyWorkspaces(count: riskyCount)
-        if group.remote != nil {
-            // The risky alert doubles as the remote-forget confirm here — one
-            // dialog, not two stacked modals.
-            body +=
-                "\n\n"
-                + String(
-                    localized: "Closing this group also forgets its SSH target.",
-                    comment:
-                        "Extra line on the close-group confirmation dialog when the group has a remote SSH target that removal would forget."
-                )
+        if let remoteLossText = remoteImpact.lossText {
+            // One dialog covers both running work and the exact remote impact.
+            body += "\n\n" + remoteLossText
         }
         return NSAlert.confirmDestructive(
             title: String(
@@ -1314,21 +1326,21 @@ struct AwesoMuxApp: App {
         ) ? .proceed : .userCancelled
     }
 
-    /// Remote-group variant of `confirmCloseGroupIfNeeded(_:)`. Closing a
-    /// remote group forgets its declared SSH target — not restorable via
-    /// `recentlyClosed` (INT-767) — so it confirms even when the
-    /// running-agent risk gate never fires: for an empty group (no sessions
-    /// to interrupt) and for a quiet populated group (idle sessions are not
-    /// a quit risk, but the target-forget loss is the same). Shares the
-    /// `isCloseConfirmAlertPresented` re-entry guard with the other close
-    /// confirms so it can't stack on them.
+    /// Confirms active remote pane destruction and/or loss of an SSH creation
+    /// default. Pane plans describe live work; the group target is only the
+    /// default that removal forgets.
     @MainActor
-    private func confirmForgetRemoteGroup(_ group: SessionGroup, isEmpty: Bool) -> CloseConfirmDecision {
+    private func confirmRemoteGroupImpact(_ group: SessionGroup, isEmpty: Bool) -> CloseConfirmDecision {
         guard !isCloseConfirmAlertPresented else { return .suppressed }
         isCloseConfirmAlertPresented = true
         defer { isCloseConfirmAlertPresented = false }
 
         let displayName = Self.sanitizedAlertTitle(group.name)
+        let impact = SessionGroupRemoteClosePresentation(
+            summary: SessionGroupExecutionSummary(group: group),
+            isEmpty: isEmpty
+        )
+        guard let lossText = impact.lossText else { return .proceed }
 
         // "Remove" for an empty group (nothing closes but the shell of the
         // group itself); "Close" when workspaces are about to be torn down —
@@ -1336,31 +1348,20 @@ struct AwesoMuxApp: App {
         let title =
             isEmpty
             ? String(
-                localized: "Remove remote group \(displayName)?",
+                localized: "Remove group \(displayName)?",
                 comment:
-                    "Title of the confirmation dialog shown when removing an empty workspace group that has a remote SSH target. Argument is the bidi-isolated group name."
+                    "Title of the confirmation dialog shown when removing an empty workspace group with an SSH creation default. Argument is the bidi-isolated group name."
             )
             : String(
-                localized: "Close remote group \(displayName)?",
+                localized: "Close group \(displayName)?",
                 comment:
-                    "Title of the confirmation dialog shown when closing a populated workspace group that has a remote SSH target. Argument is the bidi-isolated group name."
-            )
-        let lossLine =
-            isEmpty
-            ? String(
-                localized: "The group is empty, but removing it forgets its SSH target. Sessions on the remote host are not affected.",
-                comment: "Body of the empty-remote-group removal confirmation dialog."
-            )
-            : String(
-                localized: "Closing this group also forgets its SSH target. Sessions on the remote host are not affected.",
-                comment:
-                    "Body of the remote-group close confirmation dialog when the group has workspaces but the running-agent risk gate did not fire."
+                    "Title of the confirmation dialog shown when closing a workspace group with remote impact. Argument is the bidi-isolated group name."
             )
         let keyboardHint =
             isEmpty
             ? String(
                 localized: "Press ⌘Return to remove group. Esc cancels.",
-                comment: "Keyboard hint line on the empty-remote-group removal confirmation dialog."
+                comment: "Keyboard hint line on the empty-group removal confirmation dialog."
             )
             : String(
                 localized: "Press ⌘Return to close group. Esc cancels.",
@@ -1370,7 +1371,7 @@ struct AwesoMuxApp: App {
             isEmpty
             ? String(
                 localized: "Remove Group",
-                comment: "Destructive button on the empty-remote-group removal confirmation dialog."
+                comment: "Destructive button on the empty-group removal confirmation dialog."
             )
             : String(
                 localized: "Close Group",
@@ -1379,10 +1380,26 @@ struct AwesoMuxApp: App {
 
         return NSAlert.confirmDestructive(
             title: title,
-            body: lossLine,
+            body: lossText,
             keyboardHint: keyboardHint,
             destructiveTitle: destructiveTitle
         ) ? .proceed : .userCancelled
+    }
+
+    @MainActor
+    private func showGroupCloseStateChanged() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "Group locations changed",
+            comment: "Title of the notice shown when a group changes while its close confirmation is open."
+        )
+        alert.informativeText = String(
+            localized: "Review the group's current local and remote panes, then close it again.",
+            comment: "Body of the notice shown when a group changes while its close confirmation is open."
+        )
+        alert.addButton(withTitle: String(localized: "OK", comment: "Dismiss alert button"))
+        alert.runModal()
     }
 
     private enum CloseConfirmDecision {

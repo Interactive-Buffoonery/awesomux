@@ -38,7 +38,8 @@ public struct SessionGroup: Identifiable, Hashable, Sendable {
     public private(set) var id: UUID
     public var name: String
     public var color: WorkspaceGroupColor?
-    /// Declared SSH destination when this is a remote workgroup; nil = local.
+    /// SSH creation default and legacy restore source. Current pane execution
+    /// locations come from each pane's durable `PaneExecutionPlan`.
     /// Additive & omitted-when-nil so old snapshots decode unchanged — no
     /// `SessionSnapshot.currentSchemaVersion` bump (the `pinnedSessionIDs`
     /// precedent).

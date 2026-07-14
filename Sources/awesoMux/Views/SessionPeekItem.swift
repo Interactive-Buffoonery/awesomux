@@ -16,7 +16,8 @@ struct SessionPeekItem: Identifiable, Equatable {
     let state: AwState
     let unread: Int
     let isActive: Bool
-    let isRemote: Bool
+    let locationText: String?
+    let accessibilityLocationText: String
 }
 
 extension SessionPeekItem {
@@ -31,6 +32,9 @@ extension SessionPeekItem {
     ) -> [SessionPeekItem] {
         sessions.map { session in
             let rollup = session.agentRollup()
+            let location = SessionGroupExecutionPresentation(
+                summary: SessionGroupExecutionSummary(sessions: [session])
+            )
             return SessionPeekItem(
                 id: session.id,
                 title: session.title,
@@ -39,7 +43,8 @@ extension SessionPeekItem {
                 state: rollup.state.awState,
                 unread: rollup.unreadTotal,
                 isActive: session.id == activeSessionID,
-                isRemote: session.sidebarLocation.kind == .remote
+                locationText: location.visibleText,
+                accessibilityLocationText: location.accessibilityText
             )
         }
     }

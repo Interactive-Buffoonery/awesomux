@@ -17,6 +17,12 @@ struct SidebarGroupPeekCard: View {
     /// `SidebarSessionPeekCard.onHoverChanged`.
     let onHoverChanged: (Bool) -> Void
 
+    private var executionPresentation: SessionGroupExecutionPresentation {
+        SessionGroupExecutionPresentation(
+            summary: SessionGroupExecutionSummary(group: group)
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
@@ -62,10 +68,20 @@ struct SidebarGroupPeekCard: View {
                 .fill(tint.hue)
                 .frame(width: 8, height: 8)
 
-            Text(group.name)
-                .awFont(AwFont.UI.label)
-                .foregroundStyle(Color.aw.text)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(group.name)
+                    .awFont(AwFont.UI.label)
+                    .foregroundStyle(Color.aw.text)
+                    .lineLimit(1)
+
+                if let location = executionPresentation.visibleText {
+                    Text(location)
+                        .awFont(AwFont.Mono.meta)
+                        .foregroundStyle(Color.aw.text2)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
 
             Spacer(minLength: 6)
 
@@ -134,10 +150,16 @@ private struct SessionPeekRow: View {
                 .foregroundStyle(Color.aw.text)
                 .lineLimit(1)
 
-            if item.isRemote {
+            if let locationText = item.locationText {
                 Image(systemName: "network")
                     .awFont(AwFont.Mono.meta)
                     .foregroundStyle(Color.aw.text2)
+
+                Text(locationText)
+                    .awFont(AwFont.Mono.meta)
+                    .foregroundStyle(Color.aw.text2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             Spacer(minLength: 6)
