@@ -85,6 +85,7 @@ struct ContentView: View {
     @State private var sidebarLiveWidth = SidebarLiveWidth(value: SidebarWidthPreferenceStore().width())
     /// Command channel to move the native divider (the `⌘\` toggle).
     @State private var splitProxy = SidebarSplitProxy()
+    @State private var hostPresentation = SidebarHostPresentationState()
     @State private var sidebarPresentation = SidebarPresentationModel()
     @State private var appliedSidebarPosition: AppearanceConfig.SidebarPosition = .left
     /// Collapsed-rail hover peek card, hoisted above the split (INT-533/535).
@@ -159,6 +160,14 @@ struct ContentView: View {
                 sidebarPresentation.showPersistently()
                 settleSidebarVisibilityExplicitly()
             }
+            .onChange(of: sidebarPresentation.proximityState) { _, state in
+                guard sidebarPresentation.userWantsHidden else { return }
+                splitProxy.setOverlayVisible?(
+                    state == .revealed,
+                    .hover,
+                    NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                )
+            }
             .onChange(of: appSettingsStore.appearance.value.sidebarPosition) { _, position in
                 applySidebarPosition(position)
             }
@@ -196,13 +205,14 @@ struct ContentView: View {
                 onRenameWorkspace: onRenameWorkspace,
                 sidebarLiveWidth: sidebarLiveWidth,
                 sidebarPosition: sidebarPosition,
-                isSidebarVisible: sidebarPresentation.isSidebarVisible
+                hostPresentation: hostPresentation
             )
 
             SidebarSplitView(
                 terminalMinimumWidth: Self.terminalMinimumWidth,
                 initialWidth: sidebarWidth,
                 proxy: splitProxy,
+                hostPresentation: hostPresentation,
                 position: sidebarPosition,
                 initiallyHidden: !sidebarPresentation.isSidebarVisible,
                 edgeTrackingEnabled: sidebarPresentation.userWantsHidden,
@@ -289,6 +299,7 @@ struct ContentView: View {
         // Ordering is deliberate: invalidate every stale interaction before
         // moving the native split, then publish the new overlay geometry.
         sidebarPresentation.positionDidChange()
+        splitProxy.setOverlayVisible?(false, .immediate, true)
         peekModel.hideAll()
         splitProxy.setPosition?(position)
         appliedSidebarPosition = position
@@ -355,7 +366,7 @@ struct ContentView: View {
         sidebarWidthPreferenceStore.saveLastNonCollapsedWidth(updatedLastNonCollapsedWidth)
         // Move the divider to the committed width: snaps a rail-zone release tight to
         // the collapsed width, and is a no-op when the user released above it.
-        splitProxy.setWidth?(committed)
+        splitProxy.setSelectedWidth?(committed)
     }
 
     private func toggleSidebarWidth() {
@@ -422,8 +433,8 @@ private struct AppTitlebarView: View {
     /// Reading `.value` here re-renders only the titlebar, not `ContentView`.
     let sidebarLiveWidth: SidebarLiveWidth
     let sidebarPosition: AppearanceConfig.SidebarPosition
-    let isSidebarVisible: Bool
-    private var sidebarWidth: CGFloat { isSidebarVisible ? sidebarLiveWidth.value : 0 }
+    let hostPresentation: SidebarHostPresentationState
+    private var sidebarWidth: CGFloat { hostPresentation.effectiveVisibleWidth }
     private var layoutPolicy: SidebarPresentationLayoutPolicy {
         SidebarPresentationLayoutPolicy(position: sidebarPosition)
     }

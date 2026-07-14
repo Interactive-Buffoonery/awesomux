@@ -1,5 +1,6 @@
 import AppKit
 import AwesoMuxConfig
+import AwesoMuxCore
 import SwiftUI
 import Testing
 @testable import awesoMux
@@ -131,6 +132,27 @@ struct SidebarOverlayHostControllerTests {
         #expect(detail.view.frame == detailFrame)
     }
 
+    @Test("overlay width selection updates live width without divider geometry")
+    func overlayWidthSelectionIsCompositorOnly() {
+        let (controller, _, detail) = makeController()
+        controller.setSidebarWidth(300)
+        controller.setPersistentSidebarVisible(false)
+        controller.setOverlayPresentedImmediately(true)
+        let dividerIntents = controller.dividerIntentCountForTesting
+        let detailFrame = detail.view.frame
+        var liveWidths: [CGFloat] = []
+        controller.onLiveWidthChange = { liveWidths.append($0) }
+
+        controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
+
+        #expect(controller.dividerIntentCountForTesting == dividerIntents)
+        #expect(detail.view.frame == detailFrame)
+        #expect(liveWidths == [SidebarWidthPolicy.collapsedWidth])
+        #expect(
+            controller.hostPresentationState.mode
+                == .overlay(width: SidebarWidthPolicy.collapsedWidth))
+    }
+
     @Test("Reduce Motion reveals immediately with aligned hit testing")
     func reduceMotionReveal() {
         let (controller, _, _) = makeController(position: .right)
@@ -153,12 +175,63 @@ struct SidebarOverlayHostControllerTests {
         controller.setSidebarHidden(true)
         controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
 
-        controller.setSidebarHidden(false)
+        controller.setPersistentSidebarVisible(true)
         try await Task.sleep(for: .milliseconds(200))
 
         #expect(controller.hostModeForTesting == .persistent(width: 300))
         #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
+    }
+
+    @Test("overlay to persistent handoff is one silent atomic geometry mutation")
+    func atomicOverlayToPersistentHandoff() {
+        let (controller, _, _) = makeController()
+        controller.setSidebarWidth(300)
+        controller.setPersistentSidebarVisible(false)
+        controller.setOverlayPresentedImmediately(true)
+        var trace: [SidebarHostHandoffAction] = []
+        var publications = 0
+        controller.handoffActionObserverForTesting = { trace.append($0) }
+        controller.hostPresentationState.onSettleForTesting = { publications += 1 }
+        let dividerIntentsBefore = controller.dividerIntentCountForTesting
+
+        controller.setPersistentSidebarVisible(true)
+
+        #expect(
+            trace == [
+                .beginNoActionsTransaction,
+                .cancelOverlayGeneration,
+                .captureSidebarResponder,
+                .removeOverlayAnimation,
+                .reparentHostToSplitContainer,
+                .setPersistentState,
+                .applySingleDividerIntent(300),
+                .settleLayout,
+                .clearTransform,
+                .hideOverlayContainer,
+                .restoreSidebarResponder,
+                .endNoActionsTransaction,
+            ])
+        #expect(publications == 1)
+        #expect(controller.dividerIntentCountForTesting - dividerIntentsBefore == 1)
+        #expect(controller.hostPresentationState.mode == .persistent(width: 300))
+    }
+
+    @Test("settled persistent and hidden commands are idempotent")
+    func settledVisibilityCommandsAreIdempotent() {
+        let (controller, _, _) = makeController()
+        controller.setSidebarWidth(300)
+        var trace: [SidebarHostHandoffAction] = []
+        controller.handoffActionObserverForTesting = { trace.append($0) }
+
+        controller.setPersistentSidebarVisible(true)
+        #expect(trace.isEmpty)
+
+        controller.setPersistentSidebarVisible(false)
+        trace.removeAll()
+        controller.setPersistentSidebarVisible(false)
+        #expect(trace.isEmpty)
+        #expect(controller.hostModeForTesting == .hidden)
     }
 
     @Test("controller detach invalidates stale animation completion")

@@ -83,6 +83,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var isEdgeTrackingEnabled = false
     private var hostMode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.expandedWidth)
     private var selectedSidebarWidth: CGFloat = SidebarWidthPolicy.expandedWidth
+    var hostPresentationState = SidebarHostPresentationState()
+    var handoffActionObserverForTesting: ((SidebarHostHandoffAction) -> Void)?
     private let overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner?
     private let overlayPresentationTranslation: (() -> CGFloat?)?
 
@@ -90,6 +92,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// also fires for programmatic position changes and window layout) does not echo
     /// a programmatic change back out as a "live" width change.
     private var isSettingPositionProgrammatically = false
+    private var dividerIntentCount = 0
 
     /// Width requested before the split had real bounds (first launch / restore).
     /// Applied once the first non-zero layout lands — dodges the zero-bounds trap
@@ -239,6 +242,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         switch hostMode {
         case .overlay:
             layoutOverlayPreservingAnimation()
+            onLiveWidthChange?(selectedSidebarWidth)
         case .persistent:
             setSidebarWidth(selectedSidebarWidth)
         case .hidden:
@@ -266,6 +270,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             overlayClipView.isHidden = false
             layoutOverlay(presented: false)
             hostMode = .overlay(width: selectedSidebarWidth)
+            hostPresentationState.settle(
+                mode: hostMode, effectiveVisibleWidth: selectedSidebarWidth)
             if wasStablyHidden {
                 overlayAnimator?.cancelAndSettle(
                     presented: false,
@@ -329,30 +335,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func setSidebarHidden(_ hidden: Bool) {
-        guard hidden != isSidebarHidden else {
-            if hidden { reconcileStableHiddenOwnership() }
-            return
-        }
-        if hidden {
-            handOffSidebarFocusIfNeeded()
-            pendingWidth = sidebarPaneWidth
-            recordIfExpanded(sidebarPaneWidth)
-            isSidebarHidden = true
-            applyHiddenPosition()
-            hostMode = .hidden
-            sidebarChild.view.setAccessibilityHidden(true)
+        setPersistentSidebarVisible(!hidden)
+    }
+
+    func setPersistentSidebarVisible(_ visible: Bool) {
+        if visible {
+            if !isSidebarHidden, case .persistent = hostMode { return }
+            performAtomicPersistentShow()
         } else {
-            overlayAnimator?.cancelAndSettle(
-                presented: true,
-                width: overlayClipView.bounds.width,
-                position: sidebarPosition)
-            moveSidebarHost(to: sidebarPaneContainer)
-            overlayClipView.isHidden = true
-            isSidebarHidden = false
-            let width = pendingWidth ?? lastExpandedPaneWidth
-            pendingWidth = nil
-            applyPosition(width)
-            sidebarChild.view.setAccessibilityHidden(false)
+            if isSidebarHidden, hostMode == .hidden { return }
+            performAtomicPersistentHide()
         }
     }
 
@@ -368,7 +360,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     func installPersistentVisibilityHandler(on proxy: SidebarSplitProxy) {
         proxy.setPersistentVisible = { [weak self] visible in
-            self?.setSidebarHidden(!visible)
+            self?.setPersistentSidebarVisible(visible)
         }
     }
 
@@ -384,6 +376,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var overlayContentViewForTesting: NSView { overlayContentView }
     var hostModeForTesting: SidebarHostMode { hostMode }
     var sidebarSplitPaneWidthForTesting: CGFloat { sidebarPaneContainer.frame.width }
+    var dividerIntentCountForTesting: Int { dividerIntentCount }
     var sidebarHostOccurrenceCountForTesting: Int {
         [sidebarPaneContainer, overlayContentView].filter {
             sidebarChild.view === $0 || sidebarChild.view.isDescendant(of: $0)
@@ -478,6 +471,96 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
     }
 
+    private func performAtomicPersistentShow() {
+        guard isViewLoaded, splitView.bounds.width > 0, overlayContentView.layer != nil else {
+            isSidebarHidden = true
+            reconcileStableHiddenOwnership()
+            applyHiddenPosition()
+            return
+        }
+        let target = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
+        var capturedResponder: NSResponder?
+        record(.beginNoActionsTransaction)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+
+            record(.cancelOverlayGeneration)
+            overlayAnimator?.cancelAndSettle(
+                presented: true, width: overlayClipView.bounds.width, position: sidebarPosition)
+            record(.captureSidebarResponder)
+            if let responder = view.window?.firstResponder as? NSView,
+                responder === sidebarChild.view || responder.isDescendant(of: sidebarChild.view)
+            {
+                capturedResponder = responder
+            }
+            record(.removeOverlayAnimation)
+            overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
+            record(.reparentHostToSplitContainer)
+            moveSidebarHost(to: sidebarPaneContainer)
+            record(.setPersistentState)
+            isSidebarHidden = false
+            pendingWidth = nil
+            hostMode = .persistent(width: target)
+            sidebarChild.view.setAccessibilityHidden(false)
+            record(.applySingleDividerIntent(target))
+            setDividerPosition(target)
+            record(.settleLayout)
+            splitView.layoutSubtreeIfNeeded()
+            view.layoutSubtreeIfNeeded()
+            record(.clearTransform)
+            overlayContentView.layer?.transform = CATransform3DIdentity
+            record(.hideOverlayContainer)
+            overlayClipView.isHidden = true
+            record(.restoreSidebarResponder)
+            if let capturedResponder = capturedResponder as? NSView,
+                capturedResponder === sidebarChild.view
+                    || capturedResponder.isDescendant(of: sidebarChild.view)
+            {
+                view.window?.makeFirstResponder(capturedResponder)
+            }
+        }
+        record(.endNoActionsTransaction)
+        let rendered = sidebarPaneWidth
+        hostMode = .persistent(width: rendered)
+        recordIfExpanded(rendered)
+        hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
+        setEdgeTrackingEnabled(false)
+    }
+
+    private func performAtomicPersistentHide() {
+        handOffSidebarFocusIfNeeded()
+        pendingWidth = selectedSidebarWidth
+        recordIfExpanded(sidebarPaneWidth)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+            overlayAnimator?.cancelAndSettle(
+                presented: false, width: overlayClipView.bounds.width, position: sidebarPosition)
+            moveSidebarHost(to: sidebarPaneContainer)
+            isSidebarHidden = true
+            hostMode = .hidden
+            applyHiddenPosition()
+            splitView.layoutSubtreeIfNeeded()
+            view.layoutSubtreeIfNeeded()
+            overlayContentView.layer?.transform = CATransform3DIdentity
+            overlayClipView.isHidden = true
+            sidebarChild.view.setAccessibilityHidden(true)
+        }
+        hostPresentationState.settle(mode: .hidden, effectiveVisibleWidth: 0)
+        setEdgeTrackingEnabled(true)
+    }
+
+    private func record(_ action: SidebarHostHandoffAction) {
+        handoffActionObserverForTesting?(action)
+    }
+
     private var sidebarPaneWidth: CGFloat {
         sidebarPaneContainer.frame.width
     }
@@ -501,6 +584,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         overlayClipView.isHidden = true
         hostMode = .hidden
         sidebarChild.view.setAccessibilityHidden(true)
+        hostPresentationState.settle(mode: .hidden, effectiveVisibleWidth: 0)
     }
 
     private var sidebarAccessibilityFocusIsActive: Bool {
@@ -522,6 +606,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private func finishOverlayTransition(presented: Bool) {
         if presented {
             sidebarChild.view.setAccessibilityHidden(false)
+            hostPresentationState.settle(
+                mode: hostMode, effectiveVisibleWidth: overlayClipView.bounds.width)
         } else {
             reconcileStableHiddenOwnership()
         }
@@ -532,6 +618,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         layoutOverlay(presented: true)
         let newWidth = overlayClipView.bounds.width
         hostMode = .overlay(width: newWidth)
+        hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: newWidth)
         guard oldWidth > 0, oldWidth != newWidth,
             let requestedPresented = overlayAnimator?.requestedPresentedState
         else { return }
@@ -576,6 +663,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             forSidebarWidth: width, paneExtent: paneExtent, position: sidebarPosition
         )
         isSettingPositionProgrammatically = true
+        dividerIntentCount += 1
         splitView.setPosition(coordinate, ofDividerAt: 0)
         isSettingPositionProgrammatically = false
     }
@@ -583,6 +671,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private func applyPosition(_ width: CGFloat) {
         let target = Self.clampedWidth(width, maxWidth: maxSidebarWidth)
         isSettingPositionProgrammatically = true
+        dividerIntentCount += 1
         let coordinate = Self.dividerCoordinate(
             forSidebarWidth: target, paneExtent: paneExtent, position: sidebarPosition
         )
@@ -595,11 +684,13 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // can preserve a wider child during first layout or constraint pressure;
         // SwiftUI's sidebar mode must follow the pane that actually rendered.
         onLiveWidthChange?(rendered)
+        hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
     }
 
     private func applyHiddenPosition() {
         guard isViewLoaded, splitView.bounds.width > 0, sidebarPaneWidth > 0 else { return }
         isSettingPositionProgrammatically = true
+        dividerIntentCount += 1
         splitView.setPosition(sidebarPosition == .left ? 0 : paneExtent, ofDividerAt: 0)
         isSettingPositionProgrammatically = false
     }
@@ -689,6 +780,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // restore target, so record it here too.
         recordIfExpanded(width)
         onLiveWidthChange?(width)
+        hostMode = .persistent(width: width)
+        hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: width)
     }
 }
 
