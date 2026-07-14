@@ -235,7 +235,10 @@ struct ContentView: View {
                     )
                 },
                 onEdgeExit: sidebarPresentation.trackingRegionExited,
-                onTrackingAvailabilityLost: sidebarPresentation.invalidateTransientState,
+                onTrackingAvailabilityLost: {
+                    sidebarPresentation.invalidateTransientState()
+                    splitProxy.setVisibility?(false, .immediate, true)
+                },
                 sidebar: {
                     SidebarView(
                         sessionStore: sessionStore,

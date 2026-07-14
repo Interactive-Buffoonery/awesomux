@@ -54,6 +54,36 @@ struct SidebarEdgeTrackingViewTests {
         #expect(reports[0].1 == 40)
     }
 
+    @Test("movement after resize reports current local bounds")
+    func resizeUsesCurrentLocalBounds() throws {
+        let view = SidebarEdgeTrackingView(position: .right)
+        view.frame = CGRect(x: 0, y: 0, width: 40, height: 300)
+        let window = NSWindow(contentRect: view.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = view
+        var reports: [(CGFloat, CGFloat)] = []
+        view.onPointerMove = { reports.append(($0, $1)) }
+        view.frame.size.width = 24
+        let event = try #require(
+            NSEvent.mouseEvent(
+                with: .mouseMoved,
+                location: CGPoint(x: 8, y: 10),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 0,
+                pressure: 0
+            )
+        )
+
+        view.mouseMoved(with: event)
+
+        #expect(reports.count == 1)
+        #expect(reports[0].1 == 24)
+        #expect(SidebarEdgeTrackingView.distance(x: reports[0].0, width: reports[0].1, position: .right) == 16)
+    }
+
     @Test("detaching and key loss invalidate availability")
     func availabilityLoss() {
         let view = SidebarEdgeTrackingView(position: .left)

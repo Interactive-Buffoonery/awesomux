@@ -311,6 +311,41 @@ struct SidebarSplitControllerTests {
         #expect(controller.animationGenerationForTesting == generation)
     }
 
+    @Test("reapplying the current position does not cancel hover")
+    func matchingPositionPreservesHover() async {
+        let (controller, sidebar, harness) = makeControlledController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false)
+        let generation = controller.animationGenerationForTesting
+
+        controller.setSidebarPosition(.left)
+        harness.requests[0].changes()
+        harness.requests[0].completion()
+        await Task.yield()
+
+        #expect(controller.animationGenerationForTesting == generation)
+        #expect(abs(sidebar.view.frame.width - 300) < 1)
+    }
+
+    @Test("changing position settles active hover and invalidates its completion")
+    func positionChangeSettlesHover() async {
+        let (controller, sidebar, harness) = makeControlledController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false)
+        harness.requests[0].changes()
+
+        controller.setSidebarPosition(.right)
+        harness.requests[0].completion()
+        await Task.yield()
+
+        #expect(abs(sidebar.view.frame.width - 300) < 1)
+        #expect(controller.splitPaneViewsForTesting.last === sidebar.view)
+    }
+
     @Test("current-width target normalizes without running animation")
     func equalTargetSkipsAnimation() {
         let (controller, _, harness) = makeControlledController()
@@ -376,6 +411,51 @@ struct SidebarSplitControllerTests {
         #expect(commits.isEmpty)
     }
 
+    @Test("persistent explicit show wins over a held hover completion")
+    func persistentShowWinsHeldHoverCompletion() async {
+        let (controller, sidebar, harness) = makeControlledController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setSidebarVisible(
+            true, transition: .hover(duration: 0.140), reduceMotion: false)
+
+        controller.setSidebarVisible(true, transition: .immediate, reduceMotion: false)
+        harness.requests[0].completion()
+        await Task.yield()
+
+        #expect(abs(sidebar.view.frame.width - 300) < 1)
+    }
+
+    @Test("availability loss invalidates model and held reveal end to end")
+    func availabilityLossSettlesHiddenEndToEnd() async throws {
+        let suiteName = "SidebarSplitControllerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SidebarPresentationPreferenceStore(defaults: defaults)
+        store.saveHidden(true)
+        let model = SidebarPresentationModel(store: store)
+        let (controller, sidebar, harness) = makeControlledController()
+        let proxy = SidebarSplitProxy()
+        controller.installVisibilityHandler(on: proxy)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.onTrackingAvailabilityLost = {
+            model.invalidateTransientState()
+            proxy.setVisibility?(false, .immediate, true)
+        }
+
+        model.pointerMoved(x: 15, width: 40, position: .left)
+        proxy.setVisibility?(true, .hover(duration: 0.140), false)
+        controller.simulateTrackingAvailabilityLostForTesting()
+        harness.requests[0].completion()
+        await Task.yield()
+
+        #expect(model.proximityState == .dormant)
+        #expect(!model.isCueVisible)
+        #expect(sidebar.view.frame.width == 0)
+        #expect(controller.animationGenerationForTesting > 1)
+    }
+
     @Test("hover animation bypasses divider dead zone on both sides only while active")
     func hoverBypassesDeadZone() {
         for position in [AppearanceConfig.SidebarPosition.left, .right] {
@@ -418,6 +498,22 @@ struct SidebarSplitControllerTests {
         #expect(controller.animationGenerationForTesting > generation)
         #expect(sidebar.view.frame.width == SidebarWidthPolicy.collapsedWidth)
         #expect(harness.requests.count == 1)
+    }
+
+    @Test("resize during hover hide preserves the remembered reveal width")
+    func resizeDuringHidePreservesRevealWidth() {
+        let (controller, sidebar, harness) = makeControlledController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarVisible(
+            false, transition: .hover(duration: 0.140), reduceMotion: false)
+        controller.setSidebarPaneWidthForTesting(120)
+
+        controller.view.frame.size.width = 900
+        controller.view.layoutSubtreeIfNeeded()
+        controller.setSidebarVisible(true, transition: .immediate, reduceMotion: false)
+
+        #expect(harness.requests.count == 1)
+        #expect(abs(sidebar.view.frame.width - 300) < 1)
     }
 
     @Test("proxy routes the provided hover duration exactly once")
