@@ -1,9 +1,10 @@
 import AppKit
 
 final class TerminalPanelWindow: NSPanel {
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { isPointerRekeyEnabled }
     override var canBecomeMain: Bool { false }
 
+    var isPointerRekeyEnabled = true
     var onEscapeDismiss: (() -> Void)?
     var onPromote: (() -> Void)?
 
@@ -20,7 +21,9 @@ final class TerminalPanelWindow: NSPanel {
 
     override func becomeKey() {
         super.becomeKey()
-        onKeyStateChanged?(true)
+        if isPointerRekeyEnabled {
+            onKeyStateChanged?(true)
+        }
     }
 
     override func resignKey() {
@@ -33,7 +36,10 @@ final class TerminalPanelWindow: NSPanel {
         // Borderless terminal panels do not become key on pointer input by
         // default. Re-key synchronously so Escape and Cmd-W routing sees the
         // correct window before the pointer event reaches the terminal.
-        if !isKeyWindow, FloatingPanelEventPolicy.isReclickActivation(type: event.type) {
+        if isPointerRekeyEnabled,
+            !isKeyWindow,
+            FloatingPanelEventPolicy.isReclickActivation(type: event.type)
+        {
             let hasModalSession = NSApp.modalWindow != nil
                 || NSApp.windows.contains { $0.attachedSheet != nil }
             if !hasModalSession {
