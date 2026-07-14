@@ -65,11 +65,15 @@ brew tap interactive-buffoonery/tap
 brew install --cask awesomux
 ```
 
-Or grab the latest `awesoMux-<version>.zip` from
-[Releases](https://github.com/Interactive-Buffoonery/awesomux/releases), unzip,
+Or grab the latest `awesoMux-<version>.dmg` from
+[Releases](https://github.com/Interactive-Buffoonery/awesomux/releases), open it,
 and drag `awesoMux.app` to Applications. Download the matching `.sha256` file
-and verify the ZIP before opening it:
+and verify the DMG before opening it:
 
+```sh
+VERSION=0.2.0
+shasum -a 256 -c "awesoMux-$VERSION.dmg.sha256"
+```
 
 ## Getting started
 
