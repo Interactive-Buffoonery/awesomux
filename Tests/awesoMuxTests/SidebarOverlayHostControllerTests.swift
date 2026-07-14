@@ -437,6 +437,23 @@ struct SidebarOverlayHostControllerTests {
     func windowDetachAndReattach() {
         let (controller, sidebar, _) = makeController()
         controller.setSidebarWidth(300)
+        var availabilityLosses = 0
+        var edgeMoves = 0
+        var edgeExits = 0
+        var liveWidths = 0
+        var commits = 0
+        var focusHandoffs = 0
+        var interactions: [Bool] = []
+        controller.onTrackingAvailabilityLost = { availabilityLosses += 1 }
+        controller.onEdgePointerMove = { _, _ in edgeMoves += 1 }
+        controller.onEdgeExit = { edgeExits += 1 }
+        controller.onLiveWidthChange = { _ in liveWidths += 1 }
+        controller.onCommitWidth = { _ in commits += 1 }
+        controller.onSidebarFocusHandoff = {
+            focusHandoffs += 1
+            return true
+        }
+        controller.onSidebarInteractionChanged = { interactions.append($0) }
         let window = NSWindow(
             contentRect: controller.view.bounds, styleMask: [], backing: .buffered, defer: false)
         window.contentView = controller.view
@@ -448,12 +465,30 @@ struct SidebarOverlayHostControllerTests {
         #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
         #expect(controller.interactionObserverCountForTesting == 0)
+        let lossesAfterDetach = availabilityLosses
+        #expect(lossesAfterDetach > 0)
 
         window.contentView = controller.view
 
         #expect(controller.hostModeForTesting == .persistent(width: 300))
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
         #expect(controller.interactionObserverCountForTesting == 4)
+        controller.simulateEdgePointerMoveForTesting(x: 10, width: 40)
+        controller.simulateEdgeExitForTesting()
+        controller.simulateTrackingAvailabilityLostForTesting()
+        controller.setSidebarWidth(320)
+        controller.simulateDividerDragCompletionForTesting()
+        #expect(window.makeFirstResponder(sidebar.view))
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        controller.setPersistentSidebarVisible(false)
+
+        #expect(edgeMoves == 1)
+        #expect(edgeExits == 1)
+        #expect(liveWidths > 0)
+        #expect(commits == 1)
+        #expect(focusHandoffs == 1)
+        #expect(interactions.first == true)
+        #expect(availabilityLosses == lossesAfterDetach + 1)
     }
 
     @Test("active accessibility focus retains overlay and cancels hide")
@@ -733,6 +768,21 @@ struct SidebarOverlayHostControllerTests {
         }
         #expect(weakController == nil)
         #expect(weakToken == nil)
+    }
+
+    @Test("final teardown clears self-capturing callbacks before a view is loaded")
+    func neverLoadedFinalTeardownDeallocates() {
+        weak var weakController: SidebarSplitController?
+        autoreleasepool {
+            let controller = SidebarSplitController(
+                sidebar: NSViewController(), detail: NSViewController())
+            weakController = controller
+            controller.onLiveWidthChange = { [controller] _ in _ = controller }
+            controller.onSidebarInteractionChanged = { [controller] _ in _ = controller }
+
+            controller.settleFinalForTesting()
+        }
+        #expect(weakController == nil)
     }
 
     @Test("deinit reports active interaction false and releases controller")
