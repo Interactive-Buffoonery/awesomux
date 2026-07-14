@@ -14,9 +14,8 @@ import SwiftUI
 /// would be a dead control — the same clause the context menu's "Close
 /// Group" disables on. Empty groups among others DO get the X (INT-770):
 /// closing routes through `closeWorkspaceGroup`, which skips the confirm
-/// dialog for an empty local group (nothing to lose) but still confirms
-/// an empty remote group (removal forgets its SSH target, which is not
-/// restorable — INT-767). `EmptyGroupDropTarget`'s persistent remove
+/// dialog when there is no remote impact but still confirms loss of an SSH
+/// creation default. `EmptyGroupDropTarget`'s persistent remove
 /// button stays as the always-visible removal path; this X is the hover
 /// shortcut consistent with non-empty groups, and the only pointer path
 /// while the group's own rows are collapsed (`isCollapsed` hides that
