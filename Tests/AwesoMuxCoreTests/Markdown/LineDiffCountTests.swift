@@ -103,4 +103,24 @@ struct LineDiffCountTests {
         #expect(LineDiffCount.forExternalEdit(old: huge, new: "a", isSelfWrite: false) == nil)
         #expect(LineDiffCount.forExternalEdit(old: "a", new: huge, isSelfWrite: false) == nil)
     }
+
+    @Test("forExternalEdit accepts exactly the line limit")
+    func gateAcceptsExactLineLimit() {
+        let old = Array(repeating: "old", count: LineDiffCount.maxDiffLines).joined(separator: "\n")
+        let new = Array(repeating: "new", count: LineDiffCount.maxDiffLines).joined(separator: "\n")
+
+        #expect(
+            LineDiffCount.forExternalEdit(old: old, new: new, isSelfWrite: false)
+                == LineDiffCount(added: 2_000, removed: 2_000)
+        )
+    }
+
+    @Test("forExternalEdit suppresses inputs over the line limit")
+    func gateSuppressesInputsOverLineLimit() {
+        let tooManyLines = Array(repeating: "line", count: LineDiffCount.maxDiffLines + 1)
+            .joined(separator: "\n")
+
+        #expect(LineDiffCount.forExternalEdit(old: tooManyLines, new: "line", isSelfWrite: false) == nil)
+        #expect(LineDiffCount.forExternalEdit(old: "line", new: tooManyLines, isSelfWrite: false) == nil)
+    }
 }
