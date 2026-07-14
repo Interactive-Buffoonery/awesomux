@@ -20,6 +20,8 @@ typealias StatusCommandRunner = @Sendable (_ repoRoot: String, _ branch: String)
 /// buffer — and the child is SIGTERM→SIGKILL'd on timeout or task cancellation.
 /// stderr is discarded (an undrained stderr pipe that fills would wedge the child).
 struct BoundedCommandRunner: Sendable {
+    typealias Delay = @Sendable (Duration) async throws -> Void
+
     let executableURL: URL?
     var timeout: Duration
     /// Hard cap on collected stdout. The timeout bounds time, not memory; a
@@ -28,6 +30,7 @@ struct BoundedCommandRunner: Sendable {
     /// far more entries than the dirty count's `+999+` display can distinguish.
     var maxOutputBytes: Int
     private let environment: [String: String]
+    private let delay: Delay
 
     /// The process environment with trusted tool dirs prepended to PATH and the
     /// repo-selection vars scrubbed, computed once. A child may shell out to other
@@ -54,14 +57,17 @@ struct BoundedCommandRunner: Sendable {
         executableCandidates: [String],
         timeout: Duration = .seconds(5),
         maxOutputBytes: Int = 512 * 1024,
-        environment: [String: String]? = nil
+        environment: [String: String]? = nil,
+        delay: @escaping Delay = { try await ContinuousClock().sleep(for: $0) }
     ) {
-        executableURL = executableCandidates
+        executableURL =
+            executableCandidates
             .first { FileManager.default.isExecutableFile(atPath: $0) }
             .map { URL(fileURLWithPath: $0) }
         self.timeout = timeout
         self.maxOutputBytes = maxOutputBytes
         self.environment = environment ?? Self.toolAugmentedEnvironment
+        self.delay = delay
     }
 
     func run(arguments: [String], inDirectory directory: String) async -> Data? {
@@ -79,6 +85,7 @@ struct BoundedCommandRunner: Sendable {
 
         let timeout = timeout
         let maxOutputBytes = maxOutputBytes
+        let delay = delay
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
                 let state = RunState(
@@ -99,18 +106,7 @@ struct BoundedCommandRunner: Sendable {
                     }
                 }
 
-                let timeoutTask = Task {
-                    // A cancelled sleep means the child already exited (the
-                    // termination handler cancels this task) — return instead of
-                    // signalling a dead/recycled pid.
-                    do { try await Task.sleep(for: timeout) } catch { return }
-                    handle.terminateIfRunning() // SIGTERM
-                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                    handle.killIfRunning() // SIGKILL
-                }
-
                 handle.process.terminationHandler = { process in
-                    timeoutTask.cancel()
                     state.markExited(success: process.terminationStatus == 0)
                     // Bounded fallback: if EOF never arrives because a descendant
                     // inherited stdout and holds it open, resume after a short grace
@@ -120,15 +116,21 @@ struct BoundedCommandRunner: Sendable {
                     // none. The normal path resumes immediately once EOF + exit
                     // coincide, so this grace only fires in the pathological case.
                     Task {
-                        try? await Task.sleep(for: .milliseconds(500))
+                        try? await delay(.milliseconds(500))
                         state.resumeUndrainedAsFailureIfExited()
                     }
                 }
 
                 do {
                     try handle.process.run()
+                    state.registerTimeoutTask(
+                        Task {
+                            do { try await delay(timeout) } catch { return }
+                            handle.terminateIfRunning()  // SIGTERM
+                            do { try await delay(.seconds(1)) } catch { return }
+                            handle.killIfRunning()  // SIGKILL
+                        })
                 } catch {
-                    timeoutTask.cancel()
                     state.fail()
                 }
             }
@@ -137,7 +139,7 @@ struct BoundedCommandRunner: Sendable {
             // SIGKILL it after a grace so cancellation can't leave it running.
             handle.terminateIfRunning()
             Task {
-                try? await Task.sleep(for: .seconds(1))
+                try? await delay(.seconds(1))
                 handle.killIfRunning()
             }
         }
@@ -157,6 +159,7 @@ struct BoundedCommandRunner: Sendable {
         private var drained = false
         private var success = false
         private var resumed = false
+        private var timeoutTask: Task<Void, Never>?
 
         init(continuation: CheckedContinuation<Data?, Never>, readHandle: FileHandle, maxBytes: Int) {
             self.continuation = continuation
@@ -181,7 +184,23 @@ struct BoundedCommandRunner: Sendable {
         }
 
         func markExited(success: Bool) {
-            lock.lock(); exited = true; self.success = success; let resume = readyResumeLocked(); lock.unlock(); resume?()
+            lock.lock()
+            exited = true
+            self.success = success
+            let timeoutTask = timeoutTask
+            self.timeoutTask = nil
+            let resume = readyResumeLocked()
+            lock.unlock()
+            timeoutTask?.cancel()
+            resume?()
+        }
+
+        func registerTimeoutTask(_ task: Task<Void, Never>) {
+            lock.lock()
+            let cancel = exited || resumed
+            if !cancel { timeoutTask = task }
+            lock.unlock()
+            if cancel { task.cancel() }
         }
 
         /// Grace fallback: the child exited but stdout never reached EOF (a
@@ -192,7 +211,13 @@ struct BoundedCommandRunner: Sendable {
         }
 
         func fail() {
-            lock.lock(); let resume = finishLocked(returning: nil); lock.unlock(); resume?()
+            lock.lock()
+            let timeoutTask = timeoutTask
+            self.timeoutTask = nil
+            let resume = finishLocked(returning: nil)
+            lock.unlock()
+            timeoutTask?.cancel()
+            resume?()
         }
 
         /// Resume only when both the child has exited and stdout reached EOF — the

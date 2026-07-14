@@ -1,7 +1,23 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
+
+@MainActor
+private func controlledTiming(
+    clock: TestClock = TestClock(),
+    scheduler: TestScheduler
+) -> DiagnosticsTiming {
+    DiagnosticsTiming(
+        wallNow: { clock.now },
+        monotonicNow: { .zero },
+        sleepUntil: { deadline, _ in
+            await scheduler.wait(for: deadline)
+            try Task.checkCancellation()
+        }
+    )
+}
 
 @MainActor
 @Suite("Diagnostics model")
@@ -179,7 +195,7 @@ struct DiagnosticsModelTests {
 
         await model.refresh()
         #expect(model.refreshState == .idle)
-        for _ in 0 ..< 5 {
+        for _ in 0..<5 {
             await model.sampleOnce()
         }
 
@@ -334,16 +350,18 @@ struct DiagnosticsModelTests {
         while continuation == nil { await Task.yield() }
         async let refresh: Void = model.refresh()
         await Task.yield()
-        continuation?.resume(returning: DiagnosticsCaptureResult(
-            snapshot: sampleSnapshot,
-            discoveredDaemons: nil
-        ))
+        continuation?.resume(
+            returning: DiagnosticsCaptureResult(
+                snapshot: sampleSnapshot,
+                discoveredDaemons: nil
+            ))
         await sample
         await refresh
 
         #expect(model.presentation.processSnapshot == refreshSnapshot)
-        #expect(model.presentation.checkedAt == refreshSnapshot.collectedAt
-            || model.refreshState == .idle)
+        #expect(
+            model.presentation.checkedAt == refreshSnapshot.collectedAt
+                || model.refreshState == .idle)
         #expect(model.refreshState == .idle)
         #expect(model.presentation.processSnapshot?.daemonListAvailable == true)
     }
@@ -374,17 +392,19 @@ struct DiagnosticsModelTests {
         while continuation == nil { await Task.yield() }
         async let refresh: Void = model.refresh()
         await Task.yield()
-        continuation?.resume(returning: DiagnosticsCaptureResult(
-            snapshot: snapshot,
-            discoveredDaemons: nil
-        ))
+        continuation?.resume(
+            returning: DiagnosticsCaptureResult(
+                snapshot: snapshot,
+                discoveredDaemons: nil
+            ))
         await sample
         await refresh
 
-        #expect(purposes == [
-            .sample(knownDaemons: [], rediscoverDaemons: false, daemonListAvailable: true),
-            .refresh(fallbackDaemons: [])
-        ])
+        #expect(
+            purposes == [
+                .sample(knownDaemons: [], rediscoverDaemons: false, daemonListAvailable: true),
+                .refresh(fallbackDaemons: []),
+            ])
         #expect(model.presentation.processSnapshot == snapshot)
     }
 
@@ -418,10 +438,11 @@ struct DiagnosticsModelTests {
         await model.refresh()
         await model.sampleOnce()
 
-        #expect(purposes == [
-            .refresh(fallbackDaemons: []),
-            .sample(knownDaemons: [daemon], rediscoverDaemons: false, daemonListAvailable: true)
-        ])
+        #expect(
+            purposes == [
+                .refresh(fallbackDaemons: []),
+                .sample(knownDaemons: [daemon], rediscoverDaemons: false, daemonListAvailable: true),
+            ])
     }
 
     @Test("every fifth sample requests daemon rediscovery")
@@ -445,7 +466,7 @@ struct DiagnosticsModelTests {
         }
 
         await model.refresh()
-        for _ in 0 ..< 5 {
+        for _ in 0..<5 {
             await model.sampleOnce()
         }
 
@@ -485,7 +506,7 @@ struct DiagnosticsModelTests {
 
         await model.refresh()
         #expect(model.refreshState == .partial)
-        for _ in 0 ..< 5 {
+        for _ in 0..<5 {
             await model.sampleOnce()
         }
 
@@ -513,27 +534,30 @@ struct DiagnosticsModelTests {
     }
 
     @Test("pane-visible maintenance prunes events before the first process refresh")
-    func maintenancePrunesEventsBeforeFirstRefresh() async throws {
-        let retention: TimeInterval = 0.05
+    func maintenancePrunesEventsBeforeFirstRefresh() async {
+        let retention: TimeInterval = 30
         let recorder = LocalDiagnosticEventRecorder(retention: retention, maximumEntries: 10)
-        let t0 = Date()
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let clock = TestClock(t0)
+        let scheduler = TestScheduler()
         recorder.record(.terminalReady, at: t0)
         let model = DiagnosticsModel(
             sessionStore: SessionStore(),
             eventRecorder: recorder,
-            sampleInterval: .milliseconds(40),
-            sampleTolerance: .zero
+            timing: controlledTiming(clock: clock, scheduler: scheduler)
         ) { _, _, _ in nil }
 
         model.startSampling()
         #expect(model.presentation.events.events.count == 1)
 
-        for _ in 0 ..< 50 where !model.presentation.events.events.isEmpty {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        #expect(await waitUntil { scheduler.sleeperCount == 1 })
+        clock.advance(by: retention + 1)
+        scheduler.advanceOneCycle()
+        #expect(await waitUntil { model.presentation.events.events.isEmpty })
         #expect(model.presentation.events.events.isEmpty)
         #expect(model.presentation.processSnapshot == nil)
         model.stopSampling()
+        scheduler.advanceOneCycle()
     }
 
     @Test("sampling task does not retain the model")
@@ -548,11 +572,50 @@ struct DiagnosticsModelTests {
             weakModel = model
             model.startSampling()
         }
-        for _ in 0 ..< 10 where weakModel != nil {
+        for _ in 0..<10 where weakModel != nil {
             await Task.yield()
         }
 
         #expect(weakModel == nil)
+    }
+
+    @Test("maintenance keeps cadence, tolerance, missed ticks, and cancellation")
+    func maintenanceSchedulingPolicy() async {
+        let scheduler = TestScheduler()
+        let monotonicClock = TestClock(Date(timeIntervalSince1970: 10))
+        var scheduled: [(deadline: Duration, tolerance: Duration)] = []
+        let timing = DiagnosticsTiming(
+            wallNow: { Date(timeIntervalSince1970: 1_000) },
+            monotonicNow: { .seconds(monotonicClock.now.timeIntervalSince1970) },
+            sleepUntil: { deadline, tolerance in
+                scheduled.append((deadline, tolerance))
+                await scheduler.wait(for: deadline)
+                try Task.checkCancellation()
+            }
+        )
+        let model = DiagnosticsModel(
+            sessionStore: SessionStore(),
+            eventRecorder: LocalDiagnosticEventRecorder(),
+            timing: timing,
+            sampleInterval: .seconds(30),
+            sampleTolerance: .seconds(3)
+        ) { _, _, _ in nil }
+
+        model.startSampling()
+        #expect(await waitUntil { scheduled.count == 1 })
+        #expect(scheduled[0].deadline == .seconds(40))
+        #expect(scheduled[0].tolerance == .seconds(3))
+
+        monotonicClock.set(Date(timeIntervalSince1970: 125))
+        scheduler.advanceOneCycle()
+        #expect(await waitUntil { scheduled.count == 2 })
+        #expect(scheduled[1].deadline == .seconds(130))
+        #expect(scheduled[1].tolerance == .seconds(3))
+
+        model.stopSampling()
+        scheduler.advanceOneCycle()
+        await drainMainQueue()
+        #expect(scheduled.count == 2)
     }
 
     @Test("background sampling removes expired diagnostic events")
@@ -570,8 +633,9 @@ struct DiagnosticsModelTests {
     }
 
     @Test("visible sampling waits for the first manual refresh")
-    func visibleSamplingWaitsForManualRefresh() async throws {
+    func visibleSamplingWaitsForManualRefresh() async {
         var callCount = 0
+        let scheduler = TestScheduler()
         let snapshot = DiagnosticsProcessSnapshot(
             collectedAt: Date(timeIntervalSince1970: 10),
             appPID: 42,
@@ -582,28 +646,27 @@ struct DiagnosticsModelTests {
         let model = DiagnosticsModel(
             sessionStore: SessionStore(),
             eventRecorder: LocalDiagnosticEventRecorder(),
-            sampleInterval: .milliseconds(40),
-            sampleTolerance: .zero
+            timing: controlledTiming(scheduler: scheduler)
         ) { _, _, _ in
             callCount += 1
             return DiagnosticsCaptureResult(snapshot: snapshot, discoveredDaemons: [])
         }
 
         model.startSampling()
-        try await Task.sleep(for: .milliseconds(80))
+        #expect(await waitUntil { scheduler.sleepCallCount == 1 })
         #expect(callCount == 0)
 
         await model.refresh()
         #expect(callCount == 1)
-        for _ in 0 ..< 20 where callCount == 1 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(callCount > 1)
+        #expect(await waitUntil { scheduler.sleepCallCount == 2 })
+        scheduler.advanceOneCycle()
+        #expect(await waitUntil { callCount == 2 })
         model.stopSampling()
+        scheduler.advanceOneCycle()
     }
 
     @Test("stopping visible sampling prevents later captures")
-    func stoppingVisibleSamplingPreventsLaterCaptures() async throws {
+    func stoppingVisibleSamplingPreventsLaterCaptures() async {
         let snapshot = DiagnosticsProcessSnapshot(
             collectedAt: Date(timeIntervalSince1970: 10),
             appPID: 42,
@@ -612,11 +675,11 @@ struct DiagnosticsModelTests {
             groups: []
         )
         var callCount = 0
+        let scheduler = TestScheduler()
         let model = DiagnosticsModel(
             sessionStore: SessionStore(),
             eventRecorder: LocalDiagnosticEventRecorder(),
-            sampleInterval: .milliseconds(30),
-            sampleTolerance: .zero
+            timing: controlledTiming(scheduler: scheduler)
         ) { _, _, _ in
             callCount += 1
             return DiagnosticsCaptureResult(snapshot: snapshot, discoveredDaemons: [])
@@ -624,14 +687,16 @@ struct DiagnosticsModelTests {
 
         model.startSampling()
         await model.refresh()
+        #expect(await waitUntil { scheduler.sleepCallCount == 2 })
         model.stopSampling()
-        try await Task.sleep(for: .milliseconds(100))
+        scheduler.advanceOneCycle()
+        await drainMainQueue()
 
         #expect(callCount == 1)
     }
 
     @Test("stopping visible sampling cancels an in-flight timed capture")
-    func stoppingVisibleSamplingCancelsInFlightCapture() async throws {
+    func stoppingVisibleSamplingCancelsInFlightCapture() async {
         let snapshot = DiagnosticsProcessSnapshot(
             collectedAt: Date(timeIntervalSince1970: 10),
             appPID: 42,
@@ -648,35 +713,32 @@ struct DiagnosticsModelTests {
         )
         var callCount = 0
         var sampleWasCancelled = false
+        let scheduler = TestScheduler()
+        let captureGate = AsyncGate()
         let model = DiagnosticsModel(
             sessionStore: SessionStore(),
             eventRecorder: LocalDiagnosticEventRecorder(),
-            sampleInterval: .milliseconds(20),
-            sampleTolerance: .zero
+            timing: controlledTiming(scheduler: scheduler)
         ) { _, _, _ in
             callCount += 1
             if callCount == 1 {
                 return DiagnosticsCaptureResult(snapshot: snapshot, discoveredDaemons: [])
             }
-            do {
-                try await Task.sleep(for: .seconds(60))
-            } catch {
-                sampleWasCancelled = Task.isCancelled
-            }
+            await captureGate.wait()
+            sampleWasCancelled = Task.isCancelled
             return DiagnosticsCaptureResult(snapshot: canceledSnapshot, discoveredDaemons: [])
         }
 
         model.startSampling()
         await model.refresh()
-        for _ in 0 ..< 20 where callCount == 1 {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(await waitUntil { scheduler.sleepCallCount == 2 })
+        scheduler.advanceOneCycle()
+        #expect(await waitUntil { callCount == 2 })
         #expect(callCount == 2)
 
         model.stopSampling()
-        for _ in 0 ..< 20 where !sampleWasCancelled {
-            await Task.yield()
-        }
+        captureGate.open()
+        #expect(await waitUntil { sampleWasCancelled })
 
         #expect(sampleWasCancelled)
         #expect(model.presentation.processSnapshot == snapshot)
