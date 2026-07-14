@@ -378,6 +378,29 @@ struct BridgeAttachAssemblyTests {
         #expect(command.contains("'AMX_STATUS_FILE=/tmp/amx/abc123.status.jsonl'"))
     }
 
+    @Test("bridgeAttachCommand never carries shell-integration tokens")
+    func bridgeAttachCommandStaysClean() throws {
+        // Remote-only by construction: the far host doesn't have the bundled
+        // ghostty resources dir, so this overload never threads the Task 1
+        // shell-integration params through at all — assert the output stays
+        // byte-identical to the pre-Task-2 shape.
+        let status = AmxStatusChannel(
+            fileURL: URL(fileURLWithPath: "/tmp/amx/abc123.status.jsonl"),
+            token: "aabbccddeeff0011aabbccddeeff0011"
+        )
+        let command = try #require(
+            AmxBackend.bridgeAttachCommand(
+                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                sessionID: Self.sessionID,
+                socketDirectory: "/tmp/amx",
+                status: status,
+                remote: Self.remote,
+                stateFilePath: "/Users/example/.awesomux/bridge/abc123-bridge.json",
+                helperPath: "/Users/example/.awesomux/bin/awesomux-bridge-helper"
+            ))
+        #expect(!command.contains("ZDOTDIR"))
+    }
+
     // MARK: - Scrub anchor: exact-name -u tokens, no globs
 
     /// Extracts the value following each `-u` flag — exact names only, never

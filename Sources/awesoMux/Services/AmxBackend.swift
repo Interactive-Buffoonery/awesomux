@@ -330,12 +330,16 @@ enum AmxBackend {
         guard let executableURL = bundledExecutableURL() else {
             return nil
         }
+        let env = ProcessInfo.processInfo.environment
         return attachCommand(
             executablePath: executableURL.path,
             sessionID: sessionID,
             socketDirectory: sessionSocketDirectory(),
             status: status,
-            remote: remote
+            remote: remote,
+            ghosttyResourcesDir: env["GHOSTTY_RESOURCES_DIR"],
+            inheritedZDOTDIR: env["ZDOTDIR"],
+            shellPath: env["SHELL"]
         )
     }
 
@@ -392,7 +396,10 @@ enum AmxBackend {
         sessionID: TerminalSessionID,
         socketDirectory: String,
         status: AmxStatusChannel,
-        remote: RemoteTarget? = nil
+        remote: RemoteTarget? = nil,
+        ghosttyResourcesDir: String? = nil,
+        inheritedZDOTDIR: String? = nil,
+        shellPath: String? = nil
     ) -> String? {
         guard TerminalSessionID.isValid(sessionID.rawValue) else {
             return nil
@@ -405,6 +412,14 @@ enum AmxBackend {
                 shellQuote("ZMX_DIR_MODE=" + socketDirectoryMode),
                 shellQuote("AMX_STATUS_FILE=" + status.fileURL.path),
                 shellQuote("AMX_STATUS_TOKEN=" + status.token),
+            ]
+            + shellIntegrationEnvTokens(
+                remote: remote,
+                ghosttyResourcesDir: ghosttyResourcesDir,
+                inheritedZDOTDIR: inheritedZDOTDIR,
+                shellPath: shellPath
+            )
+            + [
                 shellQuote(executablePath),
                 "attach",
                 shellQuote(sessionID.rawValue)
