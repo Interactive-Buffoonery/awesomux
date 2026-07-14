@@ -229,4 +229,45 @@ struct SessionGroupExecutionSummaryTests {
 
         #expect(Set(summary.paneLocations.map(\.sessionID)) == [confirmed.id])
     }
+
+    @Test("modal safety ignores joined and moved sessions but rejects retargeting")
+    func modalSafetyComparison() {
+        let confirmed = session([.ssh(SSHExecution(target: alpha))])
+        let moved = session([.ssh(SSHExecution(target: zeta))])
+        let before = SessionGroup(name: "Work", sessions: [confirmed, moved])
+        let joined = session([.local])
+        let afterMembershipChange = SessionGroup(
+            id: before.id,
+            name: before.name,
+            sessions: [confirmed, joined]
+        )
+
+        #expect(
+            !SessionGroupCloseSafetySummary.hasMaterialChange(
+                from: before,
+                to: afterMembershipChange,
+                confirmedSessionIDs: [confirmed.id, moved.id]
+            )
+        )
+
+        var retargeted = confirmed
+        retargeted.layout = retargeted.layout.mappingPanes { pane in
+            var pane = pane
+            pane.executionPlan = .ssh(SSHExecution(target: zeta))
+            return pane
+        }
+        let afterRetarget = SessionGroup(
+            id: before.id,
+            name: before.name,
+            sessions: [retargeted, joined]
+        )
+
+        #expect(
+            SessionGroupCloseSafetySummary.hasMaterialChange(
+                from: before,
+                to: afterRetarget,
+                confirmedSessionIDs: [confirmed.id, moved.id]
+            )
+        )
+    }
 }

@@ -99,4 +99,15 @@ public struct SessionGroupCloseSafetySummary: Hashable, Sendable {
                 return $0.paneID.uuidString < $1.paneID.uuidString
             }
     }
+
+    public static func hasMaterialChange(
+        from confirmedGroup: SessionGroup,
+        to liveGroup: SessionGroup,
+        confirmedSessionIDs: Set<TerminalSession.ID>
+    ) -> Bool {
+        let liveConfirmedIDs = Set(liveGroup.sessions.map(\.id))
+            .intersection(confirmedSessionIDs)
+        return Self(group: confirmedGroup, limitedTo: liveConfirmedIDs)
+            != Self(group: liveGroup, limitedTo: liveConfirmedIDs)
+    }
 }

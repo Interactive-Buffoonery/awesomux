@@ -491,8 +491,8 @@ public final class SessionStore {
         WorkspaceTreeReducer.setGroupColor(in: &_groups, id: groupID, color: color)
     }
 
-    /// Create a remote workgroup: one seed session, tagged with `target`, tinted
-    /// so it reads as remote in the sidebar. Mirrors `addWorkspaceGroup`.
+    /// Create a group whose default and seed pane use `target`.
+    /// Mirrors `addWorkspaceGroup`.
     @discardableResult
     public func createRemoteWorkspaceGroup(
         named rawGroupName: String,
