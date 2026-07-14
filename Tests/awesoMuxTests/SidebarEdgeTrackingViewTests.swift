@@ -97,4 +97,22 @@ struct SidebarEdgeTrackingViewTests {
 
         #expect(lossCount == 2)
     }
+
+    @Test("tracking-area refresh and exit do not duplicate callbacks")
+    func trackingAreaAndExitAreSingular() throws {
+        let view = SidebarEdgeTrackingView(position: .left)
+        view.frame = CGRect(x: 0, y: 0, width: 40, height: 300)
+        view.updateTrackingAreas()
+        view.updateTrackingAreas()
+        #expect(view.trackingAreas.filter { $0.owner === view }.count == 1)
+        var exits = 0
+        view.onExit = { exits += 1 }
+        let event = try #require(
+            NSEvent.mouseEvent(
+                with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        view.mouseExited(with: event)
+        #expect(exits == 1)
+        #expect(view.accessibilityIsIgnored())
+    }
 }

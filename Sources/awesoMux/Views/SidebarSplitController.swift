@@ -32,6 +32,15 @@ private final class SidebarSubviewOrder {
     }
 }
 
+private final class SidebarSplitRootView: NSView {
+    var onWindowChanged: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChanged?(window)
+    }
+}
+
 /// Native split host for the sidebar/detail divider (INT-535).
 ///
 /// Hosts a bare `NSSplitView` inside a plain `NSViewController`. We deliberately do
@@ -60,6 +69,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var onEdgeExit: (() -> Void)?
     var onTrackingAvailabilityLost: (() -> Void)?
     var hasActiveSidebarAccessibilityFocus: (() -> Bool)?
+    var sidebarAccessibilityFocusedElement: (() -> Any?)?
     var onSidebarInteractionChanged: ((Bool) -> Void)?
 
     /// Minimum width the detail/terminal pane must retain. The sidebar's dynamic
@@ -97,6 +107,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var isPerformingHostHandoff = false
     private var dividerIntentCount = 0
     private(set) var lastCapturedSidebarAccessibilityFocusForTesting = false
+    private(set) var lastPreservedSidebarAccessibilityElementForTesting = false
 
     /// Width requested before the split had real bounds (first launch / restore).
     /// Applied once the first non-zero layout lands — dodges the zero-bounds trap
@@ -163,10 +174,21 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         edgeTrackingView.onAvailabilityLost = { [weak self] in
             guard let self else { return }
+            let availabilityLost = self.onTrackingAvailabilityLost
             self.settleDetached()
-            self.onTrackingAvailabilityLost?()
+            availabilityLost?()
         }
-        let root = NSView()
+        let root = SidebarSplitRootView()
+        root.onWindowChanged = { [weak self] window in
+            guard let self else { return }
+            if window == nil {
+                let availabilityLost = self.onTrackingAvailabilityLost
+                self.settleDetached()
+                availabilityLost?()
+            } else {
+                self.settleAttached()
+            }
+        }
         root.addSubview(splitView)
         overlayClipView.wantsLayer = true
         overlayClipView.layer?.masksToBounds = true
@@ -214,14 +236,27 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     override func viewWillDisappear() {
+        let availabilityLost = onTrackingAvailabilityLost
         settleDetached()
-        onTrackingAvailabilityLost?()
+        availabilityLost?()
         super.viewWillDisappear()
+    }
+
+    override func viewDidDisappear() {
+        settleDetached()
+        super.viewDidDisappear()
     }
 
     override func viewWillAppear() {
         super.viewWillAppear()
-        installInteractionMonitor()
+        settleAttached()
+    }
+
+    deinit {
+        MainActor.assumeIsolated {
+            interactionMonitor?.detach()
+            clearExternalCallbacks()
+        }
     }
 
     // MARK: - Public API
@@ -400,6 +435,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             sidebarChild.view === $0 || sidebarChild.view.isDescendant(of: $0)
         }.count
     }
+    var interactionObserverCountForTesting: Int {
+        interactionMonitor?.observerCountForTesting ?? 0
+    }
     func simulateTrackingAvailabilityLostForTesting() {
         onTrackingAvailabilityLost?()
     }
@@ -499,6 +537,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         let target = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
         var capturedResponder: NSResponder?
+        let capturedAccessibilityElement = focusedSidebarAccessibilityElement
         isPerformingHostHandoff = true
         record(.beginNoActionsTransaction)
         NSAnimationContext.runAnimationGroup { context in
@@ -542,6 +581,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             {
                 view.window?.makeFirstResponder(capturedResponder)
             }
+            lastPreservedSidebarAccessibilityElementForTesting =
+                capturedAccessibilityElement.map(sidebarContainsAccessibilityElement) ?? false
         }
         record(.endNoActionsTransaction)
         isPerformingHostHandoff = false
@@ -642,6 +683,21 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         return interactionMonitor?.hasAccessibilityFocus == true
     }
 
+    private var focusedSidebarAccessibilityElement: Any? {
+        if let sidebarAccessibilityFocusedElement {
+            guard let element = sidebarAccessibilityFocusedElement() else { return nil }
+            return sidebarContainsAccessibilityElement(element) ? element : nil
+        }
+        return interactionMonitor?.focusedAccessibilityElementInsideSidebar
+    }
+
+    private func sidebarContainsAccessibilityElement(_ element: Any) -> Bool {
+        interactionMonitor?.containsAccessibilityElement(element)
+            ?? ((element as? NSView).map {
+                $0 === sidebarChild.view || $0.isDescendant(of: sidebarChild.view)
+            } ?? false)
+    }
+
     private func installInteractionMonitor() {
         guard isViewLoaded, interactionMonitor == nil else { return }
         interactionMonitor = SidebarInteractionMonitor(
@@ -662,7 +718,36 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
         if isSidebarHidden {
             reconcileStableHiddenOwnership()
+        } else {
+            moveSidebarHost(to: sidebarPaneContainer)
+            overlayContentView.layer?.transform = CATransform3DIdentity
+            overlayClipView.isHidden = true
+            sidebarChild.view.setAccessibilityHidden(true)
+            hostMode = .persistent(width: sidebarPaneWidth)
+            hostPresentationState.settle(
+                mode: hostMode, effectiveVisibleWidth: sidebarPaneWidth)
         }
+    }
+
+    private func settleAttached() {
+        installInteractionMonitor()
+        guard !isSidebarHidden, case .persistent = hostMode else { return }
+        sidebarChild.view.setAccessibilityHidden(false)
+        hostPresentationState.settle(
+            mode: hostMode, effectiveVisibleWidth: sidebarPaneWidth)
+    }
+
+    private func clearExternalCallbacks() {
+        onLiveWidthChange = nil
+        onCommitWidth = nil
+        onSidebarFocusHandoff = nil
+        onEdgePointerMove = nil
+        onEdgeExit = nil
+        onTrackingAvailabilityLost = nil
+        hasActiveSidebarAccessibilityFocus = nil
+        sidebarAccessibilityFocusedElement = nil
+        onSidebarInteractionChanged = nil
+        handoffActionObserverForTesting = nil
     }
 
     private func invalidateOverlayForDetach() {

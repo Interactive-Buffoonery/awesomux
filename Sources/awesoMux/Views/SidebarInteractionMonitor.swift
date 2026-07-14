@@ -14,16 +14,17 @@ final class SidebarInteractionMonitor {
     private var lastActive = false
     private var isDetached = false
 
+    var observerCountForTesting: Int { observations.count }
+
     init(
         sidebarRoot: NSView,
-        focusedAccessibilityElement: @escaping FocusedAccessibilityElement = {
-            NSApp.accessibilityFocusedUIElement
-        },
+        focusedAccessibilityElement: FocusedAccessibilityElement? = nil,
         notificationCenter: NotificationCenter = .default,
         onActiveChange: @escaping (Bool) -> Void
     ) {
         self.sidebarRoot = sidebarRoot
-        self.focusedAccessibilityElement = focusedAccessibilityElement
+        self.focusedAccessibilityElement =
+            focusedAccessibilityElement ?? { NSApp.accessibilityFocusedUIElement }
         self.notificationCenter = notificationCenter
         self.onActiveChange = onActiveChange
         observeNotifications()
@@ -40,6 +41,10 @@ final class SidebarInteractionMonitor {
     }
 
     var hasAccessibilityFocus: Bool { accessibilityFocused }
+    var focusedAccessibilityElementInsideSidebar: Any? {
+        let element = focusedAccessibilityElement()
+        return containsAccessibilityElement(element) ? element : nil
+    }
 
     func detach() {
         guard !isDetached else { return }
@@ -47,8 +52,10 @@ final class SidebarInteractionMonitor {
         observations.forEach(notificationCenter.removeObserver)
         observations.removeAll()
         sidebarMenuTracking = false
-        lastActive = false
-        onActiveChange?(false)
+        if lastActive {
+            lastActive = false
+            onActiveChange?(false)
+        }
         onActiveChange = nil
     }
 
@@ -56,8 +63,14 @@ final class SidebarInteractionMonitor {
         observations.append(
             notificationCenter.addObserver(
                 forName: NSWindow.didUpdateNotification, object: nil, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+            ) { [weak self] notification in
+                nonisolated(unsafe) let notification = notification
+                MainActor.assumeIsolated {
+                    guard let self,
+                        notification.object as? NSWindow === self.sidebarRoot?.window
+                    else { return }
+                    self.refresh()
+                }
             })
         observations.append(
             notificationCenter.addObserver(
@@ -126,7 +139,7 @@ final class SidebarInteractionMonitor {
         onActiveChange?(active)
     }
 
-    private func containsAccessibilityElement(_ element: Any?) -> Bool {
+    func containsAccessibilityElement(_ element: Any?) -> Bool {
         guard let root = sidebarRoot, var current = element else { return false }
         for _ in 0..<32 {
             if let view = current as? NSView,

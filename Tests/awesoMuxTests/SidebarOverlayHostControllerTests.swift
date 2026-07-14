@@ -27,13 +27,20 @@ struct SidebarOverlayHostControllerTests {
 
     private final class AccessibilityRecordingView: NSView {
         var recordedAccessibilityHidden = false
+        var accessibilityHiddenHistory: [Bool] = []
         override var acceptsFirstResponder: Bool { true }
 
         override func setAccessibilityHidden(_ accessibilityHidden: Bool) {
             recordedAccessibilityHidden = accessibilityHidden
+            accessibilityHiddenHistory.append(accessibilityHidden)
             super.setAccessibilityHidden(accessibilityHidden)
         }
     }
+
+    private final class FirstResponderView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+    private final class LifetimeToken {}
 
     private func makeController(position: AppearanceConfig.SidebarPosition = .left) -> (
         SidebarSplitController, NSViewController, NSViewController
@@ -82,6 +89,8 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(true)
 
         #expect(controller.hostModeForTesting == .overlay(width: 300))
+        #expect(controller.overlayClipViewForTesting.accessibilityIsIgnored())
+        #expect(!controller.overlayClipViewForTesting.isAccessibilityElement())
         #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.sidebarHostOccurrenceCountForTesting == 1)
         #expect(controller.sidebarSplitPaneWidthForTesting == 0)
@@ -407,7 +416,7 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.overlayClipViewForTesting.isHidden)
     }
 
-    @Test("persistent controller disappearance preserves visible ownership")
+    @Test("persistent disappearance preserves ownership, hides AX, and restores on attach")
     func persistentDisappearPreservesSidebar() {
         let (controller, sidebar, _) = makeController()
         controller.setSidebarWidth(300)
@@ -417,7 +426,10 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.hostModeForTesting == .persistent(width: 300))
         #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
+        controller.viewWillAppear()
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
+        #expect(controller.interactionObserverCountForTesting == 4)
     }
 
     @Test("active accessibility focus retains overlay and cancels hide")
@@ -436,6 +448,201 @@ struct SidebarOverlayHostControllerTests {
         #expect(driver.requestCount == requestsBeforeHide)
         #expect(controller.hostModeForTesting == .overlay(width: 300))
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
+    }
+
+    @Test("passive overlay reveal preserves the detail first responder")
+    func passiveRevealPreservesResponder() {
+        let driver = AnimationDriver()
+        let (controller, _, detail) = makeControlledController(driver: driver)
+        let responder = FirstResponderView()
+        detail.view.addSubview(responder)
+        let window = NSWindow(
+            contentRect: controller.view.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = controller.view
+        #expect(window.makeFirstResponder(responder))
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        #expect(window.firstResponder === responder)
+        driver.completions[0]()
+        #expect(window.firstResponder === responder)
+    }
+
+    @Test(
+        "collapsed rail tile coordinates survive overlay reparent on both sides",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right])
+    func collapsedRailCoordinateStability(position: AppearanceConfig.SidebarPosition) {
+        let (controller, sidebar, _) = makeController(position: position)
+        controller.setSidebarWidth(SidebarWidthPolicy.collapsedWidth)
+        let tile = NSView(
+            frame: CGRect(x: 8, y: 123, width: SidebarWidthPolicy.collapsedWidth - 16, height: 44))
+        sidebar.view.addSubview(tile)
+        let before = sidebar.view.convert(tile.frame, to: controller.view)
+        let beforeInward = position == .left ? before.maxX : before.minX
+
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresentedImmediately(true)
+        let after = sidebar.view.convert(tile.frame, to: controller.view)
+        let afterInward = position == .left ? after.maxX : after.minX
+
+        #expect(after.origin.y == before.origin.y)
+        #expect(afterInward == beforeInward)
+    }
+
+    @Test("AX descendants stay hidden until full reveal and hide before movement")
+    func accessibilityExposurePhases() {
+        let driver = AnimationDriver()
+        let (controller, sidebar, _) = makeControlledController(driver: driver)
+        let recorder = sidebar.view as! AccessibilityRecordingView
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        #expect(recorder.recordedAccessibilityHidden)
+
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        #expect(recorder.recordedAccessibilityHidden)
+        driver.completions[0]()
+        #expect(!recorder.recordedAccessibilityHidden)
+
+        controller.hasActiveSidebarAccessibilityFocus = { true }
+        controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
+        #expect(!recorder.recordedAccessibilityHidden)
+        #expect(driver.requestCount == 1)
+
+        controller.hasActiveSidebarAccessibilityFocus = { false }
+        controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
+        #expect(recorder.recordedAccessibilityHidden)
+        #expect(driver.requestCount == 2)
+    }
+
+    @Test("persistent handoff preserves focused AX descendant identity and ancestry")
+    func persistentHandoffPreservesAccessibilityDescendant() {
+        let (controller, sidebar, _) = makeController()
+        let descendant = NSView()
+        sidebar.view.addSubview(descendant)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresentedImmediately(true)
+        let identity = ObjectIdentifier(descendant)
+        controller.sidebarAccessibilityFocusedElement = { descendant }
+
+        controller.setPersistentSidebarVisible(true)
+
+        #expect(ObjectIdentifier(descendant) == identity)
+        #expect(descendant.isDescendant(of: sidebar.view))
+        #expect(controller.lastPreservedSidebarAccessibilityElementForTesting)
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
+    }
+
+    @Test("detach is idempotent, invalidates stale completion, and reattaches one monitor")
+    func detachAndReattachLifecycle() {
+        let driver = AnimationDriver()
+        let (controller, sidebar, _) = makeControlledController(driver: driver)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        let staleCompletion = driver.completions[0]
+        #expect(controller.interactionObserverCountForTesting == 4)
+
+        controller.settleDetached()
+        controller.settleDetached()
+        staleCompletion()
+
+        #expect(controller.interactionObserverCountForTesting == 0)
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
+        controller.viewWillAppear()
+        controller.viewWillAppear()
+        #expect(controller.interactionObserverCountForTesting == 4)
+    }
+
+    @Test("focused sidebar control and attributed menu retain until interaction ends")
+    func focusedControlAndMenuRetention() {
+        let (controller, sidebar, _) = makeController()
+        let focus = FirstResponderView()
+        sidebar.view.addSubview(focus)
+        let window = NSWindow(
+            contentRect: controller.view.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = controller.view
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresentedImmediately(true)
+        var changes: [Bool] = []
+        controller.onSidebarInteractionChanged = { changes.append($0) }
+        #expect(window.makeFirstResponder(focus))
+
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        controller.sidebarPointerChanged(true)
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: nil)
+        controller.sidebarPointerChanged(false)
+        #expect(changes == [true])
+
+        window.makeFirstResponder(nil)
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: nil)
+        #expect(changes == [true, false])
+    }
+
+    @Test("active interaction reports false exactly once across repeated lifecycle teardown")
+    func teardownReportsFalseOnce() {
+        let (controller, sidebar, _) = makeController()
+        let focus = FirstResponderView()
+        sidebar.view.addSubview(focus)
+        let window = NSWindow(
+            contentRect: controller.view.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = controller.view
+        var changes: [Bool] = []
+        controller.onSidebarInteractionChanged = { changes.append($0) }
+        #expect(window.makeFirstResponder(focus))
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+
+        controller.viewWillDisappear()
+        controller.viewDidDisappear()
+
+        #expect(changes == [true, false])
+        #expect(controller.interactionObserverCountForTesting == 0)
+    }
+
+    @Test("detached controller releases after outward callbacks are cleared")
+    func detachedControllerDeallocates() {
+        weak var weakController: SidebarSplitController?
+        weak var weakToken: LifetimeToken?
+        autoreleasepool {
+            let (controller, _, _) = makeController()
+            weakController = controller
+            let token = LifetimeToken()
+            weakToken = token
+            controller.onLiveWidthChange = { _ in _ = token }
+            controller.onSidebarInteractionChanged = { _ in _ = token }
+            controller.settleDetached()
+            #expect(weakToken != nil)
+        }
+        #expect(weakController == nil)
+        #expect(weakToken == nil)
+    }
+
+    @Test("deinit reports active interaction false and releases controller")
+    func activeControllerDeinitCleansInteraction() {
+        weak var weakController: SidebarSplitController?
+        var changes: [Bool] = []
+        autoreleasepool {
+            let (controller, sidebar, _) = makeController()
+            weakController = controller
+            let focus = FirstResponderView()
+            sidebar.view.addSubview(focus)
+            let window = NSWindow(
+                contentRect: controller.view.bounds, styleMask: [], backing: .buffered,
+                defer: false)
+            window.contentView = controller.view
+            controller.onSidebarInteractionChanged = { changes.append($0) }
+            #expect(window.makeFirstResponder(focus))
+            NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+            #expect(changes == [true])
+        }
+        #expect(weakController == nil)
+        #expect(changes == [true, false])
     }
 
     @Test("side change cancels old animation and permits fresh mirrored reveal")

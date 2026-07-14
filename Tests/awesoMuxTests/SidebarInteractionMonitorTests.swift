@@ -57,6 +57,8 @@ struct SidebarInteractionMonitorTests {
         let root = NSView()
         let child = NSView()
         root.addSubview(child)
+        let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = root
         var focused: Any? = child
         var changes: [Bool] = []
         let monitor = SidebarInteractionMonitor(
@@ -65,9 +67,9 @@ struct SidebarInteractionMonitorTests {
             notificationCenter: center,
             onActiveChange: { changes.append($0) })
 
-        center.post(name: NSWindow.didUpdateNotification, object: nil)
+        center.post(name: NSWindow.didUpdateNotification, object: window)
         focused = nil
-        center.post(name: NSWindow.didUpdateNotification, object: nil)
+        center.post(name: NSWindow.didUpdateNotification, object: window)
 
         #expect(changes == [true, false])
         monitor.detach()
@@ -88,6 +90,7 @@ struct SidebarInteractionMonitorTests {
             focusedAccessibilityElement: { focused },
             notificationCenter: center,
             onActiveChange: { changes.append($0) })
+        #expect(monitor.observerCountForTesting == 4)
 
         center.post(name: NSWindow.didResignKeyNotification, object: otherWindow)
         #expect(changes == [true])
@@ -96,5 +99,6 @@ struct SidebarInteractionMonitorTests {
         center.post(name: NSWindow.didResignKeyNotification, object: window)
         #expect(changes == [true, false])
         monitor.detach()
+        #expect(monitor.observerCountForTesting == 0)
     }
 }
