@@ -126,6 +126,11 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+          # Never leave the job token in git config: every later step (including
+          # the SwiftPM build that executes third-party package code) would
+          # inherit write-capable credentials. The gh steps pass GH_TOKEN
+          # explicitly instead.
+          persist-credentials: false
 
       - name: Read Ghostty submodule pin and required Zig version
         id: ghostty-pin

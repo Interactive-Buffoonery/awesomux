@@ -182,7 +182,10 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [x] imports signing cert into a temporary keychain
   - [x] builds and signs
   - [x] notarizes and staples
-  - [x] uploads artifacts/checksums to a draft GitHub Release
+  - [x] uploads the signed zip + checksum as workflow artifacts (every run,
+        7-day retention)
+  - [x] can create a draft GitHub Release (`create_draft_release` input,
+        off by default)
   - [ ] never runs signing steps for `pull_request` from forks
 - [x] Add an unsigned local dry-run mode (`--unsigned`; needs full Xcode + Zig, but no signing credentials)
 - [ ] Document maintainer-only release prerequisites.
@@ -224,10 +227,15 @@ run with the same three notary secrets (`NOTARY_KEY_P8`, `NOTARY_KEY_ID`,
 - [ ] Create release branch or use the protected release commit.
 - [ ] Confirm version and build number.
 - [ ] Run pre-release freeze checklist.
-- [ ] Create annotated tag, for example:
-  - [ ] `git tag -a v0.1.0 -m "v0.1.0"`
-  - [ ] `git push origin v0.1.0`
-- [ ] Wait for release workflow to produce draft GitHub Release.
+- [ ] Produce the draft GitHub Release:
+  - [ ] Phase 1 (current): manually dispatch the Release workflow
+        (Actions → Release → `version` + `create_draft_release: true`) and
+        approve the `release` environment gate. Tags do NOT trigger the
+        workflow yet.
+  - [ ] Phase 2 (once the tag trigger lands): create and push the annotated
+        tag (`git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0`) and
+        the workflow runs automatically.
+- [ ] Wait for the release workflow to produce the draft GitHub Release.
 - [ ] Download the draft artifact on a clean Mac.
 - [ ] Install/open from the downloaded artifact.
 - [ ] Confirm Gatekeeper accepts the app.
