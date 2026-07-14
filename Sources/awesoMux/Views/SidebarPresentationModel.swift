@@ -17,6 +17,7 @@ final class SidebarPresentationModel {
 
     private(set) var userWantsHidden: Bool
     private(set) var proximityState: ProximityState = .dormant
+    private(set) var cueIntensity: CGFloat = 0
     @ObservationIgnored private(set) var visibilitySource: SidebarVisibilitySource = .explicit
 
     var isTemporarilyRevealed: Bool {
@@ -38,6 +39,7 @@ final class SidebarPresentationModel {
     @ObservationIgnored private let store: SidebarPresentationPreferenceStore
     @ObservationIgnored private let delay: @Sendable (Duration) async -> Void
     @ObservationIgnored private var trackerState: ProximityState = .dormant
+    @ObservationIgnored private var trackerCueIntensity: CGFloat = 0
     @ObservationIgnored private var sidebarPointerPresent = false
     @ObservationIgnored private var sidebarInteractionActive = false
     @ObservationIgnored private var delayedHideTask: Task<Void, Never>?
@@ -71,19 +73,26 @@ final class SidebarPresentationModel {
     }
 
     func pointerMoved(x: CGFloat, width: CGFloat, position: AppearanceConfig.SidebarPosition) {
-        guard userWantsHidden, width.isFinite, width > 0, x.isFinite else { return }
+        guard userWantsHidden else { return }
+        guard width.isFinite, width > 0, x.isFinite else {
+            trackerCueIntensity = 0
+            cueIntensity = 0
+            return
+        }
 
         let clampedX = min(max(0, x), width)
         let distance = position == .left ? clampedX : width - clampedX
         let next: ProximityState
         if distance <= Self.revealDistance {
             next = .revealed
-        } else if distance <= Self.cueDistance {
-            next = .cue
         } else {
-            next = .dormant
+            next = .cue
         }
         trackerState = next
+        trackerCueIntensity =
+            next == .cue
+            ? Self.easedCueIntensity(distance: distance, trackingWidth: width)
+            : 0
 
         if sidebarPointerPresent {
             transition(to: .revealed)
@@ -95,6 +104,7 @@ final class SidebarPresentationModel {
     func trackingRegionExited() {
         guard userWantsHidden else { return }
         trackerState = .dormant
+        trackerCueIntensity = 0
         if sidebarInteractionActive {
             transition(to: .revealed)
             return
@@ -154,7 +164,7 @@ final class SidebarPresentationModel {
     private func transition(to next: ProximityState) {
         cancelDelayedHide()
         visibilitySource = .pointer
-        proximityState = next
+        publish(next)
     }
 
     private func scheduleDelayedTransition(to next: ProximityState) {
@@ -172,7 +182,7 @@ final class SidebarPresentationModel {
                 return
             }
             self.visibilitySource = .pointer
-            self.proximityState = next
+            self.publish(next)
             self.delayedHideTask = nil
         }
     }
@@ -186,10 +196,28 @@ final class SidebarPresentationModel {
     private func clearTransientState() {
         cancelDelayedHide()
         trackerState = .dormant
+        trackerCueIntensity = 0
         sidebarPointerPresent = false
         sidebarInteractionActive = false
         visibilitySource = .explicit
         proximityState = .dormant
+        cueIntensity = 0
+    }
+
+    private func publish(_ next: ProximityState) {
+        proximityState = next
+        cueIntensity = next == .cue ? trackerCueIntensity : 0
+    }
+
+    private static func easedCueIntensity(distance: CGFloat, trackingWidth: CGFloat) -> CGFloat {
+        guard trackingWidth.isFinite,
+            distance.isFinite,
+            trackingWidth > revealDistance,
+            distance > revealDistance,
+            distance < trackingWidth
+        else { return 0 }
+        let raw = min(max(0, (trackingWidth - distance) / (trackingWidth - revealDistance)), 1)
+        return raw * raw * (3 - 2 * raw)
     }
 }
 

@@ -7,48 +7,103 @@ import Testing
 @MainActor
 @Suite("SidebarPresentationModel")
 struct SidebarPresentationModelTests {
-    @Test("80 points cues and 40 points reveals on both sides")
-    func exactProximityBoundaries() throws {
+    @Test("one-third tracker classifies dormant cue and reveal boundaries")
+    func attractionFieldBoundaries() throws {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        model.pointerMoved(x: 20, width: 100, position: .right)
+        model.pointerMoved(x: 400, width: 400, position: .left)
         #expect(model.proximityState == .cue)
-        #expect(model.isCueVisible)
-        #expect(!model.isSidebarVisible)
+        #expect(model.cueIntensity == 0)
 
-        model.pointerMoved(x: 59.5, width: 100, position: .right)
+        model.pointerMoved(x: 399, width: 400, position: .left)
         #expect(model.proximityState == .cue)
-        model.pointerMoved(x: 60, width: 100, position: .right)
+        #expect(model.cueIntensity > 0)
+        model.pointerMoved(x: 40, width: 400, position: .left)
         #expect(model.proximityState == .revealed)
+        #expect(model.cueIntensity == 0)
 
         model.invalidateTransientState()
-        model.pointerMoved(x: 80, width: 100, position: .left)
+        model.pointerMoved(x: 0, width: 400, position: .right)
         #expect(model.proximityState == .cue)
-        model.pointerMoved(x: 40, width: 100, position: .left)
+        #expect(model.cueIntensity == 0)
+        model.pointerMoved(x: 1, width: 400, position: .right)
+        #expect(model.proximityState == .cue)
+        #expect(model.cueIntensity > 0)
+        model.pointerMoved(x: 360, width: 400, position: .right)
         #expect(model.proximityState == .revealed)
     }
 
-    @Test("distance outside 80 points is dormant")
-    func outsideCueZoneIsDormant() throws {
+    @Test("tracker exit is the dormant boundary")
+    func trackerExitIsDormant() throws {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        model.pointerMoved(x: 80.5, width: 100, position: .left)
+        model.pointerMoved(x: 400, width: 400, position: .left)
+        model.trackingRegionExited()
         #expect(model.proximityState == .dormant)
+        #expect(model.cueIntensity == 0)
     }
 
-    @Test("threshold jitter always classifies into one stable state")
-    func thresholdJitterIsDeterministic() throws {
+    @Test("cue intensity increases smoothly toward reveal")
+    func cueIntensityCurve() throws {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        for (x, expected) in [(80.0, .cue), (79.9, .cue), (40.1, .cue), (40.0, .revealed)]
-            as [(CGFloat, SidebarPresentationModel.ProximityState)]
-        {
-            model.pointerMoved(x: x, width: 100, position: .left)
-            #expect(model.proximityState == expected)
+        let distances: [CGFloat] = [399, 300, 200, 100, 41]
+        let intensities = distances.map { distance -> CGFloat in
+            model.pointerMoved(x: distance, width: 400, position: .left)
+            return model.cueIntensity
         }
+
+        #expect(zip(intensities, intensities.dropFirst()).allSatisfy(<))
+    }
+
+    @Test("tracker resize recomputes cue intensity")
+    func trackerResizeRecomputesIntensity() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 200, width: 400, position: .left)
+        let wideIntensity = model.cueIntensity
+        model.pointerMoved(x: 200, width: 300, position: .left)
+
+        #expect(model.cueIntensity < wideIntensity)
+    }
+
+    @Test("explicit transitions reset cue intensity")
+    func explicitTransitionsResetCueIntensity() throws {
+        for reset in [
+            { (model: SidebarPresentationModel) in model.showPersistently() },
+            { (model: SidebarPresentationModel) in model.positionDidChange() },
+            { (model: SidebarPresentationModel) in model.invalidateTransientState() },
+        ] {
+            let (model, _, defaults, suiteName) = try makeHiddenModel()
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            model.pointerMoved(x: 200, width: 400, position: .left)
+            #expect(model.cueIntensity > 0)
+
+            reset(model)
+
+            #expect(model.cueIntensity == 0)
+        }
+    }
+
+    @Test("leave grace restores tracker cue intensity")
+    func leaveGraceRestoresTrackerCueIntensity() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 200, width: 400, position: .left)
+        let trackerIntensity = model.cueIntensity
+        model.sidebarPointerChanged(true)
+        #expect(model.cueIntensity == 0)
+        model.sidebarPointerChanged(false)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+
+        gate.advance()
+        #expect(await waitUntil { model.proximityState == .cue })
+        #expect(model.cueIntensity == trackerIntensity)
     }
 
     @Test("persistent toggle saves hide intent and clears temporary reveal")
