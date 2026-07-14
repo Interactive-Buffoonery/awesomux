@@ -141,8 +141,7 @@ eligible maintainer PRs and support maintainer-requested `/codereview` reruns;
 they cannot publish approvals or merge.
 [The OpenCode review guide](docs/code-review.md) documents review
 triggers, the passive exact-SHA trust boundary, pinned installation, failure
-behavior, secrets, and testing. Native validation does not use a private runner
-or cross-repository callback.
+behavior, secrets, and testing.
 
 Format only the Swift files you intentionally changed, then inspect the diff:
 
@@ -160,8 +159,7 @@ pinned and their update procedure is documented in
 [`docs/toolchain.md`](docs/toolchain.md).
 
 OpenCode uses exact GLM 5.2 through Synthetic with no model fallback. The
-reviewer has no approval or merge capability. Any future merge automation
-belongs to the independent test-runner system, not the code-review agent.
+reviewer has no approval or merge capability.
 
 You can also run the contrast gate alone when iterating on design-system
 tokens or sidebar chrome:
