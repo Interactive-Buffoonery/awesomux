@@ -266,11 +266,13 @@ struct SidebarPresentationModelTests {
         #expect(await waitUntil { gate.sleeperCount == 1 })
 
         model.positionDidChange()
+        model.pointerMoved(x: 30, width: 100, position: .left)
+        #expect(model.proximityState == .cue)
         gate.advance()
         await drainMainQueue()
 
-        #expect(model.proximityState == .dormant)
-        #expect(!model.isCueVisible)
+        #expect(model.proximityState == .cue)
+        #expect(model.isCueVisible)
         #expect(!model.isSidebarVisible)
     }
 
