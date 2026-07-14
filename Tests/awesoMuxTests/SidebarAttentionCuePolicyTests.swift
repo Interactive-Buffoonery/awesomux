@@ -29,6 +29,14 @@ struct SidebarAttentionCuePolicyTests {
         #expect(!SidebarAttentionCuePolicy.shouldGlow(isPersistentlyHidden: true, hasAttention: false))
     }
 
+    @Test("Ordinary cue strength clamps and attention stays full strength")
+    func cueStrength() {
+        #expect(SidebarAttentionCuePolicy.visualStrength(intensity: -1, attention: false) == 0)
+        #expect(SidebarAttentionCuePolicy.visualStrength(intensity: 0.42, attention: false) == 0.42)
+        #expect(SidebarAttentionCuePolicy.visualStrength(intensity: 2, attention: false) == 1)
+        #expect(SidebarAttentionCuePolicy.visualStrength(intensity: 0, attention: true) == 1)
+    }
+
     @Test("Visibility title describes the next action")
     func visibilityTitleDescribesNextAction() {
         #expect(SidebarVisibilityActionTitle.resolve(isHidden: false) == "Hide Sidebar")

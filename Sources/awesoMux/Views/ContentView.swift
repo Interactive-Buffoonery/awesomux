@@ -311,6 +311,7 @@ struct ContentView: View {
             .overlay(alignment: layoutPolicy.edge == .leading ? .leading : .trailing) {
                 SidebarProximityCue(
                     visible: sidebarPresentation.isCueVisible || attentionGlow,
+                    intensity: sidebarPresentation.cueIntensity,
                     attentionGlow: attentionGlow
                 )
             }
@@ -423,6 +424,7 @@ struct ContentView: View {
 
 private struct SidebarProximityCue: View {
     let visible: Bool
+    let intensity: CGFloat
     let attentionGlow: Bool
     @Environment(\.awAccent) private var accentResolver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -432,15 +434,20 @@ private struct SidebarProximityCue: View {
             accentResolver.accent,
             terminalBackground: Color.aw.surface.window
         )
+        let strength = SidebarAttentionCuePolicy.visualStrength(
+            intensity: intensity,
+            attention: attentionGlow
+        )
+        let color = attentionGlow ? Color.aw.status.needs : accent
         Rectangle()
-            .fill(attentionGlow ? Color.aw.status.needs : accent)
+            .fill(color)
             .frame(width: 4)
             .shadow(
-                color: attentionGlow ? Color.aw.status.needs.opacity(0.7) : .clear,
-                radius: attentionGlow ? 7 : 0
+                color: color.opacity(0.18 + 0.52 * strength),
+                radius: 1 + 6 * strength
             )
-            .opacity(visible ? 1 : 0)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.08), value: visible)
+            .opacity(visible || attentionGlow ? 0.12 + 0.88 * strength : 0)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.08), value: strength)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

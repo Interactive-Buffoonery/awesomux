@@ -221,6 +221,10 @@ final class SidebarPresentationModel {
 }
 
 enum SidebarAttentionCuePolicy {
+    static func visualStrength(intensity: CGFloat, attention: Bool) -> CGFloat {
+        attention ? 1 : min(max(0, intensity), 1)
+    }
+
     static func hasAttention(needsAcknowledgement: Bool, unreadNotificationCount: Int) -> Bool {
         needsAcknowledgement || unreadNotificationCount > 0
     }
