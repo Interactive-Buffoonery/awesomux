@@ -76,6 +76,14 @@ public struct VisibleTextAgentStateReducer: Sendable {
     /// work. The raw visible-text READ and diff still run for every pane:
     /// VoiceOver's value-changed announcement and quit-risk activity marking
     /// ride that diff.
+    ///
+    /// Deliberate side effect: skipping the scan also skips
+    /// `agentKindCorrection` (the stale-Codex-tag → Claude reclaim) for the
+    /// duration of the window. That correction exists for panes whose tag went
+    /// STALE — but a runtime event fresh within this window proves the tagged
+    /// agent's hooks are alive right now, so a viewport-text "correction"
+    /// during that window would be reclassifying a live agent off stale screen
+    /// contents. Suppressing it here is protective, not a coverage loss.
     public static func shouldRunVisibleTextDetector(
         now: TimeInterval,
         lastRuntimeEventAppliedAt: TimeInterval?,
