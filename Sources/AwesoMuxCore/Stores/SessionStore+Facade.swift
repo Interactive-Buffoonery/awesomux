@@ -13,13 +13,16 @@ extension SessionStore {
     public func renameSession(id: TerminalSession.ID, title: String) {
         guard let position = position(for: id) else { return }
         let now = Date()
-        let change = WorkspaceAttentionReducer.updatePane(
-            &_groups[position.groupIndex].sessions[position.sessionIndex],
-            paneID: _groups[position.groupIndex].sessions[position.sessionIndex].activePaneID,
+        var session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        let outcome = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: session.activePaneID,
             update: WorkspaceAttentionReducer.SessionUpdate(title: title),
             now: now
         )
-        commit(WorkspaceMutationEffect(unreadChange: change), now: now)
+        guard outcome.didMutate else { return }
+        _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        commit(WorkspaceMutationEffect(unreadChange: outcome.unreadChange), now: now)
     }
 
     /// Sets or clears a workspace's per-workspace notification mute (INT-598).
@@ -246,15 +249,27 @@ extension SessionStore {
         else {
             return false
         }
-        let change = WorkspaceAttentionReducer.updatePane(
-            &_groups[position.groupIndex].sessions[position.sessionIndex],
+        // Local copy first: mutating through `&_groups[…]` fires the whole-store
+        // @Observable publish even when the reducer changes nothing (INT-523
+        // family — same fix as updateShellActivity).
+        var session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        let outcome = WorkspaceAttentionReducer.updatePane(
+            &session,
             paneID: targetPaneID,
             update: update,
             now: now
         )
+        // Quiet same-state repeat: the event was still legitimately accepted
+        // (the reducer just had nothing new to write), so `false` here would
+        // misreport acceptance — return `true` but skip the `_groups` write
+        // and commit. All four callers of this private helper discard the
+        // returned Bool; the Bool-dependent suppression path lives on the
+        // separate public `applyAgentRuntimeEvent` below, not here.
+        guard outcome.didMutate else { return true }
+        _groups[position.groupIndex].sessions[position.sessionIndex] = session
         commit(
             WorkspaceMutationEffect(
-                unreadChange: change,
+                unreadChange: outcome.unreadChange,
                 riskSessionIDs: [sessionID]
             ),
             now: now
@@ -316,8 +331,13 @@ extension SessionStore {
         // (INT-697 fix #2).
         let displacedNonErrorState = pane.agentExecutionState != .error
         let now = Date()
-        let change = WorkspaceAttentionReducer.updatePane(
-            &_groups[position.groupIndex].sessions[position.sessionIndex],
+        // Local copy + didMutate gate (see `applyPaneUpdate`): skips the
+        // `_groups` write only, since the unconditional `commit` below still
+        // needs to run for the separate `remoteReconnect` mutation via
+        // `mutatePane` just below.
+        var session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        let outcome = WorkspaceAttentionReducer.updatePane(
+            &session,
             paneID: paneID,
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentExecutionState: .error,
@@ -327,6 +347,9 @@ extension SessionStore {
             ),
             now: now
         )
+        if outcome.didMutate {
+            _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        }
 
         if let target = pane.executionPlan.remoteTarget {
             mutatePane(sessionID: sessionID, paneID: paneID) { errorPane in
@@ -338,7 +361,7 @@ extension SessionStore {
 
         commit(
             WorkspaceMutationEffect(
-                unreadChange: change,
+                unreadChange: outcome.unreadChange,
                 riskSessionIDs: [sessionID]
             ),
             now: now
@@ -579,13 +602,23 @@ extension SessionStore {
         // and risk reclassify must run after titles/document side effects even
         // when that rebuild was a no-op dedupe (composition rule: multi-commit OK).
         if decision.appliesPaneUpdate {
-            let change = WorkspaceAttentionReducer.updatePane(
-                &_groups[position.groupIndex].sessions[position.sessionIndex],
+            // This is the highest-frequency call into the reducer — every agent
+            // runtime event, including a same-state repeat Claude Code emits
+            // continuously. Local copy + didMutate gate (see `applyPaneUpdate`)
+            // so a same-state repeat skips both the `_groups` write and the
+            // commit, instead of firing a whole-store @Observable publish for
+            // nothing.
+            var session = _groups[position.groupIndex].sessions[position.sessionIndex]
+            let outcome = WorkspaceAttentionReducer.updatePane(
+                &session,
                 paneID: paneID,
                 update: decision.update,
                 now: now
             )
-            commit(WorkspaceMutationEffect(unreadChange: change), now: now)
+            if outcome.didMutate {
+                _groups[position.groupIndex].sessions[position.sessionIndex] = session
+                commit(WorkspaceMutationEffect(unreadChange: outcome.unreadChange), now: now)
+            }
         }
 
         // A `.rename` event resolves to a pane-title action that the reducer

@@ -250,7 +250,13 @@ struct SidebarPinnedSectionView: View {
             pinnedOriginGroupName: item.originGroup.name,
             onDragStarted: { onWorkspaceDragStarted(session.id) },
             focusedRowTarget: focusedRowTarget,
+            isKeyboardNavigatingValue: isKeyboardNavigating,
             isKeyboardNavigating: $isKeyboardNavigating
         )
+        // Skips re-running this row's `body` (including its
+        // `.accessibilityElement(children: .combine)` node) when an
+        // unrelated row's store publish reconstructs this tile with
+        // identical rendered inputs — see `SidebarSessionTile.RenderKey`.
+        .equatable()
     }
 }

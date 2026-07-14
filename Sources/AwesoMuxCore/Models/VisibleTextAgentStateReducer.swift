@@ -68,6 +68,45 @@ public struct VisibleTextAgentStateReducer: Sendable {
 
     public init() {}
 
+    /// Whether `sampleAgentStateFromVisibleText` should run the (expensive)
+    /// `AgentOutputDetector` scan at all. When a reliable-hook agent has a
+    /// fresh runtime event, `shouldSuppressVisibleTextState` would discard any
+    /// non-attention result AND `blockedByReliableHook` discards
+    /// `.needsAttention` too — so the ~59-substring scan is provably wasted
+    /// work. The raw visible-text READ and diff still run for every pane:
+    /// VoiceOver's value-changed announcement and quit-risk activity marking
+    /// ride that diff.
+    ///
+    /// Deliberate side effect: skipping the scan also skips
+    /// `agentKindCorrection` (the stale-Codex-tag → Claude reclaim) for the
+    /// duration of the window. That correction exists for panes whose tag went
+    /// STALE — but a runtime event fresh within this window proves the tagged
+    /// agent's hooks are alive right now, so a viewport-text "correction"
+    /// during that window would be reclassifying a live agent off stale screen
+    /// contents. Suppressing it here is protective, not a coverage loss.
+    ///
+    /// One precise residual trigger survives that reasoning: a fast agent
+    /// swap in the SAME pane, within this window of the OLD agent's last
+    /// hook, has no fresh runtime event yet attributed to the NEW agent —
+    /// `liveAgentKind` (still the old, reliable-hook agent) gates the scan
+    /// off, so the stale tag can show the old agent's icon for up to
+    /// `runtimeEventSuppressionWindow` before the new agent's own hooks (or a
+    /// visible-text sample once the window lapses) correct it. Symptom:
+    /// "wrong agent icon briefly after a fast agent swap."
+    public static func shouldRunVisibleTextDetector(
+        now: TimeInterval,
+        lastRuntimeEventAppliedAt: TimeInterval?,
+        liveAgentKind: AgentKind
+    ) -> Bool {
+        guard liveAgentKind.usesReliableHooks,
+            liveAgentKind.usesReliableAttentionHooks,
+            let lastRuntimeEventAppliedAt
+        else {
+            return true
+        }
+        return now - lastRuntimeEventAppliedAt >= runtimeEventSuppressionWindow
+    }
+
     public func shouldSuppressVisibleTextState(
         detectedState: AgentState,
         now: TimeInterval,
@@ -76,13 +115,15 @@ public struct VisibleTextAgentStateReducer: Sendable {
         liveDisplayState: AgentState?
     ) -> Bool {
         guard let lastRuntimeEventAppliedAt,
-              now - lastRuntimeEventAppliedAt < Self.runtimeEventSuppressionWindow else {
+            now - lastRuntimeEventAppliedAt < Self.runtimeEventSuppressionWindow
+        else {
             return false
         }
 
         if detectedState == .needsAttention {
             if let lastRuntimeAttentionEventAppliedAt,
-               now - lastRuntimeAttentionEventAppliedAt < Self.runtimeEventSuppressionWindow {
+                now - lastRuntimeAttentionEventAppliedAt < Self.runtimeEventSuppressionWindow
+            {
                 return true
             }
 
@@ -127,7 +168,8 @@ public struct VisibleTextAgentStateReducer: Sendable {
             newDisplayState: detectedState
         )
         let detectedNeedsAttention = detectedState == .needsAttention
-        let clearsUnreadNotifications = liveDisplayState == .needsAttention
+        let clearsUnreadNotifications =
+            liveDisplayState == .needsAttention
             && !detectedNeedsAttention
             && terminalIsActiveForAttention
 
@@ -199,7 +241,8 @@ public struct VisibleTextAgentStateReducer: Sendable {
             // viewport cues can never leave until the process dies. Allow
             // identity-only waiting to clear sticky thinking for Grok only.
             if liveAgentKind == .grok,
-               (liveDisplayState == .thinking || liveExecutionState == .thinking) {
+                (liveDisplayState == .thinking || liveExecutionState == .thinking)
+            {
                 return liveDisplayState != .waiting
             }
             return false
@@ -228,7 +271,8 @@ public struct VisibleTextAgentStateReducer: Sendable {
         //
         // Scoped to these two states, so an exit-nonzero `.error` still
         // applies. See AgentKind.usesReliableHooks.
-        let blockedByReliableHook = detectedState == .done
+        let blockedByReliableHook =
+            detectedState == .done
             ? liveAgentKind.usesReliableHooks
             : detectedState == .needsAttention && liveAgentKind.usesReliableAttentionHooks
         guard !blockedByReliableHook else {
@@ -275,10 +319,12 @@ public struct VisibleTextAgentStateReducer: Sendable {
         executionState: AgentExecutionState?,
         attentionReason: AttentionReason?
     ) -> RuntimeEventSuppressionDecision {
-        let shouldRecordStateEvent = state != nil
+        let shouldRecordStateEvent =
+            state != nil
             || executionState != nil
             || attentionReason != nil
-        let shouldRecordAttentionEvent = state == .needsAttention
+        let shouldRecordAttentionEvent =
+            state == .needsAttention
             || attentionReason != nil
         return RuntimeEventSuppressionDecision(
             shouldRecordStateEvent: shouldRecordStateEvent,
