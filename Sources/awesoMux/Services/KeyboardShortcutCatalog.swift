@@ -610,7 +610,7 @@ enum KeyboardShortcutCatalog {
                 KeyboardShortcutEntry(splitRight, detail: "Create a vertical split"),
                 KeyboardShortcutEntry(splitDown, detail: "Create a horizontal split"),
                 KeyboardShortcutEntry(renamePane, detail: "Pin a custom active pane title"),
-                KeyboardShortcutEntry(closePane, detail: "Close or restart the active pane; may prompt when activity is at risk"),
+                    KeyboardShortcutEntry(closePane, detail: "Close the active pane; closes the workspace when it's the last pane"),
                 KeyboardShortcutEntry(find, detail: "Search terminal scrollback"),
                 KeyboardShortcutEntry(scrollbackDump, detail: "Open scrollback in a text sheet"),
                 KeyboardShortcutEntry(previousPane, detail: "Move focus within the pane tree"),

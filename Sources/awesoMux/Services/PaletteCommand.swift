@@ -66,6 +66,7 @@ struct PaletteAppActions {
     let splitRight: @MainActor () -> Void
     let splitDown: @MainActor () -> Void
     let closePane: @MainActor () -> Void
+    let restartShell: @MainActor () -> Void
     let find: @MainActor () -> Void
     let scrollbackDump: @MainActor () -> Void
     let reconnectRemotePane: @MainActor () -> Void
@@ -121,6 +122,7 @@ struct PaletteAppActions {
             splitRight: action,
             splitDown: action,
             closePane: action,
+            restartShell: action,
             find: action,
             scrollbackDump: action,
             reconnectRemotePane: action,
@@ -338,12 +340,34 @@ enum PaletteCommandRegistry {
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.closePane.id,
-                title: "Close Pane",
+                // actions.closePane routes single-pane sessions through
+                // closeWorkspace(_:) (mirrors closeActivePane()'s App-menu
+                // conditional), so the palette title has to match.
+                // ponytail: like every row here, the title snapshots at
+                // palette-open (see the daemon-row snapshot comment in
+                // AwesoMuxApp); a layout change while the palette floats can
+                // stale it until the next summon. Live retitling needs
+                // render-time recompute in PalettePresenter — do that if the
+                // window bites for real.
+                title: (selected?.layout.isSinglePane ?? false) ? "Close Workspace" : "Close Pane",
                 subtitle: nil,
                 keywords: ["remove", "terminal"],
                 shortcut: KeyboardShortcutCatalog.closePane,
                 isEnabled: hasSelectedSession,
                 run: actions.closePane
+            ),
+            PaletteCommand(
+                id: "restartShell",
+                title: "Restart Shell",
+                subtitle: selected?.activePane?.title,
+                // Explicit command replacement for the old single-pane ⌘W
+                // silent recycle (ADR-0002 amendment) — recycles the active
+                // pane's shell in place. Not gated on isSinglePane: recycling
+                // the active pane works the same for a multi-pane session.
+                keywords: ["restart", "shell", "recycle", "fresh", "reset"],
+                shortcut: nil,
+                isEnabled: hasSelectedSession,
+                run: actions.restartShell
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.find.id,

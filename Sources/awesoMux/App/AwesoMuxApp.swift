@@ -448,6 +448,7 @@ struct AwesoMuxApp: App {
             }
             .onChange(of: sessionStore.groups) { _, _ in
                 saveSessionIfRestoreEnabled()
+                floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
                 dismissWorkspaceEditorIfTargetClosed()
                 dismissWorkspaceGroupEditorIfTargetClosed()
                 dismissPaneEditorIfTargetClosed()
@@ -574,7 +575,8 @@ struct AwesoMuxApp: App {
             // Cmd-W binding lives in `.saveItem` (the File-menu Save slot, which
             // awesoMux doesn't use) so SwiftUI's built-in Close-Window command
             // doesn't reclaim the chord. See `docs/adr/0002-window-close-keybinding-model.md`
-            // for why Cmd-W = close-pane (with last-pane silent recycle).
+            // for why Cmd-W = close-pane (last pane now closes the workspace via
+            // closeWorkspace(_:) rather than the ADR's original silent recycle).
             //
             // Empty-state fallback: when no session is selected, Cmd-W closes
             // the app window via `performClose:` — the user has nothing to
@@ -693,7 +695,10 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitDown))
                 .disabled(sessionStore.selectedSession == nil)
 
-                Button("Close Pane") {
+                // Same conditional as the File-menu binding: closeActivePane()
+                // routes single-pane sessions through closeWorkspace(_:), so
+                // the title has to match what actually happens.
+                Button(closePaneMenuTitle) {
                     closeActivePane()
                 }
                 .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
@@ -988,8 +993,23 @@ struct AwesoMuxApp: App {
     /// row that captured a stale value can't slip an outdated `agentState`
     /// past the check. If the session is already gone (race with another
     /// close), bail silently.
+    ///
+    /// Single-argument overload so this can still be handed around as a
+    /// bare `(TerminalSession) -> Void` closure (e.g. `ContentView`'s
+    /// `onCloseWorkspace`) — a default parameter value doesn't survive that
+    /// kind of reference in Swift.
     @MainActor
     private func closeWorkspace(_ session: TerminalSession) {
+        closeWorkspace(session, alsoGateOnPaneActionConfirm: false)
+    }
+
+    /// - Parameter alsoGateOnPaneActionConfirm: Set from the ⌘W → single-pane
+    ///   route only (`closeActivePane`). A user who set only "confirm before
+    ///   closing panes" (not the workspace toggle) kept a protection the old
+    ///   pane-scoped ⌘W path honored; the new last-pane-closes-workspace
+    ///   routing must still see it.
+    @MainActor
+    private func closeWorkspace(_ session: TerminalSession, alsoGateOnPaneActionConfirm: Bool) {
         guard let live = sessionStore.session(id: session.id) else { return }
         let voTitle = Self.compactTitle(live.title)
 
@@ -1002,7 +1022,18 @@ struct AwesoMuxApp: App {
 
         guard let refreshed = sessionStore.session(id: live.id) else { return }
 
-        switch confirmCloseIfNeeded(refreshed) {
+        let decision = confirmCloseIfNeeded(
+            refreshed,
+            alsoGateOnPaneActionConfirm: alsoGateOnPaneActionConfirm
+        )
+        guard let confirmed = sessionStore.session(id: refreshed.id) else {
+            // `runModal` drains the run loop, so process exit can finish the
+            // close while either alert button is being chosen.
+            floatingPanelController.evictFloatingSlot(for: refreshed.id)
+            announceClosed(title: voTitle)
+            return
+        }
+        switch decision {
         case .suppressed:
             // Re-entry guard fired (another close-confirm is already on
             // screen). Don't announce a "cancel" — that would mislead a
@@ -1014,9 +1045,9 @@ struct AwesoMuxApp: App {
         case .proceed:
             break
         }
-        floatingPanelController.evictFloatingSlot(for: refreshed.id)
-        ghosttyRuntime.discardSurfaces(for: refreshed)
-        sessionStore.closeSession(id: refreshed.id)
+        floatingPanelController.evictFloatingSlot(for: confirmed.id)
+        ghosttyRuntime.discardSurfaces(for: confirmed)
+        sessionStore.closeSession(id: confirmed.id)
         announceClosed(title: voTitle)
     }
 
@@ -1440,8 +1471,14 @@ struct AwesoMuxApp: App {
     /// isolates are dialog-only; the VoiceOver announcement uses
     /// `compactTitle` (newline-strip + truncate, no isolate codepoints
     /// since they don't help speech and may add spoken artifacts).
+    /// - Parameter alsoGateOnPaneActionConfirm: When true, also treat
+    ///   `confirmDestructivePaneActionWithRunningAgent` as a gate — the
+    ///   ⌘W → single-pane route (see `closeWorkspace(_:alsoGateOnPaneActionConfirm:)`).
     @MainActor
-    private func confirmCloseIfNeeded(_ session: TerminalSession) -> CloseConfirmDecision {
+    private func confirmCloseIfNeeded(
+        _ session: TerminalSession,
+        alsoGateOnPaneActionConfirm: Bool = false
+    ) -> CloseConfirmDecision {
         let workspaces = appSettingsStore.workspaces.value
         // Check both the main session AND any backgrounded floating-panel
         // session bound to this workspace. `evictFloatingSlot` tears down
@@ -1451,7 +1488,10 @@ struct AwesoMuxApp: App {
         // unlike the ⌘Q path's `floatingPanelController.sessionsAtRiskOnQuit`.
         let mainAtRisk = session.isCloseRisk(at: Date())
         let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
-        guard workspaces.confirmCloseWithRunningAgent,
+        let confirmEnabled =
+            workspaces.confirmCloseWithRunningAgent
+            || (alsoGateOnPaneActionConfirm && workspaces.confirmDestructivePaneActionWithRunningAgent)
+        guard confirmEnabled,
             mainAtRisk || floatingAtRisk
         else {
             return .proceed
@@ -1487,7 +1527,8 @@ struct AwesoMuxApp: App {
     @MainActor
     private func confirmDestructivePaneActionIfNeeded(
         _ action: DestructivePaneActionConfirmationPolicy.Action,
-        in session: TerminalSession
+        in session: TerminalSession,
+        atRisk: Bool
     ) -> CloseConfirmDecision {
         guard !isCloseConfirmAlertPresented else { return .suppressed }
         isCloseConfirmAlertPresented = true
@@ -1504,11 +1545,25 @@ struct AwesoMuxApp: App {
                 comment:
                     "Title of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
             )
-            body = String(
-                localized:
-                    "\(displayTitle) has activity that will be interrupted. Restarting the shell will terminate the running process.",
-                comment: "Body of the restart-shell confirmation dialog. Argument is the bidi-isolated workspace title."
-            )
+            // One localized string per variant (not concatenated fragments) so
+            // translators control the full sentence — mirrors confirmClearWorkspace.
+            // The idle variant is honest about `recycleAndAnnounce` discarding the
+            // old surface: a restart mints a fresh libghostty surface, so scrollback
+            // does not carry over.
+            body =
+                atRisk
+                ? String(
+                    localized:
+                        "\(displayTitle) has activity that will be interrupted. Restarting the shell will terminate the running process.",
+                    comment:
+                        "Body of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
+                )
+                : String(
+                    localized:
+                        "Restarting the shell in \(displayTitle) ends the current session and starts a fresh one. Scrollback isn't kept.",
+                    comment:
+                        "Body of the restart-shell confirmation dialog when the active pane is idle. Argument is the bidi-isolated workspace title."
+                )
         case .closePane:
             title = String(
                 localized: "Close pane in \(displayTitle)?",
@@ -2006,8 +2061,15 @@ struct AwesoMuxApp: App {
         sessionStore.selectedSessionID = order[nextIndex]
     }
 
+    /// Pane-scoped title only — no window fallback. The Workspace menu's
+    /// close button calls `closeActivePane()`, which no-ops without a
+    /// selection, so "Close Window" would be a lie on that surface.
+    private var closePaneMenuTitle: String {
+        (sessionStore.selectedSession?.layout.isSinglePane ?? false) ? "Close Workspace" : "Close Pane"
+    }
+
     private var closeShortcutTitle: String {
-        sessionStore.selectedSessionID == nil ? "Close Window" : "Close Pane"
+        sessionStore.selectedSession == nil ? "Close Window" : closePaneMenuTitle
     }
 
     private var isAnySheetPresented: Bool {
@@ -2128,6 +2190,17 @@ struct AwesoMuxApp: App {
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
         guard let session = sessionStore.session(id: sessionID) else { return }
 
+        // Last pane = the workspace: route through the same soft-close funnel as
+        // the sidebar X (confirm gate, floating-slot eviction, recently-closed
+        // capture) instead of recycling the shell in place. ⇧⌘T reopens.
+        // `alsoGateOnPaneActionConfirm: true` — this is still logically a pane
+        // action (⌘W), so a user who only enabled the pane-confirm toggle
+        // (not the workspace one) keeps that protection here too.
+        if session.layout.isSinglePane {
+            closeWorkspace(session, alsoGateOnPaneActionConfirm: true)
+            return
+        }
+
         let targetPaneID = session.activePaneID
         let action: DestructivePaneActionConfirmationPolicy.Action
         switch DestructivePaneActionConfirmationPolicy.decision(
@@ -2139,7 +2212,12 @@ struct AwesoMuxApp: App {
         case let .proceedWithoutPrompt(resolvedAction):
             action = resolvedAction
         case let .prompt(resolvedAction):
-            switch confirmDestructivePaneActionIfNeeded(resolvedAction, in: session) {
+            // `.prompt` is only ever returned when the policy already found
+            // the active pane at risk (see `DestructivePaneActionConfirmationPolicy.decision`),
+            // but recomputing here — rather than hardcoding `true` — keeps this
+            // call site honest if that gate ever changes independently.
+            let atRisk = session.activePane?.isCloseRisk(at: Date()) ?? false
+            switch confirmDestructivePaneActionIfNeeded(resolvedAction, in: session, atRisk: atRisk) {
             case .suppressed:
                 return
             case .userCancelled:
@@ -2152,38 +2230,74 @@ struct AwesoMuxApp: App {
 
         switch action {
         case .restartShell:
-            guard let refreshed = sessionStore.session(id: sessionID),
-                refreshed.layout.isSinglePane
-            else {
-                assertionFailure(
-                    "Single-pane restart action resolved for a stale or multi-pane session"
-                )
-                return
-            }
-            GhosttySurfaceNSView.recycleAndAnnounce(
-                sessionID: sessionID,
-                sessionStore: sessionStore,
-                runtime: ghosttyRuntime
-            )
+            // Single-pane sessions route to closeWorkspace(_:) above before this
+            // policy runs, so the pane policy never resolves .restartShell here.
+            assertionFailure("single-pane routes to closeWorkspace before the pane policy")
         case .closePane:
-            guard let refreshed = sessionStore.session(id: sessionID),
-                refreshed.layout.hasMultiplePanes,
-                refreshed.layout.pane(id: targetPaneID) != nil
-            else {
-                assertionFailure(
-                    "Close-pane action resolved for a stale, single-pane, or missing target pane"
-                )
+            let refreshed = sessionStore.session(id: sessionID)
+            switch DestructivePaneActionConfirmationPolicy.confirmedCloseAction(
+                session: refreshed,
+                targetPaneID: targetPaneID
+            ) {
+            case .alreadyClosed:
                 return
-            }
-            guard case let .pane(closedPaneID) = sessionStore.closePane(id: targetPaneID, in: sessionID) else {
-                assertionFailure(
-                    "closePane(id:in:) failed after close-pane action resolution"
-                )
+
+            case .closeWorkspace:
+                guard let refreshed else { return }
+                closeWorkspace(refreshed, alsoGateOnPaneActionConfirm: false)
                 return
+
+            case .closePane:
+                guard
+                    case let .pane(closedPaneID) = sessionStore.closePane(
+                        id: targetPaneID,
+                        in: sessionID
+                    )
+                else { return }
+                ghosttyRuntime.discardSurface(for: closedPaneID)
+                announcePaneClosed()
             }
-            ghosttyRuntime.discardSurface(for: closedPaneID)
-            announcePaneClosed()
         }
+    }
+
+    /// Explicit "Restart Shell" command (command palette): recycles the
+    /// active pane's shell in place. This is the ADR-0002 amendment's named
+    /// replacement for the old single-pane ⌘W silent recycle — that trigger
+    /// now closes the workspace instead (see `closeActivePane` above), so
+    /// restarting a shell in place is only reachable as a deliberate,
+    /// separately-confirmed command. Session-scoped, not pane-count-gated:
+    /// `recycleAndAnnounce` replaces whichever pane is active, so this works
+    /// the same for a single-pane or multi-pane session.
+    ///
+    /// ponytail: always confirms — no
+    /// `DestructivePaneActionConfirmationPolicy` risk pre-check, unlike the
+    /// routed ⌘W close-pane action. This is a deliberately-invoked command
+    /// rather than a routed keystroke, so the unconditional prompt mirrors
+    /// `clearWorkspace`'s "always confirm" precedent. Wire it through the
+    /// policy's risk gate instead if the always-on prompt proves too naggy.
+    /// The dialog COPY still branches on risk (see
+    /// `confirmDestructivePaneActionIfNeeded`) — only the decision to show a
+    /// prompt at all is unconditional.
+    private func restartActiveShell() {
+        guard let session = sessionStore.selectedSession else { return }
+        ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
+        guard let refreshed = sessionStore.session(id: session.id) else { return }
+        let atRisk = refreshed.activePane?.isCloseRisk(at: Date()) ?? false
+
+        switch confirmDestructivePaneActionIfNeeded(.restartShell, in: refreshed, atRisk: atRisk) {
+        case .suppressed:
+            return
+        case .userCancelled:
+            announcePaneActionCancelled(.restartShell)
+            return
+        case .proceed:
+            break
+        }
+        GhosttySurfaceNSView.recycleAndAnnounce(
+            sessionID: refreshed.id,
+            sessionStore: sessionStore,
+            runtime: ghosttyRuntime
+        )
     }
 
     private func announcePaneClosed() {
@@ -2817,6 +2931,7 @@ struct AwesoMuxApp: App {
                 splitActivePane(orientation: .horizontal)
             },
             closePane: closeActivePane,
+            restartShell: restartActiveShell,
             find: presentFindInActivePane,
             scrollbackDump: presentScrollbackDumpForActivePane,
             reconnectRemotePane: reconnectActiveRemotePane,
