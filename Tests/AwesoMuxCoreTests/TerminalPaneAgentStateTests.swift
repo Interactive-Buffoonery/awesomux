@@ -72,6 +72,7 @@ struct TerminalPaneAgentStateTests {
         #expect(shell.isQuitRisk() == false)
 
         shell.needsTerminalQuitConfirmation = true
+        shell.terminalPromptObserved = true
         #expect(shell.isQuitRisk() == true)
     }
 
@@ -94,6 +95,7 @@ struct TerminalPaneAgentStateTests {
         // Runtime-only fields are intentionally not persisted.
         #expect(decoded.shellActivity == .idle)
         #expect(decoded.needsTerminalQuitConfirmation == false)
+        #expect(decoded.terminalPromptObserved == false)
     }
 
     @Test("a legacy pane with no agent keys decodes as an idle shell")

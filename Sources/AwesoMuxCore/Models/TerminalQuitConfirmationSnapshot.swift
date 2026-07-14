@@ -8,17 +8,20 @@ public struct TerminalQuitConfirmationSnapshot: Sendable, Hashable {
     public let sessionID: TerminalSession.ID
     public let paneID: TerminalPane.ID
     public let needsConfirmation: Bool
+    public let promptObserved: Bool
     public let liveness: ForegroundProcessLiveness
 
     public init(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         needsConfirmation: Bool,
+        promptObserved: Bool = true,
         liveness: ForegroundProcessLiveness = .unsampled
     ) {
         self.sessionID = sessionID
         self.paneID = paneID
         self.needsConfirmation = needsConfirmation
+        self.promptObserved = promptObserved
         self.liveness = liveness
     }
 }

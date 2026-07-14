@@ -78,6 +78,7 @@ final class GhosttySurfaceNSView: NSView {
     let visibleTextAgentStateReducer = VisibleTextAgentStateReducer()
     var commandExitCache = CommandExitCache()
     var shellCommandFinishedIdleLatched = false
+    var terminalPromptObserved = false
     var lastAgentDetectionSample: TimeInterval = 0
     var lastDetectedVisibleText = ""
     /// Visible text as of the last `.valueChanged` accessibility post, so the

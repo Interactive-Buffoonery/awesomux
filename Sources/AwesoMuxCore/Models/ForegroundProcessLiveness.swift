@@ -10,6 +10,9 @@ public enum ForegroundProcessLiveness: Sendable, Hashable {
     /// Daemon-backed (command-bridge): work survives app quit. Set by the
     /// sampler when the pane is attached to an `amx` daemon.
     case bridged
+    /// Daemon-backed, with live work under the daemon shell. App quit remains
+    /// safe because the daemon survives; destroying the pane requires warning.
+    case bridgedBusy
     /// libghostty reports the surface's child has exited.
     case exited
     /// Foreground is a recognized login shell with no children — idle at prompt.
@@ -46,5 +49,14 @@ public enum ForegroundProcessLiveness: Sendable, Hashable {
         case .some(false): return .idleShell
         case .none: return .indeterminate
         }
+    }
+
+    public static func classifyBridged(
+        rootComm: String?,
+        rootHasChildren: Bool?
+    ) -> ForegroundProcessLiveness {
+        guard let rootComm else { return .bridged }
+        guard ShellRecognition.isRecognizedShell(rootComm) else { return .bridgedBusy }
+        return rootHasChildren == true ? .bridgedBusy : .bridged
     }
 }

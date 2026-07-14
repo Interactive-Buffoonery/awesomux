@@ -76,6 +76,10 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// `agentState` so shell panes running real work also get the quit-confirm
     /// prompt — see INT-216.
     public var needsTerminalQuitConfirmation: Bool
+    /// Runtime-only trust gate for `needsTerminalQuitConfirmation`. Ghostty's
+    /// initial state looks "away from prompt" until the first OSC-133 prompt
+    /// marker proves that the signal is live.
+    public var terminalPromptObserved: Bool
     /// Runtime-only sampled foreground-process liveness — the primary INT-217
     /// quit-risk signal. Set from the Ghostty runtime via the quit-confirmation
     /// sync seam; never persisted (excluded from Codable/equality like the other
@@ -114,6 +118,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         lastAgentStateChangeAt: Date = Date(),
         shellActivity: ShellActivity = .idle,
         needsTerminalQuitConfirmation: Bool = false,
+        terminalPromptObserved: Bool? = nil,
         foregroundProcessLiveness: ForegroundProcessLiveness = .unsampled,
         progressReport: TerminalProgressReport? = nil,
         unreadNotificationCount: Int = 0,
@@ -144,6 +149,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.lastAgentStateChangeAt = lastAgentStateChangeAt
         self.shellActivity = shellActivity
         self.needsTerminalQuitConfirmation = needsTerminalQuitConfirmation
+        self.terminalPromptObserved = terminalPromptObserved ?? needsTerminalQuitConfirmation
         self.foregroundProcessLiveness = foregroundProcessLiveness
         self.progressReport = progressReport
         self.unreadNotificationCount = unreadNotificationCount
@@ -244,6 +250,7 @@ public extension TerminalPane {
             agentExecutionState: agentExecutionState,
             lastAgentStateChangeAt: lastAgentStateChangeAt,
             awayFromPrompt: needsTerminalQuitConfirmation,
+            promptObserved: terminalPromptObserved,
             liveness: foregroundProcessLiveness
         )
     }
@@ -264,7 +271,7 @@ public extension TerminalPane {
     // Equality covers identity + fields that directly render from the pane
     // value, but deliberately excludes runtime-only fields that render through
     // other projections (`shellActivity`, `needsTerminalQuitConfirmation`,
-    // `lastAgentStateChangeAt`, `foregroundProcessLiveness`,
+    // `terminalPromptObserved`, `lastAgentStateChangeAt`, `foregroundProcessLiveness`,
     // `remoteConnectionHealth`) — same exclusion as `Codable`. Chrome that
     // depends on those (e.g. a shell's busy/idle collapse) re-renders by
     // observing the session's `agentRollup`, NOT bare-pane equality; no view

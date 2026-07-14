@@ -79,6 +79,7 @@ struct PerPaneRollupTests {
         let safe = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         var risky = TerminalPane(title: "b", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         risky.needsTerminalQuitConfirmation = true
+        risky.terminalPromptObserved = true
         let session = splitSession(first: safe, second: risky, active: safe.id)
         #expect(session.isQuitRisk() == true)
         #expect(session.agentRollup().quitRiskPaneIDs == [risky.id])
