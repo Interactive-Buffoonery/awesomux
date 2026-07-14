@@ -145,7 +145,12 @@ enum IDEChoice {
 
 enum IDEOpenTarget {
     static func isEligible(session: TerminalSession) -> Bool {
-        session.activePane?.remoteHost == nil
+        guard let activePane = session.activePane else {
+            return false
+        }
+        return activePane.remoteHost == nil
+            && ExecutionContext(plan: activePane.executionPlan)
+                .capability(.inspectLocalFilesystem).isAllowed
     }
 
     static func targetURL(
