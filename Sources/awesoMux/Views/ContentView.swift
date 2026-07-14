@@ -72,7 +72,7 @@ struct ContentView: View {
     let onTerminalFooterHeightChange: (CGFloat) -> Void
     /// Jump to an exact agent pane from the sidebar activity panel (INT-722).
     let onFocusAgentPane: (TerminalSession.ID, UUID) -> Void
-    let onFocusActiveTerminal: () -> Bool
+    let onFocusActiveTerminal: (SidebarFocusHandoffRequest) -> Bool
     let sidebarFocusRequestID: UUID?
     let sidebarWidthToggleRequestID: UUID?
     let sidebarVisibilityToggleRequestID: UUID?

@@ -235,8 +235,9 @@ struct SidebarSplitControllerTests {
         #expect(window.makeFirstResponder(sentinel))
         var handoffCount = 0
         var widthDuringHandoff: CGFloat?
-        controller.onSidebarFocusHandoff = {
+        controller.onSidebarFocusHandoff = { request in
             handoffCount += 1
+            #expect(!request.requiresAccessibilityFocus)
             widthDuringHandoff = sidebar.view.frame.width
             return window.makeFirstResponder(destination)
         }
@@ -260,7 +261,7 @@ struct SidebarSplitControllerTests {
         let window = hostInFixedWindow(controller)
         #expect(window.makeFirstResponder(sentinel))
         var handoffCount = 0
-        controller.onSidebarFocusHandoff = {
+        controller.onSidebarFocusHandoff = { _ in
             handoffCount += 1
             return false
         }
@@ -280,7 +281,7 @@ struct SidebarSplitControllerTests {
         let controller = SidebarSplitController(sidebar: sidebar, detail: NSViewController())
         let window = hostInFixedWindow(controller)
         #expect(window.makeFirstResponder(sentinel))
-        controller.onSidebarFocusHandoff = { false }
+        controller.onSidebarFocusHandoff = { _ in false }
 
         controller.setSidebarHidden(true)
 

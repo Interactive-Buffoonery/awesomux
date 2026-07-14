@@ -323,17 +323,41 @@ struct SidebarOverlayHostControllerTests {
             externalCallbackActionCounts.append(trace.count)
             return true
         }
-        controller.onSidebarFocusHandoff = {
+        var handoffRequests: [SidebarFocusHandoffRequest] = []
+        controller.onSidebarFocusHandoff = { request in
+            handoffRequests.append(request)
             externalCallbackActionCounts.append(trace.count)
-            return false
+            return true
         }
 
         controller.setPersistentSidebarVisible(false)
 
         #expect(externalCallbackActionCounts == [2, 3])
+        #expect(handoffRequests == [.init(requiresAccessibilityFocus: true)])
         #expect(controller.lastCapturedSidebarAccessibilityFocusForTesting)
         #expect(trace.firstIndex(of: .beginNoActionsTransaction) == 3)
         #expect(window.firstResponder !== sidebar.view)
+    }
+
+    @Test("persistent hide stays visible when required AX focus handoff fails")
+    func persistentHideAbortsAfterFailedAccessibilityHandoff() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+        controller.hasActiveSidebarAccessibilityFocus = { true }
+        var handoffRequests: [SidebarFocusHandoffRequest] = []
+        controller.onSidebarFocusHandoff = { request in
+            handoffRequests.append(request)
+            return false
+        }
+
+        controller.setPersistentSidebarVisible(false)
+
+        #expect(handoffRequests == [.init(requiresAccessibilityFocus: true)])
+        #expect(controller.hostModeForTesting == .persistent(width: 300))
+        #expect(controller.hostPresentationState.mode == .persistent(width: 300))
+        #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
+        #expect(controller.sidebarSplitPaneWidthForTesting == 300)
+        #expect(!controller.isEdgeTrackingVisibleForTesting)
     }
 
     @Test("persistent hide fails closed when handoff prerequisites disappear")
@@ -449,7 +473,7 @@ struct SidebarOverlayHostControllerTests {
         controller.onEdgeExit = { edgeExits += 1 }
         controller.onLiveWidthChange = { _ in liveWidths += 1 }
         controller.onCommitWidth = { _ in commits += 1 }
-        controller.onSidebarFocusHandoff = {
+        controller.onSidebarFocusHandoff = { _ in
             focusHandoffs += 1
             return true
         }
@@ -689,7 +713,7 @@ struct SidebarOverlayHostControllerTests {
         let axElement = NSView()
         sidebar.view.addSubview(focus)
         sidebar.view.addSubview(axElement)
-        var focusedAX: Any? = axElement
+        var focusedAX: Any?
         let detail = NSViewController()
         let controller = SidebarSplitController(
             sidebar: sidebar,
@@ -707,6 +731,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setSidebarHidden(true)
         model.pointerMoved(x: 15, width: 100, position: .left)
         controller.setOverlayPresentedImmediately(true)
+        focusedAX = axElement
         #expect(window.makeFirstResponder(focus))
         center.post(name: NSWindow.didUpdateNotification, object: window)
         controller.sidebarPointerChanged(true)

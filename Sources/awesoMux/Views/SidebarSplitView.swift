@@ -22,7 +22,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     var edgeTrackingEnabled = false
     var onLiveWidthChange: ((CGFloat) -> Void)?
     var onCommitWidth: ((CGFloat) -> Void)?
-    var onSidebarFocusHandoff: (() -> Bool)?
+    var onSidebarFocusHandoff: ((SidebarFocusHandoffRequest) -> Bool)?
     var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
     var onEdgeExit: (() -> Void)?
     var onTrackingAvailabilityLost: (() -> Void)?

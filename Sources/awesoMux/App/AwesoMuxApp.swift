@@ -3397,7 +3397,7 @@ struct AwesoMuxApp: App {
         }
     }
 
-    private func focusActiveTerminal() -> Bool {
+    private func focusActiveTerminal(_ request: SidebarFocusHandoffRequest) -> Bool {
         guard let session = sessionStore.selectedSession,
             let window = NSApp.mainWindow ?? NSApp.keyWindow,
             let surface = Self.terminalSurface(
@@ -3408,7 +3408,10 @@ struct AwesoMuxApp: App {
         else {
             return false
         }
-        return window.makeFirstResponder(surface)
+        guard window.makeFirstResponder(surface) else { return false }
+        guard request.requiresAccessibilityFocus else { return true }
+        surface.setAccessibilityFocused(true)
+        return surface.isAccessibilityFocused()
     }
 
     private static func terminalSurface(
