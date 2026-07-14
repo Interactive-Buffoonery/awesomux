@@ -26,7 +26,7 @@ struct PaneTitleBarDisplayTests {
             executionPlan: .ssh(SSHExecution(target: target))
         )
 
-        #expect(PaneTitleBarView.remoteHost(for: pane) == "alice@buildbox-alias")
+        #expect(pane.remotePresentationHost == "alice@buildbox-alias")
         #expect(
             PaneTitleBarView.accessibilityLabel(for: pane, title: "deploy@resolved.example")
                 == "Pane: deploy@resolved.example, Remote session on alice@buildbox-alias"

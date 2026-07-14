@@ -900,7 +900,12 @@ struct SidebarSessionTile: View {
     private func paneJumpActionLabel(_ item: PanePeekItem) -> String {
         var parts = ["Jump to pane \(item.paneNumber)", item.title, item.agentShortName, item.state.label]
         if let remoteHost = item.remoteHost {
-            parts.append("remote on \(remoteHost)")
+            parts.append(
+                String(
+                    localized: "remote on \(remoteHost)",
+                    comment: "VoiceOver action fragment naming the remote host for a pane."
+                )
+            )
         }
         if item.unread > 0 {
             parts.append(LocalizedPluralStrings.sidebarNotifications(count: item.unread))

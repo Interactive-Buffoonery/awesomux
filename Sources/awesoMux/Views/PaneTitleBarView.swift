@@ -68,14 +68,19 @@ struct PaneTitleBarView: View {
                 titleLabel(title)
             }
 
-            if let remoteHost = Self.remoteHost(for: pane) {
+            if let remoteHost = pane.remotePresentationHost {
                 Label(remoteHost, systemImage: "network")
                     .awFont(AwFont.Mono.meta)
                     .foregroundStyle(titleColor)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: 180)
-                    .help("Remote session on \(remoteHost)")
+                    .help(
+                        String(
+                            localized: "Remote session on \(remoteHost)",
+                            comment: "Tooltip for the remote host badge in a pane title bar."
+                        )
+                    )
                     .accessibilityHidden(true)
             }
 
@@ -122,7 +127,7 @@ struct PaneTitleBarView: View {
                                 title: "Color…",
                                 isEnabled: true,
                                 children: colorMenuItems()
-                            )
+                            ),
                         ]
                     }
                 )
@@ -154,7 +159,8 @@ struct PaneTitleBarView: View {
                     // refresh task leak until the next app-resign sweep.
                     // The bar is multi-pane-only, so this is always `.pane`.
                     if case let .pane(closedPaneID)? =
-                        sessionStore.closePane(id: pane.id, in: session.id) {
+                        sessionStore.closePane(id: pane.id, in: session.id)
+                    {
                         runtime.discardSurface(for: closedPaneID)
                         // Same announcement the ⌘W path posts — the two entry
                         // points to the same close must not diverge for
@@ -218,14 +224,15 @@ struct PaneTitleBarView: View {
         )
         let legacyCurrentColor: [PaneContextMenuItem]
         if case .palette(let color) = pane.color,
-           !WorkspaceGroupColor.pickerCases.contains(color) {
+            !WorkspaceGroupColor.pickerCases.contains(color)
+        {
             legacyCurrentColor = [
                 PaneContextMenuItem(
                     title: color.displayName,
                     isEnabled: false,
                     swatch: Self.swatchColor(for: color),
                     isChecked: true
-                ),
+                )
             ]
         } else {
             legacyCurrentColor = []
@@ -271,11 +278,11 @@ struct PaneTitleBarView: View {
                 Color.aw.paneTitleBand(accent)
             }
         }
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color.aw.border2)
-                    .frame(height: 0.5)
-            }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.aw.border2)
+                .frame(height: 0.5)
+        }
     }
 
     // The bar is opaque chrome (matching the path bar), so the text reads
@@ -296,15 +303,17 @@ struct PaneTitleBarView: View {
         return basename.isEmpty ? pane.workingDirectory : basename
     }
 
-    nonisolated static func remoteHost(for pane: TerminalPane) -> String? {
-        pane.remotePresentationHost
-    }
-
     nonisolated static func accessibilityLabel(for pane: TerminalPane, title: String) -> String {
-        guard let remoteHost = remoteHost(for: pane) else {
-            return "Pane: \(title)"
+        guard let remoteHost = pane.remotePresentationHost else {
+            return String(
+                localized: "Pane: \(title)",
+                comment: "VoiceOver label for a local terminal pane title."
+            )
         }
-        return "Pane: \(title), Remote session on \(remoteHost)"
+        return String(
+            localized: "Pane: \(title), Remote session on \(remoteHost)",
+            comment: "VoiceOver label for a remote terminal pane title and host."
+        )
     }
 
     /// The displayed title — the semantic element that carries the pointer-only
@@ -374,7 +383,8 @@ struct PaneTitleBarView: View {
                     TerminalAccessibilityAnnouncer.announce(
                         String(
                             localized: "Pane color set to \(color.displayName)",
-                            comment: "VoiceOver status message after setting a pane's name-plate color. The placeholder is a color name such as 'Teal' or 'Mauve'."
+                            comment:
+                                "VoiceOver status message after setting a pane's name-plate color. The placeholder is a color name such as 'Teal' or 'Mauve'."
                         )
                     )
                 }

@@ -39,6 +39,21 @@ struct TerminalPathBarModel: Equatable, Sendable {
     /// Runtime-only remote connection health for the active pane.
     var remoteConnectionHealth: RemoteConnectionHealth
 
+    /// Keeps execution-location presentation current while an asynchronous
+    /// filesystem resolution is pending. Declared SSH identity remains
+    /// authoritative even before terminal-title observation reports a host.
+    mutating func synchronizeExecutionPresentation(with pane: TerminalPane?) {
+        let remoteHost = pane?.remotePresentationHost
+        let executionPlan = pane?.executionPlan ?? .local
+        let remoteConnectionHealth = pane?.remoteConnectionHealth ?? .active
+
+        if self.remoteHost != remoteHost { self.remoteHost = remoteHost }
+        if self.executionPlan != executionPlan { self.executionPlan = executionPlan }
+        if self.remoteConnectionHealth != remoteConnectionHealth {
+            self.remoteConnectionHealth = remoteConnectionHealth
+        }
+    }
+
     var accessibilityLabel: String {
         // Speak the full home-abbreviated, deep-collapsed, length-capped path
         // (front-truncated so the leaf survives) rather than the visual
@@ -251,10 +266,11 @@ private struct PathInfo {
         // from under a shell, this backs off to a live directory so the label,
         // tooltip, Copy Path, and Reveal all agree on one real folder (INT-507
         // review: previously they could point at three different places).
-        let effectiveURL = Self.existingDirectoryURL(
-            startingAt: directoryURL,
-            fileManager: fileManager
-        ) ?? directoryURL
+        let effectiveURL =
+            Self.existingDirectoryURL(
+                startingAt: directoryURL,
+                fileManager: fileManager
+            ) ?? directoryURL
         let repoRootURL = Self.repoRootURL(startingAt: effectiveURL, fileManager: fileManager)
 
         let rawProject: String
@@ -275,7 +291,8 @@ private struct PathInfo {
                 fileManager: fileManager
             )
             validatedRepoRootPath = gitDirectoryURL == nil ? nil : repoRootURL.path
-            let head = gitDirectoryURL
+            let head =
+                gitDirectoryURL
                 .map { Self.headInfo(gitDirectoryURL: $0, fileManager: fileManager) }
             branch = head?.display
             gitBranch = head?.lookup
@@ -295,7 +312,8 @@ private struct PathInfo {
             gitBranch = nil
         }
 
-        project = Self.displayString(rawProject).nilIfEmpty
+        project =
+            Self.displayString(rawProject).nilIfEmpty
             ?? Self.displayString(fallbackProject).nilIfEmpty
             ?? "workspace"
         displayPath = Self.displayString(rawDisplayPath)
@@ -393,9 +411,11 @@ private struct PathInfo {
         // symlink. Reject a symlinked `.git` outright — following it would let an
         // attacker-planted link redirect the whole validated-gitdir contract at an
         // arbitrary target (and then `git` itself would operate there).
-        guard let isSymlink = try? dotGitURL.resourceValues(
-            forKeys: [.isSymbolicLinkKey]
-        ).isSymbolicLink, !isSymlink else {
+        guard
+            let isSymlink = try? dotGitURL.resourceValues(
+                forKeys: [.isSymbolicLinkKey]
+            ).isSymbolicLink, !isSymlink
+        else {
             return nil
         }
 
@@ -418,22 +438,25 @@ private struct PathInfo {
             return nil
         }
 
-        let gitDirectoryPath = trimmed
+        let gitDirectoryPath =
+            trimmed
             .dropFirst(marker.count)
             .trimmingCharacters(in: .whitespaces)
         guard !gitDirectoryPath.isEmpty else {
             return nil
         }
 
-        let candidate: URL = gitDirectoryPath.hasPrefix("/")
+        let candidate: URL =
+            gitDirectoryPath.hasPrefix("/")
             ? URL(fileURLWithPath: gitDirectoryPath)
             : repoRootURL.appendingPathComponent(gitDirectoryPath)
         let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
 
         var targetIsDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: resolved.path, isDirectory: &targetIsDirectory),
-              targetIsDirectory.boolValue,
-              isGitAdminDirectory(resolved, fileManager: fileManager) else {
+            targetIsDirectory.boolValue,
+            isGitAdminDirectory(resolved, fileManager: fileManager)
+        else {
             return nil
         }
 
@@ -442,11 +465,13 @@ private struct PathInfo {
         // this is the containment check that a redirected gitdir can't forge.
         let commondirURL = resolved.appendingPathComponent("commondir")
         if fileManager.fileExists(atPath: commondirURL.path) {
-            guard worktreeBacklinkMatches(
-                adminDirectory: resolved,
-                dotGitFileURL: dotGitURL,
-                fileManager: fileManager
-            ) else {
+            guard
+                worktreeBacklinkMatches(
+                    adminDirectory: resolved,
+                    dotGitFileURL: dotGitURL,
+                    fileManager: fileManager
+                )
+            else {
                 return nil
             }
         }
@@ -462,7 +487,8 @@ private struct PathInfo {
         let headURL = url.appendingPathComponent("HEAD")
         var headIsDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: headURL.path, isDirectory: &headIsDirectory),
-              !headIsDirectory.boolValue else {
+            !headIsDirectory.boolValue
+        else {
             return false
         }
 
@@ -472,14 +498,16 @@ private struct PathInfo {
 
         var objectsIsDirectory: ObjCBool = false
         var refsIsDirectory: ObjCBool = false
-        let hasObjects = fileManager.fileExists(
-            atPath: url.appendingPathComponent("objects").path,
-            isDirectory: &objectsIsDirectory
-        ) && objectsIsDirectory.boolValue
-        let hasRefs = fileManager.fileExists(
-            atPath: url.appendingPathComponent("refs").path,
-            isDirectory: &refsIsDirectory
-        ) && refsIsDirectory.boolValue
+        let hasObjects =
+            fileManager.fileExists(
+                atPath: url.appendingPathComponent("objects").path,
+                isDirectory: &objectsIsDirectory
+            ) && objectsIsDirectory.boolValue
+        let hasRefs =
+            fileManager.fileExists(
+                atPath: url.appendingPathComponent("refs").path,
+                isDirectory: &refsIsDirectory
+            ) && refsIsDirectory.boolValue
         return hasObjects && hasRefs
     }
 
@@ -498,7 +526,8 @@ private struct PathInfo {
             return false
         }
 
-        let backlinkURLResolved = (backlinkPath.hasPrefix("/")
+        let backlinkURLResolved =
+            (backlinkPath.hasPrefix("/")
             ? URL(fileURLWithPath: backlinkPath)
             : adminDirectory.appendingPathComponent(backlinkPath))
             .resolvingSymlinksInPath()
@@ -526,7 +555,8 @@ private struct PathInfo {
         let head = line.trimmingCharacters(in: .whitespacesAndNewlines)
         let refPrefix = "ref:"
         if head.hasPrefix(refPrefix) {
-            let ref = head
+            let ref =
+                head
                 .dropFirst(refPrefix.count)
                 .trimmingCharacters(in: .whitespaces)
             let branchPrefix = "refs/heads/"
@@ -592,13 +622,16 @@ private struct PathInfo {
         // `attributesOfItem` follows symlinks (it reports the *target's* type), so
         // check the link itself first — otherwise a `HEAD` symlink pointing at an
         // arbitrary regular file would pass the type guard below.
-        guard let isSymbolicLink = try? url.resourceValues(
-            forKeys: [.isSymbolicLinkKey]
-        ).isSymbolicLink, !isSymbolicLink else {
+        guard
+            let isSymbolicLink = try? url.resourceValues(
+                forKeys: [.isSymbolicLinkKey]
+            ).isSymbolicLink, !isSymbolicLink
+        else {
             return nil
         }
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
-              (attributes[.type] as? FileAttributeType) == .typeRegular else {
+            (attributes[.type] as? FileAttributeType) == .typeRegular
+        else {
             return nil
         }
         guard let handle = try? FileHandle(forReadingFrom: url) else {
@@ -606,7 +639,8 @@ private struct PathInfo {
         }
         defer { try? handle.close() }
         guard let data = try? handle.read(upToCount: maxBytes),
-              let contents = String(data: data, encoding: .utf8) else {
+            let contents = String(data: data, encoding: .utf8)
+        else {
             return nil
         }
         // Take everything up to the first line break. `prefix(while:)` (unlike
@@ -623,7 +657,8 @@ private struct PathInfo {
         let directoryPath = directory.standardizedFileURL.path
 
         guard directoryPath != rootPath,
-              directoryPath.hasPrefix(rootPath + "/") else {
+            directoryPath.hasPrefix(rootPath + "/")
+        else {
             return ""
         }
 
@@ -650,8 +685,8 @@ enum BranchNameSanitizer {
     /// relies on. Bidi *marks* (LRM/RLM) are intentionally excluded.
     static func isBidiOverrideScalar(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
-        case 0x202A...0x202E, // LRE RLE PDF LRO RLO
-             0x2066...0x2069: // LRI RLI FSI PDI
+        case 0x202A...0x202E,  // LRE RLE PDF LRO RLO
+            0x2066...0x2069:  // LRI RLI FSI PDI
             true
         default:
             false

@@ -16,7 +16,6 @@ struct SidebarSessionPeekCard: View {
     /// only on the multi-pane path.
     let onHoverChanged: (Bool) -> Void
 
-
     private var isMultiPane: Bool { session.layout.paneCount > 1 }
 
     var body: some View {
@@ -179,10 +178,13 @@ private struct PanePeekRow: View {
                 .foregroundStyle(Color.aw.text)
                 .lineLimit(1)
 
-            if item.isRemote {
-                Image(systemName: "network")
+            if let remoteHost = item.remoteHost {
+                Label(remoteHost, systemImage: "network")
                     .awFont(AwFont.Mono.meta)
                     .foregroundStyle(Color.aw.text2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 160)
             }
 
             Spacer(minLength: 6)
