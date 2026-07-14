@@ -1,6 +1,39 @@
 import Foundation
 
+public enum DocumentNudgeUnavailableReason: Hashable, Sendable {
+    case readOnlyRemoteSnapshot
+    case terminalUnavailable
+    case requiresLocalTerminal
+}
+
+public enum DocumentNudgeTargetResolution: Hashable, Sendable {
+    case available(TerminalPane)
+    case unavailable(DocumentNudgeUnavailableReason)
+}
+
 public extension TerminalPaneLayout {
+    /// Resolves the exact terminal eligible to receive a document nudge.
+    /// Availability and execution both consume this result so a declared SSH
+    /// plan cannot receive a path from the Mac filesystem.
+    func documentNudgeTarget(for documentID: DocumentPane.ID) -> DocumentNudgeTargetResolution {
+        guard let document = firstDocumentGroup?.tab(id: documentID) else {
+            return .unavailable(.terminalUnavailable)
+        }
+        guard !document.isReadOnlySnapshot else {
+            return .unavailable(.readOnlyRemoteSnapshot)
+        }
+        guard let target = documentSendTarget(for: documentID) else {
+            return .unavailable(.terminalUnavailable)
+        }
+        guard
+            ExecutionContext(plan: target.executionPlan)
+                .capability(.stageLocalDocumentPath).isAllowed
+        else {
+            return .unavailable(.requiresLocalTerminal)
+        }
+        return .available(target)
+    }
+
     /// Returns the terminal pane that should receive the selected document tab's
     /// Send to Agent nudge.
     ///
