@@ -51,4 +51,9 @@ Preserved the one live sidebar host across transient overlay and persistent spli
 - Persistent handoff now validates the captured AX element immediately after moving the live host but before setting persistent state or publishing host width. A forced ancestry break restores the same host to the presented overlay, leaves persistent publication at zero, and keeps the overlay interactive.
 - The end-to-end retention test wires `SidebarInteractionMonitor` directly to `SidebarPresentationModel.sidebarInteractionChanged(_:)`, drives keyboard focus, attributed menu tracking, tracker/sidebar leave, and an injected live AX-focused descendant, then proves the overlay remains presented until every interaction source clears. Only then does a fresh deterministic 220 ms grace complete and the controller returns the host to stable hidden ownership.
 - The window lifecycle test removes and re-adds the controller root through `NSWindow.contentView`, exercising `SidebarSplitRootView.viewDidMoveToWindow` rather than calling controller lifecycle methods. Persistent semantic ownership survives removal, detached AX exposure and observers are removed, and re-add restores AX exposure with exactly four observers.
-- Final `SidebarOverlayHostControllerTests` count after these additions: 32 tests passed.
+- Final `SidebarOverlayHostControllerTests` count after these additions: 33 tests passed.
+
+## Late audit closure
+
+- Irreversible final teardown is now distinct from reusable temporary detach. It detaches interaction first, clears every outward/testing callback before checking `isViewLoaded`, and only then performs view-backed settlement when available. A never-loaded controller with callbacks that strongly capture it releases after explicit final settlement.
+- Temporary window/view detach continues to preserve outward callbacks. The real remove/re-add lifecycle test now proves restored interaction, edge move/exit, width, divider-commit, focus-handoff, and availability callbacks actually execute after reattachment; observer count alone is not used as proof.

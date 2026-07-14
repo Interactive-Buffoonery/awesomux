@@ -265,8 +265,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     deinit {
         MainActor.assumeIsolated {
-            interactionMonitor?.detach()
-            clearExternalCallbacks()
+            settleFinal()
         }
     }
 
@@ -454,6 +453,15 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
     func simulateTrackingAvailabilityLostForTesting() {
         onTrackingAvailabilityLost?()
+    }
+    func simulateEdgePointerMoveForTesting(x: CGFloat, width: CGFloat) {
+        edgeTrackingView.onPointerMove?(x, width)
+    }
+    func simulateEdgeExitForTesting() {
+        edgeTrackingView.onExit?()
+    }
+    func settleFinalForTesting() {
+        settleFinal()
     }
 
     #if DEBUG
@@ -795,6 +803,14 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         onSidebarInteractionChanged = nil
         handoffActionObserverForTesting = nil
         persistentHandoffBeforeAccessibilityValidationForTesting = nil
+    }
+
+    private func settleFinal() {
+        interactionMonitor?.detach()
+        interactionMonitor = nil
+        clearExternalCallbacks()
+        guard isViewLoaded else { return }
+        settleDetached()
     }
 
     private func invalidateOverlayForDetach() {
