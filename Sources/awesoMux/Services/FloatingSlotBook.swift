@@ -27,6 +27,7 @@ final class FloatingSlotBook {
     private var floatingStores: [TerminalSession.ID: SessionStore] = [:]
 
     var allStores: [SessionStore] { Array(floatingStores.values) }
+    var workspaceIDs: Set<TerminalSession.ID> { Set(floatingStores.keys) }
 
     func store(for id: TerminalSession.ID) -> SessionStore? { floatingStores[id] }
 

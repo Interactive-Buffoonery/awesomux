@@ -3,6 +3,12 @@ import AwesoMuxCore
 import Foundation
 
 enum DestructivePaneActionConfirmationPolicy {
+    enum ConfirmedCloseAction: Equatable {
+        case closePane
+        case closeWorkspace
+        case alreadyClosed
+    }
+
     enum Action: Equatable {
         case closePane
         case restartShell
@@ -53,13 +59,33 @@ enum DestructivePaneActionConfirmationPolicy {
             return .unavailable
         }
 
-        let action: Action = session.layout.isSinglePane ? .restartShell : .closePane
-        guard activePane.isQuitRisk(at: now) else {
+        // Single-pane ⌘W is a workspace close, not a pane action — the caller
+        // (closeActivePane) routes it to closeWorkspace(_:) before consulting
+        // this policy. Landed atomically with that routing; if you are reading
+        // this without the closeActivePane early-branch, something reverted.
+        guard !session.layout.isSinglePane else {
+            return .unavailable
+        }
+
+        let action: Action = .closePane
+        guard activePane.isCloseRisk(at: now) else {
             return .proceedWithoutPrompt(action)
         }
         guard workspaces.confirmDestructivePaneActionWithRunningAgent else {
             return .proceedWithoutPrompt(action)
         }
         return .prompt(action)
+    }
+
+    static func confirmedCloseAction(
+        session: TerminalSession?,
+        targetPaneID: TerminalPane.ID
+    ) -> ConfirmedCloseAction {
+        guard let session,
+            session.layout.pane(id: targetPaneID) != nil
+        else {
+            return .alreadyClosed
+        }
+        return session.layout.isSinglePane ? .closeWorkspace : .closePane
     }
 }
