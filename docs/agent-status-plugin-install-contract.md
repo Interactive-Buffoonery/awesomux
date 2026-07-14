@@ -342,3 +342,12 @@ that JSON is the only non-interactive status source.
    dropped `~/.config/opencode/skills/awesomux-documents/SKILL.md` load without extra
    config; confirm Pi loads `~/.pi/agent/skills/awesomux-documents/SKILL.md` with no
    trust prompt (project-local skill paths do prompt; the global agent dir should not).
+
+## 6. Live Codex compatibility smoke test
+
+Run `./script/test_live_codex_plugin.sh` to exercise the production app-server client
+against the installed Codex CLI and the selected `CODEX_HOME`. The probe only performs
+`initialize` and `hooks/list`; it does not write config or change plugin state. It fails if
+the awesoMux plugin is missing, the response no longer decodes, or Codex reports an unknown
+trust state. Keep the deterministic protocol fixtures in the normal test suite because the
+live probe intentionally depends on the operator's installed Codex version and plugin state.
