@@ -111,6 +111,16 @@ struct DocumentLoaderTests {
         }
     }
 
+    @Test("bounded source read rejects a file over the size cap")
+    func boundedSourceReadRejectsOversizedFile() throws {
+        let url = try writeTempData(
+            name: "watched.md",
+            size: DocumentURLValidator.maxFileSizeBytes + 1
+        )
+
+        #expect(DocumentLoader.readSource(url) == nil)
+    }
+
     // MARK: - Rejection: non-file URL
 
     @Test("rejects an https URL")

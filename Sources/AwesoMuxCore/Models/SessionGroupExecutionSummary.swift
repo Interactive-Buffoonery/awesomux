@@ -47,17 +47,6 @@ public struct SessionGroupExecutionSummary: Hashable, Sendable {
         }
     }
 
-    public var hasActiveRemotePanes: Bool {
-        switch contents {
-        case .empty, .localOnly: false
-        case .singleRemote, .mixed: true
-        }
-    }
-
-    public var requiresRemoteImpactConfirmation: Bool {
-        hasActiveRemotePanes || defaultTarget != nil
-    }
-
     private static func targetSort(_ lhs: RemoteTarget, _ rhs: RemoteTarget) -> Bool {
         if lhs.sshDestination != rhs.sshDestination {
             return lhs.sshDestination < rhs.sshDestination
@@ -77,27 +66,22 @@ public struct SessionGroupCloseSafetySummary: Hashable, Sendable {
     }
 
     public let defaultTarget: RemoteTarget?
-    public let paneLocations: [PaneLocation]
+    public let paneLocations: Set<PaneLocation>
 
     public init(group: SessionGroup, limitedTo sessionIDs: Set<TerminalSession.ID>? = nil) {
         defaultTarget = group.remote
-        paneLocations = group.sessions
-            .filter { sessionIDs?.contains($0.id) ?? true }
-            .flatMap { session in
-                session.panes.map { pane in
-                    PaneLocation(
-                        sessionID: session.id,
-                        paneID: pane.id,
-                        location: pane.executionPlan.location
-                    )
-                }
-            }
-            .sorted {
-                let lhsSession = $0.sessionID.uuidString
-                let rhsSession = $1.sessionID.uuidString
-                if lhsSession != rhsSession { return lhsSession < rhsSession }
-                return $0.paneID.uuidString < $1.paneID.uuidString
-            }
+        paneLocations = Set(
+            group.sessions
+                .filter { sessionIDs?.contains($0.id) ?? true }
+                .flatMap { session in
+                    session.panes.map { pane in
+                        PaneLocation(
+                            sessionID: session.id,
+                            paneID: pane.id,
+                            location: pane.executionPlan.location
+                        )
+                    }
+                })
     }
 
     public static func hasMaterialChange(

@@ -26,15 +26,12 @@ extension GhosttySurfaceNSView {
         if commandBridgeSessionID != nil {
             guard
                 let rawPID = commandBridgeEnactor.respawnLedger.lastIncarnation?.pid,
-                let pid = pid_t(exactly: rawPID)
+                let daemonPID = pid_t(exactly: rawPID)
             else {
                 return (.bridged, nil)
             }
             return (
-                ForegroundProcessLiveness.classifyBridged(
-                    rootComm: ProcessLivenessProbe.foregroundComm(pid: pid),
-                    rootHasChildren: ProcessLivenessProbe.hasChildren(pid: pid)
-                ),
+                ProcessLivenessProbe.bridgedLiveness(daemonPID: daemonPID),
                 nil
             )
         }
