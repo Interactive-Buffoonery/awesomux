@@ -82,6 +82,58 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.overlayClipViewForTesting.isHidden)
     }
 
+    @Test(
+        "animated overlay changes compositor transform without split geometry",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right])
+    func compositorOnlyAnimation(position: AppearanceConfig.SidebarPosition) {
+        let (controller, _, detail) = makeController(position: position)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        let detailFrame = detail.view.frame
+        let splitWidth = controller.sidebarSplitPaneWidthForTesting
+
+        controller.setOverlayPresented(
+            true, transition: .hover(), reduceMotion: false)
+
+        #expect(
+            controller.overlayContentViewForTesting.layer?.animation(
+                forKey: SidebarOverlayAnimator.animationKey) != nil)
+        #expect(controller.overlayClipViewForTesting.frame.width == 300)
+        #expect(controller.overlayContentViewForTesting.frame.size == CGSize(width: 300, height: 800))
+        #expect(controller.sidebarSplitPaneWidthForTesting == splitWidth)
+        #expect(detail.view.frame == detailFrame)
+    }
+
+    @Test("Reduce Motion reveals immediately with aligned hit testing")
+    func reduceMotionReveal() {
+        let (controller, _, _) = makeController(position: .right)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+
+        controller.setOverlayPresented(true, transition: .hover(), reduceMotion: true)
+
+        #expect(
+            controller.overlayContentViewForTesting.layer?.animation(
+                forKey: SidebarOverlayAnimator.animationKey) == nil)
+        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
+        #expect(controller.overlayClipViewForTesting.presentationTranslationX() == 0)
+    }
+
+    @Test("persistent restore invalidates an in-flight overlay completion")
+    func persistentRestoreCancelsOverlay() async throws {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresented(true, transition: .hover(), reduceMotion: false)
+
+        controller.setSidebarHidden(false)
+        try await Task.sleep(for: .milliseconds(200))
+
+        #expect(controller.hostModeForTesting == .persistent(width: 300))
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(controller.overlayClipViewForTesting.isHidden)
+    }
+
     @Test("reasserting hidden dismisses a presented overlay into stable hidden ownership")
     func repeatedHiddenDismissesOverlay() {
         let (controller, sidebar, _) = makeController()
