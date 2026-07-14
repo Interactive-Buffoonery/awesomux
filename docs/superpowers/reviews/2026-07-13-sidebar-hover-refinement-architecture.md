@@ -1,23 +1,42 @@
 ## J'onn J'onzz — Architecture Review
 
 **Proposal:** Sidebar Hover Refinement Implementation Plan
-**Clarity rating:** FORMING
+**Clarity rating:** CRYSTALLINE
 
-The interaction remains precise and proportionate. The overlay rewrite at `51bc1ff` correctly rejects divider animation and chooses one live sidebar host, but it introduces new AppKit ownership boundaries that are not yet fully specified. The plan must close hit testing during partial transforms, redirect every semantic split operation to the stable pane container, and define an atomic overlay-to-split transaction before implementation.
+The interaction remains precise and proportionate. The revised overlay plan at `8bb97e5` closes the AppKit ownership boundaries introduced by the rewrite: visible pixels and hit targets share one presentation transform, the stable container is the sole semantic split identity, and explicit handoff is one no-actions transaction with post-settlement publication.
 
 ### Overlay Rewrite Verdict — Plan `51bc1ff`, Spec `3723e33`
 
-**Status:** Needs targeted revision before implementation.
+**Status:** Historical FORMING verdict for `51bc1ff`; fully resolved by `8bb97e5`.
 
 The single-host direction is correct. Reparenting `sidebarChild.view`—while keeping its `NSHostingController` and SwiftUI root identity alive—is the smallest architecture that can provide a truly interactive overlay without duplicating sidebar state. The plan also correctly keeps runtime presentation out of `updateNSViewController` and adds strong zero-Ghostty-geometry evidence.
 
-Three blockers remain:
+The original `51bc1ff` review found three blockers, now resolved by `8bb97e5`:
 
 1. The full-width `overlayClipView` is hittable across its final frame even while `overlayContentView` is partially or fully translated away. `masksToBounds` clips pixels, not AppKit hit testing. Without a presentation-aware hit-test boundary, the invisible portion steals terminal clicks, drags, scrolls, and contextual clicks.
 2. Current semantic split logic identifies and measures `sidebarChild.view`. Once that view moves into the overlay, it is no longer a split pane and its width is the overlay width. Every split-order, width, divider, responder, and drag provider path must instead use the stable `sidebarPaneContainer`; stating the invariant without enumerating these migrations leaves a mixed-identity failure path.
 3. Overlay-to-persistent handoff is described as sequential view mutations but promised as atomic. The plan must specify one no-animation/layout transaction, focus preservation, ordering, and a settled layout before returning. Otherwise the one host can spend a display pass in a hidden zero-width pane or the overlay can disappear before the persistent pane is drawable.
 
-The remaining gaps—explicit layer backing, constraint/autoresizing cleanup, detach behavior, and presentation-aware width changes—are concrete revisions rather than a reason to reject the architecture.
+The remaining gaps—explicit layer backing, constraint/autoresizing cleanup, detach behavior, and presentation-aware width changes—were concrete revisions rather than a reason to reject the architecture. The revised plan addresses each one.
+
+### Overlay Re-review Resolution Matrix — `8bb97e5`
+
+| Required revision from `9630421` | Resolution in revised plan | Verdict |
+|---|---|---|
+| Presentation-aware hit testing | Dedicated `SidebarOverlayClipView` samples the same presentation/model translation as the animator, converts coordinates into content space, and returns `nil` outside visually covered pixels; held left/right tests cover hidden, 25%, 50%, presented, scroll and contextual targets | Resolved |
+| Stable semantic split identity | Exhaustive migration list redirects ordering, width provider, width reads, resize delegate, drag commit, constraints, callbacks and persistence to `sidebarPaneContainer`; structural/runtime tests pin two direct panes across sides and host modes | Resolved |
+| Atomic overlay↔persistent handoff | `performAtomicHostHandoff` uses AppKit/Core Animation no-action scopes, suppresses callbacks, invalidates generation, preserves responder, reparents, issues one divider intent, settles layout, clears transform, hides overlay, restores responder, then publishes | Resolved |
+| Explicit layer backing and teardown | Both clip/content establish layer backing, animator construction guards non-nil layer, every lifecycle/handoff removes the animation key and resets transform; invalid setup rolls back hidden | Resolved |
+| Constraint/autoresizing ownership | Frame/autoresizing is exclusive; destination/source constraints referencing the host are removed before reparent; root layout frames clip/content on resize | Resolved |
+| Partial resize and rail/full mapping | Pure visible-fraction mapping covers 0/25/50/100%, rail↔full, reclamp, and both sides; reframe restarts newest intent and hit tests are revalidated | Resolved |
+| AX exposure policy | Explicit phase matrix hides offscreen/partial descendants, exposes fully presented/persistent children, retains active AX focus before hide, and tests ancestry across handoff | Resolved |
+| Same-host root updates | Hidden, presented, mid-animation and persistent fixtures prove controller identity, host count, parent, mode and geometry remain stable while the same host receives new root values | Resolved |
+| Titlebar parity | Controller-authoritative observable host presentation publishes only settled phases; titlebar derives effective width from it; routing matrix covers reveal/hide/stale/side/width/persistent states | Resolved |
+| Detach/window lifecycle | Idempotent `settleDetached` removes observers/animation/callbacks, clears interaction/AX/transform/chrome, restores stable hidden parentage, rejects stale completion, and proves deallocation/clean reattach | Resolved |
+| Zero Ghostty resize proof | All divider intents route through one counted helper; `GeometryRecordingView.changedSubmittedBackingSizes` is primary negative evidence across the hover matrix, with one explicit persistent intent/settled-size control | Resolved |
+| Peek coordinate preservation | Known tile anchors are converted through controller root before/after reparent on both sides, protecting the existing ContentView-level peek overlay | Resolved |
+
+Every blocker and all nine required revisions are now represented by a named production boundary and falsifiable automated/live evidence. No pre-implementation architecture question remains.
 
 ### Overlay Component Diagram
 
@@ -101,21 +120,21 @@ Any state -- side change/window detach --> cancel generation, clear transform,
 
 | # | Failure | Trigger | User Impact | State After | Handled? |
 |---|---|---|---|---|---|
-| O1 | Invisible Hit Shield | Clip keeps its final full width while content layer is translated | Terminal edge input fails in visually empty overlay area | Visual state looks correct; responder routing is wrong | **No — blocker** |
-| O2 | Split Identity Substitution | Existing order/width/delegate code still references `sidebarChild.view` | Wrong pane ordering, hidden width reads as overlay width, divider constraints/drag callbacks corrupt | Host mode and split geometry disagree | **No — blocker** |
-| O3 | Handoff Blank Frame | Overlay is hidden/reparented before real split is laid out | Flash of no sidebar during explicit show | Final persistent state may be correct | **No — blocker** |
-| O4 | Handoff Double Surface | Persistent split becomes visible before overlay presentation is removed | One-frame duplicate-looking sidebar/composited residue | One host, two visual presentations via stale layer | Partial; requires atomic transaction and transform cleanup |
-| O5 | Nil Animation Layer | `overlayContentView` is not explicitly layer-backed | Animator receives nil/no transform; reveal fails or crashes through force assumptions | Host sits in overlay but remains offscreen/undefined | **No — explicit `wantsLayer` required** |
-| O6 | Constraint Residue | Reparented host carries destination-incompatible constraints or ambiguous autoresizing state | Sidebar frame is zero, stale, or constraint warnings appear | One host in wrong geometry | Partial; frame/autoresizing named, cleanup invariant missing |
+| O1 | Invisible Hit Shield | Clip keeps its final full width while content layer is translated | Terminal edge input fails in visually empty overlay area | Visual state looks correct; responder routing is wrong | Yes — presentation-aware clip + held tests |
+| O2 | Split Identity Substitution | Existing order/width/delegate code still references `sidebarChild.view` | Wrong pane ordering, hidden width reads as overlay width, divider constraints/drag callbacks corrupt | Host mode and split geometry disagree | Yes — exhaustive stable-container migration |
+| O3 | Handoff Blank Frame | Overlay is hidden/reparented before real split is laid out | Flash of no sidebar during explicit show | Final persistent state may be correct | Yes — no-actions trace settles layout before hide |
+| O4 | Handoff Double Surface | Persistent split becomes visible before overlay presentation is removed | One-frame duplicate-looking sidebar/composited residue | One host, two visual presentations via stale layer | Yes — generation/animation cleanup in atomic trace |
+| O5 | Nil Animation Layer | `overlayContentView` is not explicitly layer-backed | Animator receives nil/no transform; reveal fails or crashes through force assumptions | Host sits in overlay but remains offscreen/undefined | Yes — explicit backing, guard, hidden rollback |
+| O6 | Constraint Residue | Reparented host carries destination-incompatible constraints or ambiguous autoresizing state | Sidebar frame is zero, stale, or constraint warnings appear | One host in wrong geometry | Yes — exclusive frame/autoresizing ownership |
 | O7 | Root Update Split Brain | Representable update creates another host or updates only the currently visible container | Sidebar state stops updating in one mode | Single-host invariant violated or stale SwiftUI tree | Yes conceptually; add both-mode root update test |
 | O8 | Stale Hide Reparent | Old animation completion fires after reversal/show/side change | Live host is pulled out from under current UI | Host parent contradicts requested mode | Yes via generation, if controller validates same generation/mode |
-| O9 | Resize Transform Drift | Width changes while layer uses old presentation translation | Overlay jumps, exposes a gap, or finishes partly onscreen | Frame/transform targets disagree | Partial; restart policy needs exact normalization |
-| O10 | Window Detach Orphan | Window resigns/detaches during focus/menu/animation | Invisible overlay retains focus or stale completion reparents later | Host/monitor observers outlive valid window | Mostly specified; controller teardown test needed |
-| O11 | AX Parent Staleness | Host reparents while accessibility focus is inside it | VoiceOver focus drops or points to detached hierarchy | UI visible, AX navigation broken | Partial; live check plus ancestry test required |
+| O9 | Resize Transform Drift | Width changes while layer uses old presentation translation | Overlay jumps, exposes a gap, or finishes partly onscreen | Frame/transform targets disagree | Yes — fraction mapping + mirrored tests |
+| O10 | Window Detach Orphan | Window resigns/detaches during focus/menu/animation | Invisible overlay retains focus or stale completion reparents later | Host/monitor observers outlive valid window | Yes — idempotent teardown/deallocation tests |
+| O11 | AX Parent Staleness | Host reparents while accessibility focus is inside it | VoiceOver focus drops or points to detached hierarchy | UI visible, AX navigation broken | Yes — phase matrix + identity/ancestry tests |
 | O12 | Menu-Origin Misattribution | Global menu notification occurs while unrelated app menu tracks | Overlay is retained indefinitely or dismissed under its contextual menu | Interaction signal stale | Partial; attribution and detach tests specified |
-| O13 | Peek Coordinate Drift | Existing ContentView-level peek overlay consumes anchors from reparented sidebar coordinate space | Rail peek card appears on wrong side/offset | Sidebar works; auxiliary overlay misplaced | Live coverage only; add coordinate assertion if feasible |
-| O14 | Ghostty Resize Leakage | Hover path calls divider/layout API or causes detail frame mutation indirectly | Terminal reflows/jitters—the rejected behavior returns | Hover visually works but violates core goal | Strongly handled by Task 6, after mutation boundaries are complete |
-| O15 | Titlebar/Body Divergence | Temporary titlebar width changes independently from overlay host mode or stale proximity completion | Title lockup appears with no overlay or wrong rail/full mode | Chrome contradicts body | Partial; routing matrix should assert mode/width parity |
+| O13 | Peek Coordinate Drift | Existing ContentView-level peek overlay consumes anchors from reparented sidebar coordinate space | Rail peek card appears on wrong side/offset | Sidebar works; auxiliary overlay misplaced | Yes — root-coordinate anchor assertions both sides |
+| O14 | Ghostty Resize Leakage | Hover path calls divider/layout API or causes detail frame mutation indirectly | Terminal reflows/jitters—the rejected behavior returns | Hover visually works but violates core goal | Yes — counted intent + changed-size recording matrix |
+| O15 | Titlebar/Body Divergence | Temporary titlebar width changes independently from overlay host mode or stale proximity completion | Title lockup appears with no overlay or wrong rail/full mode | Chrome contradicts body | Yes — controller-authoritative presentation state |
 
 ### Overlay Hidden Assumptions
 
@@ -209,16 +228,15 @@ Avoid expanding further:
 - Geometry-recording detail view plus mutation-boundary instrumentation.
 - Existing proximity, persistence, width, titlebar, and semantic position policies remain reused.
 
-**Sand — must be compacted before code**
+**Sand — compacted by `8bb97e5`; verify while implementing**
 
-- Default `NSView` hit testing does not match the transformed visible overlay.
-- Current semantic split references still point at the soon-to-be-reparented host view unless exhaustively migrated.
-- “Atomic” handoff lacks a defined AppKit transaction and ordering contract.
-- Overlay content layer backing is assumed rather than established.
-- Reparent constraint/autoresizing cleanup and partial-resize mapping are underspecified.
-- AX exposure during offscreen/partial transforms is not defined.
+- Presentation-aware clip hit testing binds AppKit event targets to transformed visible pixels.
+- Stable-container semantic migration is exhaustive and structurally guarded.
+- Atomic handoff now has an exact no-actions trace and post-settlement publication boundary.
+- Layer backing, reparent geometry ownership, fraction mapping and teardown are explicit.
+- AX exposure has a phase matrix tied to interaction retention and final ownership.
 
-### Overlay Plan Revisions Required
+### Overlay Plan Revisions Applied in `8bb97e5`
 
 1. Add a presentation-aware overlay clip/hit-test view and automated covered/uncovered hit tests during held partial transforms.
 2. Add a semantic-pane migration checklist and tests proving `NSSplitView` always contains exactly the stable container/detail views in correct position order, while split width/provider/delegate math reads the container.
@@ -232,11 +250,11 @@ Avoid expanding further:
 
 ### Overlay Recommendation
 
-The rewritten overlay direction should proceed after one focused plan revision. I do not need to read minds to see the attraction of the single-host design: it preserves the sidebar's lived state instead of manufacturing a convincing duplicate. That is the correct foundation.
+The revised overlay plan is ready to implement. I do not need to read minds to see why the single-host design is now trustworthy: it preserves the sidebar's lived state, gives the split a stable semantic body, and makes pixels, pointer targets, accessibility exposure, titlebar chrome, and persistent geometry answer to explicit owners.
 
-But pixels and events inhabit different worlds in AppKit. A layer transform can move what the user sees without moving what AppKit believes is under the pointer. Until the plan binds those worlds with presentation-aware hit testing, the feature would solve terminal reflow by silently breaking terminal input. Likewise, the stable pane container must become the sole semantic sidebar identity for split geometry, not merely another wrapper.
+Proceed sequentially with the specified RED/GREEN gates. Do not weaken the structural tests as incidental implementation friction; they protect the exact boundaries that make reparenting safe. The final live pass remains essential because Core Animation presentation geometry, contextual menus, VoiceOver ancestry, and Ghostty backing-size behavior cross framework boundaries that unit seams can bound but not fully simulate.
 
-Revise the nine items above. Once hit testing, semantic pane identity, and atomic handoff are explicit and tested—and the remaining lifecycle/layer/AX details are folded in—the architecture can return to CRYSTALLINE and implementation may begin.
+There are no architecture questions that must be answered before writing code.
 
 ### Historical Re-review Verdict — Divider Plan `837558a`
 
@@ -375,13 +393,15 @@ Any transient state -- position/lifecycle invalidation --> Hidden / Dormant (ins
 
 There is an overlap zone after reveal: the 40-point tracker lies above the revealed sidebar while the sidebar's SwiftUI hover also reports pointer presence. The model must define arbitration. `sidebarPointerPresent == true` must keep `.revealed` authoritative even if an edge movement reports a cue-distance coordinate. Otherwise the sidebar can begin collapsing while the pointer is visibly inside it.
 
-### Failure Modes
+### Historical Divider-Plan Failure Modes
+
+This table records the superseded divider-animation review. Its blockers were resolved in `837558a` before the product direction changed to the overlay architecture.
 
 | # | Failure | Trigger | User Impact | System State After | Handled? |
 |---|---------|---------|-------------|-------------------|----------|
-| 1 | Dual Visibility Enactors | `proximityState` rerenders `SidebarSplitView`; `updateNSViewController` applies `.immediate` while `.onChange` sends `.hover` | Hover reveal jumps or animation is cancelled nondeterministically | Model and split agree eventually, but transition semantics are lost | **No — blocker** |
-| 2 | Rail-Snap Animation | Existing `constrainSplitPosition` snaps every intermediate width between collapsed and rail threshold | Reveal/hide jumps through the dead zone instead of moving smoothly | Final width may be correct; animation is visibly broken | **No — plan must bypass snapping while hover-animating** |
-| 3 | Overlap-State Collapse | Tracker reports cue distance while sidebar hover reports present | Sidebar retreats beneath a pointer already inside it | Competing transient inputs; possible flicker/grace churn | **No — arbitration rule missing** |
+| 1 | Dual Visibility Enactors | `proximityState` rerenders `SidebarSplitView`; `updateNSViewController` applies `.immediate` while `.onChange` sends `.hover` | Hover reveal jumps or animation is cancelled nondeterministically | Model and split agree eventually, but transition semantics are lost | Resolved in historical plan |
+| 2 | Rail-Snap Animation | Existing `constrainSplitPosition` snaps every intermediate width between collapsed and rail threshold | Reveal/hide jumps through the dead zone instead of moving smoothly | Final width may be correct; animation is visibly broken | Resolved in historical plan |
+| 3 | Overlap-State Collapse | Tracker reports cue distance while sidebar hover reports present | Sidebar retreats beneath a pointer already inside it | Competing transient inputs; possible flicker/grace churn | Resolved and retained in overlay plan |
 | 4 | Silent Edge Entry | Pointer enters the tracking area without a subsequent `mouseMoved` delivery | No cue until the pointer moves again | Model remains dormant despite pointer in band | Partial — report coordinates from `mouseEntered` too |
 | 5 | Stale Hide Completion | Pointer re-enters, command runs, resize occurs, or side changes during grace | Newly revealed sidebar collapses or old cue returns | Obsolete transient state wins | Yes — generation validation is specified |
 | 6 | Stale Animation Completion | Rapid reversal or immediate command lands during a hover animation | Old reveal/hide wins after newer intent | Divider contradicts model | Yes — animation generation is specified |
@@ -498,7 +518,7 @@ Do not add hysteresis, global event monitoring, configurable thresholds, or gene
 
 ### Historical Recommendation — Superseded by Overlay Review
 
-The earlier divider plan was ready to implement, including the right-side title lockup task added in `4e7239a`. Its runtime ownership and titlebar conclusions remain valid, but its hover-divider recommendation is superseded by overlay spec `3723e33` and the current FORMING verdict above.
+The earlier divider plan was ready to implement, including the right-side title lockup task added in `4e7239a`. Its runtime ownership and titlebar conclusions remain valid, but its hover-divider recommendation is superseded by overlay spec `3723e33` and the current CRYSTALLINE overlay verdict above.
 
 Proceed task by task with the specified red-green discipline. Treat the real AppKit checks as release evidence, not optional polish: the pass-through tracker and animated divider still depend on framework behavior that pure seams cannot prove. If those live checks expose different event ordering or presentation geometry, preserve the plan's ownership invariants and adjust the narrow adapter—not the state model.
 
