@@ -54,6 +54,32 @@ struct WorkspaceAttentionReducer: Sendable {
         var didMutate: Bool
     }
 
+    /// Refreshes `pane.lastAgentStateChangeAt` — the liveness heartbeat
+    /// `isQuitRisk()` reads — and reports whether it mutated. `changed` covers
+    /// the case where the caller just wrote a genuinely new state (always
+    /// refresh); otherwise this is a same-state repeat ("still thinking"),
+    /// which only refreshes once the stamp has gone stale past
+    /// `agentActivityFreshnessCoarsening` — the same 10s grain
+    /// `markAgentActivityObserved` uses, which the 60s staleness threshold
+    /// already tolerates. Sub-window repeats mutate nothing, so they no
+    /// longer publish the store. Shared by the execution-state and legacy
+    /// agent-state branches below so this rule can't drift between them.
+    private static func refreshHeartbeatIfDue(
+        _ pane: inout TerminalPane,
+        now: Date,
+        changed: Bool
+    ) -> Bool {
+        guard
+            changed
+                || now.timeIntervalSince(pane.lastAgentStateChangeAt)
+                    >= SessionStore.agentActivityFreshnessCoarsening
+        else {
+            return false
+        }
+        pane.lastAgentStateChangeAt = now
+        return true
+    }
+
     /// Applies a `SessionUpdate` to one pane (the agent fields) and the session
     /// (title / working directory). Post INT-504 agent state lives on the pane;
     /// the session derives its rollup. `paneID` is the pane the runtime event was
@@ -100,20 +126,11 @@ struct WorkspaceAttentionReducer: Sendable {
             }
 
             if let agentExecutionState = update.agentExecutionState {
-                if agentExecutionState != pane.agentExecutionState {
+                let changed = agentExecutionState != pane.agentExecutionState
+                if changed {
                     pane.agentExecutionState = agentExecutionState
-                    pane.lastAgentStateChangeAt = now
-                    didMutate = true
-                } else if now.timeIntervalSince(pane.lastAgentStateChangeAt)
-                    >= SessionStore.agentActivityFreshnessCoarsening
-                {
-                    // Same-state repeat ("still thinking"): the timestamp doubles as
-                    // the liveness heartbeat isQuitRisk() reads, so it must still
-                    // refresh — but coarsened to the same 10s grain as
-                    // markAgentActivityObserved, which the 60s staleness threshold
-                    // already tolerates. Sub-window repeats mutate nothing, so they
-                    // no longer publish the store.
-                    pane.lastAgentStateChangeAt = now
+                }
+                if refreshHeartbeatIfDue(&pane, now: now, changed: changed) {
                     didMutate = true
                 }
             }
@@ -131,13 +148,7 @@ struct WorkspaceAttentionReducer: Sendable {
                 let stateChanged =
                     pane.agentExecutionState != beforeExecutionState
                     || pane.attentionReason != beforeAttentionReason
-                if stateChanged {
-                    pane.lastAgentStateChangeAt = now
-                    didMutate = true
-                } else if now.timeIntervalSince(pane.lastAgentStateChangeAt)
-                    >= SessionStore.agentActivityFreshnessCoarsening
-                {
-                    pane.lastAgentStateChangeAt = now
+                if refreshHeartbeatIfDue(&pane, now: now, changed: stateChanged) {
                     didMutate = true
                 }
             }
@@ -148,7 +159,8 @@ struct WorkspaceAttentionReducer: Sendable {
                 // awaiting the user (INT-506). Clearing is handled separately
                 // below and always wins.
                 if let current = pane.attentionReason,
-                   current.priority > attentionReason.priority {
+                    current.priority > attentionReason.priority
+                {
                     // keep current
                 } else if pane.attentionReason != attentionReason {
                     pane.attentionReason = attentionReason
@@ -294,7 +306,8 @@ struct WorkspaceAttentionReducer: Sendable {
         session.layout = session.layout.mappingPanes { pane in
             guard pane.id == paneID else { return pane }
             var pane = pane
-            let enteringNeedsAttention = pane.agentExecutionState != .error
+            let enteringNeedsAttention =
+                pane.agentExecutionState != .error
                 && pane.attentionReason == nil
             if enteringNeedsAttention && !terminalIsFocused {
                 pane.unreadNotificationCount += 1

@@ -999,6 +999,14 @@ extension SidebarSessionTile: Equatable {
         // reads (`session.sidebarLocation`) — never raw pane fields.
         let location: SidebarSessionLocation
         let notificationsMuted: Bool
+        // Session-level cwd, NOT folded into `paneChrome`'s per-pane
+        // `workingDirectory` above: row closures (e.g. "New Workspace Here")
+        // capture the session VALUE, so a background pane's cwd report
+        // updating `session.workingDirectory` without touching the active
+        // pane's keyed cwd would otherwise leave an equal-comparing row
+        // holding a closure with a stale directory. Keying it here forces the
+        // row (and its captured closures) to rebuild.
+        let sessionWorkingDirectory: String
         // Which pane is active isn't otherwise implied by `paneChrome` below
         // (that array carries no per-pane "is active" flag), so this stays a
         // dedicated field — it drives `location` above and which pane-jump
@@ -1072,6 +1080,7 @@ extension SidebarSessionTile: Equatable {
             title: session.title,
             location: session.sidebarLocation,
             notificationsMuted: session.notificationsMuted,
+            sessionWorkingDirectory: session.workingDirectory,
             activePaneID: session.activePaneID,
             paneChrome: session.panes.map { pane in
                 PaneChromeKey(
