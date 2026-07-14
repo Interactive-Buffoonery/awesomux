@@ -68,6 +68,28 @@ public struct VisibleTextAgentStateReducer: Sendable {
 
     public init() {}
 
+    /// Whether `sampleAgentStateFromVisibleText` should run the (expensive)
+    /// `AgentOutputDetector` scan at all. When a reliable-hook agent has a
+    /// fresh runtime event, `shouldSuppressVisibleTextState` would discard any
+    /// non-attention result AND `blockedByReliableHook` discards
+    /// `.needsAttention` too — so the ~59-substring scan is provably wasted
+    /// work. The raw visible-text READ and diff still run for every pane:
+    /// VoiceOver's value-changed announcement and quit-risk activity marking
+    /// ride that diff.
+    public static func shouldRunVisibleTextDetector(
+        now: TimeInterval,
+        lastRuntimeEventAppliedAt: TimeInterval?,
+        liveAgentKind: AgentKind
+    ) -> Bool {
+        guard liveAgentKind.usesReliableHooks,
+            liveAgentKind.usesReliableAttentionHooks,
+            let lastRuntimeEventAppliedAt
+        else {
+            return true
+        }
+        return now - lastRuntimeEventAppliedAt >= runtimeEventSuppressionWindow
+    }
+
     public func shouldSuppressVisibleTextState(
         detectedState: AgentState,
         now: TimeInterval,

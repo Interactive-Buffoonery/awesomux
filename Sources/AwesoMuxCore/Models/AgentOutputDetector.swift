@@ -50,7 +50,8 @@ public struct AgentOutputDetector: Sendable {
         let stateCueAgentKind = inferredAgentKind(
             normalized,
             allowsPromptLaunch: false,
-            allowsGrokIdentity: false
+            allowsGrokIdentity: false,
+            hasGrokIdentity: hasGrokIdentity
         )
         let attentionCueAgentKind = hasGrokIdentity ? AgentKind.grok : stateCueAgentKind
 
@@ -84,7 +85,8 @@ public struct AgentOutputDetector: Sendable {
         let agentKind = inferredAgentKind(
             normalized,
             allowsPromptLaunch: true,
-            allowsGrokIdentity: true
+            allowsGrokIdentity: true,
+            hasGrokIdentity: hasGrokIdentity
         )
         if let agentKind {
             return AgentOutputDetection(state: .waiting, agentKind: agentKind)
@@ -141,15 +143,19 @@ public struct AgentOutputDetector: Sendable {
             || containsConfidentCodexIdentity(text, allowsPromptLaunch: true)
     }
 
+    // `hasGrokIdentity` is threaded through rather than re-derived here: the
+    // caller already scanned for it once (`containsConfidentGrokIdentity` at
+    // the top of `detectedOutput`), and this is called twice per sample.
     private func inferredAgentKind(
         _ text: String,
         allowsPromptLaunch: Bool,
-        allowsGrokIdentity: Bool
+        allowsGrokIdentity: Bool,
+        hasGrokIdentity: Bool
     ) -> AgentKind? {
         if containsConfidentClaudeIdentity(text) {
             return .claudeCode
         }
-        if allowsGrokIdentity, containsConfidentGrokIdentity(text) {
+        if allowsGrokIdentity, hasGrokIdentity {
             return .grok
         }
         if containsConfidentCodexIdentity(text, allowsPromptLaunch: allowsPromptLaunch) {

@@ -452,6 +452,19 @@ extension GhosttySurfaceNSView {
             sessionStore.markAgentActivityObserved(id: sessionID, paneID: paneID)
         }
 
+        let liveKindForGate =
+            sessionStore.session(id: sessionID)?
+            .layout.pane(id: paneID)?.agentKind ?? .shell
+        guard
+            VisibleTextAgentStateReducer.shouldRunVisibleTextDetector(
+                now: now,
+                lastRuntimeEventAppliedAt: lastRuntimeEventAppliedAt,
+                liveAgentKind: liveKindForGate
+            )
+        else {
+            return
+        }
+
         guard
             let detection = agentOutputDetector.detectedOutput(
                 in: visibleText,
