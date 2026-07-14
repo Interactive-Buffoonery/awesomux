@@ -66,6 +66,7 @@ struct PaletteAppActions {
     let splitRight: @MainActor () -> Void
     let splitDown: @MainActor () -> Void
     let closePane: @MainActor () -> Void
+    let restartShell: @MainActor () -> Void
     let find: @MainActor () -> Void
     let scrollbackDump: @MainActor () -> Void
     let reconnectRemotePane: @MainActor () -> Void
@@ -121,6 +122,7 @@ struct PaletteAppActions {
             splitRight: action,
             splitDown: action,
             closePane: action,
+            restartShell: action,
             find: action,
             scrollbackDump: action,
             reconnectRemotePane: action,
@@ -347,12 +349,25 @@ enum PaletteCommandRegistry {
                 // stale it until the next summon. Live retitling needs
                 // render-time recompute in PalettePresenter — do that if the
                 // window bites for real.
-                title: selected?.layout.isSinglePane == true ? "Close Workspace" : "Close Pane",
+                title: (selected?.layout.isSinglePane ?? false) ? "Close Workspace" : "Close Pane",
                 subtitle: nil,
                 keywords: ["remove", "terminal"],
                 shortcut: KeyboardShortcutCatalog.closePane,
                 isEnabled: hasSelectedSession,
                 run: actions.closePane
+            ),
+            PaletteCommand(
+                id: "restartShell",
+                title: "Restart Shell",
+                subtitle: selected?.activePane?.title,
+                // Explicit command replacement for the old single-pane ⌘W
+                // silent recycle (ADR-0002 amendment) — recycles the active
+                // pane's shell in place. Not gated on isSinglePane: recycling
+                // the active pane works the same for a multi-pane session.
+                keywords: ["restart", "shell", "recycle", "fresh", "reset"],
+                shortcut: nil,
+                isEnabled: hasSelectedSession,
+                run: actions.restartShell
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.find.id,
