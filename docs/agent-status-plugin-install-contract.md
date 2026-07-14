@@ -175,11 +175,12 @@ enabled = true
 trusted_hash = "sha256:abc123"
 ```
 
-A hook is **runnable only if it is enabled AND trusted** — i.e. its current computed hash
-equals the stored `trusted_hash`. `trustStatus` is one of: first-seen (never approved),
-approved/trusted (hash matches), or changed (hash differs from the approved one). Only
-trusted unmanaged hooks run. (Source: `app-server/README.md` Hooks section;
-`discovery.rs`.)
+A hook is **runnable only if it is enabled AND managed or trusted**. For unmanaged hooks,
+trusted means the current computed hash equals the stored `trusted_hash`. `trustStatus` is
+one of: managed, untrusted (never approved), trusted (hash matches), or modified (hash
+differs from the approved one). Older Codex builds used `first-seen` and `changed`; the
+runner normalizes those to untrusted and modified. (Source: `app-server/README.md` Hooks
+section; `discovery.rs`.)
 
 **Managed** hooks (`isManaged: true`, from requirements/managed config) are non-configurable
 and always run; user `state` entries for their keys are ignored. If
@@ -207,7 +208,7 @@ those fields:
         "pluginId": "awesomux-codex-status@<marketplace>" | null,
         "enabled": true,
         "currentHash": "sha256:…",
-        "trustStatus": "untrusted" | "trusted" | "changed" | "first-seen",
+        "trustStatus": "managed" | "untrusted" | "trusted" | "modified",
         "sourcePath": "<CODEX_HOME>/config.toml",
         "source": "user" | "plugin" | "managed"
       }],
@@ -229,8 +230,8 @@ Match our hook(s) by `pluginId == awesomux-codex-status@<marketplace>` (or by
 | Observed | Status |
 | --- | --- |
 | `codex` binary missing; or `codex doctor` reports no hook/plugin support; or `allow_managed_hooks_only = true` (our user hook ignored) | **Unsupported** |
-| Our hook present, `enabled: true`, `trustStatus` ∈ {untrusted, first-seen} | **Needs review** (user must approve) |
-| Our hook present, `enabled: true`, `trustStatus: changed` (current hash ≠ `trusted_hash`) | **Needs review** if the change is the user's; **Needs repair** if our rendered content drifted from what's on disk (we own the file → re-render/re-install) |
+| Our hook present, `enabled: true`, `trustStatus: untrusted` | **Needs review** (user must approve) |
+| Our hook present, `enabled: true`, `trustStatus: modified` (current hash ≠ `trusted_hash`) | **Needs review** if the change is the user's; **Needs repair** if our rendered content drifted from what's on disk (we own the file → re-render/re-install) |
 | Our hook present, `enabled: true`, `trustStatus: trusted`, hashes match | Installed-OK |
 | `pluginId` configured but no matching hook discovered, or `sourcePath`/manifest missing, or `errors` non-empty | **Needs repair** |
 | `enabled: false` (user disabled) | Not-active (respect user; offer enable, don't auto-flip) |

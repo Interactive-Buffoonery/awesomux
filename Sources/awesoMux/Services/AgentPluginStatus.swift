@@ -24,7 +24,7 @@ enum AgentPluginStatus: Equatable, Sendable {
     /// `enabled:false`). Respect the user; offer enable, never auto-flip.
     case disabled
     /// Installed but awaiting an explicit trust/approval step before it runs
-    /// (Codex `trustStatus ∈ {untrusted, first-seen, changed}`). The associated
+    /// (Codex `trustStatus ∈ {untrusted, modified}`). The associated
     /// value is the operator guidance ("Approve the hook in Codex").
     case needsReview(String)
     /// Manifest/config claims it is installed but on-disk reality disagrees

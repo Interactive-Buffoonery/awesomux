@@ -79,7 +79,7 @@ adds the marketplace and installs the plugin. This asymmetry is the origin of th
 
 6. **Runtime states with per-provider semantics.** Beyond installed/enabled/
    disabled, the resolver reports `Needs review`, `Needs repair`, and
-   `Unsupported`. `Needs review` is Codex-specific (untrusted/changed trust hash);
+   `Unsupported`. `Needs review` is Codex-specific (untrusted/modified trust hash);
    Claude reaches it only if a future CLI surfaces a marketplace-grain pending
    trust state. Live reload detection is deferred: reload/restart advice is shown
    as post-action guidance after install/enable/trust, not as a steady status.
