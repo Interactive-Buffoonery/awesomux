@@ -84,6 +84,8 @@ struct ExecutionIdentityTests {
 
         #expect(local.capability(.revealInFinder) == .allowed)
         #expect(remote.capability(.revealInFinder) == .denied(.requiresLocalExecution))
+        #expect(local.capability(.copyLocalPath) == .allowed)
+        #expect(remote.capability(.copyLocalPath) == .denied(.requiresLocalExecution))
         #expect(local.capability(.stageLocalDocumentPath) == .allowed)
         #expect(remote.capability(.stageLocalDocumentPath) == .denied(.requiresLocalExecution))
     }
