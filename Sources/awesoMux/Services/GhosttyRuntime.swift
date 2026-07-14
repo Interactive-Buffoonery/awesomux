@@ -548,10 +548,12 @@ final class GhosttyRuntime {
 
     func refreshTerminalQuitConfirmationRisks(in sessionStore: SessionStore) {
         let snapshots = surfaceViews.values.map { surfaceView in
-            TerminalQuitConfirmationSnapshot(
+            let needsConfirmation = surfaceView.promptMarkerIsAwayFromPrompt() ?? false
+            return TerminalQuitConfirmationSnapshot(
                 sessionID: surfaceView.sessionID,
                 paneID: surfaceView.paneID,
-                needsConfirmation: surfaceView.promptMarkerIsAwayFromPrompt() ?? false,
+                needsConfirmation: needsConfirmation,
+                promptObserved: surfaceView.terminalPromptObserved,
                 liveness: surfaceView.foregroundProcessLiveness()
             )
         }

@@ -7,6 +7,10 @@ public struct QuitRiskInputs: Sendable, Hashable {
     /// The OSC-133 prompt-marker signal (`!cursorIsAtPrompt`). A corroborating
     /// risk signal, not the sole one — see INT-217 / the PR #142 lesson.
     public var awayFromPrompt: Bool
+    /// Whether this pane has emitted at least one trustworthy prompt marker.
+    /// Before that, `awayFromPrompt` is also Ghostty's startup default and
+    /// cannot prove that work is running.
+    public var promptObserved: Bool
     public var liveness: ForegroundProcessLiveness
 
     public init(
@@ -14,12 +18,14 @@ public struct QuitRiskInputs: Sendable, Hashable {
         agentExecutionState: AgentExecutionState,
         lastAgentStateChangeAt: Date,
         awayFromPrompt: Bool,
+        promptObserved: Bool = true,
         liveness: ForegroundProcessLiveness
     ) {
         self.agentKind = agentKind
         self.agentExecutionState = agentExecutionState
         self.lastAgentStateChangeAt = lastAgentStateChangeAt
         self.awayFromPrompt = awayFromPrompt
+        self.promptObserved = promptObserved
         self.liveness = liveness
     }
 }
@@ -48,14 +54,14 @@ public enum QuitRiskPolicy {
     public static func decision(_ inputs: QuitRiskInputs, at now: Date) -> QuitRiskDecision {
         // Authoritative-safe: bridged work survives quit; an exited child is gone.
         switch inputs.liveness {
-        case .bridged: return .safe(.daemonBacked)
+        case .bridged, .bridgedBusy: return .safe(.daemonBacked)
         case .exited: return .safe(.processExited)
         default: break
         }
 
         // OSC-133 corroboration: away-from-prompt is a risk (overridden only by
         // the authoritative-safe cases above).
-        if inputs.awayFromPrompt {
+        if inputs.promptObserved && inputs.awayFromPrompt {
             return .risk(.terminalAwayFromPrompt)
         }
 
@@ -73,7 +79,7 @@ public enum QuitRiskPolicy {
                 return .risk(.activeAgentExecution)
             }
             return .safe(inputs.liveness == .idleShell ? .shellAtPrompt : .noLiveProcess)
-        case .bridged:
+        case .bridged, .bridgedBusy:
             return .safe(.daemonBacked)    // handled in the first switch; correct if reached
         case .exited:
             return .safe(.processExited)   // handled in the first switch; correct if reached
@@ -86,10 +92,13 @@ public enum QuitRiskPolicy {
     /// so daemon-backed is not safe here. Bridged panes fall back to the
     /// OSC-133 and agent-freshness signals the quit path would have skipped.
     public static func closeDecision(_ inputs: QuitRiskInputs, at now: Date) -> QuitRiskDecision {
-        guard inputs.liveness == .bridged else {
+        guard inputs.liveness == .bridged || inputs.liveness == .bridgedBusy else {
             return decision(inputs, at: now)
         }
-        if inputs.awayFromPrompt {
+        if inputs.liveness == .bridgedBusy {
+            return .risk(inputs.agentKind == .shell ? .liveForegroundProcess : .liveAgentProcess)
+        }
+        if inputs.promptObserved && inputs.awayFromPrompt {
             return .risk(.terminalAwayFromPrompt)
         }
         if isFreshAgentExecution(inputs, at: now) {

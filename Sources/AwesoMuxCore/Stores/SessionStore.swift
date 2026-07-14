@@ -332,6 +332,7 @@ public final class SessionStore {
         // only reliable way to know which sessions to reclassify (INT-420).
         let changedSessionIDs = TerminalQuitConfirmationReducer.apply(
             risksByPaneID: TerminalQuitConfirmationReducer.risks(from: snapshots),
+            promptObservedByPaneID: TerminalQuitConfirmationReducer.promptObserved(from: snapshots),
             livenessByPaneID: TerminalQuitConfirmationReducer.liveness(from: snapshots),
             to: &_groups
         )

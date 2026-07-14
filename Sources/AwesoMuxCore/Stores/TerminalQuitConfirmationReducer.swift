@@ -21,8 +21,17 @@ struct TerminalQuitConfirmationReducer: Sendable {
         }
     }
 
-    /// Returns the IDs of sessions with >=1 pane whose `needsTerminalQuitConfirmation`
-    /// or `foregroundProcessLiveness` actually changed, so callers can reclassify
+    static func promptObserved(
+        from snapshots: [TerminalQuitConfirmationSnapshot]
+    ) -> [TerminalPane.ID: Bool] {
+        snapshots.reduce(into: [TerminalPane.ID: Bool]()) { map, snapshot in
+            map[snapshot.paneID, default: false] =
+                map[snapshot.paneID, default: false] || snapshot.promptObserved
+        }
+    }
+
+    /// Returns the IDs of sessions with >=1 pane whose quit-risk inputs actually
+    /// changed, so callers can reclassify
     /// exactly those sessions' quit-risk cache membership (INT-420). This includes
     /// sessions whose panes were absent from the snapshot batch and got reset to
     /// safe defaults — `apply` walks every session, not just the ones sampled.
@@ -30,6 +39,7 @@ struct TerminalQuitConfirmationReducer: Sendable {
     /// every changed session or the quit-risk cache silently drifts (INT-420).
     static func apply(
         risksByPaneID: [TerminalPane.ID: Bool],
+        promptObservedByPaneID: [TerminalPane.ID: Bool],
         livenessByPaneID: [TerminalPane.ID: ForegroundProcessLiveness],
         to groups: inout [SessionGroup]
     ) -> Set<TerminalSession.ID> {
@@ -40,14 +50,19 @@ struct TerminalQuitConfirmationReducer: Sendable {
                 groups[groupIndex].sessions[sessionIndex].layout =
                     groups[groupIndex].sessions[sessionIndex].layout.mappingPanes { pane in
                         let risk = risksByPaneID[pane.id] ?? false
+                        let promptObserved = promptObservedByPaneID[pane.id] ?? false
                         let liveness = livenessByPaneID[pane.id] ?? .unsampled
-                        guard pane.needsTerminalQuitConfirmation != risk
-                            || pane.foregroundProcessLiveness != liveness else {
+                        guard
+                            pane.needsTerminalQuitConfirmation != risk
+                                || pane.terminalPromptObserved != promptObserved
+                                || pane.foregroundProcessLiveness != liveness
+                        else {
                             return pane
                         }
                         changedSessionIDs.insert(sessionID)
                         var pane = pane
                         pane.needsTerminalQuitConfirmation = risk
+                        pane.terminalPromptObserved = promptObserved
                         pane.foregroundProcessLiveness = liveness
                         return pane
                     }
