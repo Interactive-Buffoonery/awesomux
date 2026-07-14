@@ -104,6 +104,9 @@ public enum QuitRiskPolicy {
         if isFreshAgentExecution(inputs, at: now) {
             return .risk(.activeAgentExecution)
         }
+        if !inputs.promptObserved {
+            return .risk(.indeterminate)
+        }
         return .safe(.shellAtPrompt)
     }
 

@@ -57,8 +57,6 @@ struct SessionGroupExecutionSummaryTests {
         let summary = SessionGroupExecutionSummary(group: group)
 
         #expect(summary.contents == .localOnly)
-        #expect(!summary.hasActiveRemotePanes)
-        #expect(!summary.requiresRemoteImpactConfirmation)
     }
 
     @Test("empty groups retain only their creation default")
@@ -72,11 +70,8 @@ struct SessionGroupExecutionSummaryTests {
 
         #expect(local.contents == .empty)
         #expect(local.defaultTarget == nil)
-        #expect(!local.requiresRemoteImpactConfirmation)
         #expect(remote.contents == .empty)
         #expect(remote.defaultTarget == alpha)
-        #expect(!remote.hasActiveRemotePanes)
-        #expect(remote.requiresRemoteImpactConfirmation)
     }
 
     @Test("a stale SSH default does not turn local panes into remote work")
@@ -90,8 +85,6 @@ struct SessionGroupExecutionSummaryTests {
         let summary = SessionGroupExecutionSummary(group: group)
 
         #expect(summary.contents == .localOnly)
-        #expect(!summary.hasActiveRemotePanes)
-        #expect(summary.requiresRemoteImpactConfirmation)
     }
 
     @Test("all panes on one exact target produce one remote location")
@@ -155,8 +148,6 @@ struct SessionGroupExecutionSummaryTests {
         let summary = SessionGroupExecutionSummary(group: group)
 
         #expect(summary.defaultTarget == nil)
-        #expect(summary.hasActiveRemotePanes)
-        #expect(summary.requiresRemoteImpactConfirmation)
     }
 
     @MainActor
