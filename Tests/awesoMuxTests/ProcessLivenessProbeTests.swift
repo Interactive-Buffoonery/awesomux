@@ -39,6 +39,10 @@ struct ProcessLivenessProbeTests {
             idleSnapshot + [
                 ProcEntry(pid: 200, ppid: 100, command: "sleep")
             ]
+        let busySiblingSnapshot =
+            idleSnapshot + [
+                ProcEntry(pid: 300, ppid: 50, command: "helper")
+            ]
 
         func liveness(in snapshot: [ProcEntry]) -> ForegroundProcessLiveness {
             ProcessLivenessProbe.bridgedLiveness(
@@ -52,6 +56,8 @@ struct ProcessLivenessProbeTests {
         #expect(liveness(in: idleSnapshot) == .bridged)
         #expect(!DaemonGCPlan.isIdle(daemonPID: 50, in: busySnapshot))
         #expect(liveness(in: busySnapshot) == .bridgedBusy)
+        #expect(!DaemonGCPlan.isIdle(daemonPID: 50, in: busySiblingSnapshot))
+        #expect(liveness(in: busySiblingSnapshot) == .bridgedBusy)
     }
 
     @Test("bridged process lookup failures fail closed")
