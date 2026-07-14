@@ -92,4 +92,11 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
             host.rootView = detail()
         }
     }
+
+    static func dismantleNSViewController(
+        _ controller: SidebarSplitController,
+        coordinator: Void
+    ) {
+        controller.finalizeOwnedLifecycle()
+    }
 }
