@@ -155,8 +155,8 @@ struct SidebarPresentationLayoutTests {
             encoding: .utf8
         )
         let overlay = try #require(
-            content.split(separator: "case .overlay:", maxSplits: 1).last?
-                .split(separator: "case .hidden:", maxSplits: 1).first
+            content.split(separator: "private func overlayTitlebar", maxSplits: 1).last?
+                .split(separator: "private func titlebarColumns", maxSplits: 1).first
         )
 
         #expect(overlay.contains("let translation = hostPresentation.currentTitlebarTranslationX"))
@@ -165,6 +165,38 @@ struct SidebarPresentationLayoutTests {
         #expect(overlay.contains("titlebarColumns(geometry: geometry)"))
         #expect(overlay.contains(".offset(x: translation)"))
         #expect(overlay.components(separatedBy: "currentTitlebarTranslationX").count == 2)
+    }
+
+    @Test("overlay titlebar samples animation cadence only during compositor motion")
+    func overlayTitlebarCadenceIsMotionScoped() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let content = try String(
+            contentsOf: root.appendingPathComponent("Sources/awesoMux/Views/ContentView.swift"),
+            encoding: .utf8
+        )
+        let overlay = try #require(
+            content.split(separator: "case .overlay:", maxSplits: 1).last?
+                .split(separator: "case .hidden:", maxSplits: 1).first
+        )
+
+        #expect(overlay.contains("if hostPresentation.isOverlayAnimating"))
+        #expect(overlay.components(separatedBy: "TimelineView(.animation)").count == 2)
+        #expect(overlay.contains("else"))
+        #expect(overlay.components(separatedBy: "overlayTitlebar(titlebarWidth:").count == 3)
+    }
+
+    @Test("overlay relayout preserves motion sampling until settle")
+    @MainActor
+    func overlayRelayoutPreservesMotionSampling() {
+        let state = SidebarHostPresentationState(mode: .hidden)
+        state.setOverlayAnimating(true)
+
+        state.settle(mode: .overlay(width: 300), effectiveVisibleWidth: 300)
+        #expect(state.isOverlayAnimating)
+
+        state.settle(mode: .hidden, effectiveVisibleWidth: 0)
+        #expect(!state.isOverlayAnimating)
     }
 
     @Test("reveal then partial-hide reversal updates the boundary on both sides")

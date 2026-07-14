@@ -387,6 +387,7 @@ struct SidebarOverlayHostControllerTests {
 
         controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
         let revealCompletion = driver.completions[0]
+        #expect(controller.hostPresentationState.isOverlayAnimating)
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
         #expect(controller.hostPresentationState.effectiveVisibleWidth == 300)
         #expect(controller.hostPresentationState.titlebarTranslationX == 0)
@@ -395,10 +396,12 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.hostPresentationState.currentTitlebarTranslationX == midReveal)
         driver.presentationTranslation = nil
         revealCompletion()
+        #expect(!controller.hostPresentationState.isOverlayAnimating)
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
 
         controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
         let staleHide = driver.completions[1]
+        #expect(controller.hostPresentationState.isOverlayAnimating)
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
         #expect(
             controller.hostPresentationState.titlebarTranslationX
@@ -408,10 +411,12 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.hostPresentationState.currentTitlebarTranslationX == midHide)
         driver.presentationTranslation = nil
         controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        #expect(controller.hostPresentationState.isOverlayAnimating)
         #expect(controller.hostPresentationState.titlebarTranslationX == 0)
         staleHide()
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
         driver.completions[2]()
+        #expect(!controller.hostPresentationState.isOverlayAnimating)
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
 
         controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)

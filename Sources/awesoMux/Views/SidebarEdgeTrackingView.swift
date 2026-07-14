@@ -8,6 +8,7 @@ final class SidebarEdgeTrackingView: NSView {
     var onAvailabilityLost: (() -> Void)?
 
     private var pointerTrackingArea: NSTrackingArea?
+    private var lastPointerLocationInWindow: CGPoint?
 
     init(position: AppearanceConfig.SidebarPosition) {
         self.position = position
@@ -50,6 +51,7 @@ final class SidebarEdgeTrackingView: NSView {
             object: nil
         )
         guard let window else {
+            lastPointerLocationInWindow = nil
             onAvailabilityLost?()
             return
         }
@@ -70,7 +72,23 @@ final class SidebarEdgeTrackingView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        invalidatePointer()
+    }
+
+    func invalidatePointer() {
+        lastPointerLocationInWindow = nil
         onExit?()
+    }
+
+    func republishPointerAfterGeometryChange() {
+        guard let lastPointerLocationInWindow else { return }
+        let local = convert(lastPointerLocationInWindow, from: nil)
+        guard bounds.contains(local) else {
+            self.lastPointerLocationInWindow = nil
+            onExit?()
+            return
+        }
+        onPointerMove?(local.x, bounds.width)
     }
 
     static func distance(
@@ -84,11 +102,13 @@ final class SidebarEdgeTrackingView: NSView {
     }
 
     private func report(_ event: NSEvent) {
+        lastPointerLocationInWindow = event.locationInWindow
         let local = convert(event.locationInWindow, from: nil)
         onPointerMove?(local.x, bounds.width)
     }
 
     @objc private func windowDidResignKey() {
+        lastPointerLocationInWindow = nil
         onAvailabilityLost?()
     }
 }

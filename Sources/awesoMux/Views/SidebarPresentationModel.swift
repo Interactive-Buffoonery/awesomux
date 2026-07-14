@@ -74,8 +74,9 @@ final class SidebarPresentationModel {
     func pointerMoved(x: CGFloat, width: CGFloat, position: AppearanceConfig.SidebarPosition) {
         guard userWantsHidden else { return }
         guard width.isFinite, width > 0, x.isFinite else {
+            trackerState = .dormant
             trackerCueIntensity = 0
-            cueIntensity = 0
+            transition(to: .dormant)
             return
         }
 

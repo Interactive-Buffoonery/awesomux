@@ -45,6 +45,27 @@ struct SidebarPresentationModelTests {
         #expect(model.cueIntensity == 0)
     }
 
+    @Test("invalid pointer samples fail dormant")
+    func invalidPointerSamplesFailDormant() throws {
+        for (x, width) in [
+            (CGFloat.nan, 400),
+            (200, CGFloat.nan),
+            (200, CGFloat.infinity),
+            (200, 0),
+            (200, -1),
+        ] {
+            let (model, _, defaults, suiteName) = try makeHiddenModel()
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            model.pointerMoved(x: 200, width: 400, position: .left)
+            #expect(model.proximityState == .cue)
+
+            model.pointerMoved(x: x, width: width, position: .left)
+
+            #expect(model.proximityState == .dormant)
+            #expect(model.cueIntensity == 0)
+        }
+    }
+
     @Test("cue intensity increases smoothly toward reveal")
     func cueIntensityCurve() throws {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
