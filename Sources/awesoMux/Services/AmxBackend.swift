@@ -326,25 +326,11 @@ enum AmxBackend {
         return (resourcesDir, environment["ZDOTDIR"], environment["SHELL"])
     }
 
-    static func attachCommand(for sessionID: TerminalSessionID, remote: RemoteTarget? = nil) -> String? {
-        guard let executableURL = bundledExecutableURL() else {
-            return nil
-        }
-        let inputs = Self.shellIntegrationInputs(from: ProcessInfo.processInfo.environment)
-        return attachCommand(
-            executablePath: executableURL.path,
-            sessionID: sessionID,
-            socketDirectory: sessionSocketDirectory(),
-            remote: remote,
-            ghosttyResourcesDir: inputs.ghosttyResourcesDir,
-            inheritedZDOTDIR: inputs.inheritedZDOTDIR,
-            shellPath: inputs.shellPath
-        )
-    }
-
-    /// Attach command with a per-attach status side-channel. Resolves the bundled
-    /// executable and delegates to the injectable overload.
-    static func attachCommand(for sessionID: TerminalSessionID, status: AmxStatusChannel, remote: RemoteTarget? = nil) -> String? {
+    static func attachCommand(
+        for sessionID: TerminalSessionID,
+        status: AmxStatusChannel? = nil,
+        remote: RemoteTarget? = nil
+    ) -> String? {
         guard let executableURL = bundledExecutableURL() else {
             return nil
         }
@@ -372,6 +358,7 @@ enum AmxBackend {
         executablePath: String,
         sessionID: TerminalSessionID,
         socketDirectory: String,
+        status: AmxStatusChannel? = nil,
         remote: RemoteTarget? = nil,
         ghosttyResourcesDir: String? = nil,
         inheritedZDOTDIR: String? = nil,
@@ -387,61 +374,23 @@ enum AmxBackend {
                 shellQuote("ZMX_DIR=" + socketDirectory),
                 shellQuote("ZMX_DIR_MODE=" + socketDirectoryMode),
             ]
-            + shellIntegrationEnvTokens(
-                remote: remote,
-                ghosttyResourcesDir: ghosttyResourcesDir,
-                inheritedZDOTDIR: inheritedZDOTDIR,
-                shellPath: shellPath
-            )
-            + [
-                shellQuote(executablePath),
-                "attach",
-                shellQuote(sessionID.rawValue),
-            ]
-        if let remote {
-            tokens += sshTailTokens(for: remote).map(shellQuote)
-        }
-        return tokens.joined(separator: " ")
-    }
-
-    /// Pure assembly of the attach command with `AMX_STATUS_FILE` and
-    /// `AMX_STATUS_TOKEN` injected so the daemon can write lifecycle events
-    /// to the minted side-channel file. The security guarantees of the base
-    /// overload (env scrub, ZMX_DIR pin, single-quote escaping, id revalidation)
-    /// are fully preserved — this overload is additive only.
-    static func attachCommand(
-        executablePath: String,
-        sessionID: TerminalSessionID,
-        socketDirectory: String,
-        status: AmxStatusChannel,
-        remote: RemoteTarget? = nil,
-        ghosttyResourcesDir: String? = nil,
-        inheritedZDOTDIR: String? = nil,
-        shellPath: String? = nil
-    ) -> String? {
-        guard TerminalSessionID.isValid(sessionID.rawValue) else {
-            return nil
-        }
-
-        var tokens = [shellQuote(envExecutablePath)]
-            + environmentScrubTokens(remote: remote)
-            + [
-                shellQuote("ZMX_DIR=" + socketDirectory),
-                shellQuote("ZMX_DIR_MODE=" + socketDirectoryMode),
+        if let status {
+            tokens += [
                 shellQuote("AMX_STATUS_FILE=" + status.fileURL.path),
                 shellQuote("AMX_STATUS_TOKEN=" + status.token),
             ]
-            + shellIntegrationEnvTokens(
-                remote: remote,
-                ghosttyResourcesDir: ghosttyResourcesDir,
-                inheritedZDOTDIR: inheritedZDOTDIR,
-                shellPath: shellPath
-            )
-            + [
-                shellQuote(executablePath),
-                "attach",
-                shellQuote(sessionID.rawValue)
-            ]
+        }
+        tokens += shellIntegrationEnvTokens(
+            remote: remote,
+            ghosttyResourcesDir: ghosttyResourcesDir,
+            inheritedZDOTDIR: inheritedZDOTDIR,
+            shellPath: shellPath
+        )
+        tokens += [
+            shellQuote(executablePath),
+            "attach",
+            shellQuote(sessionID.rawValue),
+        ]
         if let remote {
             tokens += sshTailTokens(for: remote).map(shellQuote)
         }

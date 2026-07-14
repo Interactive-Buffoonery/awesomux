@@ -140,11 +140,11 @@ struct QuitRiskPolicyTests {
         #expect(d.reason == .liveForegroundProcess)
     }
 
-    @Test("close: an unobserved prompt marker does not make an idle bridge risky")
+    @Test("close: a bridged pane stays risky until a prompt marker is observed")
     func closeBridgedWithoutObservedPrompt() {
         let d = decideClose(away: true, promptObserved: false, liveness: .bridged)
-        #expect(!d.isRisk)
-        #expect(d.reason == .shellAtPrompt)
+        #expect(d.isRisk)
+        #expect(d.reason == .indeterminate)
         #expect(
             decideClose(
                 .codex,
