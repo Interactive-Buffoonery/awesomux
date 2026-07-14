@@ -264,8 +264,10 @@ struct SidebarPresentationModelTests {
         model.pointerMoved(x: 15, width: 100, position: .left)
         model.trackingRegionExited()
         #expect(await waitUntil { gate.sleeperCount == 1 })
+        let scheduledGeneration = model.transientGenerationForTesting
 
         model.positionDidChange()
+        #expect(model.transientGenerationForTesting > scheduledGeneration)
         model.pointerMoved(x: 30, width: 100, position: .left)
         #expect(model.proximityState == .cue)
         gate.advance()

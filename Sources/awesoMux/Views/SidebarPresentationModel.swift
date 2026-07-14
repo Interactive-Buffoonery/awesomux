@@ -132,6 +132,8 @@ final class SidebarPresentationModel {
         clearTransientState()
     }
 
+    var transientGenerationForTesting: Int { generation }
+
     private func transition(to next: ProximityState) {
         cancelDelayedHide()
         visibilitySource = .pointer
