@@ -448,6 +448,7 @@ struct AwesoMuxApp: App {
             }
             .onChange(of: sessionStore.groups) { _, _ in
                 saveSessionIfRestoreEnabled()
+                floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
                 dismissWorkspaceEditorIfTargetClosed()
                 dismissWorkspaceGroupEditorIfTargetClosed()
                 dismissPaneEditorIfTargetClosed()
@@ -1021,7 +1022,18 @@ struct AwesoMuxApp: App {
 
         guard let refreshed = sessionStore.session(id: live.id) else { return }
 
-        switch confirmCloseIfNeeded(refreshed, alsoGateOnPaneActionConfirm: alsoGateOnPaneActionConfirm) {
+        let decision = confirmCloseIfNeeded(
+            refreshed,
+            alsoGateOnPaneActionConfirm: alsoGateOnPaneActionConfirm
+        )
+        guard let confirmed = sessionStore.session(id: refreshed.id) else {
+            // `runModal` drains the run loop, so process exit can finish the
+            // close while either alert button is being chosen.
+            floatingPanelController.evictFloatingSlot(for: refreshed.id)
+            announceClosed(title: voTitle)
+            return
+        }
+        switch decision {
         case .suppressed:
             // Re-entry guard fired (another close-confirm is already on
             // screen). Don't announce a "cancel" — that would mislead a
@@ -1032,19 +1044,6 @@ struct AwesoMuxApp: App {
             return
         case .proceed:
             break
-        }
-        // Re-fetch after the modal — `runModal` drains the run loop, so a
-        // last-pane process exit can close this session out from under the
-        // dialog. Use the fresh value for surface discard so a pane added
-        // mid-modal isn't missed.
-        guard let confirmed = sessionStore.session(id: refreshed.id) else {
-            // The vanish path (closePane on last-pane exit) already captured
-            // its own recently-closed entry but doesn't evict the floating
-            // slot — do that here by id so this funnel doesn't reintroduce
-            // the exact PTY leak its doc comment above warns about.
-            floatingPanelController.evictFloatingSlot(for: refreshed.id)
-            announceClosed(title: voTitle)
-            return
         }
         floatingPanelController.evictFloatingSlot(for: confirmed.id)
         ghosttyRuntime.discardSurfaces(for: confirmed)
@@ -2235,23 +2234,29 @@ struct AwesoMuxApp: App {
             // policy runs, so the pane policy never resolves .restartShell here.
             assertionFailure("single-pane routes to closeWorkspace before the pane policy")
         case .closePane:
-            guard let refreshed = sessionStore.session(id: sessionID),
-                refreshed.layout.hasMultiplePanes,
-                refreshed.layout.pane(id: targetPaneID) != nil
-            else {
-                assertionFailure(
-                    "Close-pane action resolved for a stale, single-pane, or missing target pane"
-                )
+            let refreshed = sessionStore.session(id: sessionID)
+            switch DestructivePaneActionConfirmationPolicy.confirmedCloseAction(
+                session: refreshed,
+                targetPaneID: targetPaneID
+            ) {
+            case .alreadyClosed:
                 return
-            }
-            guard case let .pane(closedPaneID) = sessionStore.closePane(id: targetPaneID, in: sessionID) else {
-                assertionFailure(
-                    "closePane(id:in:) failed after close-pane action resolution"
-                )
+
+            case .closeWorkspace:
+                guard let refreshed else { return }
+                closeWorkspace(refreshed, alsoGateOnPaneActionConfirm: false)
                 return
+
+            case .closePane:
+                guard
+                    case let .pane(closedPaneID) = sessionStore.closePane(
+                        id: targetPaneID,
+                        in: sessionID
+                    )
+                else { return }
+                ghosttyRuntime.discardSurface(for: closedPaneID)
+                announcePaneClosed()
             }
-            ghosttyRuntime.discardSurface(for: closedPaneID)
-            announcePaneClosed()
         }
     }
 

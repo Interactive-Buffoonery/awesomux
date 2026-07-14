@@ -5,6 +5,27 @@ import Testing
 @MainActor
 @Suite("Floating panel retained pane IDs")
 struct FloatingPanelRetainedPaneIDTests {
+    @Test("closing a parent workspace evicts its floating panes")
+    func closingParentWorkspaceEvictsItsFloatingPanes() {
+        let workspace = makeSingleSession(title: "main").session
+        let mainStore = SessionStore(groups: [
+            SessionGroup(name: "Workspaces", sessions: [workspace])
+        ])
+        let floating = makeSingleSession(title: "floating")
+        let floatingStore = SessionStore(groups: [
+            SessionGroup(name: "Floating", sessions: [floating.session])
+        ])
+        let controller = TerminalPanelController(mode: .floating)
+        controller.seedRetainedPaneIDTestSlots([
+            (workspaceID: workspace.id, store: floatingStore)
+        ])
+
+        mainStore.closeSession(id: workspace.id, origin: .processExit)
+        controller.evictFloatingSlotsForClosedWorkspaces(in: mainStore)
+
+        #expect(controller.retainedPaneIDs.isEmpty)
+    }
+
     @Test("unions every pane ID across floating stores groups sessions and splits")
     func unionsEveryPaneIDAcrossFloatingStoresGroupsSessionsAndSplits() {
         let firstStoreSplit = makeSplitSession(title: "store one split")

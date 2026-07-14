@@ -5,6 +5,43 @@ import Testing
 
 @Suite("DestructivePaneActionConfirmationPolicy")
 struct DestructivePaneActionConfirmationPolicyTests {
+    @Test("confirmed close needs no action when the target exited during the prompt")
+    func confirmedCloseNeedsNoActionWhenTargetExitedDuringPrompt() {
+        let target = pane(title: "Target", agentExecutionState: .thinking)
+        let survivor = pane(title: "Survivor")
+        let refreshed = TerminalSession(
+            title: "Refreshed",
+            workingDirectory: "/tmp",
+            layout: .pane(survivor),
+            activePaneID: survivor.id
+        )
+
+        #expect(
+            DestructivePaneActionConfirmationPolicy.confirmedCloseAction(
+                session: refreshed,
+                targetPaneID: target.id
+            ) == .alreadyClosed
+        )
+    }
+
+    @Test("confirmed close becomes a workspace close when only the target remains")
+    func confirmedCloseBecomesWorkspaceCloseWhenOnlyTargetRemains() {
+        let target = pane(title: "Target", agentExecutionState: .thinking)
+        let refreshed = TerminalSession(
+            title: "Refreshed",
+            workingDirectory: "/tmp",
+            layout: .pane(target),
+            activePaneID: target.id
+        )
+
+        #expect(
+            DestructivePaneActionConfirmationPolicy.confirmedCloseAction(
+                session: refreshed,
+                targetPaneID: target.id
+            ) == .closeWorkspace
+        )
+    }
+
     @Test("single-pane session is unavailable regardless of quit risk")
     func singlePaneSessionIsUnavailable() {
         let session = TerminalSession(
