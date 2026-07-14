@@ -81,6 +81,30 @@ struct SidebarHoverGeometryIsolationTests {
         #expect(detail.frame == detailFrame)
     }
 
+    @Test("cue classification routes through the production hide path without geometry")
+    func cuePath() {
+        let suiteName = "SidebarHoverGeometryIsolationTests.cue.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SidebarPresentationPreferenceStore(defaults: defaults)
+        store.saveHidden(true)
+        let model = SidebarPresentationModel(store: store)
+        let (controller, detail, _) = makeHiddenController(position: .left, width: 300)
+        let detailFrame = detail.frame
+
+        model.pointerMoved(x: SidebarPresentationModel.cueDistance, width: 1_200, position: .left)
+        #expect(model.proximityState == .cue)
+        #expect(
+            SidebarPresentationRouting.command(
+                userWantsHidden: model.userWantsHidden, proximity: model.proximityState)
+                == .hideOverlay)
+        controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
+
+        #expect(controller.splitPositionMutationIntentCountForTesting == 0)
+        #expect(detail.changedSubmittedBackingSizes.isEmpty)
+        #expect(detail.frame == detailFrame)
+    }
+
     @Test("rapid reversal and partial-animation width remap preserve detail geometry")
     func reversalAndWidthRemap() {
         for position in [AppearanceConfig.SidebarPosition.left, .right] {
@@ -90,6 +114,9 @@ struct SidebarHoverGeometryIsolationTests {
             controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
             let staleReveal = driver.completions.last
             driver.presentationTranslation = position == .left ? -150 : 150
+            #expect(
+                controller.overlayClipViewForTesting.presentationTranslationX()
+                    == driver.presentationTranslation)
             controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
             controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
             controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
@@ -102,34 +129,35 @@ struct SidebarHoverGeometryIsolationTests {
         }
     }
 
-    @Test("window resize reclamps only the overlay while the split stays hidden")
-    func hiddenWindowResize() {
+    @Test("resize-policy reclamp and overlay remap keep hidden detail geometry isolated")
+    func hiddenResizeReclamp() {
         for position in [AppearanceConfig.SidebarPosition.left, .right] {
             let (controller, detail, _) = makeHiddenController(position: position, width: 600)
+            let detailFrame = detail.frame
 
             controller.setOverlayPresentedImmediately(true)
-            controller.view.frame.size.width = 900
-            controller.view.layoutSubtreeIfNeeded()
-            detail.changedSubmittedBackingSizes.removeAll()
-            controller.resetGeometryInstrumentationForTesting()
+            controller.terminalMinimumWidth = 1_000
             controller.setSelectedSidebarWidth(SidebarWidthPolicy.expandedWidth)
 
             #expect(controller.splitPositionMutationIntentCountForTesting == 0)
             #expect(detail.changedSubmittedBackingSizes.isEmpty)
+            #expect(detail.frame == detailFrame)
         }
     }
 
     @Test("hidden rail and full selection never changes backing geometry")
     func hiddenWidthSelection() {
-        let (controller, detail, _) = makeHiddenController(position: .left, width: 300)
-        let detailFrame = detail.frame
+        for position in [AppearanceConfig.SidebarPosition.left, .right] {
+            let (controller, detail, _) = makeHiddenController(position: position, width: 300)
+            let detailFrame = detail.frame
 
-        controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
-        controller.setSelectedSidebarWidth(SidebarWidthPolicy.expandedWidth)
+            controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
+            controller.setSelectedSidebarWidth(SidebarWidthPolicy.expandedWidth)
 
-        #expect(controller.splitPositionMutationIntentCountForTesting == 0)
-        #expect(detail.changedSubmittedBackingSizes.isEmpty)
-        #expect(detail.frame == detailFrame)
+            #expect(controller.splitPositionMutationIntentCountForTesting == 0)
+            #expect(detail.changedSubmittedBackingSizes.isEmpty)
+            #expect(detail.frame == detailFrame)
+        }
     }
 
     @Test("explicit persistent show submits exactly one final geometry mutation")
