@@ -932,6 +932,10 @@ struct TerminalPathBarView: View {
     }
 
     private func copyPath(_ path: String) {
+        guard
+            ExecutionContext(plan: model.executionPlan)
+                .capability(.copyLocalPath).isAllowed
+        else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(path, forType: .string)
     }

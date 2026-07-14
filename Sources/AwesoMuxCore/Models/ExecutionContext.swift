@@ -3,6 +3,7 @@ import Foundation
 public enum ExecutionOperation: Hashable, Sendable {
     case inspectLocalFilesystem
     case revealInFinder
+    case copyLocalPath
     case launchLocalShellFallback
     case stageLocalDocumentPath
 }
@@ -31,11 +32,13 @@ public struct ExecutionContext: Hashable, Sendable {
         switch (plan, operation) {
         case (.local, .inspectLocalFilesystem),
             (.local, .revealInFinder),
+            (.local, .copyLocalPath),
             (.local, .launchLocalShellFallback),
             (.local, .stageLocalDocumentPath):
             .allowed
         case (.ssh, .inspectLocalFilesystem),
             (.ssh, .revealInFinder),
+            (.ssh, .copyLocalPath),
             (.ssh, .launchLocalShellFallback),
             (.ssh, .stageLocalDocumentPath):
             .denied(.requiresLocalExecution)
