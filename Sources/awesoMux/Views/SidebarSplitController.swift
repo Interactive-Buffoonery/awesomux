@@ -108,9 +108,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// a programmatic change back out as a "live" width change.
     private var isSettingPositionProgrammatically = false
     private var isPerformingHostHandoff = false
-    private var dividerIntentCount = 0
-    private var isGeometryInstrumentationArmedForTesting = false
-    private var splitPositionMutationIntentCount = 0
+    #if DEBUG
+        private var dividerIntentCount = 0
+        private var isGeometryInstrumentationArmedForTesting = false
+        private var splitPositionMutationIntentCount = 0
+    #endif
     private(set) var lastCapturedSidebarAccessibilityFocusForTesting = false
     private(set) var lastPreservedSidebarAccessibilityElementForTesting = false
 
@@ -438,8 +440,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var overlayContentViewForTesting: NSView { overlayContentView }
     var hostModeForTesting: SidebarHostMode { hostMode }
     var sidebarSplitPaneWidthForTesting: CGFloat { sidebarPaneContainer.frame.width }
-    var dividerIntentCountForTesting: Int { dividerIntentCount }
-    var splitPositionMutationIntentCountForTesting: Int { splitPositionMutationIntentCount }
+    #if DEBUG
+        var dividerIntentCountForTesting: Int { dividerIntentCount }
+        var splitPositionMutationIntentCountForTesting: Int { splitPositionMutationIntentCount }
+    #endif
     var sidebarHostOccurrenceCountForTesting: Int {
         [sidebarPaneContainer, overlayContentView].filter {
             sidebarChild.view === $0 || sidebarChild.view.isDescendant(of: $0)
@@ -452,14 +456,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         onTrackingAvailabilityLost?()
     }
 
-    func resetGeometryInstrumentationForTesting() {
-        splitPositionMutationIntentCount = 0
-        isGeometryInstrumentationArmedForTesting = true
-    }
+    #if DEBUG
+        func resetGeometryInstrumentationForTesting() {
+            splitPositionMutationIntentCount = 0
+            isGeometryInstrumentationArmedForTesting = true
+        }
 
-    func stopGeometryInstrumentationForTesting() {
-        isGeometryInstrumentationArmedForTesting = false
-    }
+        func stopGeometryInstrumentationForTesting() {
+            isGeometryInstrumentationArmedForTesting = false
+        }
+    #endif
 
     static func dividerCoordinate(
         forSidebarWidth width: CGFloat,
@@ -855,10 +861,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             forSidebarWidth: width, paneExtent: paneExtent, position: sidebarPosition
         )
         isSettingPositionProgrammatically = true
-        dividerIntentCount += 1
-        if isGeometryInstrumentationArmedForTesting {
-            splitPositionMutationIntentCount += 1
-        }
+        #if DEBUG
+            dividerIntentCount += 1
+            if isGeometryInstrumentationArmedForTesting {
+                splitPositionMutationIntentCount += 1
+            }
+        #endif
         splitView.setPosition(coordinate, ofDividerAt: 0)
         isSettingPositionProgrammatically = false
     }
@@ -892,7 +900,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func reclampToBounds() {
-        guard splitView.bounds.width > 0 else { return }
+        guard !isSidebarHidden, splitView.bounds.width > 0 else { return }
         switch Self.reclampAction(
             currentWidth: sidebarPaneWidth,
             maxWidth: maxSidebarWidth,
