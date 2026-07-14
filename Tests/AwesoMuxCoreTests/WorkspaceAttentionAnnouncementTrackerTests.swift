@@ -20,16 +20,18 @@ struct WorkspaceAttentionAnnouncementTrackerTests {
             state: .done
         )
 
-        #expect(WorkspaceAttentionAnnouncementTracker.spokenAnnouncement(
-            for: [first],
-            bundle: bundle,
-            locale: INT612LocalizationTestSupport.french
-        ) == "revue attend une réponse de Terminal.")
-        #expect(WorkspaceAttentionAnnouncementTracker.spokenAnnouncement(
-            for: [first, second],
-            bundle: bundle,
-            locale: INT612LocalizationTestSupport.french
-        ) == "2 espaces demandent votre attention.")
+        #expect(
+            WorkspaceAttentionAnnouncementTracker.spokenAnnouncement(
+                for: [first],
+                bundle: bundle,
+                locale: INT612LocalizationTestSupport.pseudoLocale
+            ) == "⟦input:revue:⟦Shell⟧⟧")
+        #expect(
+            WorkspaceAttentionAnnouncementTracker.spokenAnnouncement(
+                for: [first, second],
+                bundle: bundle,
+                locale: INT612LocalizationTestSupport.pseudoLocale
+            ) == "⟦attention:2 workspaces⟧")
     }
 
     private func session(
@@ -182,7 +184,9 @@ struct WorkspaceAttentionAnnouncementTrackerTests {
         )
     }
 
-    @Test("spoken message uses AgentKind.spokenName, not rawValue, so a shell announcement stays consistent with the localized fallback title beside it")
+    @Test(
+        "spoken message uses AgentKind.spokenName, not rawValue, so a shell announcement stays consistent with the localized fallback title beside it"
+    )
     func spokenMessageUsesSpokenNameForShell() {
         // PR-review finding: message(for:) previously read agentKind.rawValue directly,
         // which would speak "Shell" (unlocalized) right next to a workspace title that
@@ -361,9 +365,10 @@ struct WorkspaceAttentionAnnouncementTrackerTests {
                 id: sessionID,
                 title: "agent",
                 workingDirectory: "~",
-                layout: .split(TerminalSplit(
-                    orientation: .horizontal, first: .pane(first), second: .pane(second)
-                ))
+                layout: .split(
+                    TerminalSplit(
+                        orientation: .horizontal, first: .pane(first), second: .pane(second)
+                    ))
             )
         }
         var tracker = WorkspaceAttentionAnnouncementTracker(groups: [

@@ -1,6 +1,6 @@
 import Foundation
 
-enum INT612LocalizationTestSupport {
+enum AwesoMuxLocalizationTestSupport {
     static var bundle: Bundle? {
         Bundle(url: fixtureURL.appending(path: "zz.lproj", directoryHint: .isDirectory))
     }

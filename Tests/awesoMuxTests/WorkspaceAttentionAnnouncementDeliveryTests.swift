@@ -8,7 +8,7 @@ struct WorkspaceAttentionAnnouncementDeliveryTests {
     @Test("localized message reaches the accessibility delivery boundary")
     @MainActor
     func localizedMessageReachesPostClosure() throws {
-        let bundle = try #require(Self.frenchBundle)
+        let bundle = try #require(AwesoMuxLocalizationTestSupport.bundle)
         let announcement = WorkspaceAttentionAnnouncementTracker.Announcement(
             sessionID: UUID(),
             title: "revue",
@@ -20,23 +20,12 @@ struct WorkspaceAttentionAnnouncementDeliveryTests {
         let message = WorkspaceAttentionAnnouncementDelivery.deliver(
             [announcement],
             bundle: bundle,
-            locale: Locale(identifier: "fr")
+            locale: AwesoMuxLocalizationTestSupport.pseudoLocale
         ) {
             delivered.append($0)
         }
 
-        #expect(message == "revue attend une réponse de Terminal.")
-        #expect(delivered == ["revue attend une réponse de Terminal."])
-    }
-
-    private static var frenchBundle: Bundle? {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(
-                path: "Fixtures/INT612Localization.bundle/fr.lproj",
-                directoryHint: .isDirectory
-            )
-        return Bundle(url: url)
+        #expect(message == "⟦input:revue:⟦Shell⟧⟧")
+        #expect(delivered == ["⟦input:revue:⟦Shell⟧⟧"])
     }
 }

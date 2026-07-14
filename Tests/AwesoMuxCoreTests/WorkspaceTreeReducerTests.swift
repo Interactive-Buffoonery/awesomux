@@ -28,10 +28,11 @@ struct WorkspaceTreeReducerTests {
         #expect(groups.map(\.name) == ["awesoMux"])
         #expect(groups[0].sessions.map(\.id) == [firstID, secondID])
         #expect(groups[0].sessions.map(\.title) == ["shell 1", "shell 2"])
-        #expect(groups[0].sessions.map(\.syntheticTitle) == [
-            SyntheticSessionTitle(agentKind: .shell, index: 1),
-            SyntheticSessionTitle(agentKind: .shell, index: 2)
-        ])
+        #expect(
+            groups[0].sessions.map(\.syntheticTitle) == [
+                SyntheticSessionTitle(agentKind: .shell, index: 1),
+                SyntheticSessionTitle(agentKind: .shell, index: 2),
+            ])
     }
 
     @Test("explicit session titles do not gain synthetic metadata")
@@ -54,7 +55,7 @@ struct WorkspaceTreeReducerTests {
     @Test("synthetic metadata reserves its index independently of the stored display string")
     func syntheticMetadataReservesIndex() {
         let localizedLegacy = TerminalSession(
-            title: "coquille 1",
+            title: "⟦1:⟦shell⟧⟧",
             workingDirectory: "~",
             syntheticTitle: SyntheticSessionTitle(agentKind: .shell, index: 1),
             agentKind: .shell
@@ -125,21 +126,23 @@ struct WorkspaceTreeReducerTests {
         let groups = [
             SessionGroup(name: "one", sessions: [first]),
             SessionGroup(name: "empty", sessions: []),
-            SessionGroup(name: "two", sessions: [second, third])
+            SessionGroup(name: "two", sessions: [second, third]),
         ]
         let index = SessionStoreIndex.build(from: groups)
 
-        #expect(WorkspaceTreeReducer.selectedSessionID(
-            in: groups,
-            index: index,
-            currentSelection: first.id,
-            offset: -1
-        ) == third.id)
-        #expect(WorkspaceTreeReducer.selectedSessionID(
-            in: groups,
-            index: index,
-            currentSelection: first.id,
-            offset: 2
-        ) == third.id)
+        #expect(
+            WorkspaceTreeReducer.selectedSessionID(
+                in: groups,
+                index: index,
+                currentSelection: first.id,
+                offset: -1
+            ) == third.id)
+        #expect(
+            WorkspaceTreeReducer.selectedSessionID(
+                in: groups,
+                index: index,
+                currentSelection: first.id,
+                offset: 2
+            ) == third.id)
     }
 }
