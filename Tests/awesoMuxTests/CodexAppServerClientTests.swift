@@ -295,6 +295,43 @@ struct ProcessCodexAppServerClientTests {
     }
 }
 
+@Suite("Live Codex app-server")
+struct ProcessCodexAppServerClientLiveTests {
+    private static let environment = ProcessInfo.processInfo.environment
+
+    @Test(
+        .enabled(
+            if: Self.environment["AWESOMUX_LIVE_CODEX_HOME"] != nil,
+            "run script/test_live_codex_plugin.sh to enable the live probe"
+        ))
+    func installedPluginHooksDecodeThroughProductionClient() async throws {
+        let codexHome = try #require(Self.environment["AWESOMUX_LIVE_CODEX_HOME"])
+        let codexBinary = try #require(Self.environment["AWESOMUX_LIVE_CODEX_BINARY"])
+        let searchPath = Self.environment["PATH"] ?? ProcessCommandRunner.defaultToolPath
+        let client = try ProcessCodexAppServerClient.spawning(
+            codexExecutable: codexBinary,
+            codexHome: codexHome,
+            searchPath: searchPath
+        )
+        defer { client.close() }
+
+        let hooks = try await client.hooksList()
+        let matchingHooks = hooks.filter {
+            $0.pluginId?.hasPrefix("awesomux-codex-status@") == true
+        }
+
+        #expect(
+            !matchingHooks.isEmpty,
+            "No awesoMux Codex hooks were discovered under CODEX_HOME=\(codexHome)"
+        )
+        for hook in matchingHooks {
+            if case .unknown(let value) = hook.trustStatus {
+                Issue.record("Codex returned an unfamiliar trust state: \(value)")
+            }
+        }
+    }
+}
+
 @Suite("ProcessCodexAppServerTransport executable resolution")
 struct ProcessCodexAppServerTransportResolutionTests {
     @Test("a bare name absent from the search path throws appServerUnavailable")

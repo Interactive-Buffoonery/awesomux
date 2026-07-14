@@ -48,6 +48,17 @@ struct BuildScriptHelpTests {
         #expect(result.output.contains("AWESOMUX_PERF_SAMPLE_PORTS"))
     }
 
+    @Test("live Codex smoke-test help documents its read-only inputs")
+    func liveCodexSmokeTestHelpDocumentsInputs() throws {
+        let result = try Self.runHelp(script: "script/test_live_codex_plugin.sh", argument: "--help")
+
+        #expect(result.exitStatus == 0)
+        #expect(result.output.contains("Usage:"))
+        #expect(result.output.contains("read-only"))
+        #expect(result.output.contains("CODEX_HOME"))
+        #expect(result.output.contains("AWESOMUX_LIVE_CODEX_BINARY"))
+    }
+
     @Test("Ghostty build sets a cold-build expectation")
     func ghosttyBuildSetsColdBuildExpectation() throws {
         let script = try Self.contents(of: "script/build_ghostty_xcframework.sh")
