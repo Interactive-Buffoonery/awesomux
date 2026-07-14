@@ -27,9 +27,8 @@ public struct LineDiffCount: Equatable, Sendable {
     }
 
     /// Inputs past this size skip the indicator: `difference(from:)` is
-    /// Myers-family (near-quadratic on a full rewrite) and the watcher's disk
-    /// read is not bounded by the document loader's file-size cap, so a huge
-    /// or hostile file must not buy an expensive diff on every save.
+    /// Myers-family (near-quadratic on a full rewrite), so diffing up to the
+    /// document loader's 10 MiB cap could still be expensive on every save.
     public static let maxDiffBytes = 2 * 1024 * 1024
 
     public static func forExternalEdit(
