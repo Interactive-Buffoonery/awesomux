@@ -194,5 +194,27 @@ struct PanePeekItemTests {
         let items = PanePeekItem.items(for: session)
         #expect(!items[0].isRemote)
         #expect(items[1].isRemote)
+        #expect(items[1].remoteHost == "devbox")
+    }
+
+    @Test("declared SSH target names remote pane before prompt observation")
+    func declaredSSHNamesRemotePaneBeforeObservation() {
+        let target = RemoteTarget(user: "alice", host: "buildbox-alias")!
+        let remote = TerminalPane(
+            title: "remote",
+            workingDirectory: "/srv/app",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "ws",
+            workingDirectory: "~",
+            layout: .pane(remote),
+            activePaneID: remote.id
+        )
+
+        let item = PanePeekItem.items(for: session)[0]
+
+        #expect(item.isRemote)
+        #expect(item.remoteHost == "alice@buildbox-alias")
     }
 }

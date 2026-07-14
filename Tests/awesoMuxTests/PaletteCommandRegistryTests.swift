@@ -357,6 +357,37 @@ struct PaletteCommandRegistryTests {
         #expect(openInIDE.shortcut == nil)
     }
 
+    @Test("Open in IDE disables for declared SSH panes before host observation")
+    @MainActor
+    func openInIDEDisablesForDeclaredSSHPane() throws {
+        let target = try #require(RemoteTarget(parsing: "buildbox"))
+        let remotePane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/tmp/stale-local",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "Remote",
+            workingDirectory: "/tmp/stale-local",
+            agentKind: .shell,
+            layout: .pane(remotePane),
+            activePaneID: remotePane.id
+        )
+        let store = SessionStore(groups: [
+            SessionGroup(name: "Code", sessions: [session])
+        ])
+
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(),
+            actions: .noop
+        )
+
+        let openInIDE = try #require(PaletteCommandRegistry.command(id: "openInIDE", in: commands))
+        #expect(!openInIDE.isEnabled)
+        #expect(openInIDE.shortcut == nil)
+    }
+
     @Test("Open in IDE respects the workspace setting")
     @MainActor
     func openInIDERespectsWorkspaceSetting() throws {

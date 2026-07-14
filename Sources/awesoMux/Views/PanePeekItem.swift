@@ -24,7 +24,9 @@ struct PanePeekItem: Identifiable, Equatable {
     let state: AwState
     let unread: Int
     let isActive: Bool
-    let isRemote: Bool
+    let remoteHost: String?
+
+    var isRemote: Bool { remoteHost != nil }
 }
 
 extension PanePeekItem {
@@ -47,7 +49,7 @@ extension PanePeekItem {
                 state: pane.effectiveChromeState.awState,
                 unread: pane.unreadNotificationCount,
                 isActive: pane.id == session.activePaneID,
-                isRemote: pane.remoteHost != nil
+                remoteHost: pane.remotePresentationHost
             )
         }
     }

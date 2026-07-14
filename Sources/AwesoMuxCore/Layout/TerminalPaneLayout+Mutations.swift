@@ -44,7 +44,7 @@ public extension TerminalPaneLayout {
     internal func markingRemotePanesPossiblyStale() -> (layout: TerminalPaneLayout, didChange: Bool) {
         switch self {
         case var .pane(pane):
-            guard pane.remoteHost != nil,
+            guard pane.remotePresentationHost != nil,
                   pane.remoteConnectionHealth != .possiblyStale
             else {
                 return (self, false)
