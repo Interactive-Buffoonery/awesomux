@@ -209,6 +209,9 @@
     "%arg — sends your review comments to this document's terminal" : {
       "comment" : "Accessibility label for the document send button"
     },
+    "%arg — unavailable: %arg" : {
+      "comment" : "Accessibility label for the document send button when its target is ineligible"
+    },
     "%arg — unavailable: this document's terminal isn't running" : {
       "comment" : "Accessibility label for the send button when its terminal is gone"
     },
@@ -810,6 +813,9 @@
     "Could not turn on Open at Login. Open System Settings > General > Login Items and allow awesoMux, then try again. %arg" : {
       "comment" : "Error shown when registering awesoMux as a login item fails."
     },
+    "Couldn't send — this document's terminal isn't available" : {
+      "comment" : "VoiceOver announcement when a document has no eligible send target"
+    },
     "Couldn't send — this document's terminal isn't running" : {
       "comment" : "VoiceOver announcement when sending to a document's terminal fails"
     },
@@ -1328,6 +1334,9 @@
     },
     "Loading document" : {
 
+    },
+    "Local document paths can only be sent to a local terminal" : {
+      "comment" : "Unavailable reason for sending a Mac-local document path to a declared SSH terminal"
     },
     "Local listener permissions" : {
       "comment" : "Bridge doctor check title"
@@ -2056,6 +2065,9 @@
     "Remember approvals per workspace" : {
 
     },
+    "Remote Markdown snapshots are read-only and cannot be sent" : {
+      "comment" : "Unavailable reason for sending a read-only remote Markdown snapshot to an agent"
+    },
     "Remote helper" : {
       "comment" : "Bridge doctor check title"
     },
@@ -2689,6 +2701,9 @@
     },
     "This document's terminal has not reported a local directory." : {
       "comment" : "Empty-state detail shown when a document's associated terminal has no local directory"
+    },
+    "This document's terminal isn't available" : {
+      "comment" : "Unavailable reason for sending a document when its associated terminal is gone"
     },
     "This document's terminal isn't available — reopen the document from a running terminal to reconnect" : {
       "comment" : "Tooltip for the send button when its terminal is gone"
