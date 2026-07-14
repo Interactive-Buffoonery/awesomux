@@ -14,9 +14,8 @@ import SwiftUI
 /// would be a dead control — the same clause the context menu's "Close
 /// Group" disables on. Empty groups among others DO get the X (INT-770):
 /// closing routes through `closeWorkspaceGroup`, which skips the confirm
-/// dialog for an empty local group (nothing to lose) but still confirms
-/// an empty remote group (removal forgets its SSH target, which is not
-/// restorable — INT-767). `EmptyGroupDropTarget`'s persistent remove
+/// dialog when there is no remote impact but still confirms loss of an SSH
+/// creation default. `EmptyGroupDropTarget`'s persistent remove
 /// button stays as the always-visible removal path; this X is the hover
 /// shortcut consistent with non-empty groups, and the only pointer path
 /// while the group's own rows are collapsed (`isCollapsed` hides that
@@ -113,6 +112,16 @@ struct SidebarGroupHeaderRow: View {
 
     private var sessions: [TerminalSession] {
         entries.map(\.session)
+    }
+
+    private var executionPresentation: SessionGroupExecutionPresentation {
+        SessionGroupExecutionPresentation(
+            summary: executionSummary
+        )
+    }
+
+    private var executionSummary: SessionGroupExecutionSummary {
+        SessionGroupExecutionSummary(group: group)
     }
 
     /// Only the collapsed rail's header shows the group roster — the
@@ -276,10 +285,12 @@ struct SidebarGroupHeaderRow: View {
                     // currently-assigned color — the visual 6×6 dot is otherwise
                     // the only signal that a user-chosen tint actually applied.
                     let colorSuffix = group.color.map { ", \($0.displayName) tint" } ?? ""
+                    let location = executionPresentation.accessibilityText
                     if sessions.isEmpty {
-                        return "\(group.name), empty workspace group\(colorSuffix)"
+                        return "\(group.name), empty workspace group, \(location)\(colorSuffix)"
                     }
-                    return "\(group.name), \(LocalizedPluralStrings.sidebarGroupWorkspaces(count: sessions.count))\(colorSuffix)"
+                    return
+                        "\(group.name), \(LocalizedPluralStrings.sidebarGroupWorkspaces(count: sessions.count)), \(location)\(colorSuffix)"
                 }()
             )
             .accessibilityValue(groupAccessibilityValue)
@@ -361,6 +372,14 @@ struct SidebarGroupHeaderRow: View {
             // catch: any add/remove/reorder also changes this array's length
             // or order.
             .onChange(of: sessions.map(\.peekRefreshKey)) { _, _ in
+                peekModel.refreshGroup(
+                    group: group,
+                    tint: tint,
+                    sessions: sessions,
+                    activeSessionID: selectedSessionID
+                )
+            }
+            .onChange(of: executionSummary) { _, _ in
                 peekModel.refreshGroup(
                     group: group,
                     tint: tint,
@@ -458,6 +477,14 @@ struct SidebarGroupHeaderRow: View {
                     // railText clears AA on mantle; stock text2 is 4.06:1 Latte.
                     .foregroundStyle(Color.aw.railText)
                     .lineLimit(1)
+
+                if let location = executionPresentation.visibleText {
+                    Text(location)
+                        .awFont(AwFont.Mono.meta)
+                        .foregroundStyle(Color.aw.railText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
 
                 Spacer(minLength: 4)
 
@@ -674,8 +701,8 @@ struct SidebarGroupHeaderRow: View {
     /// remote, unread, active).
     private func groupSessionJumpActionLabel(_ item: SessionPeekItem) -> String {
         var parts = ["Jump to \(item.title)", item.agentShortName, item.state.label]
-        if item.isRemote {
-            parts.append("remote")
+        if item.locationText != nil {
+            parts.append(item.accessibilityLocationText)
         }
         if item.unread > 0 {
             parts.append(LocalizedPluralStrings.sidebarNotifications(count: item.unread))
