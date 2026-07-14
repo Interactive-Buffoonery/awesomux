@@ -438,6 +438,7 @@ extension PaneTitleBarView: Equatable {
             && lhs.pane.workingDirectory == rhs.pane.workingDirectory
             && lhs.pane.isTitleUserEdited == rhs.pane.isTitleUserEdited
             && lhs.pane.color == rhs.pane.color
+            && lhs.pane.remotePresentationHost == rhs.pane.remotePresentationHost
             && lhs.session.id == rhs.session.id
             && lhs.reduceTransparency == rhs.reduceTransparency
     }

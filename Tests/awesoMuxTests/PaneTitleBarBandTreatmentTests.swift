@@ -84,4 +84,48 @@ struct PaneTitleBarBandTreatmentTests {
         #expect(normal != reduced)
         #expect(normal == normal)
     }
+
+    @Test("remote presentation host participates in equality")
+    func remotePresentationHostParticipatesInEquality() {
+        let localPane = TerminalPane(
+            title: "deploy",
+            workingDirectory: "/srv/app",
+            executionPlan: .local
+        )
+        var remotePane = localPane
+        remotePane.executionPlan = .ssh(
+            SSHExecution(target: RemoteTarget(user: "alice", host: "buildbox")!)
+        )
+        let session = TerminalSession(
+            title: "workspace",
+            workingDirectory: "/srv/app",
+            layout: .pane(localPane)
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "group", sessions: [session])],
+            selectedSessionID: session.id
+        )
+        let coordinator = PaneDragCoordinator()
+        let runtime = GhosttyRuntime()
+        let local = PaneTitleBarView(
+            session: session,
+            pane: localPane,
+            sessionStore: store,
+            dragCoordinator: coordinator,
+            runtime: runtime,
+            reduceTransparency: false
+        )
+        let remote = PaneTitleBarView(
+            session: session,
+            pane: remotePane,
+            sessionStore: store,
+            dragCoordinator: coordinator,
+            runtime: runtime,
+            reduceTransparency: false
+        )
+
+        #expect(localPane.remotePresentationHost == nil)
+        #expect(remotePane.remotePresentationHost == "alice@buildbox")
+        #expect(local != remote)
+    }
 }
