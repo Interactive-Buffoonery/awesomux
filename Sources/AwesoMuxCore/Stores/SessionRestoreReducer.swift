@@ -273,7 +273,16 @@ struct SessionRestoreReducer: Sendable {
                 executionPlan: executionPlan
             )
         }
-        let layout = layoutResult.layout
+        let paneIDCounts = terminalPaneIDCounts(in: session.layout)
+        let paneIDRemap = unambiguousPaneIDRemap(
+            from: session.layout,
+            to: layoutResult.layout,
+            originalIDCounts: paneIDCounts
+        )
+        let layout = remappingDocumentTabAssociations(
+            in: layoutResult.layout,
+            paneIDRemap: paneIDRemap
+        )
         sanitizationSummary.idReassignments += layoutResult.idReassignments
 
         if case .split = session.layout, fallbackTitle != session.title {
@@ -286,7 +295,9 @@ struct SessionRestoreReducer: Sendable {
         // crash-loop the app (C1). Return a fresh default session instead so
         // the slot is usable rather than lost entirely.
         let resolvedActivePane: TerminalPane
-        if let activePane = layout.pane(id: session.activePaneID) {
+        if let restoredActivePaneID = paneIDRemap[session.activePaneID],
+            let activePane = layout.pane(id: restoredActivePaneID)
+        {
             resolvedActivePane = activePane
         } else if let firstPane = layout.firstPane {
             sanitizationSummary.activePaneFallbacks += 1
@@ -405,6 +416,45 @@ struct SessionRestoreReducer: Sendable {
 
     static func workingDirectoryWasRejected(original: String, sanitized: String) -> Bool {
         sanitized == "~" && original != "~"
+    }
+
+    static func terminalPaneIDCounts(
+        in layout: TerminalPaneLayout
+    ) -> [TerminalPane.ID: Int] {
+        layout.paneIDs.reduce(into: [:]) { counts, id in
+            counts[id, default: 0] += 1
+        }
+    }
+
+    static func unambiguousPaneIDRemap(
+        from originalLayout: TerminalPaneLayout,
+        to restoredLayout: TerminalPaneLayout,
+        originalIDCounts: [TerminalPane.ID: Int]
+    ) -> [TerminalPane.ID: TerminalPane.ID] {
+        var remap: [TerminalPane.ID: TerminalPane.ID] = [:]
+        for (originalID, restoredID) in zip(originalLayout.paneIDs, restoredLayout.paneIDs)
+        where originalIDCounts[originalID] == 1 {
+            remap[originalID] = restoredID
+        }
+        return remap
+    }
+
+    /// Remaps document associations through IDs that identify exactly one
+    /// original terminal. Missing and repeated IDs fail closed to nil.
+    static func remappingDocumentTabAssociations(
+        in layout: TerminalPaneLayout,
+        paneIDRemap: [TerminalPane.ID: TerminalPane.ID]
+    ) -> TerminalPaneLayout {
+        guard var group = layout.firstDocumentGroup else {
+            return layout
+        }
+        group.tabs = group.tabs.map { tab in
+            var tab = tab
+            tab.associatedTerminalPaneID = tab.associatedTerminalPaneID
+                .flatMap { paneIDRemap[$0] }
+            return tab
+        }
+        return layout.replacingDocumentGroup(id: group.id, with: group) ?? layout
     }
 
     /// Smallest-numbered `"name N"` (N ≥ 2) colliding with no reserved name,

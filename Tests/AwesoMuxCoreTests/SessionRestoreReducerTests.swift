@@ -43,6 +43,123 @@ struct SessionRestoreReducerTests {
         #expect(restored.unreadNotificationCount == 3)
     }
 
+    @Test("restore clears document and active references to a duplicated pane id")
+    func restoreRejectsAmbiguousPaneReferences() throws {
+        let duplicateID = UUID()
+        let first = TerminalPane(id: duplicateID, title: "first", workingDirectory: "/first", executionPlan: .local)
+        let second = TerminalPane(id: duplicateID, title: "second", workingDirectory: "/second", executionPlan: .local)
+        let document = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/ambiguous.md"),
+            title: "ambiguous.md",
+            associatedTerminalPaneID: duplicateID
+        )
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .horizontal,
+                first: .pane(first),
+                second: .split(
+                    TerminalSplit(
+                        orientation: .horizontal,
+                        first: .documentGroup(DocumentGroup(tabs: [document], selectedTabID: document.id)),
+                        second: .pane(second)
+                    ))
+            ))
+        let session = TerminalSession(
+            title: "corrupt",
+            workingDirectory: "/first",
+            layout: layout,
+            activePaneID: duplicateID
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: SessionSnapshot(
+                groups: [SessionGroup(name: "main", sessions: [session])],
+                selectedSessionID: session.id
+            ))
+        let restoredSession = try #require(restored.groups.first?.sessions.first)
+
+        #expect(restoredSession.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == nil)
+        #expect(restoredSession.activePaneID == restoredSession.layout.firstPane?.id)
+        #expect(restored.sanitizationSummary.activePaneFallbacks == 1)
+    }
+
+    @Test("restore remaps unique document and active references after a pane id collision")
+    func restoreRemapsUniquePaneReferences() throws {
+        let collidingID = UUID()
+        let occupied = TerminalSession(
+            title: "occupied",
+            workingDirectory: "/occupied",
+            layout: .pane(
+                TerminalPane(
+                    id: collidingID,
+                    title: "occupied",
+                    workingDirectory: "/occupied",
+                    executionPlan: .local
+                )),
+            activePaneID: collidingID
+        )
+        let pane = TerminalPane(id: collidingID, title: "closed", workingDirectory: "/closed", executionPlan: .local)
+        let document = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/unique.md"),
+            title: "unique.md",
+            associatedTerminalPaneID: collidingID
+        )
+        let reminted = TerminalSession(
+            title: "reminted",
+            workingDirectory: "/closed",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .horizontal,
+                    first: .pane(pane),
+                    second: .documentGroup(DocumentGroup(tabs: [document], selectedTabID: document.id))
+                )),
+            activePaneID: collidingID
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: SessionSnapshot(
+                groups: [SessionGroup(name: "main", sessions: [occupied, reminted])],
+                selectedSessionID: reminted.id
+            ))
+        let restoredSession = try #require(restored.groups.first?.sessions.last)
+        let restoredPane = try #require(restoredSession.layout.firstPane)
+
+        #expect(restoredPane.id != collidingID)
+        #expect(restoredSession.activePaneID == restoredPane.id)
+        #expect(restoredSession.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == restoredPane.id)
+    }
+
+    @Test("restore preserves normal one-to-one pane references")
+    func restorePreservesUniquePaneReferences() throws {
+        let pane = TerminalPane(title: "pane", workingDirectory: "/work", executionPlan: .local)
+        let document = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/normal.md"),
+            title: "normal.md",
+            associatedTerminalPaneID: pane.id
+        )
+        let session = TerminalSession(
+            title: "normal",
+            workingDirectory: "/work",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .horizontal,
+                    first: .documentGroup(DocumentGroup(tabs: [document], selectedTabID: document.id)),
+                    second: .pane(pane)
+                )),
+            activePaneID: pane.id
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: SessionSnapshot(
+                groups: [SessionGroup(name: "main", sessions: [session])],
+                selectedSessionID: session.id
+            ))
+        let restoredSession = try #require(restored.groups.first?.sessions.first)
+
+        #expect(restoredSession.activePaneID == pane.id)
+        #expect(restoredSession.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == pane.id)
+    }
+
     @Test("restoredAgentExecutionState maps every case")
     func restoredAgentExecutionStateMapsEveryCase() {
         // .waiting is the only state that round-trips (live hook side-channel

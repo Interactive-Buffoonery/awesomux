@@ -126,6 +126,111 @@ struct RecentlyClosedWorkspaceReducerTests {
         #expect(reopened.workingDirectory == "/work")
     }
 
+    @Test("reopen clears document and active references to a duplicated pane id")
+    func reopenRejectsAmbiguousPaneReferences() throws {
+        let groupID = UUID()
+        let duplicateID = UUID()
+        let first = TerminalPane(id: duplicateID, title: "first", workingDirectory: "/first", executionPlan: .local)
+        let second = TerminalPane(id: duplicateID, title: "second", workingDirectory: "/second", executionPlan: .local)
+        let document = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/reopen-ambiguous.md"),
+            title: "reopen-ambiguous.md",
+            associatedTerminalPaneID: duplicateID
+        )
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(),
+            title: "corrupt",
+            isTitleUserEdited: false,
+            agentKind: .shell,
+            layout: .split(
+                TerminalSplit(
+                    orientation: .horizontal,
+                    first: .pane(first),
+                    second: .split(
+                        TerminalSplit(
+                            orientation: .horizontal,
+                            first: .documentGroup(DocumentGroup(tabs: [document], selectedTabID: document.id)),
+                            second: .pane(second)
+                        ))
+                )),
+            activePaneID: duplicateID,
+            groupID: groupID,
+            groupName: "main",
+            groupRemote: nil,
+            indexInGroup: 0,
+            closedAt: Date(timeIntervalSince1970: 10)
+        )
+        var groups = [SessionGroup(id: groupID, name: "main", sessions: [])]
+        var recentlyClosed = [entry]
+        var transient: RecentlyClosedWorkspace?
+
+        _ = try #require(
+            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+                in: &groups,
+                recentlyClosed: &recentlyClosed,
+                lastClosedTransient: &transient,
+                now: Date(timeIntervalSince1970: 11)
+            ))
+        let reopened = try #require(groups.first?.sessions.first)
+
+        #expect(reopened.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == nil)
+        #expect(reopened.activePaneID == reopened.layout.firstPane?.id)
+    }
+
+    @Test("reopen remaps unique document and active references after a live collision")
+    func reopenRemapsUniquePaneReferences() throws {
+        let groupID = UUID()
+        let collidingID = UUID()
+        let livePane = TerminalPane(id: collidingID, title: "live", workingDirectory: "/live", executionPlan: .local)
+        let liveSession = TerminalSession(
+            title: "live",
+            workingDirectory: "/live",
+            layout: .pane(livePane),
+            activePaneID: livePane.id
+        )
+        let closedPane = TerminalPane(id: collidingID, title: "closed", workingDirectory: "/closed", executionPlan: .local)
+        let document = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/reopen-unique.md"),
+            title: "reopen-unique.md",
+            associatedTerminalPaneID: collidingID
+        )
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(),
+            title: "closed",
+            isTitleUserEdited: false,
+            agentKind: .shell,
+            layout: .split(
+                TerminalSplit(
+                    orientation: .horizontal,
+                    first: .documentGroup(DocumentGroup(tabs: [document], selectedTabID: document.id)),
+                    second: .pane(closedPane)
+                )),
+            activePaneID: collidingID,
+            groupID: groupID,
+            groupName: "main",
+            groupRemote: nil,
+            indexInGroup: 1,
+            closedAt: Date(timeIntervalSince1970: 10)
+        )
+        var groups = [SessionGroup(id: groupID, name: "main", sessions: [liveSession])]
+        var recentlyClosed = [entry]
+        var transient: RecentlyClosedWorkspace?
+
+        let reopenedID = try #require(
+            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+                in: &groups,
+                recentlyClosed: &recentlyClosed,
+                lastClosedTransient: &transient,
+                now: Date(timeIntervalSince1970: 11)
+            ))
+        let reopened = try #require(groups[0].sessions.first { $0.id == reopenedID })
+        let reopenedPane = try #require(reopened.layout.firstPane)
+
+        #expect(reopenedPane.id != collidingID)
+        #expect(reopened.activePaneID == reopenedPane.id)
+        #expect(reopened.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == reopenedPane.id)
+    }
+
     @Test("reopen preserves terminalSessionID + backend metadata so the daemon reattaches (INT-578)")
     func reopenPreservesTerminalSessionIDForDaemonReattach() throws {
         let groupID = UUID()
