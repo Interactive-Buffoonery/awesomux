@@ -102,6 +102,7 @@ struct QuitRiskPolicyTests {
         exec: AgentExecutionState = .idle,
         changed: Date? = nil,
         away: Bool = false,
+        promptObserved: Bool = true,
         liveness: ForegroundProcessLiveness
     ) -> QuitRiskDecision {
         QuitRiskPolicy.closeDecision(
@@ -110,6 +111,7 @@ struct QuitRiskPolicyTests {
                 agentExecutionState: exec,
                 lastAgentStateChangeAt: changed ?? now,
                 awayFromPrompt: away,
+                promptObserved: promptObserved,
                 liveness: liveness
             ),
             at: now
@@ -128,6 +130,23 @@ struct QuitRiskPolicyTests {
         let d = decideClose(liveness: .bridged)
         #expect(!d.isRisk)
         #expect(d.reason == .shellAtPrompt)
+    }
+
+    @Test("close: an unobserved prompt marker does not make an idle bridge risky")
+    func closeBridgedWithoutObservedPrompt() {
+        let d = decideClose(away: true, promptObserved: false, liveness: .bridged)
+        #expect(!d.isRisk)
+        #expect(d.reason == .shellAtPrompt)
+        #expect(
+            decideClose(
+                .codex,
+                exec: .running,
+                changed: fresh(),
+                away: true,
+                promptObserved: false,
+                liveness: .bridged
+            ).reason == .activeAgentExecution
+        )
     }
 
     @Test("close: a bridged agent with fresh execution is a risk even at the prompt")

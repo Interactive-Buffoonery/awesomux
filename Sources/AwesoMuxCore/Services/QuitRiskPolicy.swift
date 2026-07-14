@@ -7,6 +7,10 @@ public struct QuitRiskInputs: Sendable, Hashable {
     /// The OSC-133 prompt-marker signal (`!cursorIsAtPrompt`). A corroborating
     /// risk signal, not the sole one — see INT-217 / the PR #142 lesson.
     public var awayFromPrompt: Bool
+    /// Whether this pane has emitted at least one trustworthy prompt marker.
+    /// Before that, `awayFromPrompt` is also Ghostty's startup default and
+    /// cannot prove that work is running.
+    public var promptObserved: Bool
     public var liveness: ForegroundProcessLiveness
 
     public init(
@@ -14,12 +18,14 @@ public struct QuitRiskInputs: Sendable, Hashable {
         agentExecutionState: AgentExecutionState,
         lastAgentStateChangeAt: Date,
         awayFromPrompt: Bool,
+        promptObserved: Bool = true,
         liveness: ForegroundProcessLiveness
     ) {
         self.agentKind = agentKind
         self.agentExecutionState = agentExecutionState
         self.lastAgentStateChangeAt = lastAgentStateChangeAt
         self.awayFromPrompt = awayFromPrompt
+        self.promptObserved = promptObserved
         self.liveness = liveness
     }
 }
@@ -55,7 +61,7 @@ public enum QuitRiskPolicy {
 
         // OSC-133 corroboration: away-from-prompt is a risk (overridden only by
         // the authoritative-safe cases above).
-        if inputs.awayFromPrompt {
+        if inputs.promptObserved && inputs.awayFromPrompt {
             return .risk(.terminalAwayFromPrompt)
         }
 
@@ -89,7 +95,7 @@ public enum QuitRiskPolicy {
         guard inputs.liveness == .bridged else {
             return decision(inputs, at: now)
         }
-        if inputs.awayFromPrompt {
+        if inputs.promptObserved && inputs.awayFromPrompt {
             return .risk(.terminalAwayFromPrompt)
         }
         if isFreshAgentExecution(inputs, at: now) {
