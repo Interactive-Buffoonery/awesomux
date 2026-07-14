@@ -84,19 +84,19 @@ struct WorkspaceSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Confirm before closing or restarting panes with activity",
-                    hint: "Ask before ⌘W closes a pane or restarts a single-pane shell with active agent or terminal activity. Skipped when nothing's at risk.",
+                    label: "Confirm before closing panes with activity",
+                    hint: "Ask before ⌘W closes a pane with running activity. The last pane closes the workspace (prompt above).",
                     forwardsAccessibilityToControl: true,
                     forwardsHintToControl: false
                 ) {
                     Toggle(
-                        "Confirm before closing or restarting panes with activity",
+                        "Confirm before closing panes with activity",
                         isOn: appSettingsStore.workspaces.binding(\.confirmDestructivePaneActionWithRunningAgent)
                     )
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .accessibilityHint(
-                            "Asks before Command-W closes a pane or restarts a single-pane shell whose agent or shell is active. Skipped when nothing is at risk. Workspace close has a separate prompt."
+                        "Asks before Command-W closes a pane whose agent or shell is active. Skipped when nothing is at risk. Command-W on a workspace's last pane closes the workspace and uses the workspace-close prompt."
                         )
                 }
             }
