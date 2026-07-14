@@ -45,21 +45,36 @@ compatibility spike proves otherwise.
 
 | Lane | Audience | Artifact | Signing | Distribution |
 | --- | --- | --- | --- | --- |
-| GitHub Release | Public stable and public prerelease users | `.dmg` or `.zip` plus checksum | Developer ID Application, hardened runtime, notarized and stapled | GitHub Releases |
-| Homebrew cask | Users who install apps from the terminal | Same public GitHub Release `.dmg` or `.zip` | Same Developer ID signed/notarized artifact | org tap first; optional `Homebrew/homebrew-cask` later |
+| GitHub Release | Public stable and public prerelease users | `.dmg` plus checksum | Developer ID Application, hardened runtime, notarized and stapled | GitHub Releases |
+| Homebrew cask | Users who install apps from the terminal | Same public GitHub Release `.dmg` | Same Developer ID signed/notarized artifact | org tap first; optional `Homebrew/homebrew-cask` later |
 | TestFlight | Internal and external beta testers | App Store Connect macOS build | App Store distribution signing and provisioning profile | TestFlight |
+
+## Versioning policy
+
+awesoMux uses Semantic Versioning (`MAJOR.MINOR.PATCH`). While the project is
+pre-1.0:
+
+- increment `PATCH` for fixes, documentation, release work, and small polish
+  that does not add a meaningful user capability
+- increment `MINOR` for a new user-facing feature or workflow
+- release `1.0.0` when the core product is stable enough to make compatibility
+  promises; after 1.0, increment `MAJOR` for incompatible changes
+
+`CFBundleShortVersionString` uses the numeric version, and Git tags add a `v`
+prefix, for example `0.2.0` and `v0.2.0`. `CFBundleVersion` is a separate,
+monotonically increasing build number.
+
+The release workflow accepts numeric `X.Y.Z` versions only. For a release
+candidate, create the normal numeric release as a GitHub prerelease. Promote
+that same release if it is accepted, or cut the next numeric version if the
+artifact changes. Do not use tags such as `v0.2.0-rc.1` unless the workflow and
+bundle-version handling are changed to support them first.
 
 ## Common setup checklist
 
 - [ ] Confirm Apple Developer Program team access for release owners.
 - [ ] Decide release owner and backup owner.
 - [ ] Decide the public release cadence: ad hoc, milestone-based, or calendar.
-- [ ] Decide versioning policy:
-  - [ ] `CFBundleShortVersionString` uses SemVer, for example `0.1.0`.
-  - [ ] `CFBundleVersion` is monotonic per App Store Connect requirements,
-        for example a timestamp or CI run number.
-  - [ ] Git tags use `vX.Y.Z`, for example `v0.1.0`.
-  - [ ] Release candidates use GitHub prereleases, for example `v0.1.0-rc.1`.
 - [ ] Add release metadata support to the staged `Info.plist`:
   - [ ] `CFBundleShortVersionString`
   - [ ] `CFBundleVersion`
@@ -162,7 +177,7 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [ ] `codesign --verify --deep --strict --verbose=2 dist/awesoMux.app`
   - [ ] inspect entitlements
 - [ ] Package the app:
-  - [ ] choose `.dmg` or `.zip` for the initial release
+  - [ ] create the `.dmg`
   - [ ] preserve the signed bundle exactly
   - [ ] remove `com.apple.quarantine` from release inputs
 - [ ] Notarize packaged artifact with `xcrun notarytool`.
@@ -173,6 +188,12 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
 - [ ] Generate checksums:
   - [ ] SHA-256 for every downloadable artifact
   - [ ] optional signed checksum file later
+
+The DMG is the outermost distributed container: sign the app and DMG, submit
+only the DMG to Apple's notary service, then staple and validate the DMG. After
+changing packaging or notarization, run the workflow manually without creating
+a draft and verify its downloaded DMG on another Mac before the next tag.
+
 - [x] Add a tag-triggered GitHub Actions workflow:
   - [x] only runs on protected `v*` tags or manual maintainer dispatch
         (tag push and `workflow_dispatch` are the only triggers; both gated by
@@ -181,7 +202,7 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [x] imports signing cert into a temporary keychain
   - [x] builds and signs
   - [x] notarizes and staples
-  - [x] uploads the signed zip + checksum as workflow artifacts (every run,
+  - [x] uploads the signed DMG + checksum as workflow artifacts (every run,
         7-day retention)
   - [x] can create a draft GitHub Release (`create_draft_release` input,
         off by default)
@@ -205,7 +226,7 @@ deployment branch/tag rules that must permit both branch `main` and tag
 pattern `v*` — Phase 1 dispatches from `main`, Phase 2 dispatches from tags.
 
 **Every dispatch run distributes the built artifact, regardless of the
-`create_draft_release` toggle.** The signed, notarized zip is always uploaded
+`create_draft_release` toggle.** The signed, notarized DMG is always uploaded
 as a workflow artifact, downloadable by any authenticated GitHub user for its
 7-day retention window. The toggle only gates whether a GitHub Release page
 gets created — it does not gate distribution.
@@ -593,7 +614,7 @@ distribution concern at once.
 - [ ] Create Developer ID release script.
 - [ ] Create notarized GitHub release workflow.
 - [ ] Add checksum generation and verification docs.
-- [ ] Decide GitHub artifact format: `.dmg` vs `.zip`.
+- [x] Use `.dmg` for the GitHub release artifact.
 - [ ] Create a dedicated GitHub issue for the Homebrew cask when release Phase 6 starts.
 - [ ] Create `Interactive-Buffoonery/homebrew-tap`.
 - [ ] Add initial `awesomux` cask.
