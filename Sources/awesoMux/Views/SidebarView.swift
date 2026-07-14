@@ -818,7 +818,7 @@ struct SidebarView: View {
         // pane's cwd/host than the row being rendered (review finding).
         let pane = session?.layout.pane(id: row.paneID)
         let location: SidebarSessionLocation? = pane.map { pane in
-            if let host = pane.remoteHost, !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let host = pane.remotePresentationHost {
                 return .remote(host: host)
             }
             return .local(pane.workingDirectory)

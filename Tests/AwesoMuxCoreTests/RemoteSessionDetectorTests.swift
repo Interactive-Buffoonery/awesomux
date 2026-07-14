@@ -479,6 +479,32 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteHost(store, pid) == "webserver")  // not cleared by churn
     }
 
+    @Test("declared SSH panes are indexed and marked stale before host observation")
+    func declaredSSHPanesAreIndexedAndMarkedStaleBeforeObservation() {
+        let target = RemoteTarget(user: "alice", host: "buildbox")!
+        let remotePane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/srv/app",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "w",
+            workingDirectory: "/tmp/stale-local",
+            layout: .pane(remotePane),
+            activePaneID: remotePane.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "g", sessions: [session])])
+
+        #expect(store.index.remotePaneIDs == Set([remotePane.id]))
+
+        store.markRemotePanesPossiblyStale()
+
+        #expect(
+            store.groups[0].sessions[0].layout.pane(id: remotePane.id)?.remoteConnectionHealth
+                == .possiblyStale
+        )
+    }
+
     @Test("a local-looking title does NOT clear remote — only a pwd event does")
     func localTitleDoesNotClearRemote() {
         let (store, sid, pid) = makeStore()

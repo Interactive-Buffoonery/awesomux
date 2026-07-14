@@ -165,6 +165,21 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
 }
 
 public extension TerminalPane {
+    /// Host identity used by remote presentation and conservative safety gates.
+    /// A durable SSH plan always wins; title-derived observation is only a
+    /// fallback for an ordinary local pane that the live terminal proves has
+    /// entered SSH.
+    var remotePresentationHost: String? {
+        if let target = executionPlan.remoteTarget {
+            return target.sshDestination
+        }
+        guard let remoteHost else {
+            return nil
+        }
+        let trimmed = remoteHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// Read-only projection of `agentExecutionState` + `attentionReason`, mirroring
     /// `TerminalSession.agentState` before the INT-504 relocation. Mutate the
     /// durable fields directly, or call `applyLegacyAgentState(_:_:)`.

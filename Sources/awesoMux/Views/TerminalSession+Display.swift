@@ -45,7 +45,7 @@ extension TerminalSession {
 
     var sidebarLocation: SidebarSessionLocation {
         let pane = activePane
-        if let remoteHost = pane?.remoteHost?.nilIfBlank {
+        if let remoteHost = pane?.remotePresentationHost {
             return .remote(host: remoteHost)
         }
 
@@ -110,11 +110,4 @@ struct SidebarSessionPeekRefreshKey: Equatable {
     let title: String
     let locationText: String
     let paneItems: [PanePeekItem]
-}
-
-private extension String {
-    var nilIfBlank: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 }

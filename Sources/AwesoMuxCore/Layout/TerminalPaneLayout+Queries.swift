@@ -70,7 +70,7 @@ public extension TerminalPaneLayout {
     internal func appendRemotePaneIDs(into ids: inout Set<TerminalPane.ID>) {
         switch self {
         case let .pane(pane):
-            if pane.remoteHost != nil {
+            if pane.remotePresentationHost != nil {
                 ids.insert(pane.id)
             }
         case let .split(split):

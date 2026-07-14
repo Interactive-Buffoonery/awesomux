@@ -108,6 +108,30 @@ struct TerminalSessionDisplayTests {
         #expect(session.sidebarLocation.displayText == "/tmp/local")
     }
 
+    @Test("declared SSH target wins over observed sidebar host")
+    func declaredSSHTargetWinsOverObservedSidebarHost() {
+        let target = RemoteTarget(user: "alice", host: "buildbox-alias")!
+        let pane = TerminalPane(
+            title: "deploy@resolved.example: ~/work",
+            workingDirectory: "/Users/example/local-before-ssh",
+            remoteHost: "resolved.example",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "shell",
+            workingDirectory: "/Users/example/local-before-ssh",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        #expect(session.sidebarLocation.displayText == "alice@buildbox-alias")
+        #expect(session.sidebarLocation.identityText == "remote:alice@buildbox-alias")
+        #expect(
+            session.sidebarLocation.accessibilityLabel
+                == "Remote session on alice@buildbox-alias"
+        )
+    }
+
     @Test("remote and local matching display strings have different identities")
     func remoteAndLocalMatchingDisplayStringsHaveDifferentIdentities() {
         let remotePane = TerminalPane(

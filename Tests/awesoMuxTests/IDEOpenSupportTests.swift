@@ -215,6 +215,25 @@ struct IDEOpenSupportTests {
         #expect(await IDEOpenTarget.resolve(session: session) == nil)
     }
 
+    @Test("declared SSH panes are ineligible before remote host observation")
+    func declaredSSHPaneIsIneligible() async throws {
+        let target = try #require(RemoteTarget(parsing: "buildbox"))
+        let session = TerminalSession(
+            title: "remote workspace",
+            workingDirectory: "/tmp/stale-local",
+            agentKind: .shell,
+            layout: .pane(
+                TerminalPane(
+                    title: "remote",
+                    workingDirectory: "/tmp/stale-local",
+                    executionPlan: .ssh(SSHExecution(target: target))
+                ))
+        )
+
+        #expect(!IDEOpenTarget.isEligible(session: session))
+        #expect(await IDEOpenTarget.resolve(session: session) == nil)
+    }
+
     @Test("fallback cwd targets must pass startup-directory validation before opening in an IDE")
     func fallbackCwdRequiresStartupDirectoryValidation() async {
         let session = TerminalSession(
