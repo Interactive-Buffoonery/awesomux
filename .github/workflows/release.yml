@@ -37,7 +37,11 @@ concurrency:
 jobs:
   release:
     name: Build, sign, and notarize
-    runs-on: macos-15
+    # macos-26, not macos-15: the app icon is an Icon Composer .icon that
+    # needs Xcode 26's actool, and Xcode 26 IB tooling crashes (dyld symbol
+    # mismatches) on a macOS 15 host — run 29300046831. The OS must match the
+    # Xcode generation the image ships.
+    runs-on: macos-26
     environment: release
     # Cold Ghostty rebuild + up to 45m Apple notarization + margin. The 6h
     # GitHub Actions default would hide a hung run for hours before anyone
