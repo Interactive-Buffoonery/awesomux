@@ -14,6 +14,7 @@ struct SidebarPresentationLayoutTests {
         let sidebarWidth: CGFloat
         let translation: CGFloat
         let expectedVisibleWidth: CGFloat
+        let expectedWorkgroupBoundary: CGFloat
     }
 
     @Test("left sidebar reveals from leading and peeks rightward")
@@ -71,16 +72,36 @@ struct SidebarPresentationLayoutTests {
     @Test(
         "workgroup stays outside the live overlay region",
         arguments: [
-            TitlebarCase(position: .left, titlebarWidth: 500, sidebarWidth: 60, translation: -60, expectedVisibleWidth: 0),
-            TitlebarCase(position: .left, titlebarWidth: 500, sidebarWidth: 60, translation: -30, expectedVisibleWidth: 30),
-            TitlebarCase(position: .left, titlebarWidth: 500, sidebarWidth: 60, translation: 0, expectedVisibleWidth: 60),
-            TitlebarCase(position: .left, titlebarWidth: 1_200, sidebarWidth: 300, translation: -180, expectedVisibleWidth: 120),
-            TitlebarCase(position: .left, titlebarWidth: 1_200, sidebarWidth: 300, translation: 0, expectedVisibleWidth: 300),
-            TitlebarCase(position: .right, titlebarWidth: 500, sidebarWidth: 60, translation: 60, expectedVisibleWidth: 0),
-            TitlebarCase(position: .right, titlebarWidth: 500, sidebarWidth: 60, translation: 30, expectedVisibleWidth: 30),
-            TitlebarCase(position: .right, titlebarWidth: 500, sidebarWidth: 60, translation: 0, expectedVisibleWidth: 60),
-            TitlebarCase(position: .right, titlebarWidth: 1_200, sidebarWidth: 300, translation: 180, expectedVisibleWidth: 120),
-            TitlebarCase(position: .right, titlebarWidth: 1_200, sidebarWidth: 300, translation: 0, expectedVisibleWidth: 300),
+            TitlebarCase(
+                position: .left, titlebarWidth: 500, sidebarWidth: 60, translation: -60, expectedVisibleWidth: 0,
+                expectedWorkgroupBoundary: 16),
+            TitlebarCase(
+                position: .left, titlebarWidth: 500, sidebarWidth: 60, translation: -30, expectedVisibleWidth: 30,
+                expectedWorkgroupBoundary: 46),
+            TitlebarCase(
+                position: .left, titlebarWidth: 500, sidebarWidth: 60, translation: 0, expectedVisibleWidth: 60,
+                expectedWorkgroupBoundary: 76),
+            TitlebarCase(
+                position: .left, titlebarWidth: 1_200, sidebarWidth: 300, translation: -180, expectedVisibleWidth: 120,
+                expectedWorkgroupBoundary: 136),
+            TitlebarCase(
+                position: .left, titlebarWidth: 1_200, sidebarWidth: 300, translation: 0, expectedVisibleWidth: 300,
+                expectedWorkgroupBoundary: 316),
+            TitlebarCase(
+                position: .right, titlebarWidth: 500, sidebarWidth: 60, translation: 60, expectedVisibleWidth: 0,
+                expectedWorkgroupBoundary: 484),
+            TitlebarCase(
+                position: .right, titlebarWidth: 500, sidebarWidth: 60, translation: 30, expectedVisibleWidth: 30,
+                expectedWorkgroupBoundary: 454),
+            TitlebarCase(
+                position: .right, titlebarWidth: 500, sidebarWidth: 60, translation: 0, expectedVisibleWidth: 60,
+                expectedWorkgroupBoundary: 424),
+            TitlebarCase(
+                position: .right, titlebarWidth: 1_200, sidebarWidth: 300, translation: 180, expectedVisibleWidth: 120,
+                expectedWorkgroupBoundary: 1_064),
+            TitlebarCase(
+                position: .right, titlebarWidth: 1_200, sidebarWidth: 300, translation: 0, expectedVisibleWidth: 300,
+                expectedWorkgroupBoundary: 884),
         ])
     func workgroupAvoidsLiveOverlay(testCase: TitlebarCase) {
         let state = SidebarHostPresentationState(mode: .hidden)
@@ -93,6 +114,12 @@ struct SidebarPresentationLayoutTests {
 
         let visibleWidth = state.currentTitlebarVisibleWidth(position: testCase.position)
         #expect(visibleWidth == testCase.expectedVisibleWidth)
+        let geometry = SidebarPresentationLayoutPolicy(position: testCase.position).titlebarGeometry(
+            titlebarWidth: testCase.titlebarWidth,
+            visibleSidebarWidth: visibleWidth
+        )
+        #expect(geometry.sidebarReservationWidth == testCase.expectedVisibleWidth)
+        #expect(geometry.workgroupBoundary == testCase.expectedWorkgroupBoundary)
     }
 
     @Test("overlay titlebar reuses one presentation translation sample")
@@ -110,19 +137,26 @@ struct SidebarPresentationLayoutTests {
 
         #expect(overlay.contains("let translation = hostPresentation.currentTitlebarTranslationX"))
         #expect(overlay.contains("translation: translation"))
-        #expect(overlay.contains("titlebarColumns(sidebarWidth: visibleWidth)"))
+        #expect(overlay.contains("visibleSidebarWidth: visibleWidth"))
+        #expect(overlay.contains("titlebarColumns(sidebarWidth: geometry.sidebarReservationWidth)"))
         #expect(overlay.contains(".offset(x: translation)"))
         #expect(overlay.components(separatedBy: "currentTitlebarTranslationX").count == 2)
     }
 
     @Test("hidden sidebar restores the original workgroup position on both sides")
     func hiddenSidebarRestoresWorkgroupPosition() {
-        let state = SidebarHostPresentationState(mode: .hidden)
-        state.beginOverlayTransition(presented: false, width: 300, position: .left)
+        let left = SidebarPresentationLayoutPolicy(position: .left).titlebarGeometry(
+            titlebarWidth: 500,
+            visibleSidebarWidth: 0
+        )
+        let right = SidebarPresentationLayoutPolicy(position: .right).titlebarGeometry(
+            titlebarWidth: 500,
+            visibleSidebarWidth: 0
+        )
 
-        #expect(state.currentTitlebarVisibleWidth(position: .left) == 0)
-        #expect(AppTitlebarMetrics.contentColumnGutter == 16)
-        state.beginOverlayTransition(presented: false, width: 300, position: .right)
-        #expect(state.currentTitlebarVisibleWidth(position: .right) == 0)
+        #expect(left.sidebarReservationWidth == 0)
+        #expect(left.workgroupBoundary == 16)
+        #expect(right.sidebarReservationWidth == 0)
+        #expect(right.workgroupBoundary == 484)
     }
 }
