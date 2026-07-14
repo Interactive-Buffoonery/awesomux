@@ -1,0 +1,339 @@
+name: Release
+
+# Phase 1 (this file): workflow_dispatch only, so it can be iterated on real
+# runs before the public v* tag trigger lands. Phase 2 is a follow-up PR that
+# adds `push: tags: ["v*"]` once a dispatch run has produced a valid draft
+# release end to end. See docs/releasing.md.
+#
+# script/build_release.sh is the single source of signing/notarization
+# behavior; this workflow only reconstructs the environment it needs
+# (checkout, Zig, Xcode, cached Ghostty artifacts, a temp signing keychain)
+# and calls it. No codesign/notarytool logic is inlined here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (X.Y.Z, matches CFBundleShortVersionString)"
+        required: true
+        type: string
+      create_draft_release:
+        description: "Create a draft GitHub Release from this run (workflow artifacts are always produced either way)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  # A release mid-notarization must never be cancelled by a newer dispatch —
+  # queue behind it instead.
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign, and notarize
+    runs-on: macos-15
+    environment: release
+    steps:
+      - name: Validate dispatch ref and version input
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Defense in depth on top of the `release` environment's deployment
+          # protection rules: dispatch can target any ref where this workflow
+          # file exists, so assert the ref ourselves too. Phase 2 widens this
+          # to refs/tags/v*.
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::release.yml (Phase 1) only runs from refs/heads/main; got $GITHUB_REF" >&2
+            exit 1
+          fi
+          # Fail before touching secrets or spending Zig/Xcode setup time on
+          # a malformed version — script/build_release.sh enforces the same
+          # grammar, but only after the expensive setup below.
+          if [[ ! "$VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version input must be X.Y.Z (three integers), got: $VERSION_INPUT" >&2
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Read Ghostty submodule pin and required Zig version
+        id: ghostty-pin
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git rev-parse HEAD:vendor/ghostty)"
+          # Mirrors read_ghostty_required_zig_version() in
+          # script/build_ghostty_xcframework.sh — replicate the mechanism,
+          # don't invent a second Zig version pin.
+          ZIG_VERSION="$(sed -nE 's/.*\.minimum_zig_version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' vendor/ghostty/build.zig.zon | head -n 1)"
+          if [[ -z "$ZIG_VERSION" ]]; then
+            echo "::error::could not read minimum_zig_version from vendor/ghostty/build.zig.zon" >&2
+            exit 1
+          fi
+          {
+            echo "ghostty_sha=$GHOSTTY_SHA"
+            echo "zig_version=$ZIG_VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install Zig (first-party download, checksum-verified)
+        env:
+          ZIG_VERSION: ${{ steps.ghostty-pin.outputs.zig_version }}
+        run: |
+          set -euo pipefail
+          # macos-15 hosted runners are Apple Silicon.
+          ZIG_TARGET="aarch64-macos"
+          INDEX_JSON="$(curl -fsSL --retry 3 https://ziglang.org/download/index.json)"
+          TARBALL_URL="$(jq -r --arg v "$ZIG_VERSION" --arg t "$ZIG_TARGET" '.[$v][$t].tarball // empty' <<<"$INDEX_JSON")"
+          EXPECTED_SHA256="$(jq -r --arg v "$ZIG_VERSION" --arg t "$ZIG_TARGET" '.[$v][$t].shasum // empty' <<<"$INDEX_JSON")"
+          if [[ -z "$TARBALL_URL" || -z "$EXPECTED_SHA256" ]]; then
+            echo "::error::ziglang.org's index.json has no $ZIG_TARGET entry for Zig $ZIG_VERSION" >&2
+            exit 1
+          fi
+          ARCHIVE="$RUNNER_TEMP/zig.tar.xz"
+          curl -fsSL --retry 3 "$TARBALL_URL" -o "$ARCHIVE"
+          ACTUAL_SHA256="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+          if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+            echo "::error::Zig tarball checksum mismatch (expected $EXPECTED_SHA256, got $ACTUAL_SHA256) — refusing to extract" >&2
+            exit 1
+          fi
+          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig"
+          mkdir -p "$ZIG_INSTALL_DIR"
+          tar -xJf "$ARCHIVE" -C "$ZIG_INSTALL_DIR" --strip-components=1
+          rm -f "$ARCHIVE"
+          echo "$ZIG_INSTALL_DIR" >> "$GITHUB_PATH"
+          "$ZIG_INSTALL_DIR/zig" version
+
+      - name: Select Xcode 16.x toolchain
+        id: xcode
+        run: |
+          set -euo pipefail
+          # Resilient-explicit beats hardcoding one Xcode path that a runner
+          # image update deletes: pick the newest Xcode 16.x actually present.
+          shopt -s nullglob
+          CANDIDATES=(/Applications/Xcode_16*.app)
+          shopt -u nullglob
+          if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
+            echo "::error::no Xcode 16.x app bundle found under /Applications" >&2
+            ls /Applications >&2
+            exit 1
+          fi
+          NEWEST="$(printf '%s\n' "${CANDIDATES[@]}" | sort -V | tail -n1)"
+          DEVELOPER_DIR="$NEWEST/Contents/Developer"
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          VERSION_STRING="$(DEVELOPER_DIR="$DEVELOPER_DIR" xcodebuild -version)"
+          XC_VERSION="$(awk '/^Xcode /{print $2}' <<<"$VERSION_STRING")"
+          XC_BUILD="$(awk '/^Build version/{print $3}' <<<"$VERSION_STRING")"
+          # Single sanitized token for the cache key — never raw multiline
+          # `xcodebuild -version` output.
+          XC_TOKEN="$(printf 'Xcode_%s-%s' "$XC_VERSION" "$XC_BUILD" | tr -c 'A-Za-z0-9_.-' '_')"
+          echo "xcode_id=$XC_TOKEN" >> "$GITHUB_OUTPUT"
+          echo "Selected $NEWEST ($XC_TOKEN)"
+
+      - name: Ensure Metal toolchain is installed
+        run: |
+          set -euo pipefail
+          # Required for Ghostty's shader compile on Xcode versions where
+          # Metal ships separately from the main toolchain.
+          if xcrun -sdk macosx metal -v >/dev/null 2>&1; then
+            echo "Metal toolchain already available via the selected Xcode."
+          else
+            echo "Metal toolchain not directly available; installing..."
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+
+      - name: Restore cached Ghostty artifacts
+        id: ghostty-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .build/ghostty
+          # v1 prefix is the manual poison-cache invalidation lever. Xcode
+          # bumps deliberately change the key: Ghostty archives built under
+          # one toolchain shouldn't silently serve another.
+          key: ghostty-v1-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.ghostty_sha }}-ReleaseFast-${{ steps.xcode.outputs.xcode_id }}
+
+      - name: Build or validate Ghostty artifacts
+        env:
+          AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
+        run: ./script/ensure_ghostty_artifacts.sh
+
+      - name: Save Ghostty artifacts to cache
+        if: steps.ghostty-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .build/ghostty
+          key: ${{ steps.ghostty-cache.outputs.cache-primary-key }}
+
+      - name: Import signing identity into a temporary keychain
+        id: keychain
+        env:
+          RELEASE_P12_BASE64: ${{ secrets.RELEASE_P12_BASE64 }}
+          RELEASE_P12_PASSWORD: ${{ secrets.RELEASE_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/release-signing.keychain-db"
+          P12_PATH="$RUNNER_TEMP/release-cert.p12"
+
+          ORIGINAL_DEFAULT_KEYCHAIN="$(security default-keychain -d user | xargs)"
+          ORIGINAL_SEARCH_LIST="$(security list-keychains -d user | sed -E 's/^[[:space:]]*"(.*)"[[:space:]]*$/\1/')"
+
+          {
+            echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD"
+            echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
+            echo "P12_PATH=$P12_PATH"
+            echo "ORIGINAL_DEFAULT_KEYCHAIN=$ORIGINAL_DEFAULT_KEYCHAIN"
+            echo "ORIGINAL_SEARCH_LIST<<RELEASE_SEARCH_LIST_EOF"
+            echo "$ORIGINAL_SEARCH_LIST"
+            echo "RELEASE_SEARCH_LIST_EOF"
+          } >> "$GITHUB_ENV"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          SEARCH_LIST_ARGS=()
+          while IFS= read -r kc; do
+            [[ -n "$kc" ]] && SEARCH_LIST_ARGS+=("$kc")
+          done <<<"$ORIGINAL_SEARCH_LIST"
+          # macOS's system /bin/bash is 3.2, where "${empty_array[@]}" under
+          # `set -u` throws "unbound variable" (fixed upstream in 4.4) — guard
+          # the expansion rather than assume a newer bash is first on PATH.
+          if [[ "${#SEARCH_LIST_ARGS[@]}" -gt 0 ]]; then
+            security list-keychains -d user -s "$KEYCHAIN_PATH" "${SEARCH_LIST_ARGS[@]}"
+          else
+            security list-keychains -d user -s "$KEYCHAIN_PATH"
+          fi
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # No auto-lock mid-build; a re-locked keychain is the classic
+          # headless-signing hang.
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+
+          printf '%s' "$RELEASE_P12_BASE64" | base64 -d > "$P12_PATH"
+          chmod 600 "$P12_PATH"
+
+          security import "$P12_PATH" -k "$KEYCHAIN_PATH" -P "$RELEASE_P12_PASSWORD" -T /usr/bin/codesign
+          # Explicit path — never let this default. Omitting this step is the
+          # classic headless-codesign hang (a UI password prompt that never
+          # appears).
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          IDENTITY_COUNT="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -c 'Developer ID Application' || true)"
+          if [[ "$IDENTITY_COUNT" -ne 1 ]]; then
+            echo "::error::expected exactly one 'Developer ID Application' identity in $KEYCHAIN_PATH, found $IDENTITY_COUNT" >&2
+            exit 1
+          fi
+
+      - name: Configure notarytool credentials
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          NOTARY_KEY_PATH="$RUNNER_TEMP/notary-key.p8"
+          printf '%s' "$NOTARY_KEY_P8" > "$NOTARY_KEY_PATH"
+          chmod 600 "$NOTARY_KEY_PATH"
+          echo "NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
+
+          # store-credentials validates against Apple on save — that's the
+          # credential smoke test. No separate `history` call: it would print
+          # account submission metadata into public CI logs.
+          xcrun notarytool store-credentials awesomux-notary \
+            --key "$NOTARY_KEY_PATH" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" \
+            --keychain "$KEYCHAIN_PATH"
+
+      - name: Build, sign, and notarize the release artifact
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          ./script/build_release.sh \
+            --version "$VERSION" \
+            --identity "Developer ID Application: Interactive Buffoonery (7CNK4YPCQX)" \
+            --notary-profile awesomux-notary \
+            --output dist/release
+
+      - name: Upload release zip
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: awesoMux-release-zip
+          path: dist/release/awesoMux-*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload release checksum
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: awesoMux-release-checksum
+          path: dist/release/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload notarization debug artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: awesoMux-release-debug
+          path: |
+            dist/release/notarization-log-*.json
+            dist/release/notarytool-submission-id-*.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Create draft GitHub Release
+        if: inputs.create_draft_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Draft releases do not create the tag ref until published (verified
+          # empirically with v0.1.0), so this stays public-surface-free.
+          gh release create "v$VERSION" \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --title "v$VERSION" \
+            --notes "Draft release created by release.yml (workflow_dispatch, Phase 1)." \
+            "dist/release/awesoMux-$VERSION.zip" \
+            "dist/release/awesoMux-$VERSION.zip.sha256"
+
+      - name: Clean up signing keychain and temp credentials
+        if: always()
+        run: |
+          set -euo pipefail
+          # Restore before delete: a re-pointed default keychain and search
+          # list must land before the temp keychain disappears, or later
+          # processes point at a deleted keychain.
+          if [[ -n "${ORIGINAL_DEFAULT_KEYCHAIN:-}" ]]; then
+            SEARCH_LIST_ARGS=()
+            if [[ -n "${ORIGINAL_SEARCH_LIST:-}" ]]; then
+              while IFS= read -r kc; do
+                [[ -n "$kc" ]] && SEARCH_LIST_ARGS+=("$kc")
+              done <<<"$ORIGINAL_SEARCH_LIST"
+            fi
+            if [[ "${#SEARCH_LIST_ARGS[@]}" -gt 0 ]]; then
+              security list-keychains -d user -s "${SEARCH_LIST_ARGS[@]}"
+            fi
+            security default-keychain -d user -s "$ORIGINAL_DEFAULT_KEYCHAIN"
+          fi
+
+          if [[ -n "${KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          fi
+
+          rm -f "${P12_PATH:-}" "${NOTARY_KEY_PATH:-}"
