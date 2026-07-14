@@ -640,7 +640,7 @@ extension SessionStore {
         }
 
         let oldSession = _groups[position.groupIndex].sessions[position.sessionIndex]
-        let wasRemote = oldSession.layout.pane(id: paneID)?.remoteHost != nil
+        let wasRemote = oldSession.layout.pane(id: paneID)?.remotePresentationHost != nil
         guard
             let session = PaneLayoutReducer.updatePane(
                 in: oldSession,
@@ -654,7 +654,7 @@ extension SessionStore {
             return
         }
 
-        let isRemote = session.layout.pane(id: paneID)?.remoteHost != nil
+        let isRemote = session.layout.pane(id: paneID)?.remotePresentationHost != nil
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
         var remoteMembership: [TerminalPane.ID: Bool] = [:]
         if isRemote {
