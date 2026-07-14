@@ -1,3 +1,4 @@
+import AwesoMuxCore
 import Darwin
 import Foundation
 
@@ -27,6 +28,30 @@ enum ProcessLivenessProbe {
     /// revalidate existence so a vanished parent yields nil (indeterminate) rather
     /// than false (idle-safe).
     static func hasChildren(pid: pid_t) -> Bool? {
+        childPIDs(pid: pid).map { !$0.isEmpty }
+    }
+
+    static func bridgedLiveness(
+        daemonPID: pid_t,
+        childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },
+        comm: (pid_t) -> String? = { ProcessLivenessProbe.foregroundComm(pid: $0) }
+    ) -> ForegroundProcessLiveness {
+        guard let daemonChildren = childPIDs(daemonPID) else { return .bridgedBusy }
+        for childPID in daemonChildren {
+            guard let childComm = comm(childPID), let children = childPIDs(childPID) else {
+                return .bridgedBusy
+            }
+            guard
+                ForegroundProcessLiveness.classifyBridged(
+                    rootComm: childComm,
+                    rootHasChildren: !children.isEmpty
+                ) == .bridged
+            else { return .bridgedBusy }
+        }
+        return .bridged
+    }
+
+    private static func childPIDs(pid: pid_t) -> [pid_t]? {
         guard pid > 0 else { return nil }
         let needed = proc_listpids(UInt32(PROC_PPID_ONLY), UInt32(pid), nil, 0)
         guard needed >= 0 else { return nil }
@@ -34,7 +59,7 @@ enum ProcessLivenessProbe {
             // proc_listpids returns 0 for BOTH "live parent, no children" AND
             // "parent already gone" — revalidate so a parent that exited in the
             // sampling window reports nil (indeterminate → warn), not idle.
-            return processExists(pid: pid) ? false : nil
+            return processExists(pid: pid) ? [] : nil
         }
         let capacity = Int(needed) / MemoryLayout<pid_t>.stride
         var pids = [pid_t](repeating: 0, count: max(capacity, 1))
@@ -44,9 +69,9 @@ enum ProcessLivenessProbe {
         if count == 0 {
             // Second call returned 0: the pid vanished between the sizing and
             // write calls (TOCTOU). Same ambiguity as needed==0; revalidate.
-            return processExists(pid: pid) ? false : nil
+            return processExists(pid: pid) ? [] : nil
         }
-        return pids.prefix(count).contains { $0 > 0 }
+        return pids.prefix(count).filter { $0 > 0 }
     }
 
     /// kill(pid, 0): 0 = exists; EPERM = exists but unsignalable; ESRCH = gone.
