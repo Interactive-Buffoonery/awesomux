@@ -8,6 +8,9 @@
 </p>
 <hr />
 
+<p align="center">
+  <img src="docs/images/awesomux-preview.png" alt="awesoMux main window: vertical sidebar of grouped sessions on the left, split terminal panes with fastfetch output, a floating quick-terminal overlay, and the agent status panel showing Claude and Codex sessions" width="900">
+</p>
 
 ## Who & Why 
 
