@@ -36,8 +36,8 @@ struct TerminalPanelWindowTests {
         panel.sendEvent(event)
     }
 
-    @Test("queued pointer event cannot re-key an evicted floating slot")
-    func queuedPointerEventCannotRekeyEvictedFloatingSlot() throws {
+    @Test("queued pointer events cannot re-key an evicted floating slot")
+    func queuedPointerEventsCannotRekeyEvictedFloatingSlot() throws {
         let workspace = TerminalSession(
             title: "main",
             workingDirectory: "/tmp",
@@ -63,7 +63,20 @@ struct TerminalPanelWindowTests {
             controller.evictFloatingSlot(for: workspace.id)
             panel.close()
         }
-        let queuedEvent = try #require(
+        let controllerKeyStateChanged = panel.onKeyStateChanged
+        var trueFocusCallbackCount = 0
+        panel.onKeyStateChanged = { isKey in
+            if isKey {
+                trueFocusCallbackCount += 1
+            }
+            controllerKeyStateChanged?(isKey)
+        }
+        panel.becomeKey()
+
+        #expect(controller.isPanelFocused)
+        #expect(trueFocusCallbackCount == 1)
+
+        let queuedMouseEvent = try #require(
             NSEvent.mouseEvent(
                 with: .leftMouseDown,
                 location: CGPoint(x: 10, y: 10),
@@ -75,13 +88,30 @@ struct TerminalPanelWindowTests {
                 clickCount: 1,
                 pressure: 1
             ))
+        let scrollEvent = try #require(
+            CGEvent(
+                scrollWheelEvent2Source: nil,
+                units: .pixel,
+                wheelCount: 2,
+                wheel1: 1,
+                wheel2: 0,
+                wheel3: 0
+            ))
+        scrollEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 2)
+        let queuedMomentumEvent = try #require(NSEvent(cgEvent: scrollEvent))
+
+        panel.resignKey()
+
+        #expect(!controller.isPanelFocused)
 
         controller.evictFloatingSlot(for: workspace.id)
-        panel.sendEvent(queuedEvent)
+        panel.sendEvent(queuedMouseEvent)
+        panel.sendEvent(queuedMomentumEvent)
 
         #expect(!panel.isPointerRekeyEnabled)
-        #expect(!panel.isKeyWindow)
+        #expect(!panel.canBecomeKey)
         #expect(!controller.isPanelFocused)
+        #expect(trueFocusCallbackCount == 1)
 
         controller.show(
             relativeTo: nil,
@@ -90,8 +120,11 @@ struct TerminalPanelWindowTests {
             appSettingsStore: settingsStore,
             announcement: .none
         )
+        panel.becomeKey()
 
         #expect(panel.isPointerRekeyEnabled)
         #expect(panel.canBecomeKey)
+        #expect(controller.isPanelFocused)
+        #expect(trueFocusCallbackCount == 2)
     }
 }
