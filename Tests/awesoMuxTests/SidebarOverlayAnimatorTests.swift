@@ -57,11 +57,11 @@ struct SidebarOverlayAnimatorTests {
         var completed: [UInt] = []
 
         animator.setPresented(
-            true, width: 300, position: .left, transition: .hover(), reduceMotion: false
+            true, width: 300, position: .left, transition: .hover, reduceMotion: false
         ) { completed.append($0) }
         driver.presentationTranslation = -120
         animator.setPresented(
-            false, width: 300, position: .left, transition: .hover(), reduceMotion: false
+            false, width: 300, position: .left, transition: .hover, reduceMotion: false
         ) { completed.append($0) }
 
         #expect(driver.requests.last?.from == -120)
@@ -78,11 +78,11 @@ struct SidebarOverlayAnimatorTests {
         let layer = CALayer()
         let driver = Driver()
         let animator = makeAnimator(layer: layer, driver: driver)
-        animator.setPresented(true, width: 300, position: .right, transition: .hover(), reduceMotion: false) { _ in }
-        animator.setPresented(true, width: 300, position: .right, transition: .hover(), reduceMotion: false) { _ in }
+        animator.setPresented(true, width: 300, position: .right, transition: .hover, reduceMotion: false) { _ in }
+        animator.setPresented(true, width: 300, position: .right, transition: .hover, reduceMotion: false) { _ in }
         #expect(driver.requests.count == 1)
         driver.completions[0]()
-        animator.setPresented(true, width: 300, position: .right, transition: .hover(), reduceMotion: false) { _ in }
+        animator.setPresented(true, width: 300, position: .right, transition: .hover, reduceMotion: false) { _ in }
         #expect(driver.requests.count == 1)
     }
 
@@ -93,7 +93,7 @@ struct SidebarOverlayAnimatorTests {
             let driver = Driver()
             let animator = makeAnimator(layer: layer, driver: driver)
             animator.setPresented(
-                true, width: 300, position: position, transition: .hover(), reduceMotion: false
+                true, width: 300, position: position, transition: .hover, reduceMotion: false
             ) { _ in }
             #expect(
                 animator.currentTranslation
@@ -107,7 +107,7 @@ struct SidebarOverlayAnimatorTests {
         let driver = Driver()
         let animator = makeAnimator(layer: layer, driver: driver)
         var completions = 0
-        animator.setPresented(true, width: 300, position: .left, transition: .hover(), reduceMotion: true) { _ in
+        animator.setPresented(true, width: 300, position: .left, transition: .hover, reduceMotion: true) { _ in
             completions += 1
         }
         #expect(driver.requests.isEmpty)
@@ -121,7 +121,7 @@ struct SidebarOverlayAnimatorTests {
         let driver = Driver()
         let animator = makeAnimator(layer: layer, driver: driver)
         animator.setPresented(
-            true, width: 300, position: .left, transition: .hover(), reduceMotion: false
+            true, width: 300, position: .left, transition: .hover, reduceMotion: false
         ) { _ in }
         driver.presentationTranslation = -225
 
@@ -129,12 +129,70 @@ struct SidebarOverlayAnimatorTests {
             fromWidth: 300,
             toWidth: 60,
             position: .left,
-            transition: .hover(),
+            transition: .hover,
             reduceMotion: false
         ) { _ in }
 
         #expect(driver.requests.last?.from == -45)
         #expect(driver.requests.last?.to == 0)
+    }
+
+    @Test("resize without a presentation layer uses the finite fallback on both sides")
+    func noPresentationResize() {
+        for position in [AppearanceConfig.SidebarPosition.left, .right] {
+            let layer = CALayer()
+            let driver = Driver()
+            let animator = makeAnimator(layer: layer, driver: driver)
+            animator.setPresented(
+                true, width: 300, position: position, transition: .hover, reduceMotion: false
+            ) { _ in }
+            animator.reframe(
+                fromWidth: 300,
+                toWidth: 60,
+                position: position,
+                transition: .hover,
+                reduceMotion: false
+            ) { _ in }
+            #expect(
+                driver.requests.last?.from
+                    == SidebarOverlayAnimator.hiddenTranslation(width: 60, position: position))
+        }
+    }
+
+    @Test("right resize restarts from its fraction-mapped translation")
+    func rightResizeRestart() {
+        let layer = CALayer()
+        let driver = Driver()
+        let animator = makeAnimator(layer: layer, driver: driver)
+        animator.setPresented(
+            true, width: 300, position: .right, transition: .hover, reduceMotion: false
+        ) { _ in }
+        driver.presentationTranslation = 225
+        animator.reframe(
+            fromWidth: 300,
+            toWidth: 60,
+            position: .right,
+            transition: .hover,
+            reduceMotion: false
+        ) { _ in }
+        #expect(driver.requests.last?.from == 45)
+        #expect(driver.requests.last?.to == 0)
+    }
+
+    @Test("hover uses the fixed duration and ease-in-out timing")
+    func fixedHoverContract() {
+        #expect(driverDurationForHover() == 0.140)
+        #expect(SidebarOverlayAnimator.timingFunctionName == .easeInEaseOut)
+    }
+
+    private func driverDurationForHover() -> TimeInterval {
+        let layer = CALayer()
+        let driver = Driver()
+        let animator = makeAnimator(layer: layer, driver: driver)
+        animator.setPresented(
+            true, width: 300, position: .left, transition: .hover, reduceMotion: false
+        ) { _ in }
+        return driver.requests[0].duration
     }
 
     private func makeAnimator(layer: CALayer, driver: Driver) -> SidebarOverlayAnimator {

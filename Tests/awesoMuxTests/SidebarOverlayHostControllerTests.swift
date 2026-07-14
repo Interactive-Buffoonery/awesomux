@@ -7,6 +7,11 @@ import Testing
 @Suite("Sidebar overlay host", .serialized)
 @MainActor
 struct SidebarOverlayHostControllerTests {
+    private final class AnimationDriver {
+        var presentationTranslation: CGFloat?
+        var completions: [() -> Void] = []
+        var requestCount = 0
+    }
     private struct RootFixture: View {
         let value: String
         var body: some View { Text(value) }
@@ -35,6 +40,28 @@ struct SidebarOverlayHostControllerTests {
         sidebar.view = AccessibilityRecordingView()
         let detail = NSViewController()
         let controller = SidebarSplitController(sidebar: sidebar, detail: detail)
+        controller.setSidebarPosition(position)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        return (controller, sidebar, detail)
+    }
+
+    private func makeControlledController(
+        position: AppearanceConfig.SidebarPosition = .left,
+        driver: AnimationDriver
+    ) -> (SidebarSplitController, NSViewController, NSViewController) {
+        let sidebar = NSViewController()
+        sidebar.view = AccessibilityRecordingView()
+        let detail = NSViewController()
+        let controller = SidebarSplitController(
+            sidebar: sidebar,
+            detail: detail,
+            overlayPresentationTranslation: { driver.presentationTranslation },
+            overlayAnimationRunner: { _, _, _, _, completion in
+                driver.requestCount += 1
+                driver.completions.append(completion)
+            })
         controller.setSidebarPosition(position)
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
@@ -93,7 +120,7 @@ struct SidebarOverlayHostControllerTests {
         let splitWidth = controller.sidebarSplitPaneWidthForTesting
 
         controller.setOverlayPresented(
-            true, transition: .hover(), reduceMotion: false)
+            true, transition: .hover, reduceMotion: false)
 
         #expect(
             controller.overlayContentViewForTesting.layer?.animation(
@@ -110,7 +137,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setSidebarWidth(300)
         controller.setSidebarHidden(true)
 
-        controller.setOverlayPresented(true, transition: .hover(), reduceMotion: true)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: true)
 
         #expect(
             controller.overlayContentViewForTesting.layer?.animation(
@@ -124,7 +151,7 @@ struct SidebarOverlayHostControllerTests {
         let (controller, sidebar, _) = makeController()
         controller.setSidebarWidth(300)
         controller.setSidebarHidden(true)
-        controller.setOverlayPresented(true, transition: .hover(), reduceMotion: false)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
 
         controller.setSidebarHidden(false)
         try await Task.sleep(for: .milliseconds(200))
@@ -132,6 +159,62 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.hostModeForTesting == .persistent(width: 300))
         #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
+    }
+
+    @Test("controller detach invalidates stale animation completion")
+    func detachInvalidatesCompletion() {
+        let driver = AnimationDriver()
+        let (controller, sidebar, _) = makeControlledController(driver: driver)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        let staleCompletion = driver.completions[0]
+
+        controller.viewWillDisappear()
+        staleCompletion()
+
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(controller.overlayClipViewForTesting.isHidden)
+    }
+
+    @Test("active accessibility focus retains overlay and cancels hide")
+    func accessibilityFocusRetainsOverlay() {
+        let driver = AnimationDriver()
+        let (controller, sidebar, _) = makeControlledController(driver: driver)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        driver.completions[0]()
+        controller.hasActiveSidebarAccessibilityFocus = { true }
+        let requestsBeforeHide = driver.requestCount
+
+        controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
+
+        #expect(driver.requestCount == requestsBeforeHide)
+        #expect(controller.hostModeForTesting == .overlay(width: 300))
+        #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
+    }
+
+    @Test("side change cancels old animation and permits fresh mirrored reveal")
+    func sideChangeLifecycle() {
+        let driver = AnimationDriver()
+        let (controller, sidebar, _) = makeControlledController(driver: driver)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        let staleCompletion = driver.completions[0]
+
+        controller.setSidebarPosition(.right)
+        staleCompletion()
+
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        #expect(driver.requestCount == 2)
+        #expect(controller.overlayClipViewForTesting.frame.maxX == controller.view.bounds.maxX)
+        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
     }
 
     @Test("reasserting hidden dismisses a presented overlay into stable hidden ownership")

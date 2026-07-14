@@ -4,12 +4,12 @@ import QuartzCore
 
 enum SidebarOverlayTransition: Equatable {
     case immediate
-    case hover(duration: TimeInterval = 0.140)
+    case hover
 
     var duration: TimeInterval {
         switch self {
         case .immediate: 0
-        case let .hover(duration): duration
+        case .hover: 0.140
         }
     }
 }
@@ -26,6 +26,7 @@ final class SidebarOverlayAnimator {
 
     static let animationKey = "awesomux.sidebarOverlay.translation"
     static let presentedTranslation: CGFloat = 0
+    static let timingFunctionName = CAMediaTimingFunctionName.easeInEaseOut
 
     private let layer: CALayer
     private let presentationTranslation: () -> CGFloat?
@@ -38,7 +39,7 @@ final class SidebarOverlayAnimator {
     var requestedPresentedForTesting: Bool? { requestedPresented }
     var requestedPresentedState: Bool? { requestedPresented }
     var currentTranslation: CGFloat {
-        presentationTranslation() ?? fallbackTranslation
+        finitePresentationTranslation ?? fallbackTranslation
     }
 
     init(
@@ -95,7 +96,7 @@ final class SidebarOverlayAnimator {
         let current: CGFloat
         if let currentOverride {
             current = currentOverride
-        } else if let presentation = presentationTranslation(), presentation.isFinite {
+        } else if let presentation = finitePresentationTranslation {
             current = presentation
         } else if !hadRequest, presented {
             current = Self.hiddenTranslation(width: width, position: position)
@@ -149,7 +150,7 @@ final class SidebarOverlayAnimator {
         completion: @escaping (UInt) -> Void
     ) {
         guard let requestedPresented else { return }
-        let current = presentationTranslation() ?? layer.transform.m41
+        let current = finitePresentationTranslation ?? fallbackTranslation
         let fraction = Self.visibleFraction(
             translationX: current,
             hiddenTranslationX: Self.hiddenTranslation(width: oldWidth, position: position))
@@ -203,6 +204,11 @@ final class SidebarOverlayAnimator {
         CATransaction.commit()
     }
 
+    private var finitePresentationTranslation: CGFloat? {
+        guard let translation = presentationTranslation(), translation.isFinite else { return nil }
+        return translation
+    }
+
     private static func runAnimation(
         layer: CALayer,
         from: CGFloat,
@@ -214,7 +220,7 @@ final class SidebarOverlayAnimator {
         animation.fromValue = from
         animation.toValue = to
         animation.duration = duration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.timingFunction = CAMediaTimingFunction(name: timingFunctionName)
         CATransaction.begin()
         CATransaction.setCompletionBlock(completion)
         layer.add(animation, forKey: animationKey)
