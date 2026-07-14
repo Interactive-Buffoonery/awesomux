@@ -2,14 +2,14 @@
 
 Default chords below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Services/KeyboardShortcutCatalog.swift)** and the **Workspace** / **File** commands in [`AwesoMuxApp`](../Sources/awesoMux/App/AwesoMuxApp.swift). If something drifts, the catalog wins. Users can override bindings in **Settings → Keys**; those overrides are stored in `config.toml` under `[keyboard.shortcuts.<id>]` and feed the menu shortcuts plus command-palette catalog.
 
-**Mental model:** one app window; a **workspace** is a sidebar session (tab idiom); a **pane** is a split inside that session. **⌘W** closes the **pane**, not the window—see [ADR 0002 — Window-close keybinding model](adr/0002-window-close-keybinding-model.md). In the empty welcome state (nothing selected), the same shortcut is titled **Close Window** and dismisses the window. By default, when the target pane has active agent or terminal activity, awesoMux asks before closing it or restarting the single-pane shell.
+**Mental model:** one app window; a **workspace** is a sidebar session (tab idiom); a **pane** is a split inside that session. **⌘W** closes the **pane**; on a workspace's last pane it closes the **workspace** instead (soft close, ⇧⌘T reopens)—see [ADR 0002 — Window-close keybinding model](adr/0002-window-close-keybinding-model.md) and its 2026-07-14 amendment. In the empty welcome state (nothing selected), the same shortcut is titled **Close Window** and dismisses the window. By default, awesoMux asks before ⌘W interrupts active agent or terminal activity, whether that closes a pane or the last-pane workspace. To restart a pane's shell in place without closing anything, use the **Restart Shell** command (command palette).
 
 ## File
 
 | Shortcut | Action |
 | --- | --- |
 | ⌘N | **New Workspace** |
-| ⌘W | Routes to a compact terminal first: hides the Floating Panel or minimizes the expanded Terminal Companion without ending its process (a minimized Companion corner tab yields ⌘W back to the pane). When both compact surfaces are open and neither is focused, ⌘W acts on the frontmost. Otherwise, **Close Pane** — or **Close Window** when no session is selected; may ask before interrupting active pane work |
+| ⌘W | Routes to a compact terminal first: hides the Floating Panel or minimizes the expanded Terminal Companion without ending its process (a minimized Companion corner tab yields ⌘W back to the pane). When both compact surfaces are open and neither is focused, ⌘W acts on the frontmost. Otherwise, **Close Pane** — or **Close Workspace** on a workspace's last pane (soft close, ⇧⌘T reopens), or **Close Window** when no session is selected; may ask before interrupting active pane or workspace work |
 
 ## Workspace menu
 

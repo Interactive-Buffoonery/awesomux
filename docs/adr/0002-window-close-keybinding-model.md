@@ -23,7 +23,7 @@ We adopt the **session-as-window** mental model and lock in iTerm/cmux-parity bi
 
 | Binding / Trigger | Action | Mental model |
 |---|---|---|
-| `Cmd-W` (user-initiated, session selected) | Close pane. If this would leave the session empty, **silent recycle**: terminate the current shell, spawn a fresh one in the same slot. No prompt, no hold state — user's intent is explicit. Session always has at least one pane. | "close tab" |
+| `Cmd-W` (user-initiated, session selected) | Close pane. If this would leave the session empty, **silent recycle**: terminate the current shell, spawn a fresh one in the same slot *(superseded — see Amendment below: last-pane `Cmd-W` now closes the workspace instead)*. No prompt, no hold state — user's intent is explicit. Session always has at least one pane. | "close tab" |
 | `Cmd-W` (no session selected — empty welcome state) | Close the app window via `NSWindow.performClose:`. App stays in the Dock. | "close window" — only path available when there's no pane to close |
 | `Cmd-Shift-W` | Close the session. | "close window" |
 | `Cmd-Q` | Quit the app, which closes the actual `NSWindow`. | "close app window" |
@@ -54,11 +54,11 @@ User-facing terminology stays `pane` / `session` / `workspace`. The outermost `N
 
 - INT-13 closes as resolved by reframing rather than rebinding. Users keep iTerm/cmux muscle memory; a11y review's "non-deterministic close behavior" concern is addressed by removing the fall-through, not by moving the bindings.
 - INT-8 (a11y polish) is unblocked — the previously-flagged keybinding hijack is no longer in scope for that bucket.
-- Pane recycling on the **user-initiated path** has a destructive edge today: a user with a long-running foreground process (build, `vim`, `top`) in the only pane can lose state on `Cmd-W`. **Mitigation:**
+- Pane recycling on the **user-initiated path** has a destructive edge today: a user with a long-running foreground process (build, `vim`, `top`) in the only pane can lose state on `Cmd-W`. **Mitigation** *(superseded — see Amendment below: `Cmd-W` no longer recycles a pane at all, on any pane count, so this toast plan doesn't apply to `Cmd-W`; the explicit Restart Shell command uses a confirmation dialog instead of a toast)*:
   - **Short-term**: when recycling a pane that has a non-shell foreground process (or unsaved-state hint), show a Warp-style warning toast before terminating. iTerm-style modal prompts are explicitly *not* the model — toast over modal.
   - **Long-term**: the planned session-resume feature (tmux session-restore semantics, no plugin) makes recycling effectively non-destructive — the recycled pane re-attaches to the prior shell state. Once that lands, the toast becomes informational rather than protective.
 - The **shell-exit path** does not need the foreground-process toast — by definition, the foreground process has already exited.
-- The dynamic menu copy bug (`Cmd-W` showing "Close Pane" when it would actually close the workspace) goes away because `Cmd-W` no longer ever closes the workspace. Menu copy stays "Close Pane" while a session is selected. In the empty welcome state (no sessions), the menu copy flips to "Close Window" so the visible label matches what the chord will actually do — a disabled button there would silently swallow Cmd-W (SwiftUI claims the chord even when disabled), which is a worse outcome than briefly retitling.
+- The dynamic menu copy bug (`Cmd-W` showing "Close Pane" when it would actually close the workspace) goes away because `Cmd-W` no longer ever closes the workspace *(superseded — see Amendment below: `Cmd-W` on a workspace's last pane now does close the workspace, and menu/palette copy is single-pane-aware for exactly that reason)*. Menu copy stays "Close Pane" while a session is selected. In the empty welcome state (no sessions), the menu copy flips to "Close Window" so the visible label matches what the chord will actually do — a disabled button there would silently swallow Cmd-W (SwiftUI claims the chord even when disabled), which is a worse outcome than briefly retitling.
 - ADR-0001's heuristic ("would someone a year from now ask 'why did we do it this way?'") squarely applies here. The bindings will look wrong to anyone reading the HIG without context — this ADR is the answer.
 
 ## Open follow-ups
@@ -85,7 +85,8 @@ Multi-pane `Cmd-W` still closes the innermost container (the pane); the
 "close tab" mental model is preserved. The `Cmd-Shift-W` binding is unchanged
 and now redundant with `Cmd-W` only in the single-pane case — an accepted
 redundancy, mirroring tabbed-app behavior where closing the last tab closes
-the window. Explicit shell restart remains available as its own command with
-its own confirmation. Visible command titles (File menu, Workspace menu,
+the window. Explicit shell restart remains available as its own "Restart
+Shell" command palette entry, with its own confirmation dialog. Visible
+command titles (File menu, Workspace menu,
 command palette, shortcut cheatsheet) follow the live pane count so no
 surface claims "Close Pane" when the workspace would close.

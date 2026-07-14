@@ -570,17 +570,17 @@ public final class SessionStore {
     ///
     /// **Capture-on-close invariant (INT-415):** This is the single point
     /// at which a workspace is removed from `groups`. Explicit UI close
-    /// gestures (⌘+⇧+W, sidebar context menu, sidebar close button) funnel
-    /// through `closeWorkspace(_:)` in `AwesoMuxApp`, which calls this
-    /// method. Last-pane terminal process exit reaches this method via
+    /// gestures (⌘+⇧+W, sidebar context menu, sidebar close button, and
+    /// single-pane ⌘W — `closeActivePane` routes that case through
+    /// `closeWorkspace(_:)` too, see ADR-0002's amendment) funnel through
+    /// `closeWorkspace(_:)` in `AwesoMuxApp`, which calls this method.
+    /// Last-pane terminal process exit reaches this method via
     /// `closePane(id:in:)` so ⌘+⇧+T can resurrect that workspace too.
     ///
     /// Adjacent paths that do NOT reach here, by design:
-    /// - **⌘W (`closeActivePane`)** guards on `hasMultiplePanes`; for the
-    ///   single-pane case it recycles the pane in place (see ADR-0002).
-    /// - **Still-alive runtime surface destruction** recycles the last pane
-    ///   in place. The workspace stays in `groups` and is therefore NOT
-    ///   pushed to `recentlyClosed`.
+    /// - **Explicit Restart Shell command** recycles the active pane's
+    ///   shell in place via `recycleActivePane`. The workspace stays in
+    ///   `groups` and is therefore NOT pushed to `recentlyClosed`.
     ///
     /// If a future refactor adds another removal path (e.g. group teardown
     /// with active sessions), it MUST push to `recentlyClosed` first or the

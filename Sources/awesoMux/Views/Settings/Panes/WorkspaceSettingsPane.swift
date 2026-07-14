@@ -65,7 +65,8 @@ struct WorkspaceSettingsPane: View {
 
                 SettingsField(
                     label: "Confirm before closing workspaces with activity",
-                    hint: "Ask before ⌘⇧W or the sidebar close button closes a workspace with active agent or terminal activity. Skipped when nothing's at risk. App quit (⌘Q) and pane close (⌘W) have their own prompts.",
+                    hint:
+                        "Ask before ⌘⇧W, the sidebar close button, or ⌘W on a workspace's last pane closes a workspace with active agent or terminal activity. Skipped when nothing's at risk. App quit (⌘Q) has its own prompt; ⌘W on any other pane uses the toggle below.",
                     forwardsAccessibilityToControl: true,
                     // Deliberate: the toggle's own hint below spells the
                     // shortcuts out for speech ("Command-Shift-W", not "⌘⇧W").
@@ -79,13 +80,14 @@ struct WorkspaceSettingsPane: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .accessibilityHint(
-                            "Asks before Command-Shift-W or the sidebar close button closes a workspace whose agent or shell is active. Skipped when nothing is at risk. Command-Q (app quit) and Command-W (pane close) have separate prompts."
+                        "Asks before Command-Shift-W, the sidebar close button, or Command-W on a workspace's last pane closes a workspace whose agent or shell is active. Skipped when nothing is at risk. Command-Q (app quit) has its own prompt. Command-W on any other pane uses the pane-confirmation toggle below."
                         )
                 }
 
                 SettingsField(
                     label: "Confirm before closing panes with activity",
-                    hint: "Ask before ⌘W closes a pane with running activity. The last pane closes the workspace (prompt above).",
+                    hint:
+                        "Ask before ⌘W closes a pane with running activity. On a workspace's last pane, this also gates the workspace-close prompt above.",
                     forwardsAccessibilityToControl: true,
                     forwardsHintToControl: false
                 ) {
@@ -96,7 +98,7 @@ struct WorkspaceSettingsPane: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .accessibilityHint(
-                        "Asks before Command-W closes a pane whose agent or shell is active. Skipped when nothing is at risk. Command-W on a workspace's last pane closes the workspace and uses the workspace-close prompt."
+                        "Asks before Command-W closes a pane whose agent or shell is active. Skipped when nothing is at risk. Command-W on a workspace's last pane closes the workspace; this toggle also gates that workspace-close prompt, in addition to the toggle above."
                         )
                 }
             }
