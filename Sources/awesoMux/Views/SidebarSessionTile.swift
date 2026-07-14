@@ -1116,6 +1116,14 @@ extension SidebarSessionTile: Equatable {
             canMakeWorkspaceManaged: canMakeWorkspaceManaged,
             isPinned: isPinned,
             pinnedOriginGroupName: pinnedOriginGroupName,
+            // Reads through the live `@Binding` getter — can't become a plain
+            // `Bool` field because the tile also WRITES through this same
+            // binding (the tap handler's `isKeyboardNavigating = false`), so
+            // the property has to stay a binding, not a captured value. That
+            // makes this a side-effect-free `@State` read from inside a
+            // `nonisolated` `==`, which only holds because SwiftUI's current
+            // pipeline runs `EquatableView` diffing on the main thread —
+            // revisit if a future SwiftUI moves view diffing off-main.
             isKeyboardNavigating: isKeyboardNavigating
         )
     }

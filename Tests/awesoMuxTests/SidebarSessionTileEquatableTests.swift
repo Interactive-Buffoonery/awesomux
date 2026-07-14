@@ -81,12 +81,13 @@ struct SidebarSessionTileEquatableTests {
         title: String = "workspace",
         panes: [TerminalPane],
         activePaneID: TerminalPane.ID? = nil,
-        notificationsMuted: Bool = false
+        notificationsMuted: Bool = false,
+        workingDirectory: String = "~"
     ) -> TerminalSession {
         TerminalSession(
             id: id,
             title: title,
-            workingDirectory: "~",
+            workingDirectory: workingDirectory,
             notificationsMuted: notificationsMuted,
             layout: layout(panes),
             activePaneID: activePaneID ?? panes[0].id
@@ -111,7 +112,8 @@ struct SidebarSessionTileEquatableTests {
         activePaneID: TerminalPane.ID? = nil,
         previousNeighborGroup: SessionGroup? = nil,
         nextNeighborGroup: SessionGroup? = nil,
-        otherGroups: [SessionGroup] = []
+        otherGroups: [SessionGroup] = [],
+        canMakeWorkspaceManaged: Bool = false
     ) -> SidebarSessionTile {
         let focusState = FocusState<SidebarVisibleRowTarget?>()
         return SidebarSessionTile(
@@ -142,7 +144,7 @@ struct SidebarSessionTileEquatableTests {
             onClose: {},
             onClear: {},
             onRename: {},
-            canMakeWorkspaceManaged: false,
+            canMakeWorkspaceManaged: canMakeWorkspaceManaged,
             onMakeWorkspaceManaged: {},
             onToggleNotificationsMute: {},
             isPinned: isPinned,
@@ -313,6 +315,58 @@ struct SidebarSessionTileEquatableTests {
         let sessionID = UUID()
         let tileA = tile(session: session(id: sessionID, panes: [shellPane, otherPane]))
         let tileB = tile(session: session(id: sessionID, panes: [claudePane, otherPane]))
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("attentionReason difference compares NOT equal")
+    func attentionReasonChangeRerenders() {
+        let id = UUID()
+        let quiet = pane(id: id, attention: nil)
+        let ringing = pane(id: id, attention: .bell)
+
+        let sessionID = UUID()
+        let tileA = tile(session: session(id: sessionID, panes: [quiet]))
+        let tileB = tile(session: session(id: sessionID, panes: [ringing]))
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("unread count difference compares NOT equal")
+    func unreadCountChangeRerenders() {
+        let id = UUID()
+        let quiet = pane(id: id, unread: 0)
+        let loud = pane(id: id, unread: 3)
+
+        let sessionID = UUID()
+        let tileA = tile(session: session(id: sessionID, panes: [quiet]))
+        let tileB = tile(session: session(id: sessionID, panes: [loud]))
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("canMakeWorkspaceManaged difference compares NOT equal")
+    func canMakeWorkspaceManagedChangeRerenders() {
+        let onePane = pane()
+        let sessionValue = session(panes: [onePane])
+
+        let tileA = tile(session: sessionValue, canMakeWorkspaceManaged: false)
+        let tileB = tile(session: sessionValue, canMakeWorkspaceManaged: true)
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("session-level workingDirectory difference compares NOT equal")
+    func sessionWorkingDirectoryChangeRerenders() {
+        // Pins A1: the active pane's own keyed cwd stays identical here — only
+        // the session-level field (updated independently by a background
+        // pane's cwd report) differs — so this can only fail if the render
+        // key drops back to relying on the per-pane cwd alone.
+        let onePane = pane()
+
+        let sessionID = UUID()
+        let tileA = tile(session: session(id: sessionID, panes: [onePane], workingDirectory: "~/project-a"))
+        let tileB = tile(session: session(id: sessionID, panes: [onePane], workingDirectory: "~/project-b"))
 
         #expect(tileA != tileB)
     }
