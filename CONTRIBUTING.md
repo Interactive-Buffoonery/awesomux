@@ -28,8 +28,10 @@ Knowing AI was used gives us context when reviewing PRs. It is not a mark agains
 bar applies either way: the change should be clear, tested where practical, and
 small enough for a maintainer to review with confidence.
 
-Do not use AI or machine translation as the sole way to translate text.
-Human-authored translation pull requests are welcome; see
+AI-assisted first drafts are permitted when a person proficient in the language
+substantively reviews and corrects them. Do not use AI or machine translation as
+the sole way to translate text. Human-reviewed translation pull requests are
+welcome; see
 [`docs/localization.md`](docs/localization.md) for the locale, review, and
 validation requirements. AI and other tools may still help with mechanical work
 such as catalog extraction, formatting, and placeholder validation.

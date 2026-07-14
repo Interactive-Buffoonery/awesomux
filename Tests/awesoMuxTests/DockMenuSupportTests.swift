@@ -46,7 +46,7 @@ struct DockMenuSupportTests {
 
     @Test("a generated recent workspace resolves its localized title metadata")
     func generatedWorkspaceUsesLocalizedTitle() throws {
-        let bundle = try #require(Self.pseudoLocaleBundle)
+        let bundle = try #require(AwesoMuxLocalizationTestSupport.bundle)
         let pane = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
         let workspace = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -67,7 +67,7 @@ struct DockMenuSupportTests {
             DockRecentWorkspaceMenu.displayTitle(
                 for: workspace,
                 bundle: bundle,
-                locale: Locale(identifier: "zz")
+                locale: AwesoMuxLocalizationTestSupport.pseudoLocale
             ) == "⟦2:⟦shell⟧⟧")
     }
 
@@ -169,16 +169,5 @@ struct DockMenuSupportTests {
         #expect(store.session(id: staleID) == nil)
         store.selectedSessionID = staleID
         #expect(store.selectedSession == nil)
-    }
-
-    private static var pseudoLocaleBundle: Bundle? {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(
-                path: "Fixtures/INT612Localization.bundle/zz.lproj",
-                directoryHint: .isDirectory
-            )
-        return Bundle(url: url)
     }
 }

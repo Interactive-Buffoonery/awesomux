@@ -8,7 +8,7 @@ struct SidebarSessionTileLocalizationTests {
     @Test("the tile's workspace identity resolves through the selected bundle")
     @MainActor
     func tileIdentityUsesLocalizedFormatter() throws {
-        let bundle = try #require(Self.pseudoLocaleBundle)
+        let bundle = try #require(AwesoMuxLocalizationTestSupport.bundle)
         let session = TerminalSession(
             title: "build",
             workingDirectory: "~",
@@ -21,14 +21,14 @@ struct SidebarSessionTileLocalizationTests {
                 session: session,
                 rollup: session.agentRollup(),
                 bundle: bundle,
-                locale: Locale(identifier: "zz")
+                locale: AwesoMuxLocalizationTestSupport.pseudoLocale
             ) == "⟦⟦idle⟧:build:⟦Shell⟧⟧")
     }
 
     @Test("the tile localizes a synthetic title with the selected locale")
     @MainActor
     func tileIdentityUsesSelectedLocaleForSyntheticTitle() throws {
-        let bundle = try #require(Self.pseudoLocaleBundle)
+        let bundle = try #require(AwesoMuxLocalizationTestSupport.bundle)
         let syntheticTitle = SyntheticSessionTitle(agentKind: .shell, index: 2)
         let session = TerminalSession(
             title: syntheticTitle.canonicalTitle,
@@ -42,18 +42,7 @@ struct SidebarSessionTileLocalizationTests {
                 session: session,
                 rollup: session.agentRollup(),
                 bundle: bundle,
-                locale: Locale(identifier: "zz")
+                locale: AwesoMuxLocalizationTestSupport.pseudoLocale
             ) == "⟦⟦idle⟧:⟦2:⟦shell⟧⟧:⟦Shell⟧⟧")
-    }
-
-    private static var pseudoLocaleBundle: Bundle? {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(
-                path: "Fixtures/INT612Localization.bundle/zz.lproj",
-                directoryHint: .isDirectory
-            )
-        return Bundle(url: url)
     }
 }
