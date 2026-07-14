@@ -159,14 +159,24 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(status: .needsRepair("Some awesoMux Codex hooks are disabled or missing"))
         }
 
-        if matchingHooks.contains(where: { $0.trustStatus == .untrusted || $0.trustStatus == .firstSeen }) {
+        if matchingHooks.contains(where: { $0.trustStatus == .untrusted }) {
             return AgentPluginStatusReport(status: .needsReview("Approve the awesoMux hook in Codex to let it run"))
         }
 
-        if matchingHooks.contains(where: { $0.trustStatus == .changed }) {
-            // Decision 5: treat `changed` as needs-review in v1; hash-comparison
+        if matchingHooks.contains(where: { $0.trustStatus == .modified }) {
+            // Decision 5: treat `modified` as needs-review in v1; hash-comparison
             // repair (user edit vs. our render drift) is a follow-up.
             return AgentPluginStatusReport(status: .needsReview("The hook changed since it was approved; re-approve it in Codex"))
+        }
+
+        if let unknown = matchingHooks.compactMap({ hook -> String? in
+            guard case .unknown(let value) = hook.trustStatus else { return nil }
+            return value
+        }).first {
+            return AgentPluginStatusReport(
+                status: .needsReview(
+                    "Codex reported an unfamiliar hook trust state (\(unknown)); review the hook in Codex"
+                ))
         }
 
         // Bundled source moved under the user (app update) outranks "enabled":

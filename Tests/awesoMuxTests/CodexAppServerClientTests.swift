@@ -12,7 +12,7 @@ struct ProcessCodexAppServerClientTests {
 
         let hooks = try await client.hooksList()
         #expect(hooks.count == 4)
-        #expect(hooks.map(\.trustStatus) == [.firstSeen, .untrusted, .trusted, .changed])
+        #expect(hooks.map(\.trustStatus) == [.managed, .untrusted, .trusted, .modified])
 
         let trusted = try #require(hooks.first { $0.trustStatus == .trusted })
         #expect(trusted.pluginId == "awesomux-codex-status@awesomux")
@@ -23,10 +23,10 @@ struct ProcessCodexAppServerClientTests {
         #expect(trusted.sourcePath == "/home/.codex/config.toml")
         #expect(trusted.source == "plugin")
 
-        // The managed/first-seen entry carries a null pluginId — the optional must
+        // The managed entry carries a null pluginId — the optional must
         // round-trip rather than fail decoding.
-        let firstSeen = try #require(hooks.first { $0.trustStatus == .firstSeen })
-        #expect(firstSeen.pluginId == nil)
+        let managed = try #require(hooks.first { $0.trustStatus == .managed })
+        #expect(managed.pluginId == nil)
 
         // The request the client framed must be a well-formed hooks/list call.
         let sent = try #require(transport.sentMessages.first)
@@ -34,6 +34,19 @@ struct ProcessCodexAppServerClientTests {
         #expect(request.jsonrpc == "2.0")
         #expect(request.id == 1)
         #expect(request.method == "hooks/list")
+    }
+
+    @Test("legacy and unfamiliar trust statuses remain decodable")
+    func decodesCompatibleTrustStatuses() throws {
+        let decoder = JSONDecoder()
+
+        let firstSeen = try decoder.decode(HookTrustStatus.self, from: Data(#""first-seen""#.utf8))
+        let changed = try decoder.decode(HookTrustStatus.self, from: Data(#""changed""#.utf8))
+        let future = try decoder.decode(HookTrustStatus.self, from: Data(#""future-state""#.utf8))
+
+        #expect(firstSeen == .untrusted)
+        #expect(changed == .modified)
+        #expect(future == .unknown("future-state"))
     }
 
     @Test("empty hooks/list data decodes to no hooks")
@@ -282,6 +295,43 @@ struct ProcessCodexAppServerClientTests {
     }
 }
 
+@Suite("Live Codex app-server")
+struct ProcessCodexAppServerClientLiveTests {
+    private static let environment = ProcessInfo.processInfo.environment
+
+    @Test(
+        .enabled(
+            if: Self.environment["AWESOMUX_LIVE_CODEX_HOME"] != nil,
+            "run script/test_live_codex_plugin.sh to enable the live probe"
+        ))
+    func installedPluginHooksDecodeThroughProductionClient() async throws {
+        let codexHome = try #require(Self.environment["AWESOMUX_LIVE_CODEX_HOME"])
+        let codexBinary = try #require(Self.environment["AWESOMUX_LIVE_CODEX_BINARY"])
+        let searchPath = Self.environment["PATH"] ?? ProcessCommandRunner.defaultToolPath
+        let client = try ProcessCodexAppServerClient.spawning(
+            codexExecutable: codexBinary,
+            codexHome: codexHome,
+            searchPath: searchPath
+        )
+        defer { client.close() }
+
+        let hooks = try await client.hooksList()
+        let matchingHooks = hooks.filter {
+            $0.pluginId?.hasPrefix("awesomux-codex-status@") == true
+        }
+
+        #expect(
+            !matchingHooks.isEmpty,
+            "No awesoMux Codex hooks were discovered under CODEX_HOME=\(codexHome)"
+        )
+        for hook in matchingHooks {
+            if case .unknown(let value) = hook.trustStatus {
+                Issue.record("Codex returned an unfamiliar trust state: \(value)")
+            }
+        }
+    }
+}
+
 @Suite("ProcessCodexAppServerTransport executable resolution")
 struct ProcessCodexAppServerTransportResolutionTests {
     @Test("a bare name absent from the search path throws appServerUnavailable")
@@ -376,7 +426,7 @@ private extension ProcessCodexAppServerClientTests {
           {"key":"config.toml:session_start:0:0","eventName":"session_start",\
         "handlerType":"command","matcher":null,"command":"helper","timeoutSec":5,\
         "displayOrder":0,"isManaged":true,\
-        "pluginId":null,"enabled":true,"currentHash":"sha256:aaaa","trustStatus":"first-seen",\
+        "pluginId":null,"enabled":true,"currentHash":"sha256:aaaa","trustStatus":"managed",\
         "sourcePath":"/home/.codex/config.toml","source":"managed"},
           {"key":"config.toml:session_start:1:0","eventName":"session_start","isManaged":false,\
         "pluginId":"awesomux-codex-status@awesomux","enabled":true,"currentHash":"sha256:bbbb",\
@@ -386,7 +436,7 @@ private extension ProcessCodexAppServerClientTests {
         "trustStatus":"trusted","sourcePath":"/home/.codex/config.toml","source":"plugin"},
           {"key":"config.toml:session_start:3:0","eventName":"session_start","isManaged":false,\
         "pluginId":"awesomux-codex-status@awesomux","enabled":true,"currentHash":"sha256:dddd",\
-        "trustStatus":"changed","sourcePath":"/home/.codex/config.toml","source":"user"}
+        "trustStatus":"modified","sourcePath":"/home/.codex/config.toml","source":"user"}
         ],"warnings":[],"errors":[]}]}}
         """
     }

@@ -50,13 +50,40 @@ struct HookEntry: Codable, Equatable, Sendable {
 
 // MARK: - HookTrustStatus
 
-/// Trust state of a Codex hook. Raw values are the exact wire strings the
-/// app-server emits. A hook runs only when it is `enabled` *and* `trusted`;
-/// `firstSeen`/`untrusted` mean awaiting approval (→ `Needs review`) and
-/// `changed` means the computed hash diverged from the approved one.
-enum HookTrustStatus: String, Codable, Equatable, Sendable {
-    case firstSeen = "first-seen"
+/// Trust state of a Codex hook. A hook runs only when it is `enabled` and either
+/// managed or trusted. Legacy wire values normalize to the current vocabulary;
+/// unfamiliar values stay decodable so another plugin cannot break our status
+/// probe when Codex extends the protocol.
+enum HookTrustStatus: Codable, Equatable, Sendable {
+    case managed
     case untrusted
     case trusted
-    case changed
+    case modified
+    case unknown(String)
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        self =
+            switch value {
+            case "managed": .managed
+            case "untrusted", "first-seen": .untrusted
+            case "trusted": .trusted
+            case "modified", "changed": .modified
+            default: .unknown(value)
+            }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        let value =
+            switch self {
+            case .managed: "managed"
+            case .untrusted: "untrusted"
+            case .trusted: "trusted"
+            case .modified: "modified"
+            case .unknown(let value): value
+            }
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
 }
