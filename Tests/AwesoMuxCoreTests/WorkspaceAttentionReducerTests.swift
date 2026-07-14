@@ -34,7 +34,7 @@ struct WorkspaceAttentionReducerTests {
             unreadNotificationCount: 2
         )
 
-        let change = WorkspaceAttentionReducer.updatePane(
+        let outcome = WorkspaceAttentionReducer.updatePane(
             &session,
             paneID: session.activePaneID,
             update: .init(
@@ -50,16 +50,18 @@ struct WorkspaceAttentionReducerTests {
         #expect(session.agentExecutionState == .running)
         #expect(session.attentionReason == nil)
         #expect(session.unreadNotificationCount == 0)
-        #expect(change?.oldCount == 2)
-        #expect(change?.newCount == 0)
+        #expect(outcome.didMutate == true)
+        #expect(outcome.unreadChange?.oldCount == 2)
+        #expect(outcome.unreadChange?.newCount == 0)
     }
 
-    @Test("every execution-state event refreshes the activity clock (quit-risk liveness)")
+    @Test("execution-state events refresh the activity clock across the coarsening window (quit-risk liveness)")
     func executionStateEventRefreshesActivityClock() throws {
         var session = TerminalSession(
             title: "web",
             workingDirectory: "~",
-            agentKind: .claudeCode
+            agentKind: .claudeCode,
+            lastAgentStateChangeAt: Date(timeIntervalSince1970: 0)
         )
         let paneID = session.activePaneID
 
@@ -70,9 +72,11 @@ struct WorkspaceAttentionReducerTests {
         )
         #expect(session.layout.pane(id: paneID)?.lastAgentStateChangeAt == Date(timeIntervalSince1970: 100))
 
-        // A repeated identical state is an activity heartbeat: it MUST refresh
-        // the clock so `isQuitRisk()` keeps treating the agent as live (a fix
-        // that gated this on value-change silently broke the quit-risk warning).
+        // A repeated identical state PAST the coarsening window (perf/main-thread-churn:
+        // this 100s gap is well beyond the 10s coarsening grain) is still a liveness
+        // heartbeat: it refreshes the clock so `isQuitRisk()` keeps treating the agent
+        // as live. A repeat WITHIN the window intentionally does NOT refresh anymore —
+        // see `WorkspaceAttentionReducerHeartbeatTests` for that gate.
         _ = WorkspaceAttentionReducer.updatePane(
             &session, paneID: paneID,
             update: .init(agentExecutionState: .running),
