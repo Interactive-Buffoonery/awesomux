@@ -60,6 +60,27 @@ struct DestructivePaneActionConfirmationPolicyTests {
         )
     }
 
+    @Test("bridged away-from-prompt active pane prompts for pane close (quit-safe but close-risky)")
+    func bridgedAwayFromPromptActivePanePromptsForPaneClose() {
+        var bridgedPane = pane(title: "Bridged")
+        bridgedPane.foregroundProcessLiveness = .bridged
+        bridgedPane.needsTerminalQuitConfirmation = true
+        bridgedPane.terminalPromptObserved = true
+        let idlePane = pane(title: "Idle")
+        let session = splitSession(activePane: bridgedPane, otherPane: idlePane)
+
+        // `isQuitRisk` treats a bridged pane as always-safe (work survives app
+        // quit), so the old gate would have returned `.proceedWithoutPrompt`
+        // here. Pane close/restart destroys the daemon session too, so this
+        // must go through `isCloseRisk` and prompt.
+        let decision = DestructivePaneActionConfirmationPolicy.decision(
+            session: session,
+            workspaces: .defaultValue
+        )
+
+        #expect(decision == .prompt(.closePane))
+    }
+
     @Test("risky sibling does not prompt when active pane is safe")
     func riskySiblingDoesNotPromptWhenActivePaneIsSafe() {
         let active = pane(title: "Active")
@@ -117,11 +138,12 @@ struct DestructivePaneActionConfirmationPolicyTests {
         TerminalSession(
             title: "Split",
             workingDirectory: "/tmp",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(activePane),
-                second: .pane(otherPane)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(activePane),
+                    second: .pane(otherPane)
+                )),
             activePaneID: activePane.id
         )
     }
