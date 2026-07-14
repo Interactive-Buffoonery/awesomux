@@ -53,7 +53,15 @@ enum DestructivePaneActionConfirmationPolicy {
             return .unavailable
         }
 
-        let action: Action = session.layout.isSinglePane ? .restartShell : .closePane
+        // Single-pane ⌘W is a workspace close, not a pane action — the caller
+        // (closeActivePane) routes it to closeWorkspace(_:) before consulting
+        // this policy. Landed atomically with that routing; if you are reading
+        // this without the closeActivePane early-branch, something reverted.
+        guard !session.layout.isSinglePane else {
+            return .unavailable
+        }
+
+        let action: Action = .closePane
         guard activePane.isQuitRisk(at: now) else {
             return .proceedWithoutPrompt(action)
         }

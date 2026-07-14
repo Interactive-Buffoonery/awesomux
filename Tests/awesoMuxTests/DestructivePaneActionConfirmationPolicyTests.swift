@@ -5,8 +5,8 @@ import Testing
 
 @Suite("DestructivePaneActionConfirmationPolicy")
 struct DestructivePaneActionConfirmationPolicyTests {
-    @Test("single risky pane prompts for shell restart")
-    func singleRiskyPanePromptsForShellRestart() {
+    @Test("single-pane session is unavailable regardless of quit risk")
+    func singlePaneSessionIsUnavailable() {
         let session = TerminalSession(
             title: "Agent",
             workingDirectory: "/tmp",
@@ -19,7 +19,9 @@ struct DestructivePaneActionConfirmationPolicyTests {
             workspaces: .defaultValue
         )
 
-        #expect(decision == .prompt(.restartShell))
+        // The caller (closeActivePane) routes single-pane sessions to
+        // closeWorkspace(_:) before ever consulting this policy.
+        #expect(decision == .unavailable)
     }
 
     @Test("multi-pane risky active pane prompts for pane close")
@@ -43,11 +45,12 @@ struct DestructivePaneActionConfirmationPolicyTests {
         let second = pane(title: "Second")
         let split = splitSession(activePane: first, otherPane: second)
 
+        // Single-pane: caller routes to closeWorkspace(_:) before this policy runs.
         #expect(
             DestructivePaneActionConfirmationPolicy.decision(
                 session: single,
                 workspaces: .defaultValue
-            ) == .proceedWithoutPrompt(.restartShell)
+            ) == .unavailable
         )
         #expect(
             DestructivePaneActionConfirmationPolicy.decision(
@@ -71,7 +74,7 @@ struct DestructivePaneActionConfirmationPolicyTests {
         #expect(decision == .proceedWithoutPrompt(.closePane))
     }
 
-    @Test("disabled setting proceeds without prompt for risky panes")
+    @Test("disabled setting does not resurrect single-pane restart decisions")
     func disabledSettingProceedsWithoutPromptForRiskyPanes() {
         let session = TerminalSession(
             title: "Agent",
@@ -88,7 +91,10 @@ struct DestructivePaneActionConfirmationPolicyTests {
             workspaces: workspaces
         )
 
-        #expect(decision == .proceedWithoutPrompt(.restartShell))
+        // Single-pane is unavailable unconditionally; the caller routes to
+        // closeWorkspace(_:) before this policy runs, so this setting has
+        // no bearing on the single-pane path.
+        #expect(decision == .unavailable)
     }
 
     private func pane(

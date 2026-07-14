@@ -2128,6 +2128,14 @@ struct AwesoMuxApp: App {
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
         guard let session = sessionStore.session(id: sessionID) else { return }
 
+        // Last pane = the workspace: route through the same soft-close funnel as
+        // the sidebar X (confirm gate, floating-slot eviction, recently-closed
+        // capture) instead of recycling the shell in place. ⇧⌘T reopens.
+        if session.layout.isSinglePane {
+            closeWorkspace(session)
+            return
+        }
+
         let targetPaneID = session.activePaneID
         let action: DestructivePaneActionConfirmationPolicy.Action
         switch DestructivePaneActionConfirmationPolicy.decision(
@@ -2152,19 +2160,9 @@ struct AwesoMuxApp: App {
 
         switch action {
         case .restartShell:
-            guard let refreshed = sessionStore.session(id: sessionID),
-                refreshed.layout.isSinglePane
-            else {
-                assertionFailure(
-                    "Single-pane restart action resolved for a stale or multi-pane session"
-                )
-                return
-            }
-            GhosttySurfaceNSView.recycleAndAnnounce(
-                sessionID: sessionID,
-                sessionStore: sessionStore,
-                runtime: ghosttyRuntime
-            )
+            // Single-pane sessions route to closeWorkspace(_:) above before this
+            // policy runs, so the pane policy never resolves .restartShell here.
+            assertionFailure("single-pane routes to closeWorkspace before the pane policy")
         case .closePane:
             guard let refreshed = sessionStore.session(id: sessionID),
                 refreshed.layout.hasMultiplePanes,
