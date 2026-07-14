@@ -29,8 +29,8 @@ struct SessionPeekItemTests {
         #expect(items[1].isActive == true)
     }
 
-    @Test("remote session is flagged isRemote")
-    func remoteSessionFlagged() {
+    @Test("remote session names its exact declared target")
+    func remoteSessionNamesTarget() {
         let pane = TerminalPane(
             title: "remote",
             workingDirectory: "/tmp",
@@ -46,6 +46,35 @@ struct SessionPeekItemTests {
 
         let items = SessionPeekItem.items(for: [session], activeSessionID: TerminalSession.ID?.none)
 
-        #expect(items[0].isRemote == true)
+        #expect(items[0].locationText == "SSH · box.example.com")
+        #expect(items[0].accessibilityLocationText == "Remote panes on box.example.com")
+    }
+
+    @Test("multi-pane session describes mixed locations")
+    func mixedSessionNamesLocations() {
+        let target = RemoteTarget(user: "alice", host: "box.example.com")!
+        let local = TerminalPane(title: "local", workingDirectory: "~", executionPlan: .local)
+        let remote = TerminalPane(
+            title: "remote",
+            workingDirectory: "~",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "Mixed",
+            workingDirectory: "~",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(local),
+                    second: .pane(remote)
+                )
+            ),
+            activePaneID: local.id
+        )
+
+        let item = SessionPeekItem.items(for: [session], activeSessionID: nil)[0]
+
+        #expect(item.locationText == "Mixed locations")
+        #expect(item.accessibilityLocationText == "Local and remote panes on alice@box.example.com")
     }
 }
