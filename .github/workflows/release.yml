@@ -28,8 +28,10 @@ permissions:
 
 concurrency:
   group: release
-  # A release mid-notarization must never be cancelled by a newer dispatch —
-  # queue behind it instead.
+  # GitHub holds at most one PENDING run per concurrency group — a newer
+  # dispatch replaces an older, still-queued one rather than lining up behind
+  # it. cancel-in-progress: false only guarantees a RUNNING release is never
+  # cancelled by a newer dispatch; it says nothing about queued runs.
   cancel-in-progress: false
 
 jobs:
@@ -37,6 +39,16 @@ jobs:
     name: Build, sign, and notarize
     runs-on: macos-15
     environment: release
+    # Cold Ghostty rebuild + up to 45m Apple notarization + margin. The 6h
+    # GitHub Actions default would hide a hung run for hours before anyone
+    # notices.
+    timeout-minutes: 180
+    env:
+      # Job-level (not step-level) so it's both a real shell env var in every
+      # run: step AND usable via ${{ env.AWESOMUX_GHOSTTY_OPTIMIZE }} in the
+      # Ghostty cache key below — a sibling step's own env: block isn't
+      # visible to ${{ }} expressions.
+      AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
     steps:
       - name: Validate dispatch ref and version input
         env:
@@ -59,6 +71,56 @@ jobs:
             exit 1
           fi
 
+      - name: Verify required release secrets are present
+        env:
+          RELEASE_P12_BASE64: ${{ secrets.RELEASE_P12_BASE64 }}
+          RELEASE_P12_PASSWORD: ${{ secrets.RELEASE_P12_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          # GitHub silently auto-creates a referenced Environment if it
+          # doesn't exist yet, and an undefined secret just reads as an empty
+          # string instead of failing the run — without this check, a
+          # typo'd secret name fails 20+ minutes in with a raw `security` or
+          # `xcrun notarytool` error instead of a clear one up front.
+          REQUIRED_SECRETS=(RELEASE_P12_BASE64 RELEASE_P12_PASSWORD NOTARY_KEY_P8 NOTARY_KEY_ID NOTARY_ISSUER_ID)
+          MISSING=()
+          for name in "${REQUIRED_SECRETS[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              MISSING+=("$name")
+            fi
+          done
+          if [[ "${#MISSING[@]}" -gt 0 ]]; then
+            echo "::error::missing or empty secrets in the 'release' environment: ${MISSING[*]}" >&2
+            exit 1
+          fi
+
+      - name: Fail fast if a draft release already exists for this version
+        if: inputs.create_draft_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Deliberately before the build, not just before publish: a
+          # re-dispatch that only needed to learn about a stale draft
+          # shouldn't have to burn a full signed build to find out at the
+          # last step.
+          #
+          # The list endpoint (filtered by tag_name) is used deliberately:
+          # draft releases have no tag ref until published, so the get-by-tag
+          # endpoint (releases/tags/<tag>) is blind to exactly the stale-draft
+          # case this check exists for. The list DOES include drafts for this
+          # token.
+          EXISTING="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            | jq -r --arg tag "v$VERSION" '[.[] | select(.tag_name == $tag)] | length')"
+          if [[ "$EXISTING" -gt 0 ]]; then
+            echo "::error::a release for v$VERSION already exists — delete the stale draft (gh release delete v$VERSION) or bump the version" >&2
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -70,12 +132,22 @@ jobs:
         run: |
           set -euo pipefail
           GHOSTTY_SHA="$(git rev-parse HEAD:vendor/ghostty)"
+          # Submodule population failure would otherwise die as a raw sed
+          # stderr message under pipefail — fail with a clear pointer instead.
+          if [[ ! -f vendor/ghostty/build.zig.zon ]]; then
+            echo "::error::vendor/ghostty/build.zig.zon not found — is the submodule populated? (git submodule update --init --recursive)" >&2
+            exit 1
+          fi
           # Mirrors read_ghostty_required_zig_version() in
           # script/build_ghostty_xcframework.sh — replicate the mechanism,
           # don't invent a second Zig version pin.
           ZIG_VERSION="$(sed -nE 's/.*\.minimum_zig_version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' vendor/ghostty/build.zig.zon | head -n 1)"
           if [[ -z "$ZIG_VERSION" ]]; then
-            echo "::error::could not read minimum_zig_version from vendor/ghostty/build.zig.zon" >&2
+            echo "::error::could not read minimum_zig_version from vendor/ghostty/build.zig.zon — check whether vendor/ghostty/build.zig.zon's format changed upstream (mirrors script/build_ghostty_xcframework.sh)" >&2
+            exit 1
+          fi
+          if [[ ! "$ZIG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Zig pin '$ZIG_VERSION' is not a tagged release — ziglang.org's index only serves stable versions and 'master'; a dev-snapshot pin needs a workflow override (see script/build_ghostty_xcframework.sh's select_zig for the local equivalents)" >&2
             exit 1
           fi
           {
@@ -83,33 +155,69 @@ jobs:
             echo "zig_version=$ZIG_VERSION"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Restore cached Zig toolchain
+        id: zig-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/zig
+          key: zig-v1-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.zig_version }}
+
       - name: Install Zig (first-party download, checksum-verified)
         env:
           ZIG_VERSION: ${{ steps.ghostty-pin.outputs.zig_version }}
+          ZIG_CACHE_HIT: ${{ steps.zig-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          # macos-15 hosted runners are Apple Silicon.
-          ZIG_TARGET="aarch64-macos"
-          INDEX_JSON="$(curl -fsSL --retry 3 https://ziglang.org/download/index.json)"
-          TARBALL_URL="$(jq -r --arg v "$ZIG_VERSION" --arg t "$ZIG_TARGET" '.[$v][$t].tarball // empty' <<<"$INDEX_JSON")"
-          EXPECTED_SHA256="$(jq -r --arg v "$ZIG_VERSION" --arg t "$ZIG_TARGET" '.[$v][$t].shasum // empty' <<<"$INDEX_JSON")"
-          if [[ -z "$TARBALL_URL" || -z "$EXPECTED_SHA256" ]]; then
-            echo "::error::ziglang.org's index.json has no $ZIG_TARGET entry for Zig $ZIG_VERSION" >&2
-            exit 1
-          fi
-          ARCHIVE="$RUNNER_TEMP/zig.tar.xz"
-          curl -fsSL --retry 3 "$TARBALL_URL" -o "$ARCHIVE"
-          ACTUAL_SHA256="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
-          if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
-            echo "::error::Zig tarball checksum mismatch (expected $EXPECTED_SHA256, got $ACTUAL_SHA256) — refusing to extract" >&2
-            exit 1
-          fi
+          # macos-15 hosted runners are Apple Silicon today; derive from
+          # runner.arch instead of hardcoding so a future x86_64 runner
+          # doesn't silently install the wrong tarball.
+          case "$RUNNER_ARCH" in
+            ARM64) ZIG_TARGET="aarch64-macos" ;;
+            X64) ZIG_TARGET="x86_64-macos" ;;
+            *)
+              echo "::error::unsupported runner.arch '$RUNNER_ARCH' for Zig target selection" >&2
+              exit 1
+              ;;
+          esac
+
           ZIG_INSTALL_DIR="$RUNNER_TEMP/zig"
-          mkdir -p "$ZIG_INSTALL_DIR"
-          tar -xJf "$ARCHIVE" -C "$ZIG_INSTALL_DIR" --strip-components=1
-          rm -f "$ARCHIVE"
+
+          if [[ "$ZIG_CACHE_HIT" == "true" ]]; then
+            echo "Zig $ZIG_VERSION ($ZIG_TARGET) restored from cache; skipping download and verification."
+          else
+            # Looked up in repo content reviewed in a PR, not fetched from
+            # ziglang.org alongside the tarball: fetching bytes and their
+            # expected hash from the same origin verifies transport, not
+            # provenance.
+            EXPECTED_SHA256="$(awk -v v="$ZIG_VERSION" -v t="$ZIG_TARGET" '$1 == v && $2 == t { print $3 }' .github/zig-checksums.txt)"
+            if [[ -z "$EXPECTED_SHA256" ]]; then
+              echo "::error::no pinned checksum for Zig $ZIG_VERSION $ZIG_TARGET — fetch the shasum from ziglang.org/download and add a reviewed row to .github/zig-checksums.txt" >&2
+              exit 1
+            fi
+
+            TARBALL_URL="https://ziglang.org/download/$ZIG_VERSION/zig-$ZIG_TARGET-$ZIG_VERSION.tar.xz"
+            ARCHIVE="$RUNNER_TEMP/zig.tar.xz"
+            curl -fsSL --retry 3 "$TARBALL_URL" -o "$ARCHIVE"
+            ACTUAL_SHA256="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+            if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+              echo "::error::Zig tarball checksum mismatch (expected $EXPECTED_SHA256, got $ACTUAL_SHA256) — refusing to extract" >&2
+              exit 1
+            fi
+
+            mkdir -p "$ZIG_INSTALL_DIR"
+            tar -xJf "$ARCHIVE" -C "$ZIG_INSTALL_DIR" --strip-components=1
+            rm -f "$ARCHIVE"
+          fi
+
           echo "$ZIG_INSTALL_DIR" >> "$GITHUB_PATH"
           "$ZIG_INSTALL_DIR/zig" version
+
+      - name: Save Zig toolchain to cache
+        if: steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/zig
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
 
       - name: Select Xcode 16.x toolchain
         id: xcode
@@ -157,11 +265,9 @@ jobs:
           # v1 prefix is the manual poison-cache invalidation lever. Xcode
           # bumps deliberately change the key: Ghostty archives built under
           # one toolchain shouldn't silently serve another.
-          key: ghostty-v1-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.ghostty_sha }}-ReleaseFast-${{ steps.xcode.outputs.xcode_id }}
+          key: ghostty-v1-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.ghostty_sha }}-${{ env.AWESOMUX_GHOSTTY_OPTIMIZE }}-${{ steps.xcode.outputs.xcode_id }}
 
       - name: Build or validate Ghostty artifacts
-        env:
-          AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
         run: ./script/ensure_ghostty_artifacts.sh
 
       - name: Save Ghostty artifacts to cache
@@ -170,6 +276,17 @@ jobs:
         with:
           path: .build/ghostty
           key: ${{ steps.ghostty-cache.outputs.cache-primary-key }}
+
+      - name: Pre-build before signing material exists
+        run: |
+          set -euo pipefail
+          # SwiftPM resolves and compiles third-party packages here — that's
+          # build-time code execution. Running the expensive
+          # dependency-touching build BEFORE the keychain import below means
+          # no foreign build code ever executes while an unlocked signing
+          # keychain is on the search list. build_release.sh's own staging
+          # pass re-runs incrementally in seconds afterward.
+          ./script/build_and_run.sh --stage-release
 
       - name: Import signing identity into a temporary keychain
         id: keychain
@@ -188,15 +305,24 @@ jobs:
           ORIGINAL_DEFAULT_KEYCHAIN="$(security default-keychain -d user | xargs)"
           ORIGINAL_SEARCH_LIST="$(security list-keychains -d user | sed -E 's/^[[:space:]]*"(.*)"[[:space:]]*$/\1/')"
 
+          # Randomized per-run delimiter (matching GitHub's documented
+          # recommendation for multiline env writes) rather than a fixed
+          # string — a fixed delimiter could in principle collide with a
+          # line inside $ORIGINAL_SEARCH_LIST and truncate the write.
+          SEARCH_LIST_EOF_MARKER="EOF_$(/usr/bin/openssl rand -hex 8)"
           {
-            echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD"
             echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
             echo "P12_PATH=$P12_PATH"
             echo "ORIGINAL_DEFAULT_KEYCHAIN=$ORIGINAL_DEFAULT_KEYCHAIN"
-            echo "ORIGINAL_SEARCH_LIST<<RELEASE_SEARCH_LIST_EOF"
+            echo "ORIGINAL_SEARCH_LIST<<$SEARCH_LIST_EOF_MARKER"
             echo "$ORIGINAL_SEARCH_LIST"
-            echo "RELEASE_SEARCH_LIST_EOF"
+            echo "$SEARCH_LIST_EOF_MARKER"
           } >> "$GITHUB_ENV"
+          # KEYCHAIN_PASSWORD deliberately stays a step-local shell var, not
+          # $GITHUB_ENV: its only consumers (create-keychain, unlock,
+          # set-keychain-settings below) are in this same step, and the
+          # cleanup step's `security delete-keychain` doesn't need it either.
+          # Least privilege — don't hand later steps a secret they don't use.
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
@@ -229,8 +355,11 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           IDENTITY_COUNT="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -c 'Developer ID Application' || true)"
-          if [[ "$IDENTITY_COUNT" -ne 1 ]]; then
-            echo "::error::expected exactly one 'Developer ID Application' identity in $KEYCHAIN_PATH, found $IDENTITY_COUNT" >&2
+          if [[ "$IDENTITY_COUNT" -eq 0 ]]; then
+            echo "::error::no Developer ID Application identity imported — check RELEASE_P12_BASE64/RELEASE_P12_PASSWORD in the 'release' environment" >&2
+            exit 1
+          elif [[ "$IDENTITY_COUNT" -gt 1 ]]; then
+            echo "::error::the imported .p12 contains multiple identities — re-export it with only the Developer ID Application certificate" >&2
             exit 1
           fi
 
@@ -321,13 +450,16 @@ jobs:
           # processes point at a deleted keychain.
           if [[ -n "${ORIGINAL_DEFAULT_KEYCHAIN:-}" ]]; then
             SEARCH_LIST_ARGS=()
-            if [[ -n "${ORIGINAL_SEARCH_LIST:-}" ]]; then
-              while IFS= read -r kc; do
-                [[ -n "$kc" ]] && SEARCH_LIST_ARGS+=("$kc")
-              done <<<"$ORIGINAL_SEARCH_LIST"
-            fi
+            while IFS= read -r kc; do
+              [[ -n "$kc" ]] && SEARCH_LIST_ARGS+=("$kc")
+            done <<<"${ORIGINAL_SEARCH_LIST:-}"
+            # Always reset the search list, mirroring the import step's
+            # unconditional call — even an empty original list must not be
+            # left pointing at the soon-deleted temp keychain.
             if [[ "${#SEARCH_LIST_ARGS[@]}" -gt 0 ]]; then
               security list-keychains -d user -s "${SEARCH_LIST_ARGS[@]}"
+            else
+              security list-keychains -d user -s
             fi
             security default-keychain -d user -s "$ORIGINAL_DEFAULT_KEYCHAIN"
           fi
