@@ -1241,7 +1241,7 @@ struct DocumentPaneView: View {
         let fileURL = pane.fileURL
 
         Task.detached(priority: .userInitiated) {
-            let onDisk = try? String(contentsOf: fileURL, encoding: .utf8)
+            let onDisk = DocumentLoader.readSource(fileURL)
 
             let context: (old: String?, isSelfWrite: Bool)? = await MainActor.run {
                 guard let disk = onDisk else {
