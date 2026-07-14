@@ -399,6 +399,22 @@ struct SidebarSplitControllerTests {
                 == SidebarWidthPolicy.collapsedWidth
         )
     }
+
+    @Test("all divider mutations route through the instrumented boundary")
+    func dividerMutationBoundaryIsUnique() throws {
+        let testURL = URL(fileURLWithPath: #filePath)
+        let sourceURL =
+            testURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Sources/awesoMux/Views/SidebarSplitController.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(source.components(separatedBy: "splitView.setPosition(").count - 1 == 1)
+        let helper = try #require(source.range(of: "private func setDividerPosition"))
+        #expect(source[helper.lowerBound...].contains("splitView.setPosition("))
+    }
 }
 
 @Suite("SidebarSplitController reclamp action")
