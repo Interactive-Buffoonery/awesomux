@@ -36,7 +36,7 @@ struct SessionStoreIndex: Sendable {
             default:
                 break
             }
-            if pane.needsTerminalQuitConfirmation {
+            if pane.terminalPromptObserved && pane.needsTerminalQuitConfirmation {
                 return .durable
             }
             switch pane.foregroundProcessLiveness {

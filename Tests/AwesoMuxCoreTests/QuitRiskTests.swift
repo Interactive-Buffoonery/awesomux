@@ -188,6 +188,25 @@ struct QuitRiskTests {
     }
 
     @MainActor
+    @Test("unobserved prompt state does not enter the quit-risk cache")
+    func unobservedPromptStateIsNotCachedAsRisk() {
+        let shell = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .shell)
+        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [shell])])
+
+        store.updateTerminalQuitConfirmationRisks([
+            TerminalQuitConfirmationSnapshot(
+                sessionID: shell.id,
+                paneID: shell.activePaneID,
+                needsConfirmation: true,
+                promptObserved: false,
+                liveness: .unsampled
+            )
+        ])
+
+        #expect(store.sessionsAtRiskOnQuit.isEmpty)
+    }
+
+    @MainActor
     @Test("empty session store has no quit risks")
     func emptySessionStoreHasNoRisks() {
         let store = SessionStore(groups: [])
