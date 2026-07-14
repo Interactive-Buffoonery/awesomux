@@ -13,13 +13,14 @@ struct SidebarVisibleRowsTests {
             isFiltering: false
         )
 
-        #expect(rows.map(\.target) == [
-            .group(fixture.firstGroup.id),
-            .session(fixture.firstSession.id),
-            .session(fixture.secondSession.id),
-            .group(fixture.secondGroup.id),
-            .session(fixture.thirdSession.id)
-        ])
+        #expect(
+            rows.map(\.target) == [
+                .group(fixture.firstGroup.id),
+                .session(fixture.firstSession.id),
+                .session(fixture.secondSession.id),
+                .group(fixture.secondGroup.id),
+                .session(fixture.thirdSession.id),
+            ])
     }
 
     @Test("visible row walk hides sessions inside collapsed groups unless filtering")
@@ -31,11 +32,12 @@ struct SidebarVisibleRowsTests {
             collapsedGroupIDs: [fixture.firstGroup.id],
             isFiltering: false
         )
-        #expect(collapsedRows.map(\.target) == [
-            .group(fixture.firstGroup.id),
-            .group(fixture.secondGroup.id),
-            .session(fixture.thirdSession.id)
-        ])
+        #expect(
+            collapsedRows.map(\.target) == [
+                .group(fixture.firstGroup.id),
+                .group(fixture.secondGroup.id),
+                .session(fixture.thirdSession.id),
+            ])
 
         let filteringRows = SidebarVisibleRows.rows(
             for: fixture.entries,
@@ -75,11 +77,12 @@ struct SidebarVisibleRowsTests {
 
         // Collapse-independent by construction (the function takes no collapse
         // input): every session enumerates, in source order.
-        #expect(rotorEntries.map(\.id) == [
-            fixture.firstSession.id,
-            fixture.secondSession.id,
-            fixture.thirdSession.id
-        ])
+        #expect(
+            rotorEntries.map(\.id) == [
+                fixture.firstSession.id,
+                fixture.secondSession.id,
+                fixture.thirdSession.id,
+            ])
     }
 
     @Test("rotor label carries title + agent + state, not just the title")
@@ -119,11 +122,12 @@ struct SidebarVisibleRowsTests {
             shellActivity: .busy
         )
 
-        #expect(SidebarVisibleRows.rotorLabel(
-            for: shell,
-            bundle: bundle,
-            locale: INT612LocalizationTestSupport.french
-        ) == "En cours — build — Terminal")
+        #expect(
+            SidebarVisibleRows.rotorLabel(
+                for: shell,
+                bundle: bundle,
+                locale: INT612LocalizationTestSupport.pseudoLocale
+            ) == "⟦⟦running⟧:build:⟦Shell⟧⟧")
     }
 
     @Test("rotor label localizes a synthetic title with the selected locale")
@@ -137,11 +141,12 @@ struct SidebarVisibleRowsTests {
             agentKind: .shell
         )
 
-        #expect(SidebarVisibleRows.rotorLabel(
-            for: shell,
-            bundle: bundle,
-            locale: INT612LocalizationTestSupport.french
-        ) == "Inactif — 2 coquille — Terminal")
+        #expect(
+            SidebarVisibleRows.rotorLabel(
+                for: shell,
+                bundle: bundle,
+                locale: INT612LocalizationTestSupport.pseudoLocale
+            ) == "⟦⟦idle⟧:⟦2:⟦shell⟧⟧:⟦Shell⟧⟧")
     }
 
     @Test("rotor enumerates exactly the filtered projection it is given")
@@ -188,7 +193,7 @@ private func makeEntries() -> (
             group: secondGroup,
             unfilteredIndex: 1,
             sessions: secondGroup.sessions.map { SidebarSessionEntry(session: $0, match: nil) }
-        )
+        ),
     ]
 
     return (entries, firstGroup, secondGroup, firstSession, secondSession, thirdSession)
