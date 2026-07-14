@@ -48,6 +48,21 @@ struct SidebarSessionTile: View {
     var pinnedOriginGroupName: String? = nil
     let onDragStarted: () -> UUID
     let focusedRowTarget: FocusState<SidebarVisibleRowTarget?>.Binding
+    /// Snapshot of the sidebar's keyboard-modality flag at construction —
+    /// what `renderKey` compares and what the focus-ring gate below reads.
+    /// The OLD/NEW tile instances compared by `==` share the SAME
+    /// `@Binding`, so a read through the binding's live getter sees the
+    /// CURRENT value on both operands regardless of which value was current
+    /// when either instance was built — the comparison is permanently
+    /// equal and the field is inert. A plain `Bool` captured per-instance
+    /// doesn't have that problem.
+    let isKeyboardNavigatingValue: Bool
+    /// Write-only plumbing: every read of keyboard-navigation state goes
+    /// through `isKeyboardNavigatingValue` above. This binding exists solely
+    /// so the tap handler and hover handler can clear keyboard-modality
+    /// state on a pointer-modality signal; it is deliberately excluded from
+    /// `RenderKey` (see the doc comment there) since a binding's identity
+    /// isn't comparable and its value is write-only from this view's side.
     @Binding var isKeyboardNavigating: Bool
 
     @State private var isHovered = false
@@ -106,7 +121,7 @@ struct SidebarSessionTile: View {
             // on the selected/focused row); the accent `awFocusRing` below is our
             // keyboard-focus indicator and is gated to keyboard navigation.
             .focusEffectDisabled()
-            .awFocusRing(isKeyboardFocused && isKeyboardNavigating, cornerRadius: AwRadius.panel)
+            .awFocusRing(isKeyboardFocused && isKeyboardNavigatingValue, cornerRadius: AwRadius.panel)
             // `.simultaneousGesture(TapGesture)` instead of `.onTapGesture`
             // — see group header for rationale (tap-exclusive blocks drag
             // activation on macOS).
@@ -947,8 +962,8 @@ extension SidebarSessionTile: Equatable {
     ///   onRename (closure), canMakeWorkspaceManaged,
     ///   onMakeWorkspaceManaged (closure), onToggleNotificationsMute
     ///   (closure), isPinned, onTogglePin (closure), pinnedOriginGroupName,
-    ///   onDragStarted (closure), focusedRowTarget, isKeyboardNavigating
-    ///   (@Binding), isHovered (@State), promotionPulseIsBright (@State),
+    ///   onDragStarted (closure), focusedRowTarget, isKeyboardNavigatingValue,
+    ///   isKeyboardNavigating (@Binding), isHovered (@State), promotionPulseIsBright (@State),
     ///   promotionPulseTask (@State), isPeekVisible (@State), peekTask
     ///   (@State), tileFrame (@State), peekModel (@Environment), contrast
     ///   (@Environment), reduceMotion (@Environment), appSettingsStore
@@ -965,6 +980,15 @@ extension SidebarSessionTile: Equatable {
     ///   construction time (`focusedRowTarget.wrappedValue == .session(id)`),
     ///   so `isKeyboardFocused` alone determines everything this binding's
     ///   value would otherwise change about the row.
+    /// - `isKeyboardNavigating` (`@Binding<Bool>`) — write-only plumbing for
+    ///   the tap and hover handlers to clear keyboard-modality state on a
+    ///   pointer signal. Its RENDERED effect is fully captured by
+    ///   `isKeyboardNavigatingValue` below, an immutable snapshot taken at
+    ///   construction time; comparing the binding itself would be comparing
+    ///   get/set closures (not comparable), and reading through its live
+    ///   getter from `==` would see the CURRENT value on both the old and
+    ///   new instance being compared (they share the same binding), making
+    ///   the read permanently self-equal and inert.
     /// - `isHovered`, `promotionPulseIsBright`, `promotionPulseTask`,
     ///   `isPeekVisible`, `peekTask`, `tileFrame` — `@State`, not a
     ///   constructor input. SwiftUI persists this storage across
@@ -975,14 +999,15 @@ extension SidebarSessionTile: Equatable {
     ///   reads, not a constructor input. A change to any of these invalidates
     ///   this row's body directly and is not gated by `.equatable()`.
     ///
-    /// `isKeyboardNavigating` is the one `@Binding` that DOES need a field:
-    /// unlike `focusedRowTarget`, its current value is read directly in
-    /// `interactiveTile` (`isKeyboardFocused && isKeyboardNavigating` gates
-    /// `.awFocusRing`) and isn't already captured by another field — the
-    /// caller passes a live binding here, not a precomputed bool. Omitting it
-    /// would let the keyboard-focused row's ring go stale on a
-    /// keyboard→pointer modality switch that changes nothing else about the
-    /// row.
+    /// `isKeyboardNavigatingValue` is included as a plain field for the same
+    /// reason `isKeyboardFocused` is: `interactiveTile` gates
+    /// `.awFocusRing` on `isKeyboardFocused && isKeyboardNavigatingValue`, so
+    /// the ring's rendered state has to match what the key compares — an
+    /// equal-comparing row that skipped re-render could otherwise show a
+    /// stale ring after a keyboard→pointer modality switch. Both callers
+    /// pass their live value at construction time (mirroring how
+    /// `isKeyboardFocused` is already precomputed from `focusedRowTarget`),
+    /// so this is a snapshot, not a binding read.
     ///
     /// `isPinned`/`pinnedOriginGroupName` are two more fields beyond the
     /// original brief: `isPinned` changes `pinMenuTitle` (context-menu title
@@ -1038,7 +1063,7 @@ extension SidebarSessionTile: Equatable {
         let canMakeWorkspaceManaged: Bool
         let isPinned: Bool
         let pinnedOriginGroupName: String?
-        let isKeyboardNavigating: Bool
+        let isKeyboardNavigatingValue: Bool
     }
 
     /// One pane's rendered contribution. `id` + array order together let the
@@ -1116,15 +1141,16 @@ extension SidebarSessionTile: Equatable {
             canMakeWorkspaceManaged: canMakeWorkspaceManaged,
             isPinned: isPinned,
             pinnedOriginGroupName: pinnedOriginGroupName,
-            // Reads through the live `@Binding` getter — can't become a plain
-            // `Bool` field because the tile also WRITES through this same
-            // binding (the tap handler's `isKeyboardNavigating = false`), so
-            // the property has to stay a binding, not a captured value. That
-            // makes this a side-effect-free `@State` read from inside a
-            // `nonisolated` `==`, which only holds because SwiftUI's current
-            // pipeline runs `EquatableView` diffing on the main thread —
-            // revisit if a future SwiftUI moves view diffing off-main.
-            isKeyboardNavigating: isKeyboardNavigating
+            // The immutable snapshot, not the live `@Binding` — the OLD and
+            // NEW tile instances compared by `==` share the same binding, so
+            // reading through its getter here would see the CURRENT value on
+            // both sides regardless of which value was live when each
+            // instance was built, making the comparison permanently equal.
+            // `isKeyboardNavigatingValue` is captured once at construction,
+            // so it differs across old/new instances exactly when the
+            // caller's value actually changed. Writes still go through the
+            // binding (see its declaration above) — this key never touches it.
+            isKeyboardNavigatingValue: isKeyboardNavigatingValue
         )
     }
 
