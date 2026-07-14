@@ -250,6 +250,12 @@ struct SidebarGroupView: View {
                             focusedRowTarget: focusedRowTarget,
                             isKeyboardNavigating: $isKeyboardNavigating
                         )
+                        // Skips re-running this row's `body` (including its
+                        // `.accessibilityElement(children: .combine)` node)
+                        // when an unrelated row's store publish reconstructs
+                        // this tile with identical rendered inputs — see
+                        // `SidebarSessionTile.RenderKey`.
+                        .equatable()
                         // Per-tile frame cache for y-hit-test. One coordinate
                         // space scoped to the group avoids cross-group
                         // ambiguity when rows are lazy-evicted.
