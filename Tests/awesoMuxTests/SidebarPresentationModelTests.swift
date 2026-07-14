@@ -116,6 +116,35 @@ struct SidebarPresentationModelTests {
         #expect(!model.isSidebarVisible)
     }
 
+    @Test("active sidebar interaction cancels leave grace and retains reveal")
+    func interactionRetainsReveal() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+
+        model.sidebarInteractionChanged(true)
+        gate.advance()
+        await drainMainQueue()
+
+        #expect(model.isTemporarilyRevealed)
+    }
+
+    @Test("clearing sidebar interaction starts a fresh leave grace")
+    func clearingInteractionStartsFreshGrace() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.sidebarInteractionChanged(true)
+        model.trackingRegionExited()
+
+        model.sidebarInteractionChanged(false)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        gate.advance()
+        #expect(await waitUntil { !model.isSidebarVisible })
+    }
+
     @Test("re-entering either region cancels pending hide")
     func reentryCancelsPendingHide() async throws {
         let (model, gate, defaults, suiteName) = try makeHiddenModel()

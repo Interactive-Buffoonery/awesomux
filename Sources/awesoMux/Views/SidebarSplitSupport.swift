@@ -430,4 +430,5 @@ final class SidebarSplitProxy {
     /// Changes only the user's persistent split visibility. Transient hover
     /// presentation must use the overlay host instead of moving this divider.
     @ObservationIgnored var setPersistentVisible: ((Bool) -> Void)?
+    @ObservationIgnored var sidebarPointerChanged: ((Bool) -> Void)?
 }

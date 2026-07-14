@@ -85,6 +85,7 @@ struct ContentView: View {
     @State private var sidebarLiveWidth = SidebarLiveWidth(value: SidebarWidthPreferenceStore().width())
     /// Command channel to move the native divider (the `⌘\` toggle).
     @State private var splitProxy = SidebarSplitProxy()
+    @State private var deliveredSidebarFocusRequestID: UUID?
     @State private var hostPresentation = SidebarHostPresentationState()
     @State private var sidebarPresentation = SidebarPresentationModel()
     @State private var appliedSidebarPosition: AppearanceConfig.SidebarPosition = .left
@@ -158,7 +159,8 @@ struct ContentView: View {
             .onChange(of: sidebarFocusRequestID) { _, requestID in
                 guard requestID != nil else { return }
                 sidebarPresentation.showPersistently()
-                settleSidebarVisibilityExplicitly()
+                splitProxy.setPersistentVisible?(true)
+                deliveredSidebarFocusRequestID = requestID
             }
             .onChange(of: sidebarPresentation.proximityState) { _, state in
                 guard sidebarPresentation.userWantsHidden else { return }
@@ -230,6 +232,7 @@ struct ContentView: View {
                 onTrackingAvailabilityLost: {
                     sidebarPresentation.invalidateTransientState()
                 },
+                onSidebarInteractionChanged: sidebarPresentation.sidebarInteractionChanged,
                 sidebar: {
                     SidebarView(
                         sessionStore: sessionStore,
@@ -249,9 +252,12 @@ struct ContentView: View {
                         onOpenQuickSettings: onOpenQuickSettings,
                         onToggleCommandPalette: onToggleCommandPalette,
                         onFocusPane: onFocusAgentPane,
-                        focusRequestID: sidebarFocusRequestID,
+                        focusRequestID: deliveredSidebarFocusRequestID,
                         sidebarLiveWidth: sidebarLiveWidth,
-                        onSidebarHover: sidebarPresentation.sidebarPointerChanged
+                        onSidebarHover: { inside in
+                            sidebarPresentation.sidebarPointerChanged(inside)
+                            splitProxy.sidebarPointerChanged?(inside)
+                        }
                     )
                     .environment(appSettingsStore)
                     .environment(peekModel)

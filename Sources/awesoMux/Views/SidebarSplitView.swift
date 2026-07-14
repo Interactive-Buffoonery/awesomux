@@ -26,6 +26,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
     var onEdgeExit: (() -> Void)?
     var onTrackingAvailabilityLost: (() -> Void)?
+    var onSidebarInteractionChanged: ((Bool) -> Void)?
     @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var detail: () -> Detail
 
@@ -41,6 +42,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.onEdgePointerMove = onEdgePointerMove
         controller.onEdgeExit = onEdgeExit
         controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
+        controller.onSidebarInteractionChanged = onSidebarInteractionChanged
         controller.hostPresentationState = hostPresentation
         controller.setSidebarPosition(position)
         controller.setSidebarHidden(initiallyHidden)
@@ -57,6 +59,9 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
             controller?.setPersistentSidebarVisible(visible)
         }
         proxy.setPosition = { [weak controller] position in controller?.setSidebarPosition(position) }
+        proxy.sidebarPointerChanged = { [weak controller] inside in
+            controller?.sidebarPointerChanged(inside)
+        }
         return controller
     }
 
@@ -67,6 +72,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.onEdgePointerMove = onEdgePointerMove
         controller.onEdgeExit = onEdgeExit
         controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
+        controller.onSidebarInteractionChanged = onSidebarInteractionChanged
         precondition(controller.hostPresentationState === hostPresentation)
         // Re-host each pane's root view so @Observable / @Bindable updates inside the
         // panes propagate. SwiftUI diffs the new root against the old, so this is

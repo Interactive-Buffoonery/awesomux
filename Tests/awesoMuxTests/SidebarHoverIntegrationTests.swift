@@ -1,5 +1,6 @@
-import Testing
 import AwesoMuxCore
+import Foundation
+import Testing
 @testable import awesoMux
 
 @Suite("Sidebar hover integration")
@@ -53,6 +54,26 @@ struct SidebarHoverIntegrationTests {
         )
         #expect(result.targetWidth == 300)
         #expect(!result.shouldReveal)
+    }
+
+    @Test("focus request persists host before delivering focus to SidebarView")
+    func focusDeliveryIsSerializedAfterPersistentHandoff() throws {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let root = testFile.deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/awesoMux/Views/ContentView.swift"),
+            encoding: .utf8)
+        let handler = try #require(source.range(of: ".onChange(of: sidebarFocusRequestID)"))
+        let tail = source[handler.lowerBound...]
+        let nextHandler = tail.range(of: ".onChange(of: sidebarPresentation.proximityState)")
+        let body = nextHandler.map { tail[..<$0.lowerBound] } ?? tail[...]
+        let persistent = try #require(body.range(of: "splitProxy.setPersistentVisible?(true)"))
+        let delivered = try #require(body.range(of: "deliveredSidebarFocusRequestID = requestID"))
+
+        #expect(persistent.lowerBound < delivered.lowerBound)
+        #expect(source.contains("focusRequestID: deliveredSidebarFocusRequestID"))
+        #expect(!source.contains("focusRequestID: sidebarFocusRequestID,"))
     }
 
 }
