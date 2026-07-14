@@ -55,6 +55,7 @@ struct PaletteAppActions {
     let newWorkspaceGroup: @MainActor () -> Void
     let newRemoteWorkspaceGroup: @MainActor () -> Void
     let connectViaSSH: @MainActor () -> Void
+    let makeThisWorkspaceManaged: @MainActor () -> Void
     let renameWorkspace: @MainActor () -> Void
     let renamePane: @MainActor () -> Void
     let resetPaneTitle: @MainActor () -> Void
@@ -109,6 +110,7 @@ struct PaletteAppActions {
             newWorkspaceGroup: action,
             newRemoteWorkspaceGroup: action,
             connectViaSSH: action,
+            makeThisWorkspaceManaged: action,
             renameWorkspace: action,
             renamePane: action,
             resetPaneTitle: action,
@@ -173,6 +175,12 @@ enum PaletteCommandRegistry {
         keyboard: KeyboardConfig = .defaultValue
     ) -> [PaletteCommand] {
         let selected = sessionStore.selectedSession
+        let managedSSHConversionTarget = selected.flatMap {
+            sessionStore.managedSSHConversionTarget(
+                sessionID: $0.id,
+                paneID: $0.activePaneID
+            )
+        }
         let selectedHasMultiplePanes = selected?.layout.hasMultiplePanes ?? false
         let selectedHasMultipleDocumentTabs =
             (selected?.layout.firstDocumentGroup?.tabs.count ?? 0) > 1
@@ -243,6 +251,15 @@ enum PaletteCommandRegistry {
                 shortcut: nil,
                 isEnabled: !availability.isAnySheetPresented,
                 run: actions.connectViaSSH
+            ),
+            PaletteCommand(
+                id: "makeThisWorkspaceManaged",
+                title: "Make This Workspace Managed…",
+                subtitle: managedSSHConversionTarget?.sshDestination,
+                keywords: ["ssh", "remote", "managed", "convert", "reconnect"],
+                shortcut: nil,
+                isEnabled: managedSSHConversionTarget != nil && !availability.isAnySheetPresented,
+                run: actions.makeThisWorkspaceManaged
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.renameWorkspace.id,
