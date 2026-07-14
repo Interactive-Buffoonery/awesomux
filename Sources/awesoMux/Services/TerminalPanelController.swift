@@ -1160,6 +1160,7 @@ final class TerminalPanelController {
             )
         }
         guard let panel else { return }
+        panel.isPointerRekeyEnabled = true
 
         // Rebind the concrete hosting root every show so the terminal follows
         // the active slot on workspace switch instead of going stale.
@@ -1370,12 +1371,16 @@ final class TerminalPanelController {
         #if DEBUG
         assert(panel?.isInsidePointerRekey != true, "evict during pointer re-key")
         #endif
+        let evictsActiveSlot = slots.activeWorkspaceID == workspaceID
+        if evictsActiveSlot {
+            panel?.isPointerRekeyEnabled = false
+        }
         cancelPromotion()
         resetDismissConfirmation()
         tearDownFloatingSlot(workspaceID: workspaceID, runtime: lastSeenRuntime)
         // The workspace is gone; its floating panel can never be "open" again.
         slots.markClosed(workspaceID)
-        if slots.activeWorkspaceID == workspaceID {
+        if evictsActiveSlot {
             // The visible panel is backed by the dropped store.
             panel?.orderOut(nil)
             presentation = .closed
