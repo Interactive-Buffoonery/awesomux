@@ -224,22 +224,34 @@ jobs:
           path: ${{ runner.temp }}/zig
           key: ${{ steps.zig-cache.outputs.cache-primary-key }}
 
-      - name: Select Xcode 16.x toolchain
+      - name: Select Xcode toolchain matching the package's Swift requirement
         id: xcode
         run: |
           set -euo pipefail
-          # Resilient-explicit beats hardcoding one Xcode path that a runner
-          # image update deletes: pick the newest Xcode 16.x actually present.
+          # Pick the newest Xcode on the image, then ASSERT its Swift satisfies
+          # Package.swift's declared tools version. A version-family glob
+          # (e.g. Xcode_16*) encodes a stale assumption the day the Swift pin
+          # moves — the first dispatch run failed exactly that way (Swift 6.3
+          # package vs Xcode 16.4's Swift 6.1 toolchain).
           shopt -s nullglob
-          CANDIDATES=(/Applications/Xcode_16*.app)
+          CANDIDATES=(/Applications/Xcode_*.app)
           shopt -u nullglob
           if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
-            echo "::error::no Xcode 16.x app bundle found under /Applications" >&2
+            echo "::error::no Xcode app bundle found under /Applications" >&2
             ls /Applications >&2
             exit 1
           fi
           NEWEST="$(printf '%s\n' "${CANDIDATES[@]}" | sort -V | tail -n1)"
           DEVELOPER_DIR="$NEWEST/Contents/Developer"
+          REQUIRED="$(DEVELOPER_DIR="$DEVELOPER_DIR" xcrun swift package tools-version)"
+          INSTALLED="$(DEVELOPER_DIR="$DEVELOPER_DIR" xcrun swift -version 2>/dev/null \
+            | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p' | head -n1)"
+          if [[ -z "$INSTALLED" ]] || [[ "$(printf '%s\n%s\n' "$REQUIRED" "$INSTALLED" | sort -V | head -n1)" != "$REQUIRED" ]]; then
+            echo "::error::newest Xcode ($NEWEST) ships Swift ${INSTALLED:-unknown}, but Package.swift requires tools version $REQUIRED — runner image lacks a compatible toolchain" >&2
+            ls -d /Applications/Xcode_*.app >&2
+            exit 1
+          fi
+          echo "Selected $NEWEST (Swift $INSTALLED >= required $REQUIRED)"
           echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
           VERSION_STRING="$(DEVELOPER_DIR="$DEVELOPER_DIR" xcodebuild -version)"
           XC_VERSION="$(awk '/^Xcode /{print $2}' <<<"$VERSION_STRING")"
