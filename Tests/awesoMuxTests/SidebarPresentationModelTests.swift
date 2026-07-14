@@ -241,6 +241,39 @@ struct SidebarPresentationModelTests {
         }
     }
 
+    @Test("inactive or detached invalidation clears cue and reveal immediately")
+    func availabilityInvalidationClearsTransientPresentation() throws {
+        for x in [20.0, 15.0] {
+            let (model, _, defaults, suiteName) = try makeHiddenModel()
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+
+            model.pointerMoved(x: x, width: 40, position: .left)
+            model.invalidateTransientState()
+
+            #expect(model.proximityState == .dormant)
+            #expect(!model.isCueVisible)
+            #expect(!model.isSidebarVisible)
+        }
+    }
+
+    @Test("position change invalidates a pending leave grace")
+    func positionChangeInvalidatesPendingGrace() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+
+        model.positionDidChange()
+        gate.advance()
+        await drainMainQueue()
+
+        #expect(model.proximityState == .dormant)
+        #expect(!model.isCueVisible)
+        #expect(!model.isSidebarVisible)
+    }
+
     @Test("explicit invalidation from cue and reveal remains explicit")
     func explicitInvalidationSource() throws {
         for x in [30.0, 15.0] {

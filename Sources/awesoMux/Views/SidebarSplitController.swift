@@ -233,6 +233,14 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             width: trackingWidth,
             height: view.bounds.height
         )
+        if isHoverAnimating, activeHoverPaneExtent != paneExtent {
+            let visible = requestedSidebarVisible
+            if let pendingWidth {
+                self.pendingWidth = min(pendingWidth, maxSidebarWidth)
+            }
+            cancelHoverAnimation()
+            applySidebarVisibilityImmediately(visible, rememberCurrentWidth: false)
+        }
         guard !isSidebarHidden else {
             applyHiddenPosition()
             return
@@ -281,6 +289,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     func setSidebarPosition(_ position: AppearanceConfig.SidebarPosition) {
         guard position != sidebarPosition else { return }
+        let wasHoverAnimating = isHoverAnimating
+        let requestedVisibility = requestedSidebarVisible
+        if wasHoverAnimating { cancelHoverAnimation() }
         let width = sidebarPaneWidth
         sidebarPosition = position
         edgeTrackingView.position = position
@@ -300,7 +311,15 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     .takeUnretainedValue().compare(lhs, rhs)
             }, context: Unmanaged.passUnretained(order).toOpaque())
         splitView.adjustSubviews()
-        if isSidebarHidden { applyHiddenPosition() } else { applyPosition(width) }
+        if wasHoverAnimating {
+            applySidebarVisibilityImmediately(
+                requestedVisibility, rememberCurrentWidth: false
+            )
+        } else if isSidebarHidden {
+            applyHiddenPosition()
+        } else {
+            applyPosition(width)
+        }
         if ownsResponder, view.window?.firstResponder !== responder {
             view.window?.makeFirstResponder(responder)
         }
@@ -642,7 +661,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             guard activeHoverPaneExtent != paneExtent else { return }
             let visible = requestedSidebarVisible
             cancelHoverAnimation()
-            applySidebarVisibilityImmediately(visible)
+            applySidebarVisibilityImmediately(visible, rememberCurrentWidth: false)
             return
         }
         switch Self.reclampAction(
