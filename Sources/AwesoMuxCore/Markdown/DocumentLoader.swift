@@ -11,6 +11,11 @@ import SecureFileIO
 /// rejection and read-error path without a SwiftUI harness.
 public enum DocumentLoader {
 
+    private enum SourceResult {
+        case source(String)
+        case failure(LoadResult)
+    }
+
     // MARK: - Result type
 
     /// The outcome of a load attempt.
@@ -37,41 +42,63 @@ public enum DocumentLoader {
         load(url, effectiveUID: geteuid())
     }
 
+    /// Reads a document source through the same validation and byte cap as `load(_:)`.
+    package static func readSource(
+        _ url: URL
+    ) -> String? {
+        guard case let .source(source) = readSource(url, effectiveUID: geteuid()) else {
+            return nil
+        }
+        return source
+    }
+
     static func load(
         _ url: URL,
         effectiveUID: uid_t
     ) -> LoadResult {
+        switch readSource(url, effectiveUID: effectiveUID) {
+        case let .source(source):
+            return .loaded(MarkdownRenderModelBuilder.build(source), source: source)
+        case let .failure(result):
+            return result
+        }
+    }
+
+    private static func readSource(
+        _ url: URL,
+        effectiveUID: uid_t
+    ) -> SourceResult {
         guard url.isFileURL else {
-            return .rejected(.notFileURL)
+            return .failure(.rejected(.notFileURL))
         }
 
         let handle: SecureFileReadHandle
         do {
             handle = try SecureFileReader.open(at: url, effectiveUID: effectiveUID)
         } catch {
-            return .rejected(.unreadable)
+            return .failure(.rejected(.unreadable))
         }
 
         guard let fileSize = Int(exactly: handle.size) else {
-            return .rejected(.unreadable)
+            return .failure(.rejected(.unreadable))
         }
         if let rejection = DocumentURLValidator.reject(
             handle.resolvedURL,
             fileSize: fileSize
         ) {
-            return .rejected(rejection)
+            return .failure(.rejected(rejection))
         }
 
         do {
             let data = try handle.read(maximumBytes: DocumentURLValidator.maxFileSizeBytes)
             guard let content = String(data: data, encoding: .utf8) else {
-                return .readError("The file couldn’t be opened because it isn’t in the correct format.")
+                return .failure(.readError("The file couldn’t be opened because it isn’t in the correct format."))
             }
-            return .loaded(MarkdownRenderModelBuilder.build(content), source: content)
+            return .source(content)
         } catch SecureFileReadError.tooLarge {
-            return .rejected(.tooLarge)
+            return .failure(.rejected(.tooLarge))
         } catch {
-            return .readError("The file couldn’t be read.")
+            return .failure(.readError("The file couldn’t be read."))
         }
     }
 }
