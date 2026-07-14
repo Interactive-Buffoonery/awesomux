@@ -13,15 +13,14 @@ public enum RemoteSSHCommandTarget {
         return target.sshDestination
     }
 
-    public static func parseSubmittedCommand(_ command: String) -> String? {
+    public static func isSSHCommand(_ command: String) -> Bool {
         var tokens = tokenize(command)
         guard tokens.first == "ssh" else {
-            return nil
+            return false
         }
         tokens.removeFirst()
 
         var index = 0
-        var login: String?
         while index < tokens.count {
             let token = tokens[index]
             if token == "--" {
@@ -32,15 +31,6 @@ public enum RemoteSSHCommandTarget {
                 break
             }
 
-            // `-l` names the login user, but the destination host is still a
-            // later positional token — record the login and keep scanning rather
-            // than assuming the host sits exactly two tokens on, which mis-parses
-            // ordinary forms like `ssh -l alice -p 2222 host` as `alice@-p`.
-            if token == "-l", index + 1 < tokens.count {
-                login = tokens[index + 1]
-                index += 2
-                continue
-            }
             if optionsTakingValues.contains(token) {
                 index += 2
             } else {
@@ -49,20 +39,10 @@ public enum RemoteSSHCommandTarget {
         }
 
         guard index < tokens.count else {
-            return nil
+            return false
         }
         let target = tokens[index]
-        guard !target.isEmpty, !target.hasPrefix("-") else {
-            return nil
-        }
-        // OpenSSH lets an explicit `-l` login win over any `user@` in the
-        // positional destination (`ssh -l u alice@host` connects as `u`), so when
-        // a login is present it replaces the user and we keep only the host part.
-        if let login {
-            let host = target.split(separator: "@").last.map(String.init) ?? target
-            return "\(login)@\(host)"
-        }
-        return target
+        return !target.isEmpty && !target.hasPrefix("-")
     }
 
     private static let optionsTakingValues: Set<String> = [
