@@ -191,8 +191,17 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(true)
         var trace: [SidebarHostHandoffAction] = []
         var publications = 0
+        var livePublications = 0
+        var callbackActionCounts: [Int] = []
         controller.handoffActionObserverForTesting = { trace.append($0) }
-        controller.hostPresentationState.onSettleForTesting = { publications += 1 }
+        controller.hostPresentationState.onSettleForTesting = {
+            publications += 1
+            callbackActionCounts.append(trace.count)
+        }
+        controller.onLiveWidthChange = { _ in
+            livePublications += 1
+            callbackActionCounts.append(trace.count)
+        }
         let dividerIntentsBefore = controller.dividerIntentCountForTesting
 
         controller.setPersistentSidebarVisible(true)
@@ -213,8 +222,121 @@ struct SidebarOverlayHostControllerTests {
                 .endNoActionsTransaction,
             ])
         #expect(publications == 1)
+        #expect(livePublications == 1)
+        #expect(callbackActionCounts == [12, 12])
         #expect(controller.dividerIntentCountForTesting - dividerIntentsBefore == 1)
         #expect(controller.hostPresentationState.mode == .persistent(width: 300))
+    }
+
+    @Test(
+        "persistent to hidden handoff is one silent atomic collapse",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right]
+    )
+    func atomicPersistentToHiddenHandoff(position: AppearanceConfig.SidebarPosition) {
+        let (controller, sidebar, _) = makeController(position: position)
+        controller.setSidebarWidth(300)
+        var trace: [SidebarHostHandoffAction] = []
+        var callbackActionCounts: [Int] = []
+        var livePublications = 0
+        controller.handoffActionObserverForTesting = { trace.append($0) }
+        controller.hostPresentationState.onSettleForTesting = {
+            callbackActionCounts.append(trace.count)
+        }
+        controller.onLiveWidthChange = { _ in livePublications += 1 }
+        let dividerIntentsBefore = controller.dividerIntentCountForTesting
+
+        controller.setPersistentSidebarVisible(false)
+
+        #expect(
+            trace == [
+                .beginNoActionsTransaction,
+                .cancelOverlayGeneration,
+                .captureSidebarResponder,
+                .captureSidebarAccessibility,
+                .handOffSidebarFocus,
+                .removeOverlayAnimation,
+                .reparentHostToSplitContainer,
+                .setHiddenState,
+                .applySingleCollapseIntent,
+                .settleLayout,
+                .clearTransform,
+                .hideOverlayContainer,
+                .hideSidebarAccessibility,
+                .endNoActionsTransaction,
+                .enableEdgeTracking,
+            ])
+        #expect(callbackActionCounts == [14])
+        #expect(livePublications == 0)
+        #expect(controller.dividerIntentCountForTesting - dividerIntentsBefore == 1)
+        #expect(controller.hostPresentationState.mode == .hidden)
+        #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
+        #expect(controller.isEdgeTrackingVisibleForTesting)
+    }
+
+    @Test("persistent show fails closed when handoff prerequisites disappear")
+    func persistentShowRollback() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+        controller.setPersistentSidebarVisible(false)
+        controller.overlayContentViewForTesting.layer = nil
+
+        controller.setPersistentSidebarVisible(true)
+
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(controller.hostPresentationState.mode == .hidden)
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(controller.isEdgeTrackingVisibleForTesting)
+    }
+
+    @Test("persistent hide fails closed when handoff prerequisites disappear")
+    func persistentHideRollback() {
+        let (controller, sidebar, _) = makeController(position: .right)
+        controller.setSidebarWidth(300)
+        controller.overlayContentViewForTesting.layer = nil
+
+        controller.setPersistentSidebarVisible(false)
+
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(controller.hostPresentationState.mode == .hidden)
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(controller.isEdgeTrackingVisibleForTesting)
+    }
+
+    @Test(
+        "authoritative host state survives overlay phases and stale completion",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right]
+    )
+    func authoritativeOverlayPhases(position: AppearanceConfig.SidebarPosition) {
+        let driver = AnimationDriver()
+        let (controller, _, _) = makeControlledController(position: position, driver: driver)
+        controller.setSidebarWidth(300)
+        controller.setPersistentSidebarVisible(false)
+
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        let revealCompletion = driver.completions[0]
+        #expect(controller.hostPresentationState.mode == .overlay(width: 300))
+        #expect(controller.hostPresentationState.effectiveVisibleWidth == 300)
+        revealCompletion()
+        #expect(controller.hostPresentationState.mode == .overlay(width: 300))
+
+        controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
+        let staleHide = driver.completions[1]
+        #expect(controller.hostPresentationState.mode == .overlay(width: 300))
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        staleHide()
+        #expect(controller.hostPresentationState.mode == .overlay(width: 300))
+        driver.completions[2]()
+        #expect(controller.hostPresentationState.mode == .overlay(width: 300))
+
+        controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
+        driver.completions[3]()
+        #expect(controller.hostPresentationState.mode == .hidden)
+        #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
     }
 
     @Test("settled persistent and hidden commands are idempotent")
@@ -297,6 +419,8 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.hostModeForTesting == .hidden)
         #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
         #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
+        #expect(controller.hostPresentationState.mode == .hidden)
+        #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
         controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
         #expect(driver.requestCount == 2)
         #expect(controller.overlayClipViewForTesting.frame.maxX == controller.view.bounds.maxX)
