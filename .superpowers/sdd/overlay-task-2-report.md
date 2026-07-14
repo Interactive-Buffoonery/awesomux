@@ -25,3 +25,10 @@ GREEN:
 - `git diff --check`
 
 All passed. Existing zero-size `NSSplitView` diagnostic logging remains visible in two controller fixtures; it predates this task and those tests pass.
+
+## Review fixes
+
+- Reasserting `setSidebarHidden(true)` now reconciles an already-hidden but presented overlay back to stable hidden ownership: animations/transforms clear, the one host reparents to `sidebarPaneContainer`, the clip hides, and sidebar accessibility hides.
+- Overlay presentation now guards the required content layer before reparenting or exposing the host. Missing compositor ownership fails closed through the same stable-hidden reconciliation path.
+- Clip coverage now holds both edge translations at 0%, 25%, 50%, and 100%, checking visible content hits and explicit `nil` routing for uncovered terminal mouse, scroll, and contextual events.
+- Root-update fixtures cover hidden, overlay, held mid-animation, and persistent modes, preserving hosting-controller identity, parent, host count, mode, split panes, and detail geometry while updating the same root value.

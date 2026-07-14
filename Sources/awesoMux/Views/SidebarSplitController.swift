@@ -228,6 +228,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     func setOverlayPresentedImmediately(_ presented: Bool) {
         guard isSidebarHidden else { return }
         if presented {
+            guard overlayContentView.layer != nil else {
+                reconcileStableHiddenOwnership()
+                return
+            }
             moveSidebarHost(to: overlayContentView)
             overlayClipView.isHidden = false
             layoutOverlay(presented: true)
@@ -235,17 +239,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             hostMode = .overlay(width: selectedSidebarWidth)
             sidebarChild.view.setAccessibilityHidden(false)
         } else {
-            overlayContentView.layer?.removeAllAnimations()
-            let translation =
-                sidebarPosition == .left
-                ? -overlayContentView.bounds.width : overlayContentView.bounds.width
-            overlayContentView.layer?.setAffineTransform(
-                CGAffineTransform(translationX: translation, y: 0))
-            moveSidebarHost(to: sidebarPaneContainer)
-            overlayContentView.layer?.setAffineTransform(.identity)
-            overlayClipView.isHidden = true
-            hostMode = .hidden
-            sidebarChild.view.setAccessibilityHidden(true)
+            reconcileStableHiddenOwnership()
         }
     }
 
@@ -286,7 +280,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func setSidebarHidden(_ hidden: Bool) {
-        guard hidden != isSidebarHidden else { return }
+        guard hidden != isSidebarHidden else {
+            if hidden { reconcileStableHiddenOwnership() }
+            return
+        }
         if hidden {
             handOffSidebarFocusIfNeeded()
             pendingWidth = sidebarPaneWidth
@@ -441,6 +438,20 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         destination.addSubview(sidebarChild.view)
         sidebarChild.view.frame = destination.bounds
         sidebarChild.view.autoresizingMask = [.width, .height]
+    }
+
+    private func reconcileStableHiddenOwnership() {
+        overlayContentView.layer?.removeAllAnimations()
+        let translation =
+            sidebarPosition == .left
+            ? -overlayContentView.bounds.width : overlayContentView.bounds.width
+        overlayContentView.layer?.setAffineTransform(
+            CGAffineTransform(translationX: translation, y: 0))
+        moveSidebarHost(to: sidebarPaneContainer)
+        overlayContentView.layer?.setAffineTransform(.identity)
+        overlayClipView.isHidden = true
+        hostMode = .hidden
+        sidebarChild.view.setAccessibilityHidden(true)
     }
 
     private func removeConstraints(for child: NSView, from container: NSView?) {
