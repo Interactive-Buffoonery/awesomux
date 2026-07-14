@@ -164,69 +164,29 @@ jobs:
             echo "zig_version=$ZIG_VERSION"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Restore cached Zig toolchain
-        id: zig-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/zig
-          key: zig-v1-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.zig_version }}
-
-      - name: Install Zig (first-party download, checksum-verified)
+      - name: Install Zig (Homebrew)
         env:
-          ZIG_VERSION: ${{ steps.ghostty-pin.outputs.zig_version }}
-          ZIG_CACHE_HIT: ${{ steps.zig-cache.outputs.cache-hit }}
+          REQUIRED_ZIG: ${{ steps.ghostty-pin.outputs.zig_version }}
         run: |
           set -euo pipefail
-          # macos-15 hosted runners are Apple Silicon today; derive from
-          # runner.arch instead of hardcoding so a future x86_64 runner
-          # doesn't silently install the wrong tarball.
-          case "$RUNNER_ARCH" in
-            ARM64) ZIG_TARGET="aarch64-macos" ;;
-            X64) ZIG_TARGET="x86_64-macos" ;;
-            *)
-              echo "::error::unsupported runner.arch '$RUNNER_ARCH' for Zig target selection" >&2
-              exit 1
-              ;;
-          esac
-
-          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig"
-
-          if [[ "$ZIG_CACHE_HIT" == "true" ]]; then
-            echo "Zig $ZIG_VERSION ($ZIG_TARGET) restored from cache; skipping download and verification."
-          else
-            # Looked up in repo content reviewed in a PR, not fetched from
-            # ziglang.org alongside the tarball: fetching bytes and their
-            # expected hash from the same origin verifies transport, not
-            # provenance.
-            EXPECTED_SHA256="$(awk -v v="$ZIG_VERSION" -v t="$ZIG_TARGET" '$1 == v && $2 == t { print $3 }' .github/zig-checksums.txt)"
-            if [[ -z "$EXPECTED_SHA256" ]]; then
-              echo "::error::no pinned checksum for Zig $ZIG_VERSION $ZIG_TARGET — fetch the shasum from ziglang.org/download and add a reviewed row to .github/zig-checksums.txt" >&2
-              exit 1
-            fi
-
-            TARBALL_URL="https://ziglang.org/download/$ZIG_VERSION/zig-$ZIG_TARGET-$ZIG_VERSION.tar.xz"
-            ARCHIVE="$RUNNER_TEMP/zig.tar.xz"
-            curl -fsSL --retry 3 "$TARBALL_URL" -o "$ARCHIVE"
-            ACTUAL_SHA256="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
-            if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
-              echo "::error::Zig tarball checksum mismatch (expected $EXPECTED_SHA256, got $ACTUAL_SHA256) — refusing to extract" >&2
-              exit 1
-            fi
-
-            mkdir -p "$ZIG_INSTALL_DIR"
-            tar -xJf "$ARCHIVE" -C "$ZIG_INSTALL_DIR" --strip-components=1
-            rm -f "$ARCHIVE"
+          # Homebrew's zig, not the ziglang.org binary tarball: the upstream
+          # 0.15.2 binary fails to link libc against current macOS SDKs
+          # (undefined _sigaction/_waitpid at the build-runner link stage —
+          # run 29300808015), reproduced locally on the exact Xcode 26.6 /
+          # SDK 26.5 combination where Homebrew's 0.15.2 build succeeds.
+          # Provenance: bottles are checksum-pinned by the public Homebrew
+          # formula, an equivalent trust story to the repo-pinned tarball
+          # hash this step replaces.
+          brew install zig
+          INSTALLED_ZIG="$(zig version)"
+          # Ghostty pins a minimum Zig; Homebrew ships one current version.
+          # If brew ever drifts BELOW the pin, fail loudly here rather than
+          # somewhere inside the Ghostty build.
+          if [[ "$(printf '%s\n%s\n' "$REQUIRED_ZIG" "$INSTALLED_ZIG" | sort -V | head -n1)" != "$REQUIRED_ZIG" ]]; then
+            echo "::error::Homebrew zig is $INSTALLED_ZIG but vendor/ghostty requires >= $REQUIRED_ZIG — install a compatible zig explicitly" >&2
+            exit 1
           fi
-
-          echo "$ZIG_INSTALL_DIR" >> "$GITHUB_PATH"
-          "$ZIG_INSTALL_DIR/zig" version
-
-      - name: Save Zig toolchain to cache
-        if: steps.zig-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/zig
-          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
+          echo "Using Homebrew zig $INSTALLED_ZIG (ghostty requires >= $REQUIRED_ZIG)"
 
       - name: Select Xcode toolchain matching the package's Swift requirement
         id: xcode
