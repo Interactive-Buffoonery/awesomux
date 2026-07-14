@@ -321,9 +321,22 @@ struct SidebarSessionTileEquatableTests {
 
     @Test("attentionReason difference compares NOT equal")
     func attentionReasonChangeRerenders() {
+        // Isolation fixture: a non-shell `agentKind` makes `effectiveChromeState`
+        // return `agentState` unconditionally (TerminalPane.swift's
+        // `guard agentKind == .shell else { return agentState }`), and
+        // `.error` is a "dead pane" in `AgentDisplayState.init` — a lingering
+        // low-priority `attentionReason` (`.bell`, priority 0) does not
+        // outrank the recovery hint there, so both panes collapse to the same
+        // `.error` chrome state despite differing `attentionReason`. That
+        // isolates the assertion below to the `PaneChromeKey.attentionReason`
+        // field alone, not `chromeState`.
         let id = UUID()
-        let quiet = pane(id: id, attention: nil)
-        let ringing = pane(id: id, attention: .bell)
+        let quiet = pane(id: id, kind: .claudeCode, execution: .error, attention: nil)
+        let ringing = pane(id: id, kind: .claudeCode, execution: .error, attention: .bell)
+
+        // Pin the isolation premise: both panes must render the same chrome
+        // state before checking that the tile still distinguishes them.
+        #expect(quiet.effectiveChromeState == ringing.effectiveChromeState)
 
         let sessionID = UUID()
         let tileA = tile(session: session(id: sessionID, panes: [quiet]))
