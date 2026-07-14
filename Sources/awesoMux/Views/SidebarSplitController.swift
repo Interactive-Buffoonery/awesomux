@@ -94,6 +94,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var isSettingPositionProgrammatically = false
     private var isPerformingHostHandoff = false
     private var dividerIntentCount = 0
+    private(set) var lastCapturedSidebarAccessibilityFocusForTesting = false
 
     /// Width requested before the split had real bounds (first launch / restore).
     /// Applied once the first non-zero layout lands — dodges the zero-bounds trap
@@ -477,6 +478,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             isSidebarHidden = true
             reconcileStableHiddenOwnership()
             applyHiddenPosition()
+            setEdgeTrackingEnabled(true)
             return
         }
         let target = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
@@ -545,6 +547,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         pendingWidth = selectedSidebarWidth
         recordIfExpanded(sidebarPaneWidth)
+        record(.captureSidebarResponder)
+        record(.querySidebarAccessibilityFocus)
+        lastCapturedSidebarAccessibilityFocusForTesting = sidebarAccessibilityFocusIsActive
+        record(.handOffSidebarFocus)
+        handOffSidebarFocusIfNeeded()
         isPerformingHostHandoff = true
         record(.beginNoActionsTransaction)
         NSAnimationContext.runAnimationGroup { context in
@@ -556,10 +563,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             record(.cancelOverlayGeneration)
             overlayAnimator?.cancelAndSettle(
                 presented: false, width: overlayClipView.bounds.width, position: sidebarPosition)
-            record(.captureSidebarResponder)
-            record(.captureSidebarAccessibility)
-            record(.handOffSidebarFocus)
-            handOffSidebarFocusIfNeeded()
             record(.removeOverlayAnimation)
             overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
             record(.reparentHostToSplitContainer)
