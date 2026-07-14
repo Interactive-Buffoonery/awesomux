@@ -92,8 +92,9 @@ struct SidebarHoverGeometryIsolationTests {
         let (controller, detail, _) = makeHiddenController(position: .left, width: 300)
         let detailFrame = detail.frame
 
-        model.pointerMoved(x: SidebarPresentationModel.cueDistance, width: 1_200, position: .left)
+        model.pointerMoved(x: 400, width: 400, position: .left)
         #expect(model.proximityState == .cue)
+        #expect(model.cueIntensity == 0)
         #expect(
             SidebarPresentationRouting.command(
                 userWantsHidden: model.userWantsHidden, proximity: model.proximityState)
