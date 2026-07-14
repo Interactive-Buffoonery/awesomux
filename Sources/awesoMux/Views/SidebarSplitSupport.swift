@@ -14,11 +14,6 @@ enum SidebarPeekDirection: Equatable {
     case right
 }
 
-enum SidebarSplitTransition: Equatable {
-    case immediate
-    case hover(duration: TimeInterval)
-}
-
 enum AppTitlebarColumn: Equatable {
     case sidebar
     case detail
@@ -366,6 +361,4 @@ final class SidebarSplitProxy {
     /// sidebar pane is the given width (clamped, un-animated).
     @ObservationIgnored var setWidth: ((CGFloat) -> Void)?
     @ObservationIgnored var setPosition: ((AppearanceConfig.SidebarPosition) -> Void)?
-    @ObservationIgnored var setHidden: ((Bool) -> Void)?
-    @ObservationIgnored var setVisibility: ((Bool, SidebarSplitTransition, Bool) -> Void)?
 }

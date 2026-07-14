@@ -14,15 +14,6 @@ struct SidebarHiddenWidthToggleResult: Equatable {
     let shouldReveal: Bool
 }
 
-enum SidebarHoverTransitionPolicy {
-    static func transition(
-        for source: SidebarVisibilitySource,
-        reduceMotion: Bool
-    ) -> SidebarSplitTransition {
-        source == .pointer && !reduceMotion ? .hover(duration: 0.140) : .immediate
-    }
-}
-
 enum SidebarHiddenWidthTogglePolicy {
     static func currentWidth(
         committedWidth: CGFloat,
@@ -44,15 +35,6 @@ enum SidebarHiddenWidthTogglePolicy {
             ),
             shouldReveal: !persistentlyHidden
         )
-    }
-}
-
-enum SidebarRuntimeVisibilityPolicy {
-    static func isVisible(
-        proximityState: SidebarPresentationModel.ProximityState,
-        userWantsHidden: Bool
-    ) -> Bool {
-        !userWantsHidden || proximityState == .revealed
     }
 }
 
@@ -237,7 +219,6 @@ struct ContentView: View {
                 onEdgeExit: sidebarPresentation.trackingRegionExited,
                 onTrackingAvailabilityLost: {
                     sidebarPresentation.invalidateTransientState()
-                    splitProxy.setVisibility?(false, .immediate, true)
                 },
                 sidebar: {
                     SidebarView(
@@ -300,20 +281,6 @@ struct ContentView: View {
                     visible: sidebarPresentation.isCueVisible
                 )
             }
-            .onChange(of: sidebarPresentation.proximityState) { _, state in
-                let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-                splitProxy.setVisibility?(
-                    SidebarRuntimeVisibilityPolicy.isVisible(
-                        proximityState: state,
-                        userWantsHidden: sidebarPresentation.userWantsHidden
-                    ),
-                    SidebarHoverTransitionPolicy.transition(
-                        for: sidebarPresentation.visibilitySource,
-                        reduceMotion: reduceMotion
-                    ),
-                    reduceMotion
-                )
-            }
         }
     }
 
@@ -322,7 +289,6 @@ struct ContentView: View {
         // Ordering is deliberate: invalidate every stale interaction before
         // moving the native split, then publish the new overlay geometry.
         sidebarPresentation.positionDidChange()
-        splitProxy.setVisibility?(sidebarPresentation.isSidebarVisible, .immediate, true)
         peekModel.hideAll()
         splitProxy.setPosition?(position)
         appliedSidebarPosition = position
@@ -416,7 +382,6 @@ struct ContentView: View {
 
     private func settleSidebarVisibilityExplicitly() {
         sidebarPresentation.invalidateTransientState()
-        splitProxy.setVisibility?(sidebarPresentation.isSidebarVisible, .immediate, true)
     }
 
 }

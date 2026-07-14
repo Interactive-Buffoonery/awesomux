@@ -19,5 +19,7 @@ struct SidebarSplitVisibilityOwnershipTests {
         #expect(!body.contains("setSidebarHidden"))
         #expect(!body.contains("setSidebarVisible"))
         #expect(!body.contains("setVisibility"))
+        #expect(!body.contains("setOverlayVisible"))
+        #expect(!body.contains("setPersistentVisible"))
     }
 }
