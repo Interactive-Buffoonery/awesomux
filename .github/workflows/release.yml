@@ -2,8 +2,7 @@ name: Release
 
 # Two triggers: pushing a v* tag cuts a draft release automatically (the
 # normal path), and workflow_dispatch remains for pipeline iteration and
-# ad-hoc builds. Proven end to end by dispatch run 29339657043 (signed,
-# notarized, stapled, verified on-device). See docs/releasing.md.
+# ad-hoc builds. See docs/releasing.md.
 #
 # script/build_release.sh is the single source of signing/notarization
 # behavior; this workflow only reconstructs the environment it needs
@@ -460,12 +459,12 @@ jobs:
             --notary-profile awesomux-notary \
             --output dist/release
 
-      - name: Upload release zip
+      - name: Upload release DMG
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: awesoMux-release-zip
-          path: dist/release/awesoMux-*.zip
+          name: awesoMux-release-dmg
+          path: dist/release/awesoMux-*.dmg
           if-no-files-found: error
           retention-days: 7
 
@@ -505,8 +504,8 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "v$VERSION" \
             --notes "Draft release created by release.yml — review, edit notes, and publish." \
-            "dist/release/awesoMux-$VERSION.zip" \
-            "dist/release/awesoMux-$VERSION.zip.sha256"
+            "dist/release/awesoMux-$VERSION.dmg" \
+            "dist/release/awesoMux-$VERSION.dmg.sha256"
 
       - name: Clean up signing keychain and temp credentials
         if: always()
