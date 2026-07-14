@@ -114,6 +114,37 @@ struct SidebarSplitControllerTests {
         #expect(window.firstResponder === sentinel)
     }
 
+    @Test("edge tracker republishes a stationary pointer after geometry changes")
+    func edgeTrackerReclassifiesAfterResize() throws {
+        let (controller, _, _) = makeController()
+        let window = hostInFixedWindow(controller)
+        controller.setEdgeTrackingEnabled(true)
+        var reports: [(CGFloat, CGFloat)] = []
+        controller.onEdgePointerMove = { reports.append(($0, $1)) }
+        let event = try #require(
+            NSEvent.mouseEvent(
+                with: .mouseMoved,
+                location: CGPoint(x: 200, y: 100),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 0,
+                pressure: 0
+            ))
+
+        controller.edgeTrackingViewForTesting.mouseMoved(with: event)
+        controller.view.frame.size.width = 900
+        controller.view.layoutSubtreeIfNeeded()
+
+        #expect(reports.count == 2)
+        #expect(reports[0].0 == 200)
+        #expect(reports[0].1 == 400)
+        #expect(reports[1].0 == 200)
+        #expect(reports[1].1 == 300)
+    }
+
     @Test("disabling tracker hides it and exits once")
     func disablingEdgeTracker() {
         let (controller, _, _) = makeController()

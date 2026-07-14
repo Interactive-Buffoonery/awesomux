@@ -37,6 +37,7 @@ final class SidebarHostPresentationState {
     private(set) var effectiveVisibleWidth: CGFloat
     private(set) var titlebarPresentationWidth: CGFloat
     private(set) var titlebarTranslationX: CGFloat = 0
+    private(set) var isOverlayAnimating = false
     @ObservationIgnored var overlayPresentationTranslation: (() -> CGFloat?)?
     @ObservationIgnored var onSettleForTesting: (() -> Void)?
 
@@ -53,6 +54,11 @@ final class SidebarHostPresentationState {
     }
 
     func settle(mode: SidebarHostMode, effectiveVisibleWidth: CGFloat) {
+        if case .overlay = mode {
+            // Preserve active compositor sampling across overlay relayouts.
+        } else {
+            isOverlayAnimating = false
+        }
         self.mode = mode
         self.effectiveVisibleWidth = effectiveVisibleWidth
         if effectiveVisibleWidth > 0 {
@@ -74,6 +80,10 @@ final class SidebarHostPresentationState {
             presented
             ? SidebarOverlayAnimator.presentedTranslation
             : SidebarOverlayAnimator.hiddenTranslation(width: width, position: position)
+    }
+
+    func setOverlayAnimating(_ animating: Bool) {
+        isOverlayAnimating = animating
     }
 
     var currentTitlebarTranslationX: CGFloat {

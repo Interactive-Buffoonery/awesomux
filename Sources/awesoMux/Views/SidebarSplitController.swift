@@ -228,12 +228,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         splitView.frame = view.bounds
         if case .overlay = hostMode { layoutOverlayPreservingAnimation() }
         let trackingWidth = max(0, view.bounds.width / 3)
-        edgeTrackingView.frame = CGRect(
+        let trackingFrame = CGRect(
             x: sidebarPosition == .left ? 0 : view.bounds.width - trackingWidth,
             y: 0,
             width: trackingWidth,
             height: view.bounds.height
         )
+        if edgeTrackingView.frame != trackingFrame {
+            edgeTrackingView.frame = trackingFrame
+            edgeTrackingView.republishPointerAfterGeometryChange()
+        }
         guard !isSidebarHidden else {
             applyHiddenPosition()
             return
@@ -365,6 +369,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         ) { [weak self] _ in
             self?.finishOverlayTransition(presented: presented)
         }
+        hostPresentationState.setOverlayAnimating(overlayAnimator?.isAnimating == true)
     }
 
     var maxSidebarWidth: CGFloat {
@@ -434,7 +439,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         guard isViewLoaded else { return }
         edgeTrackingView.isHidden = !enabled
         if !enabled {
-            onEdgeExit?()
+            edgeTrackingView.invalidatePointer()
         }
     }
 
@@ -453,6 +458,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     var edgeTrackingFrameForTesting: CGRect { edgeTrackingView.frame }
+    var edgeTrackingViewForTesting: SidebarEdgeTrackingView { edgeTrackingView }
     var isEdgeTrackingVisibleForTesting: Bool { !edgeTrackingView.isHidden }
     var splitPaneViewsForTesting: [NSView] { splitView.subviews }
     var sidebarPaneContainerForTesting: NSView { sidebarPaneContainer }
@@ -863,6 +869,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func finishOverlayTransition(presented: Bool) {
+        hostPresentationState.setOverlayAnimating(false)
         if presented {
             sidebarChild.view.setAccessibilityHidden(false)
             hostPresentationState.settle(
@@ -881,15 +888,17 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         guard oldWidth > 0, oldWidth != newWidth,
             let requestedPresented = overlayAnimator?.requestedPresentedState
         else { return }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         overlayAnimator?.reframe(
             fromWidth: oldWidth,
             toWidth: newWidth,
             position: sidebarPosition,
             transition: .hover,
-            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            reduceMotion: reduceMotion
         ) { [weak self] _ in
             self?.finishOverlayTransition(presented: requestedPresented)
         }
+        hostPresentationState.setOverlayAnimating(overlayAnimator?.isAnimating == true)
     }
 
     private func removeConstraints(for child: NSView, from container: NSView?) {

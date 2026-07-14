@@ -522,24 +522,12 @@ private struct AppTitlebarView: View {
             )
             titlebarColumns(geometry: geometry)
         case .overlay:
-            TimelineView(.animation) { _ in
-                let translation = hostPresentation.currentTitlebarTranslationX
-                let visibleWidth = hostPresentation.currentTitlebarVisibleWidth(
-                    position: sidebarPosition,
-                    translation: translation
-                )
-                let geometry = layoutPolicy.titlebarGeometry(
-                    titlebarWidth: titlebarWidth,
-                    visibleSidebarWidth: visibleWidth
-                )
-                titlebarColumns(geometry: geometry)
-                    .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
-                        sidebarColumn(
-                            width: hostPresentation.titlebarPresentationWidth,
-                            isPhysicalLeading: sidebarPosition == .left
-                        )
-                        .offset(x: translation)
-                    }
+            if hostPresentation.isOverlayAnimating {
+                TimelineView(.animation) { _ in
+                    overlayTitlebar(titlebarWidth: titlebarWidth)
+                }
+            } else {
+                overlayTitlebar(titlebarWidth: titlebarWidth)
             }
         case .hidden:
             let geometry = layoutPolicy.titlebarGeometry(
@@ -555,6 +543,26 @@ private struct AppTitlebarView: View {
                     .offset(x: hostPresentation.titlebarTranslationX)
                 }
         }
+    }
+
+    private func overlayTitlebar(titlebarWidth: CGFloat) -> some View {
+        let translation = hostPresentation.currentTitlebarTranslationX
+        let visibleWidth = hostPresentation.currentTitlebarVisibleWidth(
+            position: sidebarPosition,
+            translation: translation
+        )
+        let geometry = layoutPolicy.titlebarGeometry(
+            titlebarWidth: titlebarWidth,
+            visibleSidebarWidth: visibleWidth
+        )
+        return titlebarColumns(geometry: geometry)
+            .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
+                sidebarColumn(
+                    width: hostPresentation.titlebarPresentationWidth,
+                    isPhysicalLeading: sidebarPosition == .left
+                )
+                .offset(x: translation)
+            }
     }
 
     private func titlebarColumns(geometry: AppTitlebarLayoutGeometry) -> some View {
