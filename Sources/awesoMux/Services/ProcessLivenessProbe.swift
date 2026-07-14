@@ -37,14 +37,18 @@ enum ProcessLivenessProbe {
         comm: (pid_t) -> String? = { ProcessLivenessProbe.foregroundComm(pid: $0) }
     ) -> ForegroundProcessLiveness {
         guard let daemonChildren = childPIDs(daemonPID) else { return .bridgedBusy }
-        guard let shellPID = daemonChildren.first else { return .bridged }
-        guard let shellComm = comm(shellPID), let shellChildren = childPIDs(shellPID) else {
-            return .bridgedBusy
+        for childPID in daemonChildren {
+            guard let childComm = comm(childPID), let children = childPIDs(childPID) else {
+                return .bridgedBusy
+            }
+            guard
+                ForegroundProcessLiveness.classifyBridged(
+                    rootComm: childComm,
+                    rootHasChildren: !children.isEmpty
+                ) == .bridged
+            else { return .bridgedBusy }
         }
-        return ForegroundProcessLiveness.classifyBridged(
-            rootComm: shellComm,
-            rootHasChildren: !shellChildren.isEmpty
-        )
+        return .bridged
     }
 
     private static func childPIDs(pid: pid_t) -> [pid_t]? {
