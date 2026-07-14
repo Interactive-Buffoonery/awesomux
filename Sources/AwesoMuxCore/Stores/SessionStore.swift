@@ -269,7 +269,12 @@ public final class SessionStore {
     /// (a runtime-only side table keyed by paneID). Until that refactor, this
     /// coarsening is the cheap fix; it can make quit-risk staleness fire up to
     /// this interval early, which is immaterial against a 60s heuristic.
-    static let agentActivityFreshnessCoarsening: TimeInterval = 10
+    ///
+    /// `nonisolated`: a plain compile-time constant with no actor-isolated
+    /// state — `WorkspaceAttentionReducer` (deliberately nonisolated/`Sendable`
+    /// so it stays testable without SwiftUI) reads it directly from
+    /// `updatePane` to coarsen the same heartbeat this doc comment describes.
+    nonisolated static let agentActivityFreshnessCoarsening: TimeInterval = 10
 
     /// Deliberately does NOT call `reclassifyRiskMembership` — only bumps
     /// `lastAgentStateChangeAt`, which quit-risk classification doesn't read
