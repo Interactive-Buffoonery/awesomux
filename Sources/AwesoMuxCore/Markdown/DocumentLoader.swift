@@ -43,7 +43,7 @@ public enum DocumentLoader {
     }
 
     /// Reads a document source through the same validation and byte cap as `load(_:)`.
-    public static func readSource(
+    package static func readSource(
         _ url: URL
     ) -> String? {
         guard case let .source(source) = readSource(url, effectiveUID: geteuid()) else {
