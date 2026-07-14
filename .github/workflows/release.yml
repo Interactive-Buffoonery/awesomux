@@ -246,12 +246,18 @@ jobs:
           REQUIRED="$(DEVELOPER_DIR="$DEVELOPER_DIR" xcrun swift package tools-version)"
           INSTALLED="$(DEVELOPER_DIR="$DEVELOPER_DIR" xcrun swift -version 2>/dev/null \
             | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p' | head -n1)"
+          # When even the newest Xcode's Swift predates the package's tools
+          # version (runner images lag Swift releases by weeks), don't fail —
+          # signal the next step to install the repo-pinned swift.org
+          # toolchain instead. Xcode is still selected either way: the SDK,
+          # actool, Metal, codesign, and notarytool all come from it.
           if [[ -z "$INSTALLED" ]] || [[ "$(printf '%s\n%s\n' "$REQUIRED" "$INSTALLED" | sort -V | head -n1)" != "$REQUIRED" ]]; then
-            echo "::error::newest Xcode ($NEWEST) ships Swift ${INSTALLED:-unknown}, but Package.swift requires tools version $REQUIRED — runner image lacks a compatible toolchain" >&2
-            ls -d /Applications/Xcode_*.app >&2
-            exit 1
+            echo "Newest Xcode ($NEWEST) ships Swift ${INSTALLED:-unknown} < required $REQUIRED — will install the pinned swift.org toolchain."
+            echo "needs_toolchain=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Selected $NEWEST (Swift $INSTALLED >= required $REQUIRED)"
+            echo "needs_toolchain=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Selected $NEWEST (Swift $INSTALLED >= required $REQUIRED)"
           echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
           VERSION_STRING="$(DEVELOPER_DIR="$DEVELOPER_DIR" xcodebuild -version)"
           XC_VERSION="$(awk '/^Xcode /{print $2}' <<<"$VERSION_STRING")"
@@ -273,6 +279,67 @@ jobs:
             echo "Metal toolchain not directly available; installing..."
             xcodebuild -downloadComponent MetalToolchain
           fi
+
+      - name: Restore cached swift.org toolchain pkg
+        if: steps.xcode.outputs.needs_toolchain == 'true'
+        id: swift-pkg-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/swift-toolchain.pkg
+          key: swift-pkg-v1-${{ hashFiles('.swift-version') }}
+
+      - name: Install pinned swift.org toolchain
+        if: steps.xcode.outputs.needs_toolchain == 'true'
+        run: |
+          set -euo pipefail
+          # The runner image's Xcodes lag Swift releases; the repo pins its
+          # Swift in .swift-version (same version the maintainers build and
+          # ship with locally). Install the matching swift.org toolchain and
+          # activate it via TOOLCHAINS — SwiftPM compiles with it while the
+          # selected Xcode still provides the SDK and app tooling.
+          SWIFT_VERSION="$(tr -d '[:space:]' < .swift-version)"
+          PKG="$RUNNER_TEMP/swift-toolchain.pkg"
+          if [[ ! -f "$PKG" ]]; then
+            URL="https://download.swift.org/swift-${SWIFT_VERSION}-release/xcode/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-osx.pkg"
+            echo "Downloading $URL"
+            curl -fsSL -o "$PKG" "$URL"
+          fi
+          # Checksum must come from repo content reviewed in a PR, same trust
+          # model as .github/zig-checksums.txt.
+          EXPECTED="$(awk -v v="$SWIFT_VERSION" '$1 == v && $2 == "osx" {print $3}' .github/swift-toolchain-checksums.txt)"
+          if [[ -z "$EXPECTED" ]]; then
+            echo "::error::no pinned checksum for swift.org toolchain $SWIFT_VERSION — add a reviewed row to .github/swift-toolchain-checksums.txt" >&2
+            exit 1
+          fi
+          ACTUAL="$(shasum -a 256 "$PKG" | awk '{print $1}')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error::swift.org toolchain pkg checksum mismatch (expected $EXPECTED, got $ACTUAL)" >&2
+            exit 1
+          fi
+          sudo installer -pkg "$PKG" -target /
+          TOOLCHAIN_PLIST="/Library/Developer/Toolchains/swift-${SWIFT_VERSION}-RELEASE.xctoolchain/Info.plist"
+          if [[ ! -f "$TOOLCHAIN_PLIST" ]]; then
+            echo "::error::toolchain installed but $TOOLCHAIN_PLIST not found — did the pkg layout change?" >&2
+            ls /Library/Developer/Toolchains >&2 || true
+            exit 1
+          fi
+          TOOLCHAIN_ID="$(plutil -extract CFBundleIdentifier raw "$TOOLCHAIN_PLIST")"
+          echo "TOOLCHAINS=$TOOLCHAIN_ID" >> "$GITHUB_ENV"
+          # Prove the activation actually took before spending build time.
+          ACTIVE="$(TOOLCHAINS="$TOOLCHAIN_ID" xcrun swift -version 2>/dev/null \
+            | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p' | head -n1)"
+          if [[ "$ACTIVE" != "$SWIFT_VERSION" ]]; then
+            echo "::error::TOOLCHAINS activation failed — swift reports ${ACTIVE:-nothing}, expected $SWIFT_VERSION" >&2
+            exit 1
+          fi
+          echo "Active Swift toolchain: $ACTIVE ($TOOLCHAIN_ID)"
+
+      - name: Save swift.org toolchain pkg to cache
+        if: steps.xcode.outputs.needs_toolchain == 'true' && steps.swift-pkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/swift-toolchain.pkg
+          key: ${{ steps.swift-pkg-cache.outputs.cache-primary-key }}
 
       - name: Restore cached Ghostty artifacts
         id: ghostty-cache
