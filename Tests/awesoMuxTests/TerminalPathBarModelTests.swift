@@ -123,6 +123,28 @@ struct TerminalPathBarModelTests {
         #expect(copy.accessibilityHint == copy.help)
     }
 
+    @Test("declared SSH target wins over an observed prompt host")
+    func declaredSSHTargetWinsOverObservedHost() {
+        let target = RemoteTarget(user: "alice", host: "buildbox-alias")!
+        let pane = TerminalPane(
+            title: "deploy@resolved.example: /srv/app",
+            workingDirectory: "/srv/app",
+            remoteHost: "resolved.example",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "remote",
+            workingDirectory: "/tmp/stale-local",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        let model = TerminalPathBarModel.make(session: session)
+
+        #expect(model.remoteHost == "alice@buildbox-alias")
+        #expect(model.revealURL == nil)
+    }
+
     @Test("execution-location changes produce concise VoiceOver announcements")
     func executionLocationAnnouncements() {
         let local = PathBarExecutionAnnouncementState.local

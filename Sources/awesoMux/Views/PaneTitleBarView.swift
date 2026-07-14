@@ -68,6 +68,17 @@ struct PaneTitleBarView: View {
                 titleLabel(title)
             }
 
+            if let remoteHost = Self.remoteHost(for: pane) {
+                Label(remoteHost, systemImage: "network")
+                    .awFont(AwFont.Mono.meta)
+                    .foregroundStyle(titleColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 180)
+                    .help("Remote session on \(remoteHost)")
+                    .accessibilityHidden(true)
+            }
+
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
@@ -285,6 +296,17 @@ struct PaneTitleBarView: View {
         return basename.isEmpty ? pane.workingDirectory : basename
     }
 
+    nonisolated static func remoteHost(for pane: TerminalPane) -> String? {
+        pane.remotePresentationHost
+    }
+
+    nonisolated static func accessibilityLabel(for pane: TerminalPane, title: String) -> String {
+        guard let remoteHost = remoteHost(for: pane) else {
+            return "Pane: \(title)"
+        }
+        return "Pane: \(title), Remote session on \(remoteHost)"
+    }
+
     /// The displayed title — the semantic element that carries the pointer-only
     /// affordances (double-click rename / context-menu reset) as accessibility
     /// actions so VoiceOver/keyboard users reach them via the rotor.
@@ -304,7 +326,7 @@ struct PaneTitleBarView: View {
             .foregroundStyle(titleColor)
             .lineLimit(1)
             .truncationMode(.tail)
-            .accessibilityLabel("Pane: \(title)\(colorSuffix)")
+            .accessibilityLabel(Self.accessibilityLabel(for: pane, title: title) + colorSuffix)
             .accessibilityAction(named: "Rename") { beginEditing() }
         if pane.isTitleUserEdited {
             base
