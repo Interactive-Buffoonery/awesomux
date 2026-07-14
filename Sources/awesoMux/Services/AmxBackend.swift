@@ -177,7 +177,7 @@ enum AmxBackend {
             logger.warning(
                 "ssh ControlPath temp-socket length \(estimatedLength, privacy: .public) exceeds the \(Self.sockaddrUnPathLimit, privacy: .public)-byte sockaddr_un limit; ControlMaster setup will fail and remote panes will not open"
             )
-            // ponytail: fail loud in dev where it's cheap to notice; never
+            // deliberate scope: fail loud in dev where it's cheap to notice; never
             // crash a release build — a warning plus the degraded path beats a
             // crash, and the short /tmp dir keeps this branch unreachable.
             #if DEBUG
@@ -240,7 +240,7 @@ enum AmxBackend {
     /// bash/fish daemon's environment would leak into any nested zsh launched
     /// later. Local attaches only: a remote session's daemon spawns `ssh`, and
     /// the resources path doesn't exist on the far host.
-    /// ponytail: zsh only — bash/nu need argv rewriting zmx doesn't support;
+    /// deliberate scope ceiling — zsh only — bash/nu need argv rewriting zmx doesn't support;
     /// add fish/elvish via XDG_DATA_DIRS if a non-zsh user reports the warning.
     private static func shellIntegrationEnvTokens(
         remote: RemoteTarget?,
