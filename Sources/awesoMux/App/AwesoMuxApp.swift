@@ -992,8 +992,23 @@ struct AwesoMuxApp: App {
     /// row that captured a stale value can't slip an outdated `agentState`
     /// past the check. If the session is already gone (race with another
     /// close), bail silently.
+    ///
+    /// Single-argument overload so this can still be handed around as a
+    /// bare `(TerminalSession) -> Void` closure (e.g. `ContentView`'s
+    /// `onCloseWorkspace`) — a default parameter value doesn't survive that
+    /// kind of reference in Swift.
     @MainActor
     private func closeWorkspace(_ session: TerminalSession) {
+        closeWorkspace(session, alsoGateOnPaneActionConfirm: false)
+    }
+
+    /// - Parameter alsoGateOnPaneActionConfirm: Set from the ⌘W → single-pane
+    ///   route only (`closeActivePane`). A user who set only "confirm before
+    ///   closing panes" (not the workspace toggle) kept a protection the old
+    ///   pane-scoped ⌘W path honored; the new last-pane-closes-workspace
+    ///   routing must still see it.
+    @MainActor
+    private func closeWorkspace(_ session: TerminalSession, alsoGateOnPaneActionConfirm: Bool) {
         guard let live = sessionStore.session(id: session.id) else { return }
         let voTitle = Self.compactTitle(live.title)
 
@@ -1006,7 +1021,7 @@ struct AwesoMuxApp: App {
 
         guard let refreshed = sessionStore.session(id: live.id) else { return }
 
-        switch confirmCloseIfNeeded(refreshed) {
+        switch confirmCloseIfNeeded(refreshed, alsoGateOnPaneActionConfirm: alsoGateOnPaneActionConfirm) {
         case .suppressed:
             // Re-entry guard fired (another close-confirm is already on
             // screen). Don't announce a "cancel" — that would mislead a
@@ -1018,9 +1033,22 @@ struct AwesoMuxApp: App {
         case .proceed:
             break
         }
-        floatingPanelController.evictFloatingSlot(for: refreshed.id)
-        ghosttyRuntime.discardSurfaces(for: refreshed)
-        sessionStore.closeSession(id: refreshed.id)
+        // Re-fetch after the modal — `runModal` drains the run loop, so a
+        // last-pane process exit can close this session out from under the
+        // dialog. Use the fresh value for surface discard so a pane added
+        // mid-modal isn't missed.
+        guard let confirmed = sessionStore.session(id: refreshed.id) else {
+            // The vanish path (closePane on last-pane exit) already captured
+            // its own recently-closed entry but doesn't evict the floating
+            // slot — do that here by id so this funnel doesn't reintroduce
+            // the exact PTY leak its doc comment above warns about.
+            floatingPanelController.evictFloatingSlot(for: refreshed.id)
+            announceClosed(title: voTitle)
+            return
+        }
+        floatingPanelController.evictFloatingSlot(for: confirmed.id)
+        ghosttyRuntime.discardSurfaces(for: confirmed)
+        sessionStore.closeSession(id: confirmed.id)
         announceClosed(title: voTitle)
     }
 
@@ -1444,8 +1472,14 @@ struct AwesoMuxApp: App {
     /// isolates are dialog-only; the VoiceOver announcement uses
     /// `compactTitle` (newline-strip + truncate, no isolate codepoints
     /// since they don't help speech and may add spoken artifacts).
+    /// - Parameter alsoGateOnPaneActionConfirm: When true, also treat
+    ///   `confirmDestructivePaneActionWithRunningAgent` as a gate — the
+    ///   ⌘W → single-pane route (see `closeWorkspace(_:alsoGateOnPaneActionConfirm:)`).
     @MainActor
-    private func confirmCloseIfNeeded(_ session: TerminalSession) -> CloseConfirmDecision {
+    private func confirmCloseIfNeeded(
+        _ session: TerminalSession,
+        alsoGateOnPaneActionConfirm: Bool = false
+    ) -> CloseConfirmDecision {
         let workspaces = appSettingsStore.workspaces.value
         // Check both the main session AND any backgrounded floating-panel
         // session bound to this workspace. `evictFloatingSlot` tears down
@@ -1455,7 +1489,10 @@ struct AwesoMuxApp: App {
         // unlike the ⌘Q path's `floatingPanelController.sessionsAtRiskOnQuit`.
         let mainAtRisk = session.isCloseRisk(at: Date())
         let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
-        guard workspaces.confirmCloseWithRunningAgent,
+        let confirmEnabled =
+            workspaces.confirmCloseWithRunningAgent
+            || (alsoGateOnPaneActionConfirm && workspaces.confirmDestructivePaneActionWithRunningAgent)
+        guard confirmEnabled,
             mainAtRisk || floatingAtRisk
         else {
             return .proceed
@@ -2014,7 +2051,7 @@ struct AwesoMuxApp: App {
     /// close button calls `closeActivePane()`, which no-ops without a
     /// selection, so "Close Window" would be a lie on that surface.
     private var closePaneMenuTitle: String {
-        sessionStore.selectedSession?.layout.isSinglePane == true ? "Close Workspace" : "Close Pane"
+        (sessionStore.selectedSession?.layout.isSinglePane ?? false) ? "Close Workspace" : "Close Pane"
     }
 
     private var closeShortcutTitle: String {
@@ -2142,8 +2179,11 @@ struct AwesoMuxApp: App {
         // Last pane = the workspace: route through the same soft-close funnel as
         // the sidebar X (confirm gate, floating-slot eviction, recently-closed
         // capture) instead of recycling the shell in place. ⇧⌘T reopens.
+        // `alsoGateOnPaneActionConfirm: true` — this is still logically a pane
+        // action (⌘W), so a user who only enabled the pane-confirm toggle
+        // (not the workspace one) keeps that protection here too.
         if session.layout.isSinglePane {
-            closeWorkspace(session)
+            closeWorkspace(session, alsoGateOnPaneActionConfirm: true)
             return
         }
 
@@ -2193,6 +2233,42 @@ struct AwesoMuxApp: App {
             ghosttyRuntime.discardSurface(for: closedPaneID)
             announcePaneClosed()
         }
+    }
+
+    /// Explicit "Restart Shell" command (command palette): recycles the
+    /// active pane's shell in place. This is the ADR-0002 amendment's named
+    /// replacement for the old single-pane ⌘W silent recycle — that trigger
+    /// now closes the workspace instead (see `closeActivePane` above), so
+    /// restarting a shell in place is only reachable as a deliberate,
+    /// separately-confirmed command. Session-scoped, not pane-count-gated:
+    /// `recycleAndAnnounce` replaces whichever pane is active, so this works
+    /// the same for a single-pane or multi-pane session.
+    ///
+    /// ponytail: always confirms — no
+    /// `DestructivePaneActionConfirmationPolicy` risk pre-check, unlike the
+    /// routed ⌘W close-pane action. This is a deliberately-invoked command
+    /// rather than a routed keystroke, so the unconditional prompt mirrors
+    /// `clearWorkspace`'s "always confirm" precedent. Wire it through the
+    /// policy's risk gate instead if the always-on prompt proves too naggy.
+    private func restartActiveShell() {
+        guard let session = sessionStore.selectedSession else { return }
+        ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
+        guard let refreshed = sessionStore.session(id: session.id) else { return }
+
+        switch confirmDestructivePaneActionIfNeeded(.restartShell, in: refreshed) {
+        case .suppressed:
+            return
+        case .userCancelled:
+            announcePaneActionCancelled(.restartShell)
+            return
+        case .proceed:
+            break
+        }
+        GhosttySurfaceNSView.recycleAndAnnounce(
+            sessionID: refreshed.id,
+            sessionStore: sessionStore,
+            runtime: ghosttyRuntime
+        )
     }
 
     private func announcePaneClosed() {
@@ -2826,6 +2902,7 @@ struct AwesoMuxApp: App {
                 splitActivePane(orientation: .horizontal)
             },
             closePane: closeActivePane,
+            restartShell: restartActiveShell,
             find: presentFindInActivePane,
             scrollbackDump: presentScrollbackDumpForActivePane,
             reconnectRemotePane: reconnectActiveRemotePane,

@@ -31,6 +31,7 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.splitRight.id,
                 KeyboardShortcutCatalog.splitDown.id,
                 KeyboardShortcutCatalog.closePane.id,
+                "restartShell",
                 KeyboardShortcutCatalog.find.id,
                 KeyboardShortcutCatalog.scrollbackDump.id,
                 "reconnectRemotePane",
@@ -584,6 +585,52 @@ struct PaletteCommandRegistryTests {
                 )
             ))
         #expect(command.title == "Close Pane")
+    }
+
+    @Test("Close Pane title stays Close Pane with no selection")
+    @MainActor
+    func closePaneTitleStaysClosePaneWithNoSelection() throws {
+        let store = SessionStore(groups: [])
+
+        let command = try #require(
+            PaletteCommandRegistry.command(
+                id: KeyboardShortcutCatalog.closePane.id,
+                in: PaletteCommandRegistry.commands(
+                    sessionStore: store,
+                    availability: .init(),
+                    actions: .noop
+                )
+            ))
+        #expect(command.title == "Close Pane")
+        #expect(!command.isEnabled)
+    }
+
+    @Test("Restart Shell command is registered and enabled for a selected session")
+    @MainActor
+    func restartShellCommandIsRegistered() throws {
+        let pane = TerminalPane(title: "only", workingDirectory: "/tmp", executionPlan: .local)
+        let session = TerminalSession(
+            title: "Solo",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Code", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        let command = try #require(
+            PaletteCommandRegistry.command(
+                id: "restartShell",
+                in: PaletteCommandRegistry.commands(
+                    sessionStore: store,
+                    availability: .init(),
+                    actions: .noop
+                )
+            ))
+        #expect(command.title == "Restart Shell")
+        #expect(command.isEnabled)
     }
 
     @Test("Recently-closed entries surface as targeted reopen commands")
