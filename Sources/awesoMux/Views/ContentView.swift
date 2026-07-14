@@ -483,36 +483,8 @@ private struct AppTitlebarView: View {
 
     @ViewBuilder
     var body: some View {
-        Group {
-            switch hostPresentation.mode {
-            case .persistent:
-                titlebarColumns(sidebarWidth: hostPresentation.effectiveVisibleWidth)
-            case .overlay:
-                TimelineView(.animation) { _ in
-                    let translation = hostPresentation.currentTitlebarTranslationX
-                    let visibleWidth = hostPresentation.currentTitlebarVisibleWidth(
-                        position: sidebarPosition,
-                        translation: translation
-                    )
-                    titlebarColumns(sidebarWidth: visibleWidth)
-                        .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
-                            sidebarColumn(
-                                width: hostPresentation.titlebarPresentationWidth,
-                                isPhysicalLeading: sidebarPosition == .left
-                            )
-                            .offset(x: translation)
-                        }
-                }
-            case .hidden:
-                titlebarColumns(sidebarWidth: 0)
-                    .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
-                        sidebarColumn(
-                            width: hostPresentation.titlebarPresentationWidth,
-                            isPhysicalLeading: sidebarPosition == .left
-                        )
-                        .offset(x: hostPresentation.titlebarTranslationX)
-                    }
-            }
+        GeometryReader { proxy in
+            titlebarContent(titlebarWidth: proxy.size.width)
         }
         // Titlebar height stays fixed: it abuts macOS window chrome
         // (traffic-light controls) which does not scale with Dynamic Type.
@@ -537,6 +509,51 @@ private struct AppTitlebarView: View {
             Rectangle()
                 .fill(Color.aw.border2)
                 .frame(height: 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private func titlebarContent(titlebarWidth: CGFloat) -> some View {
+        switch hostPresentation.mode {
+        case .persistent:
+            let geometry = layoutPolicy.titlebarGeometry(
+                titlebarWidth: titlebarWidth,
+                visibleSidebarWidth: hostPresentation.effectiveVisibleWidth
+            )
+            titlebarColumns(sidebarWidth: geometry.sidebarReservationWidth)
+        case .overlay:
+            TimelineView(.animation) { _ in
+                let translation = hostPresentation.currentTitlebarTranslationX
+                let visibleWidth = hostPresentation.currentTitlebarVisibleWidth(
+                    position: sidebarPosition,
+                    translation: translation
+                )
+                let geometry = layoutPolicy.titlebarGeometry(
+                    titlebarWidth: titlebarWidth,
+                    visibleSidebarWidth: visibleWidth
+                )
+                titlebarColumns(sidebarWidth: geometry.sidebarReservationWidth)
+                    .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
+                        sidebarColumn(
+                            width: hostPresentation.titlebarPresentationWidth,
+                            isPhysicalLeading: sidebarPosition == .left
+                        )
+                        .offset(x: translation)
+                    }
+            }
+        case .hidden:
+            let geometry = layoutPolicy.titlebarGeometry(
+                titlebarWidth: titlebarWidth,
+                visibleSidebarWidth: 0
+            )
+            titlebarColumns(sidebarWidth: geometry.sidebarReservationWidth)
+                .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
+                    sidebarColumn(
+                        width: hostPresentation.titlebarPresentationWidth,
+                        isPhysicalLeading: sidebarPosition == .left
+                    )
+                    .offset(x: hostPresentation.titlebarTranslationX)
+                }
         }
     }
 

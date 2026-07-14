@@ -136,6 +136,11 @@ enum AppTitlebarLockupAlignment: Equatable {
     case trailing
 }
 
+struct AppTitlebarLayoutGeometry: Equatable {
+    let sidebarReservationWidth: CGFloat
+    let workgroupBoundary: CGFloat
+}
+
 struct SidebarPresentationLayoutPolicy {
     let position: AppearanceConfig.SidebarPosition
 
@@ -151,6 +156,26 @@ struct SidebarPresentationLayoutPolicy {
         position == .left ? .leading : .trailing
     }
     var titlebarLockupOuterPadding: CGFloat { AppTitlebarMetrics.lockupPadding }
+
+    func titlebarGeometry(
+        titlebarWidth: CGFloat,
+        visibleSidebarWidth: CGFloat
+    ) -> AppTitlebarLayoutGeometry {
+        let width = titlebarWidth.isFinite ? max(0, titlebarWidth) : 0
+        let visibleWidth =
+            visibleSidebarWidth.isFinite
+            ? min(max(0, visibleSidebarWidth), width)
+            : 0
+        let gutter = min(AppTitlebarMetrics.contentColumnGutter, width - visibleWidth)
+        let boundary =
+            position == .left
+            ? visibleWidth + gutter
+            : width - visibleWidth - gutter
+        return AppTitlebarLayoutGeometry(
+            sidebarReservationWidth: visibleWidth,
+            workgroupBoundary: boundary
+        )
+    }
 }
 
 /// Live sidebar width published on every divider tick (INT-535, A4).
