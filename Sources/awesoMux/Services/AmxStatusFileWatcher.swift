@@ -40,9 +40,6 @@ final class AmxStatusFileWatcher {
     private var pendingTail: Data = Data()
     /// The live kqueue-backed vnode watch. Nil before `start()` or after `stop()`.
     private var source: DispatchSourceFileSystemObject?
-    /// True when the source has been resumed and not yet suspended/cancelled.
-    private var isSourceResumed: Bool = false
-
     private static let logger = Logger(subsystem: "awesomux.amx", category: "status-file-watcher")
 
     // MARK: - Init
@@ -57,11 +54,9 @@ final class AmxStatusFileWatcher {
     }
 
     /// Backstop teardown. Normal path is `stop()`. `isolated deinit` runs on
-    /// the MainActor so it can safely touch `source` and `isSourceResumed`,
-    /// matching the pattern in `AgentRuntimeEventBridge`. Without this, dropping
-    /// the last reference without calling `stop()` leaks the evtFD (cancel
-    /// handler never runs) and may trap in libdispatch if the source is
-    /// inadvertently in a suspended state.
+    /// the MainActor so it can safely tear down the source. Without this,
+    /// dropping the last reference without calling `stop()` leaks the evtFD
+    /// because the cancel handler never runs.
     isolated deinit {
         tearDownSource()
     }
@@ -245,7 +240,6 @@ final class AmxStatusFileWatcher {
 
         source = newSource
         newSource.resume()
-        isSourceResumed = true
 
         // Initial drain: pick up any bytes already written before we armed.
         drain()
@@ -322,16 +316,7 @@ final class AmxStatusFileWatcher {
         guard let src = source else {
             return
         }
-        // A suspended source must be resumed before cancel so its cancel
-        // handler (which closes the evtFD) actually runs. This watcher has
-        // no suspend/resume path today (unlike AgentRuntimeEventBridge), so
-        // this branch is currently unreachable — but it guards against
-        // future refactors that defer resume() in armSource().
-        if !isSourceResumed {
-            src.resume()
-        }
         src.cancel()
         source = nil
-        isSourceResumed = false
     }
 }
