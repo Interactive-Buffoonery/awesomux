@@ -137,6 +137,7 @@ enum AppTitlebarLockupAlignment: Equatable {
 }
 
 struct AppTitlebarLayoutGeometry: Equatable {
+    let titlebarWidth: CGFloat
     let sidebarReservationWidth: CGFloat
     let workgroupBoundary: CGFloat
 }
@@ -169,9 +170,14 @@ struct SidebarPresentationLayoutPolicy {
         let gutter = min(AppTitlebarMetrics.contentColumnGutter, width - visibleWidth)
         let boundary =
             position == .left
-            ? visibleWidth + gutter
+            ? min(
+                width,
+                visibleWidth + gutter
+                    + max(0, AppTitlebarMetrics.trafficLightClearance + 10 - visibleWidth)
+            )
             : width - visibleWidth - gutter
         return AppTitlebarLayoutGeometry(
+            titlebarWidth: width,
             sidebarReservationWidth: visibleWidth,
             workgroupBoundary: boundary
         )
