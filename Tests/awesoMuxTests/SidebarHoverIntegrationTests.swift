@@ -4,6 +4,19 @@ import AwesoMuxCore
 
 @Suite("Sidebar hover integration")
 struct SidebarHoverIntegrationTests {
+    @Test("proximity uses overlay while explicit show uses persistent split")
+    func routesPresentationKinds() {
+        #expect(
+            SidebarPresentationRouting.command(userWantsHidden: true, proximity: .revealed)
+                == .showOverlay)
+        #expect(
+            SidebarPresentationRouting.command(userWantsHidden: true, proximity: .cue)
+                == .hideOverlay)
+        #expect(
+            SidebarPresentationRouting.command(userWantsHidden: false, proximity: .dormant)
+                == .showPersistent)
+    }
+
     @Test("hidden width toggle changes selection without visibility")
     func hiddenWidthToggle() {
         let result = SidebarHiddenWidthTogglePolicy.resolve(

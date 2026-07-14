@@ -13,7 +13,7 @@ struct SidebarHoverArchitectureTests {
             encoding: .utf8
         )
         for forbidden in [
-            "SidebarWidthAnimation", "AnimationRunner", "animateSidebarVisibility",
+            "SidebarWidthAnimation", "animateSidebarVisibility",
             "isHoverAnimating", "setSidebarVisible(",
         ] {
             #expect(!controller.contains(forbidden), "remove real-divider hover path: \(forbidden)")
@@ -42,6 +42,7 @@ struct SidebarHoverArchitectureTests {
         let proximity = try #require(
             content.split(separator: "SidebarProximityCue", maxSplits: 1).first
         )
-        #expect(!proximity.contains("onChange(of: sidebarPresentation.proximityState)"))
+        #expect(proximity.contains("onChange(of: sidebarPresentation.proximityState)"))
+        #expect(proximity.contains("setOverlayVisible"))
     }
 }

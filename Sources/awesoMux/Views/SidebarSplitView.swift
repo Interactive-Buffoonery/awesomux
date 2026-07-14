@@ -16,6 +16,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     let initialWidth: CGFloat
     /// Channel for `ContentView` to command the divider (the `⌘\` toggle).
     let proxy: SidebarSplitProxy
+    let hostPresentation: SidebarHostPresentationState
     var position: AppearanceConfig.SidebarPosition = .left
     var initiallyHidden = false
     var edgeTrackingEnabled = false
@@ -40,13 +41,22 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.onEdgePointerMove = onEdgePointerMove
         controller.onEdgeExit = onEdgeExit
         controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
+        controller.hostPresentationState = hostPresentation
         controller.setSidebarPosition(position)
         controller.setSidebarHidden(initiallyHidden)
         controller.setSidebarWidth(initialWidth)
         controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
-        proxy.setWidth = { [weak controller] width in controller?.setSelectedSidebarWidth(width) }
+        proxy.setSelectedWidth = { [weak controller] width in
+            controller?.setSelectedSidebarWidth(width)
+        }
+        proxy.setOverlayVisible = { [weak controller] visible, transition, reduceMotion in
+            controller?.setOverlayPresented(
+                visible, transition: transition, reduceMotion: reduceMotion)
+        }
+        proxy.setPersistentVisible = { [weak controller] visible in
+            controller?.setPersistentSidebarVisible(visible)
+        }
         proxy.setPosition = { [weak controller] position in controller?.setSidebarPosition(position) }
-        controller.installPersistentVisibilityHandler(on: proxy)
         return controller
     }
 
@@ -60,6 +70,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
         controller.setSidebarPosition(position)
         controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
+        precondition(controller.hostPresentationState === hostPresentation)
         // Re-host each pane's root view so @Observable / @Bindable updates inside the
         // panes propagate. SwiftUI diffs the new root against the old, so this is
         // cheap when nothing changed; it does not rebuild the hosting controllers.

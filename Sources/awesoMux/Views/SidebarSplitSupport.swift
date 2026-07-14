@@ -10,6 +10,59 @@ enum SidebarHostMode: Equatable {
     case overlay(width: CGFloat)
 }
 
+enum SidebarPresentationCommand: Equatable {
+    case showOverlay
+    case hideOverlay
+    case showPersistent
+}
+
+enum SidebarPresentationRouting {
+    static func command(
+        userWantsHidden: Bool,
+        proximity: SidebarPresentationModel.ProximityState
+    ) -> SidebarPresentationCommand {
+        guard userWantsHidden else { return .showPersistent }
+        return proximity == .revealed ? .showOverlay : .hideOverlay
+    }
+}
+
+@Observable
+@MainActor
+final class SidebarHostPresentationState {
+    private(set) var mode: SidebarHostMode
+    private(set) var effectiveVisibleWidth: CGFloat
+    @ObservationIgnored var onSettleForTesting: (() -> Void)?
+
+    init(mode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.expandedWidth)) {
+        self.mode = mode
+        switch mode {
+        case let .persistent(width), let .overlay(width): effectiveVisibleWidth = width
+        case .hidden: effectiveVisibleWidth = 0
+        }
+    }
+
+    func settle(mode: SidebarHostMode, effectiveVisibleWidth: CGFloat) {
+        self.mode = mode
+        self.effectiveVisibleWidth = effectiveVisibleWidth
+        onSettleForTesting?()
+    }
+}
+
+enum SidebarHostHandoffAction: Equatable {
+    case beginNoActionsTransaction
+    case cancelOverlayGeneration
+    case captureSidebarResponder
+    case removeOverlayAnimation
+    case reparentHostToSplitContainer
+    case setPersistentState
+    case applySingleDividerIntent(CGFloat)
+    case settleLayout
+    case clearTransform
+    case hideOverlayContainer
+    case restoreSidebarResponder
+    case endNoActionsTransaction
+}
+
 enum SidebarPhysicalEdge: Equatable {
     case leading
     case trailing
@@ -365,7 +418,8 @@ final class SidebarPeekModel {
 final class SidebarSplitProxy {
     /// Set by `SidebarSplitView.makeNSViewController`. Moves the divider so the
     /// sidebar pane is the given width (clamped, un-animated).
-    @ObservationIgnored var setWidth: ((CGFloat) -> Void)?
+    @ObservationIgnored var setSelectedWidth: ((CGFloat) -> Void)?
+    @ObservationIgnored var setOverlayVisible: ((Bool, SidebarOverlayTransition, Bool) -> Void)?
     @ObservationIgnored var setPosition: ((AppearanceConfig.SidebarPosition) -> Void)?
     /// Changes only the user's persistent split visibility. Transient hover
     /// presentation must use the overlay host instead of moving this divider.
