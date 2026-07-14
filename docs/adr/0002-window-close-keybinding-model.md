@@ -1,6 +1,6 @@
 # 0002 — Window-close keybinding model (`Cmd-W` / `Cmd-Shift-W`)
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-07-14: last-pane `Cmd-W` closes the workspace — see Amendment)
 - **Date:** 2026-05-01
 - **Deciders:** eD
 
@@ -64,3 +64,28 @@ User-facing terminology stays `pane` / `session` / `workspace`. The outermost `N
 ## Open follow-ups
 
 - Implementation tickets for: removing the fall-through, recycle-on-empty-session, the foreground-process warning toast, and `Ctrl-D` parity.
+
+## Amendment — 2026-07-14: last-pane `Cmd-W` closes the workspace
+
+- **Deciders:** eD
+
+The "silent recycle" behavior for user-initiated `Cmd-W` on a session's last
+pane is superseded. In practice most workspaces are single-pane, so the
+dominant experience of `Cmd-W` was "my terminal got wiped" — reading as a
+refresh, destroying scrollback, and matching no other mac app's `Cmd-W`.
+
+New behavior: `Cmd-W` on the last pane routes through the same soft-close
+funnel as the sidebar close button — confirmation gate when activity is at
+risk, recently-closed capture, `Cmd-Shift-T` reopen. The close-confirmation
+gate became trustworthy for bridged panes once daemon-spawned shells gained
+shell integration (OSC-133 prompt marks), which is what makes this safe as a
+default: an idle workspace closes silently, a busy one confirms.
+
+Multi-pane `Cmd-W` still closes the innermost container (the pane); the
+"close tab" mental model is preserved. The `Cmd-Shift-W` binding is unchanged
+and now redundant with `Cmd-W` only in the single-pane case — an accepted
+redundancy, mirroring tabbed-app behavior where closing the last tab closes
+the window. Explicit shell restart remains available as its own command with
+its own confirmation. Visible command titles (File menu, Workspace menu,
+command palette, shortcut cheatsheet) follow the live pane count so no
+surface claims "Close Pane" when the workspace would close.
