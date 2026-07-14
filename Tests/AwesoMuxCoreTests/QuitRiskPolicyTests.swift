@@ -32,6 +32,7 @@ struct QuitRiskPolicyTests {
     func authoritativeSafe() {
         #expect(!decide(away: true, liveness: .bridged).isRisk)
         #expect(decide(liveness: .bridged).reason == .daemonBacked)
+        #expect(!decide(liveness: .bridgedBusy).isRisk)
         #expect(!decide(away: true, liveness: .exited).isRisk)
         #expect(decide(liveness: .exited).reason == .processExited)
     }
@@ -130,6 +131,13 @@ struct QuitRiskPolicyTests {
         let d = decideClose(liveness: .bridged)
         #expect(!d.isRisk)
         #expect(d.reason == .shellAtPrompt)
+    }
+
+    @Test("close: a bridged pane with live child work is a risk")
+    func closeBridgedBusy() {
+        let d = decideClose(liveness: .bridgedBusy)
+        #expect(d.isRisk)
+        #expect(d.reason == .liveForegroundProcess)
     }
 
     @Test("close: an unobserved prompt marker does not make an idle bridge risky")
