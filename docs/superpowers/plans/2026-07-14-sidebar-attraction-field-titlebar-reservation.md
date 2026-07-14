@@ -340,7 +340,7 @@ git commit -m "fix(titlebar): reserve live sidebar overlay width"
 - Consumes: all preceding tasks.
 - Produces: evidence that the final attraction/titlebar behavior does not resize Ghostty and a rebuilt exact dev bundle.
 
-- [ ] **Step 1: Run the focused integration matrix**
+- [x] **Step 1: Run the focused integration matrix**
 
 ```bash
 ./script/swift-test.sh --filter SidebarPresentationModelTests
@@ -355,7 +355,9 @@ git commit -m "fix(titlebar): reserve live sidebar overlay width"
 
 Expected: every suite passes; hover cue/reveal/titlebar samples record zero divider intents and zero detail/backing-size changes.
 
-- [ ] **Step 2: Run targeted formatting and hygiene checks**
+Evidence (2026-07-14): all eight focused suites passed (121 tests total). The geometry-isolation matrix passed all left/right, rail/full, animated/Reduce Motion cases with no split or backing geometry submissions.
+
+- [x] **Step 2: Run targeted formatting and hygiene checks**
 
 ```bash
 ./script/format.sh Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/SidebarPresentationModelTests.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift Tests/awesoMuxTests/SidebarAttentionCuePolicyTests.swift Tests/awesoMuxTests/SidebarOverlayHostControllerTests.swift Tests/awesoMuxTests/SidebarPresentationLayoutTests.swift
@@ -365,7 +367,9 @@ git diff --check
 
 Expected: formatter changes only intentional files; lint and diff checks exit zero.
 
-- [ ] **Step 3: Run repository verification**
+Evidence (2026-07-14): targeted formatting produced no diff; format lint and `git diff --check` exited zero.
+
+- [x] **Step 3: Run repository verification**
 
 ```bash
 ./script/swift-test.sh
@@ -374,7 +378,9 @@ Expected: formatter changes only intentional files; lint and diff checks exit ze
 
 Expected: full suite green. If preflight again reaches the documented macOS Bash 3 `mapfile: command not found`, record it accurately as a non-zero baseline tooling failure after preceding guards; do not call preflight green.
 
-- [ ] **Step 4: Build and reopen the exact dev bundle**
+Evidence (2026-07-14): the first full run reported one transient issue; the immediate full rerun passed 3,692 tests in 408 suites. Preflight's preceding guards passed, then it exited 127 at the documented macOS Bash 3 `mapfile: command not found`; preflight is not green.
+
+- [x] **Step 4: Build and reopen the exact dev bundle**
 
 ```bash
 ./script/build_and_run.sh --verify
@@ -383,11 +389,15 @@ plutil -p dist/awesoMux.app/Contents/Info.plist | rg 'CFBundleIdentifier|CFBundl
 
 Expected: build/sign/launch succeeds and identifier is `com.interactivebuffoonery.awesomux.dev.58447d72fc25` with name `awesoMux (dev 58447d7)` for this worktree.
 
+Evidence (2026-07-14): `./script/build_and_run.sh --verify` built, signed, and launched successfully. The plist reports `com.interactivebuffoonery.awesomux.dev.58447d72fc25` and `awesoMux (dev 58447d7)`.
+
 - [ ] **Step 5: Perform honest live QA**
 
 Using a real button-up pointer gesture, verify left and right sides, faint cue on entering the sidebar-side third, smoothly increasing intensity, reveal at 40 points, rail/full overlay, titlebar non-overlap through reveal/hide/reversal, resize, Reduce Motion, terminal selection/scroll/context-click pass-through, and no terminal reflow. Computer Use cannot synthesize a pure mouse move, so leave any unobserved path explicitly manual rather than fabricating evidence.
 
-- [ ] **Step 6: Commit verification-only changes if needed**
+Evidence (2026-07-14): not automated. The complete button-up pointer and terminal pass-through matrix remains manual QA.
+
+- [x] **Step 6: Commit verification-only changes if needed**
 
 If Task 4 changes tests or the plan ledger:
 
