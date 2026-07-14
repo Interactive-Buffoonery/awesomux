@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - macOS 15+ and SwiftPM only.
-- Preserve the completed exact proximity boundaries: cue at distances `<= 80`, reveal only at distances `< 16`.
+- Preserve the exact proximity boundaries: dormant above 80 points, cue at distances `<= 80` and `> 40`, reveal at distances `<= 40`.
 - Preserve the completed 4-point non-hittable/non-accessible cue and pass-through edge tracker.
 - Hover reveal is a live interactive overlay above detail content; it never changes the real split divider or terminal/detail frame.
 - There is exactly one `SidebarView` instance and one sidebar `NSHostingController`; never render persistent and overlay copies concurrently.
@@ -685,6 +685,8 @@ On `Command-Shift-Backslash` or Focus Sidebar: invalidate transient model state,
 
 Create one `@State private var hostPresentation = SidebarHostPresentationState()` in `ContentView` and pass it into `SidebarSplitView`; controller updates it only through the post-settlement `publishSettledHostMode` callback. During reveal/hide animation it reports overlay width until winning hide completion; hidden reports `0`; persistent reports settled split width. `AppTitlebarView` derives temporary visibility/width from `hostPresentation.effectiveVisibleWidth`, never directly from proximity state.
 
+Follow-up correction: a settled-width-only titlebar publication leaves the lockup visible until hide completion. Temporary titlebar chrome instead retains the selected overlay width offscreen and samples `SidebarOverlayAnimator.currentTranslation` on SwiftUI's animation timeline. This is the overlay layer's actual Core Animation presentation transform, not a separate SwiftUI animation with merely matching duration and easing. Persistent commands remain instant and continue to use real split width.
+
 Add routing/parity tests for cue, overlay revealing/presented/hiding, winning hide completion, side invalidation, persistent show, hidden rail/full selection, and stale completion. In every case titlebar width/mode equals controller-authoritative host presentation; no temporary lockup outlives overlay removal. Preserve completed left/right alignment, icon-before-text order, and 60-point rail suppression.
 
 - [ ] **Step 7: Run, format, and commit routing/handoff**
@@ -935,10 +937,10 @@ Expected: formatting/lint clean, full Swift suite green, development app builds,
 For left and right, with rail then full selected:
 
 1. Hide instantly with `Command-Shift-Backslash`.
-2. At 80–16 points observe only the 4-point cue and zero terminal movement.
-3. Inside 16 points observe the live sidebar slide over the terminal in exactly 140ms.
+2. At 80–40 points observe only the 4-point cue and zero terminal movement.
+3. At or inside 40 points observe the live sidebar slide over the terminal in exactly 140ms.
 4. Type continuously during slide; terminal focus/input remains live and text does not reflow.
-5. Rapidly reverse across 16 points; animation continues from its visible transform without jumps or stale completion.
+5. Rapidly reverse across 40 points; animation continues from its visible transform without jumps or stale completion.
 6. Enable Reduce Motion; overlay appears/disappears instantly.
 7. During a held/slow partial reveal, click, drag-select, scroll, and contextual-click both the visually covered sliver and visually uncovered terminal edge: only covered pixels target sidebar; uncovered pixels target terminal.
 8. Resize and switch rail/full during a partial reveal; visible fraction is preserved on left and right, hit-test bounds follow the new presentation, and terminal/detail geometry remains stable.

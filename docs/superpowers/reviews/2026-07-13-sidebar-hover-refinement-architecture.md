@@ -373,7 +373,7 @@ Persistent visible
         v
 Hidden / Dormant  -- pointer distance <= 40 --> Hidden / Cue
       ^                                        |
-      |                                        | distance < 16
+      |                                        | distance <= 40
       |                                        v
       +-- outside tracker after grace -- Hidden / Revealed
                                               |
@@ -484,7 +484,7 @@ Two pieces flirt with unnecessary abstraction:
 - `SidebarHoverTransitionPolicy` is useful only if it prevents source classification from spreading. Keep it small and internal.
 - A general animation framework would be a second system. The proposed closure seam and one hover-specific animator are sufficient.
 
-Do not add hysteresis, global event monitoring, configurable thresholds, or generalized transition engines in this change. The approved exact 40/16 policy and one grace timer are enough.
+Do not add hysteresis, global event monitoring, configurable thresholds, or generalized transition engines in this change. The approved exact 80/40 policy and one grace timer are enough.
 
 ### Earth vs Sand
 

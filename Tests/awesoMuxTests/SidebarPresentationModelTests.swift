@@ -7,7 +7,7 @@ import Testing
 @MainActor
 @Suite("SidebarPresentationModel")
 struct SidebarPresentationModelTests {
-    @Test("80 points cues and inside 16 points reveals on both sides")
+    @Test("80 points cues and 40 points reveals on both sides")
     func exactProximityBoundaries() throws {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -17,15 +17,15 @@ struct SidebarPresentationModelTests {
         #expect(model.isCueVisible)
         #expect(!model.isSidebarVisible)
 
-        model.pointerMoved(x: 84, width: 100, position: .right)
+        model.pointerMoved(x: 59.5, width: 100, position: .right)
         #expect(model.proximityState == .cue)
-        model.pointerMoved(x: 84.5, width: 100, position: .right)
+        model.pointerMoved(x: 60, width: 100, position: .right)
         #expect(model.proximityState == .revealed)
 
         model.invalidateTransientState()
         model.pointerMoved(x: 80, width: 100, position: .left)
         #expect(model.proximityState == .cue)
-        model.pointerMoved(x: 15.5, width: 100, position: .left)
+        model.pointerMoved(x: 40, width: 100, position: .left)
         #expect(model.proximityState == .revealed)
     }
 
@@ -43,7 +43,7 @@ struct SidebarPresentationModelTests {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        for (x, expected) in [(80.0, .cue), (79.9, .cue), (16.0, .cue), (15.9, .revealed)]
+        for (x, expected) in [(80.0, .cue), (79.9, .cue), (40.1, .cue), (40.0, .revealed)]
             as [(CGFloat, SidebarPresentationModel.ProximityState)]
         {
             model.pointerMoved(x: x, width: 100, position: .left)
@@ -216,10 +216,10 @@ struct SidebarPresentationModelTests {
 
         model.pointerMoved(x: 15, width: 100, position: .left)
         model.sidebarPointerChanged(true)
-        model.pointerMoved(x: 30, width: 100, position: .left)
+        model.pointerMoved(x: 50, width: 100, position: .left)
         model.sidebarPointerChanged(false)
         #expect(await waitUntil { gate.sleeperCount == 1 })
-        model.pointerMoved(x: 30, width: 100, position: .left)
+        model.pointerMoved(x: 50, width: 100, position: .left)
         gate.advance()
         await drainMainQueue()
         #expect(model.proximityState == .cue)
@@ -257,7 +257,7 @@ struct SidebarPresentationModelTests {
 
     @Test("availability loss from cue and reveal is explicit")
     func availabilityLossIsExplicit() throws {
-        for x in [30.0, 15.0] {
+        for x in [50.0, 15.0] {
             let (model, _, defaults, suiteName) = try makeHiddenModel()
             defer { defaults.removePersistentDomain(forName: suiteName) }
             model.pointerMoved(x: x, width: 100, position: .left)
@@ -297,7 +297,7 @@ struct SidebarPresentationModelTests {
 
         model.positionDidChange()
         #expect(model.transientGenerationForTesting > scheduledGeneration)
-        model.pointerMoved(x: 30, width: 100, position: .left)
+        model.pointerMoved(x: 50, width: 100, position: .left)
         #expect(model.proximityState == .cue)
         gate.advance()
         await drainMainQueue()
@@ -309,7 +309,7 @@ struct SidebarPresentationModelTests {
 
     @Test("explicit invalidation from cue and reveal remains explicit")
     func explicitInvalidationSource() throws {
-        for x in [30.0, 15.0] {
+        for x in [50.0, 15.0] {
             let (model, _, defaults, suiteName) = try makeHiddenModel()
             defer { defaults.removePersistentDomain(forName: suiteName) }
             model.pointerMoved(x: x, width: 100, position: .left)

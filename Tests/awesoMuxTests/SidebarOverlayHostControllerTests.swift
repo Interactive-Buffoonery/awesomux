@@ -389,13 +389,26 @@ struct SidebarOverlayHostControllerTests {
         let revealCompletion = driver.completions[0]
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
         #expect(controller.hostPresentationState.effectiveVisibleWidth == 300)
+        #expect(controller.hostPresentationState.titlebarTranslationX == 0)
+        let midReveal: CGFloat = position == .left ? -120 : 120
+        driver.presentationTranslation = midReveal
+        #expect(controller.hostPresentationState.currentTitlebarTranslationX == midReveal)
+        driver.presentationTranslation = nil
         revealCompletion()
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
 
         controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
         let staleHide = driver.completions[1]
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
+        #expect(
+            controller.hostPresentationState.titlebarTranslationX
+                == SidebarOverlayAnimator.hiddenTranslation(width: 300, position: position))
+        let midHide: CGFloat = position == .left ? -180 : 180
+        driver.presentationTranslation = midHide
+        #expect(controller.hostPresentationState.currentTitlebarTranslationX == midHide)
+        driver.presentationTranslation = nil
         controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        #expect(controller.hostPresentationState.titlebarTranslationX == 0)
         staleHide()
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
         driver.completions[2]()
@@ -405,6 +418,24 @@ struct SidebarOverlayHostControllerTests {
         driver.completions[3]()
         #expect(controller.hostPresentationState.mode == .hidden)
         #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
+        #expect(
+            controller.hostPresentationState.titlebarTranslationX
+                == SidebarOverlayAnimator.hiddenTranslation(width: 300, position: position))
+    }
+
+    @Test("Reduce Motion keeps titlebar and overlay transition targets instant")
+    func reduceMotionTitlebarParity() {
+        let (controller, _, _) = makeController(position: .right)
+        controller.setSidebarWidth(300)
+        controller.setPersistentSidebarVisible(false)
+
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: true)
+        #expect(controller.hostPresentationState.titlebarTranslationX == 0)
+        #expect(controller.hostPresentationState.currentTitlebarTranslationX == 0)
+
+        controller.setOverlayPresented(false, transition: .hover, reduceMotion: true)
+        #expect(controller.hostPresentationState.titlebarTranslationX == 300)
+        #expect(controller.hostPresentationState.currentTitlebarTranslationX == 300)
     }
 
     @Test("settled persistent and hidden commands are idempotent")

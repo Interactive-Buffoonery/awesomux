@@ -2,7 +2,7 @@
 
 ## Summary
 
-Refine the hidden-sidebar pointer interaction from the original [Sidebar Presentation and Markdown Toggle Alignment](2026-07-13-sidebar-presentation-design.md) design. A pass-through 80-point edge tracking region first provides a visible proximity cue, then temporarily reveals the user's selected rail or full sidebar when the pointer reaches the inner 16 points.
+Refine the hidden-sidebar pointer interaction from the original [Sidebar Presentation and Markdown Toggle Alignment](2026-07-13-sidebar-presentation-design.md) design. A pass-through 80-point edge tracking region first provides a visible proximity cue, then temporarily reveals the user's selected rail or full sidebar when the pointer reaches the inner 40 points.
 
 Only pointer-driven transitions animate. Explicit keyboard commands remain immediate and deterministic.
 
@@ -30,10 +30,10 @@ Only pointer-driven transitions animate. Explicit keyboard commands remain immed
 When the sidebar is persistently hidden, pointer distance from its configured window edge produces three transient states:
 
 1. **Dormant:** farther than 80 points from the edge. No sidebar cue is visible and the detail area retains the full window width.
-2. **Cue:** from 80 points through 16 points from the edge. A 4-point accent strip appears flush with that edge without moving the split divider or detail content.
-3. **Revealed:** closer than 16 points to the edge, or within the temporarily revealed sidebar. The cue transitions into the selected rail or full sidebar as a live overlay above the detail pane. Ghostty and the real split geometry do not move or resize.
+2. **Cue:** from 80 points down to, but not including, 40 points from the edge. A 4-point accent strip appears flush with that edge without moving the split divider or detail content.
+3. **Revealed:** at or inside 40 points from the edge, or within the temporarily revealed sidebar. The cue transitions into the selected rail or full sidebar as a live overlay above the detail pane. Ghostty and the real split geometry do not move or resize.
 
-Distance is measured inward from the physical edge selected by `appearance.sidebar_position`: from the left window edge for a left sidebar and from the right window edge for a right sidebar. Boundary comparisons must be stable: entering at 80 points activates the cue, and moving inside 16 points activates the reveal. Small pointer jitter at a boundary must not cause competing transitions; the presentation model owns the single current proximity state.
+Distance is measured inward from the physical edge selected by `appearance.sidebar_position`: from the left window edge for a left sidebar and from the right window edge for a right sidebar. Boundary comparisons must be stable: entering at 80 points activates the cue, and reaching 40 points activates the reveal. Small pointer jitter at a boundary must not cause competing transitions; the presentation model owns the single current proximity state.
 
 The existing short leave grace period continues to cover movement between the trigger and the revealed sidebar. Re-entering either region cancels the pending hide. Once the pointer leaves both the tracking region and sidebar, the temporary reveal closes after the grace period and the cue disappears when the pointer is outside 80 points.
 
@@ -108,6 +108,8 @@ Focus Sidebar while persistently hidden follows the original design's explicit p
 
 When `appearance.sidebar_position` is `right`, the awesoMux icon-and-title lockup in the sidebar titlebar is aligned to the sidebar's trailing/right edge. It retains the same titlebar padding used by the left-side layout, and the icon remains before the title text; only the lockup's horizontal alignment changes.
 
+While the hidden sidebar is temporarily revealing or hiding, the titlebar lockup samples the overlay compositor's live presentation translation. It does not run a second duration-matched animation or wait for the overlay's settled width publication. Reveal, hide, reversal, left/right placement, and Reduce Motion therefore use one authoritative transform and cannot accumulate clock drift.
+
 The existing left-side titlebar behavior remains unchanged. This alignment follows the configured sidebar position for persistent and temporary presentations, including rail/full selection and hover reveal, without introducing a separate preference or animation.
 
 ## Failure and Interruption Behavior
@@ -127,7 +129,7 @@ The existing left-side titlebar behavior remains unchanged. This alignment follo
 
 Follow test-driven development and extend the existing sidebar presentation and split-controller coverage:
 
-1. Presentation-model tests for the exact 80-point cue and 16-point reveal boundaries, dormant/cue/revealed transitions, jitter, leave grace, stale-token rejection, and symmetric left/right distance mapping.
+1. Presentation-model tests for the exact 80-point cue and 40-point reveal boundaries, dormant/cue/revealed transitions, jitter, leave grace, stale-token rejection, and symmetric left/right distance mapping.
 2. Tracking-view tests proving its hit test passes through and pointer reporting follows resized local bounds on both sides without changing first responder.
 3. Hidden width-mode tests proving `Command-Backslash` toggles rail/full selection without revealing, displaying a cue, moving the divider, resizing Ghostty, or changing hidden persistence, and that the next overlay uses the selected width.
 4. Command tests proving `Command-Shift-Backslash`, Focus Sidebar, and position changes cancel transient state and active overlay animation and settle the real split instantly.
@@ -136,7 +138,7 @@ Follow test-driven development and extend the existing sidebar presentation and 
 7. Reduce Motion tests proving overlay presentation is immediate while any cue opacity transition remains independent.
 8. Regression tests for cold launch while persistently hidden, terminal first-responder retention during passive reveal, intentional sidebar focus and interaction, contextual menus, accessibility focus, divider dragging, remembered expanded width, and existing visible rail/full behavior.
 9. Titlebar layout tests proving the lockup uses leading alignment for a left sidebar and trailing alignment for a right sidebar, while preserving padding and icon-before-text order in both rail and full presentations.
-10. Live verification in the worktree app for cue clarity, 80/16-point thresholds, smooth overlay motion without Ghostty resize or reflow, left/right placement, terminal clicking/dragging/scrolling within the tracking zone, direct sidebar interaction, leave grace, rapid pointer reversal, resizing mid-animation, hidden width selection, overlay-to-split keyboard handoff, keyboard immediacy, and Reduce Motion.
+10. Live verification in the worktree app for cue clarity, 80/40-point thresholds, smooth overlay motion without Ghostty resize or reflow, left/right placement, terminal clicking/dragging/scrolling within the tracking zone, direct sidebar interaction, leave grace, rapid pointer reversal, resizing mid-animation, hidden width selection, overlay-to-split keyboard handoff, keyboard immediacy, and Reduce Motion.
 11. Focused titlebar live QA at representative narrow and wide window sizes: left placement remains unchanged; right placement anchors the complete awesoMux lockup to the sidebar's trailing edge with matching padding; icon/text order, rail/full modes, persistent show, and hover overlay remain visually correct.
 
 ## Integration Notes

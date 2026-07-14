@@ -12,7 +12,7 @@ final class SidebarPresentationModel {
     }
 
     static let cueDistance: CGFloat = 80
-    static let revealDistance: CGFloat = 16
+    static let revealDistance: CGFloat = 40
     static let leaveGrace: Duration = .milliseconds(220)
 
     private(set) var userWantsHidden: Bool
@@ -76,7 +76,7 @@ final class SidebarPresentationModel {
         let clampedX = min(max(0, x), width)
         let distance = position == .left ? clampedX : width - clampedX
         let next: ProximityState
-        if distance < Self.revealDistance {
+        if distance <= Self.revealDistance {
             next = .revealed
         } else if distance <= Self.cueDistance {
             next = .cue
