@@ -74,19 +74,31 @@ struct SidebarPresentationLayoutTests {
         arguments: [
             TitlebarCase(
                 position: .left, titlebarWidth: 500, sidebarWidth: 60, translation: -60, expectedVisibleWidth: 0,
-                expectedWorkgroupBoundary: 16),
+                expectedWorkgroupBoundary: 104),
             TitlebarCase(
                 position: .left, titlebarWidth: 500, sidebarWidth: 60, translation: -30, expectedVisibleWidth: 30,
-                expectedWorkgroupBoundary: 46),
+                expectedWorkgroupBoundary: 104),
             TitlebarCase(
                 position: .left, titlebarWidth: 500, sidebarWidth: 60, translation: 0, expectedVisibleWidth: 60,
-                expectedWorkgroupBoundary: 76),
+                expectedWorkgroupBoundary: 104),
             TitlebarCase(
                 position: .left, titlebarWidth: 1_200, sidebarWidth: 300, translation: -180, expectedVisibleWidth: 120,
                 expectedWorkgroupBoundary: 136),
             TitlebarCase(
                 position: .left, titlebarWidth: 1_200, sidebarWidth: 300, translation: 0, expectedVisibleWidth: 300,
                 expectedWorkgroupBoundary: 316),
+            TitlebarCase(
+                position: .left, titlebarWidth: 500, sidebarWidth: 300, translation: -150, expectedVisibleWidth: 150,
+                expectedWorkgroupBoundary: 166),
+            TitlebarCase(
+                position: .left, titlebarWidth: 500, sidebarWidth: 300, translation: 0, expectedVisibleWidth: 300,
+                expectedWorkgroupBoundary: 316),
+            TitlebarCase(
+                position: .left, titlebarWidth: 1_200, sidebarWidth: 60, translation: -30, expectedVisibleWidth: 30,
+                expectedWorkgroupBoundary: 104),
+            TitlebarCase(
+                position: .left, titlebarWidth: 1_200, sidebarWidth: 60, translation: 0, expectedVisibleWidth: 60,
+                expectedWorkgroupBoundary: 104),
             TitlebarCase(
                 position: .right, titlebarWidth: 500, sidebarWidth: 60, translation: 60, expectedVisibleWidth: 0,
                 expectedWorkgroupBoundary: 484),
@@ -102,6 +114,18 @@ struct SidebarPresentationLayoutTests {
             TitlebarCase(
                 position: .right, titlebarWidth: 1_200, sidebarWidth: 300, translation: 0, expectedVisibleWidth: 300,
                 expectedWorkgroupBoundary: 884),
+            TitlebarCase(
+                position: .right, titlebarWidth: 500, sidebarWidth: 300, translation: 150, expectedVisibleWidth: 150,
+                expectedWorkgroupBoundary: 334),
+            TitlebarCase(
+                position: .right, titlebarWidth: 500, sidebarWidth: 300, translation: 0, expectedVisibleWidth: 300,
+                expectedWorkgroupBoundary: 184),
+            TitlebarCase(
+                position: .right, titlebarWidth: 1_200, sidebarWidth: 60, translation: 30, expectedVisibleWidth: 30,
+                expectedWorkgroupBoundary: 1_154),
+            TitlebarCase(
+                position: .right, titlebarWidth: 1_200, sidebarWidth: 60, translation: 0, expectedVisibleWidth: 60,
+                expectedWorkgroupBoundary: 1_124),
         ])
     func workgroupAvoidsLiveOverlay(testCase: TitlebarCase) {
         let state = SidebarHostPresentationState(mode: .hidden)
@@ -138,9 +162,33 @@ struct SidebarPresentationLayoutTests {
         #expect(overlay.contains("let translation = hostPresentation.currentTitlebarTranslationX"))
         #expect(overlay.contains("translation: translation"))
         #expect(overlay.contains("visibleSidebarWidth: visibleWidth"))
-        #expect(overlay.contains("titlebarColumns(sidebarWidth: geometry.sidebarReservationWidth)"))
+        #expect(overlay.contains("titlebarColumns(geometry: geometry)"))
         #expect(overlay.contains(".offset(x: translation)"))
         #expect(overlay.components(separatedBy: "currentTitlebarTranslationX").count == 2)
+    }
+
+    @Test("reveal then partial-hide reversal updates the boundary on both sides")
+    func revealThenPartialHideReversal() {
+        for position in [AppearanceConfig.SidebarPosition.left, .right] {
+            let state = SidebarHostPresentationState(mode: .hidden)
+            var translation: CGFloat = position == .left ? -300 : 300
+            state.overlayPresentationTranslation = { translation }
+            state.beginOverlayTransition(presented: true, width: 300, position: position)
+
+            translation = 0
+            #expect(state.currentTitlebarVisibleWidth(position: position) == 300)
+
+            state.beginOverlayTransition(presented: false, width: 300, position: position)
+            translation = position == .left ? -120 : 120
+            let visibleWidth = state.currentTitlebarVisibleWidth(position: position)
+            let geometry = SidebarPresentationLayoutPolicy(position: position).titlebarGeometry(
+                titlebarWidth: 500,
+                visibleSidebarWidth: visibleWidth
+            )
+
+            #expect(visibleWidth == 180)
+            #expect(geometry.workgroupBoundary == (position == .left ? 196 : 304))
+        }
     }
 
     @Test("hidden sidebar restores the original workgroup position on both sides")
@@ -155,7 +203,7 @@ struct SidebarPresentationLayoutTests {
         )
 
         #expect(left.sidebarReservationWidth == 0)
-        #expect(left.workgroupBoundary == 16)
+        #expect(left.workgroupBoundary == 104)
         #expect(right.sidebarReservationWidth == 0)
         #expect(right.workgroupBoundary == 484)
     }

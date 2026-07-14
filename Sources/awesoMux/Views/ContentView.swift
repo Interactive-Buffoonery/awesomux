@@ -520,7 +520,7 @@ private struct AppTitlebarView: View {
                 titlebarWidth: titlebarWidth,
                 visibleSidebarWidth: hostPresentation.effectiveVisibleWidth
             )
-            titlebarColumns(sidebarWidth: geometry.sidebarReservationWidth)
+            titlebarColumns(geometry: geometry)
         case .overlay:
             TimelineView(.animation) { _ in
                 let translation = hostPresentation.currentTitlebarTranslationX
@@ -532,7 +532,7 @@ private struct AppTitlebarView: View {
                     titlebarWidth: titlebarWidth,
                     visibleSidebarWidth: visibleWidth
                 )
-                titlebarColumns(sidebarWidth: geometry.sidebarReservationWidth)
+                titlebarColumns(geometry: geometry)
                     .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
                         sidebarColumn(
                             width: hostPresentation.titlebarPresentationWidth,
@@ -546,7 +546,7 @@ private struct AppTitlebarView: View {
                 titlebarWidth: titlebarWidth,
                 visibleSidebarWidth: 0
             )
-            titlebarColumns(sidebarWidth: geometry.sidebarReservationWidth)
+            titlebarColumns(geometry: geometry)
                 .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
                     sidebarColumn(
                         width: hostPresentation.titlebarPresentationWidth,
@@ -557,14 +557,14 @@ private struct AppTitlebarView: View {
         }
     }
 
-    private func titlebarColumns(sidebarWidth: CGFloat) -> some View {
+    private func titlebarColumns(geometry: AppTitlebarLayoutGeometry) -> some View {
         HStack(spacing: 0) {
             if sidebarPosition == .left {
-                sidebarColumn(width: sidebarWidth, isPhysicalLeading: true)
-                contentColumn(sidebarWidth: sidebarWidth, isPhysicalLeading: false)
+                sidebarColumn(width: geometry.sidebarReservationWidth, isPhysicalLeading: true)
+                contentColumn(geometry: geometry)
             } else {
-                contentColumn(sidebarWidth: sidebarWidth, isPhysicalLeading: true)
-                sidebarColumn(width: sidebarWidth, isPhysicalLeading: false)
+                contentColumn(geometry: geometry)
+                sidebarColumn(width: geometry.sidebarReservationWidth, isPhysicalLeading: false)
             }
         }
     }
@@ -590,8 +590,7 @@ private struct AppTitlebarView: View {
             .leading,
             isPhysicalLeading
                 ? AppTitlebarMetrics.trafficLightClearance
-                : layoutPolicy.dividerGutterColumn == .sidebar
-                    ? AppTitlebarMetrics.contentColumnGutter : 10
+                : 10
         )
         .padding(.trailing, layoutPolicy.titlebarLockupOuterPadding)
         .frame(
@@ -617,7 +616,7 @@ private struct AppTitlebarView: View {
     /// draggable via the `WindowDragGesture` on the outer `HStack`'s
     /// background — do NOT attach a tap/click handler to this column without
     /// considering that it would compete with the underlying drag.
-    private func contentColumn(sidebarWidth: CGFloat, isPhysicalLeading: Bool) -> some View {
+    private func contentColumn(geometry: AppTitlebarLayoutGeometry) -> some View {
         HStack(spacing: 0) {
             if let session {
                 workspaceCluster(session)
@@ -632,15 +631,15 @@ private struct AppTitlebarView: View {
         }
         .padding(
             .leading,
-            layoutPolicy.dividerGutterColumn == .detail ? AppTitlebarMetrics.contentColumnGutter : 10
+            sidebarPosition == .left ? geometry.workgroupBoundary - geometry.sidebarReservationWidth : 10
         )
+        .padding(.leading, sidebarPosition == .right ? AppTitlebarMetrics.trafficLightClearance : 0)
         .padding(
-            .leading,
-            sidebarPosition == .left
-                ? max(0, AppTitlebarMetrics.trafficLightClearance + 10 - sidebarWidth)
-                : AppTitlebarMetrics.trafficLightClearance
+            .trailing,
+            sidebarPosition == .right
+                ? geometry.titlebarWidth - geometry.sidebarReservationWidth - geometry.workgroupBoundary
+                : 10
         )
-        .padding(.trailing, 10)
     }
 
     private func workspaceCluster(_ session: TerminalSession) -> some View {
