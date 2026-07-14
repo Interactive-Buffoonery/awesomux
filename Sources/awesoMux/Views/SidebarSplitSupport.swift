@@ -82,6 +82,17 @@ final class SidebarHostPresentationState {
         }
         return translation
     }
+
+    func currentTitlebarVisibleWidth(
+        position _: AppearanceConfig.SidebarPosition,
+        translation: CGFloat? = nil
+    ) -> CGFloat {
+        let width = max(0, titlebarPresentationWidth)
+        guard width.isFinite else { return 0 }
+        let translation = translation ?? currentTitlebarTranslationX
+        guard translation.isFinite else { return 0 }
+        return min(max(0, width - abs(translation)), width)
+    }
 }
 
 enum SidebarHostHandoffAction: Equatable {

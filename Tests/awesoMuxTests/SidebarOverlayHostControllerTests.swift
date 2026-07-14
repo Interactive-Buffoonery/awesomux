@@ -423,6 +423,39 @@ struct SidebarOverlayHostControllerTests {
                 == SidebarOverlayAnimator.hiddenTranslation(width: 300, position: position))
     }
 
+    @Test("titlebar visible width follows presentation translation on both sides")
+    func titlebarVisibleWidthFollowsPresentationTranslation() {
+        let state = SidebarHostPresentationState(mode: .hidden)
+        state.beginOverlayTransition(presented: false, width: 300, position: .left)
+
+        state.overlayPresentationTranslation = { -300 }
+        #expect(state.currentTitlebarVisibleWidth(position: .left) == 0)
+        state.overlayPresentationTranslation = { -180 }
+        #expect(state.currentTitlebarVisibleWidth(position: .left) == 120)
+        state.overlayPresentationTranslation = { 0 }
+        #expect(state.currentTitlebarVisibleWidth(position: .left) == 300)
+        state.overlayPresentationTranslation = { -180 }
+        #expect(state.currentTitlebarVisibleWidth(position: .left) == 120)
+
+        state.overlayPresentationTranslation = { 180 }
+        #expect(state.currentTitlebarVisibleWidth(position: .right) == 120)
+    }
+
+    @Test("titlebar visible width clamps invalid presentation geometry")
+    func titlebarVisibleWidthClampsInvalidPresentationGeometry() {
+        let state = SidebarHostPresentationState(mode: .hidden)
+        state.beginOverlayTransition(presented: true, width: 300, position: .left)
+
+        state.overlayPresentationTranslation = { -600 }
+        #expect(state.currentTitlebarVisibleWidth(position: .left) == 0)
+        #expect(
+            state.currentTitlebarVisibleWidth(position: .left, translation: .infinity) == 0)
+
+        state.beginOverlayTransition(presented: true, width: .infinity, position: .right)
+        state.overlayPresentationTranslation = { 0 }
+        #expect(state.currentTitlebarVisibleWidth(position: .right) == 0)
+    }
+
     @Test("Reduce Motion keeps titlebar and overlay transition targets instant")
     func reduceMotionTitlebarParity() {
         let (controller, _, _) = makeController(position: .right)
