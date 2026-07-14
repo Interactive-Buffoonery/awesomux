@@ -35,7 +35,7 @@ Options:
   --notary-profile NAME  notarytool keychain profile (default: awesomux-notary).
   --output DIR           Artifact directory (default: dist/release).
   --unsigned             Dry run: ad-hoc sign, skip notarization/stapling.
-                         Exercises the packaging path without signing
+                         Creates an -unsigned.dmg without signing
                          credentials (still requires full Xcode and the
                          amx/Zig toolchain).
 USAGE
@@ -144,9 +144,19 @@ done
 # started during the (long) notarization wait would mutate it mid-release.
 # Work on a private copy so nothing can race the release.
 RELEASE_WORK_DIR="$(mktemp -d -t awesomux-release-work)"
-trap 'rm -rf "${RELEASE_WORK_DIR:-}" "${VALIDATE_DIR:-}" 2>/dev/null || true' EXIT
-/usr/bin/ditto "$APP_BUNDLE" "$RELEASE_WORK_DIR/awesoMux.app"
-APP_BUNDLE="$RELEASE_WORK_DIR/awesoMux.app"
+DMG_SOURCE_DIR="$RELEASE_WORK_DIR/dmg-root"
+DMG_MOUNT=""
+cleanup() {
+  if [[ -n "${DMG_MOUNT:-}" ]]; then
+    hdiutil detach "$DMG_MOUNT" -quiet >/dev/null 2>&1 || true
+  fi
+  rm -rf "${RELEASE_WORK_DIR:-}" "${VALIDATE_DIR:-}" 2>/dev/null || true
+}
+trap cleanup EXIT
+mkdir -p "$DMG_SOURCE_DIR"
+/usr/bin/ditto "$APP_BUNDLE" "$DMG_SOURCE_DIR/awesoMux.app"
+ln -s /Applications "$DMG_SOURCE_DIR/Applications"
+APP_BUNDLE="$DMG_SOURCE_DIR/awesoMux.app"
 APP_MACOS="$APP_BUNDLE/Contents/MacOS"
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 
@@ -205,26 +215,33 @@ if [[ "$UNSIGNED" -eq 0 ]]; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
-ZIP_SUFFIX=""
+DMG_SUFFIX=""
 if [[ "$UNSIGNED" -eq 1 ]]; then
-  ZIP_SUFFIX="-unsigned"
+  DMG_SUFFIX="-unsigned"
 fi
-ZIP_PATH="$OUTPUT_DIR/awesoMux-$VERSION$ZIP_SUFFIX.zip"
-rm -f "$ZIP_PATH" "$ZIP_PATH.sha256"
-# ditto -c -k --keepParent is the only supported archiver here: it preserves
-# the signed bundle byte-for-byte (resource forks, symlinks, permissions).
-/usr/bin/ditto -c -k --keepParent "$APP_BUNDLE" "$ZIP_PATH"
+DMG_PATH="$OUTPUT_DIR/awesoMux-$VERSION$DMG_SUFFIX.dmg"
+rm -f "$DMG_PATH" "$DMG_PATH.sha256"
+hdiutil create \
+  -volname awesoMux \
+  -srcfolder "$DMG_SOURCE_DIR" \
+  -format UDZO \
+  -ov \
+  "$DMG_PATH"
+hdiutil verify "$DMG_PATH"
 
 if [[ "$UNSIGNED" -eq 0 ]]; then
+  codesign --force --timestamp --sign "$IDENTITY" "$DMG_PATH"
+  codesign --verify --verbose=2 "$DMG_PATH"
+
   NOTARY_STDERR="$OUTPUT_DIR/notarytool-submit-$VERSION.stderr.log"
   rm -f "$NOTARY_STDERR"
-  echo "Submitting $ZIP_PATH for notarization (profile: $NOTARY_PROFILE)..."
+  echo "Submitting $DMG_PATH for notarization (profile: $NOTARY_PROFILE)..."
   # Submit WITHOUT --wait so the submission id lands on disk immediately — a
   # Ctrl-C or dropped connection during the (potentially 45-minute) wait must
   # not lose the id of a submission Apple already has. plutil parses the JSON
   # structurally; notarytool's whitespace style varies across versions.
   set +e
-  SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARY_PROFILE" \
+  SUBMIT_JSON="$(xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" \
     --output-format json 2>"$NOTARY_STDERR")"
   SUBMIT_EXIT=$?
   set -e
@@ -259,31 +276,32 @@ if [[ "$UNSIGNED" -eq 0 ]]; then
     || echo "warning: could not fetch notarization log for $SUBMISSION_ID" >&2
   rm -f "$NOTARY_STDERR"
 
-  # A zip cannot be stapled. Staple the .app, then rebuild the archive so the
-  # distributed zip contains the ticket. Skipping the re-zip ships an
-  # unstapled archive that still passes ONLINE Gatekeeper checks but fails
-  # offline — easy to miss.
-  xcrun stapler staple "$APP_BUNDLE"
-  rm -f "$ZIP_PATH"
-  /usr/bin/ditto -c -k --keepParent "$APP_BUNDLE" "$ZIP_PATH"
+  # The DMG is the outermost distributed container, so notarize and staple it
+  # directly. Gatekeeper can then verify the download without network access.
+  xcrun stapler staple "$DMG_PATH"
 fi
 
 # Checksum the final artifact first — its validity does not depend on the
 # assessment below, and a transient validation failure must not leave the
 # artifact unchecksummed.
-(cd "$OUTPUT_DIR" && shasum -a 256 "$(basename "$ZIP_PATH")" > "$(basename "$ZIP_PATH").sha256")
+hdiutil verify "$DMG_PATH"
+(cd "$OUTPUT_DIR" && shasum -a 256 "$(basename "$DMG_PATH")" > "$(basename "$DMG_PATH").sha256")
 
 # Validate the exact artifact users will download, not the staging copy:
-# extract the final zip fresh and assess that. Runs in both modes; only the
-# Gatekeeper/staple checks need real signing.
+# mount the final DMG read-only and assess its app. Runs in both modes; only
+# the Gatekeeper/staple checks need real signing.
 VALIDATE_DIR="$(mktemp -d -t awesomux-release-validate)"
-/usr/bin/ditto -x -k "$ZIP_PATH" "$VALIDATE_DIR"
-codesign --verify --deep --strict "$VALIDATE_DIR/awesoMux.app"
+DMG_MOUNT="$VALIDATE_DIR/mount"
+mkdir -p "$DMG_MOUNT"
+hdiutil attach "$DMG_PATH" -readonly -nobrowse -noautoopen -mountpoint "$DMG_MOUNT"
+codesign --verify --deep --strict "$DMG_MOUNT/awesoMux.app"
 if [[ "$UNSIGNED" -eq 0 ]]; then
-  echo "Assessing Gatekeeper acceptance (a failure right after stapling can be transient ticket propagation — re-running this step in a minute is safe; the zip is already built)..."
-  spctl --assess --type execute --verbose "$VALIDATE_DIR/awesoMux.app"
-  xcrun stapler validate "$VALIDATE_DIR/awesoMux.app"
+  echo "Assessing Gatekeeper acceptance (a failure right after stapling can be transient ticket propagation — re-running this step in a minute is safe; the DMG is already built)..."
+  spctl --assess --type execute --verbose "$DMG_MOUNT/awesoMux.app"
+  xcrun stapler validate "$DMG_PATH"
 fi
+hdiutil detach "$DMG_MOUNT" -quiet
+DMG_MOUNT=""
 
 # Source-to-artifact binding: the build must not have dirtied tracked files,
 # and HEAD must still be the commit captured above — the tag in the release
@@ -294,8 +312,8 @@ if [[ -n "$(git -C "$ROOT_DIR" status --porcelain | grep -v '^??' || true)" || "
 fi
 
 echo
-echo "Release artifact: $ZIP_PATH"
-echo "Checksum:         $ZIP_PATH.sha256"
+echo "Release artifact: $DMG_PATH"
+echo "Checksum:         $DMG_PATH.sha256"
 echo "Version:          $VERSION ($BUILD_NUMBER)"
 echo "Commit:           $RELEASE_COMMIT  <- tag exactly this"
 if [[ "$UNSIGNED" -eq 1 ]]; then
