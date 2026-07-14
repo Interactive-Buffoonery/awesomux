@@ -308,19 +308,37 @@ enum AmxBackend {
         return url
     }()
 
+    /// Env-derived inputs for shellIntegrationEnvTokens, resolved at attach
+    /// time (post app-init sanitization). The resources dir is forwarded only
+    /// when its zsh integration subdirectory actually exists — ghostty's own
+    /// setupZsh probes the directory before pinning ZDOTDIR, and pointing
+    /// ZDOTDIR at a missing dir makes zsh skip the user's dotfiles entirely
+    /// (a silently worse failure than missing OSC-133). Not cached: attach
+    /// commands assemble at surface-creation frequency, not per-frame.
+    static func shellIntegrationInputs(
+        from environment: [String: String],
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> (ghosttyResourcesDir: String?, inheritedZDOTDIR: String?, shellPath: String?) {
+        var resourcesDir = environment["GHOSTTY_RESOURCES_DIR"]
+        if let dir = resourcesDir, dir.isEmpty || !fileExists(dir + "/shell-integration/zsh") {
+            resourcesDir = nil
+        }
+        return (resourcesDir, environment["ZDOTDIR"], environment["SHELL"])
+    }
+
     static func attachCommand(for sessionID: TerminalSessionID, remote: RemoteTarget? = nil) -> String? {
         guard let executableURL = bundledExecutableURL() else {
             return nil
         }
-        let env = ProcessInfo.processInfo.environment
+        let inputs = Self.shellIntegrationInputs(from: ProcessInfo.processInfo.environment)
         return attachCommand(
             executablePath: executableURL.path,
             sessionID: sessionID,
             socketDirectory: sessionSocketDirectory(),
             remote: remote,
-            ghosttyResourcesDir: env["GHOSTTY_RESOURCES_DIR"],
-            inheritedZDOTDIR: env["ZDOTDIR"],
-            shellPath: env["SHELL"]
+            ghosttyResourcesDir: inputs.ghosttyResourcesDir,
+            inheritedZDOTDIR: inputs.inheritedZDOTDIR,
+            shellPath: inputs.shellPath
         )
     }
 
@@ -330,16 +348,16 @@ enum AmxBackend {
         guard let executableURL = bundledExecutableURL() else {
             return nil
         }
-        let env = ProcessInfo.processInfo.environment
+        let inputs = Self.shellIntegrationInputs(from: ProcessInfo.processInfo.environment)
         return attachCommand(
             executablePath: executableURL.path,
             sessionID: sessionID,
             socketDirectory: sessionSocketDirectory(),
             status: status,
             remote: remote,
-            ghosttyResourcesDir: env["GHOSTTY_RESOURCES_DIR"],
-            inheritedZDOTDIR: env["ZDOTDIR"],
-            shellPath: env["SHELL"]
+            ghosttyResourcesDir: inputs.ghosttyResourcesDir,
+            inheritedZDOTDIR: inputs.inheritedZDOTDIR,
+            shellPath: inputs.shellPath
         )
     }
 
