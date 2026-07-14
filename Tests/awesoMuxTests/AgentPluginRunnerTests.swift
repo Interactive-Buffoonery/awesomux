@@ -86,9 +86,9 @@ struct AgentPluginRunnerTests {
 
     // MARK: - Codex status mapping
 
-    @Test("Codex: untrusted/first-seen map to needs-review")
+    @Test("Codex: untrusted/modified/unknown map to needs-review")
     func codexNeedsReview() async throws {
-        for trust in [HookTrustStatus.untrusted, .firstSeen, .changed] {
+        for trust in [HookTrustStatus.untrusted, .modified, .unknown("future-state")] {
             try await Self.withRunner { runner, _, codex in
                 codex.setHooksList([Self.codexHook(enabled: true, trust: trust)])
                 let report = await runner.status(provider: .codex, setup: Self.enabled)
