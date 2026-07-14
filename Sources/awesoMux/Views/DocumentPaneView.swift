@@ -1205,8 +1205,7 @@ struct DocumentPaneView: View {
         }
     }
 
-    /// Reads the file, confirms it hasn't changed since `renderTimeSource`, then
-    /// applies `writer` and writes the result back. Returns `true` on success.
+    /// Applies `writer` only while the rendered source is still current.
     @discardableResult
     private func guardedWrite(
         renderTimeSource: String,
@@ -1216,34 +1215,33 @@ struct DocumentPaneView: View {
             showAlert(title: "Read-Only Snapshot", message: "Remote Markdown snapshots cannot be edited in awesoMux yet.")
             return false
         }
-        guard let onDisk = DocumentLoader.readSource(pane.fileURL) else {
-            showAlert(title: "Couldn't Save", message: "The document couldn't be read from disk.")
-            return false
-        }
-        guard onDisk == renderTimeSource else {
+
+        switch MarkdownDocumentWriter.applyIfCurrent(
+            at: pane.fileURL,
+            expectedSource: renderTimeSource,
+            transform: writer
+        ) {
+        case .written(let newSource):
+            Self.selfWriteRegistry.record(fileURL: pane.fileURL, source: newSource)
+            return true
+        case .conflict:
             showAlert(
                 title: "Document Changed on Disk",
                 message: "The document changed on disk. Reloading — please try again."
             )
             pendingScrollAnchor = nil
             triggerReload()
-            return false
-        }
-        guard let newSource = writer(onDisk) else {
+        case .unreadable:
+            showAlert(title: "Couldn't Save", message: "The document couldn't be read from disk.")
+        case .invalidEdit:
             showAlert(
                 title: "Couldn't Save",
                 message: "The annotation couldn't be saved. It may be too long, invalid, or duplicated."
             )
-            return false
+        case .writeFailed:
+            showAlert(title: "Couldn't Save", message: "The document couldn't be written to disk.")
         }
-        do {
-            try newSource.write(to: pane.fileURL, atomically: true, encoding: .utf8)
-            Self.selfWriteRegistry.record(fileURL: pane.fileURL, source: newSource)
-            return true
-        } catch {
-            showAlert(title: "Couldn't Save", message: error.localizedDescription)
-            return false
-        }
+        return false
     }
 
     private func showAlert(title: String, message: String) {
