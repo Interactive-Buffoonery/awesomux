@@ -1528,7 +1528,8 @@ struct AwesoMuxApp: App {
     @MainActor
     private func confirmDestructivePaneActionIfNeeded(
         _ action: DestructivePaneActionConfirmationPolicy.Action,
-        in session: TerminalSession
+        in session: TerminalSession,
+        atRisk: Bool
     ) -> CloseConfirmDecision {
         guard !isCloseConfirmAlertPresented else { return .suppressed }
         isCloseConfirmAlertPresented = true
@@ -1545,11 +1546,25 @@ struct AwesoMuxApp: App {
                 comment:
                     "Title of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
             )
-            body = String(
-                localized:
-                    "\(displayTitle) has activity that will be interrupted. Restarting the shell will terminate the running process.",
-                comment: "Body of the restart-shell confirmation dialog. Argument is the bidi-isolated workspace title."
-            )
+            // One localized string per variant (not concatenated fragments) so
+            // translators control the full sentence — mirrors confirmClearWorkspace.
+            // The idle variant is honest about `recycleAndAnnounce` discarding the
+            // old surface: a restart mints a fresh libghostty surface, so scrollback
+            // does not carry over.
+            body =
+                atRisk
+                ? String(
+                    localized:
+                        "\(displayTitle) has activity that will be interrupted. Restarting the shell will terminate the running process.",
+                    comment:
+                        "Body of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
+                )
+                : String(
+                    localized:
+                        "Restarting the shell in \(displayTitle) ends the current session and starts a fresh one. Scrollback isn't kept.",
+                    comment:
+                        "Body of the restart-shell confirmation dialog when the active pane is idle. Argument is the bidi-isolated workspace title."
+                )
         case .closePane:
             title = String(
                 localized: "Close pane in \(displayTitle)?",
@@ -2198,7 +2213,12 @@ struct AwesoMuxApp: App {
         case let .proceedWithoutPrompt(resolvedAction):
             action = resolvedAction
         case let .prompt(resolvedAction):
-            switch confirmDestructivePaneActionIfNeeded(resolvedAction, in: session) {
+            // `.prompt` is only ever returned when the policy already found
+            // the active pane at risk (see `DestructivePaneActionConfirmationPolicy.decision`),
+            // but recomputing here — rather than hardcoding `true` — keeps this
+            // call site honest if that gate ever changes independently.
+            let atRisk = session.activePane?.isQuitRisk(at: Date()) ?? false
+            switch confirmDestructivePaneActionIfNeeded(resolvedAction, in: session, atRisk: atRisk) {
             case .suppressed:
                 return
             case .userCancelled:
@@ -2250,12 +2270,16 @@ struct AwesoMuxApp: App {
     /// rather than a routed keystroke, so the unconditional prompt mirrors
     /// `clearWorkspace`'s "always confirm" precedent. Wire it through the
     /// policy's risk gate instead if the always-on prompt proves too naggy.
+    /// The dialog COPY still branches on risk (see
+    /// `confirmDestructivePaneActionIfNeeded`) — only the decision to show a
+    /// prompt at all is unconditional.
     private func restartActiveShell() {
         guard let session = sessionStore.selectedSession else { return }
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
         guard let refreshed = sessionStore.session(id: session.id) else { return }
+        let atRisk = refreshed.activePane?.isQuitRisk(at: Date()) ?? false
 
-        switch confirmDestructivePaneActionIfNeeded(.restartShell, in: refreshed) {
+        switch confirmDestructivePaneActionIfNeeded(.restartShell, in: refreshed, atRisk: atRisk) {
         case .suppressed:
             return
         case .userCancelled:
