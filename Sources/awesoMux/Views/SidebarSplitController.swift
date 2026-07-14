@@ -97,8 +97,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var selectedSidebarWidth: CGFloat = SidebarWidthPolicy.expandedWidth
     var hostPresentationState = SidebarHostPresentationState()
     var handoffActionObserverForTesting: ((SidebarHostHandoffAction) -> Void)?
+    var persistentHandoffBeforeAccessibilityValidationForTesting: (() -> Void)?
     private let overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner?
     private let overlayPresentationTranslation: (() -> CGFloat?)?
+    private let interactionFocusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement?
+    private let interactionNotificationCenter: NotificationCenter
 
     /// Set around our own `setPosition` calls so `splitViewDidResizeSubviews` (which
     /// also fires for programmatic position changes and window layout) does not echo
@@ -126,12 +129,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         sidebar: NSViewController,
         detail: NSViewController,
         overlayPresentationTranslation: (() -> CGFloat?)? = nil,
-        overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner? = nil
+        overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner? = nil,
+        interactionFocusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement? = nil,
+        interactionNotificationCenter: NotificationCenter = .default
     ) {
         sidebarChild = sidebar
         detailChild = detail
         self.overlayPresentationTranslation = overlayPresentationTranslation
         self.overlayAnimationRunner = overlayAnimationRunner
+        self.interactionFocusedAccessibilityElement = interactionFocusedAccessibilityElement
+        self.interactionNotificationCenter = interactionNotificationCenter
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -538,6 +545,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         let target = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
         var capturedResponder: NSResponder?
         let capturedAccessibilityElement = focusedSidebarAccessibilityElement
+        var handoffSucceeded = true
         isPerformingHostHandoff = true
         record(.beginNoActionsTransaction)
         NSAnimationContext.runAnimationGroup { context in
@@ -560,6 +568,18 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
             record(.reparentHostToSplitContainer)
             moveSidebarHost(to: sidebarPaneContainer)
+            persistentHandoffBeforeAccessibilityValidationForTesting?()
+            if let capturedAccessibilityElement,
+                !sidebarContainsAccessibilityElement(capturedAccessibilityElement)
+            {
+                handoffSucceeded = false
+                lastPreservedSidebarAccessibilityElementForTesting = false
+                moveSidebarHost(to: overlayContentView)
+                overlayClipView.isHidden = false
+                layoutOverlay(presented: true)
+                sidebarChild.view.setAccessibilityHidden(false)
+                return
+            }
             record(.setPersistentState)
             isSidebarHidden = false
             pendingWidth = nil
@@ -586,6 +606,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         record(.endNoActionsTransaction)
         isPerformingHostHandoff = false
+        guard handoffSucceeded else {
+            hostMode = .overlay(width: selectedSidebarWidth)
+            hostPresentationState.settle(
+                mode: hostMode, effectiveVisibleWidth: selectedSidebarWidth)
+            return
+        }
         let rendered = sidebarPaneWidth
         hostMode = .persistent(width: rendered)
         recordIfExpanded(rendered)
@@ -702,6 +728,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         guard isViewLoaded, interactionMonitor == nil else { return }
         interactionMonitor = SidebarInteractionMonitor(
             sidebarRoot: sidebarChild.view,
+            focusedAccessibilityElement: interactionFocusedAccessibilityElement,
+            notificationCenter: interactionNotificationCenter,
             onActiveChange: { [weak self] active in
                 self?.onSidebarInteractionChanged?(active)
             })
@@ -748,6 +776,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         sidebarAccessibilityFocusedElement = nil
         onSidebarInteractionChanged = nil
         handoffActionObserverForTesting = nil
+        persistentHandoffBeforeAccessibilityValidationForTesting = nil
     }
 
     private func invalidateOverlayForDetach() {

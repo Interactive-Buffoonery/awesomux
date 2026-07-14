@@ -45,3 +45,10 @@ Preserved the one live sidebar host across transient overlay and persistent spli
 - Verified one monitor after repeated reattach and zero observers after detach.
 - Verified final destruction releases callbacks and both settled and actively interacting controllers deallocate weakly.
 - Preserved the persistent-disappearance contract: a persistent sidebar remains in its semantic split container, is AX-hidden while detached, and restores AX exposure on attach; a transient overlay settles hidden.
+
+## Final blocker closure
+
+- Persistent handoff now validates the captured AX element immediately after moving the live host but before setting persistent state or publishing host width. A forced ancestry break restores the same host to the presented overlay, leaves persistent publication at zero, and keeps the overlay interactive.
+- The end-to-end retention test wires `SidebarInteractionMonitor` directly to `SidebarPresentationModel.sidebarInteractionChanged(_:)`, drives keyboard focus, attributed menu tracking, tracker/sidebar leave, and an injected live AX-focused descendant, then proves the overlay remains presented until every interaction source clears. Only then does a fresh deterministic 220 ms grace complete and the controller returns the host to stable hidden ownership.
+- The window lifecycle test removes and re-adds the controller root through `NSWindow.contentView`, exercising `SidebarSplitRootView.viewDidMoveToWindow` rather than calling controller lifecycle methods. Persistent semantic ownership survives removal, detached AX exposure and observers are removed, and re-add restores AX exposure with exactly four observers.
+- Final `SidebarOverlayHostControllerTests` count after these additions: 32 tests passed.

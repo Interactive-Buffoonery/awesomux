@@ -1,6 +1,7 @@
 import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import SwiftUI
 import Testing
 @testable import awesoMux
@@ -432,6 +433,29 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.interactionObserverCountForTesting == 4)
     }
 
+    @Test("window removal and re-add preserve persistent semantics and restore AX")
+    func windowDetachAndReattach() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+        let window = NSWindow(
+            contentRect: controller.view.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = controller.view
+        #expect(controller.interactionObserverCountForTesting == 4)
+
+        window.contentView = NSView()
+
+        #expect(controller.hostModeForTesting == .persistent(width: 300))
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
+        #expect(controller.interactionObserverCountForTesting == 0)
+
+        window.contentView = controller.view
+
+        #expect(controller.hostModeForTesting == .persistent(width: 300))
+        #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
+        #expect(controller.interactionObserverCountForTesting == 4)
+    }
+
     @Test("active accessibility focus retains overlay and cancels hide")
     func accessibilityFocusRetainsOverlay() {
         let driver = AnimationDriver()
@@ -535,6 +559,34 @@ struct SidebarOverlayHostControllerTests {
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
     }
 
+    @Test("persistent handoff aborts before publication when AX ancestry breaks")
+    func persistentHandoffRejectsBrokenAccessibilityAncestry() {
+        let (controller, sidebar, _) = makeController()
+        let descendant = NSView()
+        sidebar.view.addSubview(descendant)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresentedImmediately(true)
+        controller.sidebarAccessibilityFocusedElement = { descendant }
+        var persistentPublications = 0
+        controller.hostPresentationState.onSettleForTesting = {
+            if case .persistent = controller.hostPresentationState.mode {
+                persistentPublications += 1
+            }
+        }
+        controller.persistentHandoffBeforeAccessibilityValidationForTesting = {
+            descendant.removeFromSuperview()
+        }
+
+        controller.setPersistentSidebarVisible(true)
+
+        #expect(persistentPublications == 0)
+        #expect(controller.hostModeForTesting == .overlay(width: 300))
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
+        #expect(!controller.overlayClipViewForTesting.isHidden)
+        #expect(!controller.lastPreservedSidebarAccessibilityElementForTesting)
+    }
+
     @Test("detach is idempotent, invalidates stale completion, and reattaches one monitor")
     func detachAndReattachLifecycle() {
         let driver = AnimationDriver()
@@ -583,6 +635,66 @@ struct SidebarOverlayHostControllerTests {
         window.makeFirstResponder(nil)
         NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: nil)
         #expect(changes == [true, false])
+    }
+
+    @Test("keyboard menu and live AX retention flow through grace to overlay removal")
+    func interactionEndToEndRemoval() async throws {
+        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SidebarPresentationPreferenceStore(defaults: defaults)
+        store.saveHidden(true)
+        let gate = TestScheduler()
+        let model = SidebarPresentationModel(store: store, delay: { await gate.wait(for: $0) })
+        let center = NotificationCenter()
+        let sidebar = NSViewController()
+        sidebar.view = AccessibilityRecordingView()
+        let focus = FirstResponderView()
+        let axElement = NSView()
+        sidebar.view.addSubview(focus)
+        sidebar.view.addSubview(axElement)
+        var focusedAX: Any? = axElement
+        let detail = NSViewController()
+        let controller = SidebarSplitController(
+            sidebar: sidebar,
+            detail: detail,
+            interactionFocusedAccessibilityElement: { focusedAX },
+            interactionNotificationCenter: center)
+        controller.onSidebarInteractionChanged = model.sidebarInteractionChanged
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        let window = NSWindow(
+            contentRect: controller.view.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = controller.view
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        controller.setOverlayPresentedImmediately(true)
+        #expect(window.makeFirstResponder(focus))
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        controller.sidebarPointerChanged(true)
+        center.post(name: NSMenu.didBeginTrackingNotification, object: nil)
+        controller.sidebarPointerChanged(false)
+        model.sidebarPointerChanged(false)
+        model.trackingRegionExited()
+
+        window.makeFirstResponder(nil)
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        center.post(name: NSMenu.didEndTrackingNotification, object: nil)
+        #expect(model.isTemporarilyRevealed)
+        controller.setOverlayPresentedImmediately(false)
+        #expect(controller.hostModeForTesting == .overlay(width: 300))
+
+        focusedAX = nil
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        gate.advance()
+        #expect(await waitUntil { !model.isSidebarVisible })
+        controller.setOverlayPresentedImmediately(false)
+
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
     }
 
     @Test("active interaction reports false exactly once across repeated lifecycle teardown")
@@ -739,5 +851,13 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.splitPaneViewsForTesting == paneViews)
         #expect(detail.view.frame == detailFrame)
         #expect(sidebar.rootView.value == "new")
+    }
+
+    private func waitUntil(_ condition: () -> Bool, attempts: Int = 10_000) async -> Bool {
+        for _ in 0..<attempts {
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
     }
 }
