@@ -45,4 +45,26 @@ struct SidebarHoverArchitectureTests {
         #expect(proximity.contains("onChange(of: sidebarPresentation.proximityState)"))
         #expect(proximity.contains("setOverlayVisible"))
     }
+
+    @Test("proximity cue consumes intensity and stays noninteractive")
+    func proximityCueRenderingContract() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let content = try String(
+            contentsOf: root.appendingPathComponent("Sources/awesoMux/Views/ContentView.swift"),
+            encoding: .utf8
+        )
+        let cueCall = try #require(
+            content.split(separator: "SidebarProximityCue(", maxSplits: 1).last?
+                .split(separator: ")", maxSplits: 1).first
+        )
+        #expect(cueCall.contains("intensity: sidebarPresentation.cueIntensity"))
+
+        let cueBody = try #require(
+            content.split(separator: "private struct SidebarProximityCue", maxSplits: 1).last
+        )
+        #expect(cueBody.contains(".frame(width: 4)"))
+        #expect(cueBody.contains(".allowsHitTesting(false)"))
+        #expect(cueBody.contains(".accessibilityHidden(true)"))
+    }
 }
