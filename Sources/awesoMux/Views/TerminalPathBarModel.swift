@@ -30,11 +30,10 @@ struct TerminalPathBarModel: Equatable, Sendable {
     /// pass after the fast local resolution. Nil until resolved (or when passing /
     /// no runs / not a GitHub repo).
     var ciStatus: CIStatusInfo?
-    /// The remote host when the active pane is in an SSH/remote session, else nil.
-    /// Mirrors `TerminalPane.remoteHost` (detected from the title, cleared by a
-    /// local OSC 7 pwd event). When non-nil the bar shows a remote indicator and
-    /// suppresses every local-only affordance — the cwd/git state is the stale
-    /// LOCAL machine's and must not be acted on.
+    /// The remote host shown for the active pane, else nil. A declared SSH
+    /// target wins over title-derived observation. When non-nil the bar shows a
+    /// remote indicator and suppresses every local-only affordance — the
+    /// cwd/git state may belong to the local machine and must not be acted on.
     var remoteHost: String?
     var executionPlan: PaneExecutionPlan
     /// Runtime-only remote connection health for the active pane.
@@ -164,7 +163,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
             pullRequest: nil,
             gitStatus: nil,
             ciStatus: nil,
-            remoteHost: pane.remoteHost ?? target.sshDestination,
+            remoteHost: target.sshDestination,
             executionPlan: pane.executionPlan,
             remoteConnectionHealth: pane.remoteConnectionHealth
         )
