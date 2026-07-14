@@ -188,6 +188,36 @@ struct SidebarSplitControllerTests {
         #expect(abs(sidebar.view.frame.width - 300) < 1)
     }
 
+    @Test("persistent proxy hides and shows a live split on both sides")
+    func persistentProxyHidesAndShowsBothSides() {
+        for position in [AppearanceConfig.SidebarPosition.left, .right] {
+            let (controller, sidebar, _) = makeController()
+            let proxy = SidebarSplitProxy()
+            controller.setSidebarPosition(position)
+            controller.setSidebarWidth(300)
+            controller.installPersistentVisibilityHandler(on: proxy)
+
+            proxy.setPersistentVisible?(false)
+            #expect(sidebar.view.frame.width == 0)
+
+            proxy.setPersistentVisible?(true)
+            #expect(abs(sidebar.view.frame.width - 300) < 1)
+        }
+    }
+
+    @Test("persistent show reveals a split hidden before runtime wiring")
+    func persistentShowRevealsConstructedHiddenSplit() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        let proxy = SidebarSplitProxy()
+        controller.installPersistentVisibilityHandler(on: proxy)
+
+        proxy.setPersistentVisible?(true)
+
+        #expect(abs(sidebar.view.frame.width - 300) < 1)
+    }
+
     @Test("hiding hands sidebar focus off before applying hidden geometry")
     func hidingHandsSidebarFocusOff() {
         let sidebar = NSViewController()

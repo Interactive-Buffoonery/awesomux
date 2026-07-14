@@ -254,6 +254,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
     }
 
+    func installPersistentVisibilityHandler(on proxy: SidebarSplitProxy) {
+        proxy.setPersistentVisible = { [weak self] visible in
+            self?.setSidebarHidden(!visible)
+        }
+    }
+
     func simulateDividerDragCompletionForTesting() {
         splitView.onDragEnded?()
     }

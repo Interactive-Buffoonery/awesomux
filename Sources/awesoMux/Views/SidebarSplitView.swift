@@ -46,6 +46,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
         proxy.setWidth = { [weak controller] width in controller?.setSidebarWidth(width) }
         proxy.setPosition = { [weak controller] position in controller?.setSidebarPosition(position) }
+        controller.installPersistentVisibilityHandler(on: proxy)
         return controller
     }
 

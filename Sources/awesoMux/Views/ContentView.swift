@@ -382,6 +382,7 @@ struct ContentView: View {
 
     private func settleSidebarVisibilityExplicitly() {
         sidebarPresentation.invalidateTransientState()
+        splitProxy.setPersistentVisible?(sidebarPresentation.isSidebarVisible)
     }
 
 }
