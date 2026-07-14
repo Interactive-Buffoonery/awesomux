@@ -906,7 +906,7 @@ Commit: `test(sidebar): prove hover geometry isolation`
 
 ---
 
-### Task 7: Full Build, Live QA, Review, and Documentation
+### Task 7: Full Build, Live QA, Two Hard Review Gates, and Documentation
 
 **Files:**
 - Modify only if verification exposes an approved defect: files from Tasks 1–6 and their focused tests.
@@ -969,7 +969,116 @@ screencapture -i /tmp/awesomux-overlay-right-persistent-handoff.png
 
 Expected: terminal content remains full-width beneath overlays; sidebar is edge-aligned; right title lockup is trailing with 10-point padding and icon-before-text; rail suppression is unchanged; persistent handoff shows one sidebar. Preserve a left/right overlay comparison for the eventual PR body; do not commit `/tmp` artifacts.
 
-- [ ] **Step 7: Run preflight and refresh overlap**
+- [ ] **Step 7: Build the final merge-base review package**
+
+After implementation, the full automated suite, and every live-QA step above are complete, create an ignored local package under `.superpowers/reviews/sidebar-hover-overlay/pre-pr/package/`. Run:
+
+```bash
+mkdir -p .superpowers/reviews/sidebar-hover-overlay/pre-pr/package
+BASE=$(git merge-base origin/main HEAD)
+printf '%s\n' "$BASE" > .superpowers/reviews/sidebar-hover-overlay/pre-pr/package/merge-base.txt
+git diff --name-status "$BASE"...HEAD > .superpowers/reviews/sidebar-hover-overlay/pre-pr/package/full-changed-files.txt
+git diff --stat "$BASE"...HEAD > .superpowers/reviews/sidebar-hover-overlay/pre-pr/package/diff-stat.txt
+git diff --check "$BASE"...HEAD
+git diff --find-renames --find-copies "$BASE"...HEAD > .superpowers/reviews/sidebar-hover-overlay/pre-pr/package/full-branch.diff
+git diff --name-status "$BASE"...HEAD -- . ':(exclude)docs/superpowers/**' ':(exclude).superpowers/**' > .superpowers/reviews/sidebar-hover-overlay/pre-pr/package/changed-files.txt
+git diff --find-renames --find-copies "$BASE"...HEAD -- . ':(exclude)docs/superpowers/**' ':(exclude).superpowers/**' > .superpowers/reviews/sidebar-hover-overlay/pre-pr/package/final.diff
+```
+
+Preserve those outputs at:
+
+```text
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/package/merge-base.txt
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/package/full-changed-files.txt
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/package/changed-files.txt
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/package/diff-stat.txt
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/package/full-branch.diff
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/package/final.diff
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/package/test-evidence.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/package/live-qa-evidence.md
+```
+
+`test-evidence.md` records exact commands, exit statuses, suite/test counts, and geometry-isolation results. `live-qa-evidence.md` records the completed checklist and screenshot paths. `full-branch.diff` is available to Gate A. `final.diff` and `changed-files.txt` deliberately exclude `docs/superpowers/**` and `.superpowers/**`, so Gate B cannot receive specs, plans, architecture reviews, or prior reports. Do not copy design discussion, brainstorming, conversational history, or earlier findings into evidence files.
+
+- [ ] **Step 8: Hard Gate A — run the full specialist review matrix**
+
+Read the user-selected local multi-reviewer orchestrator skill completely at execution time, then read every complete sibling reviewer prompt it requires. The committed plan uses neutral lane labels because reviewer/persona terminology must not enter public artifacts. Run independent read-only subagents in parallel for:
+
+```text
+core lane 01
+core lane 02
+core lane 03
+core lane 04
+core lane 05
+Swift/macOS specialist lane
+Codex generalist
+```
+
+Paste the full tuned prompt into each corresponding worker. Require actual-file reads, exact file/line references, `AUTO-FIX`/`ASK`/`NIT` classification, and no edits. Preserve unabridged raw reports plus consolidation/disposition:
+
+```text
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/specialist/round-01/core-01.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/specialist/round-01/core-02.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/specialist/round-01/core-03.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/specialist/round-01/core-04.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/specialist/round-01/core-05.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/specialist/round-01/swift-macos.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/specialist/round-01/codex-generalist.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/specialist/round-01/consolidated.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/specialist/round-01/disposition.md
+```
+
+`consolidated.md` deduplicates by severity while retaining exact references. `disposition.md` maps every finding to `fixed`, `not reproducible` with evidence, `declined NIT` with rationale, or `ASK resolved` with the decision.
+
+For each valid defect: add/adjust a focused test, run it RED, implement the minimum fix, run the focused suite GREEN, then run:
+
+```bash
+./script/swift-test.sh
+git diff --check
+./script/build_and_run.sh
+```
+
+Repeat affected live-QA checks. Refresh the package, preserve the next complete matrix under `specialist/round-02/` (then `round-03/`, etc.), and rerun all seven lanes—not only the lane that found the issue. Gate A is clean only when a fresh full round has no unresolved `AUTO-FIX` or `ASK`, no reproducible correctness/accessibility/performance defect, and every retained NIT has an explicit disposition. Never overwrite a raw round.
+
+Commit each verified review-fix batch locally with a conventional commit before refreshing the package; do not push it. The clean round must review committed `HEAD`, not an uncommitted working-tree variant.
+
+- [ ] **Step 9: Hard Gate B — run a context-free adversarial review**
+
+Only after Gate A is clean and its fixes pass the full automated/live loop, refresh the package from the new merge-base diff. Spawn one fresh adversarial subagent with `fork_turns="none"`. Give it only:
+
+1. applicable `AGENTS.md` and imported repository rules;
+2. `package/changed-files.txt`;
+3. `package/final.diff`;
+4. `package/test-evidence.md`;
+5. `package/live-qa-evidence.md`.
+
+The prompt explicitly forbids reading or being told any spec, design, plan, issue description, conversation/history, prior reviewer report, consolidation, disposition, commit message/history, PR text, or repository file outside the supplied `AGENTS.md` chain and five package inputs. The worker reviews unfamiliar code adversarially for behavioral defects, unsafe ownership/lifecycle assumptions, AppKit/SwiftUI integration failures, missing negative tests, and claims not proved by the supplied diff/evidence. It is read-only and returns findings first with exact diff file/line references and severity.
+
+Preserve its exact prompt, raw report, and disposition:
+
+```text
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/adversarial/round-01/prompt.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/adversarial/round-01/report.md
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/adversarial/round-01/disposition.md
+```
+
+Fix valid findings through focused RED → minimum fix → focused GREEN → full suite → `git diff --check` → build → affected live QA. Refresh the package and launch a new `fork_turns="none"` adversary using only the five allowed final inputs; preserve it as `round-02/` and repeat until a fresh report has no unresolved actionable finding. Never give a later adversary earlier reports or dispositions.
+
+Commit each verified adversarial-fix batch locally before returning to the complete Gate A matrix; do not push it.
+
+**Hard stop:** do not create a PR, run `gh pr create`, run `git push`, push any review fix, or report the branch PR-ready until both Gate A and Gate B are clean against the same final HEAD/package.
+
+- [ ] **Step 10: Reconfirm both gates on the exact final SHA**
+
+If either gate causes any branch code/test/config change, rerun Gate A's complete seven-lane matrix first, then a new context-free Gate B against that exact HEAD. Record the final clean SHA alone in:
+
+```text
+.superpowers/reviews/sidebar-hover-overlay/pre-pr/FINAL-CLEAN-SHA.txt
+```
+
+Verify it equals `git rev-parse HEAD`. Any later branch code/test/config change invalidates both gates and requires both to rerun.
+
+- [ ] **Step 11: Run preflight and refresh overlap**
 
 Run:
 
@@ -980,15 +1089,15 @@ git diff --name-only origin/main...HEAD
 git status --short
 ```
 
-Expected: preflight passes, or only the already documented macOS Bash 3 `mapfile: command not found` infrastructure failure remains after preceding guards pass. Report every open PR touching changed files. Preserve unrelated concurrent worktree changes.
+Expected: preflight passes, or only the already documented macOS Bash 3 `mapfile: command not found` infrastructure failure remains after preceding guards pass. Report every open PR touching changed files. Preserve unrelated concurrent worktree changes. A preflight-driven code change invalidates the recorded SHA and returns to Gate A.
 
-- [ ] **Step 8: Run final whole-branch review and update the session note**
+- [ ] **Step 12: Update the session note with both review gates**
 
-Review `origin/main...HEAD` for spec compliance and code quality, fix findings with focused RED/GREEN coverage, rerun affected suites, and update the existing JiggyBrain note with overlay architecture, commands, test counts, screenshots, preflight status, overlap, and remaining sharp edges.
+Update the existing JiggyBrain note with overlay architecture, commands, test counts, screenshots, preflight status, overlap, every specialist/adversarial round path, dispositions, `FINAL-CLEAN-SHA`, and remaining sharp edges. Use generic review wording in future public artifacts; local artifact names remain local-only.
 
-- [ ] **Step 9: Commit verification-only fixes if any**
+- [ ] **Step 13: Commit verification-only fixes if any, then rerun both gates**
 
-Commit only when Step 7 required changes: `fix(sidebar): address overlay verification findings`
+Commit only when verification required changes: `fix(sidebar): address overlay verification findings`. Because that changes HEAD, refresh the package and rerun Gate A then Gate B before any PR/push. Any final branch documentation/config/test change also invalidates `FINAL-CLEAN-SHA`.
 
 ---
 
@@ -999,4 +1108,4 @@ Commit only when Step 7 required changes: `fix(sidebar): address overlay verific
 - Give every worker this plan, the approved spec at commit `3723e33`, the original sidebar design, their task number, and current SHA.
 - Workers must preserve concurrent changes, demonstrate focused RED before production edits, run all GREEN commands, and commit only their task.
 - Task 1 deliberately removes landed code; reviewers must verify retained persistent split behavior rather than demanding compatibility with the rejected divider animator.
-- After Task 7, run one final whole-branch review against `origin/main...HEAD`; implementation is not ready for PR until geometry-isolation tests, live overlay interaction, screenshots, and session documentation are complete.
+- Task 7's specialist matrix and context-free adversary are mandatory separate pre-PR gates. Implementation is not ready for PR or push until both are clean on `FINAL-CLEAN-SHA`, geometry-isolation tests and live overlay QA are complete, screenshots are preserved, and session documentation is updated.
