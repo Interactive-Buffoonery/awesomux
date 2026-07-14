@@ -121,6 +121,7 @@ struct FloatingPanelDismissConfirmationControllerTests {
         )
         pane.foregroundProcessLiveness = .bridged
         pane.needsTerminalQuitConfirmation = true
+        pane.terminalPromptObserved = true
         let session = TerminalSession(
             title: "vim",
             workingDirectory: "/tmp",
