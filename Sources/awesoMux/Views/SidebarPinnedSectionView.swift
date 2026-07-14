@@ -24,6 +24,8 @@ struct SidebarPinnedSectionView: View {
     let onRename: (TerminalSession) -> Void
     let onAcknowledge: (TerminalSession) -> Void
     let onToggleNotificationsMute: (TerminalSession) -> Void
+    let canMakeWorkspaceManaged: (TerminalSession) -> Bool
+    let onMakeWorkspaceManaged: (TerminalSession) -> Void
     let onNewSessionHere: (TerminalSession) -> Void
     let onMoveToGroup: (TerminalSession.ID, SessionGroup.ID) -> Void
     /// Reorder within the pinned section (final-index convention, matching
@@ -70,14 +72,15 @@ struct SidebarPinnedSectionView: View {
                 }
                 .overlay(alignment: .topLeading) {
                     if activeDragKind == .workspace,
-                       !isFiltering,
-                       let dropIndex,
-                       let y = SidebarInsertionResolver.insertionY(
-                           forInsertionIndex: dropIndex,
-                           orderedIDs: pinnedSessionIDs,
-                           frames: rowFrames,
-                           spacing: density.sessionStackSpacing
-                       ) {
+                        !isFiltering,
+                        let dropIndex,
+                        let y = SidebarInsertionResolver.insertionY(
+                            forInsertionIndex: dropIndex,
+                            orderedIDs: pinnedSessionIDs,
+                            frames: rowFrames,
+                            spacing: density.sessionStackSpacing
+                        )
+                    {
                         SidebarInsertionIndicator(tint: Color.aw.mauve)
                             .offset(y: y - SidebarInsertionIndicator.height / 2)
                             .allowsHitTesting(false)
@@ -123,10 +126,12 @@ struct SidebarPinnedSectionView: View {
         VStack(alignment: .leading, spacing: density.sessionStackSpacing) {
             ForEach(Array(pinned.enumerated()), id: \.element.entry.session.id) { index, item in
                 tile(for: item, at: index)
-                    .help(String(
-                        localized: "Pinned from \(item.originGroup.name)",
-                        comment: "Tooltip on a pinned sidebar workspace naming the group it belongs to."
-                    ))
+                    .help(
+                        String(
+                            localized: "Pinned from \(item.originGroup.name)",
+                            comment: "Tooltip on a pinned sidebar workspace naming the group it belongs to."
+                        )
+                    )
                     // Per-tile frame cache for the y-hit-test, scoped to the
                     // pinned section's coordinate space.
                     .background(
@@ -165,10 +170,12 @@ struct SidebarPinnedSectionView: View {
                 .foregroundStyle(Color.aw.railText)
                 .frame(width: 40)
                 .frame(maxWidth: .infinity)
-                .accessibilityLabel(String(
-                    localized: "Pinned",
-                    comment: "Accessibility label for the pinned workspaces section header in the collapsed sidebar."
-                ))
+                .accessibilityLabel(
+                    String(
+                        localized: "Pinned",
+                        comment: "Accessibility label for the pinned workspaces section header in the collapsed sidebar."
+                    )
+                )
                 .accessibilityAddTraits(.isHeader)
         } else {
             // Mirror SidebarGroupView.groupHeader's expanded typography (the
@@ -235,6 +242,8 @@ struct SidebarPinnedSectionView: View {
             onClose: { onClose(session) },
             onClear: { onClear(session) },
             onRename: { onRename(session) },
+            canMakeWorkspaceManaged: canMakeWorkspaceManaged(session),
+            onMakeWorkspaceManaged: { onMakeWorkspaceManaged(session) },
             onToggleNotificationsMute: { onToggleNotificationsMute(session) },
             isPinned: true,
             onTogglePin: { onTogglePin(session) },

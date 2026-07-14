@@ -8,11 +8,12 @@ struct PaneLayoutReducerTests {
     func recycleReplacesActivePaneAndClearsState() throws {
         let firstPane = TerminalPane(title: "one", workingDirectory: "/one", executionPlan: .local)
         let secondPane = TerminalPane(title: "two", workingDirectory: "/two", executionPlan: .local)
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .pane(firstPane),
-            second: .pane(secondPane)
-        ))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(firstPane),
+                second: .pane(secondPane)
+            ))
         let session = TerminalSession(
             title: "workspace",
             workingDirectory: "/two",
@@ -25,10 +26,11 @@ struct PaneLayoutReducerTests {
             activePaneID: secondPane.id
         )
 
-        let result = try #require(PaneLayoutReducer.recycleActivePane(
-            in: session,
-            now: Date(timeIntervalSince1970: 1)
-        ))
+        let result = try #require(
+            PaneLayoutReducer.recycleActivePane(
+                in: session,
+                now: Date(timeIntervalSince1970: 1)
+            ))
 
         #expect(result.discardedPaneID == secondPane.id)
         #expect(result.session.layout.pane(id: firstPane.id) == firstPane)
@@ -56,11 +58,12 @@ struct PaneLayoutReducerTests {
             activePaneID: active.id
         )
 
-        let result = try #require(PaneLayoutReducer.splitActivePane(
-            in: session,
-            orientation: .vertical,
-            now: now
-        ))
+        let result = try #require(
+            PaneLayoutReducer.splitActivePane(
+                in: session,
+                orientation: .vertical,
+                now: now
+            ))
 
         // S1: the just-finished agent's `.done` outranks `.idle`, so without the
         // reset the workspace row stays "Done" after focus moves to the fresh
@@ -91,11 +94,12 @@ struct PaneLayoutReducerTests {
             activePaneID: active.id
         )
 
-        let result = try #require(PaneLayoutReducer.splitActivePane(
-            in: session,
-            orientation: .vertical,
-            now: now
-        ))
+        let result = try #require(
+            PaneLayoutReducer.splitActivePane(
+                in: session,
+                orientation: .vertical,
+                now: now
+            ))
 
         // Only a stale terminal `.done` is reset — a live `.running` agent must
         // keep its state (and quit-risk freshness).
@@ -180,32 +184,71 @@ struct PaneLayoutReducerTests {
             activePaneID: pane.id
         )
 
-        session = try #require(PaneLayoutReducer.updatePane(
-            in: session,
-            paneID: pane.id,
-            title: "alice@remote",
-            workingDirectory: nil,
-            localHostnames: ["local"]
-        ))
+        session = try #require(
+            PaneLayoutReducer.updatePane(
+                in: session,
+                paneID: pane.id,
+                title: "alice@remote",
+                workingDirectory: nil,
+                localHostnames: ["local"]
+            ))
         #expect(session.activePane?.remoteHost == "remote")
 
-        session = try #require(PaneLayoutReducer.updatePane(
-            in: session,
-            paneID: pane.id,
-            title: "local title",
-            workingDirectory: nil,
-            localHostnames: ["local"]
-        ))
+        session = try #require(
+            PaneLayoutReducer.updatePane(
+                in: session,
+                paneID: pane.id,
+                title: "local title",
+                workingDirectory: nil,
+                localHostnames: ["local"]
+            ))
         #expect(session.activePane?.remoteHost == "remote")
 
-        session = try #require(PaneLayoutReducer.updatePane(
-            in: session,
-            paneID: pane.id,
-            title: nil,
-            workingDirectory: NSHomeDirectory(),
-            localHostnames: ["local"]
-        ))
+        session = try #require(
+            PaneLayoutReducer.updatePane(
+                in: session,
+                paneID: pane.id,
+                title: nil,
+                workingDirectory: NSHomeDirectory(),
+                localHostnames: ["local"]
+            ))
         #expect(session.activePane?.remoteHost == nil)
+    }
+
+    @Test("a nested ssh command does not replace the retained target")
+    func nestedSSHDoesNotReplaceRetainedTarget() throws {
+        let pane = TerminalPane(
+            title: "alice@host-a",
+            workingDirectory: "~",
+            remoteHost: "host-a",
+            remoteSSHTarget: "host-a",
+            executionPlan: .local
+        )
+        var session = TerminalSession(
+            title: "alice@host-a",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        #expect(
+            PaneLayoutReducer.noteSubmittedCommand(
+                in: session,
+                paneID: pane.id,
+                command: "ssh host-b"
+            ) == nil
+        )
+
+        session = try #require(
+            PaneLayoutReducer.updatePane(
+                in: session,
+                paneID: pane.id,
+                title: "alice@host-a: ~",
+                workingDirectory: nil,
+                localHostnames: ["local"]
+            ))
+        #expect(session.activePane?.remoteSSHTarget == "host-a")
+        #expect(session.activePane?.pendingRemoteSSHTarget == nil)
     }
 
     // MARK: - resetPaneAgentChromeToShell
@@ -231,10 +274,11 @@ struct PaneLayoutReducerTests {
             activePaneID: pane.id
         )
 
-        let updated = try #require(PaneLayoutReducer.resetPaneAgentChromeToShell(
-            in: session,
-            paneID: pane.id
-        ))
+        let updated = try #require(
+            PaneLayoutReducer.resetPaneAgentChromeToShell(
+                in: session,
+                paneID: pane.id
+            ))
         let resetPane = try #require(updated.layout.pane(id: pane.id))
 
         #expect(resetPane.agentKind == .shell)
@@ -264,10 +308,11 @@ struct PaneLayoutReducerTests {
             activePaneID: pane.id
         )
 
-        let updated = try #require(PaneLayoutReducer.resetPaneAgentChromeToShell(
-            in: session,
-            paneID: pane.id
-        ))
+        let updated = try #require(
+            PaneLayoutReducer.resetPaneAgentChromeToShell(
+                in: session,
+                paneID: pane.id
+            ))
         let resetPane = try #require(updated.layout.pane(id: pane.id))
 
         // Agent identity cleared
@@ -316,10 +361,11 @@ struct PaneLayoutReducerTests {
             activePaneID: pane.id
         )
 
-        let updated = try #require(PaneLayoutReducer.resetPaneAgentChromeToShell(
-            in: session,
-            paneID: pane.id
-        ))
+        let updated = try #require(
+            PaneLayoutReducer.resetPaneAgentChromeToShell(
+                in: session,
+                paneID: pane.id
+            ))
         let resetPane = try #require(updated.layout.pane(id: pane.id))
 
         // A shell pane with no attentionReason and idle execution state should

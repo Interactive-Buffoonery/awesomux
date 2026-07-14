@@ -36,6 +36,8 @@ struct SidebarSessionTile: View {
     let onClose: () -> Void
     let onClear: () -> Void
     let onRename: () -> Void
+    let canMakeWorkspaceManaged: Bool
+    let onMakeWorkspaceManaged: () -> Void
     let onToggleNotificationsMute: () -> Void
     let isPinned: Bool
     let onTogglePin: () -> Void
@@ -108,17 +110,19 @@ struct SidebarSessionTile: View {
             // `.simultaneousGesture(TapGesture)` instead of `.onTapGesture`
             // — see group header for rationale (tap-exclusive blocks drag
             // activation on macOS).
-            .simultaneousGesture(TapGesture().onEnded {
-                isKeyboardNavigating = false
-                // INT-652: the mouseDown parked focus on this row (click-to-
-                // focus). `onSelect` hands first responder to the terminal
-                // directly, so the row won't keep KEYBOARD focus — but the
-                // SwiftUI focus target would go stale (next arrow-key nav
-                // resuming from this row while a different workspace is
-                // selected). A click is a pointer-modality signal: clear it.
-                focusedRowTarget.wrappedValue = nil
-                onSelect()
-            })
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    isKeyboardNavigating = false
+                    // INT-652: the mouseDown parked focus on this row (click-to-
+                    // focus). `onSelect` hands first responder to the terminal
+                    // directly, so the row won't keep KEYBOARD focus — but the
+                    // SwiftUI focus target would go stale (next arrow-key nav
+                    // resuming from this row while a different workspace is
+                    // selected). A click is a pointer-modality signal: clear it.
+                    focusedRowTarget.wrappedValue = nil
+                    onSelect()
+                }
+            )
             .onDrag {
                 let dragID = onDragStarted()
                 let provider = NSItemProvider()
@@ -142,7 +146,9 @@ struct SidebarSessionTile: View {
                     Color.clear
                         .onGeometryChange(for: CGRect.self) { proxy in
                             proxy.frame(in: .global)
-                        } action: { tileFrame = $0 }
+                        } action: {
+                            tileFrame = $0
+                        }
                 }
             }
             .onHover { hovering in
@@ -214,143 +220,166 @@ struct SidebarSessionTile: View {
         // Keep the context-menu and inset expressions separate. Combining this
         // modifier chain exceeds Swift's type-checking budget for the view.
         let tile = interactiveTile(location: location, rollup: rollup)
-        .contextMenu {
-            Button("New Workspace Here") {
-                onNewSessionHere()
+            .contextMenu {
+                contextMenuContent
             }
-
-            Button("Rename Workspace...") {
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(rowAccessibilityLabel(location: location, rollup: rollup))
+            .accessibilityValue(rowAccessibilityValue)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAddTraits(isActive ? [.isSelected] : [])
+            // Default VoiceOver activation (VO+space). Refactoring off
+            // `Button(action: onSelect)` to free `.onDrag` removed the
+            // built-in button activation, so without this the row's primary
+            // "select this workspace" action is unreachable for assistive
+            // tech users — they can invoke rename/close/new (named actions
+            // below) but not the row's main purpose. Match the same fix on
+            // the group header.
+            .accessibilityAction { onSelect() }
+            .accessibilityAction(named: "Rename Workspace") {
                 onRename()
             }
-
-            if session.unreadNotificationCount > 0 || session.needsAcknowledgement {
-                Button("Acknowledge Workspace") {
-                    onAcknowledge()
-                }
+            .accessibilityAction(named: "Close Workspace") {
+                onClose()
             }
-
-            Button(muteMenuTitle) {
+            .accessibilityAction(named: "Clear Workspace") {
+                onClear()
+            }
+            .accessibilityAction(named: "New Workspace Here") {
+                onNewSessionHere()
+            }
+            .accessibilityAction(named: muteMenuTitle) {
                 onToggleNotificationsMute()
             }
-
-            Button(pinMenuTitle) {
+            .accessibilityAction(named: pinMenuTitle) {
                 onTogglePin()
             }
-
-            if !otherGroups.isEmpty {
-                Divider()
-
-                Menu("Move to Group…") {
-                    ForEach(otherGroups, id: \.id) { other in
-                        Button(other.name) {
-                            onMoveToGroup(other.id)
+            .accessibilityActions {
+                // Per-pane jump targets — the keyboard/VoiceOver parity for the
+                // mouse-only hover peek card (538 R3). The card is a transient
+                // floating overlay unreachable by assistive tech; these named
+                // actions on the focusable tile give every pane a reachable jump.
+                // Reuse the same wired closure the card's row clicks use, so select
+                // + focus + per-pane ack stays identical across mouse and VoiceOver.
+                if session.layout.paneCount > 1 {
+                    ForEach(PanePeekItem.items(for: session)) { item in
+                        Button(paneJumpActionLabel(item)) {
+                            peekModel.onSelectPane?(session.id, item.id)
                         }
                     }
                 }
-            }
-
-            Divider()
-
-            Button("Close Workspace", role: .destructive) {
-                onClose()
-            }
-
-            // Separated: Close is undoable (reopen), Clear is permanent —
-            // don't let two same-styled destructive rows sit shoulder to
-            // shoulder for a misclick (INT-282).
-            Divider()
-
-            Button("Clear Workspace", role: .destructive) {
-                onClear()
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(rowAccessibilityLabel(location: location, rollup: rollup))
-        .accessibilityValue(rowAccessibilityValue)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAddTraits(isActive ? [.isSelected] : [])
-        // Default VoiceOver activation (VO+space). Refactoring off
-        // `Button(action: onSelect)` to free `.onDrag` removed the
-        // built-in button activation, so without this the row's primary
-        // "select this workspace" action is unreachable for assistive
-        // tech users — they can invoke rename/close/new (named actions
-        // below) but not the row's main purpose. Match the same fix on
-        // the group header.
-        .accessibilityAction { onSelect() }
-        .accessibilityAction(named: "Rename Workspace") {
-            onRename()
-        }
-        .accessibilityAction(named: "Close Workspace") {
-            onClose()
-        }
-        .accessibilityAction(named: "Clear Workspace") {
-            onClear()
-        }
-        .accessibilityAction(named: "New Workspace Here") {
-            onNewSessionHere()
-        }
-        .accessibilityAction(named: muteMenuTitle) {
-            onToggleNotificationsMute()
-        }
-        .accessibilityAction(named: pinMenuTitle) {
-            onTogglePin()
-        }
-        .accessibilityActions {
-            // Per-pane jump targets — the keyboard/VoiceOver parity for the
-            // mouse-only hover peek card (538 R3). The card is a transient
-            // floating overlay unreachable by assistive tech; these named
-            // actions on the focusable tile give every pane a reachable jump.
-            // Reuse the same wired closure the card's row clicks use, so select
-            // + focus + per-pane ack stays identical across mouse and VoiceOver.
-            if session.layout.paneCount > 1 {
-                ForEach(PanePeekItem.items(for: session)) { item in
-                    Button(paneJumpActionLabel(item)) {
-                        peekModel.onSelectPane?(session.id, item.id)
+                // Reorder actions are suppressed during filter, matching the
+                // drag/drop gating. `indexInGroup` here counts the filtered
+                // entries (not the full `group.sessions`), so a Move Up/Down
+                // under filter would mutate the underlying array against an
+                // index from the projected view — landing the workspace at
+                // the wrong slot relative to hidden rows.
+                if !isFiltering, indexInGroup > 0 {
+                    Button("Move Workspace Up") {
+                        onMoveWithinGroup(indexInGroup - 1)
+                    }
+                }
+                if !isFiltering, indexInGroup < sessionCountInGroup - 1 {
+                    Button("Move Workspace Down") {
+                        // moveSession's atIndex is post-removal, so "down by one"
+                        // in current visible terms maps to indexInGroup + 1.
+                        onMoveWithinGroup(indexInGroup + 1)
+                    }
+                }
+                // Bounded "previous / next group" only — avoids the N×groups
+                // rotor explosion. Full routing lives in the context menu's
+                // "Move to Group…" submenu for mouse users; VoiceOver users
+                // can also use the submenu via the context menu rotor.
+                if !isFiltering, let previousGroup = previousNeighborGroup {
+                    Button("Move to Previous Group (\(previousGroup.name))") {
+                        onMoveToGroup(previousGroup.id)
+                    }
+                }
+                if !isFiltering, let nextGroup = nextNeighborGroup {
+                    Button("Move to Next Group (\(nextGroup.name))") {
+                        onMoveToGroup(nextGroup.id)
                     }
                 }
             }
-            // Reorder actions are suppressed during filter, matching the
-            // drag/drop gating. `indexInGroup` here counts the filtered
-            // entries (not the full `group.sessions`), so a Move Up/Down
-            // under filter would mutate the underlying array against an
-            // index from the projected view — landing the workspace at
-            // the wrong slot relative to hidden rows.
-            if !isFiltering, indexInGroup > 0 {
-                Button("Move Workspace Up") {
-                    onMoveWithinGroup(indexInGroup - 1)
-                }
-            }
-            if !isFiltering, indexInGroup < sessionCountInGroup - 1 {
-                Button("Move Workspace Down") {
-                    // moveSession's atIndex is post-removal, so "down by one"
-                    // in current visible terms maps to indexInGroup + 1.
-                    onMoveWithinGroup(indexInGroup + 1)
-                }
-            }
-            // Bounded "previous / next group" only — avoids the N×groups
-            // rotor explosion. Full routing lives in the context menu's
-            // "Move to Group…" submenu for mouse users; VoiceOver users
-            // can also use the submenu via the context menu rotor.
-            if !isFiltering, let previousGroup = previousNeighborGroup {
-                Button("Move to Previous Group (\(previousGroup.name))") {
-                    onMoveToGroup(previousGroup.id)
-                }
-            }
-            if !isFiltering, let nextGroup = nextNeighborGroup {
-                Button("Move to Next Group (\(nextGroup.name))") {
-                    onMoveToGroup(nextGroup.id)
-                }
-            }
-        }
+        let accessibleTile = managedConversionAccessibilityAction(tile)
         // Always-on jump digit below the tile (collapsed + setting on). Uses
         // safeAreaInset so it adds layout below without wrapping the row root.
-        let insetTile = tile.safeAreaInset(edge: .bottom, spacing: 0) {
+        let insetTile = accessibleTile.safeAreaInset(edge: .bottom, spacing: 0) {
             jumpNumberBelow
         }
 
-        return insetTile
-        .onChange(of: isPromotionPulseActive, initial: true) { _, active in
-            updatePromotionPulse(active: active)
+        return
+            insetTile
+            .onChange(of: isPromotionPulseActive, initial: true) { _, active in
+                updatePromotionPulse(active: active)
+            }
+    }
+
+    @ViewBuilder
+    private var contextMenuContent: some View {
+        Button("New Workspace Here") {
+            onNewSessionHere()
+        }
+
+        Button("Rename Workspace...") {
+            onRename()
+        }
+
+        Button("Make Active Pane Managed…") {
+            onMakeWorkspaceManaged()
+        }
+        .disabled(!canMakeWorkspaceManaged)
+
+        if session.unreadNotificationCount > 0 || session.needsAcknowledgement {
+            Button("Acknowledge Workspace") {
+                onAcknowledge()
+            }
+        }
+
+        Button(muteMenuTitle) {
+            onToggleNotificationsMute()
+        }
+
+        Button(pinMenuTitle) {
+            onTogglePin()
+        }
+
+        if !otherGroups.isEmpty {
+            Divider()
+
+            Menu("Move to Group…") {
+                ForEach(otherGroups, id: \.id) { other in
+                    Button(other.name) {
+                        onMoveToGroup(other.id)
+                    }
+                }
+            }
+        }
+
+        Divider()
+
+        Button("Close Workspace", role: .destructive) {
+            onClose()
+        }
+
+        // Separated: Close is undoable (reopen), Clear is permanent —
+        // don't let two same-styled destructive rows sit shoulder to
+        // shoulder for a misclick (INT-282).
+        Divider()
+
+        Button("Clear Workspace", role: .destructive) {
+            onClear()
+        }
+    }
+
+    @ViewBuilder
+    private func managedConversionAccessibilityAction<Content: View>(_ content: Content) -> some View {
+        if canMakeWorkspaceManaged {
+            content.accessibilityAction(named: "Make Active Pane Managed…") {
+                onMakeWorkspaceManaged()
+            }
+        } else {
+            content
         }
     }
 
@@ -359,8 +388,12 @@ struct SidebarSessionTile: View {
     /// VoiceOver users see the same verb.
     private var muteMenuTitle: String {
         session.notificationsMuted
-            ? String(localized: "Unmute Notifications", comment: "Sidebar workspace context-menu action that re-enables macOS notifications for the workspace.")
-            : String(localized: "Mute Notifications", comment: "Sidebar workspace context-menu action that silences macOS notifications for the workspace.")
+            ? String(
+                localized: "Unmute Notifications",
+                comment: "Sidebar workspace context-menu action that re-enables macOS notifications for the workspace.")
+            : String(
+                localized: "Mute Notifications",
+                comment: "Sidebar workspace context-menu action that silences macOS notifications for the workspace.")
     }
 
     /// Context-menu title and named accessibility action for pinning this
@@ -368,7 +401,10 @@ struct SidebarSessionTile: View {
     /// mouse and VoiceOver users see the same verb.
     private var pinMenuTitle: String {
         isPinned
-            ? String(localized: "Unpin", comment: "Sidebar workspace context-menu action that removes the workspace from the pinned section, returning it to its group.")
+            ? String(
+                localized: "Unpin",
+                comment:
+                    "Sidebar workspace context-menu action that removes the workspace from the pinned section, returning it to its group.")
             : String(localized: "Pin", comment: "Sidebar workspace context-menu action that pins the workspace to the top of the sidebar.")
     }
 
@@ -382,7 +418,8 @@ struct SidebarSessionTile: View {
 
     private func updatePeekVisibility() {
         guard canPeek,
-              isHovered || isKeyboardFocused else {
+            isHovered || isKeyboardFocused
+        else {
             cancelPeek()
             return
         }
@@ -578,7 +615,8 @@ struct SidebarSessionTile: View {
         attr.foregroundColor = base
         for range in ranges {
             guard let lower = AttributedString.Index(range.lowerBound, within: attr),
-                  let upper = AttributedString.Index(range.upperBound, within: attr) else {
+                let upper = AttributedString.Index(range.upperBound, within: attr)
+            else {
                 // Range provenance and AttributedString construction agree on
                 // the same backing string today; if this ever fires we've
                 // broken that contract and want the signal in development.
@@ -620,8 +658,9 @@ struct SidebarSessionTile: View {
     @ViewBuilder
     private var jumpNumberOverlay: some View {
         if jumpNumberDisplay == .overlay,
-           let jumpIndex,
-           (1...9).contains(jumpIndex) {
+            let jumpIndex,
+            (1...9).contains(jumpIndex)
+        {
             // Fill the whole tile footprint with a near-opaque scrim that
             // matches the tile-background shape, so the digit cleanly REPLACES
             // the icon during ⌘-hold instead of floating translucently over it
@@ -641,8 +680,9 @@ struct SidebarSessionTile: View {
     @ViewBuilder
     private var jumpNumberBelow: some View {
         if jumpNumberDisplay == .belowTile,
-           let jumpIndex,
-           (1...9).contains(jumpIndex) {
+            let jumpIndex,
+            (1...9).contains(jumpIndex)
+        {
             Text("\(jumpIndex)")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 // railText (not text2/text3): the digit is small and functional
@@ -719,7 +759,8 @@ struct SidebarSessionTile: View {
         // rail/glow that otherwise disambiguates is gone. See INT-491.
         // ponytail: dash pattern tuned on-screen, one knob here.
         let needsDash: [CGFloat] = [3, 2]
-        let strokeStyle = needsAttention && !isActive
+        let strokeStyle =
+            needsAttention && !isActive
             ? StrokeStyle(lineWidth: lineWidth, dash: needsDash)
             : StrokeStyle(lineWidth: lineWidth)
         return RoundedRectangle(cornerRadius: AwRadius.panel)
@@ -792,7 +833,7 @@ struct SidebarSessionTile: View {
     ) -> String {
         var parts = [
             Self.workspaceIdentityAccessibilityLabel(session: session, rollup: rollup),
-            locationAccessibilityLabel(location: location)
+            locationAccessibilityLabel(location: location),
         ]
 
         if session.layout.paneCount > 1 {
@@ -808,10 +849,11 @@ struct SidebarSessionTile: View {
         }
 
         if session.notificationsMuted {
-            parts.append(String(
-                localized: "notifications muted",
-                comment: "Accessibility label fragment for a sidebar workspace whose macOS notifications are muted."
-            ))
+            parts.append(
+                String(
+                    localized: "notifications muted",
+                    comment: "Accessibility label fragment for a sidebar workspace whose macOS notifications are muted."
+                ))
         }
 
         return parts.joined(separator: ", ")
@@ -848,10 +890,11 @@ struct SidebarSessionTile: View {
         }
         // `.help()` origin tooltip is pointer-only; VoiceOver hears the origin
         // here so a pinned tile still answers "which project is this?".
-        return position + ", " + String(
-            localized: "Pinned, from \(pinnedOriginGroupName)",
-            comment: "VoiceOver value fragment on a pinned sidebar workspace naming its origin group."
-        )
+        return position + ", "
+            + String(
+                localized: "Pinned, from \(pinnedOriginGroupName)",
+                comment: "VoiceOver value fragment on a pinned sidebar workspace naming its origin group."
+            )
     }
 
     private func paneJumpActionLabel(_ item: PanePeekItem) -> String {

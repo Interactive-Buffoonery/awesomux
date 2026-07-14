@@ -32,8 +32,10 @@ extension SessionStore {
         muted: Bool
     ) -> Bool {
         guard let position = position(for: id) else { return false }
-        guard _groups[position.groupIndex].sessions[position.sessionIndex]
-            .notificationsMuted != muted else {
+        guard
+            _groups[position.groupIndex].sessions[position.sessionIndex]
+                .notificationsMuted != muted
+        else {
             return true
         }
         _groups[position.groupIndex].sessions[position.sessionIndex]
@@ -57,11 +59,12 @@ extension SessionStore {
         title: String
     ) -> Bool {
         guard let position = position(for: sessionID),
-              let session = PaneLayoutReducer.renamePane(
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex],
-                  paneID: paneID,
-                  title: title
-              ) else {
+            let session = PaneLayoutReducer.renamePane(
+                in: _groups[position.groupIndex].sessions[position.sessionIndex],
+                paneID: paneID,
+                title: title
+            )
+        else {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -75,10 +78,11 @@ extension SessionStore {
         paneID: TerminalPane.ID
     ) -> Bool {
         guard let position = position(for: sessionID),
-              let session = PaneLayoutReducer.resetPaneTitle(
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex],
-                  paneID: paneID
-              ) else {
+            let session = PaneLayoutReducer.resetPaneTitle(
+                in: _groups[position.groupIndex].sessions[position.sessionIndex],
+                paneID: paneID
+            )
+        else {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -178,7 +182,8 @@ extension SessionStore {
         paneID: TerminalPane.ID? = nil
     ) {
         guard let targetPaneID = resolvedPaneID(sessionID: id, paneID: paneID),
-              session(id: id)?.layout.pane(id: targetPaneID)?.agentState == .needsAttention else {
+            session(id: id)?.layout.pane(id: targetPaneID)?.agentState == .needsAttention
+        else {
             return
         }
         applyPaneUpdate(
@@ -193,23 +198,23 @@ extension SessionStore {
     }
 
     #if DEBUG
-    public func setDebugAgentState(
-        id: TerminalSession.ID,
-        paneID: TerminalPane.ID? = nil,
-        agentState: AgentState,
-        clearsAttention: Bool = false,
-        unreadNotificationDelta: Int = 0
-    ) {
-        applyPaneUpdate(
-            sessionID: id,
-            paneID: paneID,
-            update: WorkspaceAttentionReducer.SessionUpdate(
-                agentState: agentState,
-                clearsAttention: clearsAttention,
-                unreadNotificationDelta: normalizedPublicUnreadDelta(unreadNotificationDelta)
+        public func setDebugAgentState(
+            id: TerminalSession.ID,
+            paneID: TerminalPane.ID? = nil,
+            agentState: AgentState,
+            clearsAttention: Bool = false,
+            unreadNotificationDelta: Int = 0
+        ) {
+            applyPaneUpdate(
+                sessionID: id,
+                paneID: paneID,
+                update: WorkspaceAttentionReducer.SessionUpdate(
+                    agentState: agentState,
+                    clearsAttention: clearsAttention,
+                    unreadNotificationDelta: normalizedPublicUnreadDelta(unreadNotificationDelta)
+                )
             )
-        )
-    }
+        }
     #endif
 
     private func normalizedPublicUnreadDelta(_ delta: Int) -> Int {
@@ -237,7 +242,8 @@ extension SessionStore {
         now: Date = Date()
     ) -> Bool {
         guard let position = position(for: sessionID),
-              let targetPaneID = resolvedPaneID(sessionID: sessionID, paneID: paneID) else {
+            let targetPaneID = resolvedPaneID(sessionID: sessionID, paneID: paneID)
+        else {
             return false
         }
         let change = WorkspaceAttentionReducer.updatePane(
@@ -270,7 +276,8 @@ extension SessionStore {
         terminalIsFocused: Bool
     ) -> Bool {
         guard let position = position(for: sessionID),
-              session(id: sessionID)?.layout.pane(id: exitingPaneID) != nil else {
+            session(id: sessionID)?.layout.pane(id: exitingPaneID) != nil
+        else {
             return false
         }
         let change = WorkspaceAttentionReducer.recordPaneExitError(
@@ -299,7 +306,8 @@ extension SessionStore {
         terminalIsFocused: Bool
     ) -> Bool {
         guard let position = position(for: sessionID),
-              let pane = session(id: sessionID)?.layout.pane(id: paneID) else {
+            let pane = session(id: sessionID)?.layout.pane(id: paneID)
+        else {
             return false
         }
         // Snapshot BEFORE the reducer flips the pane to `.error`: this records
@@ -395,12 +403,15 @@ extension SessionStore {
         _ transform: (inout TerminalPane) -> Void
     ) -> Bool {
         guard let position = position(for: sessionID),
-              var pane = session(id: sessionID)?.layout.pane(id: paneID) else {
+            var pane = session(id: sessionID)?.layout.pane(id: paneID)
+        else {
             return false
         }
         transform(&pane)
-        guard let layout = _groups[position.groupIndex].sessions[position.sessionIndex]
-            .layout.replacingPane(id: paneID, with: .pane(pane)) else {
+        guard
+            let layout = _groups[position.groupIndex].sessions[position.sessionIndex]
+                .layout.replacingPane(id: paneID, with: .pane(pane))
+        else {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex].layout = layout
@@ -417,8 +428,10 @@ extension SessionStore {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID
     ) -> Bool {
-        guard case let .disconnected(context)? = session(id: sessionID)?
-            .layout.pane(id: paneID)?.remoteReconnect else {
+        guard
+            case let .disconnected(context)? = session(id: sessionID)?
+                .layout.pane(id: paneID)?.remoteReconnect
+        else {
             return false
         }
 
@@ -450,10 +463,11 @@ extension SessionStore {
         paneID: TerminalPane.ID
     ) -> Bool {
         guard let position = position(for: sessionID),
-              let session = PaneLayoutReducer.resetPaneAgentChromeToShell(
-                  in: _groups[position.groupIndex].sessions[position.sessionIndex],
-                  paneID: paneID
-              ) else {
+            let session = PaneLayoutReducer.resetPaneAgentChromeToShell(
+                in: _groups[position.groupIndex].sessions[position.sessionIndex],
+                paneID: paneID
+            )
+        else {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
@@ -474,7 +488,8 @@ extension SessionStore {
         metadata: TerminalBackendMetadata
     ) -> CommandBridgePaneHealResult? {
         guard let position = position(for: sessionID),
-              var pane = session(id: sessionID)?.layout.pane(id: paneID) else {
+            var pane = session(id: sessionID)?.layout.pane(id: paneID)
+        else {
             return nil
         }
 
@@ -494,9 +509,11 @@ extension SessionStore {
         changed = changed || clearedReconnect
 
         if changed {
-            guard let layout = _groups[position.groupIndex].sessions[position.sessionIndex]
-                .layout
-                .replacingPane(id: paneID, with: .pane(pane)) else {
+            guard
+                let layout = _groups[position.groupIndex].sessions[position.sessionIndex]
+                    .layout
+                    .replacingPane(id: paneID, with: .pane(pane))
+            else {
                 return nil
             }
             _groups[position.groupIndex].sessions[position.sessionIndex].layout = layout
@@ -516,7 +533,8 @@ extension SessionStore {
         metadata: TerminalBackendMetadata
     ) -> Bool {
         guard let position = position(for: sessionID),
-              var pane = session(id: sessionID)?.layout.pane(id: paneID) else {
+            var pane = session(id: sessionID)?.layout.pane(id: paneID)
+        else {
             return false
         }
 
@@ -525,9 +543,11 @@ extension SessionStore {
         }
 
         pane.terminalBackendMetadata = metadata
-        guard let layout = _groups[position.groupIndex].sessions[position.sessionIndex]
-            .layout
-            .replacingPane(id: paneID, with: .pane(pane)) else {
+        guard
+            let layout = _groups[position.groupIndex].sessions[position.sessionIndex]
+                .layout
+                .replacingPane(id: paneID, with: .pane(pane))
+        else {
             return false
         }
 
@@ -544,13 +564,14 @@ extension SessionStore {
     ) -> Bool {
         let now = Date()
         guard let position = position(for: sessionID),
-              let decision = runtimeEventReducer.decision(
-                  for: event,
-                  currentSession: session(id: sessionID),
-                  paneID: paneID,
-                  terminalIsFocused: terminalIsFocused,
-                  now: now
-              ) else {
+            let decision = runtimeEventReducer.decision(
+                for: event,
+                currentSession: session(id: sessionID),
+                paneID: paneID,
+                terminalIsFocused: terminalIsFocused,
+                now: now
+            )
+        else {
             return false
         }
         // Two commits are intentional: unread must land before a nested
@@ -620,14 +641,16 @@ extension SessionStore {
 
         let oldSession = _groups[position.groupIndex].sessions[position.sessionIndex]
         let wasRemote = oldSession.layout.pane(id: paneID)?.remoteHost != nil
-        guard let session = PaneLayoutReducer.updatePane(
-            in: oldSession,
-            paneID: paneID,
-            title: title,
-            workingDirectory: workingDirectory,
-            progressReport: progressReport,
-            localHostnames: localHostnames
-        ) else {
+        guard
+            let session = PaneLayoutReducer.updatePane(
+                in: oldSession,
+                paneID: paneID,
+                title: title,
+                workingDirectory: workingDirectory,
+                progressReport: progressReport,
+                localHostnames: localHostnames
+            )
+        else {
             return
         }
 
@@ -650,11 +673,11 @@ extension SessionStore {
         command: String
     ) {
         guard let position = position(for: sessionID),
-              let session = PaneLayoutReducer.noteSubmittedCommand(
+            let session = PaneLayoutReducer.noteSubmittedCommand(
                 in: _groups[position.groupIndex].sessions[position.sessionIndex],
                 paneID: paneID,
                 command: command
-              )
+            )
         else {
             return
         }
@@ -665,14 +688,65 @@ extension SessionStore {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID
     ) -> RemoteTarget? {
-        guard let rawTarget = session(id: sessionID)?.layout.pane(id: paneID)?.remoteSSHTarget,
-            let target = RemoteTarget(parsing: rawTarget),
-            target.isSafeSSHDestination,
-            mutatePane(sessionID: sessionID, paneID: paneID, { $0.remoteSSHTarget = nil })
+        guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            !pane.hasConsumedManagedSSHWorkspaceOffer,
+            let target = managedSSHConversionTarget(sessionID: sessionID, paneID: paneID),
+            mutatePane(
+                sessionID: sessionID, paneID: paneID,
+                {
+                    $0.hasConsumedManagedSSHWorkspaceOffer = true
+                })
         else {
             return nil
         }
         return target
+    }
+
+    public func managedSSHConversionTarget(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> RemoteTarget? {
+        guard let session = session(id: sessionID),
+            session.activePaneID == paneID,
+            let pane = session.layout.pane(id: paneID),
+            pane.executionPlan == .local,
+            pane.remoteConnectionHealth == .active,
+            pane.remoteHost != nil,
+            let rawTarget = pane.remoteSSHTarget,
+            let target = RemoteTarget(parsing: rawTarget),
+            target.isSafeSSHDestination
+        else {
+            return nil
+        }
+        return target
+    }
+
+    /// Clears runtime remote observations after local process state proves an
+    /// ordinary SSH command returned to its shell.
+    public func clearManagedSSHObservationIfExitedToLocalShell(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        liveness: ForegroundProcessLiveness
+    ) {
+        guard liveness == .idleShell,
+            let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            pane.executionPlan == .local,
+            pane.remoteHost != nil || pane.remoteSSHTarget != nil
+                || pane.hasConsumedManagedSSHWorkspaceOffer
+        else {
+            return
+        }
+
+        let changed = mutatePane(sessionID: sessionID, paneID: paneID) { pane in
+            pane.remoteHost = nil
+            pane.remoteSSHTarget = nil
+            pane.pendingRemoteSSHTarget = nil
+            pane.hasConsumedManagedSSHWorkspaceOffer = false
+            pane.remoteWorkingDirectory = nil
+            pane.remoteConnectionHealth = .active
+        }
+        guard changed else { return }
+        commit(WorkspaceMutationEffect(remotePaneMembership: [paneID: false]))
     }
 
     public func markRemotePanesPossiblyStale() {
@@ -710,14 +784,11 @@ extension SessionStore {
     /// - Selection `.set` is an unconditional write (INT-652).
     func commit(_ effect: WorkspaceMutationEffect, now: Date = Date()) {
         #if DEBUG
-        precondition(
-            !effect.needsFullRebuild || (
-                effect.unreadChange == nil &&
-                    effect.riskSessionIDs.isEmpty &&
-                    effect.remotePaneMembership.isEmpty
-            ),
-            "Full-rebuild effects must not include incremental cache repairs"
-        )
+            precondition(
+                !effect.needsFullRebuild
+                    || (effect.unreadChange == nil && effect.riskSessionIDs.isEmpty && effect.remotePaneMembership.isEmpty),
+                "Full-rebuild effects must not include incremental cache repairs"
+            )
         #endif
 
         if effect.needsFullRebuild {
@@ -735,9 +806,9 @@ extension SessionStore {
                 reclassifyRiskMembership(sessionID: sessionID)
             }
             #if DEBUG
-            if !effect.riskSessionIDs.isEmpty {
-                assertQuitRiskCacheMatches(now: now)
-            }
+                if !effect.riskSessionIDs.isEmpty {
+                    assertQuitRiskCacheMatches(now: now)
+                }
             #endif
         }
 
@@ -754,17 +825,17 @@ extension SessionStore {
         runtimeEventReducer.prune(livePaneIDs: index.livePaneIDs)
 
         #if DEBUG
-        let allIDs = _groups.flatMap { $0.sessions.map(\.id) }
-        if Set(allIDs).count == allIDs.count {
-            let computedTotal = _groups.reduce(0) { total, group in
-                total + group.sessions.reduce(0) { $0 + $1.unreadNotificationCount }
+            let allIDs = _groups.flatMap { $0.sessions.map(\.id) }
+            if Set(allIDs).count == allIDs.count {
+                let computedTotal = _groups.reduce(0) { total, group in
+                    total + group.sessions.reduce(0) { $0 + $1.unreadNotificationCount }
+                }
+                assert(
+                    unreadNotificationTotal == computedTotal,
+                    "unreadNotificationTotal cache drift detected"
+                )
             }
-            assert(
-                unreadNotificationTotal == computedTotal,
-                "unreadNotificationTotal cache drift detected"
-            )
-        }
-        assertQuitRiskCacheMatches(now: now)
+            assertQuitRiskCacheMatches(now: now)
         #endif
 
         // Prune pins to live sessions here — every structural mutation (close,
@@ -816,7 +887,8 @@ extension SessionStore {
     func scheduleAcknowledgementForSelectedSession() {
         let baseline: SelectionAcknowledgementBaseline?
         if let selectedSessionID,
-           let position = position(for: selectedSessionID) {
+            let position = position(for: selectedSessionID)
+        {
             let session = _groups[position.groupIndex].sessions[position.sessionIndex]
             baseline = SelectionAcknowledgementBaseline(
                 activePaneID: session.activePaneID,
@@ -832,8 +904,9 @@ extension SessionStore {
             baseline: baseline
         ) { [weak self] selectedSessionID, baseline in
             guard let self,
-                  self.selectedSessionID == selectedSessionID,
-                  let position = self.position(for: selectedSessionID) else {
+                self.selectedSessionID == selectedSessionID,
+                let position = self.position(for: selectedSessionID)
+            else {
                 return
             }
 
@@ -843,7 +916,8 @@ extension SessionStore {
             guard current.activePaneID == baseline.activePaneID else {
                 return
             }
-            let currentPaneUnread = current.layout.pane(id: current.activePaneID)?
+            let currentPaneUnread =
+                current.layout.pane(id: current.activePaneID)?
                 .unreadNotificationCount ?? 0
             guard currentPaneUnread <= baseline.paneUnreadCount else {
                 return

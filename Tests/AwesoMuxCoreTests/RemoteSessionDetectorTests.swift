@@ -222,8 +222,8 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteSSHTarget(store, pid) == "devbox")
     }
 
-    @Test("managed workspace offer is consumed once")
-    func managedWorkspaceOfferIsConsumedOnce() {
+    @Test("dismissing the managed offer preserves the explicit conversion target without reopening")
+    func managedWorkspaceOfferDismissalPreservesExplicitConversionTarget() {
         let (store, sid, pid) = makeStore()
 
         store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh devbox")
@@ -231,6 +231,100 @@ struct SessionStoreRemoteSessionTests {
 
         #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid)?.sshDestination == "devbox")
         #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid) == nil)
+        #expect(store.managedSSHConversionTarget(sessionID: sid, paneID: pid)?.sshDestination == "devbox")
+        #expect(remoteSSHTarget(store, pid) == "devbox")
+    }
+
+    @Test("explicit managed conversion rejects unsafe, stale, inactive, and managed panes")
+    func explicitManagedConversionEligibility() throws {
+        let safe = TerminalPane(
+            title: "ssh",
+            workingDirectory: "~",
+            remoteHost: "server.example",
+            remoteSSHTarget: "deploy@server-alias",
+            executionPlan: .local
+        )
+        let unsafe = TerminalPane(
+            title: "unsafe",
+            workingDirectory: "~",
+            remoteHost: "server.example",
+            remoteSSHTarget: "-oProxyCommand=example",
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "shell",
+            workingDirectory: "~",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(safe),
+                    second: .pane(unsafe)
+                )),
+            activePaneID: safe.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Work", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        #expect(
+            store.managedSSHConversionTarget(sessionID: session.id, paneID: safe.id)?.sshDestination
+                == "deploy@server-alias"
+        )
+        #expect(store.managedSSHConversionTarget(sessionID: session.id, paneID: unsafe.id) == nil)
+
+        let unobserved = TerminalPane(
+            title: "unobserved",
+            workingDirectory: "~",
+            remoteSSHTarget: "server-alias",
+            executionPlan: .local
+        )
+        let unobservedSession = TerminalSession(
+            title: "shell",
+            workingDirectory: "~",
+            layout: .pane(unobserved),
+            activePaneID: unobserved.id
+        )
+        let unobservedStore = SessionStore(
+            groups: [SessionGroup(name: "Work", sessions: [unobservedSession])],
+            selectedSessionID: unobservedSession.id
+        )
+        #expect(
+            unobservedStore.managedSSHConversionTarget(
+                sessionID: unobservedSession.id,
+                paneID: unobserved.id
+            ) == nil
+        )
+
+        store.markRemotePanesPossiblyStale()
+        #expect(store.managedSSHConversionTarget(sessionID: session.id, paneID: safe.id) == nil)
+
+        let target = try #require(RemoteTarget(parsing: "deploy@server-alias"))
+        let managed = TerminalPane(
+            id: safe.id,
+            title: "managed",
+            workingDirectory: "~",
+            remoteHost: "server.example",
+            remoteSSHTarget: target.sshDestination,
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let managedSession = TerminalSession(
+            id: session.id,
+            title: "shell",
+            workingDirectory: "~",
+            layout: .pane(managed),
+            activePaneID: managed.id
+        )
+        let managedStore = SessionStore(
+            groups: [SessionGroup(name: "Work", sessions: [managedSession])],
+            selectedSessionID: managedSession.id
+        )
+        #expect(
+            managedStore.managedSSHConversionTarget(
+                sessionID: managedSession.id,
+                paneID: managed.id
+            ) == nil
+        )
     }
 
     @Test("ssh commands with extra options do not become managed workspace offers")
@@ -253,6 +347,22 @@ struct SessionStoreRemoteSessionTests {
 
         #expect(remoteHost(store, pid) == "devbox")
         #expect(remoteSSHTarget(store, pid) == "my-purple")
+    }
+
+    @Test("a failed nested ssh keeps the original explicit conversion target")
+    func failedNestedSSHRetainsOriginalTarget() {
+        let (store, sid, pid) = makeStore()
+
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh host-a")
+        store.updatePane(sessionID: sid, paneID: pid, title: "alice@host-a: ~")
+        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid)?.sshDestination == "host-a")
+
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh host-b")
+        store.updatePane(sessionID: sid, paneID: pid, title: "alice@host-a: ~")
+
+        #expect(remoteSSHTarget(store, pid) == "host-a")
+        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid) == nil)
+        #expect(store.managedSSHConversionTarget(sessionID: sid, paneID: pid)?.sshDestination == "host-a")
     }
 
     @Test("an indeterminate tool title cannot recover a title-derived remote directory")
@@ -342,11 +452,12 @@ struct SessionStoreRemoteSessionTests {
             title: "w",
             workingDirectory: "/tmp",
             agentKind: .shell,
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(remotePane),
-                second: .pane(localPane)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(remotePane),
+                    second: .pane(localPane)
+                )),
             activePaneID: remotePane.id
         )
         let store = SessionStore(groups: [SessionGroup(name: "g", sessions: [session])])
@@ -365,7 +476,7 @@ struct SessionStoreRemoteSessionTests {
         store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
         // The remote shell retitles to the running command — no user@host token.
         store.updatePane(sessionID: sid, paneID: pid, title: "make")
-        #expect(remoteHost(store, pid) == "webserver") // not cleared by churn
+        #expect(remoteHost(store, pid) == "webserver")  // not cleared by churn
     }
 
     @Test("a local-looking title does NOT clear remote — only a pwd event does")
@@ -427,6 +538,7 @@ struct TerminalPaneRemoteHostPersistenceTests {
             workingDirectory: "/srv/app",
             remoteHost: "webserver",
             remoteSSHTarget: "webserver-alias",
+            hasConsumedManagedSSHWorkspaceOffer: true,
             pendingRemoteSSHTarget: "other-webserver-alias",
             remoteConnectionHealth: .possiblyStale,
             remoteWorkingDirectory: "~/app",
@@ -436,6 +548,7 @@ struct TerminalPaneRemoteHostPersistenceTests {
         let json = String(decoding: data, as: UTF8.self)
         #expect(!json.contains("remoteHost"))
         #expect(!json.contains("remoteSSHTarget"))
+        #expect(!json.contains("hasConsumedManagedSSHWorkspaceOffer"))
         #expect(!json.contains("pendingRemoteSSHTarget"))
         #expect(!json.contains("remoteConnectionHealth"))
         #expect(!json.contains("remoteWorkingDirectory"))
@@ -444,6 +557,7 @@ struct TerminalPaneRemoteHostPersistenceTests {
         let restored = try JSONDecoder().decode(TerminalPane.self, from: data)
         #expect(restored.remoteHost == nil)
         #expect(restored.remoteSSHTarget == nil)
+        #expect(!restored.hasConsumedManagedSSHWorkspaceOffer)
         #expect(restored.pendingRemoteSSHTarget == nil)
         #expect(restored.remoteConnectionHealth == .active)
         #expect(restored.remoteWorkingDirectory == nil)
