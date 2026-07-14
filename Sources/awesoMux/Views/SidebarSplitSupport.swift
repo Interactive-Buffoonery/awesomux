@@ -61,7 +61,7 @@ enum SidebarHostHandoffAction: Equatable {
     case hideOverlayContainer
     case restoreSidebarResponder
     case endNoActionsTransaction
-    case captureSidebarAccessibility
+    case querySidebarAccessibilityFocus
     case handOffSidebarFocus
     case setHiddenState
     case applySingleCollapseIntent

@@ -16,13 +16,15 @@ Routed transient proximity presentation exclusively through the overlay host and
 - Persistent to hidden performs the symmetric no-actions trace on both physical sides: generation cancellation, responder and accessibility capture, focus handoff, stable split ownership, one collapse intent, layout settlement, identity/overlay/AX cleanup, transaction end, host publication, then edge-tracking enablement.
 - `isPerformingHostHandoff` remains active across explicit layout settlement, suppressing both `splitViewDidResizeSubviews` and `applyPosition` publication paths. Tests record callback action counts and prove neither callback fires inside either transaction.
 - Invalid handoff prerequisites fail closed to hidden split-container ownership with identity transform, hidden overlay, authoritative zero width, and edge tracking enabled.
+- Fail-closed persistent show explicitly re-enables edge tracking even when tracking was disabled before the layer disappeared.
+- Persistent hide queries and stores live sidebar accessibility-focus state, then performs the external focus-handoff callback before beginning the silent geometry transaction. Tests prove both external callbacks precede `beginNoActionsTransaction`.
 - Controller-authoritative presentation tests cover overlay reveal, presented state, hiding state, a reversed winning reveal, stale hide completion, winning hide completion, side invalidation, persistent show, and left/right parity.
 - Hidden overlay rail/full selection updates only overlay geometry and live selection; it does not issue a divider intent or resize detail content.
 
 ## GREEN evidence
 
 - `./script/swift-test.sh --filter SidebarHoverIntegrationTests`: 4 tests passed.
-- `./script/swift-test.sh --filter SidebarOverlayHostControllerTests`: 19 tests passed.
+- `./script/swift-test.sh --filter SidebarOverlayHostControllerTests`: 20 tests passed.
 - `./script/swift-test.sh --filter SidebarSplitVisibilityOwnershipTests`: 1 test passed.
 - `./script/swift-test.sh --filter SidebarPresentationLayoutTests`: 4 tests passed.
 - `./script/swift-test.sh --filter SidebarHoverArchitectureTests`: 2 tests passed.
@@ -36,3 +38,4 @@ Routed transient proximity presentation exclusively through the overlay host and
 - Verified settled persistent and hidden commands are zero-action idempotent.
 - Verified stale overlay completions cannot overwrite the controller-authoritative titlebar state.
 - Verified fail-closed behavior for missing handoff layers in both directions.
+- Verified overlay-to-persistent geometry uses exactly one divider intent on both left and right sides.

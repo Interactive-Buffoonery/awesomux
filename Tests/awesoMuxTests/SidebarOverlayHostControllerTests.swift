@@ -27,6 +27,7 @@ struct SidebarOverlayHostControllerTests {
 
     private final class AccessibilityRecordingView: NSView {
         var recordedAccessibilityHidden = false
+        override var acceptsFirstResponder: Bool { true }
 
         override func setAccessibilityHidden(_ accessibilityHidden: Bool) {
             recordedAccessibilityHidden = accessibilityHidden
@@ -183,9 +184,12 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.overlayClipViewForTesting.isHidden)
     }
 
-    @Test("overlay to persistent handoff is one silent atomic geometry mutation")
-    func atomicOverlayToPersistentHandoff() {
-        let (controller, _, _) = makeController()
+    @Test(
+        "overlay to persistent handoff is one silent atomic geometry mutation",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right]
+    )
+    func atomicOverlayToPersistentHandoff(position: AppearanceConfig.SidebarPosition) {
+        let (controller, _, _) = makeController(position: position)
         controller.setSidebarWidth(300)
         controller.setPersistentSidebarVisible(false)
         controller.setOverlayPresentedImmediately(true)
@@ -249,11 +253,11 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(
             trace == [
+                .captureSidebarResponder,
+                .querySidebarAccessibilityFocus,
+                .handOffSidebarFocus,
                 .beginNoActionsTransaction,
                 .cancelOverlayGeneration,
-                .captureSidebarResponder,
-                .captureSidebarAccessibility,
-                .handOffSidebarFocus,
                 .removeOverlayAnimation,
                 .reparentHostToSplitContainer,
                 .setHiddenState,
@@ -281,6 +285,7 @@ struct SidebarOverlayHostControllerTests {
         let (controller, sidebar, _) = makeController()
         controller.setSidebarWidth(300)
         controller.setPersistentSidebarVisible(false)
+        controller.setEdgeTrackingEnabled(false)
         controller.overlayContentViewForTesting.layer = nil
 
         controller.setPersistentSidebarVisible(true)
@@ -290,6 +295,35 @@ struct SidebarOverlayHostControllerTests {
         #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect(controller.isEdgeTrackingVisibleForTesting)
+    }
+
+    @Test("hide queries AX and performs focus callback before geometry transaction")
+    func hideExternalCallbacksPrecedeTransaction() {
+        let (controller, sidebar, _) = makeController()
+        controller.setSidebarWidth(300)
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 1_200, height: 800),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentViewController = controller
+        window.makeFirstResponder(sidebar.view)
+        var trace: [SidebarHostHandoffAction] = []
+        var externalCallbackActionCounts: [Int] = []
+        controller.handoffActionObserverForTesting = { trace.append($0) }
+        controller.hasActiveSidebarAccessibilityFocus = {
+            externalCallbackActionCounts.append(trace.count)
+            return true
+        }
+        controller.onSidebarFocusHandoff = {
+            externalCallbackActionCounts.append(trace.count)
+            return false
+        }
+
+        controller.setPersistentSidebarVisible(false)
+
+        #expect(externalCallbackActionCounts == [2, 3])
+        #expect(controller.lastCapturedSidebarAccessibilityFocusForTesting)
+        #expect(trace.firstIndex(of: .beginNoActionsTransaction) == 3)
+        #expect(window.firstResponder !== sidebar.view)
     }
 
     @Test("persistent hide fails closed when handoff prerequisites disappear")
