@@ -113,6 +113,211 @@ struct AmxBackendAttachCommandTests {
         )
         #expect(command?.contains("'ZMX_DIR=/weird dir/amx'") == true)
     }
+
+    @Test("injects zsh shell-integration ZDOTDIR when resources dir is provided and SHELL is zsh")
+    func injectsShellIntegrationZDOTDIR() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-zdot"))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                ghosttyResourcesDir: "/Apps/awesoMux.app/Contents/Resources/ghostty",
+                shellPath: "/bin/zsh"
+            ))
+        #expect(
+            command.contains(
+                "'ZDOTDIR=/Apps/awesoMux.app/Contents/Resources/ghostty/shell-integration/zsh'"
+            ))
+        // No pre-existing ZDOTDIR → the preserve token must be absent, so the
+        // integration .zshenv unsets ZDOTDIR after chaining (ghostty parity).
+        #expect(!command.contains("GHOSTTY_ZSH_ZDOTDIR"))
+    }
+
+    @Test("preserves a pre-existing ZDOTDIR via GHOSTTY_ZSH_ZDOTDIR")
+    func preservesInheritedZDOTDIR() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-zdotkeep"))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                ghosttyResourcesDir: "/res/ghostty",
+                inheritedZDOTDIR: "/Users/me/.config/zsh",
+                shellPath: "/bin/zsh"
+            ))
+        #expect(command.contains("'ZDOTDIR=/res/ghostty/shell-integration/zsh'"))
+        #expect(command.contains("'GHOSTTY_ZSH_ZDOTDIR=/Users/me/.config/zsh'"))
+    }
+
+    @Test("omits shell-integration tokens when resources dir is absent or empty")
+    func omitsShellIntegrationWithoutResourcesDir() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-nores"))
+        let missing = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                shellPath: "/bin/zsh"
+            ))
+        #expect(!missing.contains("ZDOTDIR"))
+        let empty = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                ghosttyResourcesDir: "",
+                shellPath: "/bin/zsh"
+            ))
+        #expect(!empty.contains("ZDOTDIR"))
+    }
+
+    @Test("omits shell-integration tokens when SHELL is not zsh (or unknown)")
+    func omitsShellIntegrationForNonZshShell() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-bash"))
+        for shell in ["/bin/bash", "/usr/local/bin/fish", nil] as [String?] {
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    ghosttyResourcesDir: "/res/ghostty",
+                    shellPath: shell
+                ))
+            // A ZDOTDIR left in a bash/fish daemon's environment would leak into
+            // any nested zsh launched later — inject for zsh only.
+            #expect(!command.contains("ZDOTDIR"))
+        }
+    }
+
+    @Test("omits shell-integration tokens on the remote attach variant")
+    func omitsShellIntegrationForRemote() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-zdotremote"))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/opt/awesomux/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                remote: RemoteTarget(user: "alice", host: "box")!,
+                ghosttyResourcesDir: "/res/ghostty",
+                shellPath: "/bin/zsh"
+            ))
+        #expect(!command.contains("ZDOTDIR"))
+    }
+
+    @Test("status overload injects the same shell-integration tokens")
+    func statusOverloadInjectsShellIntegration() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-zdotstatus"))
+        let status = AmxStatusChannel(
+            fileURL: URL(fileURLWithPath: "/tmp/amx/abc123-zdotstatus.status.jsonl"),
+            token: "deadbeef01234567deadbeef01234567"
+        )
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                status: status,
+                ghosttyResourcesDir: "/res/ghostty",
+                shellPath: "/bin/zsh"
+            ))
+        #expect(command.contains("'ZDOTDIR=/res/ghostty/shell-integration/zsh'"))
+    }
+
+    @Test("escapes a single quote in ghosttyResourcesDir and inheritedZDOTDIR (no shell break-out)")
+    func escapesSingleQuoteInShellIntegrationValues() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-zdotquote"))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                ghosttyResourcesDir: "/a'b/ghostty",
+                inheritedZDOTDIR: "/c'; touch pwned #",
+                shellPath: "/bin/zsh"
+            ))
+        #expect(command.contains("'ZDOTDIR=/a'\\''b/ghostty/shell-integration/zsh'"))
+        #expect(command.contains("'GHOSTTY_ZSH_ZDOTDIR=/c'\\''; touch pwned #'"))
+    }
+}
+
+// MARK: - AmxBackend.shellIntegrationInputs (env → attach-input resolution)
+
+@Suite("AmxBackend shellIntegrationInputs")
+struct AmxBackendShellIntegrationInputsTests {
+    @Test("returns all three values when the zsh integration dir exists")
+    func returnsAllValuesWhenDirExists() {
+        let inputs = AmxBackend.shellIntegrationInputs(
+            from: [
+                "GHOSTTY_RESOURCES_DIR": "/Apps/awesoMux.app/Contents/Resources/ghostty",
+                "ZDOTDIR": "/Users/me/.config/zsh",
+                "SHELL": "/bin/zsh",
+            ],
+            fileExists: { _ in true }
+        )
+        #expect(inputs.ghosttyResourcesDir == "/Apps/awesoMux.app/Contents/Resources/ghostty")
+        #expect(inputs.inheritedZDOTDIR == "/Users/me/.config/zsh")
+        #expect(inputs.shellPath == "/bin/zsh")
+    }
+
+    @Test("drops the resources dir when the zsh integration subdirectory is missing")
+    func dropsResourcesDirWhenSubdirectoryMissing() {
+        let inputs = AmxBackend.shellIntegrationInputs(
+            from: [
+                "GHOSTTY_RESOURCES_DIR": "/Apps/awesoMux.app/Contents/Resources/ghostty",
+                "ZDOTDIR": "/Users/me/.config/zsh",
+                "SHELL": "/bin/zsh",
+            ],
+            fileExists: { _ in false }
+        )
+        // ZDOTDIR pinned at a missing integration dir makes zsh skip the
+        // user's dotfiles entirely — worse than the missing-OSC-133 bug this
+        // is meant to fix — so the dir is dropped rather than trusted as-is.
+        #expect(inputs.ghosttyResourcesDir == nil)
+        #expect(inputs.inheritedZDOTDIR == "/Users/me/.config/zsh")
+        #expect(inputs.shellPath == "/bin/zsh")
+    }
+
+    @Test("returns nil resources dir without probing when GHOSTTY_RESOURCES_DIR is absent")
+    func returnsNilWithoutProbingWhenAbsent() {
+        var probed = false
+        let inputs = AmxBackend.shellIntegrationInputs(
+            from: ["ZDOTDIR": "/Users/me/.config/zsh", "SHELL": "/bin/zsh"],
+            fileExists: { _ in
+                probed = true
+                return true
+            }
+        )
+        #expect(inputs.ghosttyResourcesDir == nil)
+        #expect(!probed)
+    }
+
+    @Test("returns nil resources dir without probing when GHOSTTY_RESOURCES_DIR is empty")
+    func returnsNilWithoutProbingWhenEmpty() {
+        var probed = false
+        let inputs = AmxBackend.shellIntegrationInputs(
+            from: ["GHOSTTY_RESOURCES_DIR": "", "SHELL": "/bin/zsh"],
+            fileExists: { _ in
+                probed = true
+                return true
+            }
+        )
+        #expect(inputs.ghosttyResourcesDir == nil)
+        #expect(!probed)
+    }
+
+    @Test("probes exactly <dir>/shell-integration/zsh")
+    func probesExpectedSubdirectory() {
+        var probedPath: String?
+        _ = AmxBackend.shellIntegrationInputs(
+            from: ["GHOSTTY_RESOURCES_DIR": "/res/ghostty", "SHELL": "/bin/zsh"],
+            fileExists: { path in
+                probedPath = path
+                return true
+            }
+        )
+        #expect(probedPath == "/res/ghostty/shell-integration/zsh")
+    }
 }
 
 // MARK: - AmxStatusChannel + status-env attach overload (INT-572)
