@@ -4,6 +4,40 @@ import Testing
 
 @Suite("Palette command registry")
 struct PaletteCommandRegistryTests {
+    @Test("Sidebar visibility title follows persistent hidden intent")
+    @MainActor
+    func sidebarVisibilityTitleFollowsHiddenIntent() throws {
+        let store = SessionStore(groups: [])
+
+        let visibleCommands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(isSidebarHidden: false),
+            actions: .noop
+        )
+        let hiddenCommands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(isSidebarHidden: true),
+            actions: .noop
+        )
+
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(
+                    id: KeyboardShortcutCatalog.toggleSidebarVisibility.id,
+                    in: visibleCommands
+                )
+            ).title == "Hide Sidebar"
+        )
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(
+                    id: KeyboardShortcutCatalog.toggleSidebarVisibility.id,
+                    in: hiddenCommands
+                )
+            ).title == "Show Sidebar"
+        )
+    }
+
     @Test("Registry covers menu-equivalent command IDs")
     @MainActor
     func registryCoversMenuEquivalentCommands() {
