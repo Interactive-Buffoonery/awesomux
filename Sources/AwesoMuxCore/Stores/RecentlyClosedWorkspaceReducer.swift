@@ -191,7 +191,6 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             ? max(0, min(entry.indexInGroup, destinationCount))
             : destinationCount
 
-        var paneIDRemap: [TerminalPane.ID: TerminalPane.ID] = [:]
         // Seed both collision sets with every identity already live in the
         // window. The reopened panes keep their own `terminalSessionID` AND their
         // own `pane.id` so they reattach to the still-running daemon and keep
@@ -211,17 +210,23 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 }
             }
         }
-        let restoredLayout = remappingDocumentTabAssociations(
-            in: reidentifiedLayout(
-                entry.layout,
-                indexHint: insertionIndex + 1,
-                legacyExecutionPlan: entry.groupRemote.map {
-                    PaneExecutionPlan.ssh(SSHExecution(target: $0))
-                } ?? .local,
-                paneIDRemap: &paneIDRemap,
-                seenTerminalSessionIDs: &seenTerminalSessionIDs,
-                seenPaneIDs: &seenPaneIDs
-            ),
+        let paneIDCounts = SessionRestoreReducer.terminalPaneIDCounts(in: entry.layout)
+        let reidentifiedLayout = reidentifiedLayout(
+            entry.layout,
+            indexHint: insertionIndex + 1,
+            legacyExecutionPlan: entry.groupRemote.map {
+                PaneExecutionPlan.ssh(SSHExecution(target: $0))
+            } ?? .local,
+            seenTerminalSessionIDs: &seenTerminalSessionIDs,
+            seenPaneIDs: &seenPaneIDs
+        )
+        let paneIDRemap = SessionRestoreReducer.unambiguousPaneIDRemap(
+            from: entry.layout,
+            to: reidentifiedLayout,
+            originalIDCounts: paneIDCounts
+        )
+        let restoredLayout = SessionRestoreReducer.remappingDocumentTabAssociations(
+            in: reidentifiedLayout,
             paneIDRemap: paneIDRemap
         )
         // Prefer the remapped original active pane; fall back to the first
@@ -355,7 +360,6 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         _ layout: TerminalPaneLayout,
         indexHint: Int,
         legacyExecutionPlan: PaneExecutionPlan = .local,
-        paneIDRemap: inout [TerminalPane.ID: TerminalPane.ID],
         seenTerminalSessionIDs: inout Set<TerminalSessionID>,
         seenPaneIDs: inout Set<TerminalPane.ID>
     ) -> TerminalPaneLayout {
@@ -374,7 +378,6 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 newID = fresh
                 preservedPaneID = false
             }
-            paneIDRemap[pane.id] = newID
             let sanitisedTitle = SessionStoreText.restoredTitle(
                 pane.title,
                 fallbackForAgent: pane.agentKind,
@@ -442,7 +445,6 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 split.first,
                 indexHint: indexHint,
                 legacyExecutionPlan: legacyExecutionPlan,
-                paneIDRemap: &paneIDRemap,
                 seenTerminalSessionIDs: &seenTerminalSessionIDs,
                 seenPaneIDs: &seenPaneIDs
             )
@@ -450,7 +452,6 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 split.second,
                 indexHint: indexHint,
                 legacyExecutionPlan: legacyExecutionPlan,
-                paneIDRemap: &paneIDRemap,
                 seenTerminalSessionIDs: &seenTerminalSessionIDs,
                 seenPaneIDs: &seenPaneIDs
             )
@@ -465,11 +466,10 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         case .documentGroup(let group):
             // Remint the group's and every tab's own ID so a reopened workspace
             // doesn't alias the original. Tab IDs are NOT TerminalPane.IDs, so
-            // they stay outside paneIDRemap/seenPaneIDs (no daemon/agent
+            // they stay outside seenPaneIDs (no daemon/agent
             // identity). Each tab's terminal association still carries the OLD
-            // pane id here — the caller remaps it through the completed
-            // `paneIDRemap` after the whole walk, because an association may
-            // point at a pane later in tree order than this group.
+            // pane id here — the caller remaps it after the whole walk, because
+            // an association may point at a pane later in tree order than this group.
             var remintedTabs: [DocumentPane] = []
             var selectedTabID: DocumentPane.ID?
             for tab in group.tabs {
@@ -491,26 +491,6 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 selectedTabID: selectedTabID ?? remintedTabs[0].id
             ))
         }
-    }
-
-    /// Remaps every document tab's terminal association through the completed
-    /// pane-id remap. An association whose pane is not part of the reopened
-    /// workspace clears to nil — send fails closed rather than pointing at a
-    /// pane in the still-open original (INT-748).
-    static func remappingDocumentTabAssociations(
-        in layout: TerminalPaneLayout,
-        paneIDRemap: [TerminalPane.ID: TerminalPane.ID]
-    ) -> TerminalPaneLayout {
-        guard var group = layout.firstDocumentGroup else {
-            return layout
-        }
-        group.tabs = group.tabs.map { tab in
-            var tab = tab
-            tab.associatedTerminalPaneID = tab.associatedTerminalPaneID
-                .flatMap { paneIDRemap[$0] }
-            return tab
-        }
-        return layout.replacingDocumentGroup(id: group.id, with: group) ?? layout
     }
 
 }
