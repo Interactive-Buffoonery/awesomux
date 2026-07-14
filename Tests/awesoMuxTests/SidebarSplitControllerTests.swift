@@ -82,7 +82,11 @@ struct SidebarSplitControllerTests {
 
         #expect(controller.edgeTrackingFrameForTesting == CGRect(x: 0, y: 0, width: 40, height: 800))
         #expect(controller.splitPaneViewsForTesting.count == 2)
-        #expect(controller.splitPaneViewsForTesting.contains { $0 === sidebar.view })
+        #expect(
+            controller.splitPaneViewsForTesting.contains {
+                $0 === controller.sidebarPaneContainerForTesting
+            })
+        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
         #expect(controller.splitPaneViewsForTesting.contains { $0 === detail.view })
 
         controller.setSidebarPosition(.right)
