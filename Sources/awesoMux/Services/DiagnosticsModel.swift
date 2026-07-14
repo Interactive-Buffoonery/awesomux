@@ -25,6 +25,25 @@ enum DiagnosticsRefreshState: Equatable, Sendable {
     case failed(lastSuccess: Date?)
 }
 
+/// Keeps wall-clock timestamps separate from monotonic maintenance deadlines.
+struct DiagnosticsTiming: Sendable {
+    let wallNow: @MainActor @Sendable () -> Date
+    let monotonicNow: @MainActor @Sendable () -> Duration
+    let sleepUntil: @MainActor @Sendable (_ deadline: Duration, _ tolerance: Duration) async throws -> Void
+
+    static func continuous() -> DiagnosticsTiming {
+        let clock = ContinuousClock()
+        let origin = clock.now
+        return DiagnosticsTiming(
+            wallNow: { Date() },
+            monotonicNow: { origin.duration(to: clock.now) },
+            sleepUntil: { deadline, tolerance in
+                try await clock.sleep(until: origin.advanced(by: deadline), tolerance: tolerance)
+            }
+        )
+    }
+}
+
 @MainActor
 @Observable
 final class DiagnosticsModel {
@@ -46,6 +65,7 @@ final class DiagnosticsModel {
     @ObservationIgnored private let sessionStore: SessionStore
     @ObservationIgnored private let eventRecorder: LocalDiagnosticEventRecorder
     @ObservationIgnored private let capture: Capture
+    @ObservationIgnored private let timing: DiagnosticsTiming
     @ObservationIgnored private let sampleInterval: Duration
     @ObservationIgnored private let sampleTolerance: Duration
     @ObservationIgnored private var history = DiagnosticsHistory()
@@ -66,21 +86,24 @@ final class DiagnosticsModel {
     init(
         sessionStore: SessionStore,
         eventRecorder: LocalDiagnosticEventRecorder,
+        timing: DiagnosticsTiming = .continuous(),
         sampleInterval: Duration = .seconds(30),
         sampleTolerance: Duration = .seconds(3),
         capture: Capture? = nil
     ) {
         self.sessionStore = sessionStore
         self.eventRecorder = eventRecorder
+        self.timing = timing
         self.sampleInterval = sampleInterval
         self.sampleTolerance = sampleTolerance
-        self.capture = capture ?? { owners, date, purpose in
-            await DiagnosticsProcessCapture.capture(
-                owners: owners,
-                at: date,
-                purpose: purpose
-            )
-        }
+        self.capture =
+            capture ?? { owners, date, purpose in
+                await DiagnosticsProcessCapture.capture(
+                    owners: owners,
+                    at: date,
+                    purpose: purpose
+                )
+            }
     }
 
     // MARK: - Sampling lifecycle
@@ -106,12 +129,12 @@ final class DiagnosticsModel {
         guard samplingRequested, samplingTask == nil else { return }
         let interval = sampleInterval
         let tolerance = sampleTolerance
+        let timing = timing
         samplingTask = Task { @MainActor [weak self] in
-            let clock = ContinuousClock()
-            var nextTick = clock.now.advanced(by: interval)
+            var nextTick = timing.monotonicNow() + interval
             while !Task.isCancelled {
                 do {
-                    try await clock.sleep(until: nextTick, tolerance: tolerance)
+                    try await timing.sleepUntil(nextTick, tolerance)
                 } catch {
                     return
                 }
@@ -119,12 +142,12 @@ final class DiagnosticsModel {
                 if self.latestProcessSnapshot != nil {
                     await self.sampleOnce()
                 } else {
-                    self.eventRecorder.removeExpiredEvents()
+                    self.eventRecorder.removeExpiredEvents(at: timing.wallNow())
                     self.publishEventsOnly()
                 }
-                nextTick = nextTick.advanced(by: interval)
-                while nextTick <= clock.now {
-                    nextTick = nextTick.advanced(by: interval)
+                nextTick += interval
+                while nextTick <= timing.monotonicNow() {
+                    nextTick += interval
                 }
             }
         }
@@ -144,10 +167,10 @@ final class DiagnosticsModel {
         guard refreshState != .refreshing else { return }
         refreshState = .refreshing
         let outcome = await captureAndStore(
-            at: Date(),
+            at: timing.wallNow(),
             purpose: .refresh(fallbackDaemons: knownDaemons)
         )
-        let now = Date()
+        let now = timing.wallNow()
         // Superseded by a newer capture — do not clobber its presentation.
         guard outcome.generation == captureGeneration else { return }
         guard let result = outcome.result else {
@@ -163,7 +186,8 @@ final class DiagnosticsModel {
         restartMaintenanceIfRequested()
     }
 
-    func sampleOnce(at date: Date = Date()) async {
+    func sampleOnce(at date: Date? = nil) async {
+        let date = date ?? timing.wallNow()
         eventRecorder.removeExpiredEvents(at: date)
         let nextIndex = successfulSampleCount + 1
         let rediscover = nextIndex % Self.daemonRediscoverySampleInterval == 0
@@ -290,7 +314,7 @@ final class DiagnosticsModel {
             revision: UUID(),
             processSnapshot: latestProcessSnapshot,
             history: history,
-            events: eventRecorder.snapshot(),
+            events: eventRecorder.snapshot(now: timing.wallNow()),
             checkedAt: checkedAt
         )
     }
@@ -300,7 +324,7 @@ final class DiagnosticsModel {
             revision: UUID(),
             processSnapshot: presentation.processSnapshot,
             history: presentation.history,
-            events: eventRecorder.snapshot(),
+            events: eventRecorder.snapshot(now: timing.wallNow()),
             checkedAt: presentation.checkedAt
         )
     }
@@ -311,7 +335,7 @@ final class DiagnosticsModel {
             revision: UUID(),
             processSnapshot: latestProcessSnapshot,
             history: history,
-            events: eventRecorder.snapshot(),
+            events: eventRecorder.snapshot(now: timing.wallNow()),
             checkedAt: presentation.checkedAt
         )
     }
