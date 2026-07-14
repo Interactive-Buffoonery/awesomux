@@ -574,7 +574,8 @@ struct AwesoMuxApp: App {
             // Cmd-W binding lives in `.saveItem` (the File-menu Save slot, which
             // awesoMux doesn't use) so SwiftUI's built-in Close-Window command
             // doesn't reclaim the chord. See `docs/adr/0002-window-close-keybinding-model.md`
-            // for why Cmd-W = close-pane (with last-pane silent recycle).
+            // for why Cmd-W = close-pane (last pane now closes the workspace via
+            // closeWorkspace(_:) rather than the ADR's original silent recycle).
             //
             // Empty-state fallback: when no session is selected, Cmd-W closes
             // the app window via `performClose:` — the user has nothing to
@@ -693,7 +694,10 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitDown))
                 .disabled(sessionStore.selectedSession == nil)
 
-                Button("Close Pane") {
+                // Same conditional as the File-menu binding: closeActivePane()
+                // routes single-pane sessions through closeWorkspace(_:), so
+                // the title has to match what actually happens.
+                Button(closePaneMenuTitle) {
                     closeActivePane()
                 }
                 .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
@@ -2006,8 +2010,15 @@ struct AwesoMuxApp: App {
         sessionStore.selectedSessionID = order[nextIndex]
     }
 
+    /// Pane-scoped title only — no window fallback. The Workspace menu's
+    /// close button calls `closeActivePane()`, which no-ops without a
+    /// selection, so "Close Window" would be a lie on that surface.
+    private var closePaneMenuTitle: String {
+        sessionStore.selectedSession?.layout.isSinglePane == true ? "Close Workspace" : "Close Pane"
+    }
+
     private var closeShortcutTitle: String {
-        sessionStore.selectedSessionID == nil ? "Close Window" : "Close Pane"
+        sessionStore.selectedSession == nil ? "Close Window" : closePaneMenuTitle
     }
 
     private var isAnySheetPresented: Bool {

@@ -526,6 +526,66 @@ struct PaletteCommandRegistryTests {
         #expect(enabled.isEnabled)
     }
 
+    @Test("Close Pane title reads Close Workspace for a single-pane session")
+    @MainActor
+    func closePaneTitleMatchesLastPaneSemantics() throws {
+        let pane = TerminalPane(title: "only", workingDirectory: "/tmp", executionPlan: .local)
+        let session = TerminalSession(
+            title: "Solo",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Code", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        let command = try #require(
+            PaletteCommandRegistry.command(
+                id: KeyboardShortcutCatalog.closePane.id,
+                in: PaletteCommandRegistry.commands(
+                    sessionStore: store,
+                    availability: .init(),
+                    actions: .noop
+                )
+            ))
+        #expect(command.title == "Close Workspace")
+    }
+
+    @Test("Close Pane title stays Close Pane for a multi-pane session")
+    @MainActor
+    func closePaneTitleStaysClosePaneWithMultiplePanes() throws {
+        let first = TerminalPane(title: "first", workingDirectory: "/tmp", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/tmp", executionPlan: .local)
+        let session = TerminalSession(
+            title: "Split",
+            workingDirectory: "/tmp",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(first),
+                    second: .pane(second)
+                )),
+            activePaneID: first.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Code", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        let command = try #require(
+            PaletteCommandRegistry.command(
+                id: KeyboardShortcutCatalog.closePane.id,
+                in: PaletteCommandRegistry.commands(
+                    sessionStore: store,
+                    availability: .init(),
+                    actions: .noop
+                )
+            ))
+        #expect(command.title == "Close Pane")
+    }
+
     @Test("Recently-closed entries surface as targeted reopen commands")
     @MainActor
     func recentlyClosedEntriesSurfaceAsReopenCommands() throws {

@@ -338,7 +338,16 @@ enum PaletteCommandRegistry {
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.closePane.id,
-                title: "Close Pane",
+                // actions.closePane routes single-pane sessions through
+                // closeWorkspace(_:) (mirrors closeActivePane()'s App-menu
+                // conditional), so the palette title has to match.
+                // ponytail: like every row here, the title snapshots at
+                // palette-open (see the daemon-row snapshot comment in
+                // AwesoMuxApp); a layout change while the palette floats can
+                // stale it until the next summon. Live retitling needs
+                // render-time recompute in PalettePresenter — do that if the
+                // window bites for real.
+                title: selected?.layout.isSinglePane == true ? "Close Workspace" : "Close Pane",
                 subtitle: nil,
                 keywords: ["remove", "terminal"],
                 shortcut: KeyboardShortcutCatalog.closePane,
