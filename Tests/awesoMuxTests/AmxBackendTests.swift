@@ -204,6 +204,25 @@ struct AmxBackendAttachCommandTests {
             ))
         #expect(!command.contains("ZDOTDIR"))
     }
+
+    @Test("status overload injects the same shell-integration tokens")
+    func statusOverloadInjectsShellIntegration() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-zdotstatus"))
+        let status = AmxStatusChannel(
+            fileURL: URL(fileURLWithPath: "/tmp/amx/abc123-zdotstatus.status.jsonl"),
+            token: "deadbeef01234567deadbeef01234567"
+        )
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                status: status,
+                ghosttyResourcesDir: "/res/ghostty",
+                shellPath: "/bin/zsh"
+            ))
+        #expect(command.contains("'ZDOTDIR=/res/ghostty/shell-integration/zsh'"))
+    }
 }
 
 // MARK: - AmxStatusChannel + status-env attach overload (INT-572)
