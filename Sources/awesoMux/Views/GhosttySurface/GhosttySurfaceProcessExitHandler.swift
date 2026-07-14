@@ -59,7 +59,8 @@ extension GhosttySurfaceNSView {
                 exitingPaneID: paneID,
                 terminalIsFocused: wasFocused
             )
-            let sessionTitle = sessionStore.session(id: sessionID)?.title
+            let sessionTitle =
+                sessionStore.session(id: sessionID)?.title
                 ?? session.title
             TerminalAccessibilityAnnouncer.announceSiblingPaneExitError(
                 sessionTitle: sessionTitle
@@ -73,7 +74,7 @@ extension GhosttySurfaceNSView {
 
         // The cache was already consumed-and-cleared above, so the surface
         // teardown branches only need to discard the orphaned surfaces.
-        switch sessionStore.closePane(id: paneID, in: sessionID) {
+        switch sessionStore.closePane(id: paneID, in: sessionID, origin: .processExit) {
         case let .pane(closedPaneID):
             runtime.discardSurface(for: closedPaneID)
 
@@ -122,7 +123,8 @@ extension GhosttySurfaceNSView {
         runtime.discardSurface(for: recovery.paneID)
 
         guard let container,
-              let liveSession = sessionStore.session(id: recovery.sessionID) else {
+            let liveSession = sessionStore.session(id: recovery.sessionID)
+        else {
             return
         }
 
@@ -141,7 +143,7 @@ extension GhosttySurfaceNSView {
     }
 
     func closeExitedPaneAndDiscardSurfaces() {
-        switch sessionStore.closePane(id: paneID, in: sessionID) {
+        switch sessionStore.closePane(id: paneID, in: sessionID, origin: .processExit) {
         case let .session(_, paneIDs):
             paneIDs.forEach { runtime.discardSurface(for: $0) }
         case let .pane(closedPaneID):
