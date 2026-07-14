@@ -2217,7 +2217,7 @@ struct AwesoMuxApp: App {
             // the active pane at risk (see `DestructivePaneActionConfirmationPolicy.decision`),
             // but recomputing here — rather than hardcoding `true` — keeps this
             // call site honest if that gate ever changes independently.
-            let atRisk = session.activePane?.isQuitRisk(at: Date()) ?? false
+            let atRisk = session.activePane?.isCloseRisk(at: Date()) ?? false
             switch confirmDestructivePaneActionIfNeeded(resolvedAction, in: session, atRisk: atRisk) {
             case .suppressed:
                 return
@@ -2277,7 +2277,7 @@ struct AwesoMuxApp: App {
         guard let session = sessionStore.selectedSession else { return }
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
         guard let refreshed = sessionStore.session(id: session.id) else { return }
-        let atRisk = refreshed.activePane?.isQuitRisk(at: Date()) ?? false
+        let atRisk = refreshed.activePane?.isCloseRisk(at: Date()) ?? false
 
         switch confirmDestructivePaneActionIfNeeded(.restartShell, in: refreshed, atRisk: atRisk) {
         case .suppressed:

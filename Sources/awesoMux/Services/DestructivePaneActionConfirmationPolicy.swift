@@ -62,7 +62,7 @@ enum DestructivePaneActionConfirmationPolicy {
         }
 
         let action: Action = .closePane
-        guard activePane.isQuitRisk(at: now) else {
+        guard activePane.isCloseRisk(at: now) else {
             return .proceedWithoutPrompt(action)
         }
         guard workspaces.confirmDestructivePaneActionWithRunningAgent else {
