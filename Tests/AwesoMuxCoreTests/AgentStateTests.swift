@@ -9,16 +9,16 @@ final class AgentStateTests: XCTestCase {
         XCTAssertEqual(
             AgentState.idle.localizedLabel(
                 bundle: bundle,
-                locale: INT612LocalizationTestSupport.french
+                locale: INT612LocalizationTestSupport.pseudoLocale
             ),
-            "Inactif"
+            "⟦idle⟧"
         )
         XCTAssertEqual(
             AgentState.needsAttention.localizedLabel(
                 bundle: bundle,
-                locale: INT612LocalizationTestSupport.french
+                locale: INT612LocalizationTestSupport.pseudoLocale
             ),
-            "Entrée requise"
+            "⟦needs-input⟧"
         )
     }
     func testExecutionVocabularyMatchesRuntimeContract() {
@@ -31,7 +31,7 @@ final class AgentStateTests: XCTestCase {
                 .thinking,
                 .output,
                 .done,
-                .error
+                .error,
             ]
         )
     }
@@ -45,7 +45,7 @@ final class AgentStateTests: XCTestCase {
                 .permissionPrompt,
                 .userInputRequired,
                 .processError,
-                .unknown
+                .unknown,
             ]
         )
     }
@@ -61,7 +61,7 @@ final class AgentStateTests: XCTestCase {
                 .output,
                 .needsAttention,
                 .done,
-                .error
+                .error,
             ]
         )
     }
@@ -217,7 +217,7 @@ final class AgentStateTests: XCTestCase {
             ("done", .done),
             ("waiting", .waiting),
             ("idle", .idle),
-            ("thinking", .thinking)
+            ("thinking", .thinking),
         ]
 
         for (legacy, execution) in cases {

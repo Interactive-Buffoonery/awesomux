@@ -2,10 +2,10 @@ import Foundation
 
 enum INT612LocalizationTestSupport {
     static var bundle: Bundle? {
-        Bundle(url: fixtureURL.appending(path: "fr.lproj", directoryHint: .isDirectory))
+        Bundle(url: fixtureURL.appending(path: "zz.lproj", directoryHint: .isDirectory))
     }
 
-    static let french = Locale(identifier: "fr")
+    static let pseudoLocale = Locale(identifier: "zz")
 
     private static var fixtureURL: URL {
         URL(fileURLWithPath: #filePath)
