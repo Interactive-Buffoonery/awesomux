@@ -565,6 +565,16 @@ public final class SessionStore {
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
     }
 
+    /// Who initiated a session/pane close — threaded through to the
+    /// recently-closed persistence gate below. `.user` is the default so
+    /// every existing explicit close path (⌘W, ⇧⌘W, palette, group close,
+    /// sidebar) keeps persisting without having to name itself; only the
+    /// shell-exit auto-close path passes `.processExit` explicitly.
+    public enum CloseOrigin: Sendable {
+        case user
+        case processExit
+    }
+
     /// Removes a workspace from `groups` and pushes a snapshot of it onto
     /// `recentlyClosed` so ⌘+⇧+T (Reopen Closed Workspace) can resurrect it.
     ///
@@ -593,10 +603,18 @@ public final class SessionStore {
     /// a live workspace never has a row in either reopen tier (reopen drains
     /// its entry and mints a fresh session id), so skipping capture is the
     /// whole "remove from the buffer" story.
+    ///
+    /// **Persistence-gate origin rule:** a deliberate user close always
+    /// persists to the durable `recentlyClosed` list, even a "boring"
+    /// plain-shell/~-cwd/untitled workspace — the quality gate
+    /// (`isWorthRecording`) exists to keep noisy shell-exit AUTO-closes out
+    /// of the list, not to filter closes the user asked for. `origin` is
+    /// `.user` unless the caller is the process-exit auto-close path.
     public func closeSession(
         id: TerminalSession.ID,
         now: Date = Date(),
-        captureRecentlyClosed: Bool = true
+        captureRecentlyClosed: Bool = true,
+        origin: CloseOrigin = .user
     ) {
         guard let position = position(for: id) else { return }
 
@@ -610,7 +628,7 @@ public final class SessionStore {
                 now: now
             )
             lastClosedTransient = capture.entry
-            if capture.shouldPersist {
+            if origin == .user || capture.shouldPersist {
                 recordRecentlyClosed(capture.entry, now: now)
             }
         }
@@ -1146,7 +1164,11 @@ public final class SessionStore {
     }
 
     @discardableResult
-    public func closePane(id paneID: TerminalPane.ID, in sessionID: TerminalSession.ID) -> PaneCloseResult? {
+    public func closePane(
+        id paneID: TerminalPane.ID,
+        in sessionID: TerminalSession.ID,
+        origin: CloseOrigin = .user
+    ) -> PaneCloseResult? {
         guard let position = position(for: sessionID),
             let close = PaneLayoutReducer.closePane(
                 id: paneID,
@@ -1158,7 +1180,7 @@ public final class SessionStore {
 
         switch close.result {
         case .session:
-            closeSession(id: sessionID)
+            closeSession(id: sessionID, origin: origin)
         case .pane:
             if let session = close.session {
                 _groups[position.groupIndex].sessions[position.sessionIndex] = session

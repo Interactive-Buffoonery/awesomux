@@ -14,13 +14,14 @@ struct RecentlyClosedWorkspaceTests {
     ) -> SessionStore {
         var sessions: [TerminalSession] = []
         for index in 0..<sessionCount {
-            sessions.append(TerminalSession(
-                title: "ws-\(index)",
-                workingDirectory: NSHomeDirectory(),
-                isTitleUserEdited: true,
-                agentKind: .shell,
-                agentState: .idle
-            ))
+            sessions.append(
+                TerminalSession(
+                    title: "ws-\(index)",
+                    workingDirectory: NSHomeDirectory(),
+                    isTitleUserEdited: true,
+                    agentKind: .shell,
+                    agentState: .idle
+                ))
         }
         let group = SessionGroup(name: groupName, sessions: sessions)
         let store = SessionStore(groups: [group])
@@ -183,9 +184,10 @@ struct RecentlyClosedWorkspaceTests {
 
         #expect(store.canReopenClosedWorkspace(now: t0))
         #expect(!store.recentlyClosed.isEmpty)
-        #expect(!store.canReopenClosedWorkspace(
-            now: t0.addingTimeInterval(SessionStore.recentlyClosedTTL + 1)
-        ))
+        #expect(
+            !store.canReopenClosedWorkspace(
+                now: t0.addingTimeInterval(SessionStore.recentlyClosedTTL + 1)
+            ))
         #expect(!store.recentlyClosed.isEmpty)
     }
 
@@ -206,11 +208,12 @@ struct RecentlyClosedWorkspaceTests {
             indexInGroup: 0,
             closedAt: Date()
         )
-        let store = SessionStore(restoring: SessionSnapshot(
-            groups: [],
-            selectedSessionID: nil,
-            recentlyClosed: [entry]
-        ))
+        let store = SessionStore(
+            restoring: SessionSnapshot(
+                groups: [],
+                selectedSessionID: nil,
+                recentlyClosed: [entry]
+            ))
 
         #expect(store.groups.isEmpty)
         #expect(store.canReopenClosedWorkspace)
@@ -275,7 +278,8 @@ struct RecentlyClosedWorkspaceTests {
         #expect(restoredSplit.firstFraction == 0.4)
 
         guard case let .pane(restoredLeft) = restoredSplit.first,
-              case let .pane(restoredRight) = restoredSplit.second else {
+            case let .pane(restoredRight) = restoredSplit.second
+        else {
             Issue.record("Expected both halves of restored split to be panes")
             return
         }
@@ -336,7 +340,9 @@ struct RecentlyClosedWorkspaceTests {
         // `recentlyClosed` buffer so it can't evict a more meaningful
         // older entry across relaunches. INT-426: the transient in-memory
         // tier still captures it so ⌘+⇧+T immediately after the close
-        // resurrects it within the session.
+        // resurrects it within the session. The gate only applies to
+        // shell-exit AUTO-closes (`.processExit`) — a deliberate user close
+        // of the same bare shell always persists (see the `.user` test below).
         let bareShell = TerminalSession(
             title: "shell",
             workingDirectory: NSHomeDirectory(),
@@ -348,10 +354,72 @@ struct RecentlyClosedWorkspaceTests {
         let store = SessionStore(groups: [group])
         store.selectedSessionID = bareShell.id
 
-        store.closeSession(id: bareShell.id)
+        store.closeSession(id: bareShell.id, origin: .processExit)
         #expect(store.recentlyClosed.isEmpty)
         #expect(store.lastClosedTransient != nil)
         #expect(store.canReopenClosedWorkspace == true)
+    }
+
+    @Test("a deliberate user close persists a bare shell even though the quality gate would drop it")
+    func userOriginCloseAlwaysPersistsEvenABareShell() throws {
+        // Product decision: the isWorthRecording gate exists to keep noisy
+        // shell-exit AUTO-closes out of the durable list, not to filter
+        // closes the user explicitly asked for. `origin` defaults to `.user`,
+        // so every existing explicit close call site (⌘W, ⇧⌘W, palette,
+        // group close) keeps this behavior without passing anything.
+        let bareShell = TerminalSession(
+            title: "shell",
+            workingDirectory: NSHomeDirectory(),
+            isTitleUserEdited: false,
+            agentKind: .shell,
+            agentState: .idle
+        )
+        let group = SessionGroup(name: "g", sessions: [bareShell])
+        let store = SessionStore(groups: [group])
+        store.selectedSessionID = bareShell.id
+
+        store.closeSession(id: bareShell.id, origin: .user)
+
+        #expect(store.recentlyClosed.count == 1)
+        #expect(store.recentlyClosed.first?.sessionID == bareShell.id)
+    }
+
+    @Test("a process-exit auto-close still drops a bare shell — the quality gate applies")
+    func processExitOriginCloseStillGatesABareShell() throws {
+        let bareShell = TerminalSession(
+            title: "shell",
+            workingDirectory: NSHomeDirectory(),
+            isTitleUserEdited: false,
+            agentKind: .shell,
+            agentState: .idle
+        )
+        let group = SessionGroup(name: "g", sessions: [bareShell])
+        let store = SessionStore(groups: [group])
+        store.selectedSessionID = bareShell.id
+
+        store.closeSession(id: bareShell.id, origin: .processExit)
+
+        #expect(store.recentlyClosed.isEmpty)
+        // Still reopenable via the transient one-slot tier — unchanged.
+        #expect(store.lastClosedTransient?.sessionID == bareShell.id)
+    }
+
+    @Test("a process-exit auto-close of a meaningful workspace still persists — gate passes as today")
+    func processExitOriginClosePersistsAMeaningfulWorkspace() throws {
+        let claudeSession = TerminalSession(
+            title: "Claude",
+            workingDirectory: NSHomeDirectory(),
+            agentKind: .claudeCode,
+            agentState: .idle
+        )
+        let group = SessionGroup(name: "g", sessions: [claudeSession])
+        let store = SessionStore(groups: [group])
+        store.selectedSessionID = claudeSession.id
+
+        store.closeSession(id: claudeSession.id, origin: .processExit)
+
+        #expect(store.recentlyClosed.count == 1)
+        #expect(store.recentlyClosed.first?.sessionID == claudeSession.id)
     }
 
     @Test("INT-426 — reopen via transient tier resurrects a gate-failing bare shell")
@@ -367,7 +435,7 @@ struct RecentlyClosedWorkspaceTests {
         let store = SessionStore(groups: [group])
         store.selectedSessionID = bareShell.id
 
-        store.closeSession(id: bareShell.id)
+        store.closeSession(id: bareShell.id, origin: .processExit)
         #expect(store.recentlyClosed.isEmpty)  // gate rejected persistence
         #expect(store.lastClosedTransient != nil)
 
@@ -391,8 +459,8 @@ struct RecentlyClosedWorkspaceTests {
         let store = SessionStore(groups: [group])
         store.selectedSessionID = bareShell1.id
 
-        store.closeSession(id: bareShell1.id, now: Date(timeIntervalSince1970: 1000))
-        store.closeSession(id: bareShell2.id, now: Date(timeIntervalSince1970: 2000))
+        store.closeSession(id: bareShell1.id, now: Date(timeIntervalSince1970: 1000), origin: .processExit)
+        store.closeSession(id: bareShell2.id, now: Date(timeIntervalSince1970: 2000), origin: .processExit)
         // Transient is a single slot — only the most-recent close survives.
         #expect(store.lastClosedTransient?.sessionID == bareShell2.id)
         #expect(store.recentlyClosed.isEmpty)
@@ -521,15 +589,17 @@ struct RecentlyClosedWorkspaceTests {
             TerminalPane(title: "deep", workingDirectory: NSHomeDirectory(), executionPlan: .local)
         )
         for _ in 0..<100 {
-            pathologicalLayout = .split(TerminalSplit(
-                orientation: .vertical,
-                first: pathologicalLayout,
-                second: .pane(TerminalPane(
-                    title: "stub",
+            pathologicalLayout = .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: pathologicalLayout,
+                    second: .pane(
+                        TerminalPane(
+                            title: "stub",
                             workingDirectory: NSHomeDirectory(),
                             executionPlan: .local
+                        ))
                 ))
-            ))
         }
         let twin = RecentlyClosedWorkspace(
             sessionID: store.lastClosedTransient!.sessionID,
@@ -565,7 +635,7 @@ struct RecentlyClosedWorkspaceTests {
         let group = SessionGroup(name: "g", sessions: [bareShell])
         let store = SessionStore(groups: [group])
         store.selectedSessionID = bareShell.id
-        store.closeSession(id: bareShell.id)
+        store.closeSession(id: bareShell.id, origin: .processExit)
         #expect(store.lastClosedTransient != nil)
 
         // Round-trip through the snapshot: transient must not leak into
@@ -648,7 +718,6 @@ struct RecentlyClosedWorkspaceTests {
         #expect(store.groups[0].sessions.allSatisfy { $0.id != reopenedID })
     }
 
-
     @Test("reopen with no groups creates a destination group")
     func reopenWithEmptyGroups() throws {
         let groupID = UUID()
@@ -690,17 +759,17 @@ struct RecentlyClosedWorkspaceTests {
     @Test("pre-INT-415 snapshot (no recentlyClosed key) decodes with empty buffer")
     func decodesPreFeatureSnapshot() throws {
         let json = """
-        {
-          "schemaVersion": 1,
-          "groups": [
             {
-              "id": "11111111-1111-1111-1111-111111111111",
-              "name": "g",
-              "sessions": []
+              "schemaVersion": 1,
+              "groups": [
+                {
+                  "id": "11111111-1111-1111-1111-111111111111",
+                  "name": "g",
+                  "sessions": []
+                }
+              ]
             }
-          ]
-        }
-        """.data(using: .utf8)!
+            """.data(using: .utf8)!
 
         let snapshot = try JSONDecoder().decode(SessionSnapshot.self, from: json)
         #expect(snapshot.recentlyClosed.isEmpty)
@@ -730,18 +799,18 @@ struct RecentlyClosedWorkspaceTests {
         // entry (a string where an object is expected). The tolerant decoder
         // should keep the valid entry.
         let json = """
-        {
-          "schemaVersion": 1,
-          "groups": [
             {
-              "id": "22222222-2222-2222-2222-222222222222",
-              "name": "g",
-              "sessions": []
+              "schemaVersion": 1,
+              "groups": [
+                {
+                  "id": "22222222-2222-2222-2222-222222222222",
+                  "name": "g",
+                  "sessions": []
+                }
+              ],
+              "recentlyClosed": ["this should be an object, not a string", \(validJSONFragment)]
             }
-          ],
-          "recentlyClosed": ["this should be an object, not a string", \(validJSONFragment)]
-        }
-        """.data(using: .utf8)!
+            """.data(using: .utf8)!
 
         let snapshot = try JSONDecoder().decode(SessionSnapshot.self, from: json)
         #expect(snapshot.recentlyClosed.count == 1)
@@ -849,7 +918,7 @@ struct RecentlyClosedWorkspaceTests {
             agentKind: .shell,
             layout: .pane(TerminalPane(title: "orphaned", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
-            groupID: UUID(),       // dead — group doesn't exist
+            groupID: UUID(),  // dead — group doesn't exist
             groupName: "ghost",
             groupRemote: nil,
             indexInGroup: 0,
@@ -874,15 +943,17 @@ struct RecentlyClosedWorkspaceTests {
             TerminalPane(title: "leaf", workingDirectory: NSHomeDirectory(), executionPlan: .local)
         )
         for _ in 0..<deeperThanCap {
-            layout = .split(TerminalSplit(
-                orientation: .vertical,
-                first: layout,
-                second: .pane(TerminalPane(
-                    title: "stub",
+            layout = .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: layout,
+                    second: .pane(
+                        TerminalPane(
+                            title: "stub",
                             workingDirectory: NSHomeDirectory(),
                             executionPlan: .local
+                        ))
                 ))
-            ))
         }
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -991,8 +1062,9 @@ struct RecentlyClosedWorkspaceTests {
         let reopened = try #require(
             store.groups.first(where: { $0.sessions.contains(where: { $0.id == reopenedID }) })
         )
-        #expect(reopened.color == .sky,
-                "reopened workspace lands in the original group and inherits its current color")
+        #expect(
+            reopened.color == .sky,
+            "reopened workspace lands in the original group and inherits its current color")
     }
 
     @Test("recolor while a workspace is closed: reopen picks up the NEW color")
