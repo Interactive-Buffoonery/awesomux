@@ -63,7 +63,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     /// Moves focus out of the sidebar before it becomes zero-width. Returns
     /// whether the caller established a visible first responder.
-    var onSidebarFocusHandoff: (() -> Bool)?
+    var onSidebarFocusHandoff: ((SidebarFocusHandoffRequest) -> Bool)?
 
     var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
     var onEdgeExit: (() -> Void)?
@@ -541,22 +541,29 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     // MARK: - Internals
 
-    private func handOffSidebarFocusIfNeeded() {
-        guard let window = view.window,
-            let responderView = window.firstResponder as? NSView,
-            responderView === sidebarChild.view || responderView.isDescendant(of: sidebarChild.view)
-        else {
-            return
-        }
-
-        let establishedVisibleResponder = onSidebarFocusHandoff?() == true
-        let currentResponderIsStillInSidebar =
-            (window.firstResponder as? NSView).map {
+    private func handOffSidebarFocusIfNeeded(requiresAccessibilityFocus: Bool) -> Bool {
+        let window = view.window
+        let responderView = window?.firstResponder as? NSView
+        let keyboardFocusIsInSidebar =
+            responderView.map {
                 $0 === sidebarChild.view || $0.isDescendant(of: sidebarChild.view)
             } ?? false
-        if !establishedVisibleResponder || currentResponderIsStillInSidebar {
-            window.makeFirstResponder(nil)
+        guard keyboardFocusIsInSidebar || requiresAccessibilityFocus else { return true }
+
+        let establishedVisibleResponder =
+            onSidebarFocusHandoff?(
+                SidebarFocusHandoffRequest(
+                    requiresAccessibilityFocus: requiresAccessibilityFocus)) == true
+        let currentResponderIsStillInSidebar =
+            (window?.firstResponder as? NSView).map {
+                $0 === sidebarChild.view || $0.isDescendant(of: sidebarChild.view)
+            } ?? false
+        if keyboardFocusIsInSidebar,
+            !establishedVisibleResponder || currentResponderIsStillInSidebar
+        {
+            window?.makeFirstResponder(nil)
         }
+        return !requiresAccessibilityFocus || establishedVisibleResponder
     }
 
     private func performAtomicPersistentShow() {
@@ -657,9 +664,13 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         recordIfExpanded(sidebarPaneWidth)
         record(.captureSidebarResponder)
         record(.querySidebarAccessibilityFocus)
-        lastCapturedSidebarAccessibilityFocusForTesting = sidebarAccessibilityFocusIsActive
+        let requiresAccessibilityFocus = sidebarAccessibilityFocusIsActive
+        lastCapturedSidebarAccessibilityFocusForTesting = requiresAccessibilityFocus
         record(.handOffSidebarFocus)
-        handOffSidebarFocusIfNeeded()
+        guard
+            handOffSidebarFocusIfNeeded(
+                requiresAccessibilityFocus: requiresAccessibilityFocus)
+        else { return }
         isPerformingHostHandoff = true
         record(.beginNoActionsTransaction)
         NSAnimationContext.runAnimationGroup { context in

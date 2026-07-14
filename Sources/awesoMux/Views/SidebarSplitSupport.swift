@@ -4,6 +4,10 @@ import CoreGraphics
 import Foundation
 import Observation
 
+struct SidebarFocusHandoffRequest: Equatable, Sendable {
+    let requiresAccessibilityFocus: Bool
+}
+
 enum SidebarHostMode: Equatable {
     case persistent(width: CGFloat)
     case hidden
