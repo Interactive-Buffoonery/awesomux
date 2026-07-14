@@ -92,6 +92,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// also fires for programmatic position changes and window layout) does not echo
     /// a programmatic change back out as a "live" width change.
     private var isSettingPositionProgrammatically = false
+    private var isPerformingHostHandoff = false
     private var dividerIntentCount = 0
 
     /// Width requested before the split had real bounds (first launch / restore).
@@ -480,6 +481,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         let target = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
         var capturedResponder: NSResponder?
+        isPerformingHostHandoff = true
         record(.beginNoActionsTransaction)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
@@ -524,36 +526,63 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             }
         }
         record(.endNoActionsTransaction)
+        isPerformingHostHandoff = false
         let rendered = sidebarPaneWidth
         hostMode = .persistent(width: rendered)
         recordIfExpanded(rendered)
+        onLiveWidthChange?(rendered)
         hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
         setEdgeTrackingEnabled(false)
     }
 
     private func performAtomicPersistentHide() {
-        handOffSidebarFocusIfNeeded()
+        guard isViewLoaded, splitView.bounds.width > 0, overlayContentView.layer != nil else {
+            isSidebarHidden = true
+            reconcileStableHiddenOwnership()
+            applyHiddenPosition()
+            setEdgeTrackingEnabled(true)
+            return
+        }
         pendingWidth = selectedSidebarWidth
         recordIfExpanded(sidebarPaneWidth)
+        isPerformingHostHandoff = true
+        record(.beginNoActionsTransaction)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             context.allowsImplicitAnimation = false
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
+            record(.cancelOverlayGeneration)
             overlayAnimator?.cancelAndSettle(
                 presented: false, width: overlayClipView.bounds.width, position: sidebarPosition)
+            record(.captureSidebarResponder)
+            record(.captureSidebarAccessibility)
+            record(.handOffSidebarFocus)
+            handOffSidebarFocusIfNeeded()
+            record(.removeOverlayAnimation)
+            overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
+            record(.reparentHostToSplitContainer)
             moveSidebarHost(to: sidebarPaneContainer)
+            record(.setHiddenState)
             isSidebarHidden = true
             hostMode = .hidden
+            record(.applySingleCollapseIntent)
             applyHiddenPosition()
+            record(.settleLayout)
             splitView.layoutSubtreeIfNeeded()
             view.layoutSubtreeIfNeeded()
+            record(.clearTransform)
             overlayContentView.layer?.transform = CATransform3DIdentity
+            record(.hideOverlayContainer)
             overlayClipView.isHidden = true
+            record(.hideSidebarAccessibility)
             sidebarChild.view.setAccessibilityHidden(true)
         }
+        record(.endNoActionsTransaction)
+        isPerformingHostHandoff = false
         hostPresentationState.settle(mode: .hidden, effectiveVisibleWidth: 0)
+        record(.enableEdgeTracking)
         setEdgeTrackingEnabled(true)
     }
 
@@ -683,8 +712,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // Report the rendered pane width, not just the requested target. AppKit
         // can preserve a wider child during first layout or constraint pressure;
         // SwiftUI's sidebar mode must follow the pane that actually rendered.
-        onLiveWidthChange?(rendered)
-        hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
+        if !isPerformingHostHandoff {
+            onLiveWidthChange?(rendered)
+            hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
+        }
     }
 
     private func applyHiddenPosition() {
@@ -774,7 +805,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard !isSettingPositionProgrammatically, !isSidebarHidden else { return }
+        guard !isSettingPositionProgrammatically, !isPerformingHostHandoff, !isSidebarHidden else {
+            return
+        }
         let width = sidebarPaneWidth
         // A user divider drag into expanded territory is the other source of a
         // restore target, so record it here too.

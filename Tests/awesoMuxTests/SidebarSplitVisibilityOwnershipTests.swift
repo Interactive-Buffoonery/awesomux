@@ -21,5 +21,8 @@ struct SidebarSplitVisibilityOwnershipTests {
         #expect(!body.contains("setVisibility"))
         #expect(!body.contains("setOverlayVisible"))
         #expect(!body.contains("setPersistentVisible"))
+        #expect(!body.contains("setEdgeTrackingEnabled"))
+        #expect(!body.contains("setSidebarPosition"))
+        #expect(!body.contains("terminalMinimumWidth ="))
     }
 }

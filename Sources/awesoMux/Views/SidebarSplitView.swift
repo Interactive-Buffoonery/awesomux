@@ -61,15 +61,12 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     }
 
     func updateNSViewController(_ controller: SidebarSplitController, context: Context) {
-        controller.terminalMinimumWidth = terminalMinimumWidth
         controller.onLiveWidthChange = onLiveWidthChange
         controller.onCommitWidth = onCommitWidth
         controller.onSidebarFocusHandoff = onSidebarFocusHandoff
         controller.onEdgePointerMove = onEdgePointerMove
         controller.onEdgeExit = onEdgeExit
         controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
-        controller.setSidebarPosition(position)
-        controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
         precondition(controller.hostPresentationState === hostPresentation)
         // Re-host each pane's root view so @Observable / @Bindable updates inside the
         // panes propagate. SwiftUI diffs the new root against the old, so this is

@@ -61,6 +61,12 @@ enum SidebarHostHandoffAction: Equatable {
     case hideOverlayContainer
     case restoreSidebarResponder
     case endNoActionsTransaction
+    case captureSidebarAccessibility
+    case handOffSidebarFocus
+    case setHiddenState
+    case applySingleCollapseIntent
+    case hideSidebarAccessibility
+    case enableEdgeTracking
 }
 
 enum SidebarPhysicalEdge: Equatable {
