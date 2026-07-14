@@ -510,4 +510,78 @@ import Testing
 
         #expect(layout.documentSendTarget(for: doc.id) == nil)
     }
+
+    @Test func documentNudgeTargetAllowsLocalDocumentIntoDeclaredLocalPane() {
+        let terminal = TerminalPane(
+            title: "alice@remote:~/repo",
+            workingDirectory: "/tmp",
+            remoteHost: "remote.example",
+            remoteSSHTarget: "remote-alias",
+            executionPlan: .local
+        )
+        let doc = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/a.md"),
+            title: "a.md",
+            associatedTerminalPaneID: terminal.id
+        )
+        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(terminal),
+                second: .documentGroup(group)
+            ))
+
+        #expect(layout.documentNudgeTarget(for: doc.id) == .available(terminal))
+    }
+
+    @Test func documentNudgeTargetRejectsLocalDocumentIntoDeclaredSSHPane() {
+        let target = RemoteTarget(user: "alice", host: "remote.example")!
+        let terminal = TerminalPane(
+            title: "local-looking-title",
+            workingDirectory: "/Users/alice/repo",
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let doc = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/Users/alice/repo/a.md"),
+            title: "a.md",
+            associatedTerminalPaneID: terminal.id
+        )
+        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(terminal),
+                second: .documentGroup(group)
+            ))
+
+        #expect(
+            layout.documentNudgeTarget(for: doc.id)
+                == .unavailable(.requiresLocalTerminal)
+        )
+    }
+
+    @Test func documentNudgeTargetKeepsRemoteSnapshotNonSendable() {
+        let terminal = TerminalPane(title: "local", workingDirectory: "/tmp", executionPlan: .local)
+        let doc = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/cache.md"),
+            title: "README.md",
+            associatedTerminalPaneID: terminal.id,
+            remoteResourceIdentity: remoteIdentity
+        )
+        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(terminal),
+                second: .documentGroup(group)
+            ))
+
+        #expect(
+            layout.documentNudgeTarget(for: doc.id)
+                == .unavailable(.readOnlyRemoteSnapshot)
+        )
+    }
 }

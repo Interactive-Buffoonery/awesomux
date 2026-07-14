@@ -33,12 +33,38 @@ struct DocumentPaneSendBar: View {
     /// honest-but-generic ("Send to Agent") rather than mislabeling shells.
     private static let agentDetectionTrustworthy = false
 
+    private var nudgeResolution: DocumentNudgeTargetResolution {
+        session.layout.documentNudgeTarget(for: pane.id)
+    }
+
     /// The agent running in the terminal the nudge targets. Drives the button label
     /// once `agentDetectionTrustworthy` is true. Uses the same deterministic
     /// target resolver as the send action so nil associations may recover to a
     /// direct sibling, while stale explicit associations still fail closed.
     private var targetAgentKind: AgentKind {
-        session.layout.documentSendTarget(for: pane.id)?.agentKind ?? .shell
+        guard case .available(let target) = nudgeResolution else { return .shell }
+        return target.agentKind
+    }
+
+    private var sendUnavailableDescription: String? {
+        guard case .unavailable(let reason) = nudgeResolution else { return nil }
+        switch reason {
+        case .readOnlyRemoteSnapshot:
+            return String(
+                localized: "Remote Markdown snapshots are read-only and cannot be sent",
+                comment: "Unavailable reason for sending a read-only remote Markdown snapshot to an agent"
+            )
+        case .terminalUnavailable:
+            return String(
+                localized: "This document's terminal isn't available",
+                comment: "Unavailable reason for sending a document when its associated terminal is gone"
+            )
+        case .requiresLocalTerminal:
+            return String(
+                localized: "Local document paths can only be sent to a local terminal",
+                comment: "Unavailable reason for sending a Mac-local document path to a declared SSH terminal"
+            )
+        }
     }
 
     /// "Send to Claude" / "Send to Codex" / … when the associated terminal's agent
@@ -64,6 +90,7 @@ struct DocumentPaneSendBar: View {
                 SendToAgentButton(
                     title: sendButtonTitle,
                     failed: nudgeFailed,
+                    unavailableDescription: sendUnavailableDescription,
                     action: performNudge
                 )
                 .frame(height: 28)
@@ -105,8 +132,9 @@ struct DocumentPaneSendBar: View {
         // activePaneID fallback: live stored associations win, nil associations
         // may recover to the document group's direct split sibling, and stale
         // explicit associations fail closed rather than guessing.
-        guard let targetPane = session.layout.documentSendTarget(for: pane.id) else {
-            reportNudgeFailure()
+        guard case .available(let targetPane) = session.layout.documentNudgeTarget(for: pane.id)
+        else {
+            reportNudgeUnavailable()
             return
         }
         let targetID = targetPane.id
@@ -132,6 +160,17 @@ struct DocumentPaneSendBar: View {
         } else {
             reportNudgeFailure()
         }
+    }
+
+    private func reportNudgeUnavailable() {
+        nudgeFailed = true
+        TerminalAccessibilityAnnouncer.announce(
+            sendUnavailableDescription
+                ?? String(
+                    localized: "Couldn't send — this document's terminal isn't available",
+                    comment: "VoiceOver announcement when a document has no eligible send target"
+                )
+        )
     }
 
     private func reportNudgeFailure() {
@@ -269,6 +308,7 @@ enum DocumentPaneChrome {
 private struct SendToAgentButton: NSViewRepresentable {
     let title: String
     let failed: Bool
+    let unavailableDescription: String?
     let action: () -> Void
 
     func makeNSView(context: Context) -> NSButton {
@@ -290,38 +330,47 @@ private struct SendToAgentButton: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSButton, context: Context) {
         context.coordinator.action = action
-        // Catppuccin Mauve normally; Peach when the last attempt found no live surface.
-        let accent = NSColor(failed ? Color.aw.peach : Color.aw.mauve)
+        let isEnabled = unavailableDescription == nil
+        nsView.isEnabled = isEnabled
+        let showsFailure = failed && isEnabled
+        let accent = NSColor(isEnabled ? (showsFailure ? Color.aw.peach : Color.aw.mauve) : Color.aw.text2)
         nsView.layer?.backgroundColor = accent.withAlphaComponent(0.15).cgColor
         nsView.layer?.borderColor = accent.cgColor
         // The failed state also swaps the glyph (paperplane → warning triangle):
         // the hue shift alone is a color-only signal that colorblind users can't
         // perceive (WCAG 1.4.1), and this button can't be keyboard-focused for
         // the tooltip.
-        nsView.attributedTitle = Self.makeTitle(title, color: accent, failed: failed)
+        nsView.attributedTitle = Self.makeTitle(title, color: accent, failed: showsFailure)
         // Reflect the failure state in the label too — color + tooltip alone aren't
         // conveyed to VoiceOver, so failure would otherwise be invisible to it.
         nsView.setAccessibilityLabel(
-            failed
-                ? String(
-                    localized: "\(title) — unavailable: this document's terminal isn't running",
-                    comment: "Accessibility label for the send button when its terminal is gone"
+            unavailableDescription.map {
+                String(
+                    localized: "\(title) — unavailable: \($0)",
+                    comment: "Accessibility label for the document send button when its target is ineligible"
                 )
-                : String(
-                    localized: "\(title) — sends your review comments to this document's terminal",
-                    comment: "Accessibility label for the document send button"
-                )
+            }
+                ?? (failed
+                    ? String(
+                        localized: "\(title) — unavailable: this document's terminal isn't running",
+                        comment: "Accessibility label for the send button when its terminal is gone"
+                    )
+                    : String(
+                        localized: "\(title) — sends your review comments to this document's terminal",
+                        comment: "Accessibility label for the document send button"
+                    ))
         )
         nsView.toolTip =
-            failed
-            ? String(
-                localized: "This document's terminal isn't available — reopen the document from a running terminal to reconnect",
-                comment: "Tooltip for the send button when its terminal is gone"
-            )
-            : String(
-                localized: "Send review comments to the agent in this document's terminal",
-                comment: "Tooltip for the document send button"
-            )
+            unavailableDescription
+            ?? (failed
+                ? String(
+                    localized: "This document's terminal isn't available — reopen the document from a running terminal to reconnect",
+                    comment: "Tooltip for the send button when its terminal is gone"
+                )
+                : String(
+                    localized: "Send review comments to the agent in this document's terminal",
+                    comment: "Tooltip for the document send button"
+                ))
     }
 
     /// Builds a centered "✈ Send to Agent" title with the glyph as an inline,
