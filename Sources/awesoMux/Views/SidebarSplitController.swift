@@ -2,64 +2,6 @@ import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
 
-@MainActor
-private final class SidebarWidthAnimation: NSObject {
-    private let fromWidth: CGFloat
-    private let toWidth: CGFloat
-    private let duration: TimeInterval
-    private let update: (CGFloat) -> Void
-    private let completion: () -> Void
-    private let startTime = ProcessInfo.processInfo.systemUptime
-    private var timer: Timer?
-
-    init(
-        fromWidth: CGFloat,
-        toWidth: CGFloat,
-        duration: TimeInterval,
-        update: @escaping (CGFloat) -> Void,
-        completion: @escaping () -> Void
-    ) {
-        self.fromWidth = fromWidth
-        self.toWidth = toWidth
-        self.duration = max(0, duration)
-        self.update = update
-        self.completion = completion
-    }
-
-    func start() {
-        guard duration > 0 else {
-            update(toWidth)
-            completion()
-            return
-        }
-        let timer = Timer(
-            timeInterval: 1 / 120,
-            target: self,
-            selector: #selector(tick),
-            userInfo: nil,
-            repeats: true
-        )
-        self.timer = timer
-        RunLoop.main.add(timer, forMode: .common)
-        tick()
-    }
-
-    func cancel() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    @objc private func tick() {
-        let elapsed = ProcessInfo.processInfo.systemUptime - startTime
-        let progress = min(1, max(0, elapsed / duration))
-        let eased = progress * progress * (3 - 2 * progress)
-        update(fromWidth + (toWidth - fromWidth) * eased)
-        guard progress >= 1 else { return }
-        cancel()
-        completion()
-    }
-}
-
 private final class SidebarSubviewOrder {
     let sidebar: NSView
     let detail: NSView
@@ -104,15 +46,6 @@ private final class SidebarSubviewOrder {
 /// clock (kills the seam shimmer) and the existing `SurfaceResizeUpdatePolicy`
 /// coalescing engages for free.
 final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
-    typealias AnimationRunner = (
-        TimeInterval, @escaping () -> Void, @escaping () -> Void
-    ) -> Void
-
-    struct AnimationRecord: Equatable {
-        let fromWidth: CGFloat
-        let toWidth: CGFloat
-        let duration: TimeInterval
-    }
     /// Fires on every divider resize tick with the sidebar pane's live width.
     var onLiveWidthChange: ((CGFloat) -> Void)?
 
@@ -143,15 +76,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var sidebarPosition: AppearanceConfig.SidebarPosition = .left
     private var isSidebarHidden = false
     private var isEdgeTrackingEnabled = false
-    private var animationGeneration = 0
-    private var requestedSidebarVisible = true
-    private var isHoverAnimating = false
-    private var activeHoverTargetWidth: CGFloat?
-    private var activeHoverPaneExtent: CGFloat?
-    private let animationRunner: AnimationRunner?
-    private var widthAnimation: SidebarWidthAnimation?
-    private(set) var lastAnimationForTesting: AnimationRecord?
-    private(set) var lastAnimationTargetCoordinateForTesting: CGFloat?
 
     /// Set around our own `setPosition` calls so `splitViewDidResizeSubviews` (which
     /// also fires for programmatic position changes and window layout) does not echo
@@ -171,14 +95,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// window-widen must NOT auto-expand. Set by every deliberate `setSidebarWidth`.
     private var userChoseRail = false
 
-    init(
-        sidebar: NSViewController,
-        detail: NSViewController,
-        animationRunner: AnimationRunner? = nil
-    ) {
+    init(sidebar: NSViewController, detail: NSViewController) {
         sidebarChild = sidebar
         detailChild = detail
-        self.animationRunner = animationRunner
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -192,7 +111,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // A user divider drag runs a synchronous tracking loop inside the split
         // view's mouseDown; commit the settled width when it returns.
         splitView.onDragEnded = { [weak self] in
-            guard let self, !self.isSidebarHidden, !self.isHoverAnimating else { return }
+            guard let self, !self.isSidebarHidden else { return }
             self.onCommitWidth?(self.sidebarPaneWidth)
         }
         splitView.sidebarWidthProvider = { [weak self] in self?.sidebarPaneWidth }
@@ -233,14 +152,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             width: trackingWidth,
             height: view.bounds.height
         )
-        if isHoverAnimating, activeHoverPaneExtent != paneExtent {
-            let visible = requestedSidebarVisible
-            if let pendingWidth {
-                self.pendingWidth = min(pendingWidth, maxSidebarWidth)
-            }
-            cancelHoverAnimation()
-            applySidebarVisibilityImmediately(visible, rememberCurrentWidth: false)
-        }
         guard !isSidebarHidden else {
             applyHiddenPosition()
             return
@@ -262,7 +173,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// Move the divider so the sidebar pane is `width` points wide, clamped to
     /// `[collapsedWidth, maxSidebarWidth]`. Un-animated.
     func setSidebarWidth(_ width: CGFloat) {
-        if isHoverAnimating { cancelHoverAnimation() }
         // A deliberate request decides whether the rail is the user's choice: if
         // they're asking for a rail-band width, honor it and don't auto-expand on a
         // later window-widen; otherwise they want an expanded sidebar.
@@ -289,9 +199,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     func setSidebarPosition(_ position: AppearanceConfig.SidebarPosition) {
         guard position != sidebarPosition else { return }
-        let wasHoverAnimating = isHoverAnimating
-        let requestedVisibility = requestedSidebarVisible
-        if wasHoverAnimating { cancelHoverAnimation() }
         let width = sidebarPaneWidth
         sidebarPosition = position
         edgeTrackingView.position = position
@@ -311,11 +218,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     .takeUnretainedValue().compare(lhs, rhs)
             }, context: Unmanaged.passUnretained(order).toOpaque())
         splitView.adjustSubviews()
-        if wasHoverAnimating {
-            applySidebarVisibilityImmediately(
-                requestedVisibility, rememberCurrentWidth: false
-            )
-        } else if isSidebarHidden {
+        if isSidebarHidden {
             applyHiddenPosition()
         } else {
             applyPosition(width)
@@ -326,47 +229,18 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func setSidebarHidden(_ hidden: Bool) {
-        setSidebarVisible(!hidden, transition: .immediate, reduceMotion: false)
-    }
-
-    func setSidebarVisible(
-        _ visible: Bool,
-        transition: SidebarSplitTransition,
-        reduceMotion: Bool
-    ) {
-        let target = targetWidth(forVisible: visible)
-        if case .hover = transition,
-            isHoverAnimating,
-            requestedSidebarVisible == visible,
-            activeHoverTargetWidth == target
-        {
-            return
-        }
-        if !isHoverAnimating, abs(sidebarPaneWidth - target) < 0.5 {
-            requestedSidebarVisible = visible
-            normalizeSidebarVisibility(visible)
-            return
-        }
-        let wasHoverAnimating = isHoverAnimating
-        cancelHoverAnimation()
-        requestedSidebarVisible = visible
-        if abs(sidebarPaneWidth - target) < 0.5 {
-            normalizeSidebarVisibility(visible)
-            return
-        }
-        switch transition {
-        case .immediate:
-            applySidebarVisibilityImmediately(
-                visible, rememberCurrentWidth: !wasHoverAnimating
-            )
-        case let .hover(duration) where !reduceMotion:
-            animateSidebarVisibility(
-                visible, duration: duration, rememberCurrentWidth: !wasHoverAnimating
-            )
-        case .hover:
-            applySidebarVisibilityImmediately(
-                visible, rememberCurrentWidth: !wasHoverAnimating
-            )
+        guard hidden != isSidebarHidden else { return }
+        if hidden {
+            handOffSidebarFocusIfNeeded()
+            pendingWidth = sidebarPaneWidth
+            recordIfExpanded(sidebarPaneWidth)
+            isSidebarHidden = true
+            applyHiddenPosition()
+        } else {
+            isSidebarHidden = false
+            let width = pendingWidth ?? lastExpandedPaneWidth
+            pendingWidth = nil
+            applyPosition(width)
         }
     }
 
@@ -380,14 +254,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
     }
 
-    func installVisibilityHandler(on proxy: SidebarSplitProxy) {
-        proxy.setVisibility = { [weak self] visible, transition, reduceMotion in
-            self?.setSidebarVisible(
-                visible, transition: transition, reduceMotion: reduceMotion
-            )
-        }
-    }
-
     func simulateDividerDragCompletionForTesting() {
         splitView.onDragEnded?()
     }
@@ -395,13 +261,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var edgeTrackingFrameForTesting: CGRect { edgeTrackingView.frame }
     var isEdgeTrackingVisibleForTesting: Bool { !edgeTrackingView.isHidden }
     var splitPaneViewsForTesting: [NSView] { splitView.subviews }
-    var paneExtentForTesting: CGFloat { paneExtent }
-    var animationGenerationForTesting: Int { animationGeneration }
-
-    func setSidebarPaneWidthForTesting(_ width: CGFloat) {
-        setDividerPosition(width)
-    }
-
     func simulateTrackingAvailabilityLostForTesting() {
         onTrackingAvailabilityLost?()
     }
@@ -501,120 +360,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         max(0, splitView.bounds.width - splitView.dividerThickness)
     }
 
-    private func targetWidth(forVisible visible: Bool) -> CGFloat {
-        guard visible else { return 0 }
-        return Self.clampedWidth(
-            pendingWidth ?? lastExpandedPaneWidth,
-            maxWidth: maxSidebarWidth
-        )
-    }
-
-    private func cancelHoverAnimation() {
-        widthAnimation?.cancel()
-        widthAnimation = nil
-        animationGeneration += 1
-        isHoverAnimating = false
-        activeHoverTargetWidth = nil
-        activeHoverPaneExtent = nil
-    }
-
-    private func normalizeSidebarVisibility(_ visible: Bool) {
-        isSidebarHidden = !visible
-        requestedSidebarVisible = visible
-        isHoverAnimating = false
-        activeHoverTargetWidth = nil
-        activeHoverPaneExtent = nil
-        if visible { pendingWidth = nil }
-    }
-
-    private func applySidebarVisibilityImmediately(
-        _ visible: Bool,
-        rememberCurrentWidth: Bool = true
-    ) {
-        if !visible {
-            handOffSidebarFocusIfNeeded()
-            let current = sidebarPaneWidth
-            if rememberCurrentWidth, current > 0 { pendingWidth = current }
-            recordIfExpanded(current)
-            isSidebarHidden = true
-            applyHiddenPosition()
-        } else {
-            isSidebarHidden = false
-            let target = targetWidth(forVisible: true)
-            pendingWidth = nil
-            applyPosition(target)
-        }
-        normalizeSidebarVisibility(visible)
-    }
-
-    private func animateSidebarVisibility(
-        _ visible: Bool,
-        duration: TimeInterval,
-        rememberCurrentWidth: Bool
-    ) {
-        let fromWidth = sidebarPaneWidth
-        let target = targetWidth(forVisible: visible)
-        if !visible {
-            handOffSidebarFocusIfNeeded()
-            if rememberCurrentWidth, fromWidth > 0 { pendingWidth = fromWidth }
-            recordIfExpanded(fromWidth)
-        } else {
-            isSidebarHidden = false
-        }
-        isHoverAnimating = true
-        activeHoverTargetWidth = target
-        activeHoverPaneExtent = paneExtent
-        animationGeneration += 1
-        let generation = animationGeneration
-        lastAnimationForTesting = .init(
-            fromWidth: fromWidth, toWidth: target, duration: duration
-        )
-        let coordinate = Self.dividerCoordinate(
-            forSidebarWidth: target, paneExtent: paneExtent, position: sidebarPosition
-        )
-        lastAnimationTargetCoordinateForTesting = coordinate
-        if let animationRunner {
-            animationRunner(
-                duration,
-                { [weak self] in
-                    self?.setDividerPosition(target)
-                },
-                { [weak self] in
-                    Task { @MainActor in self?.finishHoverAnimation(generation: generation) }
-                })
-        } else {
-            let animation = SidebarWidthAnimation(
-                fromWidth: fromWidth,
-                toWidth: target,
-                duration: duration,
-                update: { [weak self] width in self?.setDividerPosition(width) },
-                completion: { [weak self] in
-                    self?.finishHoverAnimation(generation: generation)
-                }
-            )
-            widthAnimation = animation
-            animation.start()
-        }
-    }
-
-    private func finishHoverAnimation(generation: Int) {
-        guard generation == animationGeneration else { return }
-        widthAnimation = nil
-        let visible = requestedSidebarVisible
-        let target = activeHoverTargetWidth
-        isHoverAnimating = false
-        activeHoverTargetWidth = nil
-        activeHoverPaneExtent = nil
-        if visible {
-            pendingWidth = nil
-            isSidebarHidden = false
-            setDividerPosition(target ?? targetWidth(forVisible: true))
-        } else {
-            isSidebarHidden = true
-            setDividerPosition(0)
-        }
-    }
-
     private func setDividerPosition(_ width: CGFloat) {
         let coordinate = Self.dividerCoordinate(
             forSidebarWidth: width, paneExtent: paneExtent, position: sidebarPosition
@@ -657,13 +402,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     private func reclampToBounds() {
         guard splitView.bounds.width > 0 else { return }
-        if isHoverAnimating {
-            guard activeHoverPaneExtent != paneExtent else { return }
-            let visible = requestedSidebarVisible
-            cancelHoverAnimation()
-            applySidebarVisibilityImmediately(visible, rememberCurrentWidth: false)
-            return
-        }
         switch Self.reclampAction(
             currentWidth: sidebarPaneWidth,
             maxWidth: maxSidebarWidth,
@@ -687,9 +425,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         constrainMinCoordinate proposedMinimumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        if isHoverAnimating {
-            return sidebarPosition == .left ? 0 : terminalMinimumWidth
-        }
         if isSidebarHidden { return sidebarPosition == .left ? 0 : paneExtent }
         return sidebarPosition == .left
             ? SidebarWidthPolicy.collapsedWidth
@@ -701,9 +436,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         constrainMaxCoordinate proposedMaximumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        if isHoverAnimating {
-            return sidebarPosition == .left ? maxSidebarWidth : paneExtent
-        }
         if isSidebarHidden { return sidebarPosition == .left ? 0 : paneExtent }
         return sidebarPosition == .left
             ? maxSidebarWidth
@@ -719,7 +451,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         constrainSplitPosition proposedPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        if isHoverAnimating { return proposedPosition }
         if isSidebarHidden { return sidebarPosition == .left ? 0 : paneExtent }
         let width = Self.sidebarWidth(
             forDividerCoordinate: proposedPosition, paneExtent: paneExtent, position: sidebarPosition
@@ -740,7 +471,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard !isSettingPositionProgrammatically, !isSidebarHidden, !isHoverAnimating else { return }
+        guard !isSettingPositionProgrammatically, !isSidebarHidden else { return }
         let width = sidebarPaneWidth
         // A user divider drag into expanded territory is the other source of a
         // restore target, so record it here too.

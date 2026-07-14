@@ -42,43 +42,4 @@ struct SidebarHoverIntegrationTests {
         #expect(!result.shouldReveal)
     }
 
-    @Test("only pointer transitions animate")
-    func transitionKinds() {
-        #expect(
-            SidebarHoverTransitionPolicy.transition(for: .pointer, reduceMotion: false)
-                == .hover(duration: 0.140)
-        )
-        #expect(
-            SidebarHoverTransitionPolicy.transition(for: .pointer, reduceMotion: true) == .immediate
-        )
-        #expect(
-            SidebarHoverTransitionPolicy.transition(for: .explicit, reduceMotion: false) == .immediate
-        )
-    }
-
-    @Test("availability and explicit invalidation transitions are immediate")
-    func invalidationTransitionsAreImmediate() {
-        for source in [SidebarVisibilitySource.explicit, .explicit] {
-            #expect(
-                SidebarHoverTransitionPolicy.transition(for: source, reduceMotion: false)
-                    == .immediate
-            )
-        }
-    }
-
-    @Test("persistent visibility ignores a stale dormant pointer transition")
-    func persistentVisibilityWinsPointerOrdering() {
-        #expect(
-            SidebarRuntimeVisibilityPolicy.isVisible(
-                proximityState: .dormant,
-                userWantsHidden: false
-            )
-        )
-        #expect(
-            !SidebarRuntimeVisibilityPolicy.isVisible(
-                proximityState: .dormant,
-                userWantsHidden: true
-            )
-        )
-    }
 }
