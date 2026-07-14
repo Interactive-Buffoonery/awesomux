@@ -4,6 +4,8 @@ final class SidebarOverlayClipView: NSView {
     weak var contentView: NSView?
     var presentationTranslationX: () -> CGFloat = { 0 }
 
+    override func accessibilityIsIgnored() -> Bool { true }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, bounds.contains(point), let contentView else { return nil }
         let translation = presentationTranslationX()
