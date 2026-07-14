@@ -269,4 +269,51 @@ struct SidebarSessionTileEquatableTests {
 
         #expect(tileA != tileB)
     }
+
+    @Test("isPinned difference compares NOT equal")
+    func isPinnedChangeRerenders() {
+        let onePane = pane()
+        let sessionValue = session(panes: [onePane])
+
+        let tileA = tile(session: sessionValue, isPinned: false)
+        let tileB = tile(session: sessionValue, isPinned: true)
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("pinnedOriginGroupName difference compares NOT equal")
+    func pinnedOriginGroupNameChangeRerenders() {
+        let onePane = pane()
+        let sessionValue = session(panes: [onePane])
+
+        let tileA = tile(session: sessionValue, isPinned: true, pinnedOriginGroupName: "Group A")
+        let tileB = tile(session: sessionValue, isPinned: true, pinnedOriginGroupName: "Group B")
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("isKeyboardNavigating binding difference compares NOT equal")
+    func isKeyboardNavigatingChangeRerenders() {
+        let onePane = pane()
+        let sessionValue = session(panes: [onePane])
+
+        let tileA = tile(session: sessionValue, isKeyboardNavigating: false)
+        let tileB = tile(session: sessionValue, isKeyboardNavigating: true)
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("per-pane agentKind difference compares NOT equal (rollup icon on priority ties)")
+    func agentKindChangeRerenders() {
+        let sharedID = UUID()
+        let shellPane = pane(id: sharedID, kind: .shell)
+        let claudePane = pane(id: sharedID, kind: .claudeCode)
+        let otherPane = pane(title: "other")
+
+        let sessionID = UUID()
+        let tileA = tile(session: session(id: sessionID, panes: [shellPane, otherPane]))
+        let tileB = tile(session: session(id: sessionID, panes: [claudePane, otherPane]))
+
+        #expect(tileA != tileB)
+    }
 }
