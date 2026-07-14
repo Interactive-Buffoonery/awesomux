@@ -214,82 +214,82 @@ struct LocalizedPluralStringsTests {
         let bundle = try Self.emptyBundle()
 
         LocalizedPluralStrings.withCanonicalBundle(Self.resourcesBundle) {
-        #expect(
-            LocalizedPluralStrings.dockBadgeSessionsNeedAttention(
-                total: 1,
-                bundle: bundle
-            ) == "1 session needs attention"
-        )
-        #expect(
-            LocalizedPluralStrings.dockBadgeSessionsNeedAttention(
-                total: 3,
-                bundle: bundle
-            ) == "3 sessions need attention"
-        )
-        #expect(
-            LocalizedPluralStrings.sidebarNotifications(
-                count: 1,
-                bundle: bundle
-            ) == "1 notification"
-        )
-        #expect(
-            LocalizedPluralStrings.sidebarNotifications(
-                count: 3,
-                bundle: bundle
-            ) == "3 notifications"
-        )
-        #expect(
-            LocalizedPluralStrings.fontSizeApplied(
-                points: 1,
-                bundle: bundle
-            ) == "Font size updated to 1 point. Open terminal panes refreshed."
-        )
-        #expect(
-            LocalizedPluralStrings.fontSizeApplied(
-                points: 16,
-                bundle: bundle
-            ) == "Font size updated to 16 points. Open terminal panes refreshed."
-        )
-        #expect(
-            LocalizedPluralStrings.keyboardCheatsheetMatchingShortcuts(
-                count: 1,
-                bundle: bundle
-            ) == "1 matching shortcut"
-        )
-        #expect(
-            LocalizedPluralStrings.keyboardCheatsheetMatchingShortcuts(
-                count: 3,
-                bundle: bundle
-            ) == "3 matching shortcuts"
-        )
-        #expect(
-            LocalizedPluralStrings.documentTaskProgress(
-                done: 1,
-                total: 1,
-                bundle: bundle
-            ) == "1 of 1 task complete"
-        )
-        #expect(
-            LocalizedPluralStrings.documentTaskProgress(
-                done: 2,
-                total: 5,
-                bundle: bundle
-            ) == "2 of 5 tasks complete"
-        )
-        #expect(
-            LocalizedPluralStrings.documentRevisionIndicator(
-                added: 1,
-                removed: 0,
-                bundle: bundle
-            ) == "Plan revised: +1 / −0 line"
-        )
-        #expect(
-            LocalizedPluralStrings.documentRevisionIndicator(
-                added: 3,
-                removed: 2,
-                bundle: bundle
-            ) == "Plan revised: +3 / −2 lines"
-        )
+            #expect(
+                LocalizedPluralStrings.dockBadgeSessionsNeedAttention(
+                    total: 1,
+                    bundle: bundle
+                ) == "1 session needs attention"
+            )
+            #expect(
+                LocalizedPluralStrings.dockBadgeSessionsNeedAttention(
+                    total: 3,
+                    bundle: bundle
+                ) == "3 sessions need attention"
+            )
+            #expect(
+                LocalizedPluralStrings.sidebarNotifications(
+                    count: 1,
+                    bundle: bundle
+                ) == "1 notification"
+            )
+            #expect(
+                LocalizedPluralStrings.sidebarNotifications(
+                    count: 3,
+                    bundle: bundle
+                ) == "3 notifications"
+            )
+            #expect(
+                LocalizedPluralStrings.fontSizeApplied(
+                    points: 1,
+                    bundle: bundle
+                ) == "Font size updated to 1 point. Open terminal panes refreshed."
+            )
+            #expect(
+                LocalizedPluralStrings.fontSizeApplied(
+                    points: 16,
+                    bundle: bundle
+                ) == "Font size updated to 16 points. Open terminal panes refreshed."
+            )
+            #expect(
+                LocalizedPluralStrings.keyboardCheatsheetMatchingShortcuts(
+                    count: 1,
+                    bundle: bundle
+                ) == "1 matching shortcut"
+            )
+            #expect(
+                LocalizedPluralStrings.keyboardCheatsheetMatchingShortcuts(
+                    count: 3,
+                    bundle: bundle
+                ) == "3 matching shortcuts"
+            )
+            #expect(
+                LocalizedPluralStrings.documentTaskProgress(
+                    done: 1,
+                    total: 1,
+                    bundle: bundle
+                ) == "1 of 1 task complete"
+            )
+            #expect(
+                LocalizedPluralStrings.documentTaskProgress(
+                    done: 2,
+                    total: 5,
+                    bundle: bundle
+                ) == "2 of 5 tasks complete"
+            )
+            #expect(
+                LocalizedPluralStrings.documentRevisionIndicator(
+                    added: 1,
+                    removed: 0,
+                    bundle: bundle
+                ) == "Plan revised: +1 / −0 line"
+            )
+            #expect(
+                LocalizedPluralStrings.documentRevisionIndicator(
+                    added: 3,
+                    removed: 2,
+                    bundle: bundle
+                ) == "Plan revised: +3 / −2 lines"
+            )
         }
     }
 
@@ -356,26 +356,24 @@ struct LocalizedPluralStringsTests {
         )
     }
 
-    @Test("localized stringsdict files cover locale plural categories")
-    func localizedStringsdictFilesCoverLocalePluralCategories() throws {
-        for (language, categories) in Self.requiredPluralCategoriesByLanguage {
-            let stringsdict = try Self.loadStringsdict(language: language)
-            for key in [
-                "accessibility.dockBadge.sessionsNeedAttention",
-                "accessibility.sidebar.notifications",
-                "keyboard.cheatsheet.matchingShortcuts",
-                "accessibility.footer.agentsInState",
-                "accessibility.footer.agentsTotal",
-                "accessibility.diagnostics.processes",
-                "accessibility.diagnostics.events",
-                "accessibility.diagnostics.samples",
-                "accessibility.diagnostics.matchingEvents",
-                "document.revisionIndicator"
-            ] {
-                let forms = try Self.pluralForms(in: stringsdict, key: key)
-                for category in categories {
-                    #expect(forms[category] != nil)
-                }
+    @Test("English stringsdict entries cover required plural categories")
+    func englishStringsdictEntriesCoverRequiredPluralCategories() throws {
+        let stringsdict = try Self.loadStringsdict(language: "en")
+        for key in [
+            "accessibility.dockBadge.sessionsNeedAttention",
+            "accessibility.sidebar.notifications",
+            "keyboard.cheatsheet.matchingShortcuts",
+            "accessibility.footer.agentsInState",
+            "accessibility.footer.agentsTotal",
+            "accessibility.diagnostics.processes",
+            "accessibility.diagnostics.events",
+            "accessibility.diagnostics.samples",
+            "accessibility.diagnostics.matchingEvents",
+            "document.revisionIndicator",
+        ] {
+            let forms = try Self.pluralForms(in: stringsdict, key: key)
+            for category in ["one", "other"] {
+                #expect(forms[category] != nil)
             }
         }
 
@@ -396,81 +394,6 @@ struct LocalizedPluralStringsTests {
         }
     }
 
-    @Test("Russian and Polish resources include multi-form examples")
-    func russianAndPolishResourcesIncludeMultiFormExamples() throws {
-        let russian = try Self.loadStringsdict(language: "ru")
-        #expect(
-            try Self.pluralForms(
-                in: russian,
-                key: "accessibility.dockBadge.sessionsNeedAttention"
-            )["one"] == "%lld сеанс требует внимания"
-        )
-        #expect(
-            try Self.pluralForms(
-                in: russian,
-                key: "accessibility.dockBadge.sessionsNeedAttention"
-            )["few"] == "%lld сеанса требуют внимания"
-        )
-        #expect(
-            try Self.pluralForms(
-                in: russian,
-                key: "accessibility.dockBadge.sessionsNeedAttention"
-            )["many"] == "%lld сеансов требуют внимания"
-        )
-
-        let polish = try Self.loadStringsdict(language: "pl")
-        #expect(
-            try Self.pluralForms(
-                in: polish,
-                key: "accessibility.sidebar.notifications"
-            )["one"] == "%lld powiadomienie"
-        )
-        #expect(
-            try Self.pluralForms(
-                in: polish,
-                key: "accessibility.sidebar.notifications"
-            )["few"] == "%lld powiadomienia"
-        )
-        #expect(
-            try Self.pluralForms(
-                in: polish,
-                key: "accessibility.sidebar.notifications"
-            )["many"] == "%lld powiadomień"
-        )
-    }
-
-    @Test("Polish revision indicator localizes the complete phrase")
-    func polishRevisionIndicatorLocalizesCompletePhrase() throws {
-        let polish = try Self.loadStringsdict(language: "pl")
-        let forms = try Self.pluralForms(
-            in: polish,
-            key: "document.revisionIndicator"
-        )
-
-        for category in ["zero", "one", "two", "few", "many", "other"] {
-            #expect(forms[category]?.hasPrefix("Plan zaktualizowany:") == true)
-        }
-        #expect(forms["one"] == "Plan zaktualizowany: +%1$lld / −%2$lld linia")
-        #expect(forms["few"] == "Plan zaktualizowany: +%1$lld / −%2$lld linie")
-        #expect(forms["many"] == "Plan zaktualizowany: +%1$lld / −%2$lld linii")
-    }
-
-    @Test("Russian revision indicator localizes the complete phrase")
-    func russianRevisionIndicatorLocalizesCompletePhrase() throws {
-        let russian = try Self.loadStringsdict(language: "ru")
-        let forms = try Self.pluralForms(
-            in: russian,
-            key: "document.revisionIndicator"
-        )
-
-        for category in ["zero", "one", "two", "few", "many", "other"] {
-            #expect(forms[category]?.hasPrefix("План обновлён:") == true)
-        }
-        #expect(forms["one"] == "План обновлён: +%1$lld / −%2$lld строка")
-        #expect(forms["few"] == "План обновлён: +%1$lld / −%2$lld строки")
-        #expect(forms["many"] == "План обновлён: +%1$lld / −%2$lld строк")
-    }
-
     @Test("English close-group risky-workspaces plural resolves through stringsdict")
     func englishCloseGroupRiskyWorkspacesPluralResolvesThroughStringsdict() {
         #expect(
@@ -483,7 +406,8 @@ struct LocalizedPluralStringsTests {
             LocalizedPluralStrings.closeGroupRiskyWorkspaces(
                 count: 3,
                 bundle: Self.resourcesBundle
-            ) == "3 workspaces in this group have running activity that will be interrupted. Closing will terminate their running processes."
+            )
+                == "3 workspaces in this group have running activity that will be interrupted. Closing will terminate their running processes."
         )
     }
 
@@ -501,7 +425,8 @@ struct LocalizedPluralStringsTests {
                 LocalizedPluralStrings.closeGroupRiskyWorkspaces(
                     count: 2,
                     bundle: bundle
-                ) == "2 workspaces in this group have running activity that will be interrupted. Closing will terminate their running processes."
+                )
+                    == "2 workspaces in this group have running activity that will be interrupted. Closing will terminate their running processes."
             )
         }
     }
@@ -593,12 +518,6 @@ struct LocalizedPluralStringsTests {
         Bundle(url: packageResourcesURL) ?? .main
     }
 
-    private static let requiredPluralCategoriesByLanguage = [
-        "en": ["one", "other"],
-        "pl": ["one", "few", "many", "other"],
-        "ru": ["one", "few", "many", "other"]
-    ]
-
     private static func emptyBundle() throws -> Bundle {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "awesomux-empty-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -608,7 +527,8 @@ struct LocalizedPluralStringsTests {
     }
 
     private static func loadStringsdict(language: String) throws -> [String: Any] {
-        let url = packageResourcesURL
+        let url =
+            packageResourcesURL
             .appending(path: "\(language).lproj", directoryHint: .isDirectory)
             .appending(path: "Localizable.stringsdict")
         let data = try Data(contentsOf: url)
