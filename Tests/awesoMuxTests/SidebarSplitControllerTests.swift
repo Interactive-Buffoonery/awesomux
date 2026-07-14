@@ -336,13 +336,17 @@ struct SidebarSplitControllerTests {
         controller.setSidebarHidden(true)
         controller.setSidebarVisible(
             true, transition: .hover(duration: 0.140), reduceMotion: false)
+        let heldGeneration = controller.animationGenerationForTesting
         harness.requests[0].changes()
 
         controller.setSidebarPosition(.right)
+        #expect(controller.animationGenerationForTesting > heldGeneration)
+        #expect(abs(sidebar.view.frame.width - 300) < 1)
+        controller.setSidebarVisible(false, transition: .immediate, reduceMotion: false)
         harness.requests[0].completion()
         await Task.yield()
 
-        #expect(abs(sidebar.view.frame.width - 300) < 1)
+        #expect(sidebar.view.frame.width == 0)
         #expect(controller.splitPaneViewsForTesting.last === sidebar.view)
     }
 
