@@ -461,7 +461,12 @@ private struct AppTitlebarView: View {
     let sidebarLiveWidth: SidebarLiveWidth
     let sidebarPosition: AppearanceConfig.SidebarPosition
     let hostPresentation: SidebarHostPresentationState
-    private var sidebarWidth: CGFloat { hostPresentation.effectiveVisibleWidth }
+    private var sidebarWidth: CGFloat {
+        if case .persistent = hostPresentation.mode {
+            return hostPresentation.effectiveVisibleWidth
+        }
+        return 0
+    }
     private var layoutPolicy: SidebarPresentationLayoutPolicy {
         SidebarPresentationLayoutPolicy(position: sidebarPosition)
     }
@@ -478,13 +483,34 @@ private struct AppTitlebarView: View {
     private static let brandIconMinimumWidth = AppTitlebarMetrics.trafficLightClearance + 28
 
     var body: some View {
-        HStack(spacing: 0) {
-            if sidebarPosition == .left {
-                sidebarColumn(isPhysicalLeading: true)
-                contentColumn(isPhysicalLeading: false)
-            } else {
-                contentColumn(isPhysicalLeading: true)
-                sidebarColumn(isPhysicalLeading: false)
+        ZStack(alignment: sidebarPosition == .left ? .leading : .trailing) {
+            HStack(spacing: 0) {
+                if sidebarPosition == .left {
+                    sidebarColumn(width: sidebarWidth, isPhysicalLeading: true)
+                    contentColumn(isPhysicalLeading: false)
+                } else {
+                    contentColumn(isPhysicalLeading: true)
+                    sidebarColumn(width: sidebarWidth, isPhysicalLeading: false)
+                }
+            }
+
+            switch hostPresentation.mode {
+            case .persistent:
+                EmptyView()
+            case .overlay:
+                TimelineView(.animation) { _ in
+                    sidebarColumn(
+                        width: hostPresentation.titlebarPresentationWidth,
+                        isPhysicalLeading: sidebarPosition == .left
+                    )
+                    .offset(x: hostPresentation.currentTitlebarTranslationX)
+                }
+            case .hidden:
+                sidebarColumn(
+                    width: hostPresentation.titlebarPresentationWidth,
+                    isPhysicalLeading: sidebarPosition == .left
+                )
+                .offset(x: hostPresentation.titlebarTranslationX)
             }
         }
         // Titlebar height stays fixed: it abuts macOS window chrome
@@ -520,13 +546,13 @@ private struct AppTitlebarView: View {
     /// The wordmark only appears when the sidebar is wide enough to clear
     /// traffic lights and fit the label. Narrow modes keep the titlebar quiet
     /// instead of clipping the brand into the content column.
-    private func sidebarColumn(isPhysicalLeading: Bool) -> some View {
+    private func sidebarColumn(width: CGFloat, isPhysicalLeading: Bool) -> some View {
         HStack(spacing: 0) {
             if layoutPolicy.titlebarLockupAlignment == .trailing {
                 Spacer(minLength: 0)
-                titleLockup
+                titleLockup(width: width)
             } else {
-                titleLockup
+                titleLockup(width: width)
                 Spacer(minLength: 0)
             }
         }
@@ -539,17 +565,17 @@ private struct AppTitlebarView: View {
         )
         .padding(.trailing, layoutPolicy.titlebarLockupOuterPadding)
         .frame(
-            width: sidebarWidth,
+            width: width,
             alignment: layoutPolicy.titlebarLockupAlignment == .trailing ? .trailing : .leading
         )
     }
 
     @ViewBuilder
-    private var titleLockup: some View {
-        if sidebarWidth >= Self.brandWithTextMinimumWidth {
+    private func titleLockup(width: CGFloat) -> some View {
+        if width >= Self.brandWithTextMinimumWidth {
             Brandmark()
                 .allowsHitTesting(false)
-        } else if sidebarWidth >= Self.brandIconMinimumWidth {
+        } else if width >= Self.brandIconMinimumWidth {
             Brandmark(showsText: false)
                 .allowsHitTesting(false)
         }

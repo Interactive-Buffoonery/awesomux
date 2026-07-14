@@ -35,20 +35,52 @@ enum SidebarPresentationRouting {
 final class SidebarHostPresentationState {
     private(set) var mode: SidebarHostMode
     private(set) var effectiveVisibleWidth: CGFloat
+    private(set) var titlebarPresentationWidth: CGFloat
+    private(set) var titlebarTranslationX: CGFloat = 0
+    @ObservationIgnored var overlayPresentationTranslation: (() -> CGFloat?)?
     @ObservationIgnored var onSettleForTesting: (() -> Void)?
 
     init(mode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.expandedWidth)) {
         self.mode = mode
         switch mode {
-        case let .persistent(width), let .overlay(width): effectiveVisibleWidth = width
-        case .hidden: effectiveVisibleWidth = 0
+        case let .persistent(width), let .overlay(width):
+            effectiveVisibleWidth = width
+            titlebarPresentationWidth = width
+        case .hidden:
+            effectiveVisibleWidth = 0
+            titlebarPresentationWidth = SidebarWidthPolicy.expandedWidth
         }
     }
 
     func settle(mode: SidebarHostMode, effectiveVisibleWidth: CGFloat) {
         self.mode = mode
         self.effectiveVisibleWidth = effectiveVisibleWidth
+        if effectiveVisibleWidth > 0 {
+            titlebarPresentationWidth = effectiveVisibleWidth
+        }
+        if case .persistent = mode {
+            titlebarTranslationX = 0
+        }
         onSettleForTesting?()
+    }
+
+    func beginOverlayTransition(
+        presented: Bool,
+        width: CGFloat,
+        position: AppearanceConfig.SidebarPosition
+    ) {
+        titlebarPresentationWidth = width
+        titlebarTranslationX =
+            presented
+            ? SidebarOverlayAnimator.presentedTranslation
+            : SidebarOverlayAnimator.hiddenTranslation(width: width, position: position)
+    }
+
+    var currentTitlebarTranslationX: CGFloat {
+        guard let translation = overlayPresentationTranslation?(), translation.isFinite else {
+            return titlebarTranslationX
+        }
+        return translation
     }
 }
 
