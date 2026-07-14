@@ -39,6 +39,7 @@ final class SidebarPresentationModel {
     @ObservationIgnored private let delay: @Sendable (Duration) async -> Void
     @ObservationIgnored private var trackerState: ProximityState = .dormant
     @ObservationIgnored private var sidebarPointerPresent = false
+    @ObservationIgnored private var sidebarInteractionActive = false
     @ObservationIgnored private var delayedHideTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
 
@@ -94,6 +95,10 @@ final class SidebarPresentationModel {
     func trackingRegionExited() {
         guard userWantsHidden else { return }
         trackerState = .dormant
+        if sidebarInteractionActive {
+            transition(to: .revealed)
+            return
+        }
         if proximityState == .revealed {
             scheduleDelayedTransition(to: .dormant)
         } else {
@@ -117,9 +122,21 @@ final class SidebarPresentationModel {
         sidebarPointerPresent = isPresent
         if isPresent {
             transition(to: .revealed)
+        } else if sidebarInteractionActive {
+            transition(to: .revealed)
         } else if trackerState == .revealed {
             transition(to: .revealed)
         } else if proximityState == .revealed {
+            scheduleDelayedTransition(to: trackerState)
+        }
+    }
+
+    func sidebarInteractionChanged(_ active: Bool) {
+        guard userWantsHidden else { return }
+        sidebarInteractionActive = active
+        if active {
+            transition(to: .revealed)
+        } else if !sidebarPointerPresent, trackerState != .revealed {
             scheduleDelayedTransition(to: trackerState)
         }
     }
@@ -149,6 +166,7 @@ final class SidebarPresentationModel {
                 !Task.isCancelled,
                 self.generation == scheduledGeneration,
                 !self.sidebarPointerPresent,
+                !self.sidebarInteractionActive,
                 self.userWantsHidden
             else {
                 return
@@ -169,6 +187,7 @@ final class SidebarPresentationModel {
         cancelDelayedHide()
         trackerState = .dormant
         sidebarPointerPresent = false
+        sidebarInteractionActive = false
         visibilitySource = .explicit
         proximityState = .dormant
     }

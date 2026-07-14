@@ -60,6 +60,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var onEdgeExit: (() -> Void)?
     var onTrackingAvailabilityLost: (() -> Void)?
     var hasActiveSidebarAccessibilityFocus: (() -> Bool)?
+    var onSidebarInteractionChanged: ((Bool) -> Void)?
 
     /// Minimum width the detail/terminal pane must retain. The sidebar's dynamic
     /// maximum is `splitView.bounds.width - terminalMinimumWidth`, evaluated live so
@@ -74,6 +75,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private let overlayClipView = SidebarOverlayClipView()
     private let overlayContentView = NSView()
     private var overlayAnimator: SidebarOverlayAnimator?
+    private var interactionMonitor: SidebarInteractionMonitor?
     private let sidebarChild: NSViewController
     private let detailChild: NSViewController
     var sidebarViewController: NSViewController { sidebarChild }
@@ -153,13 +155,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         edgeTrackingView.isHidden = !isEdgeTrackingEnabled
         edgeTrackingView.position = sidebarPosition
         edgeTrackingView.onPointerMove = { [weak self] x, width in
+            self?.installInteractionMonitor()
             self?.onEdgePointerMove?(x, width)
         }
         edgeTrackingView.onExit = { [weak self] in
             self?.onEdgeExit?()
         }
         edgeTrackingView.onAvailabilityLost = { [weak self] in
-            self?.onTrackingAvailabilityLost?()
+            guard let self else { return }
+            self.settleDetached()
+            self.onTrackingAvailabilityLost?()
         }
         let root = NSView()
         root.addSubview(splitView)
@@ -178,6 +183,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         root.addSubview(overlayClipView)
         root.addSubview(edgeTrackingView)
         view = root
+        installInteractionMonitor()
     }
 
     override func viewDidLayout() {
@@ -208,8 +214,14 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     override func viewWillDisappear() {
-        invalidateOverlayForDetach()
+        settleDetached()
+        onTrackingAvailabilityLost?()
         super.viewWillDisappear()
+    }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        installInteractionMonitor()
     }
 
     // MARK: - Public API
@@ -358,6 +370,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         if !enabled {
             onEdgeExit?()
         }
+    }
+
+    func sidebarPointerChanged(_ inside: Bool) {
+        interactionMonitor?.pointerChanged(inside)
     }
 
     func installPersistentVisibilityHandler(on proxy: SidebarSplitProxy) {
@@ -623,16 +639,34 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         if let hasActiveSidebarAccessibilityFocus {
             return hasActiveSidebarAccessibilityFocus()
         }
-        return false
+        return interactionMonitor?.hasAccessibilityFocus == true
     }
 
-    private func invalidateOverlayForDetach() {
-        guard isViewLoaded, isSidebarHidden, case .overlay = hostMode else { return }
+    private func installInteractionMonitor() {
+        guard isViewLoaded, interactionMonitor == nil else { return }
+        interactionMonitor = SidebarInteractionMonitor(
+            sidebarRoot: sidebarChild.view,
+            onActiveChange: { [weak self] active in
+                self?.onSidebarInteractionChanged?(active)
+            })
+    }
+
+    func settleDetached() {
+        interactionMonitor?.detach()
+        interactionMonitor = nil
+        guard isViewLoaded else { return }
         overlayAnimator?.cancelAndSettle(
             presented: false,
             width: overlayClipView.bounds.width,
             position: sidebarPosition)
-        reconcileStableHiddenOwnership()
+        overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
+        if isSidebarHidden {
+            reconcileStableHiddenOwnership()
+        }
+    }
+
+    private func invalidateOverlayForDetach() {
+        settleDetached()
     }
 
     private func finishOverlayTransition(presented: Bool) {
