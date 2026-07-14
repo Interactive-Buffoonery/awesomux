@@ -493,6 +493,8 @@ struct DocumentPaneView: View {
 
     /// Task 7: live filesystem watch + source-anchored reload.
     @State private var watcher: DocumentFileWatcher? = nil
+    @State private var watcherReloadTask: Task<Void, Never>? = nil
+    @State private var watcherReloadGeneration = 0
     // Written during MarkdownTextView's update pass — safe ONLY while no
     // `body` ever reads it; keep reads inside event closures.
     @State private var scrollAnchorCapture: (@MainActor () -> Int?)? = nil
@@ -566,6 +568,9 @@ struct DocumentPaneView: View {
         .onDisappear {
             watcher?.stop()
             watcher = nil
+            watcherReloadTask?.cancel()
+            watcherReloadTask = nil
+            watcherReloadGeneration += 1
             nsPopover?.close()
             nsPopover = nil
         }
@@ -1234,22 +1239,28 @@ struct DocumentPaneView: View {
     }
 
     private func triggerWatcherReload() {
+        watcherReloadTask?.cancel()
+        watcherReloadGeneration += 1
+        let generation = watcherReloadGeneration
         let anchor = scrollAnchorCapture?()
         let fileURL = pane.fileURL
 
-        Task.detached(priority: .userInitiated) {
+        watcherReloadTask = Task.detached(priority: .userInitiated) { [self] in
             let onDisk = DocumentLoader.readSource(fileURL)
+            guard !Task.isCancelled else { return }
 
             let context: (old: String?, isSelfWrite: Bool)? = await MainActor.run {
-                guard let disk = onDisk else {
-                    self.pendingScrollAnchor = nil
-                    self.triggerReload()
+                guard !Task.isCancelled, generation == watcherReloadGeneration else { return nil }
+                guard let onDisk else {
+                    pendingScrollAnchor = nil
+                    triggerReload()
+                    watcherReloadTask = nil
                     return nil
                 }
 
                 let selfWrite = Self.selfWriteRegistry.context(
                     fileURL: fileURL,
-                    onDiskSource: disk
+                    onDiskSource: onDisk
                 )
                 // Self-write entries are shared across panes and intentionally
                 // not consumed on match: every mounted watcher for this file
@@ -1262,25 +1273,28 @@ struct DocumentPaneView: View {
                 // Debounced watcher bursts intentionally diff from the last
                 // version the user saw — which is their own just-written
                 // source when a self-write and an external edit coalesced.
-                let old = selfWrite?.source ?? self.renderedDoc?.source
-                self.pendingScrollAnchor = anchor
-                self.triggerReload()
+                let old = selfWrite?.source ?? renderedDoc?.source
+                pendingScrollAnchor = anchor
+                triggerReload()
                 return (old, selfWrite?.isSelfWrite ?? false)
             }
 
-            guard let context, let disk = onDisk else { return }
+            guard !Task.isCancelled, let context, let onDisk else { return }
             // The diff stays off the main actor: difference(from:) on a full
             // rewrite is too expensive for the thread that draws the UI, and
             // it only needs the two captured strings.
             let revision = LineDiffCount.forExternalEdit(
                 old: context.old,
-                new: disk,
+                new: onDisk,
                 isSelfWrite: context.isSelfWrite
             )
-            if let revision {
-                await MainActor.run {
-                    self.onRevision(revision)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard !Task.isCancelled, generation == watcherReloadGeneration else { return }
+                if let revision {
+                    onRevision(revision)
                 }
+                watcherReloadTask = nil
             }
         }
     }

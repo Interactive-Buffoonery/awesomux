@@ -30,6 +30,7 @@ public struct LineDiffCount: Equatable, Sendable {
     /// Myers-family (near-quadratic on a full rewrite), so diffing up to the
     /// document loader's 10 MiB cap could still be expensive on every save.
     public static let maxDiffBytes = 2 * 1024 * 1024
+    public static let maxDiffLines = 2_000
 
     public static func forExternalEdit(
         old: String?,
@@ -42,7 +43,14 @@ public struct LineDiffCount: Equatable, Sendable {
         guard old.utf8.count <= maxDiffBytes, new.utf8.count <= maxDiffBytes else {
             return nil
         }
+        guard hasAtMostMaxDiffLines(old), hasAtMostMaxDiffLines(new) else {
+            return nil
+        }
         let count = between(old, new)
         return count.isEmpty ? nil : count
+    }
+
+    private static func hasAtMostMaxDiffLines(_ source: String) -> Bool {
+        source.isEmpty || source.utf8.lazy.filter { $0 == 0x0A }.prefix(maxDiffLines).count < maxDiffLines
     }
 }
