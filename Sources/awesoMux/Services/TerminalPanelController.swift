@@ -1208,6 +1208,7 @@ final class TerminalPanelController {
             )
         }
         positionFloatingPanel(panel, relativeTo: parentWindow)
+        panel.isPointerRekeyEnabled = true
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         // Recompute the drop shadow against the now-mounted rounded chrome.
@@ -1267,6 +1268,11 @@ final class TerminalPanelController {
         }
     }
 
+    private func deactivateFloatingPanel() {
+        panel?.isPointerRekeyEnabled = false
+        panel?.orderOut(nil)
+    }
+
     /// Hide-only Cmd-W path (floating). Gates on visibility, not key focus, so a
     /// visible panel is hidden instead of letting Cmd-W destroy a pane behind it.
     /// A no-op in companion mode (its Cmd-W is `performCloseShortcut`).
@@ -1277,7 +1283,7 @@ final class TerminalPanelController {
         pendingFocusWork = nil
         cancelPromotion()
         resetDismissConfirmation()
-        panel?.orderOut(nil)
+        deactivateFloatingPanel()
         presentation = .closed
         panelUserPositioned = false
         // Cmd-W closes this workspace's floating panel non-destructively (the
@@ -1302,7 +1308,7 @@ final class TerminalPanelController {
         pendingFocusWork = nil
         cancelPromotion()
         resetDismissConfirmation()
-        panel?.orderOut(nil)
+        deactivateFloatingPanel()
         presentation = .closed
         // Refresh before recomputing so switch-away notices newly running work.
         if let activeWorkspaceID = slots.activeWorkspaceID, let store = slots.store(for: activeWorkspaceID) {
@@ -1331,7 +1337,7 @@ final class TerminalPanelController {
         pendingFocusWork = nil
         cancelPromotion()
         resetDismissConfirmation()
-        panel?.orderOut(nil)
+        deactivateFloatingPanel()
         presentation = .closed
         panelUserPositioned = false
         // Explicit close: a later switch back to this workspace won't auto-restore.
@@ -1370,14 +1376,17 @@ final class TerminalPanelController {
         #if DEBUG
         assert(panel?.isInsidePointerRekey != true, "evict during pointer re-key")
         #endif
+        let evictsActiveSlot = slots.activeWorkspaceID == workspaceID
+        if evictsActiveSlot {
+            deactivateFloatingPanel()
+        }
         cancelPromotion()
         resetDismissConfirmation()
         tearDownFloatingSlot(workspaceID: workspaceID, runtime: lastSeenRuntime)
         // The workspace is gone; its floating panel can never be "open" again.
         slots.markClosed(workspaceID)
-        if slots.activeWorkspaceID == workspaceID {
+        if evictsActiveSlot {
             // The visible panel is backed by the dropped store.
-            panel?.orderOut(nil)
             presentation = .closed
             panelUserPositioned = false
             slots.setActive(nil)
@@ -1560,7 +1569,7 @@ final class TerminalPanelController {
             pendingFocusWork?.cancel()
             pendingFocusWork = nil
             resetDismissConfirmation()
-            panel?.orderOut(nil)
+            deactivateFloatingPanel()
             presentation = .closed
             // A dragged-then-promoted panel must re-center on the next summon,
             // mirroring the dismiss/hide/evict position resets.
