@@ -466,12 +466,6 @@ private struct AppTitlebarView: View {
     let sidebarLiveWidth: SidebarLiveWidth
     let sidebarPosition: AppearanceConfig.SidebarPosition
     let hostPresentation: SidebarHostPresentationState
-    private var sidebarWidth: CGFloat {
-        if case .persistent = hostPresentation.mode {
-            return hostPresentation.effectiveVisibleWidth
-        }
-        return 0
-    }
     private var layoutPolicy: SidebarPresentationLayoutPolicy {
         SidebarPresentationLayoutPolicy(position: sidebarPosition)
     }
@@ -487,35 +481,37 @@ private struct AppTitlebarView: View {
     private static let brandWithTextMinimumWidth = AppTitlebarMetrics.trafficLightClearance + 94
     private static let brandIconMinimumWidth = AppTitlebarMetrics.trafficLightClearance + 28
 
+    @ViewBuilder
     var body: some View {
-        ZStack(alignment: sidebarPosition == .left ? .leading : .trailing) {
-            HStack(spacing: 0) {
-                if sidebarPosition == .left {
-                    sidebarColumn(width: sidebarWidth, isPhysicalLeading: true)
-                    contentColumn(isPhysicalLeading: false)
-                } else {
-                    contentColumn(isPhysicalLeading: true)
-                    sidebarColumn(width: sidebarWidth, isPhysicalLeading: false)
-                }
-            }
-
+        Group {
             switch hostPresentation.mode {
             case .persistent:
-                EmptyView()
+                titlebarColumns(sidebarWidth: hostPresentation.effectiveVisibleWidth)
             case .overlay:
                 TimelineView(.animation) { _ in
-                    sidebarColumn(
-                        width: hostPresentation.titlebarPresentationWidth,
-                        isPhysicalLeading: sidebarPosition == .left
+                    let translation = hostPresentation.currentTitlebarTranslationX
+                    let visibleWidth = hostPresentation.currentTitlebarVisibleWidth(
+                        position: sidebarPosition,
+                        translation: translation
                     )
-                    .offset(x: hostPresentation.currentTitlebarTranslationX)
+                    titlebarColumns(sidebarWidth: visibleWidth)
+                        .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
+                            sidebarColumn(
+                                width: hostPresentation.titlebarPresentationWidth,
+                                isPhysicalLeading: sidebarPosition == .left
+                            )
+                            .offset(x: translation)
+                        }
                 }
             case .hidden:
-                sidebarColumn(
-                    width: hostPresentation.titlebarPresentationWidth,
-                    isPhysicalLeading: sidebarPosition == .left
-                )
-                .offset(x: hostPresentation.titlebarTranslationX)
+                titlebarColumns(sidebarWidth: 0)
+                    .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
+                        sidebarColumn(
+                            width: hostPresentation.titlebarPresentationWidth,
+                            isPhysicalLeading: sidebarPosition == .left
+                        )
+                        .offset(x: hostPresentation.titlebarTranslationX)
+                    }
             }
         }
         // Titlebar height stays fixed: it abuts macOS window chrome
@@ -541,6 +537,18 @@ private struct AppTitlebarView: View {
             Rectangle()
                 .fill(Color.aw.border2)
                 .frame(height: 0.5)
+        }
+    }
+
+    private func titlebarColumns(sidebarWidth: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            if sidebarPosition == .left {
+                sidebarColumn(width: sidebarWidth, isPhysicalLeading: true)
+                contentColumn(sidebarWidth: sidebarWidth, isPhysicalLeading: false)
+            } else {
+                contentColumn(sidebarWidth: sidebarWidth, isPhysicalLeading: true)
+                sidebarColumn(width: sidebarWidth, isPhysicalLeading: false)
+            }
         }
     }
 
@@ -592,7 +600,7 @@ private struct AppTitlebarView: View {
     /// draggable via the `WindowDragGesture` on the outer `HStack`'s
     /// background — do NOT attach a tap/click handler to this column without
     /// considering that it would compete with the underlying drag.
-    private func contentColumn(isPhysicalLeading: Bool) -> some View {
+    private func contentColumn(sidebarWidth: CGFloat, isPhysicalLeading: Bool) -> some View {
         HStack(spacing: 0) {
             if let session {
                 workspaceCluster(session)
