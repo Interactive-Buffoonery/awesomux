@@ -4,6 +4,7 @@ public enum ExecutionOperation: Hashable, Sendable {
     case inspectLocalFilesystem
     case revealInFinder
     case launchLocalShellFallback
+    case stageLocalDocumentPath
 }
 
 public enum CapabilityDenialReason: Hashable, Sendable {
@@ -30,11 +31,13 @@ public struct ExecutionContext: Hashable, Sendable {
         switch (plan, operation) {
         case (.local, .inspectLocalFilesystem),
             (.local, .revealInFinder),
-            (.local, .launchLocalShellFallback):
+            (.local, .launchLocalShellFallback),
+            (.local, .stageLocalDocumentPath):
             .allowed
         case (.ssh, .inspectLocalFilesystem),
             (.ssh, .revealInFinder),
-            (.ssh, .launchLocalShellFallback):
+            (.ssh, .launchLocalShellFallback),
+            (.ssh, .stageLocalDocumentPath):
             .denied(.requiresLocalExecution)
         }
     }
