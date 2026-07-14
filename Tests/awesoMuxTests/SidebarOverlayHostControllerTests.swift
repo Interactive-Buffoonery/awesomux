@@ -465,6 +465,7 @@ struct SidebarOverlayHostControllerTests {
         #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
         #expect(controller.interactionObserverCountForTesting == 0)
+        #expect(!controller.isFinalizedForTesting)
         let lossesAfterDetach = availabilityLosses
         #expect(lossesAfterDetach > 0)
 
@@ -770,8 +771,8 @@ struct SidebarOverlayHostControllerTests {
         #expect(weakToken == nil)
     }
 
-    @Test("final teardown clears self-capturing callbacks before a view is loaded")
-    func neverLoadedFinalTeardownDeallocates() {
+    @Test("representable dismantle releases never-loaded self-capturing controller")
+    func neverLoadedDismantleDeallocates() {
         weak var weakController: SidebarSplitController?
         autoreleasepool {
             let controller = SidebarSplitController(
@@ -780,7 +781,9 @@ struct SidebarOverlayHostControllerTests {
             controller.onLiveWidthChange = { [controller] _ in _ = controller }
             controller.onSidebarInteractionChanged = { [controller] _ in _ = controller }
 
-            controller.settleFinalForTesting()
+            SidebarSplitView<EmptyView, EmptyView>.dismantleNSViewController(
+                controller, coordinator: ())
+            #expect(controller.isFinalizedForTesting)
         }
         #expect(weakController == nil)
     }

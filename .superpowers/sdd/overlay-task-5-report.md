@@ -55,5 +55,5 @@ Preserved the one live sidebar host across transient overlay and persistent spli
 
 ## Late audit closure
 
-- Irreversible final teardown is now distinct from reusable temporary detach. It detaches interaction first, clears every outward/testing callback before checking `isViewLoaded`, and only then performs view-backed settlement when available. A never-loaded controller with callbacks that strongly capture it releases after explicit final settlement.
+- Irreversible final teardown is now distinct from reusable temporary detach. `SidebarSplitView.dismantleNSViewController` invokes the controller's idempotent production `finalizeOwnedLifecycle()` before SwiftUI releases ownership; it detaches interaction first, clears every outward/testing callback before checking `isViewLoaded`, and only then performs view-backed settlement when available. A never-loaded controller with callbacks that strongly capture it releases through the real representable dismantle path, while `deinit` remains a backstop.
 - Temporary window/view detach continues to preserve outward callbacks. The real remove/re-add lifecycle test now proves restored interaction, edge move/exit, width, divider-commit, focus-handoff, and availability callbacks actually execute after reattachment; observer count alone is not used as proof.

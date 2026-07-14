@@ -108,6 +108,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// a programmatic change back out as a "live" width change.
     private var isSettingPositionProgrammatically = false
     private var isPerformingHostHandoff = false
+    private var isFinalized = false
     #if DEBUG
         private var dividerIntentCount = 0
         private var isGeometryInstrumentationArmedForTesting = false
@@ -451,6 +452,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var interactionObserverCountForTesting: Int {
         interactionMonitor?.observerCountForTesting ?? 0
     }
+    var isFinalizedForTesting: Bool { isFinalized }
     func simulateTrackingAvailabilityLostForTesting() {
         onTrackingAvailabilityLost?()
     }
@@ -459,9 +461,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
     func simulateEdgeExitForTesting() {
         edgeTrackingView.onExit?()
-    }
-    func settleFinalForTesting() {
-        settleFinal()
     }
 
     #if DEBUG
@@ -784,6 +783,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func settleAttached() {
+        guard !isFinalized else { return }
         installInteractionMonitor()
         guard !isSidebarHidden, case .persistent = hostMode else { return }
         sidebarChild.view.setAccessibilityHidden(false)
@@ -805,12 +805,18 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         persistentHandoffBeforeAccessibilityValidationForTesting = nil
     }
 
-    private func settleFinal() {
+    func finalizeOwnedLifecycle() {
+        guard !isFinalized else { return }
+        isFinalized = true
         interactionMonitor?.detach()
         interactionMonitor = nil
         clearExternalCallbacks()
         guard isViewLoaded else { return }
         settleDetached()
+    }
+
+    private func settleFinal() {
+        finalizeOwnedLifecycle()
     }
 
     private func invalidateOverlayForDetach() {
