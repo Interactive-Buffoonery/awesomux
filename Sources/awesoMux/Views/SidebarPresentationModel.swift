@@ -11,7 +11,6 @@ final class SidebarPresentationModel {
         case revealed
     }
 
-    static let cueDistance: CGFloat = 80
     static let revealDistance: CGFloat = 40
     static let leaveGrace: Duration = .milliseconds(220)
 
