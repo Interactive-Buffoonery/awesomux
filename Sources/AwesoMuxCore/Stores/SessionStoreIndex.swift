@@ -31,7 +31,7 @@ struct SessionStoreIndex: Sendable {
         var hasFreshnessCandidate = false
         for pane in session.panes {
             switch pane.foregroundProcessLiveness {
-            case .bridged, .exited:
+            case .bridged, .bridgedBusy, .exited:
                 continue
             default:
                 break

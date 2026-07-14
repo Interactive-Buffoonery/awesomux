@@ -24,7 +24,19 @@ extension GhosttySurfaceNSView {
         sample: ForegroundProcessSample?
     ) {
         if commandBridgeSessionID != nil {
-            return (.bridged, nil)
+            guard
+                let rawPID = commandBridgeEnactor.respawnLedger.lastIncarnation?.pid,
+                let pid = pid_t(exactly: rawPID)
+            else {
+                return (.bridged, nil)
+            }
+            return (
+                ForegroundProcessLiveness.classifyBridged(
+                    rootComm: ProcessLivenessProbe.foregroundComm(pid: pid),
+                    rootHasChildren: ProcessLivenessProbe.hasChildren(pid: pid)
+                ),
+                nil
+            )
         }
         let sample = foregroundProcessSample()
         guard sample.hasLiveSurface else {
