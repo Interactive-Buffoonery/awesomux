@@ -173,11 +173,10 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
 - [ ] Generate checksums:
   - [ ] SHA-256 for every downloadable artifact
   - [ ] optional signed checksum file later
-- [ ] Add a tag-triggered GitHub Actions workflow (Phase 1 mechanics shipped
-      and checked below; the tag trigger itself is Phase 2):
-  - [ ] only runs on protected `v*` tags or manual maintainer dispatch
-        (Phase 2 — pending first successful dispatch run; `.github/workflows/release.yml`
-        currently ships `workflow_dispatch` only, gated to `refs/heads/main`)
+- [x] Add a tag-triggered GitHub Actions workflow:
+  - [x] only runs on protected `v*` tags or manual maintainer dispatch
+        (tag push and `workflow_dispatch` are the only triggers; both gated by
+        the `release` environment and an in-workflow ref assertion)
   - [ ] checks out submodules
   - [x] imports signing cert into a temporary keychain
   - [x] builds and signs
@@ -186,7 +185,8 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
         7-day retention)
   - [x] can create a draft GitHub Release (`create_draft_release` input,
         off by default)
-  - [ ] never runs signing steps for `pull_request` from forks
+  - [x] never runs signing steps for `pull_request` from forks (the workflow
+        has no `pull_request` trigger at all)
 - [x] Add an unsigned local dry-run mode (`--unsigned`; needs full Xcode + Zig, but no signing credentials)
 - [ ] Document maintainer-only release prerequisites.
 
@@ -228,13 +228,14 @@ run with the same three notary secrets (`NOTARY_KEY_P8`, `NOTARY_KEY_ID`,
 - [ ] Confirm version and build number.
 - [ ] Run pre-release freeze checklist.
 - [ ] Produce the draft GitHub Release:
-  - [ ] Phase 1 (current): manually dispatch the Release workflow
-        (Actions → Release → `version` + `create_draft_release: true`) and
-        approve the `release` environment gate. Tags do NOT trigger the
-        workflow yet.
-  - [ ] Phase 2 (once the tag trigger lands): create and push the annotated
-        tag (`git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0`) and
-        the workflow runs automatically.
+  - [ ] Alternative (ad-hoc/pipeline testing): manually dispatch the Release
+        workflow (Actions → Release → `version`, optionally
+        `create_draft_release: true`) and approve the environment gate.
+  - [ ] Normal path: create and push the annotated tag
+        (`git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0`); the
+        workflow builds, signs, notarizes, and drafts the release
+        automatically. Approve the `release` environment gate when prompted,
+        then review and publish the draft.
 - [ ] Wait for the release workflow to produce the draft GitHub Release.
 - [ ] Download the draft artifact on a clean Mac.
 - [ ] Install/open from the downloaded artifact.

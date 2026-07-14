@@ -1,59 +1,60 @@
 import Foundation
-import XCTest
+import Testing
 @testable import AwesoMuxCore
 
-final class AgentStateTests: XCTestCase {
+@Suite("Agent state")
+struct AgentStateTests {
+    @Test
     func testStateLabelsResolveFromExplicitBundleAndLocale() throws {
-        let bundle = try XCTUnwrap(INT612LocalizationTestSupport.bundle)
+        let bundle = try #require(INT612LocalizationTestSupport.bundle)
 
-        XCTAssertEqual(
+        #expect(
             AgentState.idle.localizedLabel(
                 bundle: bundle,
-                locale: INT612LocalizationTestSupport.french
-            ),
-            "Inactif"
+                locale: INT612LocalizationTestSupport.pseudoLocale
+            ) == "⟦idle⟧"
         )
-        XCTAssertEqual(
+        #expect(
             AgentState.needsAttention.localizedLabel(
                 bundle: bundle,
-                locale: INT612LocalizationTestSupport.french
-            ),
-            "Entrée requise"
+                locale: INT612LocalizationTestSupport.pseudoLocale
+            ) == "⟦needs-input⟧"
         )
     }
+
+    @Test
     func testExecutionVocabularyMatchesRuntimeContract() {
-        XCTAssertEqual(
-            AgentExecutionState.allCases,
-            [
+        #expect(
+            AgentExecutionState.allCases == [
                 .idle,
                 .running,
                 .waiting,
                 .thinking,
                 .output,
                 .done,
-                .error
+                .error,
             ]
         )
     }
 
+    @Test
     func testAttentionVocabularyMatchesRuntimeContract() {
-        XCTAssertEqual(
-            AttentionReason.allCases,
-            [
+        #expect(
+            AttentionReason.allCases == [
                 .bell,
                 .desktopNotification,
                 .permissionPrompt,
                 .userInputRequired,
                 .processError,
-                .unknown
+                .unknown,
             ]
         )
     }
 
+    @Test
     func testStateVocabularyMatchesDesignContract() {
-        XCTAssertEqual(
-            AgentState.allCases,
-            [
+        #expect(
+            AgentState.allCases == [
                 .idle,
                 .running,
                 .waiting,
@@ -61,118 +62,123 @@ final class AgentStateTests: XCTestCase {
                 .output,
                 .needsAttention,
                 .done,
-                .error
+                .error,
             ]
         )
     }
 
+    @Test
     func testLabelsMatchUserFacingVocabulary() {
-        XCTAssertEqual(AgentState.idle.label, "Idle")
-        XCTAssertEqual(AgentState.running.label, "Running")
-        XCTAssertEqual(AgentState.waiting.label, "Waiting")
-        XCTAssertEqual(AgentState.thinking.label, "Thinking")
-        XCTAssertEqual(AgentState.output.label, "Output")
-        XCTAssertEqual(AgentState.needsAttention.label, "Needs input")
-        XCTAssertEqual(AgentState.done.label, "Done")
-        XCTAssertEqual(AgentState.error.label, "Error")
+        #expect(AgentState.idle.label == "Idle")
+        #expect(AgentState.running.label == "Running")
+        #expect(AgentState.waiting.label == "Waiting")
+        #expect(AgentState.thinking.label == "Thinking")
+        #expect(AgentState.output.label == "Output")
+        #expect(AgentState.needsAttention.label == "Needs input")
+        #expect(AgentState.done.label == "Done")
+        #expect(AgentState.error.label == "Error")
     }
 
+    @Test
     func testOnlyNeedsAttentionTriggersNotifications() {
         for state in AgentState.allCases {
-            XCTAssertEqual(state.triggersNotification, state == .needsAttention)
+            #expect(state.triggersNotification == (state == .needsAttention))
         }
     }
 
+    @Test
     func testDisplayStateProjectsExecutionWithoutAttention() {
-        XCTAssertEqual(
-            AgentDisplayState(executionState: .waiting, attentionReason: nil),
-            .waiting
+        #expect(
+            AgentDisplayState(executionState: .waiting, attentionReason: nil) == .waiting
         )
-        XCTAssertEqual(
-            AgentDisplayState(executionState: .thinking, attentionReason: nil),
-            .thinking
+        #expect(
+            AgentDisplayState(executionState: .thinking, attentionReason: nil) == .thinking
         )
     }
 
+    @Test
     func testDisplayStateProjectsAttentionOverExecution() {
-        XCTAssertEqual(
-            AgentDisplayState(executionState: .waiting, attentionReason: .permissionPrompt),
-            .needsAttention
+        #expect(
+            AgentDisplayState(executionState: .waiting, attentionReason: .permissionPrompt) == .needsAttention
         )
-        XCTAssertEqual(
-            AgentDisplayState(executionState: .running, attentionReason: .bell),
-            .needsAttention
+        #expect(
+            AgentDisplayState(executionState: .running, attentionReason: .bell) == .needsAttention
         )
     }
 
+    @Test
     func testDisplayStateLetsDeadExecutionThroughLowPriorityAttention() {
         // INT-506: a dead pane's recovery hint must show through a lingering
         // low-priority attentionReason from before the exit.
-        XCTAssertEqual(
-            AgentDisplayState(executionState: .done, attentionReason: .bell),
-            .done
+        #expect(
+            AgentDisplayState(executionState: .done, attentionReason: .bell) == .done
         )
-        XCTAssertEqual(
-            AgentDisplayState(executionState: .error, attentionReason: .bell),
-            .error
+        #expect(
+            AgentDisplayState(executionState: .error, attentionReason: .bell) == .error
         )
-        XCTAssertEqual(
-            AgentDisplayState(executionState: .error, attentionReason: .processError),
-            .error
+        #expect(
+            AgentDisplayState(executionState: .error, attentionReason: .processError) == .error
         )
     }
 
+    @Test
     func testDisplayStateKeepsHighPriorityAttentionLoudOnDeadPanes() {
         // An unanswered permission request outranks the recovery hint even on
         // a dead pane — the glanceable amber cues must survive.
-        XCTAssertEqual(
-            AgentDisplayState(executionState: .done, attentionReason: .permissionPrompt),
-            .needsAttention
+        #expect(
+            AgentDisplayState(executionState: .done, attentionReason: .permissionPrompt) == .needsAttention
         )
-        XCTAssertEqual(
-            AgentDisplayState(executionState: .error, attentionReason: .userInputRequired),
-            .needsAttention
+        #expect(
+            AgentDisplayState(executionState: .error, attentionReason: .userInputRequired) == .needsAttention
         )
     }
 
+    @Test
     func testPrioritySortsLoudStatesFirst() {
         let states: [AgentState] = [.running, .idle, .waiting, .output, .done, .thinking, .error, .needsAttention]
 
-        XCTAssertEqual(
-            states.sorted { $0.priority < $1.priority },
-            [.needsAttention, .error, .thinking, .done, .output, .waiting, .running, .idle]
+        #expect(
+            states.sorted { $0.priority < $1.priority }
+                == [.needsAttention, .error, .thinking, .done, .output, .waiting, .running, .idle]
         )
     }
 
+    @Test
     func testUrgencyComparisonUsesPresentationPriority() {
-        XCTAssertTrue(AgentState.needsAttention.isAtLeastAsUrgent(as: .error))
-        XCTAssertTrue(AgentState.error.isAtLeastAsUrgent(as: .error))
-        XCTAssertTrue(AgentState.thinking.isAtLeastAsUrgent(as: .output))
-        XCTAssertFalse(AgentState.running.isAtLeastAsUrgent(as: .waiting))
-        XCTAssertFalse(AgentState.idle.isAtLeastAsUrgent(as: .needsAttention))
+        #expect(AgentState.needsAttention.isAtLeastAsUrgent(as: .error))
+        #expect(AgentState.error.isAtLeastAsUrgent(as: .error))
+        #expect(AgentState.thinking.isAtLeastAsUrgent(as: .output))
+        #expect(!AgentState.running.isAtLeastAsUrgent(as: .waiting))
+        #expect(!AgentState.idle.isAtLeastAsUrgent(as: .needsAttention))
     }
 
+    @Test
     func testDecodesLegacyFinishedRawValueAsDone() throws {
         let json = Data(#""finished""#.utf8)
         let decoded = try JSONDecoder().decode(AgentState.self, from: json)
-        XCTAssertEqual(decoded, .done)
+        #expect(decoded == .done)
     }
 
+    @Test
     func testRoundTripsAllCurrentRawValues() throws {
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
         for state in AgentState.allCases {
             let encoded = try encoder.encode(state)
             let decoded = try decoder.decode(AgentState.self, from: encoded)
-            XCTAssertEqual(decoded, state)
+            #expect(decoded == state)
         }
     }
 
+    @Test
     func testRejectsUnknownRawValue() {
         let json = Data(#""bogus""#.utf8)
-        XCTAssertThrowsError(try JSONDecoder().decode(AgentState.self, from: json))
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(AgentState.self, from: json)
+        }
     }
 
+    @Test
     func testTerminalSessionDecodesLegacyNeedsAttentionWithoutLosingExecutionDefault() throws {
         let id = UUID()
         let json = Data(
@@ -190,11 +196,12 @@ final class AgentStateTests: XCTestCase {
 
         let session = try JSONDecoder().decode(TerminalSession.self, from: json)
 
-        XCTAssertEqual(session.agentExecutionState, .running)
-        XCTAssertEqual(session.attentionReason, .unknown)
-        XCTAssertEqual(session.agentState, .needsAttention)
+        #expect(session.agentExecutionState == .running)
+        #expect(session.attentionReason == .unknown)
+        #expect(session.agentState == .needsAttention)
     }
 
+    @Test
     func testAgentExecutionStateDecodesLegacyFinishedAsDone() throws {
         // The new closed execution enum carries the same v0 `finished`→`done`
         // rename as the display enum, so a hand-edited or migrated snapshot
@@ -203,9 +210,10 @@ final class AgentStateTests: XCTestCase {
             AgentExecutionState.self,
             from: Data(#""finished""#.utf8)
         )
-        XCTAssertEqual(decoded, .done)
+        #expect(decoded == .done)
     }
 
+    @Test
     func testTerminalSessionDecodesLegacyExecutionStatesFromAgentStateKey() throws {
         // The only snapshot shape that exists in the wild before this split is
         // one with a single `agentState` key. Walk the non-attention execution
@@ -217,7 +225,7 @@ final class AgentStateTests: XCTestCase {
             ("done", .done),
             ("waiting", .waiting),
             ("idle", .idle),
-            ("thinking", .thinking)
+            ("thinking", .thinking),
         ]
 
         for (legacy, execution) in cases {
@@ -235,12 +243,13 @@ final class AgentStateTests: XCTestCase {
 
             let session = try JSONDecoder().decode(TerminalSession.self, from: json)
 
-            XCTAssertEqual(session.agentExecutionState, execution, "legacy \(legacy)")
-            XCTAssertNil(session.attentionReason, "legacy \(legacy) carries no attention")
-            XCTAssertEqual(session.agentState, AgentState(rawValue: legacy), "legacy \(legacy) display")
+            #expect(session.agentExecutionState == execution, "legacy \(legacy)")
+            #expect(session.attentionReason == nil, "legacy \(legacy) carries no attention")
+            #expect(session.agentState == AgentState(rawValue: legacy), "legacy \(legacy) display")
         }
     }
 
+    @Test
     func testTerminalSessionEncodesSplitAgentStateKeysAndProjectsAttention() throws {
         let session = TerminalSession(
             title: "agent",
@@ -251,15 +260,15 @@ final class AgentStateTests: XCTestCase {
         )
 
         let encoded = try JSONEncoder().encode(session)
-        let json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+        let json = try #require(String(data: encoded, encoding: .utf8))
 
-        XCTAssertTrue(json.contains(#""agentExecutionState""#))
-        XCTAssertTrue(json.contains(#""attentionReason""#))
-        XCTAssertFalse(json.contains(#""agentState""#))
+        #expect(json.contains(#""agentExecutionState""#))
+        #expect(json.contains(#""attentionReason""#))
+        #expect(!json.contains(#""agentState""#))
 
         let decoded = try JSONDecoder().decode(TerminalSession.self, from: encoded)
-        XCTAssertEqual(decoded.agentExecutionState, .output)
-        XCTAssertEqual(decoded.attentionReason, .bell)
-        XCTAssertEqual(decoded.agentState, .needsAttention)
+        #expect(decoded.agentExecutionState == .output)
+        #expect(decoded.attentionReason == .bell)
+        #expect(decoded.agentState == .needsAttention)
     }
 }

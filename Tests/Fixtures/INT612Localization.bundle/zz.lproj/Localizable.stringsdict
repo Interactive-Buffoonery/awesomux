@@ -13,9 +13,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>%lld espace demande votre attention.</string>
+            <string>⟦attention:%lld workspace⟧</string>
             <key>other</key>
-            <string>%lld espaces demandent votre attention.</string>
+            <string>⟦attention:%lld workspaces⟧</string>
         </dict>
     </dict>
 </dict>
