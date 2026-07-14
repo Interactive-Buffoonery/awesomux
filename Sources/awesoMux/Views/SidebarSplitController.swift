@@ -59,6 +59,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
     var onEdgeExit: (() -> Void)?
     var onTrackingAvailabilityLost: (() -> Void)?
+    var hasActiveSidebarAccessibilityFocus: (() -> Bool)?
 
     /// Minimum width the detail/terminal pane must retain. The sidebar's dynamic
     /// maximum is `splitView.bounds.width - terminalMinimumWidth`, evaluated live so
@@ -82,6 +83,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var isEdgeTrackingEnabled = false
     private var hostMode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.expandedWidth)
     private var selectedSidebarWidth: CGFloat = SidebarWidthPolicy.expandedWidth
+    private let overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner?
+    private let overlayPresentationTranslation: (() -> CGFloat?)?
 
     /// Set around our own `setPosition` calls so `splitViewDidResizeSubviews` (which
     /// also fires for programmatic position changes and window layout) does not echo
@@ -101,9 +104,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// window-widen must NOT auto-expand. Set by every deliberate `setSidebarWidth`.
     private var userChoseRail = false
 
-    init(sidebar: NSViewController, detail: NSViewController) {
+    init(
+        sidebar: NSViewController,
+        detail: NSViewController,
+        overlayPresentationTranslation: (() -> CGFloat?)? = nil,
+        overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner? = nil
+    ) {
         sidebarChild = sidebar
         detailChild = detail
+        self.overlayPresentationTranslation = overlayPresentationTranslation
+        self.overlayAnimationRunner = overlayAnimationRunner
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -152,7 +162,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         overlayClipView.layer?.masksToBounds = true
         overlayContentView.wantsLayer = true
         if let layer = overlayContentView.layer {
-            overlayAnimator = SidebarOverlayAnimator(layer: layer)
+            overlayAnimator = SidebarOverlayAnimator(
+                layer: layer,
+                presentationTranslation: overlayPresentationTranslation,
+                animationRunner: overlayAnimationRunner)
         }
         overlayClipView.contentView = overlayContentView
         overlayClipView.addSubview(overlayContentView)
@@ -187,6 +200,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // constrainMaxCoordinate during a divider drag, not a window resize.
         // Re-clamp on every layout so the terminal can never be starved.
         reclampToBounds()
+    }
+
+    override func viewWillDisappear() {
+        invalidateOverlayForDetach()
+        super.viewWillDisappear()
     }
 
     // MARK: - Public API
@@ -255,6 +273,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     position: sidebarPosition)
             }
         } else {
+            guard !sidebarAccessibilityFocusIsActive else { return }
             sidebarChild.view.setAccessibilityHidden(true)
         }
         overlayAnimator?.setPresented(
@@ -484,6 +503,22 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         sidebarChild.view.setAccessibilityHidden(true)
     }
 
+    private var sidebarAccessibilityFocusIsActive: Bool {
+        if let hasActiveSidebarAccessibilityFocus {
+            return hasActiveSidebarAccessibilityFocus()
+        }
+        return false
+    }
+
+    private func invalidateOverlayForDetach() {
+        guard isViewLoaded else { return }
+        overlayAnimator?.cancelAndSettle(
+            presented: false,
+            width: overlayClipView.bounds.width,
+            position: sidebarPosition)
+        reconcileStableHiddenOwnership()
+    }
+
     private func finishOverlayTransition(presented: Bool) {
         if presented {
             sidebarChild.view.setAccessibilityHidden(false)
@@ -504,7 +539,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             fromWidth: oldWidth,
             toWidth: newWidth,
             position: sidebarPosition,
-            transition: .hover(),
+            transition: .hover,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         ) { [weak self] _ in
             self?.finishOverlayTransition(presented: requestedPresented)
