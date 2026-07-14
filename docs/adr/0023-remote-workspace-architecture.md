@@ -69,7 +69,10 @@ mutually exclusive:
   <remote-id>` — and the **remote's own** zmx daemon owns persistence on that
   host. A remote-zmx pane does **not** also run a local `amx attach` around the
   SSH child: **remote zmx panes bypass local `amx`.** The local app is a thin
-  SSH client to the remote daemon.
+  SSH client to the remote daemon. Durable remote session identity — and
+  therefore an exact remote `zmx kill` — belongs to this future persistence
+  mode and must be stored by INT-692. The shipped local-`amx` mode has no safe
+  remote zmx identity to kill.
 
 Which owner applies is a property of the target mode (§4) and the pane's
 configuration, not something the two layers negotiate at runtime.
@@ -166,14 +169,15 @@ survives SSH:
 - The owner/`O_NOFOLLOW` checks are scoped to the local uid and offer no meaning
   across a trust and filesystem boundary.
 
-So the file-drop path is valid only for local (including local-`amx`-persists-
-remote-shell, where the agent still runs against a local surface's env) panes. A
-remote agent running *on the target* needs a distinct transport that carries
-events back over the SSH connection (§5, last bullet; delegated to INT-698). The
-`amx`/`zmx` out-of-band signals (cwd, session-end reason) already ride IPC over
-the daemon's local socket rather than the PTY stream and are similarly a local
-mechanism; a remote target's out-of-band signals must be re-sourced over SSH, not
-assumed to arrive on the local socket.
+So the file-drop path is valid only when the agent process itself runs on the
+Mac. A local `amx` daemon may own an outer session whose child is `ssh`, but an
+agent launched beyond that SSH boundary still runs on the target: it cannot
+write the Mac-local event file and must use the authenticated remote bridge
+(§5, last bullet; delegated to INT-698). The `amx`/`zmx` out-of-band signals
+(cwd, session-end reason) already ride IPC over the daemon's local socket rather
+than the PTY stream and are similarly local mechanisms; a remote target's
+out-of-band signals must be re-sourced over SSH, not assumed to arrive on the
+local socket.
 
 ## Consequences
 
