@@ -7,10 +7,11 @@ struct SessionStoreTextTests {
     func syntheticTitleUsesLocalizedGrammar() throws {
         let bundle = try #require(INT612LocalizationTestSupport.bundle)
 
-        #expect(SyntheticSessionTitle(agentKind: .shell, index: 2).localizedTitle(
-            bundle: bundle,
-            locale: INT612LocalizationTestSupport.french
-        ) == "2 coquille")
+        #expect(
+            SyntheticSessionTitle(agentKind: .shell, index: 2).localizedTitle(
+                bundle: bundle,
+                locale: INT612LocalizationTestSupport.pseudoLocale
+            ) == "⟦2:⟦shell⟧⟧")
     }
     @Test("synthetic shell prefix resolves from the app-owned catalog")
     func syntheticShellPrefixUsesAppBundle() throws {
