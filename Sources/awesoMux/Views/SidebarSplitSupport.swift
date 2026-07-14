@@ -4,6 +4,12 @@ import CoreGraphics
 import Foundation
 import Observation
 
+enum SidebarHostMode: Equatable {
+    case persistent(width: CGFloat)
+    case hidden
+    case overlay(width: CGFloat)
+}
+
 enum SidebarPhysicalEdge: Equatable {
     case leading
     case trailing

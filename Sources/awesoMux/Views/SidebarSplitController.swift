@@ -69,6 +69,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     private let splitView = DividerTrackingSplitView()
     private let edgeTrackingView = SidebarEdgeTrackingView(position: .left)
+    private let sidebarPaneContainer = NSView()
+    private let overlayClipView = SidebarOverlayClipView()
+    private let overlayContentView = NSView()
     private let sidebarChild: NSViewController
     private let detailChild: NSViewController
     var sidebarViewController: NSViewController { sidebarChild }
@@ -76,6 +79,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var sidebarPosition: AppearanceConfig.SidebarPosition = .left
     private var isSidebarHidden = false
     private var isEdgeTrackingEnabled = false
+    private var hostMode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.expandedWidth)
+    private var selectedSidebarWidth: CGFloat = SidebarWidthPolicy.expandedWidth
 
     /// Set around our own `setPosition` calls so `splitViewDidResizeSubviews` (which
     /// also fires for programmatic position changes and window layout) does not echo
@@ -118,12 +123,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         addChild(sidebarChild)
         addChild(detailChild)
         // NSSplitView treats its direct subviews as panes (index 0 = leading).
+        sidebarChild.view.translatesAutoresizingMaskIntoConstraints = true
+        sidebarPaneContainer.addSubview(sidebarChild.view)
+        sidebarChild.view.frame = sidebarPaneContainer.bounds
+        sidebarChild.view.autoresizingMask = [.width, .height]
         if sidebarPosition == .left {
-            splitView.addSubview(sidebarChild.view)
+            splitView.addSubview(sidebarPaneContainer)
             splitView.addSubview(detailChild.view)
         } else {
             splitView.addSubview(detailChild.view)
-            splitView.addSubview(sidebarChild.view)
+            splitView.addSubview(sidebarPaneContainer)
         }
         edgeTrackingView.isHidden = !isEdgeTrackingEnabled
         edgeTrackingView.position = sidebarPosition
@@ -138,6 +147,13 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         let root = NSView()
         root.addSubview(splitView)
+        overlayClipView.wantsLayer = true
+        overlayClipView.layer?.masksToBounds = true
+        overlayContentView.wantsLayer = true
+        overlayClipView.contentView = overlayContentView
+        overlayClipView.addSubview(overlayContentView)
+        overlayClipView.isHidden = true
+        root.addSubview(overlayClipView)
         root.addSubview(edgeTrackingView)
         view = root
     }
@@ -145,6 +161,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     override func viewDidLayout() {
         super.viewDidLayout()
         splitView.frame = view.bounds
+        if case .overlay = hostMode { layoutOverlay(presented: true) }
         let trackingWidth = min(SidebarPresentationModel.cueDistance, view.bounds.width)
         edgeTrackingView.frame = CGRect(
             x: sidebarPosition == .left ? 0 : view.bounds.width - trackingWidth,
@@ -173,6 +190,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// Move the divider so the sidebar pane is `width` points wide, clamped to
     /// `[collapsedWidth, maxSidebarWidth]`. Un-animated.
     func setSidebarWidth(_ width: CGFloat) {
+        selectedSidebarWidth = width
         // A deliberate request decides whether the rail is the user's choice: if
         // they're asking for a rail-band width, honor it and don't auto-expand on a
         // later window-widen; otherwise they want an expanded sidebar.
@@ -193,6 +211,44 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         applyPosition(width)
     }
 
+    func setSelectedSidebarWidth(_ width: CGFloat) {
+        selectedSidebarWidth = Self.clampedWidth(width, maxWidth: maxSidebarWidth)
+        pendingWidth = selectedSidebarWidth
+        switch hostMode {
+        case .overlay:
+            layoutOverlay(presented: true)
+            hostMode = .overlay(width: selectedSidebarWidth)
+        case .persistent:
+            setSidebarWidth(selectedSidebarWidth)
+        case .hidden:
+            break
+        }
+    }
+
+    func setOverlayPresentedImmediately(_ presented: Bool) {
+        guard isSidebarHidden else { return }
+        if presented {
+            moveSidebarHost(to: overlayContentView)
+            overlayClipView.isHidden = false
+            layoutOverlay(presented: true)
+            overlayContentView.layer?.setAffineTransform(.identity)
+            hostMode = .overlay(width: selectedSidebarWidth)
+            sidebarChild.view.setAccessibilityHidden(false)
+        } else {
+            overlayContentView.layer?.removeAllAnimations()
+            let translation =
+                sidebarPosition == .left
+                ? -overlayContentView.bounds.width : overlayContentView.bounds.width
+            overlayContentView.layer?.setAffineTransform(
+                CGAffineTransform(translationX: translation, y: 0))
+            moveSidebarHost(to: sidebarPaneContainer)
+            overlayContentView.layer?.setAffineTransform(.identity)
+            overlayClipView.isHidden = true
+            hostMode = .hidden
+            sidebarChild.view.setAccessibilityHidden(true)
+        }
+    }
+
     var maxSidebarWidth: CGFloat {
         max(SidebarWidthPolicy.collapsedWidth, paneExtent - terminalMinimumWidth)
     }
@@ -209,7 +265,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             return responderView === root || responderView.isDescendant(of: root)
         }
         let order = SidebarSubviewOrder(
-            sidebar: sidebarChild.view, detail: detailChild.view, position: position
+            sidebar: sidebarPaneContainer, detail: detailChild.view, position: position
         )
         splitView.sortSubviews(
             { lhs, rhs, context in
@@ -220,6 +276,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         splitView.adjustSubviews()
         if isSidebarHidden {
             applyHiddenPosition()
+            if case .overlay = hostMode { layoutOverlay(presented: true) }
         } else {
             applyPosition(width)
         }
@@ -236,11 +293,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             recordIfExpanded(sidebarPaneWidth)
             isSidebarHidden = true
             applyHiddenPosition()
+            hostMode = .hidden
+            sidebarChild.view.setAccessibilityHidden(true)
         } else {
+            moveSidebarHost(to: sidebarPaneContainer)
+            overlayClipView.isHidden = true
             isSidebarHidden = false
             let width = pendingWidth ?? lastExpandedPaneWidth
             pendingWidth = nil
             applyPosition(width)
+            sidebarChild.view.setAccessibilityHidden(false)
         }
     }
 
@@ -267,6 +329,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var edgeTrackingFrameForTesting: CGRect { edgeTrackingView.frame }
     var isEdgeTrackingVisibleForTesting: Bool { !edgeTrackingView.isHidden }
     var splitPaneViewsForTesting: [NSView] { splitView.subviews }
+    var sidebarPaneContainerForTesting: NSView { sidebarPaneContainer }
+    var overlayClipViewForTesting: SidebarOverlayClipView { overlayClipView }
+    var overlayContentViewForTesting: NSView { overlayContentView }
+    var hostModeForTesting: SidebarHostMode { hostMode }
+    var sidebarSplitPaneWidthForTesting: CGFloat { sidebarPaneContainer.frame.width }
+    var sidebarHostOccurrenceCountForTesting: Int {
+        [sidebarPaneContainer, overlayContentView].filter {
+            sidebarChild.view === $0 || sidebarChild.view.isDescendant(of: $0)
+        }.count
+    }
     func simulateTrackingAvailabilityLostForTesting() {
         onTrackingAvailabilityLost?()
     }
@@ -356,10 +428,42 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
     }
 
-    /// Read the sidebar child's view width directly — unambiguous, vs. guessing
-    /// which `subviews`/`arrangedSubviews` index is the leading pane.
     private var sidebarPaneWidth: CGFloat {
-        sidebarChild.view.frame.width
+        sidebarPaneContainer.frame.width
+    }
+
+    private func moveSidebarHost(to destination: NSView) {
+        guard sidebarChild.view.superview !== destination else { return }
+        removeConstraints(for: sidebarChild.view, from: sidebarChild.view.superview)
+        removeConstraints(for: sidebarChild.view, from: destination)
+        sidebarChild.view.removeFromSuperview()
+        sidebarChild.view.translatesAutoresizingMaskIntoConstraints = true
+        destination.addSubview(sidebarChild.view)
+        sidebarChild.view.frame = destination.bounds
+        sidebarChild.view.autoresizingMask = [.width, .height]
+    }
+
+    private func removeConstraints(for child: NSView, from container: NSView?) {
+        guard let container else { return }
+        container.removeConstraints(
+            container.constraints.filter {
+                ($0.firstItem as AnyObject?) === child || ($0.secondItem as AnyObject?) === child
+            })
+    }
+
+    private func layoutOverlay(presented: Bool) {
+        let width = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
+        let x = sidebarPosition == .left ? 0 : view.bounds.maxX - width
+        overlayClipView.frame = CGRect(x: x, y: 0, width: width, height: view.bounds.height)
+        overlayContentView.frame = overlayClipView.bounds
+        overlayContentView.autoresizingMask = [.width, .height]
+        sidebarChild.view.frame = overlayContentView.bounds
+        let hiddenTranslation = sidebarPosition == .left ? -width : width
+        overlayClipView.presentationTranslationX = { [weak overlayContentView] in
+            guard let overlayContentView else { return hiddenTranslation }
+            return overlayContentView.layer?.presentation()?.affineTransform().tx
+                ?? (presented ? 0 : hiddenTranslation)
+        }
     }
 
     private var paneExtent: CGFloat {
@@ -384,6 +488,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         splitView.setPosition(coordinate, ofDividerAt: 0)
         isSettingPositionProgrammatically = false
         let rendered = sidebarPaneWidth
+        hostMode = .persistent(width: rendered)
         recordIfExpanded(rendered)
         // Report the rendered pane width, not just the requested target. AppKit
         // can preserve a wider child during first layout or constraint pressure;
@@ -473,7 +578,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// Sidebar holds its absolute width; the detail/terminal pane absorbs window
     /// resize. (Bare-NSSplitView equivalent of a high sidebar holdingPriority.)
     func splitView(_ splitView: NSSplitView, shouldAdjustSizeOfSubview view: NSView) -> Bool {
-        view !== sidebarChild.view
+        view !== sidebarPaneContainer
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
