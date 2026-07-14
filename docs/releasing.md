@@ -173,26 +173,69 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
 - [ ] Generate checksums:
   - [ ] SHA-256 for every downloadable artifact
   - [ ] optional signed checksum file later
-- [ ] Add a tag-triggered GitHub Actions workflow:
+- [ ] Add a tag-triggered GitHub Actions workflow (Phase 1 mechanics shipped
+      and checked below; the tag trigger itself is Phase 2):
   - [ ] only runs on protected `v*` tags or manual maintainer dispatch
+        (Phase 2 — pending first successful dispatch run; `.github/workflows/release.yml`
+        currently ships `workflow_dispatch` only, gated to `refs/heads/main`)
   - [ ] checks out submodules
-  - [ ] imports signing cert into a temporary keychain
-  - [ ] builds and signs
-  - [ ] notarizes and staples
-  - [ ] uploads artifacts/checksums to a draft GitHub Release
+  - [x] imports signing cert into a temporary keychain
+  - [x] builds and signs
+  - [x] notarizes and staples
+  - [x] uploads the signed zip + checksum as workflow artifacts (every run,
+        7-day retention)
+  - [x] can create a draft GitHub Release (`create_draft_release` input,
+        off by default)
   - [ ] never runs signing steps for `pull_request` from forks
 - [x] Add an unsigned local dry-run mode (`--unsigned`; needs full Xcode + Zig, but no signing credentials)
 - [ ] Document maintainer-only release prerequisites.
+
+**Environment/secret names contract:** the workflow runs under the GitHub
+Environment named `release`, which must hold five secrets:
+`RELEASE_P12_BASE64`, `RELEASE_P12_PASSWORD`, `NOTARY_KEY_P8`, `NOTARY_KEY_ID`,
+`NOTARY_ISSUER_ID`. These names are load-bearing — the workflow reads them
+verbatim via `secrets.<NAME>` — so renaming any of them in the GitHub
+Environment without a matching workflow change breaks the run at the
+signing/notarization step, not at dispatch time.
+
+**The `release` environment's protection rules are load-bearing, not just its
+secrets.** Two separate policy rows matter: required reviewers (a human
+approval gate, distinct from who merely has write access to the repo) and
+deployment branch/tag rules that must permit both branch `main` and tag
+pattern `v*` — Phase 1 dispatches from `main`, Phase 2 dispatches from tags.
+
+**Every dispatch run distributes the built artifact, regardless of the
+`create_draft_release` toggle.** The signed, notarized zip is always uploaded
+as a workflow artifact, downloadable by any authenticated GitHub user for its
+7-day retention window. The toggle only gates whether a GitHub Release page
+gets created — it does not gate distribution.
+
+**Concurrency:** only one release run queues behind an in-progress one; a
+newer concurrent dispatch replaces the queued (not running) run rather than
+lining up behind it. Coordinate with other maintainers before dispatching so
+a queued run isn't silently dropped.
+
+**Cancelled/timed-out runs orphan Apple notarization submissions.** This is
+harmless — Apple just holds an unresolved submission — but the CI run itself
+has no resume path; re-dispatch from scratch. Checking an orphaned
+submission's status requires a local `xcrun notarytool store-credentials`
+run with the same three notary secrets (`NOTARY_KEY_P8`, `NOTARY_KEY_ID`,
+`NOTARY_ISSUER_ID`).
 
 ### Per-release checklist
 
 - [ ] Create release branch or use the protected release commit.
 - [ ] Confirm version and build number.
 - [ ] Run pre-release freeze checklist.
-- [ ] Create annotated tag, for example:
-  - [ ] `git tag -a v0.1.0 -m "v0.1.0"`
-  - [ ] `git push origin v0.1.0`
-- [ ] Wait for release workflow to produce draft GitHub Release.
+- [ ] Produce the draft GitHub Release:
+  - [ ] Phase 1 (current): manually dispatch the Release workflow
+        (Actions → Release → `version` + `create_draft_release: true`) and
+        approve the `release` environment gate. Tags do NOT trigger the
+        workflow yet.
+  - [ ] Phase 2 (once the tag trigger lands): create and push the annotated
+        tag (`git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0`) and
+        the workflow runs automatically.
+- [ ] Wait for the release workflow to produce the draft GitHub Release.
 - [ ] Download the draft artifact on a clean Mac.
 - [ ] Install/open from the downloaded artifact.
 - [ ] Confirm Gatekeeper accepts the app.
