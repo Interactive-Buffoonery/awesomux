@@ -61,10 +61,12 @@ struct SidebarHoverArchitectureTests {
         #expect(cueCall.contains("intensity: sidebarPresentation.cueIntensity"))
 
         let cueBody = try #require(
-            content.split(separator: "private struct SidebarProximityCue", maxSplits: 1).last
+            content.split(separator: "private struct SidebarProximityCue", maxSplits: 1).last?
+                .split(separator: "private struct AppTitlebarView", maxSplits: 1).first
         )
         #expect(cueBody.contains(".frame(width: 4)"))
         #expect(cueBody.contains(".allowsHitTesting(false)"))
         #expect(cueBody.contains(".accessibilityHidden(true)"))
+        #expect(!cueBody.contains(".animation("))
     }
 }

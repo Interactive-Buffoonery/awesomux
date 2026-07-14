@@ -427,7 +427,6 @@ private struct SidebarProximityCue: View {
     let intensity: CGFloat
     let attentionGlow: Bool
     @Environment(\.awAccent) private var accentResolver
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let accent = Color.aw.focusAccent(
@@ -447,7 +446,6 @@ private struct SidebarProximityCue: View {
                 radius: 1 + 6 * strength
             )
             .opacity(visible || attentionGlow ? 0.12 + 0.88 * strength : 0)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.08), value: strength)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
