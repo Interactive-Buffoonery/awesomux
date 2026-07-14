@@ -80,7 +80,7 @@ struct SidebarSplitControllerTests {
         let (controller, sidebar, detail) = makeController()
         controller.setEdgeTrackingEnabled(true)
 
-        #expect(controller.edgeTrackingFrameForTesting == CGRect(x: 0, y: 0, width: 80, height: 800))
+        #expect(controller.edgeTrackingFrameForTesting == CGRect(x: 0, y: 0, width: 400, height: 800))
         #expect(controller.splitPaneViewsForTesting.count == 2)
         #expect(
             controller.splitPaneViewsForTesting.contains {
@@ -93,7 +93,7 @@ struct SidebarSplitControllerTests {
         controller.view.frame.size.width = 900
         controller.view.layoutSubtreeIfNeeded()
 
-        #expect(controller.edgeTrackingFrameForTesting == CGRect(x: 820, y: 0, width: 80, height: 800))
+        #expect(controller.edgeTrackingFrameForTesting == CGRect(x: 600, y: 0, width: 300, height: 800))
         #expect(controller.splitPaneViewsForTesting.count == 2)
     }
 

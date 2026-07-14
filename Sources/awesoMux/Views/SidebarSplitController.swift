@@ -227,7 +227,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         super.viewDidLayout()
         splitView.frame = view.bounds
         if case .overlay = hostMode { layoutOverlayPreservingAnimation() }
-        let trackingWidth = min(SidebarPresentationModel.cueDistance, view.bounds.width)
+        let trackingWidth = max(0, view.bounds.width / 3)
         edgeTrackingView.frame = CGRect(
             x: sidebarPosition == .left ? 0 : view.bounds.width - trackingWidth,
             y: 0,
