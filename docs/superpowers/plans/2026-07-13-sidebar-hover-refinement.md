@@ -41,6 +41,7 @@
 
 - `Sources/awesoMux/Views/SidebarSplitController.swift`: stable split pane containers, single sidebar-host reparenting, persistent/overlay handoff, geometry instrumentation.
 - `Sources/awesoMux/Views/SidebarOverlayAnimator.swift`: one-purpose cancellable compositor transform animator.
+- `Sources/awesoMux/Views/SidebarOverlayClipView.swift`: presentation-layer-aware visible bounds and coordinate-correct hit testing.
 - `Sources/awesoMux/Views/SidebarInteractionMonitor.swift`: reduces sidebar pointer, keyboard focus, accessibility focus, and contextual-menu tracking to one retention signal.
 - `Sources/awesoMux/Views/SidebarSplitView.swift`: constructs the single sidebar host and wires proxy/callback updates without enacting runtime presentation during representable updates.
 - `Sources/awesoMux/Views/SidebarSplitSupport.swift`: typed host/presentation commands and proxy closures.
@@ -48,8 +49,10 @@
 - `Tests/awesoMuxTests/SidebarSplitControllerTests.swift`: retained persistent split, semantic positioning, drag, resize, and cold-launch tests after removing divider-hover cases.
 - `Tests/awesoMuxTests/SidebarOverlayHostControllerTests.swift`: one-host ownership, reparenting, overlay frames, explicit handoff, width mode, focus and interaction.
 - `Tests/awesoMuxTests/SidebarOverlayAnimatorTests.swift`: transforms, cancellation, reversal, stale completion, Reduce Motion.
+- `Tests/awesoMuxTests/SidebarOverlayClipViewTests.swift`: fully hidden/partial/presented hit testing and transformed coordinate routing.
 - `Tests/awesoMuxTests/SidebarInteractionMonitorTests.swift`: first-responder/AX ancestry, menu lifetime, and pointer retention.
 - `Tests/awesoMuxTests/SidebarHoverGeometryIsolationTests.swift`: zero divider mutation and zero detail/terminal backing resize during hover.
+- `Tests/awesoMuxTests/SidebarSemanticPaneIdentityTests.swift`: structural and runtime proof that split semantics use `sidebarPaneContainer`, never the reparented host view.
 - `Tests/awesoMuxTests/SidebarHoverIntegrationTests.swift`: model-to-command routing and hidden rail/full behavior.
 - `Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift`: runtime ownership structural guard updated from divider visibility to host presentation.
 
@@ -65,6 +68,15 @@ enum SidebarHostMode: Equatable {
 enum SidebarOverlayTransition: Equatable {
     case immediate
     case hover(duration: TimeInterval)
+}
+
+@Observable
+@MainActor
+final class SidebarHostPresentationState {
+    private(set) var mode: SidebarHostMode = .hidden
+    private(set) var effectiveVisibleWidth: CGFloat = 0
+
+    func settle(mode: SidebarHostMode, effectiveVisibleWidth: CGFloat)
 }
 
 @MainActor
@@ -216,11 +228,14 @@ Commit: `refactor(sidebar): remove divider hover animation`
 - Modify: `Sources/awesoMux/Views/SidebarSplitController.swift`
 - Modify: `Sources/awesoMux/Views/SidebarSplitView.swift`
 - Modify: `Sources/awesoMux/Views/SidebarSplitSupport.swift`
+- Create: `Sources/awesoMux/Views/SidebarOverlayClipView.swift`
 - Create: `Tests/awesoMuxTests/SidebarOverlayHostControllerTests.swift`
+- Create: `Tests/awesoMuxTests/SidebarOverlayClipViewTests.swift`
+- Create: `Tests/awesoMuxTests/SidebarSemanticPaneIdentityTests.swift`
 - Modify: `Tests/awesoMuxTests/SidebarSplitControllerTests.swift`
 
 **Interfaces:**
-- Produces: `SidebarHostMode`, stable `sidebarPaneContainer`, `overlayClipView`, `overlayContentView`, `setSelectedSidebarWidth(_:)`, `setOverlayPresentedImmediately(_:)`.
+- Produces: `SidebarHostMode`, stable `sidebarPaneContainer`, `SidebarOverlayClipView`, `overlayContentView`, `setSelectedSidebarWidth(_:)`, `setOverlayPresentedImmediately(_:)`, and internal `sidebarPaneContainerForTesting`.
 - Preserves: one sidebar child controller and its SwiftUI root across all modes.
 - Invariant: direct `NSSplitView` panes remain `sidebarPaneContainer` and `detailChild.view`; reparent only `sidebarChild.view`.
 
@@ -245,6 +260,19 @@ func oneHostOverlay() {
 
 Add mirrored right-side frame assertions: left overlay frame `x == 0`; right overlay frame `maxX == controller.view.bounds.maxX`. Assert it is above detail in root z-order and accepts hit testing only inside its visible frame.
 
+Add a stable semantic-pane test for both positions and all host modes:
+
+```swift
+#expect(controller.splitPaneViewsForTesting.count == 2)
+#expect(controller.splitPaneViewsForTesting == [controller.sidebarPaneContainerForTesting, detail.view]) // left
+controller.setSidebarPosition(.right)
+#expect(controller.splitPaneViewsForTesting == [detail.view, controller.sidebarPaneContainerForTesting])
+controller.setOverlayPresentedImmediately(true)
+#expect(controller.splitPaneViewsForTesting == [detail.view, controller.sidebarPaneContainerForTesting])
+```
+
+The sidebar host's parent changes; split pane identity/order/count never do.
+
 - [ ] **Step 2: Run and verify RED**
 
 Run: `./script/swift-test.sh --filter SidebarOverlayHostControllerTests`
@@ -263,21 +291,60 @@ private var hostMode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.ex
 private var selectedSidebarWidth: CGFloat = SidebarWidthPolicy.expandedWidth
 ```
 
-`loadView` adds `sidebarPaneContainer` and `detailChild.view` as the only split panes. Add `sidebarChild.view` inside `sidebarPaneContainer`; add `overlayClipView` above `splitView` but below `edgeTrackingView`, and add `overlayContentView` inside it. Set `overlayClipView.wantsLayer = true` and `overlayClipView.layer?.masksToBounds = true`. Never construct another `NSHostingController` or call `sidebar()` twice to create distinct stateful trees.
+`loadView` adds `sidebarPaneContainer` and `detailChild.view` as the only split panes. Add `sidebarChild.view` inside `sidebarPaneContainer`; add `overlayClipView` above `splitView` but below `edgeTrackingView`, and add `overlayContentView` inside it. Explicitly set `overlayClipView.wantsLayer = true`, `overlayClipView.layer?.masksToBounds = true`, and `overlayContentView.wantsLayer = true`; guard the non-nil content layer before animator construction and fall back to stable hidden ownership if it is unavailable. Never construct another `NSHostingController` or call `sidebar()` twice to create distinct stateful trees.
+
+Use frame/autoresizing exclusively. Before every reparent, deactivate/remove any constraints in the source or destination whose first/second item is `sidebarChild.view`. Set `sidebarChild.view.translatesAutoresizingMaskIntoConstraints = true`, assign destination bounds, and set `[.width, .height]`. `overlayClipView` and `overlayContentView` also use explicit frames in every `viewDidLayout`; do not mix destination constraints with autoresizing.
 
 Centralize reparenting:
 
 ```swift
 private func moveSidebarHost(to destination: NSView) {
     guard sidebarChild.view.superview !== destination else { return }
+    removeDestinationConstraints(for: sidebarChild.view)
     sidebarChild.view.removeFromSuperview()
+    sidebarChild.view.translatesAutoresizingMaskIntoConstraints = true
     destination.addSubview(sidebarChild.view)
     sidebarChild.view.frame = destination.bounds
     sidebarChild.view.autoresizingMask = [.width, .height]
 }
 ```
 
-- [ ] **Step 4: Add immediate overlay/hidden layout without animation**
+- [ ] **Step 4: Migrate every semantic split path to the stable container**
+
+Change all split identity/geometry references, not only construction:
+
+- `SidebarSubviewOrder.sidebar` receives `sidebarPaneContainer`.
+- `splitView.sidebarWidthProvider` returns `sidebarPaneContainer.frame.width`.
+- `sidebarPaneWidth` reads `sidebarPaneContainer.frame.width`.
+- `splitView(_:shouldAdjustSizeOfSubview:)` compares with `sidebarPaneContainer`.
+- `setSidebarPosition` sorting uses container/detail and its direct-pane assertions use those identities.
+- divider drag commit, `applyPosition`, `applyHiddenPosition`, reclamp, constraint delegates, live-width callbacks, and width persistence all measure the container.
+- `setSidebarPosition` treats `sidebarPaneContainer`/detail as semantic panes; a responder beneath `sidebarChild.view` is thereby inside the persistent container. Explicit hide/overlay interaction ancestry still checks `sidebarChild.view` so reparenting does not change focus ownership.
+- overlay interaction/focus/AX ancestry remains rooted at `sidebarChild.view`, not the container.
+
+Add a source-structural test that extracts `sidebarPaneWidth`, `shouldAdjustSizeOfSubview`, `loadView`, and `setSidebarPosition` and requires `sidebarPaneContainer`; forbid `splitView.addSubview(sidebarChild.view)`, `sidebarChild.view.frame.width`, and `view !== sidebarChild.view` across the controller source.
+
+- [ ] **Step 5: Add presentation-aware overlay hit testing**
+
+`SidebarOverlayClipView` owns a weak `contentView` and a `presentationTranslationX` closure. Its `hitTest` converts the point into the visually transformed content coordinate:
+
+```swift
+override func hitTest(_ point: NSPoint) -> NSView? {
+    guard !isHidden, bounds.contains(point), let contentView else { return nil }
+    let translation = presentationTranslationX()
+    let visualFrame = contentView.frame.offsetBy(dx: translation, dy: 0)
+    guard visualFrame.intersection(bounds).contains(point) else { return nil }
+    let contentPoint = NSPoint(
+        x: point.x - contentView.frame.minX - translation,
+        y: point.y - contentView.frame.minY
+    )
+    return contentView.hitTest(contentPoint)
+}
+```
+
+Held-animation tests set translations to fully hidden, 25%, 50%, and fully presented on left/right. Put distinct sentinel controls at the content's inner/outer edges and assert uncovered points return `nil`, covered points return the correct transformed sentinel, and mouse/scroll/contextual-event hit targets never land in invisible content.
+
+- [ ] **Step 6: Add immediate overlay/hidden layout without animation**
 
 ```swift
 func setSelectedSidebarWidth(_ width: CGFloat) {
@@ -301,19 +368,23 @@ func setOverlayPresentedImmediately(_ presented: Bool) {
 }
 ```
 
-`layoutOverlay` clamps width against current root bounds and `SidebarWidthPolicy`, frames `overlayClipView` at the physical edge, fills it with `overlayContentView`, and leaves `splitView`, divider coordinate, and detail frame untouched.
+`layoutOverlay` clamps width against current root bounds and `SidebarWidthPolicy`, frames `overlayClipView` at the physical edge, fills it with `overlayContentView`, and leaves `splitView`, divider coordinate, and detail frame untouched. Fully hidden sets the translation to exactly `+/-width`, makes hit testing return `nil`, sets `sidebarChild.view.setAccessibilityHidden(true)`, removes the compositor animation key, and reparents only after it is offscreen.
 
-- [ ] **Step 5: Update representable construction without duplicating `SidebarView`**
+- [ ] **Step 7: Update the same host root in every mode**
 
-`SidebarSplitView.makeNSViewController` still evaluates `sidebar()` once to create one `NSHostingController`. `updateNSViewController` may assign a new root view to that same host but never constructs an overlay host. Bind `proxy.setSelectedWidth` to `controller.setSelectedSidebarWidth`. Initial hidden restoration immediately places the host in the hidden split container; initial visible restoration uses persistent mode.
+`SidebarSplitView.makeNSViewController` still evaluates `sidebar()` once to create one `NSHostingController`. `updateNSViewController` assigns `host.rootView = sidebar()` on that same controller regardless of hidden, overlay, animating, or persistent mode; it never constructs an overlay host. Bind `proxy.setSelectedWidth` to `controller.setSelectedSidebarWidth`. Initial hidden restoration immediately places the host in the hidden split container; initial visible restoration uses persistent mode.
 
-- [ ] **Step 6: Run, format, and commit host architecture**
+For hidden, overlay-presented, overlay-mid-animation, and persistent fixtures, record `ObjectIdentifier(controller.sidebarViewController)`, run a representable root update, and assert identity/host count/parent/mode/divider/detail frame are unchanged while the new root value is visible through that same host.
+
+- [ ] **Step 8: Run, format, and commit host architecture**
 
 Run:
 
 ```bash
-script/format.sh Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Tests/awesoMuxTests/SidebarOverlayHostControllerTests.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift
+script/format.sh Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/SidebarOverlayClipView.swift Tests/awesoMuxTests/SidebarOverlayHostControllerTests.swift Tests/awesoMuxTests/SidebarOverlayClipViewTests.swift Tests/awesoMuxTests/SidebarSemanticPaneIdentityTests.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift
 ./script/swift-test.sh --filter SidebarOverlayHostControllerTests
+./script/swift-test.sh --filter SidebarOverlayClipViewTests
+./script/swift-test.sh --filter SidebarSemanticPaneIdentityTests
 ./script/swift-test.sh --filter SidebarSplitControllerTests
 ./script/swift-test.sh --filter SidebarSplitVisibilityOwnershipTests
 git diff --check
@@ -364,6 +435,16 @@ func reversalUsesPresentationTransform() {
 
 Add tests for equal-target idempotence, same-intent active animation not restarting, and Reduce Motion invoking no animation request.
 
+Add pure fraction mapping tests:
+
+```swift
+#expect(SidebarOverlayAnimator.visibleFraction(translationX: -225, hiddenTranslationX: -300) == 0.25)
+#expect(SidebarOverlayAnimator.translation(width: 60, position: .left, visibleFraction: 0.25) == -45)
+#expect(SidebarOverlayAnimator.translation(width: 300, position: .right, visibleFraction: 0.25) == 225)
+```
+
+Cover rail→full, full→rail, and window-reclamp mapping at 0%, 25%, 50%, and 100% on both physical sides.
+
 - [ ] **Step 2: Run and verify RED**
 
 Run: `./script/swift-test.sh --filter SidebarOverlayAnimatorTests`
@@ -384,6 +465,25 @@ layer.add(animation, forKey: Self.animationKey)
 ```
 
 Maintain `generation`, `requestedPresented`, and `activeTargetTranslation`. Completion normalizes only when its generation still wins. An equal current/target settles synchronously. `cancelAndSettle` removes the animation and sets the exact newest model transform.
+
+For resize or selected-width changes during animation, preserve the visible fraction:
+
+```swift
+let fraction = Self.visibleFraction(
+    translationX: currentPresentationTranslation,
+    hiddenTranslationX: oldHiddenTranslation
+)
+removeActiveAnimationAndInvalidateCompletion()
+reframeOverlay(to: newWidth)
+setModelTranslation(Self.translation(
+    width: newWidth,
+    position: position,
+    visibleFraction: fraction
+))
+restartTowardRequestedStateIfNeeded()
+```
+
+`visibleFraction` clamps to `0...1` and treats zero/non-finite width as `0`. A configured side change is an explicit lifecycle invalidation: settle hidden immediately on the old side, clear transform, then rebuild on the new side; fraction preservation applies to resize/rail-full changes and is tested independently for left and right.
 
 - [ ] **Step 4: Integrate animator with overlay visibility**
 
@@ -407,11 +507,11 @@ func setOverlayPresented(
 }
 ```
 
-Keep `overlayClipView` at its final edge-aligned frame for the full animation; transform `overlayContentView.layer` only. On winning hide completion, reparent the sidebar host into the zero-width split container and hide the overlay clip. On reversal, keep the host in overlay until the newest hide actually completes.
+Keep `overlayClipView` at its final edge-aligned frame for the full animation; transform `overlayContentView.layer` only. `SidebarOverlayClipView.presentationTranslationX` samples the same presentation/model translation, binding input pixels to visible pixels during every partial frame. On winning reveal completion, expose sidebar descendants to accessibility. At hide start, suppress AX exposure unless active AX focus has retained/cancelled the hide; on winning hide completion, reparent the sidebar host into the zero-width split container and hide the overlay clip. On reversal, keep the host in overlay until the newest hide actually completes.
 
 - [ ] **Step 5: Add resize and side-change cancellation tests**
 
-Resize reclamps overlay frame/selected width, cancels the current transform, and settles/restarts toward the newest requested overlay state without touching split geometry. Position change immediately cancels, hides/reparents overlay, clears old transform, moves tracker, then allows a fresh reveal on the new side.
+Resize reclamps overlay frame/selected width using the fraction mapping above, then restarts toward the newest requested state without touching split geometry. Position change immediately cancels, hides/reparents overlay, clears the animation key/model transform, moves tracker, then allows a fresh reveal on the new side. Tests re-run presentation-aware hit testing after every reframe so an old-width invisible hit shield cannot survive.
 
 - [ ] **Step 6: Run, format, and commit compositor animation**
 
@@ -421,6 +521,7 @@ Run:
 script/format.sh Sources/awesoMux/Views/SidebarOverlayAnimator.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Tests/awesoMuxTests/SidebarOverlayAnimatorTests.swift Tests/awesoMuxTests/SidebarOverlayHostControllerTests.swift
 ./script/swift-test.sh --filter SidebarOverlayAnimatorTests
 ./script/swift-test.sh --filter SidebarOverlayHostControllerTests
+./script/swift-test.sh --filter SidebarOverlayClipViewTests
 ./script/swift-test.sh --filter SidebarSplitControllerTests
 git diff --check
 ```
@@ -443,7 +544,7 @@ Commit: `feat(sidebar): animate overlay reveal transform`
 - Modify: `Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift`
 
 **Interfaces:**
-- Produces proxy closures: `setOverlayVisible`, `setPersistentVisible`, `setSelectedWidth`.
+- Produces proxy closures: `setOverlayVisible`, `setPersistentVisible`, `setSelectedWidth` and controller-authoritative `SidebarHostPresentationState`.
 - Produces controller actions: `setPersistentSidebarVisible(_:)`, `setOverlayPresented(_:transition:reduceMotion:)`.
 - Consumes: completed `SidebarPresentationModel.userWantsHidden`, `proximityState`, width stores.
 
@@ -465,7 +566,26 @@ func hiddenWidthMode() {
 }
 ```
 
-Controller handoff tests assert overlay→persistent removes overlay host first, reparents the same sidebar view into `sidebarPaneContainer`, and calls the real divider setter exactly once at selected width. Assert persistent→hidden collapses once and leaves overlay absent.
+Controller handoff tests inject an action recorder and require this exact overlay→persistent trace:
+
+```swift
+[
+    .beginNoActionsTransaction,
+    .cancelOverlayGeneration,
+    .captureSidebarResponder,
+    .removeOverlayAnimation,
+    .reparentHostToSplitContainer,
+    .setPersistentState,
+    .applySingleDividerIntent(selectedWidth),
+    .settleLayout,
+    .clearTransform,
+    .hideOverlayContainer,
+    .restoreSidebarResponder,
+    .endNoActionsTransaction,
+]
+```
+
+No observable callback may fire between those actions. Assert persistent→hidden uses one collapse intent and leaves overlay absent. Repeated settled commands record no actions.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -500,25 +620,34 @@ enum SidebarPresentationRouting {
 }
 ```
 
+Implement `performAtomicHostHandoff(to:)` and call it from `setPersistentSidebarVisible`. It captures the existing first responder when it is inside `sidebarChild.view`, suppresses live/commit callbacks, then uses both AppKit and Core Animation no-action scopes:
+
 ```swift
-func setPersistentSidebarVisible(_ visible: Bool) {
-    overlayAnimator.cancelAndSettle(presented: false)
-    overlayClipView.isHidden = true
+NSAnimationContext.runAnimationGroup { context in
+    context.duration = 0
+    context.allowsImplicitAnimation = false
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    defer { CATransaction.commit() }
+
+    invalidateOverlayGeneration()
+    overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
     moveSidebarHost(to: sidebarPaneContainer)
-    if visible {
-        isSidebarHidden = false
-        hostMode = .persistent(width: selectedSidebarWidth)
-        applyPosition(selectedSidebarWidth) // exactly one intentional detail resize
-    } else {
-        handOffSidebarFocusIfNeeded()
-        isSidebarHidden = true
-        hostMode = .hidden
-        applyHiddenPosition() // exactly one intentional collapse
-    }
+    isSidebarHidden = false
+    hostMode = .persistent(width: selectedSidebarWidth)
+    setDividerPosition(selectedSidebarWidth) // the single divider intent
+    splitView.layoutSubtreeIfNeeded()
+    view.layoutSubtreeIfNeeded()
+    overlayContentView.layer?.transform = CATransform3DIdentity
+    overlayClipView.isHidden = true
+    restoreResponderIfStillValid(capturedResponder)
 }
+publishSettledHostMode()
 ```
 
-Guard idempotent calls so an already persistent/hidden result performs zero geometry updates. Disable edge tracking only after persistent show owns the sidebar; enable it after persistent hide settles.
+The overlay clip stays unhidden until the same-host split pane is laid out; because actions are disabled and layout settles before return, no display pass sees a blank or stale transformed host. Callback publication happens only after the transaction. If destination/layer/layout is invalid, roll back to hidden split-container ownership, identity/offscreen cleanup, and no persistent visible state.
+
+Persistent hide uses the corresponding no-actions transaction: hand off focus only for hide, reparent to split container, issue one zero divider intent, settle layout, clear transform/AX/overlay, then publish hidden. Guard idempotent calls so settled persistent/hidden commands perform zero actions. Disable edge tracking only after persistent show owns the sidebar; enable it after persistent hide settles.
 
 - [ ] **Step 4: Wire the runtime proxy as the sole enactor**
 
@@ -531,6 +660,8 @@ proxy.setOverlayVisible = { [weak controller] visible, transition, reduceMotion 
 }
 proxy.setPersistentVisible = { [weak controller] in controller?.setPersistentSidebarVisible($0) }
 ```
+
+Add `let hostPresentation: SidebarHostPresentationState` to `SidebarSplitView`; assign it once to `controller.hostPresentationState` in `makeNSViewController` and reassert the same object identity in updates. Controller calls `hostPresentationState.settle(mode:effectiveVisibleWidth:)` only after a handoff transaction or overlay transition reaches its authoritative phase. Do not infer chrome state in SwiftUI.
 
 `updateNSViewController` contains none of those calls. Update the structural ownership test accordingly.
 
@@ -552,7 +683,9 @@ On `Command-Shift-Backslash` or Focus Sidebar: invalidate transient model state,
 
 - [ ] **Step 6: Keep titlebar semantics deliberate**
 
-Pass the selected overlay width to `AppTitlebarView` for temporary lockup display without changing body split geometry. Persistent mode still derives its column from live real-split width. Preserve the completed left/right lockup alignment, icon-before-text order, and narrow rail suppression.
+Create one `@State private var hostPresentation = SidebarHostPresentationState()` in `ContentView` and pass it into `SidebarSplitView`; controller updates it only through the post-settlement `publishSettledHostMode` callback. During reveal/hide animation it reports overlay width until winning hide completion; hidden reports `0`; persistent reports settled split width. `AppTitlebarView` derives temporary visibility/width from `hostPresentation.effectiveVisibleWidth`, never directly from proximity state.
+
+Add routing/parity tests for cue, overlay revealing/presented/hiding, winning hide completion, side invalidation, persistent show, hidden rail/full selection, and stale completion. In every case titlebar width/mode equals controller-authoritative host presentation; no temporary lockup outlives overlay removal. Preserve completed left/right alignment, icon-before-text order, and 60-point rail suppression.
 
 - [ ] **Step 7: Run, format, and commit routing/handoff**
 
@@ -598,6 +731,21 @@ Host detail/sidebar `FirstResponderView`s in a window. Assert passive overlay re
 Add a structural assertion in `SidebarHoverIntegrationTests.swift` that extracts the `onChange(of: sidebarFocusRequestID)` handler from `ContentView.swift` and requires the source range of `splitProxy.setPersistentVisible?(true)` to precede the range of `deliveredSidebarFocusRequestID = requestID`. Also assert the `SidebarView` initializer uses `focusRequestID: deliveredSidebarFocusRequestID`, never the incoming ID directly.
 
 Add assertions that `overlayClipView.isAccessibilityElement == false` does not introduce a wrapper element, while the reparented sidebar retains its existing accessibility children and labels. Tracker/cue remain ignored.
+
+For collapsed-rail peek geometry, publish a known sidebar tile frame before and after split→overlay reparent on both sides; convert through the controller root coordinate space and assert the ContentView-level peek anchor remains on the overlay's inward edge with unchanged vertical offset. This catches coordinate drift from the new superview chain without duplicating the peek card.
+
+Add an AX exposure matrix:
+
+| Overlay phase | Sidebar descendants AX-hidden? |
+| --- | --- |
+| hidden/offscreen | yes |
+| passive reveal partial | yes |
+| fully presented | no |
+| hide requested while AX focus inside | hide is retained/cancelled; no |
+| hide animation after AX focus leaves | yes before movement starts |
+| persistent handoff | no, same descendant identity/parent chain |
+
+Tests inject a focused sidebar accessibility element, assert its parent chain survives overlay→persistent reparent, and assert offscreen/partial descendants cannot appear in accessibility children.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -648,7 +796,11 @@ Do not make overlay background outside its frame hittable. Keep edge tracker pas
 
 - [ ] **Step 5: Handle lifecycle and explicit focus atomically**
 
-Tracker availability loss/window resignation cancels grace and compositor generation, clears interaction, immediately hides/reparents overlay, and leaves real split hidden. Side change does the same before moving tracker.
+Implement one idempotent `settleDetached()` used by tracker availability loss, `viewDidDisappear`, window detachment, and `deinit`: invalidate grace/compositor generations; remove `SidebarOverlayAnimator.animationKey`; detach interaction/menu/window/AX observers; report interaction false exactly once; disable sidebar AX exposure; clear transform; reparent the host to `sidebarPaneContainer` only when both views are loaded; hide the overlay; reset host mode/chrome state to hidden; and nil callback closures that could retain external models. A stale held completion after detach must be a no-op. Reattaching reinstalls a fresh monitor/tracker without duplicating observers.
+
+Add teardown tests with held animation/menu/focused responder: call `settleDetached`, assert stable hidden parentage, identity transform, zero observers, false retention once, hidden chrome, and stale completion no-op; then release the controller and assert weak deallocation.
+
+Side change performs the same immediate overlay cleanup before moving tracker, but retains live controller callbacks for the new side.
 
 Serialize Focus Sidebar delivery with a separate `@State private var deliveredSidebarFocusRequestID: UUID?`. Pass that delivered ID into `SidebarView`, not the incoming `sidebarFocusRequestID`. In the incoming request handler:
 
@@ -658,7 +810,7 @@ splitProxy.setPersistentVisible?(true) // synchronous same-host reparent + split
 deliveredSidebarFocusRequestID = requestID
 ```
 
-This guarantees the existing `SidebarView.onChange(of: focusRequestID)` runs only after the host is persistent; never focus a view scheduled for overlay removal.
+This guarantees the existing `SidebarView.onChange(of: focusRequestID)` runs only after the host is persistent; never focus a view scheduled for overlay removal. Atomic handoff captures both first responder and the injected accessibility-focused element when they belong to `sidebarChild.view`; after settled reparent it asserts their ancestry still reaches the same host before publishing persistent state.
 
 Explicit hide while sidebar-focused calls existing `onSidebarFocusHandoff` before real split collapse. If overlay-focused and an explicit persistent hide arrives, hand focus to active terminal before removing overlay.
 
@@ -691,8 +843,8 @@ Commit: `fix(sidebar): retain overlay during interaction`
 - Modify: `Tests/awesoMuxTests/SidebarSplitControllerTests.swift`
 
 **Interfaces:**
-- Produces internal test instrumentation: `hoverSplitPositionMutationCountForTesting`, `hoverDetailFrameMutationCountForTesting`, `resetHoverGeometryInstrumentationForTesting()`.
-- Guarantee: cue, overlay reveal/hide, transform ticks, reversal, resize reclamp, and hidden rail/full toggle produce zero real split position mutations and zero detail frame mutations.
+- Produces secondary intent instrumentation: `splitPositionMutationIntentCountForTesting`, `resetGeometryInstrumentationForTesting()`.
+- Primary guarantee: `GeometryRecordingView.changedSubmittedBackingSizes` stays empty for cue, overlay reveal/hide, transform ticks, reversal, resize reclamp, and hidden rail/full toggle. Persistent show records one divider intent and one final settled changed size; raw AppKit frame-notification count is not an acceptance contract.
 
 - [ ] **Step 1: Add failing geometry-isolation tests**
 
@@ -708,13 +860,13 @@ func hoverHasZeroGeometryMutations() {
     controller.setOverlayPresented(false, transition: .hover(duration: 0.140), reduceMotion: false)
     driver.finishLatest()
 
-    #expect(controller.hoverSplitPositionMutationCountForTesting == 0)
-    #expect(controller.hoverDetailFrameMutationCountForTesting == 0)
+    #expect(controller.splitPositionMutationIntentCountForTesting == 0)
+    #expect(detail.changedSubmittedBackingSizes.isEmpty)
     #expect(detail.view.frame == detailFrame)
 }
 ```
 
-Repeat for left/right, rail/full, Reduce Motion, rapid reversal, and window resize. Add an explicit persistent-show control test expecting exactly one split position mutation and one resulting detail-frame/backing resize event.
+Repeat for left/right, rail/full, Reduce Motion, rapid reversal, partial-animation width remap, and window resize. Add an explicit persistent-show control expecting exactly one split-position intent and one final changed submitted backing size. Frame notifications may coalesce or repeat internally; they are diagnostic only and cannot substitute for the recording view's changed-size evidence.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -724,13 +876,13 @@ Expected: compilation fails because geometry instrumentation does not exist.
 
 - [ ] **Step 3: Instrument the only geometry mutation boundaries**
 
-Route every controller divider mutation through existing `setDividerPosition(_:)`; increment `hoverSplitPositionMutationCountForTesting` whenever instrumentation is armed. Observe `detailChild.view.frameDidChangeNotification` only while instrumentation is armed and increment `hoverDetailFrameMutationCountForTesting`. `resetHoverGeometryInstrumentationForTesting()` zeros both counters and arms observation; `stopHoverGeometryInstrumentationForTesting()` disarms it. Enable `detailChild.view.postsFrameChangedNotifications` in the fixture/controller seam and remove observers in `deinit`.
+Route every divider setter—persistent reveal/hide, cold restoration, position change normalization, resize reclamp, and delegate normalization—through existing `setDividerPosition(_:)`; increment `splitPositionMutationIntentCountForTesting` whenever instrumentation is armed. `resetGeometryInstrumentationForTesting()` zeros and arms the secondary counter; `stopGeometryInstrumentationForTesting()` disarms it. No other direct `splitView.setPosition` call may remain; add a structural source test allowing that symbol only inside `setDividerPosition`.
 
 Instrumentation is internal and inert until `resetHoverGeometryInstrumentationForTesting()` arms it; it must not log, allocate per animation frame, or ship telemetry.
 
 - [ ] **Step 4: Add a real terminal-resize policy regression**
 
-Use a test-only `GeometryRecordingView: NSView` as `detailChild.view`; override `setFrameSize(_:)`, append only changed sizes to `submittedBackingSizes`, and clear the array after fixture layout. Overlay transform requests must append zero sizes. Persistent show control appends exactly one settled size. Do not assert Core Animation frame cadence; assert the absence/presence of geometry calls.
+Use a test-only `GeometryRecordingView: NSView` as `detailChild.view`; override `setFrameSize(_:)`, compare against the previous size, append only changed values to `changedSubmittedBackingSizes`, and clear the array after fixture layout. Overlay transform requests must append zero sizes. Persistent show control appends one final settled size. This changed-size array is the primary zero-Ghostty proof; intent count proves the controller did not ask the split to move.
 
 - [ ] **Step 5: Run focused and full automated verification**
 
@@ -746,7 +898,7 @@ script/format.sh Sources/awesoMux/Views/SidebarSplitController.swift Tests/aweso
 git diff --check
 ```
 
-Expected: all tests pass; hover matrix reports `0/0` geometry mutations; persistent-show control reports one intentional geometry transition; full suite is green.
+Expected: all tests pass; hover matrix reports zero split intents and an empty changed-size array; persistent-show control reports one intent and one final changed size; full suite is green.
 
 - [ ] **Step 6: Commit instrumentation/regressions**
 
@@ -769,9 +921,9 @@ Commit: `test(sidebar): prove hover geometry isolation`
 Run:
 
 ```bash
-script/format.sh Sources/awesoMux/Views/SidebarOverlayAnimator.swift Sources/awesoMux/Views/SidebarInteractionMonitor.swift Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/SidebarHoverArchitectureTests.swift Tests/awesoMuxTests/SidebarOverlayAnimatorTests.swift Tests/awesoMuxTests/SidebarInteractionMonitorTests.swift Tests/awesoMuxTests/SidebarOverlayHostControllerTests.swift Tests/awesoMuxTests/SidebarHoverGeometryIsolationTests.swift Tests/awesoMuxTests/SidebarHoverIntegrationTests.swift Tests/awesoMuxTests/SidebarPresentationModelTests.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift
+script/format.sh Sources/awesoMux/Views/SidebarOverlayAnimator.swift Sources/awesoMux/Views/SidebarOverlayClipView.swift Sources/awesoMux/Views/SidebarInteractionMonitor.swift Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/SidebarHoverArchitectureTests.swift Tests/awesoMuxTests/SidebarOverlayAnimatorTests.swift Tests/awesoMuxTests/SidebarOverlayClipViewTests.swift Tests/awesoMuxTests/SidebarSemanticPaneIdentityTests.swift Tests/awesoMuxTests/SidebarInteractionMonitorTests.swift Tests/awesoMuxTests/SidebarOverlayHostControllerTests.swift Tests/awesoMuxTests/SidebarHoverGeometryIsolationTests.swift Tests/awesoMuxTests/SidebarHoverIntegrationTests.swift Tests/awesoMuxTests/SidebarPresentationModelTests.swift Tests/awesoMuxTests/SidebarSplitControllerTests.swift Tests/awesoMuxTests/SidebarSplitVisibilityOwnershipTests.swift
 ./script/swift-test.sh
-script/format.sh --lint Sources/awesoMux/Views/SidebarOverlayAnimator.swift Sources/awesoMux/Views/SidebarInteractionMonitor.swift Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift
+script/format.sh --lint Sources/awesoMux/Views/SidebarOverlayAnimator.swift Sources/awesoMux/Views/SidebarOverlayClipView.swift Sources/awesoMux/Views/SidebarInteractionMonitor.swift Sources/awesoMux/Views/SidebarPresentationModel.swift Sources/awesoMux/Views/SidebarEdgeTrackingView.swift Sources/awesoMux/Views/SidebarSplitController.swift Sources/awesoMux/Views/SidebarSplitView.swift Sources/awesoMux/Views/SidebarSplitSupport.swift Sources/awesoMux/Views/ContentView.swift
 git diff --check
 ./script/build_and_run.sh
 ```
@@ -788,17 +940,22 @@ For left and right, with rail then full selected:
 4. Type continuously during slide; terminal focus/input remains live and text does not reflow.
 5. Rapidly reverse across 16 points; animation continues from its visible transform without jumps or stale completion.
 6. Enable Reduce Motion; overlay appears/disappears instantly.
-7. Resize during reveal; overlay reclamps while terminal/detail geometry remains stable.
+7. During a held/slow partial reveal, click, drag-select, scroll, and contextual-click both the visually covered sliver and visually uncovered terminal edge: only covered pixels target sidebar; uncovered pixels target terminal.
+8. Resize and switch rail/full during a partial reveal; visible fraction is preserved on left and right, hit-test bounds follow the new presentation, and terminal/detail geometry remains stable.
 
 - [ ] **Step 3: Verify live sidebar interaction and grace**
 
-Use search, scroll, workspace selection, buttons, context menus, rail peek cards, keyboard focus, and VoiceOver navigation in the overlay. Move outside while a control/menu/AX focus is active: overlay stays. End interaction and leave both regions: 220ms grace dismisses it. Passive reveal must never announce a persistent preference change or steal terminal/VoiceOver focus.
+Use search, scroll, workspace selection, buttons, context menus, rail peek cards, keyboard focus, and VoiceOver navigation in the overlay. Move outside while a control/menu/AX focus is active: overlay stays. End interaction and leave both regions: 220ms grace dismisses it. Passive partial reveal must never expose offscreen sidebar descendants to VoiceOver, announce a persistent preference change, or steal terminal/VoiceOver focus. Fully presented overlay exposes its existing children; persistent handoff preserves the focused element's identity/ancestry.
 
 - [ ] **Step 4: Verify width and explicit handoff**
 
-While hidden dormant press `Command-Backslash`: no overlay, cue, split movement, or terminal resize. Next hover uses chosen rail/full width. While overlay is visible press it again: overlay width changes without reflow. While overlay is visible press `Command-Shift-Backslash`: overlay becomes persistent instantly with no double sidebar/blank flash and one terminal resize. Focus Sidebar from hidden performs persistent show before focus. Explicit hide hands focus to terminal and collapses once.
+While hidden dormant press `Command-Backslash`: no overlay, cue, split movement, or terminal resize. Next hover uses chosen rail/full width. While overlay is visible or partially animated press it again: fraction maps to the new width without reflow or hit shield. While overlay is visible press `Command-Shift-Backslash`: the no-actions handoff produces no double sidebar/blank flash, preserves sidebar responder/AX identity, clears transform residue, and issues one persistent geometry intent. Focus Sidebar from hidden performs persistent show before focus. Explicit hide hands focus to terminal and collapses once. At each state confirm the titlebar lockup width/visibility matches the actual controller host mode and disappears only after overlay hide completes.
 
-- [ ] **Step 5: Capture visible UI evidence**
+- [ ] **Step 5: Verify detach and root-update resilience**
+
+With overlay partial, fully presented, keyboard-focused, AX-focused, and contextual-menu-active, deactivate/detach/close the window. It settles hidden, removes menu/window/animation observers, clears AX exposure/transform/titlebar state, and never resurrects from stale completion. Reopen and confirm one tracker/monitor only. Trigger unrelated SwiftUI/sidebar data updates in hidden, animating overlay, presented overlay, and persistent modes; the same sidebar host retains search/scroll state and parentage with no reparent or terminal resize.
+
+- [ ] **Step 6: Capture visible UI evidence**
 
 Capture focused screenshots:
 
@@ -812,7 +969,7 @@ screencapture -i /tmp/awesomux-overlay-right-persistent-handoff.png
 
 Expected: terminal content remains full-width beneath overlays; sidebar is edge-aligned; right title lockup is trailing with 10-point padding and icon-before-text; rail suppression is unchanged; persistent handoff shows one sidebar. Preserve a left/right overlay comparison for the eventual PR body; do not commit `/tmp` artifacts.
 
-- [ ] **Step 6: Run preflight and refresh overlap**
+- [ ] **Step 7: Run preflight and refresh overlap**
 
 Run:
 
@@ -825,11 +982,11 @@ git status --short
 
 Expected: preflight passes, or only the already documented macOS Bash 3 `mapfile: command not found` infrastructure failure remains after preceding guards pass. Report every open PR touching changed files. Preserve unrelated concurrent worktree changes.
 
-- [ ] **Step 7: Run final whole-branch review and update the session note**
+- [ ] **Step 8: Run final whole-branch review and update the session note**
 
 Review `origin/main...HEAD` for spec compliance and code quality, fix findings with focused RED/GREEN coverage, rerun affected suites, and update the existing JiggyBrain note with overlay architecture, commands, test counts, screenshots, preflight status, overlap, and remaining sharp edges.
 
-- [ ] **Step 8: Commit verification-only fixes if any**
+- [ ] **Step 9: Commit verification-only fixes if any**
 
 Commit only when Step 7 required changes: `fix(sidebar): address overlay verification findings`
 
