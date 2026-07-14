@@ -34,6 +34,8 @@ The existing collapsed rail remains a distinct width mode. The current customiza
 - Hiding never overwrites the stored expanded width or the current collapsed-rail width.
 - The command remains available through the Window menu, command palette, keyboard cheatsheet, and shortcut customization using the existing awesoMux command-routing system.
 
+The Window menu and command palette describe the next persistent action: **Hide Sidebar** while persistently visible and **Show Sidebar** while persistently hidden. Temporary hover reveal does not change either title. The stable shortcut-catalog/customization label remains the generic Hide/Show Sidebar action.
+
 `Command-Backslash` retains its current collapse/expand behavior. The related modifier pattern matches the Floating Panel and Terminal Companion shortcut family.
 
 The existing Focus Sidebar action reveals a persistently hidden sidebar before moving keyboard focus into it. A direct show or focus action clears any temporary hover state and leaves the sidebar persistently visible.
@@ -135,9 +137,10 @@ Follow test-driven development for each behavior:
 3. Preference-store tests proving hidden state persists without overwriting sidebar widths.
 4. Split-controller tests for leading/trailing width conversion, clamping, divider movement, hiding/revealing, window resize, and drag commits.
 5. Shortcut/catalog/routing tests for the new stable action and `Command-Shift-Backslash` default while retaining `Command-Backslash` collapse/expand.
-6. Targeted source or view-policy tests for titlebar ordering, traffic-light ownership, edge selection, and inward peek geometry where practical.
-7. Full `./script/swift-test.sh` and `./script/preflight.sh` verification.
-8. Run the worktree app and visually verify:
+6. Menu and command-palette title tests proving persistent hidden intent selects Show Sidebar, persistent visible intent selects Hide Sidebar, and temporary hover state does not affect the title.
+7. Targeted source or view-policy tests for titlebar ordering, traffic-light ownership, edge selection, and inward peek geometry where practical.
+8. Full `./script/swift-test.sh` and `./script/preflight.sh` verification.
+9. Run the worktree app and visually verify:
    - visible, collapsed, hidden, and hover-revealed states;
    - left and right sidebar positions;
    - resize and relaunch persistence;

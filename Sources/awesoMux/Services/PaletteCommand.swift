@@ -166,6 +166,7 @@ struct PaletteAppActions {
 struct PaletteCommandAvailability {
     var isAnySheetPresented = false
     var isOpenInIDEEnabled = true
+    var isSidebarHidden = false
 }
 
 @MainActor
@@ -624,7 +625,8 @@ enum PaletteCommandRegistry {
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.toggleSidebarVisibility.id,
-                title: "Hide/Show Sidebar", subtitle: nil,
+                title: SidebarVisibilityActionTitle.resolve(isHidden: availability.isSidebarHidden),
+                subtitle: nil,
                 keywords: ["toggle", "hide", "show", "workspace list"],
                 shortcut: KeyboardShortcutCatalog.toggleSidebarVisibility,
                 isEnabled: !availability.isAnySheetPresented,

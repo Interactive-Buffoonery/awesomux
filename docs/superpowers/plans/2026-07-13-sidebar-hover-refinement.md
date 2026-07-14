@@ -4,14 +4,14 @@
 
 **Goal:** Replace the already-landed jittery real-divider hover animation with a live interactive sidebar overlay that slides over the full-size terminal without changing split or Ghostty geometry.
 
-**Architecture:** Keep the completed proximity model, 40-point pass-through tracker, 4-point cue, hidden width selection, and title alignment. `SidebarSplitController` owns one `SidebarView` hosting controller and reparents that same live view between a stable real-split pane container and an overlay clip container; hover uses a compositor transform only, while explicit persistent commands perform one instantaneous real-split geometry handoff.
+**Architecture:** Keep the completed proximity model, 80-point pass-through tracker, 4-point cue, hidden width selection, and title alignment. `SidebarSplitController` owns one `SidebarView` hosting controller and reparents that same live view between a stable real-split pane container and an overlay clip container; hover uses a compositor transform only, while explicit persistent commands perform one instantaneous real-split geometry handoff.
 
 **Tech Stack:** Swift 6, SwiftUI, AppKit (`NSViewController`, `NSSplitView`, `NSHostingController`), Core Animation (`CALayer`, `CABasicAnimation`, `CAMediaTimingFunction`), Observation, swift-testing.
 
 ## Global Constraints
 
 - macOS 15+ and SwiftPM only.
-- Preserve the completed exact proximity boundaries: cue at distances `<= 40`, reveal only at distances `< 16`.
+- Preserve the completed exact proximity boundaries: cue at distances `<= 80`, reveal only at distances `< 16`.
 - Preserve the completed 4-point non-hittable/non-accessible cue and pass-through edge tracker.
 - Hover reveal is a live interactive overlay above detail content; it never changes the real split divider or terminal/detail frame.
 - There is exactly one `SidebarView` instance and one sidebar `NSHostingController`; never render persistent and overlay copies concurrently.
@@ -935,7 +935,7 @@ Expected: formatting/lint clean, full Swift suite green, development app builds,
 For left and right, with rail then full selected:
 
 1. Hide instantly with `Command-Shift-Backslash`.
-2. At 40–16 points observe only the 4-point cue and zero terminal movement.
+2. At 80–16 points observe only the 4-point cue and zero terminal movement.
 3. Inside 16 points observe the live sidebar slide over the terminal in exactly 140ms.
 4. Type continuously during slide; terminal focus/input remains live and text does not reflow.
 5. Rapidly reverse across 16 points; animation continues from its visible transform without jumps or stale completion.

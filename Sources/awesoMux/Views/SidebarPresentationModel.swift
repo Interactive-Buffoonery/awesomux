@@ -11,7 +11,7 @@ final class SidebarPresentationModel {
         case revealed
     }
 
-    static let cueDistance: CGFloat = 40
+    static let cueDistance: CGFloat = 80
     static let revealDistance: CGFloat = 16
     static let leaveGrace: Duration = .milliseconds(220)
 
@@ -190,5 +190,21 @@ final class SidebarPresentationModel {
         sidebarInteractionActive = false
         visibilitySource = .explicit
         proximityState = .dormant
+    }
+}
+
+enum SidebarAttentionCuePolicy {
+    static func hasAttention(needsAcknowledgement: Bool, unreadNotificationCount: Int) -> Bool {
+        needsAcknowledgement || unreadNotificationCount > 0
+    }
+
+    static func shouldGlow(isPersistentlyHidden: Bool, hasAttention: Bool) -> Bool {
+        isPersistentlyHidden && hasAttention
+    }
+}
+
+enum SidebarVisibilityActionTitle {
+    static func resolve(isHidden: Bool) -> String {
+        isHidden ? "Show Sidebar" : "Hide Sidebar"
     }
 }

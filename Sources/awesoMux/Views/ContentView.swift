@@ -76,6 +76,7 @@ struct ContentView: View {
     let sidebarFocusRequestID: UUID?
     let sidebarWidthToggleRequestID: UUID?
     let sidebarVisibilityToggleRequestID: UUID?
+    let onSidebarPersistentVisibilityChange: (Bool) -> Void
 
     @State private var sidebarWidth = SidebarWidthPreferenceStore().width()
     @State private var lastNonCollapsedSidebarWidth =
@@ -119,6 +120,7 @@ struct ContentView: View {
             .ignoresSafeArea(.container)
             .background(WindowAccessor { hostingWindow = $0 })
             .onAppear {
+                onSidebarPersistentVisibilityChange(sidebarPresentation.userWantsHidden)
                 applySidebarPosition(appSettingsStore.appearance.value.sidebarPosition)
                 sessionStore.selectFirstSessionIfNeeded()
                 // `.onAppear` can fire more than once (window re-show, scene
@@ -154,11 +156,13 @@ struct ContentView: View {
                     return
                 }
                 sidebarPresentation.togglePersistentVisibility()
+                onSidebarPersistentVisibilityChange(sidebarPresentation.userWantsHidden)
                 settleSidebarVisibilityExplicitly()
             }
             .onChange(of: sidebarFocusRequestID) { _, requestID in
                 guard requestID != nil else { return }
                 sidebarPresentation.showPersistently()
+                onSidebarPersistentVisibilityChange(false)
                 splitProxy.setPersistentVisible?(true)
                 deliveredSidebarFocusRequestID = requestID
             }
@@ -201,6 +205,18 @@ struct ContentView: View {
         let promotionPulseSessionID = floatingPanelController.promotionPulseSessionID
         let sidebarPosition = appliedSidebarPosition
         let layoutPolicy = SidebarPresentationLayoutPolicy(position: sidebarPosition)
+        let hasAttention = sessionStore.groups.contains { group in
+            group.sessions.contains { session in
+                SidebarAttentionCuePolicy.hasAttention(
+                    needsAcknowledgement: session.needsAcknowledgement,
+                    unreadNotificationCount: session.unreadNotificationCount
+                )
+            }
+        }
+        let attentionGlow = SidebarAttentionCuePolicy.shouldGlow(
+            isPersistentlyHidden: sidebarPresentation.userWantsHidden,
+            hasAttention: hasAttention
+        )
         return VStack(spacing: 0) {
             AppTitlebarView(
                 session: sessionStore.selectedSession,
@@ -294,7 +310,8 @@ struct ContentView: View {
             }
             .overlay(alignment: layoutPolicy.edge == .leading ? .leading : .trailing) {
                 SidebarProximityCue(
-                    visible: sidebarPresentation.isCueVisible
+                    visible: sidebarPresentation.isCueVisible || attentionGlow,
+                    attentionGlow: attentionGlow
                 )
             }
         }
@@ -406,18 +423,22 @@ struct ContentView: View {
 
 private struct SidebarProximityCue: View {
     let visible: Bool
+    let attentionGlow: Bool
     @Environment(\.awAccent) private var accentResolver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let accent = Color.aw.focusAccent(
+            accentResolver.accent,
+            terminalBackground: Color.aw.surface.window
+        )
         Rectangle()
-            .fill(
-                Color.aw.focusAccent(
-                    accentResolver.accent,
-                    terminalBackground: Color.aw.surface.window
-                )
-            )
+            .fill(attentionGlow ? Color.aw.status.needs : accent)
             .frame(width: 4)
+            .shadow(
+                color: attentionGlow ? Color.aw.status.needs.opacity(0.7) : .clear,
+                radius: attentionGlow ? 7 : 0
+            )
             .opacity(visible ? 1 : 0)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.08), value: visible)
             .allowsHitTesting(false)

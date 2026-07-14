@@ -7,12 +7,12 @@ import Testing
 @MainActor
 @Suite("SidebarPresentationModel")
 struct SidebarPresentationModelTests {
-    @Test("40 points cues and inside 16 points reveals on both sides")
+    @Test("80 points cues and inside 16 points reveals on both sides")
     func exactProximityBoundaries() throws {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        model.pointerMoved(x: 60, width: 100, position: .right)
+        model.pointerMoved(x: 20, width: 100, position: .right)
         #expect(model.proximityState == .cue)
         #expect(model.isCueVisible)
         #expect(!model.isSidebarVisible)
@@ -23,18 +23,18 @@ struct SidebarPresentationModelTests {
         #expect(model.proximityState == .revealed)
 
         model.invalidateTransientState()
-        model.pointerMoved(x: 40, width: 100, position: .left)
+        model.pointerMoved(x: 80, width: 100, position: .left)
         #expect(model.proximityState == .cue)
         model.pointerMoved(x: 15.5, width: 100, position: .left)
         #expect(model.proximityState == .revealed)
     }
 
-    @Test("distance outside 40 points is dormant")
+    @Test("distance outside 80 points is dormant")
     func outsideCueZoneIsDormant() throws {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        model.pointerMoved(x: 40.5, width: 100, position: .left)
+        model.pointerMoved(x: 80.5, width: 100, position: .left)
         #expect(model.proximityState == .dormant)
     }
 
@@ -43,7 +43,7 @@ struct SidebarPresentationModelTests {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        for (x, expected) in [(40.0, .cue), (39.9, .cue), (16.0, .cue), (15.9, .revealed)]
+        for (x, expected) in [(80.0, .cue), (79.9, .cue), (16.0, .cue), (15.9, .revealed)]
             as [(CGFloat, SidebarPresentationModel.ProximityState)]
         {
             model.pointerMoved(x: x, width: 100, position: .left)

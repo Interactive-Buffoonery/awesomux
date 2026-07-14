@@ -108,6 +108,7 @@ struct AwesoMuxApp: App {
     @State private var sidebarFocusRequestID: UUID?
     @State private var sidebarWidthToggleRequestID: UUID?
     @State private var sidebarVisibilityToggleRequestID: UUID?
+    @State private var isSidebarPersistentlyHidden = SidebarPresentationPreferenceStore().isHidden()
     @State private var quickRunToast: QuickRunToast?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
 
@@ -291,7 +292,10 @@ struct AwesoMuxApp: App {
                 onFocusActiveTerminal: focusActiveTerminal,
                 sidebarFocusRequestID: sidebarFocusRequestID,
                 sidebarWidthToggleRequestID: sidebarWidthToggleRequestID,
-                sidebarVisibilityToggleRequestID: sidebarVisibilityToggleRequestID
+                sidebarVisibilityToggleRequestID: sidebarVisibilityToggleRequestID,
+                onSidebarPersistentVisibilityChange: { hidden in
+                    isSidebarPersistentlyHidden = hidden
+                }
             )
             .frame(
                 minWidth: ContentView.minimumWindowWidth,
@@ -916,7 +920,7 @@ struct AwesoMuxApp: App {
                     .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarWidth))
                     .disabled(isAnySheetPresented)
 
-                Button("Hide/Show Sidebar", action: requestSidebarVisibilityToggle)
+                Button(sidebarVisibilityMenuTitle, action: requestSidebarVisibilityToggle)
                     .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarVisibility))
                     .disabled(isAnySheetPresented)
 
@@ -2139,6 +2143,10 @@ struct AwesoMuxApp: App {
         return "\(action) Command Palette    \(shortcut(KeyboardShortcutCatalog.toggleCommandPalette).displaySymbol)"
     }
 
+    private var sidebarVisibilityMenuTitle: String {
+        SidebarVisibilityActionTitle.resolve(isHidden: isSidebarPersistentlyHidden)
+    }
+
     private var keyboardCheatsheetMenuTitle: String {
         "Keyboard Shortcuts    \(shortcut(KeyboardShortcutCatalog.showKeyboardCheatsheet).displaySymbol)"
     }
@@ -2904,7 +2912,8 @@ struct AwesoMuxApp: App {
             sessionStore: sessionStore,
             availability: PaletteCommandAvailability(
                 isAnySheetPresented: isAnySheetPresented,
-                isOpenInIDEEnabled: appSettingsStore.workspaces.value.openInIDEEnabled
+                isOpenInIDEEnabled: appSettingsStore.workspaces.value.openInIDEEnabled,
+                isSidebarHidden: isSidebarPersistentlyHidden
             ),
             actions: paletteActions,
             keyboard: keyboardConfig
