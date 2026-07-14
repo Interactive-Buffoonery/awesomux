@@ -701,7 +701,7 @@ struct PaneLayoutReducer: Sendable {
         }
 
         guard pane.remoteHost == nil,
-            RemoteSSHCommandTarget.parseSubmittedCommand(command) != nil
+            RemoteSSHCommandTarget.isSSHCommand(command)
         else {
             return nil
         }
