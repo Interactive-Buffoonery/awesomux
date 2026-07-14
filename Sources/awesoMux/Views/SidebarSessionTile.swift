@@ -48,6 +48,21 @@ struct SidebarSessionTile: View {
     var pinnedOriginGroupName: String? = nil
     let onDragStarted: () -> UUID
     let focusedRowTarget: FocusState<SidebarVisibleRowTarget?>.Binding
+    /// Snapshot of the sidebar's keyboard-modality flag at construction —
+    /// what `renderKey` compares and what the focus-ring gate below reads.
+    /// The OLD/NEW tile instances compared by `==` share the SAME
+    /// `@Binding`, so a read through the binding's live getter sees the
+    /// CURRENT value on both operands regardless of which value was current
+    /// when either instance was built — the comparison is permanently
+    /// equal and the field is inert. A plain `Bool` captured per-instance
+    /// doesn't have that problem.
+    let isKeyboardNavigatingValue: Bool
+    /// Write-only plumbing: every read of keyboard-navigation state goes
+    /// through `isKeyboardNavigatingValue` above. This binding exists solely
+    /// so the tap handler and hover handler can clear keyboard-modality
+    /// state on a pointer-modality signal; it is deliberately excluded from
+    /// `RenderKey` (see the doc comment there) since a binding's identity
+    /// isn't comparable and its value is write-only from this view's side.
     @Binding var isKeyboardNavigating: Bool
 
     @State private var isHovered = false
@@ -106,7 +121,7 @@ struct SidebarSessionTile: View {
             // on the selected/focused row); the accent `awFocusRing` below is our
             // keyboard-focus indicator and is gated to keyboard navigation.
             .focusEffectDisabled()
-            .awFocusRing(isKeyboardFocused && isKeyboardNavigating, cornerRadius: AwRadius.panel)
+            .awFocusRing(isKeyboardFocused && isKeyboardNavigatingValue, cornerRadius: AwRadius.panel)
             // `.simultaneousGesture(TapGesture)` instead of `.onTapGesture`
             // — see group header for rationale (tap-exclusive blocks drag
             // activation on macOS).
@@ -914,6 +929,233 @@ struct SidebarSessionTile: View {
             parts.append("active pane")
         }
         return parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Equatable render key
+
+extension SidebarSessionTile: Equatable {
+    /// Everything the row renders, as one comparable value, so `.equatable()`
+    /// at the call sites (`SidebarGroupView`, `SidebarPinnedSectionView`) can
+    /// skip re-running `body` — including its expensive
+    /// `.accessibilityElement(children: .combine)` node with its 7-11
+    /// accessibility actions — for rows whose rendered inputs did not change.
+    ///
+    /// `TerminalPane`/`TerminalSession` `==` deliberately exclude runtime-only
+    /// fields (`shellActivity` et al) whose chrome renders through
+    /// projections instead — see the "revisit" note in `TerminalPane.=='s`
+    /// doc comment. This key is that revisit: every pane read goes through
+    /// `effectiveChromeState` (which folds `shellActivity`), NEVER raw
+    /// pane/session equality.
+    ///
+    /// Full non-closure stored-property enumeration of `SidebarSessionTile`
+    /// (read 2026-07-14), so a reviewer can mechanically diff key fields
+    /// against stored properties:
+    ///   session, match, tint, isActive, displayMode, isKeyboardFocused,
+    ///   jumpIndex, hasBackgroundedFloatingWork, isPromotedInsertion,
+    ///   isPromotionPulseActive, isFiltering, duplicateDisambiguation,
+    ///   indexInGroup, sessionCountInGroup, ownerGroupIndex,
+    ///   previousNeighborGroup, nextNeighborGroup, otherGroups,
+    ///   verticalPadding, onSelect (closure), onNewSessionHere (closure),
+    ///   onAcknowledge (closure), onMoveWithinGroup (closure),
+    ///   onMoveToGroup (closure), onClose (closure), onClear (closure),
+    ///   onRename (closure), canMakeWorkspaceManaged,
+    ///   onMakeWorkspaceManaged (closure), onToggleNotificationsMute
+    ///   (closure), isPinned, onTogglePin (closure), pinnedOriginGroupName,
+    ///   onDragStarted (closure), focusedRowTarget, isKeyboardNavigatingValue,
+    ///   isKeyboardNavigating (@Binding), isHovered (@State), promotionPulseIsBright (@State),
+    ///   promotionPulseTask (@State), isPeekVisible (@State), peekTask
+    ///   (@State), tileFrame (@State), peekModel (@Environment), contrast
+    ///   (@Environment), reduceMotion (@Environment), appSettingsStore
+    ///   (@Environment), isCommandKeyHeld (@Environment).
+    ///
+    /// Excluded, not missed:
+    /// - Every closure above — never comparable, excluded per the Task 3
+    ///   invariant. Their identity has no bearing on what the row displays.
+    /// - `focusedRowTarget` (`FocusState<SidebarVisibleRowTarget?>.Binding`)
+    ///   — a `Binding` wraps get/set closures, so it isn't comparable, and
+    ///   its only use here is wiring `.focused(_:equals:)`. Its RENDERED
+    ///   effect is already fully captured: the caller precomputes
+    ///   `isKeyboardFocused` from this same binding's current value at
+    ///   construction time (`focusedRowTarget.wrappedValue == .session(id)`),
+    ///   so `isKeyboardFocused` alone determines everything this binding's
+    ///   value would otherwise change about the row.
+    /// - `isKeyboardNavigating` (`@Binding<Bool>`) — write-only plumbing for
+    ///   the tap and hover handlers to clear keyboard-modality state on a
+    ///   pointer signal. Its RENDERED effect is fully captured by
+    ///   `isKeyboardNavigatingValue` below, an immutable snapshot taken at
+    ///   construction time; comparing the binding itself would be comparing
+    ///   get/set closures (not comparable), and reading through its live
+    ///   getter from `==` would see the CURRENT value on both the old and
+    ///   new instance being compared (they share the same binding), making
+    ///   the read permanently self-equal and inert.
+    /// - `isHovered`, `promotionPulseIsBright`, `promotionPulseTask`,
+    ///   `isPeekVisible`, `peekTask`, `tileFrame` — `@State`, not a
+    ///   constructor input. SwiftUI persists this storage across
+    ///   reconstructions of the SAME row identity and updates it through the
+    ///   ordinary `@State` path, independent of this Equatable gate.
+    /// - `peekModel`, `contrast`, `reduceMotion`, `appSettingsStore`,
+    ///   `isCommandKeyHeld` — `@Environment`, ambient/Observation-tracked
+    ///   reads, not a constructor input. A change to any of these invalidates
+    ///   this row's body directly and is not gated by `.equatable()`.
+    ///
+    /// `isKeyboardNavigatingValue` is included as a plain field for the same
+    /// reason `isKeyboardFocused` is: `interactiveTile` gates
+    /// `.awFocusRing` on `isKeyboardFocused && isKeyboardNavigatingValue`, so
+    /// the ring's rendered state has to match what the key compares — an
+    /// equal-comparing row that skipped re-render could otherwise show a
+    /// stale ring after a keyboard→pointer modality switch. Both callers
+    /// pass their live value at construction time (mirroring how
+    /// `isKeyboardFocused` is already precomputed from `focusedRowTarget`),
+    /// so this is a snapshot, not a binding read.
+    ///
+    /// `isPinned`/`pinnedOriginGroupName` are two more fields beyond the
+    /// original brief: `isPinned` changes `pinMenuTitle` (context-menu title
+    /// + its named accessibility action), and `pinnedOriginGroupName` changes
+    /// `rowAccessibilityValue`'s spoken origin-group fragment — both are
+    /// call-site-varying (`SidebarPinnedSectionView` passes `isPinned: true`
+    /// and a real origin name; `SidebarGroupView` passes `isPinned: false`
+    /// and `nil`).
+    private struct RenderKey: Equatable {
+        let sessionID: TerminalSession.ID
+        let title: String
+        // Folds the active pane's resolved remote host / cwd (and the
+        // accessibility label) through the SAME computed property `body`
+        // reads (`session.sidebarLocation`) — never raw pane fields.
+        let location: SidebarSessionLocation
+        let notificationsMuted: Bool
+        // Session-level cwd, NOT folded into `paneChrome`'s per-pane
+        // `workingDirectory` above: row closures (e.g. "New Workspace Here")
+        // capture the session VALUE, so a background pane's cwd report
+        // updating `session.workingDirectory` without touching the active
+        // pane's keyed cwd would otherwise leave an equal-comparing row
+        // holding a closure with a stale directory. Keying it here forces the
+        // row (and its captured closures) to rebuild.
+        let sessionWorkingDirectory: String
+        // Which pane is active isn't otherwise implied by `paneChrome` below
+        // (that array carries no per-pane "is active" flag), so this stays a
+        // dedicated field — it drives `location` above and which pane-jump
+        // action reads "active pane" in `paneJumpActionLabel`.
+        let activePaneID: TerminalPane.ID
+        let paneChrome: [PaneChromeKey]
+        let match: SessionMatch?
+        // Keyed on the accent alone, not the whole `ProjectTint` — `hue` and
+        // `borderHue` are pure functions of `accent` (see `ProjectTint.init`),
+        // and `ProjectTint` itself isn't `Equatable`. The same accent always
+        // renders identically, so this is a lossless, cheaper projection.
+        let tintAccent: AwTintAccent
+        let isActive: Bool
+        let displayMode: SidebarWidthMode
+        let isKeyboardFocused: Bool
+        let jumpIndex: Int?
+        let hasBackgroundedFloatingWork: Bool
+        let isPromotedInsertion: Bool
+        let isPromotionPulseActive: Bool
+        let isFiltering: Bool
+        let duplicateDisambiguation: SidebarDuplicateDisambiguation?
+        let indexInGroup: Int
+        let sessionCountInGroup: Int
+        let ownerGroupIndex: Int
+        let previousNeighborGroup: NeighborKey?
+        let nextNeighborGroup: NeighborKey?
+        let otherGroups: [NeighborKey]
+        let verticalPadding: CGFloat
+        let canMakeWorkspaceManaged: Bool
+        let isPinned: Bool
+        let pinnedOriginGroupName: String?
+        let isKeyboardNavigatingValue: Bool
+    }
+
+    /// One pane's rendered contribution. `id` + array order together let the
+    /// key detect a pane reorder even when every pane's own content is
+    /// unchanged. `agentKind` is included because `SessionAgentRollup.from`
+    /// (which drives the tile's `AgentTile` icon/badge and `tileBorder`'s
+    /// `.needs` check) picks its winning pane purely from
+    /// `(chromeState.priority, input order)` — `chromeState` + array order
+    /// alone determine WHICH pane wins, but `agentKind` is needed to know
+    /// what icon that winner contributes.
+    private struct PaneChromeKey: Equatable {
+        let id: TerminalPane.ID
+        let chromeState: AgentState
+        let agentKind: AgentKind
+        let unread: Int
+        let attentionReason: AttentionReason?
+        let progressReport: TerminalProgressReport?
+        let title: String
+        // `remotePresentationHost`, not the raw ephemeral `remoteHost` field
+        // — the former is what `sidebarLocation` and the per-pane jump-action
+        // label actually render (a durable SSH plan can win over a stale/nil
+        // observed `remoteHost`).
+        let remoteHost: String?
+        let workingDirectory: String
+    }
+
+    private struct NeighborKey: Equatable {
+        let id: SessionGroup.ID
+        let name: String
+    }
+
+    // `nonisolated` because `Equatable.==` is not main-actor (same rationale
+    // as `AgentTile.==`, above): the compared fields are all value-type,
+    // effectively-Sendable data — `SidebarSessionTile` gets its actor
+    // isolation from being a `View`, not from any of the data it holds.
+    nonisolated private var renderKey: RenderKey {
+        RenderKey(
+            sessionID: session.id,
+            title: session.title,
+            location: session.sidebarLocation,
+            notificationsMuted: session.notificationsMuted,
+            sessionWorkingDirectory: session.workingDirectory,
+            activePaneID: session.activePaneID,
+            paneChrome: session.panes.map { pane in
+                PaneChromeKey(
+                    id: pane.id,
+                    chromeState: pane.effectiveChromeState,
+                    agentKind: pane.agentKind,
+                    unread: pane.unreadNotificationCount,
+                    attentionReason: pane.attentionReason,
+                    progressReport: pane.progressReport,
+                    title: pane.title,
+                    remoteHost: pane.remotePresentationHost,
+                    workingDirectory: pane.workingDirectory
+                )
+            },
+            match: match,
+            tintAccent: tint.accent,
+            isActive: isActive,
+            displayMode: displayMode,
+            isKeyboardFocused: isKeyboardFocused,
+            jumpIndex: jumpIndex,
+            hasBackgroundedFloatingWork: hasBackgroundedFloatingWork,
+            isPromotedInsertion: isPromotedInsertion,
+            isPromotionPulseActive: isPromotionPulseActive,
+            isFiltering: isFiltering,
+            duplicateDisambiguation: duplicateDisambiguation,
+            indexInGroup: indexInGroup,
+            sessionCountInGroup: sessionCountInGroup,
+            ownerGroupIndex: ownerGroupIndex,
+            previousNeighborGroup: previousNeighborGroup.map { NeighborKey(id: $0.id, name: $0.name) },
+            nextNeighborGroup: nextNeighborGroup.map { NeighborKey(id: $0.id, name: $0.name) },
+            otherGroups: otherGroups.map { NeighborKey(id: $0.id, name: $0.name) },
+            verticalPadding: verticalPadding,
+            canMakeWorkspaceManaged: canMakeWorkspaceManaged,
+            isPinned: isPinned,
+            pinnedOriginGroupName: pinnedOriginGroupName,
+            // The immutable snapshot, not the live `@Binding` — the OLD and
+            // NEW tile instances compared by `==` share the same binding, so
+            // reading through its getter here would see the CURRENT value on
+            // both sides regardless of which value was live when each
+            // instance was built, making the comparison permanently equal.
+            // `isKeyboardNavigatingValue` is captured once at construction,
+            // so it differs across old/new instances exactly when the
+            // caller's value actually changed. Writes still go through the
+            // binding (see its declaration above) — this key never touches it.
+            isKeyboardNavigatingValue: isKeyboardNavigatingValue
+        )
+    }
+
+    nonisolated static func == (lhs: SidebarSessionTile, rhs: SidebarSessionTile) -> Bool {
+        lhs.renderKey == rhs.renderKey
     }
 }
 

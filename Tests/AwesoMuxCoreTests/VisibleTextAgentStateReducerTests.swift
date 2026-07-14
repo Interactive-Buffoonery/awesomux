@@ -490,3 +490,51 @@ struct VisibleTextAgentStateReducerTests {
         ) == .init(shouldRecordStateEvent: true, shouldRecordAttentionEvent: true))
     }
 }
+
+@Suite("Visible-text detector run gate")
+struct VisibleTextDetectorRunGateTests {
+    @Test("fresh runtime event + reliable-hook kind skips the scan")
+    func skipsForFreshReliableHooks() {
+        let now: TimeInterval = 100
+        #expect(
+            !VisibleTextAgentStateReducer.shouldRunVisibleTextDetector(
+                now: now,
+                lastRuntimeEventAppliedAt: now - 1.0,
+                liveAgentKind: .claudeCode
+            ))
+    }
+
+    @Test("stale runtime event runs the scan")
+    func runsWhenEventIsStale() {
+        let now: TimeInterval = 100
+        #expect(
+            VisibleTextAgentStateReducer.shouldRunVisibleTextDetector(
+                now: now,
+                lastRuntimeEventAppliedAt: now - 3.0,
+                liveAgentKind: .claudeCode
+            ))
+    }
+
+    @Test("Pi and Grok always run the scan (unreliable attention hooks)")
+    func runsForUnreliableHookKinds() {
+        let now: TimeInterval = 100
+        for kind in [AgentKind.grok, .pi] {
+            #expect(
+                VisibleTextAgentStateReducer.shouldRunVisibleTextDetector(
+                    now: now,
+                    lastRuntimeEventAppliedAt: now - 0.5,
+                    liveAgentKind: kind
+                ))
+        }
+    }
+
+    @Test("shell panes always run the scan")
+    func runsForShell() {
+        #expect(
+            VisibleTextAgentStateReducer.shouldRunVisibleTextDetector(
+                now: 100,
+                lastRuntimeEventAppliedAt: nil,
+                liveAgentKind: .shell
+            ))
+    }
+}

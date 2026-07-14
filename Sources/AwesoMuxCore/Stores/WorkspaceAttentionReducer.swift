@@ -40,60 +40,125 @@ struct WorkspaceAttentionReducer: Sendable {
         var newCount: Int
     }
 
+    /// Result of `updatePane`: the unread delta (if any) plus whether ANY field
+    /// actually changed value. `didMutate` is what lets the store skip writing
+    /// the reducer's output back into `_groups` (and skip the @Observable
+    /// publish that write triggers) for a same-state repeat — see
+    /// `SessionStore.applyPaneUpdate`.
+    struct PaneUpdateOutcome: Equatable, Sendable {
+        var unreadChange: UnreadChange?
+        /// True when any field of the session or its panes was written —
+        /// including a due heartbeat refresh. False means the caller must not
+        /// touch `_groups` (no @Observable publish) and may skip risk
+        /// reclassification.
+        var didMutate: Bool
+    }
+
+    /// Refreshes `pane.lastAgentStateChangeAt` — the liveness heartbeat
+    /// `isQuitRisk()` reads — and reports whether it mutated. `changed` covers
+    /// the case where the caller just wrote a genuinely new state (always
+    /// refresh); otherwise this is a same-state repeat ("still thinking"),
+    /// which only refreshes once the stamp has gone stale past
+    /// `agentActivityFreshnessCoarsening` — the same 10s grain
+    /// `markAgentActivityObserved` uses, which the 60s staleness threshold
+    /// already tolerates. Sub-window repeats mutate nothing, so they no
+    /// longer publish the store. Shared by the execution-state and legacy
+    /// agent-state branches below so this rule can't drift between them.
+    private static func refreshHeartbeatIfDue(
+        _ pane: inout TerminalPane,
+        now: Date,
+        changed: Bool
+    ) -> Bool {
+        guard
+            changed
+                || now.timeIntervalSince(pane.lastAgentStateChangeAt)
+                    >= SessionStore.agentActivityFreshnessCoarsening
+        else {
+            return false
+        }
+        pane.lastAgentStateChangeAt = now
+        return true
+    }
+
     /// Applies a `SessionUpdate` to one pane (the agent fields) and the session
     /// (title / working directory). Post INT-504 agent state lives on the pane;
     /// the session derives its rollup. `paneID` is the pane the runtime event was
     /// keyed to, so split sessions no longer collapse to last-write-wins.
+    ///
+    /// Every assignment below is gated on the written value actually differing
+    /// from the current one — NOT on `TerminalPane`'s `Equatable` conformance,
+    /// which deliberately excludes runtime-only fields (`lastAgentStateChangeAt`
+    /// included). Comparing whole panes would silently swallow a due heartbeat
+    /// refresh (a `lastAgentStateChangeAt`-only change) and strand the freshness
+    /// stamp forever.
     static func updatePane(
         _ session: inout TerminalSession,
         paneID: TerminalPane.ID,
         update: SessionUpdate,
         now: Date
-    ) -> UnreadChange? {
+    ) -> PaneUpdateOutcome {
         let oldUnreadCount = session.unreadNotificationCount
+        var didMutate = false
 
         if let title = update.title {
             let title = SessionStoreText.sanitizedTitle(title)
-            if !title.isEmpty {
+            if !title.isEmpty, session.title != title || !session.isTitleUserEdited {
                 session.title = title
                 session.isTitleUserEdited = true
+                didMutate = true
             }
         }
 
         if let workingDirectory = update.workingDirectory.flatMap({
             WorkingDirectoryValidator.validatedReportedDirectory($0)
-        }) {
+        }), session.workingDirectory != workingDirectory {
             session.workingDirectory = workingDirectory
+            didMutate = true
         }
 
+        // ponytail: `mappingPanes` reboxes the whole indirect-enum layout tree
+        // on every call, even for the untouched panes and even on a quiet
+        // same-state repeat that ends up mutating nothing — O(panes)
+        // allocations per event, discarded the moment `didMutate` stays
+        // false. Fine at today's pane counts; if a many-split session makes
+        // this show up in a trace, the upgrade path is a read-only pre-peek
+        // of the target pane (skip the rebox entirely when nothing about it
+        // would change) before falling back to this mapping pass.
         session.layout = session.layout.mappingPanes { pane in
             guard pane.id == paneID else { return pane }
             var pane = pane
 
-            if let agentKind = update.agentKind {
+            if let agentKind = update.agentKind, agentKind != pane.agentKind {
                 pane.agentKind = agentKind
+                didMutate = true
             }
 
             if let agentExecutionState = update.agentExecutionState {
-                // `lastAgentStateChangeAt` is refreshed on EVERY execution-state
-                // event, including a repeat of the same state: it doubles as an
-                // activity heartbeat that `isQuitRisk()` reads, so a repeated
-                // "still thinking" is a liveness signal that keeps the agent out
-                // of quit-risk. (A review pass flagged the per-second re-render
-                // this causes; the fix can't be an inline value-equality gate
-                // because the timestamp must refresh for liveness yet lives in
-                // the rendered layout — decoupling the two is a tracked
-                // follow-up, not a safe one-liner.)
-                pane.agentExecutionState = agentExecutionState
-                pane.lastAgentStateChangeAt = now
+                let changed = agentExecutionState != pane.agentExecutionState
+                if changed {
+                    pane.agentExecutionState = agentExecutionState
+                }
+                if refreshHeartbeatIfDue(&pane, now: now, changed: changed) {
+                    didMutate = true
+                }
             }
 
             if let agentState = update.agentState {
+                // `applyLegacyAgentState` touches EXACTLY these two fields — snapshot
+                // and compare them rather than the whole pane (see the doc comment
+                // above on why whole-pane equality is unsafe here).
+                let beforeExecutionState = pane.agentExecutionState
+                let beforeAttentionReason = pane.attentionReason
                 pane.applyLegacyAgentState(
                     agentState,
                     clearsAttentionForExecutionState: update.clearsAttention
                 )
-                pane.lastAgentStateChangeAt = now
+                let stateChanged =
+                    pane.agentExecutionState != beforeExecutionState
+                    || pane.attentionReason != beforeAttentionReason
+                if refreshHeartbeatIfDue(&pane, now: now, changed: stateChanged) {
+                    didMutate = true
+                }
             }
 
             if let attentionReason = update.attentionReason {
@@ -102,28 +167,38 @@ struct WorkspaceAttentionReducer: Sendable {
                 // awaiting the user (INT-506). Clearing is handled separately
                 // below and always wins.
                 if let current = pane.attentionReason,
-                   current.priority > attentionReason.priority {
+                    current.priority > attentionReason.priority
+                {
                     // keep current
-                } else {
+                } else if pane.attentionReason != attentionReason {
                     pane.attentionReason = attentionReason
+                    didMutate = true
                 }
-            } else if update.clearsAttention {
+            } else if update.clearsAttention, pane.attentionReason != nil {
                 pane.attentionReason = nil
+                didMutate = true
             }
 
             if update.clearsUnreadNotifications {
-                pane.unreadNotificationCount = 0
+                if pane.unreadNotificationCount != 0 {
+                    pane.unreadNotificationCount = 0
+                    didMutate = true
+                }
             } else if update.unreadNotificationDelta != 0 {
-                pane.unreadNotificationCount = max(
-                    0,
-                    pane.unreadNotificationCount + update.unreadNotificationDelta
-                )
+                let newCount = max(0, pane.unreadNotificationCount + update.unreadNotificationDelta)
+                if newCount != pane.unreadNotificationCount {
+                    pane.unreadNotificationCount = newCount
+                    didMutate = true
+                }
             }
 
             return pane
         }
 
-        return unreadChange(from: oldUnreadCount, to: session.unreadNotificationCount)
+        return PaneUpdateOutcome(
+            unreadChange: unreadChange(from: oldUnreadCount, to: session.unreadNotificationCount),
+            didMutate: didMutate
+        )
     }
 
     /// Acknowledges a single pane — drops its unread badge and attention. The
@@ -239,7 +314,8 @@ struct WorkspaceAttentionReducer: Sendable {
         session.layout = session.layout.mappingPanes { pane in
             guard pane.id == paneID else { return pane }
             var pane = pane
-            let enteringNeedsAttention = pane.agentExecutionState != .error
+            let enteringNeedsAttention =
+                pane.agentExecutionState != .error
                 && pane.attentionReason == nil
             if enteringNeedsAttention && !terminalIsFocused {
                 pane.unreadNotificationCount += 1
