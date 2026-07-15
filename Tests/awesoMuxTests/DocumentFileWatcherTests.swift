@@ -101,6 +101,23 @@ struct DocumentFileWatcherTests {
         }
     }
 
+    @Test("delete without recreation notifies after retries are exhausted")
+    func deleteWithoutRecreationNotifiesAfterExhaustion() async throws {
+        try await withTempFile { url in
+            let counter = Counter()
+            let watcher = DocumentFileWatcher(url: url) { counter.increment() }
+            watcher.start()
+            try await Task.sleep(nanoseconds: 50_000_000)
+
+            try FileManager.default.removeItem(at: url)
+            let received = await awaitCondition(timeout: 5.0) { counter.value > 0 }
+            watcher.stop()
+
+            #expect(received, "retry exhaustion should notify so the pane can show its read error")
+            #expect(counter.value == 1)
+        }
+    }
+
     @Test("start retries an absent file and notifies after creation")
     func startAbsentNotifiesAfterCreation() async throws {
         let temporaryDirectory = try TemporaryDirectory(prefix: "DocumentFileWatcherTests")

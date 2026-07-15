@@ -98,7 +98,12 @@ final class DocumentFileWatcher {
         let fd = Darwin.open(path, O_EVTONLY | O_CLOEXEC)
 
         guard fd != -1 else {
-            guard retryBudget > 0 else { return }
+            guard retryBudget > 0 else {
+                if notifyOnSuccess {
+                    scheduleOnChange()
+                }
+                return
+            }
             // Tolerate a transient ENOENT: the file may be briefly absent between the
             // unlink and the creation of the replacement inode during an atomic write.
             Task { @MainActor [weak self] in
