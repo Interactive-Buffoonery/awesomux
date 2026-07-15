@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -16,19 +17,17 @@ struct FullCommentPopover: View {
     let displayNumber: Int
     let annotation: PlanAnnotation
     let quotedText: String
-    /// Edit/reply report write success so this view keeps its draft and edit
-    /// mode when a stale-source write fails — clearing them unconditionally
-    /// discarded the user's input in exactly the case the close-on-success
-    /// parent wiring was built to protect (review).
-    let onEdit: (String) -> Bool
-    let onDelete: () -> Void
-    let onSetStatus: (PlanAnnotationStatus) -> Void
-    let onReply: (String) -> Bool
+    let onEdit: (String) async -> AnnotationSaveOutcome
+    let onDelete: () async -> AnnotationSaveOutcome
+    let onSetStatus: (PlanAnnotationStatus) async -> AnnotationSaveOutcome
+    let onReply: (String) async -> AnnotationSaveOutcome
     var allowsEditing: Bool = true
 
     @State private var isEditing = false
     @State private var draft = ""
     @State private var replyDraft = ""
+    @State private var submission = AnnotationSubmissionGate()
+    @State private var recovery: AnnotationSaveOutcome?
     @FocusState private var isEditFieldFocused: Bool
 
     private var isResolved: Bool { annotation.status == .resolved }
@@ -67,13 +66,16 @@ struct FullCommentPopover: View {
 
                 if !isEditing && allowsEditing {
                     Button {
-                        onSetStatus(isResolved ? .open : .resolved)
+                        submit {
+                            await onSetStatus(isResolved ? .open : .resolved)
+                        }
                     } label: {
                         Image(systemName: isResolved ? "arrow.uturn.backward.circle" : "checkmark.circle")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .disabled(submission.isInFlight)
                     .help(isResolved ? "Reopen" : "Mark resolved")
                     .accessibilityLabel(isResolved ? "Reopen annotation" : "Mark annotation resolved")
 
@@ -88,12 +90,15 @@ struct FullCommentPopover: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Edit annotation")
 
-                    Button(role: .destructive, action: onDelete) {
+                    Button(role: .destructive) {
+                        submit(operation: onDelete)
+                    } label: {
                         Image(systemName: "trash")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .disabled(submission.isInFlight)
                     .accessibilityLabel("Delete annotation")
                 }
             }
@@ -151,12 +156,16 @@ struct FullCommentPopover: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                         .font(.system(size: 12))
+                        .disabled(submission.isInFlight)
 
                         Button("Save", action: saveEdit)
                             .buttonStyle(.borderedProminent)
                             .tint(Color.aw.mauve)
                             .font(.system(size: 12, weight: .medium))
-                            .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .disabled(
+                                submission.isInFlight
+                                    || draft.trimmingCharacters(in: .whitespaces).isEmpty
+                            )
                     }
                 }
                 .padding(10)
@@ -178,7 +187,7 @@ struct FullCommentPopover: View {
                         (Text(note.author == .user ? "you" : note.author.rawValue)
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color.aw.mauve)
-                        + Text("  \(note.payload)")
+                            + Text("  \(note.payload)")
                             .font(.system(size: 12)))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -205,12 +214,19 @@ struct FullCommentPopover: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.aw.mauve)
-                    .disabled(replyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(
+                        submission.isInFlight
+                            || replyDraft.trimmingCharacters(in: .whitespaces).isEmpty
+                    )
                     .help("Send reply")
                     .accessibilityLabel("Send reply")
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
+            }
+
+            if let recovery, recovery != .saved {
+                recoveryView(recovery)
             }
         }
         .frame(width: 300)
@@ -223,16 +239,72 @@ struct FullCommentPopover: View {
     private func saveEdit() {
         let trimmed = draft.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        if onEdit(trimmed) {
-            isEditing = false
+        submit {
+            let outcome = await onEdit(trimmed)
+            if outcome == .saved {
+                isEditing = false
+            }
+            return outcome
         }
     }
 
     private func submitReply() {
         let trimmed = replyDraft.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        if onReply(trimmed) {
-            replyDraft = ""
+        submit {
+            let outcome = await onReply(trimmed)
+            if outcome == .saved {
+                replyDraft = ""
+            }
+            return outcome
+        }
+    }
+
+    private func submit(operation: @escaping () async -> AnnotationSaveOutcome) {
+        guard submission.begin() else { return }
+        Task {
+            let outcome = await operation()
+            submission.finish()
+            recovery = outcome == .saved ? nil : outcome
+        }
+    }
+
+    @ViewBuilder
+    private func recoveryView(_ outcome: AnnotationSaveOutcome) -> some View {
+        Divider().padding(.horizontal, 12)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(recoveryMessage(outcome))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            if outcome == .copyOnly, !recoverableDraft.isEmpty {
+                Button("Copy Draft") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(recoverableDraft, forType: .string)
+                }
+                .buttonStyle(.bordered)
+                .font(.system(size: 11))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+    }
+
+    private var recoverableDraft: String {
+        isEditing ? draft : replyDraft
+    }
+
+    private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
+        switch outcome {
+        case .reloadAndRetry:
+            "The document changed. It is reloading; save again after it updates."
+        case .copyOnly:
+            "The annotation no longer exists. Copy your draft before closing."
+        case .copyAndReselect:
+            "The selection is stale. Copy your draft and select the text again."
+        case .failed:
+            "The draft was not saved."
+        case .saved:
+            ""
         }
     }
 }
@@ -246,11 +318,13 @@ struct FullCommentPopover: View {
 /// INT-580: a typed-intent picker chooses comment / replace / delete; the text
 /// field is the note, the replacement text, or an optional delete rationale.
 struct ComposeCommentPopover: View {
-    let onSave: (String, PlanAnnotationIntent) -> Void
+    let onSave: (String, PlanAnnotationIntent) async -> AnnotationSaveOutcome
     let onCancel: () -> Void
 
     @State private var draft = ""
     @State private var intent: PlanAnnotationIntent = .comment
+    @State private var submission = AnnotationSubmissionGate()
+    @State private var recovery: AnnotationSaveOutcome?
     @FocusState private var isDraftFocused: Bool
 
     private var placeholder: String {
@@ -267,8 +341,13 @@ struct ComposeCommentPopover: View {
     }
 
     private func save() {
-        guard canSave else { return }
-        onSave(draft.trimmingCharacters(in: .whitespaces), intent)
+        guard canSave, submission.begin() else { return }
+        let value = draft.trimmingCharacters(in: .whitespaces)
+        Task {
+            let outcome = await onSave(value, intent)
+            submission.finish()
+            recovery = outcome == .saved ? nil : outcome
+        }
     }
 
     var body: some View {
@@ -310,17 +389,38 @@ struct ComposeCommentPopover: View {
                     // expected next action, so put the caret there.
                     .onAppear { isDraftFocused = true }
 
+                if let recovery, recovery != .saved {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(recoveryMessage(recovery))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        if recovery == .copyAndReselect {
+                            Button("Copy Draft") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(draft, forType: .string)
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.system(size: 11))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 HStack(spacing: 8) {
                     Button("Cancel", action: onCancel)
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                         .font(.system(size: 12))
+                        .disabled(submission.isInFlight)
 
                     Button("Save", action: save)
                         .buttonStyle(.borderedProminent)
                         .tint(Color.aw.mauve)
                         .font(.system(size: 12, weight: .medium))
-                        .disabled(!canSave)
+                        .disabled(
+                            !canSave || submission.isInFlight
+                                || recovery == .copyAndReselect
+                        )
                 }
             }
             .padding(10)
@@ -328,5 +428,20 @@ struct ComposeCommentPopover: View {
         .frame(width: 300)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("New annotation")
+    }
+
+    private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
+        switch outcome {
+        case .copyAndReselect:
+            "The document changed, so this selection is no longer safe. Copy the draft and select the text again."
+        case .reloadAndRetry:
+            "The document changed. It is reloading; save again after it updates."
+        case .copyOnly:
+            "Copy the draft before closing."
+        case .failed:
+            "The draft was not saved."
+        case .saved:
+            ""
+        }
     }
 }
