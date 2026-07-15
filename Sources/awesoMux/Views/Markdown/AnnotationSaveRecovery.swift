@@ -58,6 +58,13 @@ enum AnnotationPopoverLifecycle {
 }
 
 enum AnnotationSaveRecovery {
+    static func canSubmitExistingAnnotation(
+        isSubmitting: Bool,
+        outcome: AnnotationSaveOutcome?
+    ) -> Bool {
+        !isSubmitting && outcome != .copyOnly
+    }
+
     static func canSubmitNewAnnotation(
         hasValidDraft: Bool,
         isSubmitting: Bool,
@@ -88,14 +95,19 @@ enum AnnotationSaveRecovery {
         return currentSnapshot
     }
 
-    static func announcement(for outcome: AnnotationSaveOutcome) -> String? {
+    static func announcement(
+        for outcome: AnnotationSaveOutcome,
+        hasRecoverableDraft: Bool = true
+    ) -> String? {
         switch outcome {
         case .reloadAndRetry:
             "The document changed. Reload complete. Try saving again."
         case .copyAndReselect:
             "The selection changed. Copy the draft and select the text again."
         case .copyOnly:
-            "The annotation changed or was removed. Copy the draft before closing."
+            hasRecoverableDraft
+                ? "The annotation changed or was removed. Copy the draft before closing."
+                : "The annotation changed or was removed."
         case .failed:
             "The draft was not saved."
         case .saved:
@@ -108,8 +120,14 @@ enum AnnotationSaveRecovery {
     }
 
     @MainActor
-    static func announce(_ outcome: AnnotationSaveOutcome) {
-        if let message = announcement(for: outcome) {
+    static func announce(
+        _ outcome: AnnotationSaveOutcome,
+        hasRecoverableDraft: Bool = true
+    ) {
+        if let message = announcement(
+            for: outcome,
+            hasRecoverableDraft: hasRecoverableDraft
+        ) {
             TerminalAccessibilityAnnouncer.announce(message)
         }
     }

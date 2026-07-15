@@ -16,6 +16,7 @@ struct DocumentNoteSheet: View {
     @State private var draft: String
     @State private var submission = AnnotationSubmissionGate()
     @State private var recovery: AnnotationSaveOutcome?
+    @State private var recoveryDraft: String?
     @State private var presentationID: UUID?
 
     init(
@@ -36,6 +37,13 @@ struct DocumentNoteSheet: View {
         self.allowsEditing = allowsEditing
         _isEditing = State(initialValue: note == nil && allowsEditing)
         _draft = State(initialValue: note?.payload ?? "")
+    }
+
+    private var canSubmit: Bool {
+        AnnotationSaveRecovery.canSubmitExistingAnnotation(
+            isSubmitting: submission.isInFlight,
+            outcome: recovery
+        )
     }
 
     var body: some View {
@@ -94,7 +102,9 @@ struct DocumentNoteSheet: View {
                     },
                 onSubmit: save,
                 isSubmitting: submission.isInFlight,
+                canSubmit: canSubmit,
                 recovery: recovery,
+                hasRecoveryDraft: recoveryDraft != nil,
                 onCopyDraft: copyDraft
             )
         } else if let note {
@@ -121,7 +131,7 @@ struct DocumentNoteSheet: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .disabled(submission.isInFlight)
+                        .disabled(!canSubmit)
 
                         Spacer()
 
@@ -148,7 +158,7 @@ struct DocumentNoteSheet: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(Color.aw.mauve)
-                        .disabled(submission.isInFlight)
+                        .disabled(!canSubmit)
                     }
                     .padding(16)
                 }
@@ -178,7 +188,7 @@ struct DocumentNoteSheet: View {
     private func save() {
         let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
-        submit {
+        submit(draftToRecover: draft) {
             if let note {
                 await onEdit(note.id, value)
             } else {
@@ -187,15 +197,22 @@ struct DocumentNoteSheet: View {
         }
     }
 
-    private func submit(operation: @escaping () async -> AnnotationSaveOutcome) {
-        guard submission.begin() else { return }
+    private func submit(
+        draftToRecover: String? = nil,
+        operation: @escaping () async -> AnnotationSaveOutcome
+    ) {
+        guard canSubmit, submission.begin() else { return }
         let activePresentation = presentationID
         Task {
             let outcome = await operation()
             guard let activePresentation, presentationID == activePresentation else { return }
             submission.finish()
             recovery = outcome == .saved ? nil : outcome
-            AnnotationSaveRecovery.announce(outcome)
+            recoveryDraft = outcome == .copyOnly ? draftToRecover : nil
+            AnnotationSaveRecovery.announce(
+                outcome,
+                hasRecoverableDraft: draftToRecover != nil
+            )
             if outcome == .saved {
                 onClose()
             }
@@ -203,7 +220,8 @@ struct DocumentNoteSheet: View {
     }
 
     private func copyDraft() {
-        AnnotationSaveRecovery.copyDraft(draft)
+        guard let recoveryDraft else { return }
+        AnnotationSaveRecovery.copyDraft(recoveryDraft)
     }
 
     private func recoveryNotice(_ outcome: AnnotationSaveOutcome) -> some View {
@@ -212,7 +230,7 @@ struct DocumentNoteSheet: View {
             Text(recoveryMessage(outcome))
                 .font(.system(size: 11))
                 .foregroundStyle(Color.aw.text2)
-            if outcome == .copyOnly, !draft.isEmpty {
+            if outcome == .copyOnly, recoveryDraft != nil {
                 Button("Copy Draft", action: copyDraft)
                     .buttonStyle(.bordered)
             }
@@ -225,7 +243,11 @@ struct DocumentNoteSheet: View {
         case .reloadAndRetry:
             "The document changed and has reloaded. Try the action again."
         case .copyOnly:
-            "The document note changed or was removed. Copy your draft before closing."
+            if recoveryDraft == nil {
+                "The document note changed or was removed."
+            } else {
+                "The document note changed or was removed. Copy your draft before closing."
+            }
         case .copyAndReselect:
             "Copy the draft before closing."
         case .failed:
@@ -243,7 +265,9 @@ private struct MultilineDocumentNoteEditor: View {
     let onCancel: () -> Void
     let onSubmit: () -> Void
     let isSubmitting: Bool
+    let canSubmit: Bool
     let recovery: AnnotationSaveOutcome?
+    let hasRecoveryDraft: Bool
     let onCopyDraft: () -> Void
 
     @FocusState private var isFocused: Bool
@@ -291,7 +315,7 @@ private struct MultilineDocumentNoteEditor: View {
                     .tint(Color.aw.mauve)
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(
-                        isSubmitting
+                        !canSubmit
                             || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     )
             }
@@ -301,7 +325,7 @@ private struct MultilineDocumentNoteEditor: View {
                     Text(recoveryMessage(recovery))
                         .font(.system(size: 11))
                         .foregroundStyle(Color.aw.text2)
-                    if recovery == .copyOnly {
+                    if recovery == .copyOnly, hasRecoveryDraft {
                         Button("Copy Draft", action: onCopyDraft)
                             .buttonStyle(.bordered)
                     }
@@ -317,7 +341,11 @@ private struct MultilineDocumentNoteEditor: View {
         case .reloadAndRetry:
             "The document changed and has reloaded. Save again to retry."
         case .copyOnly:
-            "The document note changed or was removed. Copy your draft before closing."
+            if hasRecoveryDraft {
+                "The document note changed or was removed. Copy your draft before closing."
+            } else {
+                "The document note changed or was removed."
+            }
         case .copyAndReselect:
             "Copy your draft before closing."
         case .failed:

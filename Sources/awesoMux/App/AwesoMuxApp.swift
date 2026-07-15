@@ -79,6 +79,7 @@ private func sanitizeInheritedTerminalContextFromProcessEnvironment() {
 @main
 struct AwesoMuxApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sessionStore: SessionStore
     @State private var ghosttyRuntime: GhosttyRuntime
     @State private var workspaceEditRequest: WorkspaceEditRequest?
@@ -107,6 +108,7 @@ struct AwesoMuxApp: App {
     @State private var sidebarFocusRequestID: UUID?
     @State private var sidebarToggleRequestID: UUID?
     @State private var quickRunToast: QuickRunToast?
+    @State private var documentTabActions = DocumentComposeTabActionHandler()
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -525,16 +527,37 @@ struct AwesoMuxApp: App {
                 toggleKeyboardCheatsheet()
             }
             .overlay(alignment: .topTrailing) {
-                if let quickRunToast {
-                    QuickRunToastView(toast: quickRunToast)
-                        .padding(.top, 18)
-                        .padding(.trailing, 18)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                VStack(alignment: .trailing, spacing: 8) {
+                    if let quickRunToast {
+                        QuickRunToastView(toast: quickRunToast)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                    if documentTabActions.noticeID != nil {
+                        Text(DocumentComposeGuard.tabActionBlockedMessage)
+                            .awFont(AwFont.Mono.meta)
+                            .foregroundStyle(Color.aw.text)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(
+                                Color.aw.surface.elevated,
+                                in: RoundedRectangle(cornerRadius: 7)
+                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .stroke(Color.aw.border, lineWidth: 0.5)
+                            }
+                            .accessibilityHidden(true)
+                            .transition(.opacity)
+                    }
                 }
+                .padding(.top, 18)
+                .padding(.trailing, 18)
             }
-            .animation(.easeOut(duration: 0.16), value: quickRunToast)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: quickRunToast)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: documentTabActions.noticeID)
             .preferredColorScheme(preferredScheme)
             .environment(appSettingsStore)
+            .environment(documentTabActions)
             .appearanceBridge(appSettingsStore)
             .modifier(CaptureOpenWindowAction(action: $openWindowAction))
         }
@@ -1796,13 +1819,14 @@ struct AwesoMuxApp: App {
     /// bypass (review finding). A mouse selection involves a click that has
     /// already dismissed the transient popover, so it needs no guard.
     private func selectAdjacentDocumentTab(offset: Int) {
-        guard !DocumentComposeGuard.isComposing(),
-            let session = sessionStore.selectedSession,
-            let targetTabID = session.layout.firstDocumentGroup?.adjacentTabID(offset: offset)
-        else {
-            return
+        documentTabActions.perform {
+            guard let session = sessionStore.selectedSession,
+                let targetTabID = session.layout.firstDocumentGroup?.adjacentTabID(offset: offset)
+            else {
+                return
+            }
+            sessionStore.selectDocumentTab(tabID: targetTabID, in: session.id)
         }
-        sessionStore.selectDocumentTab(tabID: targetTabID, in: session.id)
     }
 
     /// Closes the selected document tab — the keyboard counterpart of the tab
@@ -1811,21 +1835,22 @@ struct AwesoMuxApp: App {
     /// Same compose-draft guard as tab cycling: closing the selected tab
     /// destroys an open draft.
     private func closeSelectedDocumentTab() {
-        guard !DocumentComposeGuard.isComposing(),
-            let session = sessionStore.selectedSession,
-            let selectedTab = session.layout.firstDocumentGroup?.selectedTab
-        else {
-            return
-        }
-        sessionStore.closeDocumentPane(documentID: selectedTab.id, in: session.id)
-        // Same announcement as the pill's close X (TerminalPaneView) so the
-        // outcome is spoken regardless of which affordance closed the tab.
-        TerminalAccessibilityAnnouncer.announce(
-            String(
-                localized: "Closed \(selectedTab.title)",
-                comment: "VoiceOver announcement after closing a document tab"
+        documentTabActions.perform {
+            guard let session = sessionStore.selectedSession,
+                let selectedTab = session.layout.firstDocumentGroup?.selectedTab
+            else {
+                return
+            }
+            sessionStore.closeDocumentPane(documentID: selectedTab.id, in: session.id)
+            // Same announcement as the pill's close X (TerminalPaneView) so the
+            // outcome is spoken regardless of which affordance closed the tab.
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "Closed \(selectedTab.title)",
+                    comment: "VoiceOver announcement after closing a document tab"
+                )
             )
-        )
+        }
     }
 
     private func announcePaneFocused(index: Int) {
