@@ -56,6 +56,7 @@ struct DocumentPointerTargetTests {
         #expect(revision.contains("documentTabActions.perform"))
 
         let app = try Self.source("App/AwesoMuxApp.swift")
+        #expect(app.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
         let notice = try Self.block(
             from: "if documentTabActions.noticeID != nil",
             through: ".padding(.top, 18)",
@@ -63,6 +64,11 @@ struct DocumentPointerTargetTests {
         )
         #expect(notice.contains(".transition(.opacity)"))
         #expect(!notice.contains(".move(edge:"))
+        #expect(
+            app.components(
+                separatedBy: ".animation(reduceMotion ? nil : .easeOut(duration: 0.16), value:"
+            ).count - 1 == 2
+        )
     }
 
     private static func source(_ relativePath: String) throws -> String {
