@@ -7,8 +7,11 @@ import SwiftUI
 /// The document viewer's tab strip (INT-748 PR2): one pill per open tab plus
 /// the trailing Files toggle. Replaces `DocumentPaneTitleBarView` — the strip
 /// shows even with a single tab so the title and close affordance never
-/// disappear. Matches `PaneTitleBarView.height` so the strip and the terminal
-/// title bars in the same split line up to the pixel.
+/// disappear. Its height equals a terminal pane's focus-accent band plus
+/// title bar (see `Self.height`) so the chrome stacks align when the terminal
+/// sibling shows a title bar — a lone terminal next to a document suppresses
+/// its title bar (`isMultiPane`) and renders only the 4pt band, a
+/// pre-existing mismatch this strip doesn't resolve.
 ///
 /// Tab *selection* is a plain SwiftUI button: it mutates only `selectedTabID`,
 /// never remounts a terminal surface, so first-responder theft is harmless.
@@ -38,7 +41,17 @@ struct DocumentTabStripView: View {
     let onRevisionInteractionChanged: (Bool) -> Void
     let onToggleFiles: () -> Void
 
-    static let height: CGFloat = PaneTitleBarView.height
+    /// The strip owns the focus-accent reservation terminal panes render as a
+    /// separate band: documents never take keyboard focus, so the extra 4pt is
+    /// plain chrome. Folding it in lets pills center within the full visual
+    /// bar (INT-738 round 3 — anything centered in a 24pt sub-band of the
+    /// 28pt chrome reads bottom-aligned) while a document pane's total chrome
+    /// height still matches a multi-pane terminal's accent band + title bar.
+    static let height: CGFloat = PaneTitleBarView.height + PaneFocusAccent.reservedHeight
+
+    /// Every pill in the strip (tabs, Files toggle, revision) shares this
+    /// height and centers within the bar, action-bar style.
+    static let pillHeight: CGFloat = PaneTitleBarView.height
 
     private var accentColor: Color { Color.aw.accent(accent) }
     private var accentSoftColor: Color { Color.aw.accentSoft(accent) }
@@ -124,14 +137,6 @@ struct DocumentTabStripView: View {
         return tab.id != group.selectedTabID || indicator.presentation == .compact
     }
 
-    /// Visible box height for the strip's floating pills (Files toggle,
-    /// revision pill). The 4pt focus-accent reservation above the strip is
-    /// chrome-colored, so a full-height 24pt pill reads bottom-flush against
-    /// the bar's bottom hairline (INT-738). A 20pt box floats 2pt clear of
-    /// both strip edges while the text keeps the terminal title bars' center
-    /// line; hit targets stay 24pt.
-    static let floatingPillHeight: CGFloat = 20
-
     private var filesToggle: some View {
         Button(action: onToggleFiles) {
             Label(
@@ -142,7 +147,7 @@ struct DocumentTabStripView: View {
             .awFont(AwFont.Mono.meta)
             .lineLimit(1)
             .padding(.horizontal, 7)
-            .frame(height: Self.floatingPillHeight)
+            .frame(height: Self.pillHeight)
             .background(
                 isBrowsingFiles
                     ? accentSoftColor
@@ -158,6 +163,8 @@ struct DocumentTabStripView: View {
                         lineWidth: 0.5
                     )
             }
+            // Full-bar frame before contentShape: the visible pill is 24pt
+            // but the click target spans the whole 28pt strip.
             .frame(height: Self.height)
             .contentShape(Rectangle())
         }
@@ -245,16 +252,16 @@ private struct DocumentRevisionPill: View {
         .foregroundStyle(Color.aw.text)
         .padding(.leading, 7)
         .padding(.trailing, 2)
-        // Floats like the Files toggle (see floatingPillHeight); the dismiss
-        // button keeps its 24pt hit target and just overflows the box.
-        .frame(height: DocumentTabStripView.floatingPillHeight)
+        // Same pill height as the Files toggle and tab pills; the dismiss
+        // button keeps its 24pt hit target.
+        .frame(height: DocumentTabStripView.pillHeight)
         .background(Color.aw.surface.chrome2.opacity(0.72), in: RoundedRectangle(cornerRadius: 5))
         .overlay {
             RoundedRectangle(cornerRadius: 5)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
-        // Claim the full row height like filesToggle does, so the pill's
-        // layout footprint doesn't depend on the strip's fixed outer frame.
+        // Full-bar frame so hover/interaction tracking spans the whole 28pt
+        // strip, matching the Files toggle's click target.
         .frame(height: DocumentTabStripView.height)
         .onHover { hovering in
             isHovering = hovering
@@ -318,7 +325,7 @@ private struct DocumentTabPill: View {
                 .frame(maxWidth: 160, alignment: .leading)
                 .padding(.leading, 7)
                 .padding(.trailing, 5)
-                .frame(height: 24)
+                .frame(height: DocumentTabStripView.pillHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

@@ -59,12 +59,9 @@ struct DocumentGroupView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Reserve the same top strip the terminal panes use for their focus
-            // accent so a document title bar and a terminal title bar in the same
-            // split line up to the pixel. Documents don't take keyboard focus, so
-            // the strip is plain chrome here (no accent), purely for alignment.
-            Color.aw.surface.chrome
-                .frame(height: PaneFocusAccent.reservedHeight)
+            // The strip's height includes the focus-accent reservation the
+            // terminal panes render as a separate band (see
+            // DocumentTabStripView.height), so no spacer is stacked here.
             DocumentTabStripView(
                 group: group,
                 isBrowsingFiles: mode == .files,
