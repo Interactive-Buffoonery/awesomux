@@ -47,6 +47,7 @@ struct DocumentNoteSheet: View {
             }
         }
         .frame(width: 620)
+        .disabled(submission.isInFlight)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Document note")
     }
@@ -189,6 +190,7 @@ struct DocumentNoteSheet: View {
             let outcome = await operation()
             submission.finish()
             recovery = outcome == .saved ? nil : outcome
+            AnnotationSaveRecovery.announce(outcome)
             if outcome == .saved {
                 onClose()
             }
@@ -196,8 +198,7 @@ struct DocumentNoteSheet: View {
     }
 
     private func copyDraft() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(draft, forType: .string)
+        AnnotationSaveRecovery.copyDraft(draft)
     }
 
     private func recoveryNotice(_ outcome: AnnotationSaveOutcome) -> some View {
@@ -217,7 +218,7 @@ struct DocumentNoteSheet: View {
     private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
         switch outcome {
         case .reloadAndRetry:
-            "The document changed. It is reloading; try the action again after it updates."
+            "The document changed and has reloaded. Try the action again."
         case .copyOnly:
             "The document note no longer exists. Copy its text before closing."
         case .copyAndReselect:
@@ -309,7 +310,7 @@ private struct MultilineDocumentNoteEditor: View {
     private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
         switch outcome {
         case .reloadAndRetry:
-            "The document changed. It is reloading; save again after it updates."
+            "The document changed and has reloaded. Save again to retry."
         case .copyOnly:
             "The document note no longer exists. Copy your draft before closing."
         case .copyAndReselect:

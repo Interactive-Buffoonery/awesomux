@@ -13,7 +13,7 @@ import Testing
 
     private func makeRender(source: String) -> DocumentTabMemory.Render {
         DocumentTabMemory.Render(
-            loadResult: .loaded([], source: source),
+            loadResult: .loaded([], source: source, snapshot: nil),
             renderedDoc: nil
         )
     }
@@ -23,7 +23,7 @@ import Testing
         let tab = makeTab(path: "/tmp/a.md")
         memory.storeRender(makeRender(source: "a"), for: tab)
         memory.storeScrollAnchor(42, for: tab)
-        #expect(memory.render(for: tab)?.loadResult == .loaded([], source: "a"))
+        #expect(memory.render(for: tab)?.loadResult == .loaded([], source: "a", snapshot: nil))
         #expect(memory.scrollAnchor(for: tab) == 42)
     }
 

@@ -22,6 +22,7 @@ struct FullCommentPopover: View {
     let onSetStatus: (PlanAnnotationStatus) async -> AnnotationSaveOutcome
     let onReply: (String) async -> AnnotationSaveOutcome
     var allowsEditing: Bool = true
+    var onSubmissionChanged: (Bool) -> Void = { _ in }
 
     @State private var isEditing = false
     @State private var draft = ""
@@ -230,6 +231,7 @@ struct FullCommentPopover: View {
             }
         }
         .frame(width: 300)
+        .disabled(submission.isInFlight)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
             "Comment \(displayNumber)\(isResolved ? ", resolved" : "")"
@@ -262,10 +264,13 @@ struct FullCommentPopover: View {
 
     private func submit(operation: @escaping () async -> AnnotationSaveOutcome) {
         guard submission.begin() else { return }
+        onSubmissionChanged(true)
         Task {
             let outcome = await operation()
             submission.finish()
+            onSubmissionChanged(false)
             recovery = outcome == .saved ? nil : outcome
+            AnnotationSaveRecovery.announce(outcome)
         }
     }
 
@@ -278,8 +283,7 @@ struct FullCommentPopover: View {
                 .foregroundStyle(.secondary)
             if outcome == .copyOnly, !recoverableDraft.isEmpty {
                 Button("Copy Draft") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(recoverableDraft, forType: .string)
+                    AnnotationSaveRecovery.copyDraft(recoverableDraft)
                 }
                 .buttonStyle(.bordered)
                 .font(.system(size: 11))
@@ -296,7 +300,7 @@ struct FullCommentPopover: View {
     private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
         switch outcome {
         case .reloadAndRetry:
-            "The document changed. It is reloading; save again after it updates."
+            "The document changed and has reloaded. Save again to retry."
         case .copyOnly:
             "The annotation no longer exists. Copy your draft before closing."
         case .copyAndReselect:
@@ -320,6 +324,7 @@ struct FullCommentPopover: View {
 struct ComposeCommentPopover: View {
     let onSave: (String, PlanAnnotationIntent) async -> AnnotationSaveOutcome
     let onCancel: () -> Void
+    var onSubmissionChanged: (Bool) -> Void = { _ in }
 
     @State private var draft = ""
     @State private var intent: PlanAnnotationIntent = .comment
@@ -340,13 +345,24 @@ struct ComposeCommentPopover: View {
         intent == .delete || !draft.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
+    private var canSubmit: Bool {
+        AnnotationSaveRecovery.canSubmitNewAnnotation(
+            hasValidDraft: canSave,
+            isSubmitting: submission.isInFlight,
+            outcome: recovery
+        )
+    }
+
     private func save() {
-        guard canSave, submission.begin() else { return }
+        guard canSubmit, submission.begin() else { return }
+        onSubmissionChanged(true)
         let value = draft.trimmingCharacters(in: .whitespaces)
         Task {
             let outcome = await onSave(value, intent)
             submission.finish()
+            onSubmissionChanged(false)
             recovery = outcome == .saved ? nil : outcome
+            AnnotationSaveRecovery.announce(outcome)
         }
     }
 
@@ -396,8 +412,7 @@ struct ComposeCommentPopover: View {
                             .foregroundStyle(.secondary)
                         if recovery == .copyAndReselect {
                             Button("Copy Draft") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(draft, forType: .string)
+                                AnnotationSaveRecovery.copyDraft(draft)
                             }
                             .buttonStyle(.bordered)
                             .font(.system(size: 11))
@@ -418,14 +433,14 @@ struct ComposeCommentPopover: View {
                         .tint(Color.aw.mauve)
                         .font(.system(size: 12, weight: .medium))
                         .disabled(
-                            !canSave || submission.isInFlight
-                                || recovery == .copyAndReselect
+                            !canSubmit
                         )
                 }
             }
             .padding(10)
         }
         .frame(width: 300)
+        .disabled(submission.isInFlight)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("New annotation")
     }
@@ -435,7 +450,7 @@ struct ComposeCommentPopover: View {
         case .copyAndReselect:
             "The document changed, so this selection is no longer safe. Copy the draft and select the text again."
         case .reloadAndRetry:
-            "The document changed. It is reloading; save again after it updates."
+            "The document changed and has reloaded. Save again to retry."
         case .copyOnly:
             "Copy the draft before closing."
         case .failed:

@@ -12,7 +12,7 @@ import SecureFileIO
 public enum DocumentLoader {
 
     private enum SourceResult {
-        case source(String)
+        case snapshot(MarkdownDocumentSnapshot)
         case failure(LoadResult)
     }
 
@@ -21,7 +21,7 @@ public enum DocumentLoader {
     /// The outcome of a load attempt.
     public enum LoadResult: Equatable, Sendable {
         /// The document was successfully read and parsed.
-        case loaded([MarkdownBlock], source: String)
+        case loaded([MarkdownBlock], source: String, snapshot: MarkdownDocumentSnapshot?)
         /// The URL was rejected before any I/O was attempted.
         case rejected(DocumentURLValidator.Rejection)
         /// The URL was valid but the file could not be read (e.g. permissions, deleted).
@@ -43,7 +43,7 @@ public enum DocumentLoader {
     }
 
     package static func load(source: String) -> LoadResult {
-        .loaded(MarkdownRenderModelBuilder.build(source), source: source)
+        .loaded(MarkdownRenderModelBuilder.build(source), source: source, snapshot: nil)
     }
 
     package static func loadAndRender(
@@ -54,10 +54,10 @@ public enum DocumentLoader {
         guard !Task.isCancelled else { return nil }
         let result = await load()
         guard !Task.isCancelled else { return nil }
-        guard case let .loaded(_, source) = result else {
+        guard case let .loaded(_, source, _) = result else {
             return (result, nil)
         }
-        if let priorDocument, priorDocument.source == source {
+        if let priorDocument, priorDocument.source.utf8.elementsEqual(source.utf8) {
             return (result, priorDocument)
         }
         guard !Task.isCancelled else { return nil }
@@ -70,10 +70,12 @@ public enum DocumentLoader {
     package static func readSource(
         _ url: URL
     ) -> String? {
-        guard case let .source(source) = readSource(url, effectiveUID: geteuid()) else {
-            return nil
-        }
-        return source
+        readSnapshot(url)?.source
+    }
+
+    package static func readSnapshot(_ url: URL) -> MarkdownDocumentSnapshot? {
+        guard case let .snapshot(snapshot) = readSource(url, effectiveUID: geteuid()) else { return nil }
+        return snapshot
     }
 
     static func load(
@@ -81,8 +83,15 @@ public enum DocumentLoader {
         effectiveUID: uid_t
     ) -> LoadResult {
         switch readSource(url, effectiveUID: effectiveUID) {
-        case let .source(source):
-            return load(source: source)
+        case let .snapshot(snapshot):
+            guard let source = snapshot.source else {
+                return .readError("The file couldn’t be opened because it isn’t in the correct format.")
+            }
+            return .loaded(
+                MarkdownRenderModelBuilder.build(source),
+                source: source,
+                snapshot: snapshot
+            )
         case let .failure(result):
             return result
         }
@@ -115,10 +124,16 @@ public enum DocumentLoader {
 
         do {
             let data = try handle.read(maximumBytes: DocumentURLValidator.maxFileSizeBytes)
-            guard let content = String(data: data, encoding: .utf8) else {
+            guard String(data: data, encoding: .utf8) != nil else {
                 return .failure(.readError("The file couldn’t be opened because it isn’t in the correct format."))
             }
-            return .source(content)
+            return .snapshot(
+                MarkdownDocumentSnapshot(
+                    resolvedURL: handle.resolvedURL,
+                    identity: handle.identity,
+                    data: data
+                )
+            )
         } catch SecureFileReadError.tooLarge {
             return .failure(.rejected(.tooLarge))
         } catch {

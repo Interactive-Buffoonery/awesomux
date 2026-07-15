@@ -6,6 +6,13 @@ import Testing
 
 @Suite("MarkdownDocumentCommitter")
 struct MarkdownDocumentWriterTests {
+    private func snapshot(at file: URL) throws -> MarkdownDocumentSnapshot {
+        guard case let .loaded(_, _, snapshot) = DocumentLoader.load(file), let snapshot else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        return snapshot
+    }
+
     @Test("writes a change when the rendered source is current")
     func writesCurrentSource() throws {
         let directory = try TemporaryDirectory(prefix: "awesomux-markdown-write")
@@ -22,6 +29,42 @@ struct MarkdownDocumentWriterTests {
         #expect(try String(contentsOf: file, encoding: .utf8) == "original updated")
     }
 
+    @Test("preserves file mode and extended attributes")
+    func preservesMetadata() throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-markdown-write")
+        let file = directory.url.appending(path: "plan.md")
+        try Data("original".utf8).write(to: file)
+        #expect(chmod(file.path, 0o640) == 0)
+        let attributeName = "com.awesomux.test"
+        let attributeValue = Array("kept".utf8)
+        #expect(
+            attributeValue.withUnsafeBytes {
+                setxattr(
+                    file.path,
+                    attributeName,
+                    $0.baseAddress,
+                    $0.count,
+                    0,
+                    0
+                )
+            } == 0
+        )
+
+        let result = MarkdownDocumentCommitter.commitObserved(
+            at: file,
+            observed: try snapshot(at: file),
+            transform: { $0 + " updated" }
+        )
+
+        #expect(result == .committed(source: "original updated"))
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o640)
+        let size = getxattr(file.path, attributeName, nil, 0, 0, 0)
+        var bytes = [UInt8](repeating: 0, count: size)
+        #expect(getxattr(file.path, attributeName, &bytes, size, 0, 0) == size)
+        #expect(bytes == attributeValue)
+    }
+
     @Test("refuses a write when the rendered source is stale")
     func refusesStaleSource() throws {
         let directory = try TemporaryDirectory(prefix: "awesomux-markdown-write")
@@ -36,6 +79,45 @@ struct MarkdownDocumentWriterTests {
 
         #expect(result == .observedConflict)
         #expect(try String(contentsOf: file, encoding: .utf8) == "external edit")
+    }
+
+    @Test("compares rendered source as bytes rather than canonical Unicode")
+    func refusesCanonicallyEquivalentDifferentBytes() throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-markdown-write")
+        let file = directory.url.appending(path: "plan.md")
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        try Data(decomposed.utf8).write(to: file)
+
+        let result = MarkdownDocumentCommitter.commitObserved(
+            at: file,
+            renderedSource: composed,
+            transform: { $0 + " updated" }
+        )
+
+        #expect(result == .observedConflict)
+        #expect(try Data(contentsOf: file) == Data(decomposed.utf8))
+    }
+
+    @Test("binds save to the render-time inode even when replacement bytes match")
+    func refusesSameByteReplacementSinceRender() throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-markdown-write")
+        let file = directory.url.appending(path: "plan.md")
+        let replacement = directory.url.appending(path: "replacement.md")
+        try Data("original".utf8).write(to: file)
+        let rendered = try snapshot(at: file)
+        try Data("original".utf8).write(to: replacement)
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.moveItem(at: replacement, to: file)
+
+        let result = MarkdownDocumentCommitter.commitObserved(
+            at: file,
+            observed: rendered,
+            transform: { $0 + " updated" }
+        )
+
+        #expect(result == .observedConflict)
+        #expect(try String(contentsOf: file, encoding: .utf8) == "original")
     }
 
     @Test("retries a preserved annotation draft against a reloaded stable id")
@@ -157,7 +239,7 @@ struct MarkdownDocumentWriterTests {
         let secondTarget = directory.url.appending(path: "second.md")
         let symlink = directory.url.appending(path: "plan.md")
         try Data("original".utf8).write(to: firstTarget)
-        try Data("other".utf8).write(to: secondTarget)
+        try Data("original".utf8).write(to: secondTarget)
         try FileManager.default.createSymbolicLink(
             atPath: symlink.path,
             withDestinationPath: firstTarget.lastPathComponent
@@ -178,7 +260,7 @@ struct MarkdownDocumentWriterTests {
 
         #expect(result == .observedConflict)
         #expect(try String(contentsOf: firstTarget, encoding: .utf8) == "original")
-        #expect(try String(contentsOf: secondTarget, encoding: .utf8) == "other")
+        #expect(try String(contentsOf: secondTarget, encoding: .utf8) == "original")
     }
 
     @Test("refuses a same-byte replacement of the resolved target")
