@@ -347,6 +347,52 @@ struct RecentlyClosedWorkspaceReducerTests {
         #expect(reopenedPane.terminalBackendMetadata == metadata)
     }
 
+    @Test("reopen reserves a discarded daemon id before a later pane")
+    func reopenReservesDiscardedDaemonID() {
+        let duplicatePaneID = UUID()
+        let finalPaneID = UUID()
+        let firstDaemon = TerminalSessionID(rawValue: "reopen-ordering-d1")!
+        let repeatedDaemon = TerminalSessionID(rawValue: "reopen-ordering-d2")!
+        let panes = [
+            TerminalPane(
+                id: duplicatePaneID,
+                terminalSessionID: firstDaemon,
+                title: "x1",
+                workingDirectory: "/x1",
+                executionPlan: .local
+            ),
+            TerminalPane(
+                id: duplicatePaneID,
+                terminalSessionID: repeatedDaemon,
+                title: "x2",
+                workingDirectory: "/x2",
+                executionPlan: .local
+            ),
+            TerminalPane(
+                id: finalPaneID,
+                terminalSessionID: repeatedDaemon,
+                title: "y",
+                workingDirectory: "/y",
+                executionPlan: .local
+            ),
+        ]
+        var seenDaemons: Set<TerminalSessionID> = []
+        var seenPanes: Set<TerminalPane.ID> = []
+        let result = RecentlyClosedWorkspaceReducer.reidentifiedLayout(
+            Self.layout(for: panes),
+            indexHint: 1,
+            seenTerminalSessionIDs: &seenDaemons,
+            seenPaneIDs: &seenPanes
+        )
+        var restored: [TerminalPane] = []
+        result.forEachPane { restored.append($0) }
+
+        #expect(restored[0].terminalSessionID == firstDaemon)
+        #expect(restored[1].terminalSessionID != repeatedDaemon)
+        #expect(restored[2].terminalSessionID != repeatedDaemon)
+        #expect(Set(restored.map(\.terminalSessionID)).count == 3)
+    }
+
     @Test("reopen preserves each pane's daemon identity + metadata across a split (INT-578)")
     func reopenPreservesTerminalSessionIDAcrossSplit() throws {
         let groupID = UUID()
@@ -815,6 +861,12 @@ struct RecentlyClosedWorkspaceReducerTests {
             from: JSONSerialization.data(withJSONObject: json)
         )
         #expect(decoded.groupRemote == nil)
+    }
+
+    private static func layout(for panes: [TerminalPane]) -> TerminalPaneLayout {
+        panes.dropFirst().reduce(.pane(panes[0])) { layout, pane in
+            .split(TerminalSplit(orientation: .horizontal, first: layout, second: .pane(pane)))
+        }
     }
 
     private static func deepLayout(depth: Int) -> TerminalPaneLayout {

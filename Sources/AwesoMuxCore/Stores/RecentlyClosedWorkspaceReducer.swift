@@ -399,8 +399,9 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             let terminalSessionID: TerminalSessionID
             let terminalBackendMetadata: TerminalBackendMetadata
             let preservedDaemonIdentity: Bool
-            if preservedPaneID,
-               seenTerminalSessionIDs.insert(pane.terminalSessionID).inserted {
+            let daemonIDWasSeen =
+                !seenTerminalSessionIDs.insert(pane.terminalSessionID).inserted
+            if preservedPaneID, !daemonIDWasSeen {
                 terminalSessionID = pane.terminalSessionID
                 terminalBackendMetadata = pane.terminalBackendMetadata
                 preservedDaemonIdentity = true
