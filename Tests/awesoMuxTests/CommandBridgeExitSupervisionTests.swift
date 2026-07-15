@@ -192,6 +192,52 @@ struct CommandBridgeExitSupervisionTests {
         #expect(outcome == .reconnect)
     }
 
+    @Test("consecutive ambiguous respawn debits are refunded when attach proves a reconnect")
+    func reconnectRefundsConsecutiveAmbiguousRespawnAttempts() {
+        var ledger = CommandBridgeRespawnLedger()
+        let incarnation = AmxDaemonIncarnation(pid: 7, createdAt: 42)
+        ledger.recordAttach(incarnation)
+        for _ in 0..<maxAttempts {
+            ledger.recordRespawnAttempt()
+        }
+
+        let outcome = ledger.recordAttach(incarnation)
+
+        #expect(outcome == .reconnect)
+        #expect(ledger.respawnAttempts == 0)
+    }
+
+    @Test("consecutive ambiguous respawn debits remain when attach proves a fresh daemon")
+    func freshAttachKeepsConsecutiveAmbiguousRespawnAttempts() {
+        var ledger = CommandBridgeRespawnLedger()
+        ledger.recordAttach(AmxDaemonIncarnation(pid: 7, createdAt: 42))
+        for _ in 0..<maxAttempts {
+            ledger.recordRespawnAttempt()
+        }
+
+        let outcome = ledger.recordAttach(AmxDaemonIncarnation(pid: 8, createdAt: 43))
+
+        #expect(outcome == .fresh)
+        #expect(ledger.respawnAttempts == maxAttempts)
+    }
+
+    @Test("a fresh attach locks prior attempts out of a later reconnect refund")
+    func freshAttachLocksPriorAttempts() {
+        var ledger = CommandBridgeRespawnLedger()
+        let freshIncarnation = AmxDaemonIncarnation(pid: 8, createdAt: 43)
+        ledger.recordAttach(AmxDaemonIncarnation(pid: 7, createdAt: 42))
+        ledger.recordRespawnAttempt()
+        ledger.recordRespawnAttempt()
+
+        #expect(ledger.recordAttach(freshIncarnation) == .fresh)
+        #expect(ledger.respawnAttempts == 2)
+        ledger.recordRespawnAttempt()
+        #expect(ledger.respawnAttempts == 3)
+
+        #expect(ledger.recordAttach(freshIncarnation) == .reconnect)
+        #expect(ledger.respawnAttempts == 2)
+    }
+
     @Test("attaching to a different daemon incarnation is a fresh respawn")
     func differentIncarnationIsFresh() {
         var ledger = CommandBridgeRespawnLedger()
