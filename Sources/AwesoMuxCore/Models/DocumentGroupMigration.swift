@@ -30,41 +30,157 @@ public enum DocumentGroupMigration {
     public static func migratingLegacyDocumentLeaves(
         in layout: TerminalPaneLayout
     ) -> TerminalPaneLayout {
+        let fallbackTerminalID = layout.firstPane?.id
+        let backfilledLayout: TerminalPaneLayout
+        if case let .documentGroup(group) = layout {
+            backfilledLayout = .documentGroup(
+                backfillingNilAssociations(in: group, with: fallbackTerminalID)
+            )
+        } else {
+            backfilledLayout =
+                backfillingLegacyAssociations(
+                    in: layout,
+                    fallbackTerminalID: fallbackTerminalID
+                ).layout
+        }
+        return foldingDocumentGroups(in: backfilledLayout)
+    }
+
+    /// Folds corrupt layouts with multiple groups without inferring legacy
+    /// terminal associations. The first group keeps its position and later
+    /// tabs append in tree order.
+    public static func foldingDocumentGroups(
+        in layout: TerminalPaneLayout
+    ) -> TerminalPaneLayout {
         var groups: [DocumentGroup] = []
         appendDocumentGroups(in: layout, into: &groups)
-        guard let primary = groups.first else {
+        guard let primary = groups.first, groups.count > 1 else {
             return layout
         }
 
-        // Backfill nil associations from split adjacency BEFORE any folding
-        // moves a group away from the split that defined its old routing.
-        let backfilled = groups.map { group in
-            var group = group
-            let adjacentTerminalID = layout.nearestTerminalSibling(ofDocumentGroup: group.id)
-            group.tabs = group.tabs.map { tab in
-                var tab = tab
-                if tab.associatedTerminalPaneID == nil {
-                    tab.associatedTerminalPaneID = adjacentTerminalID
-                }
-                return tab
-            }
-            return group
-        }
-
-        let mergedTabs = backfilled.flatMap(\.tabs)
+        let mergedTabs = groups.flatMap(\.tabs)
         let merged = DocumentGroup(
             id: primary.id,
             tabs: mergedTabs,
             selectedTabID: mergedTabs[0].id
         )
 
-        // Collapse the later groups' leaves first, then swap the merged group
-        // into the primary position.
-        var result = layout
-        for group in backfilled.dropFirst() {
-            result = result.removingDocumentGroup(id: group.id) ?? result
+        var keptPrimary = false
+        return foldingDocumentGroups(
+            in: layout,
+            mergedGroup: merged,
+            keptPrimary: &keptPrimary
+        ) ?? .documentGroup(merged)
+    }
+
+    private static func backfillingLegacyAssociations(
+        in layout: TerminalPaneLayout,
+        fallbackTerminalID: TerminalPane.ID?
+    ) -> (layout: TerminalPaneLayout, firstPaneID: TerminalPane.ID?) {
+        switch layout {
+        case let .pane(pane):
+            return (layout, pane.id)
+        case .documentGroup:
+            return (layout, nil)
+        case let .split(split):
+            let first = backfillingLegacyAssociations(
+                in: split.first,
+                fallbackTerminalID: fallbackTerminalID
+            )
+            let second = backfillingLegacyAssociations(
+                in: split.second,
+                fallbackTerminalID: fallbackTerminalID
+            )
+            let firstLayout: TerminalPaneLayout
+            if case let .documentGroup(group) = split.first {
+                firstLayout = .documentGroup(
+                    backfillingNilAssociations(
+                        in: group,
+                        with: second.firstPaneID ?? fallbackTerminalID
+                    ))
+            } else {
+                firstLayout = first.layout
+            }
+            let secondLayout: TerminalPaneLayout
+            if case let .documentGroup(group) = split.second {
+                secondLayout = .documentGroup(
+                    backfillingNilAssociations(
+                        in: group,
+                        with: first.firstPaneID ?? fallbackTerminalID
+                    ))
+            } else {
+                secondLayout = second.layout
+            }
+            return (
+                .split(
+                    TerminalSplit(
+                        id: split.id,
+                        orientation: split.orientation,
+                        first: firstLayout,
+                        second: secondLayout,
+                        firstFraction: split.firstFraction
+                    )),
+                first.firstPaneID ?? second.firstPaneID
+            )
         }
-        return result.replacingDocumentGroup(id: primary.id, with: merged) ?? result
+    }
+
+    private static func backfillingNilAssociations(
+        in group: DocumentGroup,
+        with terminalID: TerminalPane.ID?
+    ) -> DocumentGroup {
+        var group = group
+        group.tabs = group.tabs.map { tab in
+            var tab = tab
+            if tab.associatedTerminalPaneID == nil {
+                tab.associatedTerminalPaneID = terminalID
+            }
+            return tab
+        }
+        return group
+    }
+
+    private static func foldingDocumentGroups(
+        in layout: TerminalPaneLayout,
+        mergedGroup: DocumentGroup,
+        keptPrimary: inout Bool
+    ) -> TerminalPaneLayout? {
+        switch layout {
+        case .pane:
+            return layout
+        case .documentGroup:
+            guard !keptPrimary else {
+                return nil
+            }
+            keptPrimary = true
+            return .documentGroup(mergedGroup)
+        case let .split(split):
+            let first = foldingDocumentGroups(
+                in: split.first,
+                mergedGroup: mergedGroup,
+                keptPrimary: &keptPrimary
+            )
+            let second = foldingDocumentGroups(
+                in: split.second,
+                mergedGroup: mergedGroup,
+                keptPrimary: &keptPrimary
+            )
+            switch (first, second) {
+            case let (.some(first), .some(second)):
+                return .split(
+                    TerminalSplit(
+                        id: split.id,
+                        orientation: split.orientation,
+                        first: first,
+                        second: second,
+                        firstFraction: split.firstFraction
+                    ))
+            case let (.some(layout), nil), let (nil, .some(layout)):
+                return layout
+            case (nil, nil):
+                return nil
+            }
+        }
     }
 
     private static func appendDocumentGroups(
