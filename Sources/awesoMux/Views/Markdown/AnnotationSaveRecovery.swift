@@ -26,11 +26,13 @@ struct AnnotationSubmissionGate {
 @MainActor
 final class DocumentReloadCompletion {
     private var completedGeneration = 0
-    private var waiters: [(generation: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private(set) var isInvalidated = false
+    private var waiters: [(generation: Int, continuation: CheckedContinuation<Bool, Never>)] = []
 
-    func wait(for generation: Int) async {
-        guard completedGeneration < generation else { return }
-        await withCheckedContinuation { continuation in
+    func wait(for generation: Int) async -> Bool {
+        guard !isInvalidated else { return false }
+        guard completedGeneration < generation else { return true }
+        return await withCheckedContinuation { continuation in
             waiters.append((generation, continuation))
         }
     }
@@ -39,11 +41,12 @@ final class DocumentReloadCompletion {
         completedGeneration = max(completedGeneration, generation)
         let completed = waiters.filter { $0.generation <= completedGeneration }
         waiters.removeAll { $0.generation <= completedGeneration }
-        completed.forEach { $0.continuation.resume() }
+        completed.forEach { $0.continuation.resume(returning: true) }
     }
 
-    func completeAll() {
-        waiters.forEach { $0.continuation.resume() }
+    func invalidate() {
+        isInvalidated = true
+        waiters.forEach { $0.continuation.resume(returning: false) }
         waiters.removeAll()
     }
 }
@@ -72,6 +75,17 @@ enum AnnotationSaveRecovery {
 
         return currentDocument.annotation(id: annotationID)
             == openedDocument.annotation(id: annotationID)
+    }
+
+    static func snapshotForNewDocumentNote(
+        openedSnapshot: MarkdownDocumentSnapshot,
+        currentSnapshot: MarkdownDocumentSnapshot?,
+        currentDocument: RenderedDocument?
+    ) -> MarkdownDocumentSnapshot? {
+        guard let currentSnapshot else { return nil }
+        if currentSnapshot == openedSnapshot { return openedSnapshot }
+        guard currentDocument?.documentNote == nil else { return nil }
+        return currentSnapshot
     }
 
     static func announcement(for outcome: AnnotationSaveOutcome) -> String? {

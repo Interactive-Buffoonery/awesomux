@@ -65,6 +65,29 @@ struct MarkdownDocumentWriterTests {
         #expect(bytes == attributeValue)
     }
 
+    @Test("creates the replacement temp exclusively at owner-only mode before writing")
+    func createsOwnerOnlyEmptyTempBeforeWriting() throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-markdown-write")
+        let file = directory.url.appending(path: "plan.md")
+        try Data("original".utf8).write(to: file)
+        var inspected = false
+
+        try MarkdownDocumentCommitter.replacePreservingMetadata(
+            Data("updated".utf8),
+            at: file
+        ) { temporaryURL in
+            inspected = true
+            let attributes = try FileManager.default.attributesOfItem(
+                atPath: temporaryURL.path
+            )
+            #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+            #expect(try Data(contentsOf: temporaryURL).isEmpty)
+        }
+
+        #expect(inspected)
+        #expect(try String(contentsOf: file, encoding: .utf8) == "updated")
+    }
+
     @Test("refuses a write when the rendered source is stale")
     func refusesStaleSource() throws {
         let directory = try TemporaryDirectory(prefix: "awesomux-markdown-write")

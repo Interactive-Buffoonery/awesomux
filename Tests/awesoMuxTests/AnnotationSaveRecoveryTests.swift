@@ -1,4 +1,6 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
+import Foundation
 import Testing
 @testable import awesoMux
 
@@ -71,7 +73,7 @@ struct AnnotationSaveRecoveryTests {
         let completion = DocumentReloadCompletion()
         var didFinish = false
         let waiter = Task { @MainActor in
-            await completion.wait(for: 2)
+            _ = await completion.wait(for: 2)
             didFinish = true
         }
         await Task.yield()
@@ -83,6 +85,90 @@ struct AnnotationSaveRecoveryTests {
         completion.complete(2)
         await waiter.value
         #expect(didFinish)
+    }
+
+    @MainActor
+    @Test("invalidation releases current waits and rejects late conflict waits")
+    func invalidationTerminatesConflictWaits() async {
+        let completion = DocumentReloadCompletion()
+        let current = Task { @MainActor in
+            await completion.wait(for: 2)
+        }
+        await Task.yield()
+
+        completion.invalidate()
+
+        #expect(await current.value == false)
+        #expect(await completion.wait(for: 3) == false)
+    }
+
+    @Test("document-note retry rebinds from the opening snapshot after reload")
+    func rebindsNewDocumentNoteAfterConflictReload() throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-document-note-retry")
+        let file = directory.url.appending(path: "plan.md")
+        try Data("# Opening\n".utf8).write(to: file)
+        let openedSnapshot = try snapshot(at: file)
+
+        try Data("# External edit\n".utf8).write(to: file)
+        let firstSave = MarkdownDocumentCommitter.commitObserved(
+            at: file,
+            observed: openedSnapshot,
+            transform: { source in
+                PlanAnnotationWriter.appendingDocumentAnnotation(
+                    in: source,
+                    author: .user,
+                    payload: "Keep this draft"
+                )?.source
+            }
+        )
+        #expect(firstSave == .observedConflict)
+
+        let currentSnapshot = try snapshot(at: file)
+        let currentDocument = AttributedMarkdownBuilder.build(try #require(currentSnapshot.source))
+        let rebound = try #require(
+            AnnotationSaveRecovery.snapshotForNewDocumentNote(
+                openedSnapshot: openedSnapshot,
+                currentSnapshot: currentSnapshot,
+                currentDocument: currentDocument
+            )
+        )
+        let retry = MarkdownDocumentCommitter.commitObserved(
+            at: file,
+            observed: rebound,
+            transform: { source in
+                PlanAnnotationWriter.appendingDocumentAnnotation(
+                    in: source,
+                    author: .user,
+                    payload: "Keep this draft"
+                )?.source
+            }
+        )
+
+        guard case .committed = retry else {
+            Issue.record("Expected retry to commit, got \(retry)")
+            return
+        }
+        #expect(try String(contentsOf: file, encoding: .utf8).contains("Keep this draft"))
+    }
+
+    @Test("document-note retry refuses an externally added note")
+    func refusesExternalDocumentNoteOnRetry() throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-document-note-retry")
+        let file = directory.url.appending(path: "plan.md")
+        try Data("# Opening\n".utf8).write(to: file)
+        let openedSnapshot = try snapshot(at: file)
+        try Data("# Opening\n\n<!-- AMX id=q3k7 by=user: External note -->\n".utf8)
+            .write(to: file)
+        let currentSnapshot = try snapshot(at: file)
+        let currentDocument = AttributedMarkdownBuilder.build(try #require(currentSnapshot.source))
+
+        #expect(
+            AnnotationSaveRecovery.snapshotForNewDocumentNote(
+                openedSnapshot: openedSnapshot,
+                currentSnapshot: currentSnapshot,
+                currentDocument: currentDocument
+            ) == nil
+        )
     }
 
     @Test("submission lifecycle prevents transient dismissal")
@@ -141,5 +227,12 @@ struct AnnotationSaveRecoveryTests {
             ],
             taskProgress: TaskProgress(done: 0, total: 0)
         )
+    }
+
+    private func snapshot(at file: URL) throws -> MarkdownDocumentSnapshot {
+        guard case let .loaded(_, _, snapshot) = DocumentLoader.load(file), let snapshot else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        return snapshot
     }
 }

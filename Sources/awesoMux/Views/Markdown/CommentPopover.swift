@@ -29,6 +29,7 @@ struct FullCommentPopover: View {
     @State private var replyDraft = ""
     @State private var submission = AnnotationSubmissionGate()
     @State private var recovery: AnnotationSaveOutcome?
+    @State private var presentationID: UUID?
     @FocusState private var isEditFieldFocused: Bool
 
     private var isResolved: Bool { annotation.status == .resolved }
@@ -236,6 +237,8 @@ struct FullCommentPopover: View {
         .accessibilityLabel(
             "Comment \(displayNumber)\(isResolved ? ", resolved" : "")"
         )
+        .onAppear { presentationID = UUID() }
+        .onDisappear { presentationID = nil }
     }
 
     private func saveEdit() {
@@ -264,9 +267,11 @@ struct FullCommentPopover: View {
 
     private func submit(operation: @escaping () async -> AnnotationSaveOutcome) {
         guard submission.begin() else { return }
+        let activePresentation = presentationID
         onSubmissionChanged(true)
         Task {
             let outcome = await operation()
+            guard let activePresentation, presentationID == activePresentation else { return }
             submission.finish()
             onSubmissionChanged(false)
             recovery = outcome == .saved ? nil : outcome
@@ -330,6 +335,7 @@ struct ComposeCommentPopover: View {
     @State private var intent: PlanAnnotationIntent = .comment
     @State private var submission = AnnotationSubmissionGate()
     @State private var recovery: AnnotationSaveOutcome?
+    @State private var presentationID: UUID?
     @FocusState private var isDraftFocused: Bool
 
     private var placeholder: String {
@@ -355,10 +361,12 @@ struct ComposeCommentPopover: View {
 
     private func save() {
         guard canSubmit, submission.begin() else { return }
+        let activePresentation = presentationID
         onSubmissionChanged(true)
         let value = draft.trimmingCharacters(in: .whitespaces)
         Task {
             let outcome = await onSave(value, intent)
+            guard let activePresentation, presentationID == activePresentation else { return }
             submission.finish()
             onSubmissionChanged(false)
             recovery = outcome == .saved ? nil : outcome
@@ -443,6 +451,8 @@ struct ComposeCommentPopover: View {
         .disabled(submission.isInFlight)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("New annotation")
+        .onAppear { presentationID = UUID() }
+        .onDisappear { presentationID = nil }
     }
 
     private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {

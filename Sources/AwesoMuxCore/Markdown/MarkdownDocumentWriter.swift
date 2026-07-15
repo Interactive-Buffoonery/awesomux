@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SecureFileIO
 
@@ -164,10 +165,41 @@ public enum MarkdownDocumentCommitter {
     }
 
     private static func replacePreservingMetadata(_ data: Data, at url: URL) throws {
+        try replacePreservingMetadata(data, at: url, afterCreate: { _ in })
+    }
+
+    static func replacePreservingMetadata(
+        _ data: Data,
+        at url: URL,
+        afterCreate: (URL) throws -> Void
+    ) throws {
         let temporaryURL = url.deletingLastPathComponent()
             .appending(path: ".\(url.lastPathComponent).\(UUID().uuidString).tmp")
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
-        try data.write(to: temporaryURL, options: .withoutOverwriting)
+
+        let descriptor = Darwin.open(
+            temporaryURL.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+            0o600
+        )
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard fchmod(descriptor, 0o600) == 0 else {
+            let savedErrno = errno
+            close(descriptor)
+            throw POSIXError(POSIXErrorCode(rawValue: savedErrno) ?? .EIO)
+        }
+
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        do {
+            try afterCreate(temporaryURL)
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
+        }
         _ = try FileManager.default.replaceItemAt(url, withItemAt: temporaryURL)
     }
 }
