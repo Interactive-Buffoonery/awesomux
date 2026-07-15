@@ -91,7 +91,7 @@ enum AnnotationSaveRecovery {
     ) -> MarkdownDocumentSnapshot? {
         guard let currentSnapshot else { return nil }
         if currentSnapshot == openedSnapshot { return openedSnapshot }
-        guard currentDocument?.documentNote == nil else { return nil }
+        guard let currentDocument, currentDocument.documentNote == nil else { return nil }
         return currentSnapshot
     }
 
@@ -101,22 +101,32 @@ enum AnnotationSaveRecovery {
     ) -> String? {
         switch outcome {
         case .reloadAndRetry:
-            "The document changed. Reload complete. Try saving again."
+            String(
+                localized: "The document changed. Reload complete. Try saving again.",
+                comment: "Save recovery announcement after reloading a changed document")
         case .copyAndReselect:
-            "The selection changed. Copy the draft and select the text again."
+            String(
+                localized: "The selection changed. Copy the draft and select the text again.",
+                comment: "Save recovery announcement for a stale text selection")
         case .copyOnly:
             hasRecoverableDraft
-                ? "The annotation changed or was removed. Copy the draft before closing."
-                : "The annotation changed or was removed."
+                ? String(
+                    localized: "The annotation changed or was removed. Copy the draft before closing.",
+                    comment: "Save recovery announcement when an annotation draft can be copied")
+                : String(
+                    localized: "The annotation changed or was removed.",
+                    comment: "Save recovery announcement when an annotation no longer exists")
         case .failed:
-            "The draft was not saved."
+            String(localized: "The draft was not saved.", comment: "Save failure announcement")
         case .saved:
             nil
         }
     }
 
     static func copyAnnouncement(didCopy: Bool) -> String {
-        didCopy ? "Draft copied" : "Draft could not be copied"
+        didCopy
+            ? String(localized: "Draft copied", comment: "Draft copy success announcement")
+            : String(localized: "Draft could not be copied", comment: "Draft copy failure announcement")
     }
 
     @MainActor
