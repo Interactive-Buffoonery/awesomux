@@ -75,6 +75,9 @@ jobs:
       - name: Build or validate Ghostty artifacts
         run: ./script/ensure_ghostty_artifacts.sh
 
+      - name: Resolve Swift dependencies
+        run: swift package resolve
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
@@ -82,7 +85,7 @@ jobs:
           build-mode: manual
 
       - name: Build Swift sources
-        run: swift build
+        run: swift build --arch arm64
 
       - name: Analyze
         uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
