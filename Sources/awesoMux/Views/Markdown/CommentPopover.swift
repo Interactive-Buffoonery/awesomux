@@ -29,10 +29,18 @@ struct FullCommentPopover: View {
     @State private var replyDraft = ""
     @State private var submission = AnnotationSubmissionGate()
     @State private var recovery: AnnotationSaveOutcome?
+    @State private var recoveryDraft: String?
     @State private var presentationID: UUID?
     @FocusState private var isEditFieldFocused: Bool
 
     private var isResolved: Bool { annotation.status == .resolved }
+
+    private var canSubmit: Bool {
+        AnnotationSaveRecovery.canSubmitExistingAnnotation(
+            isSubmitting: submission.isInFlight,
+            outcome: recovery
+        )
+    }
 
     private var headerLabel: String {
         var parts = ["NOTE \(displayNumber)"]
@@ -77,7 +85,9 @@ struct FullCommentPopover: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .disabled(submission.isInFlight)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+                    .disabled(!canSubmit)
                     .help(isResolved ? "Reopen" : "Mark resolved")
                     .accessibilityLabel(isResolved ? "Reopen annotation" : "Mark annotation resolved")
 
@@ -90,6 +100,8 @@ struct FullCommentPopover: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
                     .accessibilityLabel("Edit annotation")
 
                     Button(role: .destructive) {
@@ -100,7 +112,9 @@ struct FullCommentPopover: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .disabled(submission.isInFlight)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+                    .disabled(!canSubmit)
                     .accessibilityLabel("Delete annotation")
                 }
             }
@@ -165,7 +179,7 @@ struct FullCommentPopover: View {
                             .tint(Color.aw.mauve)
                             .font(.system(size: 12, weight: .medium))
                             .disabled(
-                                submission.isInFlight
+                                !canSubmit
                                     || draft.trimmingCharacters(in: .whitespaces).isEmpty
                             )
                     }
@@ -215,9 +229,11 @@ struct FullCommentPopover: View {
                             .font(.system(size: 13))
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
                     .foregroundStyle(Color.aw.mauve)
                     .disabled(
-                        submission.isInFlight
+                        !canSubmit
                             || replyDraft.trimmingCharacters(in: .whitespaces).isEmpty
                     )
                     .help("Send reply")
@@ -244,7 +260,7 @@ struct FullCommentPopover: View {
     private func saveEdit() {
         let trimmed = draft.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        submit {
+        submit(draftToRecover: draft) {
             let outcome = await onEdit(trimmed)
             if outcome == .saved {
                 isEditing = false
@@ -256,7 +272,7 @@ struct FullCommentPopover: View {
     private func submitReply() {
         let trimmed = replyDraft.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        submit {
+        submit(draftToRecover: replyDraft) {
             let outcome = await onReply(trimmed)
             if outcome == .saved {
                 replyDraft = ""
@@ -265,8 +281,11 @@ struct FullCommentPopover: View {
         }
     }
 
-    private func submit(operation: @escaping () async -> AnnotationSaveOutcome) {
-        guard submission.begin() else { return }
+    private func submit(
+        draftToRecover: String? = nil,
+        operation: @escaping () async -> AnnotationSaveOutcome
+    ) {
+        guard canSubmit, submission.begin() else { return }
         let activePresentation = presentationID
         onSubmissionChanged(true)
         Task {
@@ -275,7 +294,11 @@ struct FullCommentPopover: View {
             submission.finish()
             onSubmissionChanged(false)
             recovery = outcome == .saved ? nil : outcome
-            AnnotationSaveRecovery.announce(outcome)
+            recoveryDraft = outcome == .copyOnly ? draftToRecover : nil
+            AnnotationSaveRecovery.announce(
+                outcome,
+                hasRecoverableDraft: draftToRecover != nil
+            )
         }
     }
 
@@ -286,9 +309,9 @@ struct FullCommentPopover: View {
             Text(recoveryMessage(outcome))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            if outcome == .copyOnly, !recoverableDraft.isEmpty {
+            if outcome == .copyOnly, let recoveryDraft {
                 Button("Copy Draft") {
-                    AnnotationSaveRecovery.copyDraft(recoverableDraft)
+                    AnnotationSaveRecovery.copyDraft(recoveryDraft)
                 }
                 .buttonStyle(.bordered)
                 .font(.system(size: 11))
@@ -298,16 +321,16 @@ struct FullCommentPopover: View {
         .padding(.vertical, 7)
     }
 
-    private var recoverableDraft: String {
-        isEditing ? draft : replyDraft
-    }
-
     private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
         switch outcome {
         case .reloadAndRetry:
             "The document changed and has reloaded. Save again to retry."
         case .copyOnly:
-            "The annotation changed or was removed. Copy your draft before closing."
+            if recoveryDraft == nil {
+                "The annotation changed or was removed."
+            } else {
+                "The annotation changed or was removed. Copy your draft before closing."
+            }
         case .copyAndReselect:
             "The selection is stale. Copy your draft and select the text again."
         case .failed:

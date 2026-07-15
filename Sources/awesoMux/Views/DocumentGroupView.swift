@@ -48,6 +48,7 @@ struct DocumentGroupView: View {
     @Environment(\.awAccent) private var accentResolver
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(DocumentComposeTabActionHandler.self) private var documentTabActions
 
     private static let resolveSettleInterval: Duration = .milliseconds(500)
     private static let revisionExpandedDuration: Duration = .seconds(9)
@@ -84,32 +85,45 @@ struct DocumentGroupView: View {
                         mode = .document
                         return
                     }
-                    sessionStore.selectDocumentTab(tabID: tabID, in: session.id)
+                    documentTabActions.perform {
+                        sessionStore.selectDocumentTab(tabID: tabID, in: session.id)
+                    }
                 },
                 onCloseTab: { tab in
-                    let closedTitle = tab.title
-                    sessionStore.closeDocumentPane(
-                        documentID: tab.id,
-                        in: session.id
-                    )
-                    // Mirror the terminal close X's "Pane closed" announcement:
-                    // the close either swaps a neighbor tab in (its own
-                    // announcement follows via onChange) or collapses the
-                    // viewer — both invisible to VoiceOver without this.
-                    TerminalAccessibilityAnnouncer.announce(
-                        String(
-                            localized: "Closed \(closedTitle)",
-                            comment: "VoiceOver announcement after closing a document tab"
+                    let closeTab = {
+                        let closedTitle = tab.title
+                        sessionStore.closeDocumentPane(
+                            documentID: tab.id,
+                            in: session.id
                         )
-                    )
+                        // Mirror the terminal close X's "Pane closed" announcement:
+                        // the close either swaps a neighbor tab in (its own
+                        // announcement follows via onChange) or collapses the
+                        // viewer — both invisible to VoiceOver without this.
+                        TerminalAccessibilityAnnouncer.announce(
+                            String(
+                                localized: "Closed \(closedTitle)",
+                                comment: "VoiceOver announcement after closing a document tab"
+                            )
+                        )
+                    }
+                    if tab.id == group.selectedTabID {
+                        documentTabActions.perform(closeTab)
+                    } else {
+                        closeTab()
+                    }
                 },
                 onExpandRevision: { tab in
-                    revisionIndicators.expand(for: tab)
-                    revisionInteractionActive = false
                     if tab.id == group.selectedTabID {
+                        revisionIndicators.expand(for: tab)
+                        revisionInteractionActive = false
                         mode = .document
                     } else {
-                        sessionStore.selectDocumentTab(tabID: tab.id, in: session.id)
+                        documentTabActions.perform {
+                            revisionIndicators.expand(for: tab)
+                            revisionInteractionActive = false
+                            sessionStore.selectDocumentTab(tabID: tab.id, in: session.id)
+                        }
                     }
                 },
                 onDismissRevision: {

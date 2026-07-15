@@ -180,12 +180,30 @@ struct AnnotationSaveRecoveryTests {
     @Test("recovery and copy outcomes have spoken feedback")
     func recoveryAnnouncements() {
         #expect(AnnotationSaveRecovery.announcement(for: .reloadAndRetry)?.contains("Reload complete") == true)
+        #expect(
+            AnnotationSaveRecovery.announcement(
+                for: .copyOnly,
+                hasRecoverableDraft: false
+            ) == "The annotation changed or was removed."
+        )
         #expect(AnnotationSaveRecovery.copyAnnouncement(didCopy: true) == "Draft copied")
         #expect(AnnotationSaveRecovery.copyAnnouncement(didCopy: false) == "Draft could not be copied")
     }
 
     @Test("Return cannot resubmit a stale selection or an in-flight draft")
     func blocksUnsafeReturnSubmission() {
+        #expect(
+            !AnnotationSaveRecovery.canSubmitExistingAnnotation(
+                isSubmitting: false,
+                outcome: .copyOnly
+            )
+        )
+        #expect(
+            AnnotationSaveRecovery.canSubmitExistingAnnotation(
+                isSubmitting: false,
+                outcome: .reloadAndRetry
+            )
+        )
         #expect(
             !AnnotationSaveRecovery.canSubmitNewAnnotation(
                 hasValidDraft: true,

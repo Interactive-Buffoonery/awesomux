@@ -168,13 +168,11 @@ struct TerminalPaneTitleEditFlagTests {
         )
         frozen.isTitleUserEdited = true
 
-        var remap: [TerminalPane.ID: TerminalPane.ID] = [:]
         var seenTerminalSessionIDs: Set<TerminalSessionID> = []
         var seenPaneIDs: Set<TerminalPane.ID> = []
         let reidentified = RecentlyClosedWorkspaceReducer.reidentifiedLayout(
             .pane(frozen),
             indexHint: 1,
-            paneIDRemap: &remap,
             seenTerminalSessionIDs: &seenTerminalSessionIDs,
             seenPaneIDs: &seenPaneIDs
         )
@@ -217,13 +215,11 @@ struct TerminalPaneTitleEditFlagTests {
         var frozen = TerminalPane(id: UUID(), title: "\u{200B}\u{FEFF}", workingDirectory: "~", executionPlan: .local)
         frozen.isTitleUserEdited = true
 
-        var remap: [TerminalPane.ID: TerminalPane.ID] = [:]
         var seenTerminalSessionIDs: Set<TerminalSessionID> = []
         var seenPaneIDs: Set<TerminalPane.ID> = []
         let reidentified = RecentlyClosedWorkspaceReducer.reidentifiedLayout(
             .pane(frozen),
             indexHint: 1,
-            paneIDRemap: &remap,
             seenTerminalSessionIDs: &seenTerminalSessionIDs,
             seenPaneIDs: &seenPaneIDs
         )

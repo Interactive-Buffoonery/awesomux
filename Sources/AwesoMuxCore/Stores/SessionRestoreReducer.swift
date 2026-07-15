@@ -273,7 +273,19 @@ struct SessionRestoreReducer: Sendable {
                 executionPlan: executionPlan
             )
         }
-        let layout = layoutResult.layout
+        let normalizedLayout = DocumentGroupMigration.foldingDocumentGroups(
+            in: layoutResult.layout
+        )
+        let paneIDCounts = terminalPaneIDCounts(in: session.layout)
+        let paneIDRemap = unambiguousPaneIDRemap(
+            from: session.layout,
+            to: normalizedLayout,
+            originalIDCounts: paneIDCounts
+        )
+        let layout = remappingDocumentTabAssociations(
+            in: normalizedLayout,
+            paneIDRemap: paneIDRemap
+        )
         sanitizationSummary.idReassignments += layoutResult.idReassignments
 
         if case .split = session.layout, fallbackTitle != session.title {
@@ -286,7 +298,9 @@ struct SessionRestoreReducer: Sendable {
         // crash-loop the app (C1). Return a fresh default session instead so
         // the slot is usable rather than lost entirely.
         let resolvedActivePane: TerminalPane
-        if let activePane = layout.pane(id: session.activePaneID) {
+        if let restoredActivePaneID = paneIDRemap[session.activePaneID],
+            let activePane = layout.pane(id: restoredActivePaneID)
+        {
             resolvedActivePane = activePane
         } else if let firstPane = layout.firstPane {
             sanitizationSummary.activePaneFallbacks += 1
@@ -407,6 +421,45 @@ struct SessionRestoreReducer: Sendable {
         sanitized == "~" && original != "~"
     }
 
+    static func terminalPaneIDCounts(
+        in layout: TerminalPaneLayout
+    ) -> [TerminalPane.ID: Int] {
+        layout.paneIDs.reduce(into: [:]) { counts, id in
+            counts[id, default: 0] += 1
+        }
+    }
+
+    static func unambiguousPaneIDRemap(
+        from originalLayout: TerminalPaneLayout,
+        to restoredLayout: TerminalPaneLayout,
+        originalIDCounts: [TerminalPane.ID: Int]
+    ) -> [TerminalPane.ID: TerminalPane.ID] {
+        var remap: [TerminalPane.ID: TerminalPane.ID] = [:]
+        for (originalID, restoredID) in zip(originalLayout.paneIDs, restoredLayout.paneIDs)
+        where originalIDCounts[originalID] == 1 {
+            remap[originalID] = restoredID
+        }
+        return remap
+    }
+
+    /// Remaps document associations through IDs that identify exactly one
+    /// original terminal. Missing and repeated IDs fail closed to nil.
+    static func remappingDocumentTabAssociations(
+        in layout: TerminalPaneLayout,
+        paneIDRemap: [TerminalPane.ID: TerminalPane.ID]
+    ) -> TerminalPaneLayout {
+        guard var group = layout.firstDocumentGroup else {
+            return layout
+        }
+        group.tabs = group.tabs.map { tab in
+            var tab = tab
+            tab.associatedTerminalPaneID = tab.associatedTerminalPaneID
+                .flatMap { paneIDRemap[$0] }
+            return tab
+        }
+        return layout.replacingDocumentGroup(id: group.id, with: group) ?? layout
+    }
+
     /// Smallest-numbered `"name N"` (N ≥ 2) colliding with no reserved name,
     /// trimming the base so the result respects the group-name cap.
     static func disambiguatedName(
@@ -464,29 +517,29 @@ struct SessionRestoreReducer: Sendable {
         case let .pane(pane):
             var restoredPane = transformPane(pane)
             var idReassignments = 0
+            let daemonIDWasSeen =
+                !seenTerminalSessionIDs.insert(restoredPane.terminalSessionID).inserted
             if !seenPaneIDs.insert(restoredPane.id).inserted {
-                // Reassign only the id; carry the transformed agent state through.
-                // Rebuilding with id/title/cwd alone silently downgraded an agent
-                // pane to a bare .shell/.idle — the same class of loss the rest of
-                // INT-504 fixed (OpenCode review on PR #231).
+                var freshPaneID = UUID()
+                while !seenPaneIDs.insert(freshPaneID).inserted {
+                    freshPaneID = UUID()
+                }
                 restoredPane = TerminalPane(
-                    id: UUID(),
-                    terminalSessionID: restoredPane.terminalSessionID,
-                    terminalBackendMetadata: restoredPane.terminalBackendMetadata,
+                    id: freshPaneID,
+                    terminalSessionID: generateUniqueTerminalSessionID(
+                        avoiding: &seenTerminalSessionIDs
+                    ),
+                    terminalBackendMetadata: .empty,
                     title: restoredPane.title,
                     isTitleUserEdited: restoredPane.isTitleUserEdited,
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
-                    agentExecutionState: restoredPane.agentExecutionState,
-                    attentionReason: restoredPane.attentionReason,
-                    unreadNotificationCount: restoredPane.unreadNotificationCount,
+                    agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )
-                seenPaneIDs.insert(restoredPane.id)
-                idReassignments += 1
-            }
-            if !seenTerminalSessionIDs.insert(restoredPane.terminalSessionID).inserted {
+                idReassignments += 2
+            } else if daemonIDWasSeen {
                 let terminalSessionID = generateUniqueTerminalSessionID(
                     avoiding: &seenTerminalSessionIDs
                 )
@@ -499,9 +552,7 @@ struct SessionRestoreReducer: Sendable {
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
-                    agentExecutionState: restoredPane.agentExecutionState,
-                    attentionReason: restoredPane.attentionReason,
-                    unreadNotificationCount: restoredPane.unreadNotificationCount,
+                    agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )
                 idReassignments += 1

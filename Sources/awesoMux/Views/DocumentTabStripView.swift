@@ -359,7 +359,8 @@ private struct DocumentTabPill: View {
                 .background(accentSoftColor, in: Circle())
         }
         .buttonStyle(.plain)
-        .frame(width: 22, height: 24)
+        .frame(width: 24, height: 24)
+        .contentShape(Rectangle())
         .foregroundStyle(accentColor)
         .help(label)
         .accessibilityLabel(
