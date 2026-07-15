@@ -217,11 +217,7 @@ struct DocumentGroupView: View {
                         // appearance — same reasoning as the send bar's
                         // nudge-failure and the all-resolved notice.
                         TerminalAccessibilityAnnouncer.announce(
-                            String(
-                                localized:
-                                    "\(document.title): \(LocalizedPluralStrings.documentRevisionIndicator(added: diff.added, removed: diff.removed))",
-                                comment: "VoiceOver announcement when an external edit revises the visible document"
-                            )
+                            diff.accessibilityAnnouncement(documentTitle: document.title)
                         )
                     },
                     onRegisterScrollAnchorCapture: { capture in

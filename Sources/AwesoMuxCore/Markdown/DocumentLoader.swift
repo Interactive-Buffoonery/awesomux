@@ -42,6 +42,10 @@ public enum DocumentLoader {
         load(url, effectiveUID: geteuid())
     }
 
+    package static func load(source: String) -> LoadResult {
+        .loaded(MarkdownRenderModelBuilder.build(source), source: source)
+    }
+
     /// Reads a document source through the same validation and byte cap as `load(_:)`.
     package static func readSource(
         _ url: URL
@@ -58,7 +62,7 @@ public enum DocumentLoader {
     ) -> LoadResult {
         switch readSource(url, effectiveUID: effectiveUID) {
         case let .source(source):
-            return .loaded(MarkdownRenderModelBuilder.build(source), source: source)
+            return load(source: source)
         case let .failure(result):
             return result
         }

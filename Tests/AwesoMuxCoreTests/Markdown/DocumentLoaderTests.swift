@@ -121,6 +121,19 @@ struct DocumentLoaderTests {
         #expect(DocumentLoader.readSource(url) == nil)
     }
 
+    @Test("loads a captured source after the file changes again")
+    func loadsCapturedSourceAfterFileChangesAgain() throws {
+        let url = try writeTempFile(name: "watched.md", content: "# Save A")
+        let captured = try #require(DocumentLoader.readSource(url))
+        try "# Save B".write(to: url, atomically: true, encoding: .utf8)
+
+        guard case let .loaded(_, source) = DocumentLoader.load(source: captured) else {
+            Issue.record("Expected captured source to load")
+            return
+        }
+        #expect(source == "# Save A")
+    }
+
     // MARK: - Rejection: non-file URL
 
     @Test("rejects an https URL")

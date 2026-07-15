@@ -93,15 +93,15 @@ struct LineDiffCountTests {
             isSelfWrite: false
         )
 
-        #expect(count == LineDiffCount(added: 1, removed: 0))
+        #expect(count == .exact(LineDiffCount(added: 1, removed: 0)))
     }
 
-    @Test("forExternalEdit suppresses oversized inputs")
-    func gateSuppressesOversizedInputs() {
+    @Test("forExternalEdit signals oversized inputs without exact counts")
+    func gateSignalsOversizedInputsWithoutExactCounts() {
         let huge = String(repeating: "a", count: LineDiffCount.maxDiffBytes + 1)
 
-        #expect(LineDiffCount.forExternalEdit(old: huge, new: "a", isSelfWrite: false) == nil)
-        #expect(LineDiffCount.forExternalEdit(old: "a", new: huge, isSelfWrite: false) == nil)
+        #expect(LineDiffCount.forExternalEdit(old: huge, new: "a", isSelfWrite: false) == .countUnavailable)
+        #expect(LineDiffCount.forExternalEdit(old: "a", new: huge, isSelfWrite: false) == .countUnavailable)
     }
 
     @Test("forExternalEdit accepts exactly the line limit")
@@ -111,16 +111,22 @@ struct LineDiffCountTests {
 
         #expect(
             LineDiffCount.forExternalEdit(old: old, new: new, isSelfWrite: false)
-                == LineDiffCount(added: 2_000, removed: 2_000)
+                == .exact(LineDiffCount(added: 2_000, removed: 2_000))
         )
     }
 
-    @Test("forExternalEdit suppresses inputs over the line limit")
-    func gateSuppressesInputsOverLineLimit() {
+    @Test("forExternalEdit signals inputs over the line limit without exact counts")
+    func gateSignalsInputsOverLineLimitWithoutExactCounts() {
         let tooManyLines = Array(repeating: "line", count: LineDiffCount.maxDiffLines + 1)
             .joined(separator: "\n")
 
-        #expect(LineDiffCount.forExternalEdit(old: tooManyLines, new: "line", isSelfWrite: false) == nil)
-        #expect(LineDiffCount.forExternalEdit(old: "line", new: tooManyLines, isSelfWrite: false) == nil)
+        #expect(
+            LineDiffCount.forExternalEdit(old: tooManyLines, new: "line", isSelfWrite: false)
+                == .countUnavailable
+        )
+        #expect(
+            LineDiffCount.forExternalEdit(old: "line", new: tooManyLines, isSelfWrite: false)
+                == .countUnavailable
+        )
     }
 }
