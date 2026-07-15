@@ -107,7 +107,7 @@ struct AwesoMuxApp: App {
     @State private var sidebarFocusRequestID: UUID?
     @State private var sidebarToggleRequestID: UUID?
     @State private var quickRunToast: QuickRunToast?
-    @State private var documentComposeNoticeID: UUID?
+    @State private var documentTabActions = DocumentComposeTabActionHandler()
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -531,7 +531,7 @@ struct AwesoMuxApp: App {
                         QuickRunToastView(toast: quickRunToast)
                             .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-                    if documentComposeNoticeID != nil {
+                    if documentTabActions.noticeID != nil {
                         Text(DocumentComposeGuard.tabActionBlockedMessage)
                             .awFont(AwFont.Mono.meta)
                             .foregroundStyle(Color.aw.text)
@@ -546,16 +546,17 @@ struct AwesoMuxApp: App {
                                     .stroke(Color.aw.border, lineWidth: 0.5)
                             }
                             .accessibilityHidden(true)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            .transition(.opacity)
                     }
                 }
                 .padding(.top, 18)
                 .padding(.trailing, 18)
             }
             .animation(.easeOut(duration: 0.16), value: quickRunToast)
-            .animation(.easeOut(duration: 0.16), value: documentComposeNoticeID)
+            .animation(.easeOut(duration: 0.16), value: documentTabActions.noticeID)
             .preferredColorScheme(preferredScheme)
             .environment(appSettingsStore)
+            .environment(documentTabActions)
             .appearanceBridge(appSettingsStore)
             .modifier(CaptureOpenWindowAction(action: $openWindowAction))
         }
@@ -1817,7 +1818,7 @@ struct AwesoMuxApp: App {
     /// bypass (review finding). A mouse selection involves a click that has
     /// already dismissed the transient popover, so it needs no guard.
     private func selectAdjacentDocumentTab(offset: Int) {
-        performProtectedDocumentTabAction {
+        documentTabActions.perform {
             guard let session = sessionStore.selectedSession,
                 let targetTabID = session.layout.firstDocumentGroup?.adjacentTabID(offset: offset)
             else {
@@ -1833,7 +1834,7 @@ struct AwesoMuxApp: App {
     /// Same compose-draft guard as tab cycling: closing the selected tab
     /// destroys an open draft.
     private func closeSelectedDocumentTab() {
-        performProtectedDocumentTabAction {
+        documentTabActions.perform {
             guard let session = sessionStore.selectedSession,
                 let selectedTab = session.layout.firstDocumentGroup?.selectedTab
             else {
@@ -1848,22 +1849,6 @@ struct AwesoMuxApp: App {
                     comment: "VoiceOver announcement after closing a document tab"
                 )
             )
-        }
-    }
-
-    private func performProtectedDocumentTabAction(_ action: () -> Void) {
-        switch DocumentComposeGuard.tabActionDecision() {
-        case .allowed:
-            action()
-        case .blocked(let message):
-            let noticeID = UUID()
-            documentComposeNoticeID = noticeID
-            TerminalAccessibilityAnnouncer.announce(message)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if documentComposeNoticeID == noticeID {
-                    documentComposeNoticeID = nil
-                }
-            }
         }
     }
 
