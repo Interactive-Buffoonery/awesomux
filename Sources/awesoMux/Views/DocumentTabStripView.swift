@@ -105,7 +105,7 @@ struct DocumentTabStripView: View {
             ))
     }
 
-    private var expandedRevision: LineDiffCount? {
+    private var expandedRevision: LineDiffCount.ExternalEdit? {
         guard !isBrowsingFiles,
             let tab = group.selectedTab,
             let indicator = revisionIndicators.indicator(for: tab),
@@ -196,7 +196,7 @@ extension DocumentTabStripView: Equatable {
 // MARK: - DocumentRevisionPill
 
 private struct DocumentRevisionPill: View {
-    let revision: LineDiffCount
+    let revision: LineDiffCount.ExternalEdit
     let onDismiss: () -> Void
     let onInteractionChanged: (Bool) -> Void
 
@@ -215,10 +215,7 @@ private struct DocumentRevisionPill: View {
     )
 
     private var label: String {
-        LocalizedPluralStrings.documentRevisionIndicator(
-            added: revision.added,
-            removed: revision.removed
-        )
+        revision.displayLabel
     }
 
     var body: some View {
@@ -293,7 +290,7 @@ private struct DocumentTabPill: View {
     let accentSoftColor: Color
     let increasedContrast: Bool
     let taskProgress: TaskProgress?
-    let compactRevision: LineDiffCount?
+    let compactRevision: LineDiffCount.ExternalEdit?
     let onSelect: () -> Void
     let onRevealRevision: () -> Void
     let onClose: () -> Void
@@ -353,11 +350,8 @@ private struct DocumentTabPill: View {
         .help(tab.title)
     }
 
-    private func revisionMarker(_ revision: LineDiffCount) -> some View {
-        let label = LocalizedPluralStrings.documentRevisionIndicator(
-            added: revision.added,
-            removed: revision.removed
-        )
+    private func revisionMarker(_ revision: LineDiffCount.ExternalEdit) -> some View {
+        let label = revision.displayLabel
         return Button(action: onRevealRevision) {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 9, weight: .semibold))

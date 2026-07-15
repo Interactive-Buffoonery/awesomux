@@ -42,6 +42,30 @@ public enum DocumentLoader {
         load(url, effectiveUID: geteuid())
     }
 
+    package static func load(source: String) -> LoadResult {
+        .loaded(MarkdownRenderModelBuilder.build(source), source: source)
+    }
+
+    package static func loadAndRender(
+        load: @Sendable () async -> LoadResult,
+        priorDocument: RenderedDocument?,
+        render: @Sendable (String) async -> RenderedDocument
+    ) async -> (LoadResult, RenderedDocument?)? {
+        guard !Task.isCancelled else { return nil }
+        let result = await load()
+        guard !Task.isCancelled else { return nil }
+        guard case let .loaded(_, source) = result else {
+            return (result, nil)
+        }
+        if let priorDocument, priorDocument.source == source {
+            return (result, priorDocument)
+        }
+        guard !Task.isCancelled else { return nil }
+        let document = await render(source)
+        guard !Task.isCancelled else { return nil }
+        return (result, document)
+    }
+
     /// Reads a document source through the same validation and byte cap as `load(_:)`.
     package static func readSource(
         _ url: URL
@@ -58,7 +82,7 @@ public enum DocumentLoader {
     ) -> LoadResult {
         switch readSource(url, effectiveUID: effectiveUID) {
         case let .source(source):
-            return .loaded(MarkdownRenderModelBuilder.build(source), source: source)
+            return load(source: source)
         case let .failure(result):
             return result
         }

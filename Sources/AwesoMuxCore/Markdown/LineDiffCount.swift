@@ -1,4 +1,9 @@
 public struct LineDiffCount: Equatable, Sendable {
+    public enum ExternalEdit: Equatable, Sendable {
+        case exact(LineDiffCount)
+        case countUnavailable
+    }
+
     public let added: Int
     public let removed: Int
 
@@ -26,23 +31,31 @@ public struct LineDiffCount: Equatable, Sendable {
         return LineDiffCount(added: added, removed: removed)
     }
 
-    /// Inputs past this size skip the indicator: `difference(from:)` is
+    /// Inputs past these limits skip exact counts: `difference(from:)` is
     /// Myers-family (near-quadratic on a full rewrite), so diffing up to the
     /// document loader's 10 MiB cap could still be expensive on every save.
     public static let maxDiffBytes = 2 * 1024 * 1024
+    public static let maxDiffLines = 2_000
 
     public static func forExternalEdit(
         old: String?,
         new: String,
         isSelfWrite: Bool
-    ) -> LineDiffCount? {
+    ) -> ExternalEdit? {
         guard !isSelfWrite, let old, old != new else {
             return nil
         }
         guard old.utf8.count <= maxDiffBytes, new.utf8.count <= maxDiffBytes else {
-            return nil
+            return .countUnavailable
+        }
+        guard hasAtMostMaxDiffLines(old), hasAtMostMaxDiffLines(new) else {
+            return .countUnavailable
         }
         let count = between(old, new)
-        return count.isEmpty ? nil : count
+        return count.isEmpty ? nil : .exact(count)
+    }
+
+    private static func hasAtMostMaxDiffLines(_ source: String) -> Bool {
+        source.isEmpty || source.utf8.lazy.filter { $0 == 0x0A }.prefix(maxDiffLines).count < maxDiffLines
     }
 }

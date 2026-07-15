@@ -74,6 +74,67 @@ struct DocumentFileWatcherTests {
         }
     }
 
+    @Test("delayed recreation fires onChange after successful re-arm")
+    func delayedRecreationFiresAfterRearm() async throws {
+        try await withTempFile { url in
+            let callbackFileStates = FileStateRecorder()
+            let watcher = DocumentFileWatcher(url: url) {
+                callbackFileStates.record(FileManager.default.fileExists(atPath: url.path))
+            }
+            watcher.start()
+            try await Task.sleep(nanoseconds: 50_000_000)
+
+            try "first event".write(to: url, atomically: false, encoding: .utf8)
+            try await Task.sleep(nanoseconds: 30_000_000)
+            try FileManager.default.removeItem(at: url)
+            let missingCallback = await awaitCondition(timeout: 1.0) {
+                callbackFileStates.values.contains(false)
+            }
+            try "recreated".write(to: url, atomically: false, encoding: .utf8)
+            let rearmedCallback = await awaitCondition(timeout: 1.0) {
+                callbackFileStates.values.contains(true)
+            }
+            watcher.stop()
+
+            #expect(missingCallback)
+            #expect(rearmedCallback, "successful delayed re-arm should notify after the unreadable callback")
+        }
+    }
+
+    @Test("delete without recreation notifies after retries are exhausted")
+    func deleteWithoutRecreationNotifiesAfterExhaustion() async throws {
+        try await withTempFile { url in
+            let counter = Counter()
+            let watcher = DocumentFileWatcher(url: url) { counter.increment() }
+            watcher.start()
+            try await Task.sleep(nanoseconds: 50_000_000)
+
+            try FileManager.default.removeItem(at: url)
+            let received = await awaitCondition(timeout: 5.0) { counter.value > 0 }
+            watcher.stop()
+
+            #expect(received, "retry exhaustion should notify so the pane can show its read error")
+            #expect(counter.value == 1)
+        }
+    }
+
+    @Test("start retries an absent file and notifies after creation")
+    func startAbsentNotifiesAfterCreation() async throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "DocumentFileWatcherTests")
+        let url = temporaryDirectory.url.appendingPathComponent("created-later.md")
+        let counter = Counter()
+        let watcher = DocumentFileWatcher(url: url) { counter.increment() }
+
+        watcher.start()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        try "created".write(to: url, atomically: false, encoding: .utf8)
+        let received = await awaitCondition(timeout: 1.0) { counter.value > 0 }
+        watcher.stop()
+
+        #expect(received, "successful initial retry should notify after the file appears")
+        withExtendedLifetime(temporaryDirectory) {}
+    }
+
     /// An in-place (non-atomic) write also fires `onChange`.
     @Test("in-place write fires onChange")
     func inPlaceWriteFiresOnChange() async throws {
@@ -166,4 +227,12 @@ private final class Counter: Sendable {
 
     func increment() { lock.sync { _value += 1 } }
     var value: Int { lock.sync { _value } }
+}
+
+private final class FileStateRecorder: Sendable {
+    private nonisolated(unsafe) var _values: [Bool] = []
+    private let lock = DispatchQueue(label: "awesomux.test.file-state-recorder")
+
+    func record(_ value: Bool) { lock.sync { _values.append(value) } }
+    var values: [Bool] { lock.sync { _values } }
 }
