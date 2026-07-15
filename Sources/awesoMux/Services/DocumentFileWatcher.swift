@@ -86,7 +86,7 @@ final class DocumentFileWatcher {
     ///
     /// If the file is momentarily absent (ENOENT — transient during atomic replace),
     /// schedule a brief retry.
-    private func arm(retryBudget: Int = 20, notifyOnSuccess: Bool = false) {
+    private func arm(retryBudget: Int = 20, notifyOnCompletion: Bool = false) {
         // Bail if stop() fired while a retry was sleeping — otherwise the retry path
         // would re-arm a live source after teardown, leaking the fd/source until deinit.
         guard !stopped else { return }
@@ -99,7 +99,7 @@ final class DocumentFileWatcher {
 
         guard fd != -1 else {
             guard retryBudget > 0 else {
-                if notifyOnSuccess {
+                if notifyOnCompletion {
                     scheduleOnChange()
                 }
                 return
@@ -110,7 +110,7 @@ final class DocumentFileWatcher {
                 try? await Task.sleep(nanoseconds: 10_000_000)  // 10 ms
                 self?.arm(
                     retryBudget: retryBudget - 1,
-                    notifyOnSuccess: true
+                    notifyOnCompletion: true
                 )
             }
             return
@@ -148,7 +148,7 @@ final class DocumentFileWatcher {
 
         newSource.resume()
         source = newSource
-        if notifyOnSuccess {
+        if notifyOnCompletion {
             scheduleOnChange()
         }
     }
@@ -165,7 +165,7 @@ final class DocumentFileWatcher {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 20_000_000)  // 20 ms settle
                 guard let self, !self.stopped else { return }
-                self.arm(notifyOnSuccess: true)
+                self.arm(notifyOnCompletion: true)
             }
         } else {
             scheduleOnChange()
