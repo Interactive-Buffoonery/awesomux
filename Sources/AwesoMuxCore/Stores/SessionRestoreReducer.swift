@@ -273,14 +273,17 @@ struct SessionRestoreReducer: Sendable {
                 executionPlan: executionPlan
             )
         }
+        let normalizedLayout = DocumentGroupMigration.foldingDocumentGroups(
+            in: layoutResult.layout
+        )
         let paneIDCounts = terminalPaneIDCounts(in: session.layout)
         let paneIDRemap = unambiguousPaneIDRemap(
             from: session.layout,
-            to: layoutResult.layout,
+            to: normalizedLayout,
             originalIDCounts: paneIDCounts
         )
         let layout = remappingDocumentTabAssociations(
-            in: layoutResult.layout,
+            in: normalizedLayout,
             paneIDRemap: paneIDRemap
         )
         sanitizationSummary.idReassignments += layoutResult.idReassignments
@@ -515,28 +518,26 @@ struct SessionRestoreReducer: Sendable {
             var restoredPane = transformPane(pane)
             var idReassignments = 0
             if !seenPaneIDs.insert(restoredPane.id).inserted {
-                // Reassign only the id; carry the transformed agent state through.
-                // Rebuilding with id/title/cwd alone silently downgraded an agent
-                // pane to a bare .shell/.idle — the same class of loss the rest of
-                // INT-504 fixed (OpenCode review on PR #231).
+                var freshPaneID = UUID()
+                while !seenPaneIDs.insert(freshPaneID).inserted {
+                    freshPaneID = UUID()
+                }
                 restoredPane = TerminalPane(
-                    id: UUID(),
-                    terminalSessionID: restoredPane.terminalSessionID,
-                    terminalBackendMetadata: restoredPane.terminalBackendMetadata,
+                    id: freshPaneID,
+                    terminalSessionID: generateUniqueTerminalSessionID(
+                        avoiding: &seenTerminalSessionIDs
+                    ),
+                    terminalBackendMetadata: .empty,
                     title: restoredPane.title,
                     isTitleUserEdited: restoredPane.isTitleUserEdited,
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
-                    agentExecutionState: restoredPane.agentExecutionState,
-                    attentionReason: restoredPane.attentionReason,
-                    unreadNotificationCount: restoredPane.unreadNotificationCount,
+                    agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )
-                seenPaneIDs.insert(restoredPane.id)
-                idReassignments += 1
-            }
-            if !seenTerminalSessionIDs.insert(restoredPane.terminalSessionID).inserted {
+                idReassignments += 2
+            } else if !seenTerminalSessionIDs.insert(restoredPane.terminalSessionID).inserted {
                 let terminalSessionID = generateUniqueTerminalSessionID(
                     avoiding: &seenTerminalSessionIDs
                 )

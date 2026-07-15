@@ -220,13 +220,16 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             seenTerminalSessionIDs: &seenTerminalSessionIDs,
             seenPaneIDs: &seenPaneIDs
         )
+        let normalizedLayout = DocumentGroupMigration.foldingDocumentGroups(
+            in: reidentifiedLayout
+        )
         let paneIDRemap = SessionRestoreReducer.unambiguousPaneIDRemap(
             from: entry.layout,
-            to: reidentifiedLayout,
+            to: normalizedLayout,
             originalIDCounts: paneIDCounts
         )
         let restoredLayout = SessionRestoreReducer.remappingDocumentTabAssociations(
-            in: reidentifiedLayout,
+            in: normalizedLayout,
             paneIDRemap: paneIDRemap
         )
         // Prefer the remapped original active pane; fall back to the first

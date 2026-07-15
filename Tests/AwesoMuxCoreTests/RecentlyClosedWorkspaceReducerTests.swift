@@ -231,6 +231,76 @@ struct RecentlyClosedWorkspaceReducerTests {
         #expect(reopened.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == reopenedPane.id)
     }
 
+    @Test("reopen folds current-schema document groups before remapping associations")
+    func reopenNormalizesCurrentSchemaDocumentGroups() throws {
+        let groupID = UUID()
+        let firstPane = TerminalPane(
+            title: "first", workingDirectory: "/first", executionPlan: .local)
+        let secondPane = TerminalPane(
+            title: "second", workingDirectory: "/second", executionPlan: .local)
+        let firstDocument = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/reopen-first.md"),
+            title: "reopen-first.md",
+            associatedTerminalPaneID: firstPane.id
+        )
+        let secondDocument = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/reopen-second.md"),
+            title: "reopen-second.md",
+            associatedTerminalPaneID: secondPane.id
+        )
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .horizontal,
+                first: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(firstPane),
+                        second: .documentGroup(
+                            DocumentGroup(
+                                tabs: [firstDocument], selectedTabID: firstDocument.id))
+                    )),
+                second: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(secondPane),
+                        second: .documentGroup(
+                            DocumentGroup(
+                                tabs: [secondDocument], selectedTabID: secondDocument.id))
+                    ))
+            ))
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(),
+            title: "corrupt",
+            isTitleUserEdited: false,
+            agentKind: .shell,
+            layout: layout,
+            activePaneID: firstPane.id,
+            groupID: groupID,
+            groupName: "main",
+            groupRemote: nil,
+            indexInGroup: 0,
+            closedAt: Date(timeIntervalSince1970: 10)
+        )
+        var groups = [SessionGroup(id: groupID, name: "main", sessions: [])]
+        var recentlyClosed = [entry]
+        var transient: RecentlyClosedWorkspace?
+
+        _ = try #require(
+            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+                in: &groups,
+                recentlyClosed: &recentlyClosed,
+                lastClosedTransient: &transient,
+                now: Date(timeIntervalSince1970: 11)
+            ))
+        let reopened = try #require(groups.first?.sessions.first)
+        let group = try #require(reopened.layout.firstDocumentGroup)
+
+        #expect(group.tabs.map(\.title) == [firstDocument.title, secondDocument.title])
+        #expect(group.selectedTabID == group.tabs.first?.id)
+        #expect(group.tabs.map(\.associatedTerminalPaneID) == [firstPane.id, secondPane.id])
+        #expect(reopened.layout.paneIDs == [firstPane.id, secondPane.id])
+    }
+
     @Test("reopen preserves terminalSessionID + backend metadata so the daemon reattaches (INT-578)")
     func reopenPreservesTerminalSessionIDForDaemonReattach() throws {
         let groupID = UUID()
