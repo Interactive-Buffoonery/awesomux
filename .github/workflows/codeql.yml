@@ -56,12 +56,21 @@ jobs:
         id: ghostty-pin
         run: echo "sha=$(git rev-parse HEAD:vendor/ghostty)" >> "$GITHUB_OUTPUT"
 
+      - name: Read Xcode version
+        id: xcode
+        run: |
+          VERSION_STRING="$(xcodebuild -version)"
+          XC_VERSION="$(awk '/^Xcode /{print $2}' <<<"$VERSION_STRING")"
+          XC_BUILD="$(awk '/^Build version/{print $3}' <<<"$VERSION_STRING")"
+          XC_TOKEN="$(printf 'Xcode_%s-%s' "$XC_VERSION" "$XC_BUILD" | tr -c 'A-Za-z0-9_.-' '_')"
+          echo "xcode_id=$XC_TOKEN" >> "$GITHUB_OUTPUT"
+
       - name: Restore cached Ghostty artifacts
         id: ghostty-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .build/ghostty
-          key: codeql-ghostty-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.sha }}-${{ hashFiles('.swift-version') }}
+          key: codeql-ghostty-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.sha }}-${{ hashFiles('.swift-version') }}-${{ steps.xcode.outputs.xcode_id }}
 
       - name: Install Ghostty build tools
         if: steps.ghostty-cache.outputs.cache-hit != 'true'
