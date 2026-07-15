@@ -21,6 +21,28 @@ public enum MarkdownDocumentCommitResult: Equatable, Sendable {
     case failed(MarkdownDocumentCommitFailure)
 }
 
+public struct MarkdownDocumentSnapshot: Equatable, Sendable {
+    public let resolvedURL: URL
+    public let identity: SecureFileIdentity
+    public let data: Data
+
+    public init(resolvedURL: URL, identity: SecureFileIdentity, data: Data) {
+        self.resolvedURL = resolvedURL
+        self.identity = identity
+        self.data = data
+    }
+
+    public init(contents: SecureFileContents) {
+        resolvedURL = contents.resolvedURL
+        identity = contents.identity
+        data = contents.data
+    }
+
+    public var source: String? {
+        String(data: data, encoding: .utf8)
+    }
+}
+
 public enum MarkdownDocumentCommitter {
     /// Refuses any source or target change observed before the coordinated
     /// atomic replacement. `NSFileCoordinator` serializes participating
@@ -28,12 +50,12 @@ public enum MarkdownDocumentCommitter {
     /// final read, so this is deliberately not presented as filesystem CAS.
     public static func commitObserved(
         at inputURL: URL,
-        renderedSource: String,
+        observed: MarkdownDocumentSnapshot,
         transform: (String) -> String?
     ) -> MarkdownDocumentCommitResult {
         commitObserved(
             at: inputURL,
-            renderedSource: renderedSource,
+            observed: observed,
             transform: transform,
             beforeRecheck: {}
         )
@@ -43,10 +65,8 @@ public enum MarkdownDocumentCommitter {
         at inputURL: URL,
         renderedSource: String,
         transform: (String) -> String?,
-        beforeRecheck: @escaping () throws -> Void,
-        write: @escaping (Data, URL) throws -> Void = { data, url in
-            try data.write(to: url, options: .atomic)
-        },
+        beforeRecheck: @escaping () throws -> Void = {},
+        write: @escaping (Data, URL) throws -> Void = replacePreservingMetadata,
         coordinate: (URL, @escaping (URL) -> Void) -> NSError? = { url, accessor in
             var error: NSError?
             NSFileCoordinator().coordinate(
@@ -58,9 +78,38 @@ public enum MarkdownDocumentCommitter {
             return error
         }
     ) -> MarkdownDocumentCommitResult {
-        guard let original = readSource(at: inputURL) else { return .unreadable }
-        guard original.source == renderedSource else { return .observedConflict }
-        guard let updatedSource = transform(original.source) else { return .invalidEdit }
+        guard let contents = readBytes(at: inputURL) else { return .unreadable }
+        let observed = MarkdownDocumentSnapshot(contents: contents)
+        guard observed.data == Data(renderedSource.utf8) else { return .observedConflict }
+        return commitObserved(
+            at: inputURL,
+            observed: observed,
+            transform: transform,
+            beforeRecheck: beforeRecheck,
+            write: write,
+            coordinate: coordinate
+        )
+    }
+
+    static func commitObserved(
+        at inputURL: URL,
+        observed: MarkdownDocumentSnapshot,
+        transform: (String) -> String?,
+        beforeRecheck: @escaping () throws -> Void,
+        write: @escaping (Data, URL) throws -> Void = replacePreservingMetadata,
+        coordinate: (URL, @escaping (URL) -> Void) -> NSError? = { url, accessor in
+            var error: NSError?
+            NSFileCoordinator().coordinate(
+                writingItemAt: url,
+                options: .forReplacing,
+                error: &error,
+                byAccessor: accessor
+            )
+            return error
+        }
+    ) -> MarkdownDocumentCommitResult {
+        guard let source = observed.source else { return .unreadable }
+        guard let updatedSource = transform(source) else { return .invalidEdit }
 
         let output = Data(updatedSource.utf8)
         guard output.count <= DocumentURLValidator.maxFileSizeBytes else {
@@ -68,15 +117,15 @@ public enum MarkdownDocumentCommitter {
         }
 
         var result: MarkdownDocumentCommitResult?
-        let coordinationError = coordinate(original.contents.resolvedURL) { coordinatedURL in
+        let coordinationError = coordinate(observed.resolvedURL) { coordinatedURL in
             do {
                 try beforeRecheck()
-                guard coordinatedURL.standardizedFileURL == original.contents.resolvedURL.standardizedFileURL,
+                guard coordinatedURL.standardizedFileURL == observed.resolvedURL.standardizedFileURL,
                     let current = readBytes(at: inputURL),
                     current.resolvedURL.standardizedFileURL
-                        == original.contents.resolvedURL.standardizedFileURL,
-                    current.identity == original.contents.identity,
-                    current.data == original.contents.data
+                        == observed.resolvedURL.standardizedFileURL,
+                    current.identity == observed.identity,
+                    current.data == observed.data
                 else {
                     result = .observedConflict
                     return
@@ -96,18 +145,6 @@ public enum MarkdownDocumentCommitter {
             ))
     }
 
-    private struct SourceContents {
-        let contents: SecureFileContents
-        let source: String
-    }
-
-    private static func readSource(at url: URL) -> SourceContents? {
-        guard let contents = readBytes(at: url),
-            let source = String(data: contents.data, encoding: .utf8)
-        else { return nil }
-        return SourceContents(contents: contents, source: source)
-    }
-
     private static func readBytes(at url: URL) -> SecureFileContents? {
         do {
             let contents = try SecureFileReader.read(
@@ -124,5 +161,13 @@ public enum MarkdownDocumentCommitter {
         } catch {
             return nil
         }
+    }
+
+    private static func replacePreservingMetadata(_ data: Data, at url: URL) throws {
+        let temporaryURL = url.deletingLastPathComponent()
+            .appending(path: ".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        try data.write(to: temporaryURL, options: .withoutOverwriting)
+        _ = try FileManager.default.replaceItemAt(url, withItemAt: temporaryURL)
     }
 }
