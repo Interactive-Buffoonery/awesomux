@@ -339,17 +339,6 @@ final class CommandBridgeEnactor {
         return true
     }
 
-    /// Consumed from `handleCommandFinished`: the shell wrapper's `stop_command`
-    /// fires immediately before close and carries the exit code. Returns `true`
-    /// when this is a bridge pane and supervision took over.
-    func handleCommandFinished(exitCode: Int16) -> Bool {
-        guard sessionID != nil else {
-            return false
-        }
-        beginExitSupervision(exitCode: exitCode)
-        return true
-    }
-
     // MARK: - Ingress: status feed
 
     /// Mint and arm the status watcher for a freshly-built bridge attach.
