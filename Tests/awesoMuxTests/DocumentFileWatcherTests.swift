@@ -101,6 +101,23 @@ struct DocumentFileWatcherTests {
         }
     }
 
+    @Test("start retries an absent file and notifies after creation")
+    func startAbsentNotifiesAfterCreation() async throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "DocumentFileWatcherTests")
+        let url = temporaryDirectory.url.appendingPathComponent("created-later.md")
+        let counter = Counter()
+        let watcher = DocumentFileWatcher(url: url) { counter.increment() }
+
+        watcher.start()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        try "created".write(to: url, atomically: false, encoding: .utf8)
+        let received = await awaitCondition(timeout: 1.0) { counter.value > 0 }
+        watcher.stop()
+
+        #expect(received, "successful initial retry should notify after the file appears")
+        withExtendedLifetime(temporaryDirectory) {}
+    }
+
     /// An in-place (non-atomic) write also fires `onChange`.
     @Test("in-place write fires onChange")
     func inPlaceWriteFiresOnChange() async throws {
