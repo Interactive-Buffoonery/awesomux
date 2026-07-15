@@ -12,7 +12,21 @@ import Foundation
 /// in practice only the agent-hook path ever sees `true`.
 @MainActor
 public enum DocumentComposeGuard {
+    public enum TabActionDecision: Equatable, Sendable {
+        case allowed
+        case blocked(String)
+    }
+
+    public static let tabActionBlockedMessage = String(
+        localized: "Finish or cancel the annotation before switching or closing document tabs.",
+        comment: "Feedback when a document tab shortcut is blocked by an open annotation draft"
+    )
+
     /// Registered at app startup by the view layer. Defaults to "not composing"
     /// so headless/test stores never defer selection.
     public static var isComposing: () -> Bool = { false }
+
+    public static func tabActionDecision() -> TabActionDecision {
+        isComposing() ? .blocked(tabActionBlockedMessage) : .allowed
+    }
 }

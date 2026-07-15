@@ -74,6 +74,8 @@ struct FullCommentPopover: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
                     .help(isResolved ? "Reopen" : "Mark resolved")
                     .accessibilityLabel(isResolved ? "Reopen annotation" : "Mark annotation resolved")
 
@@ -86,6 +88,8 @@ struct FullCommentPopover: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
                     .accessibilityLabel("Edit annotation")
 
                     Button(role: .destructive, action: onDelete) {
@@ -94,6 +98,8 @@ struct FullCommentPopover: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
                     .accessibilityLabel("Delete annotation")
                 }
             }
@@ -204,6 +210,8 @@ struct FullCommentPopover: View {
                             .font(.system(size: 13))
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
                     .foregroundStyle(Color.aw.mauve)
                     .disabled(replyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
                     .help("Send reply")
