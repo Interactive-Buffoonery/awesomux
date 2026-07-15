@@ -442,6 +442,16 @@ private struct SendToAgentButton: NSViewRepresentable {
 ///
 /// Error states are shown inline; the pane never crashes on bad input.
 struct DocumentPaneView: View {
+    private struct ReloadTaskID: Equatable {
+        let fileURL: URL
+        let generation: Int
+    }
+
+    private struct ReloadSource {
+        let generation: Int
+        let source: String
+    }
+
     /// The most recently shown comment popover, read by `DocumentComposeGuard`
     /// so agent-driven opens don't steal the selection out from under a typed
     /// draft (INT-748). Weak + single slot: only the selected tab's view is
@@ -462,9 +472,9 @@ struct DocumentPaneView: View {
     /// association (INT-748 PR2). When nil, document links fall back to the
     /// static `GhosttyRuntime.openDocumentHandler` path.
     var onOpenDocumentLink: ((URL) -> Void)?
-    /// Reports count-only external file edits so the parent chrome can surface
-    /// a transient plan-revised indicator without tying UI state to reload logic.
-    var onRevision: (LineDiffCount) -> Void = { _ in }
+    /// Reports external file edits so the parent chrome can surface a transient
+    /// plan-revised indicator without tying UI state to reload logic.
+    var onRevision: (LineDiffCount.ExternalEdit) -> Void = { _ in }
     /// Surfaces the coordinator's scroll-anchor capture to the group view so it
     /// can snapshot the outgoing tab's position on a tab switch (INT-748 PR2).
     var onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)?
@@ -485,6 +495,7 @@ struct DocumentPaneView: View {
     @State private var documentNoteSheetDoc: RenderedDocument? = nil
     @State private var lastSelfWrittenSource: String? = nil
     @State private var reloadGeneration: Int = 0
+    @State private var reloadSource: ReloadSource? = nil
 
     // Bigfoot: driven by NSPopover directly so we can anchor to a pill rect.
     @State private var nsPopover: NSPopover? = nil
@@ -514,7 +525,7 @@ struct DocumentPaneView: View {
         onCommentCountChanged: @escaping (Int) -> Void = { _ in },
         onRenderCompleted: ((DocumentTabMemory.Render) -> Void)? = nil,
         onOpenDocumentLink: ((URL) -> Void)? = nil,
-        onRevision: @escaping (LineDiffCount) -> Void = { _ in },
+        onRevision: @escaping (LineDiffCount.ExternalEdit) -> Void = { _ in },
         onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil
     ) {
         self.pane = pane
@@ -539,6 +550,12 @@ struct DocumentPaneView: View {
     }
 
     var body: some View {
+        let reloadTaskID = ReloadTaskID(
+            fileURL: pane.fileURL,
+            generation: reloadGeneration
+        )
+        let capturedReloadSource = reloadSource
+
         Group {
             if let result = loadResult {
                 switch result {
@@ -574,7 +591,13 @@ struct DocumentPaneView: View {
             nsPopover?.close()
             nsPopover = nil
         }
-        .task(id: "\(pane.fileURL.absoluteString)-\(reloadGeneration)") {
+        .task(id: reloadTaskID) {
+            let source = capturedReloadSource.flatMap {
+                $0.generation == reloadTaskID.generation ? $0.source : nil
+            }
+            if reloadSource?.generation == reloadTaskID.generation {
+                reloadSource = nil
+            }
             // Reuse the current document when the on-disk source is unchanged:
             // the build is a pure function of the source, so a remount seeded
             // from the tab cache (or a watcher wobble) skips the whole
@@ -582,7 +605,9 @@ struct DocumentPaneView: View {
             let priorDoc = renderedDoc
             let (result, doc): (DocumentLoader.LoadResult, RenderedDocument?) =
                 await Task.detached(priority: .userInitiated) {
-                    let result = DocumentLoader.load(pane.fileURL)
+                    let result =
+                        source.map { DocumentLoader.load(source: $0) }
+                        ?? DocumentLoader.load(reloadTaskID.fileURL)
                     if case let .loaded(_, source) = result {
                         if let priorDoc, priorDoc.source == source {
                             return (result, priorDoc)
@@ -592,7 +617,10 @@ struct DocumentPaneView: View {
                     return (result, nil)
                 }.value
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                reloadTaskID.fileURL == pane.fileURL,
+                reloadTaskID.generation == reloadGeneration
+            else { return }
             renderedDoc = doc
             loadResult = result
             // Report only when the content actually changed (source compare is
@@ -1224,8 +1252,12 @@ struct DocumentPaneView: View {
     /// flash the spinner and lose scroll position on every watcher reload. The load
     /// task reassigns both unconditionally when it completes. Each caller sets
     /// `pendingScrollAnchor` first (watcher → captured offset; reset paths → nil).
-    private func triggerReload() {
-        reloadGeneration += 1
+    private func triggerReload(source: String? = nil) {
+        let generation = reloadGeneration + 1
+        reloadSource = source.map {
+            ReloadSource(generation: generation, source: $0)
+        }
+        reloadGeneration = generation
     }
 
     // MARK: - Watcher (Task 7)
@@ -1275,7 +1307,7 @@ struct DocumentPaneView: View {
                 // source when a self-write and an external edit coalesced.
                 let old = selfWrite?.source ?? renderedDoc?.source
                 pendingScrollAnchor = anchor
-                triggerReload()
+                triggerReload(source: onDisk)
                 return (old, selfWrite?.isSelfWrite ?? false)
             }
 

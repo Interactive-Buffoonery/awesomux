@@ -4,10 +4,22 @@ import Testing
 @testable import awesoMux
 
 @Suite struct DocumentRevisionIndicatorStateTests {
+    @Test func countUnavailableRevisionStaysVisibleAndAnnounceable() {
+        var state = DocumentRevisionIndicatorState()
+        let tab = makeTab(path: "/tmp/plan.md")
+        let revision = LineDiffCount.ExternalEdit.countUnavailable
+
+        state.record(revision, for: tab)
+
+        #expect(state.indicator(for: tab)?.revision == revision)
+        #expect(revision.displayLabel == "Document revised")
+        #expect(revision.accessibilityAnnouncement(documentTitle: tab.title) == "plan.md: Document revised")
+    }
+
     @Test func recordingARevisionExpandsItsRecoverableCounts() {
         var state = DocumentRevisionIndicatorState()
         let tab = makeTab(path: "/tmp/plan.md")
-        let revision = LineDiffCount(added: 3, removed: 1)
+        let revision = LineDiffCount.ExternalEdit.exact(LineDiffCount(added: 3, removed: 1))
 
         state.record(revision, for: tab)
 
@@ -18,7 +30,7 @@ import Testing
     @Test func compactIndicatorCanRevealCountsAgainOrBeDismissed() throws {
         var state = DocumentRevisionIndicatorState()
         let tab = makeTab(path: "/tmp/plan.md")
-        let revision = LineDiffCount(added: 2, removed: 4)
+        let revision = LineDiffCount.ExternalEdit.exact(LineDiffCount(added: 2, removed: 4))
         state.record(revision, for: tab)
         let generation = try #require(state.indicator(for: tab)?.generation)
         state.recordActiveViewingTime(.seconds(9), for: tab, generation: generation)
@@ -40,9 +52,9 @@ import Testing
         let kept = makeTab(path: "/tmp/kept.md")
         let closed = makeTab(path: "/tmp/closed.md")
         let replacedOriginal = makeTab(path: "/tmp/old.md")
-        state.record(LineDiffCount(added: 1, removed: 0), for: kept)
-        state.record(LineDiffCount(added: 2, removed: 0), for: closed)
-        state.record(LineDiffCount(added: 3, removed: 0), for: replacedOriginal)
+        state.record(.exact(LineDiffCount(added: 1, removed: 0)), for: kept)
+        state.record(.exact(LineDiffCount(added: 2, removed: 0)), for: closed)
+        state.record(.exact(LineDiffCount(added: 3, removed: 0)), for: replacedOriginal)
 
         var replaced = replacedOriginal
         replaced.fileURL = URL(fileURLWithPath: "/tmp/new.md")
@@ -56,7 +68,7 @@ import Testing
     @Test func everyRevisionGetsAFreshGenerationEvenWhenCountsMatch() {
         var state = DocumentRevisionIndicatorState()
         let tab = makeTab(path: "/tmp/plan.md")
-        let revision = LineDiffCount(added: 1, removed: 1)
+        let revision = LineDiffCount.ExternalEdit.exact(LineDiffCount(added: 1, removed: 1))
         state.record(revision, for: tab)
         let firstGeneration = state.indicator(for: tab)?.generation
 
@@ -69,7 +81,7 @@ import Testing
     @Test func activeViewingTimePausesAndResetsForANewGeneration() throws {
         var state = DocumentRevisionIndicatorState()
         let tab = makeTab(path: "/tmp/plan.md")
-        let revision = LineDiffCount(added: 1, removed: 1)
+        let revision = LineDiffCount.ExternalEdit.exact(LineDiffCount(added: 1, removed: 1))
         state.record(revision, for: tab)
         let firstGeneration = try #require(state.indicator(for: tab)?.generation)
 
