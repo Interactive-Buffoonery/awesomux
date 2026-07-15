@@ -4,14 +4,36 @@ import Testing
 
 @Suite("SessionRestoreReducer")
 struct SessionRestoreReducerTests {
-    @Test("a duplicate pane id is reassigned without dropping the transformed agent state")
-    func duplicatePaneIDPreservesAgentState() {
-        let collidingID = UUID()
+    @Test("a reminted duplicate pane id also gets a fresh daemon and runtime state")
+    func duplicatePaneIDResetsDaemonAndRuntimeState() throws {
+        let duplicateID = UUID()
+        let firstTerminalSessionID = TerminalSessionID(rawValue: "first-distinct-daemon")!
+        let secondTerminalSessionID = TerminalSessionID(rawValue: "second-distinct-daemon")!
         var seenSplits: Set<TerminalSplit.ID> = []
-        var seenPanes: Set<TerminalPane.ID> = [collidingID] // pre-seed so this pane collides
+        var seenPanes: Set<TerminalPane.ID> = []
         var seenTerminalSessionIDs: Set<TerminalSessionID> = []
-        let layout = TerminalPaneLayout.pane(
-            TerminalPane(id: collidingID, title: "agent", workingDirectory: "/tmp", executionPlan: .local)
+        let first = TerminalPane(
+            id: duplicateID,
+            terminalSessionID: firstTerminalSessionID,
+            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "first-backend"),
+            title: "first",
+            workingDirectory: "/first",
+            executionPlan: .local
+        )
+        let second = TerminalPane(
+            id: duplicateID,
+            terminalSessionID: secondTerminalSessionID,
+            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "second-backend"),
+            title: "second",
+            workingDirectory: "/second",
+            executionPlan: .local
+        )
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .horizontal,
+                first: .pane(first),
+                second: .pane(second)
+            )
         )
 
         let result = SessionRestoreReducer.restoredLayout(
@@ -22,25 +44,33 @@ struct SessionRestoreReducerTests {
             transformPane: { pane in
                 var transformed = pane
                 transformed.agentKind = .codex
-                transformed.agentExecutionState = .running
+                transformed.agentExecutionState = .waiting
                 transformed.attentionReason = .userInputRequired
                 transformed.unreadNotificationCount = 3
                 return transformed
             }
         )
 
-        guard case let .pane(restored) = result.layout else {
-            Issue.record("expected a single pane")
-            return
-        }
-        #expect(restored.id != collidingID)        // reassigned a fresh id
-        #expect(result.idReassignments == 1)
-        // The reassigned pane must keep the transformed agent state, not
-        // silently downgrade to a bare .shell/.idle (the bug this guards).
-        #expect(restored.agentKind == .codex)
-        #expect(restored.agentExecutionState == .running)
-        #expect(restored.attentionReason == .userInputRequired)
-        #expect(restored.unreadNotificationCount == 3)
+        var panes: [TerminalPane] = []
+        result.layout.forEachPane { panes.append($0) }
+        let restoredFirst = try #require(panes.first)
+        let restoredSecond = try #require(panes.last)
+
+        #expect(restoredFirst.id == duplicateID)
+        #expect(restoredFirst.terminalSessionID == firstTerminalSessionID)
+        #expect(restoredFirst.terminalBackendMetadata == first.terminalBackendMetadata)
+        #expect(restoredFirst.agentExecutionState == .waiting)
+        #expect(restoredFirst.attentionReason == .userInputRequired)
+        #expect(restoredFirst.unreadNotificationCount == 3)
+
+        #expect(restoredSecond.id != duplicateID)
+        #expect(restoredSecond.terminalSessionID != secondTerminalSessionID)
+        #expect(restoredSecond.terminalBackendMetadata == .empty)
+        #expect(result.idReassignments == 2)
+        #expect(restoredSecond.agentKind == .codex)
+        #expect(restoredSecond.agentExecutionState == .idle)
+        #expect(restoredSecond.attentionReason == nil)
+        #expect(restoredSecond.unreadNotificationCount == 0)
     }
 
     @Test("restore clears document and active references to a duplicated pane id")
@@ -158,6 +188,63 @@ struct SessionRestoreReducerTests {
 
         #expect(restoredSession.activePaneID == pane.id)
         #expect(restoredSession.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == pane.id)
+    }
+
+    @Test("restore folds current-schema document groups before remapping associations")
+    func restoreNormalizesCurrentSchemaDocumentGroups() throws {
+        let firstPane = TerminalPane(
+            title: "first", workingDirectory: "/first", executionPlan: .local)
+        let secondPane = TerminalPane(
+            title: "second", workingDirectory: "/second", executionPlan: .local)
+        let firstDocument = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/first.md"),
+            title: "first.md",
+            associatedTerminalPaneID: firstPane.id
+        )
+        let secondDocument = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/second.md"),
+            title: "second.md",
+            associatedTerminalPaneID: secondPane.id
+        )
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .horizontal,
+                first: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(firstPane),
+                        second: .documentGroup(
+                            DocumentGroup(
+                                tabs: [firstDocument], selectedTabID: firstDocument.id))
+                    )),
+                second: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(secondPane),
+                        second: .documentGroup(
+                            DocumentGroup(
+                                tabs: [secondDocument], selectedTabID: secondDocument.id))
+                    ))
+            ))
+        let session = TerminalSession(
+            title: "corrupt",
+            workingDirectory: "/first",
+            layout: layout,
+            activePaneID: firstPane.id
+        )
+
+        let restored = SessionRestoreReducer.restoredComponents(
+            from: SessionSnapshot(
+                groups: [SessionGroup(name: "main", sessions: [session])],
+                selectedSessionID: session.id
+            ))
+        let restoredSession = try #require(restored.groups.first?.sessions.first)
+        let group = try #require(restoredSession.layout.firstDocumentGroup)
+
+        #expect(group.tabs.map(\.id) == [firstDocument.id, secondDocument.id])
+        #expect(group.selectedTabID == firstDocument.id)
+        #expect(group.tabs.map(\.associatedTerminalPaneID) == [firstPane.id, secondPane.id])
+        #expect(restoredSession.layout.paneIDs == [firstPane.id, secondPane.id])
     }
 
     @Test("restoredAgentExecutionState maps every case")

@@ -32,7 +32,7 @@ public enum DocumentGroupMigration {
     ) -> TerminalPaneLayout {
         var groups: [DocumentGroup] = []
         appendDocumentGroups(in: layout, into: &groups)
-        guard let primary = groups.first else {
+        guard !groups.isEmpty else {
             return layout
         }
 
@@ -51,7 +51,28 @@ public enum DocumentGroupMigration {
             return group
         }
 
-        let mergedTabs = backfilled.flatMap(\.tabs)
+        var backfilledLayout = layout
+        for group in backfilled {
+            backfilledLayout =
+                backfilledLayout.replacingDocumentGroup(id: group.id, with: group)
+                ?? backfilledLayout
+        }
+        return foldingDocumentGroups(in: backfilledLayout)
+    }
+
+    /// Folds corrupt layouts with multiple groups without inferring legacy
+    /// terminal associations. The first group keeps its position and later
+    /// tabs append in tree order.
+    public static func foldingDocumentGroups(
+        in layout: TerminalPaneLayout
+    ) -> TerminalPaneLayout {
+        var groups: [DocumentGroup] = []
+        appendDocumentGroups(in: layout, into: &groups)
+        guard let primary = groups.first, groups.count > 1 else {
+            return layout
+        }
+
+        let mergedTabs = groups.flatMap(\.tabs)
         let merged = DocumentGroup(
             id: primary.id,
             tabs: mergedTabs,
@@ -61,7 +82,7 @@ public enum DocumentGroupMigration {
         // Collapse the later groups' leaves first, then swap the merged group
         // into the primary position.
         var result = layout
-        for group in backfilled.dropFirst() {
+        for group in groups.dropFirst() {
             result = result.removingDocumentGroup(id: group.id) ?? result
         }
         return result.replacingDocumentGroup(id: primary.id, with: merged) ?? result
