@@ -327,16 +327,13 @@ extension GhosttySurfaceNSView {
     }
 
     func handleCommandFinished(exitCode: Int16) {
-        // Cache the exit code for `closeAfterProcessExit` to consult — the
-        // libghostty close callback doesn't carry it, but for the shell
-        // wrapper's `stop_command` this fires immediately before close.
+        // Cache the exit code for `closeAfterProcessExit` to consult. This event
+        // fires after every shell command, so process-exit supervision must wait
+        // for libghostty's separate close callback.
         commandExitCache.record(
             exitCode: exitCode,
             at: Date().timeIntervalSinceReferenceDate
         )
-        if commandBridgeEnactor.handleCommandFinished(exitCode: exitCode) {
-            return
-        }
 
         let isShellSession = session.layout.pane(id: paneID)?.agentKind == .shell
         if isShellSession {

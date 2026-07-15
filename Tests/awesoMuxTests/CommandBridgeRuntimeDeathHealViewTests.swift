@@ -253,8 +253,32 @@ struct CommandBridgeRuntimeDeathHealViewTests {
         #expect(preservedPane.attentionReason == .permissionPrompt)
     }
 
-    @Test("command_finished before session-end drain closes instead of respawning")
-    func commandFinishedBeforeSessionEndDrainClosesInsteadOfRespawning() throws {
+    @Test("ordinary command completion keeps the bridge surface mounted")
+    func ordinaryCommandCompletionKeepsBridgeSurfaceMounted() throws {
+        let fixture = try makeSplitFixture()
+        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
+        let view = runtime.surfaceView(
+            sessionStore: fixture.store,
+            session: fixture.session,
+            pane: fixture.deadPane,
+            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
+        )
+        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.deadSessionID))
+        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+
+        view.commandBridgeSessionID = fixture.deadSessionID
+        view.beginCommandBridgeStatusWatch(channel: channel)
+        #expect(view.commandBridgeStatusWatcher?.isArmed == true)
+
+        view.handleCommandFinished(exitCode: 0)
+
+        #expect(runtime.cachedSurfaceView(for: fixture.deadPane.id) === view)
+        #expect(!view.ignoresProcessExitAfterCommandBridgeHeal)
+        #expect(fixture.store.session(id: fixture.session.id)?.layout == fixture.layout)
+    }
+
+    @Test("process exit after session-end drain closes instead of respawning")
+    func processExitAfterSessionEndDrainClosesInsteadOfRespawning() throws {
         let fixture = try makeSplitFixture()
         let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
         let view = runtime.surfaceView(
@@ -276,6 +300,11 @@ struct CommandBridgeRuntimeDeathHealViewTests {
         )
 
         view.handleCommandFinished(exitCode: 0)
+
+        #expect(runtime.cachedSurfaceView(for: fixture.deadPane.id) === view)
+        #expect(fixture.store.session(id: fixture.session.id)?.layout == fixture.layout)
+
+        view.closeAfterProcessExit(processAlive: false)
 
         let healedSession = try #require(fixture.store.session(id: fixture.session.id))
         #expect(healedSession.layout.pane(id: fixture.deadPane.id) == nil)
