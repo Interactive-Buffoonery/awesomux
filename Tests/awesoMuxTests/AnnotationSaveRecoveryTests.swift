@@ -171,6 +171,23 @@ struct AnnotationSaveRecoveryTests {
         )
     }
 
+    @Test("document-note retry requires a current rendered document")
+    func requiresCurrentDocumentOnRetry() throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-document-note-retry")
+        let file = directory.url.appending(path: "plan.md")
+        try Data("# Opening\n".utf8).write(to: file)
+        let openedSnapshot = try snapshot(at: file)
+        try Data("# External edit\n".utf8).write(to: file)
+
+        #expect(
+            AnnotationSaveRecovery.snapshotForNewDocumentNote(
+                openedSnapshot: openedSnapshot,
+                currentSnapshot: try snapshot(at: file),
+                currentDocument: nil
+            ) == nil
+        )
+    }
+
     @Test("submission lifecycle prevents transient dismissal")
     func submissionLifecycleBehavior() {
         #expect(AnnotationPopoverLifecycle.behavior(isSubmitting: true) == .applicationDefined)

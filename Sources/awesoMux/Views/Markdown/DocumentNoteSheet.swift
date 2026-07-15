@@ -58,7 +58,7 @@ struct DocumentNoteSheet: View {
         .frame(width: 620)
         .disabled(submission.isInFlight)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Document note")
+        .accessibilityLabel(String(localized: "Document note", comment: "Accessibility label for the document note sheet"))
         .onAppear { presentationID = UUID() }
         .onDisappear { presentationID = nil }
     }
@@ -231,8 +231,11 @@ struct DocumentNoteSheet: View {
                 .font(.system(size: 11))
                 .foregroundStyle(Color.aw.text2)
             if outcome == .copyOnly, recoveryDraft != nil {
-                Button("Copy Draft", action: copyDraft)
-                    .buttonStyle(.bordered)
+                Button(
+                    String(localized: "Copy Draft", comment: "Button to copy a document note draft after a save conflict"),
+                    action: copyDraft
+                )
+                .buttonStyle(.bordered)
             }
         }
         .padding(16)
@@ -241,17 +244,23 @@ struct DocumentNoteSheet: View {
     private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
         switch outcome {
         case .reloadAndRetry:
-            "The document changed and has reloaded. Try the action again."
+            String(
+                localized: "The document changed and has reloaded. Try the action again.",
+                comment: "Document note recovery message after reloading a changed document")
         case .copyOnly:
             if recoveryDraft == nil {
-                "The document note changed or was removed."
+                String(
+                    localized: "The document note changed or was removed.",
+                    comment: "Document note recovery message when no draft can be recovered")
             } else {
-                "The document note changed or was removed. Copy your draft before closing."
+                String(
+                    localized: "The document note changed or was removed. Copy your draft before closing.",
+                    comment: "Document note recovery message when a draft can be copied")
             }
         case .copyAndReselect:
-            "Copy the draft before closing."
+            String(localized: "Copy the draft before closing.", comment: "Document note recovery message when only copying is safe")
         case .failed:
-            "The change was not saved."
+            String(localized: "The change was not saved.", comment: "Document note save failure message")
         case .saved:
             ""
         }
@@ -301,11 +310,11 @@ private struct MultilineDocumentNoteEditor: View {
             }
 
             HStack {
-                Text("Return inserts a new line · ⌘Return submits")
+                Text(String(localized: "Return inserts a new line · ⌘Return submits", comment: "Document note editor keyboard help"))
                     .font(.system(size: 10))
                     .foregroundStyle(Color.aw.text3)
                 Spacer()
-                Button("Cancel", action: onCancel)
+                Button(String(localized: "Cancel", comment: "Button to cancel editing a document note"), action: onCancel)
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.aw.text2)
                     .keyboardShortcut(.cancelAction)
@@ -326,8 +335,11 @@ private struct MultilineDocumentNoteEditor: View {
                         .font(.system(size: 11))
                         .foregroundStyle(Color.aw.text2)
                     if recovery == .copyOnly, hasRecoveryDraft {
-                        Button("Copy Draft", action: onCopyDraft)
-                            .buttonStyle(.bordered)
+                        Button(
+                            String(localized: "Copy Draft", comment: "Button to copy a document note editor draft after a save conflict"),
+                            action: onCopyDraft
+                        )
+                        .buttonStyle(.bordered)
                     }
                 }
             }
@@ -339,17 +351,23 @@ private struct MultilineDocumentNoteEditor: View {
     private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
         switch outcome {
         case .reloadAndRetry:
-            "The document changed and has reloaded. Save again to retry."
+            String(
+                localized: "The document changed and has reloaded. Save again to retry.",
+                comment: "Document note editor recovery message after reloading a changed document")
         case .copyOnly:
             if hasRecoveryDraft {
-                "The document note changed or was removed. Copy your draft before closing."
+                String(
+                    localized: "The document note changed or was removed. Copy your draft before closing.",
+                    comment: "Document note editor recovery message when a draft can be copied")
             } else {
-                "The document note changed or was removed."
+                String(
+                    localized: "The document note changed or was removed.",
+                    comment: "Document note editor recovery message when no draft can be recovered")
             }
         case .copyAndReselect:
-            "Copy your draft before closing."
+            String(localized: "Copy your draft before closing.", comment: "Document note editor recovery message when only copying is safe")
         case .failed:
-            "The draft was not saved."
+            String(localized: "The draft was not saved.", comment: "Document note editor save failure message")
         case .saved:
             ""
         }

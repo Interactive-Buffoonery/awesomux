@@ -219,11 +219,12 @@ struct FullCommentPopover: View {
                 Divider()
                     .padding(.horizontal, 12)
                 HStack(spacing: 6) {
-                    TextField("Reply…", text: $replyDraft)
+                    TextField(String(localized: "Reply…", comment: "Placeholder for the annotation reply field"), text: $replyDraft)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                         .onSubmit(submitReply)
-                        .accessibilityLabel("Reply to annotation")
+                        .accessibilityLabel(
+                            String(localized: "Reply to annotation", comment: "Accessibility label for the annotation reply field"))
                     Button(action: submitReply) {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 13))
@@ -236,8 +237,8 @@ struct FullCommentPopover: View {
                         !canSubmit
                             || replyDraft.trimmingCharacters(in: .whitespaces).isEmpty
                     )
-                    .help("Send reply")
-                    .accessibilityLabel("Send reply")
+                    .help(String(localized: "Send reply", comment: "Help text for the annotation reply button"))
+                    .accessibilityLabel(String(localized: "Send reply", comment: "Accessibility label for the annotation reply button"))
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
@@ -251,7 +252,10 @@ struct FullCommentPopover: View {
         .disabled(submission.isInFlight)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
-            "Comment \(displayNumber)\(isResolved ? ", resolved" : "")"
+            String(
+                localized:
+                    "Comment \(displayNumber)\(isResolved ? String(localized: ", resolved", comment: "Resolved state suffix in an annotation accessibility label") : "")",
+                comment: "Accessibility label for a numbered annotation")
         )
         .onAppear { presentationID = UUID() }
         .onDisappear { presentationID = nil }
@@ -260,30 +264,33 @@ struct FullCommentPopover: View {
     private func saveEdit() {
         let trimmed = draft.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        submit(draftToRecover: draft) {
-            let outcome = await onEdit(trimmed)
-            if outcome == .saved {
+        submit(
+            draftToRecover: draft,
+            operation: {
+                await onEdit(trimmed)
+            },
+            onSaved: {
                 isEditing = false
-            }
-            return outcome
-        }
+            })
     }
 
     private func submitReply() {
         let trimmed = replyDraft.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        submit(draftToRecover: replyDraft) {
-            let outcome = await onReply(trimmed)
-            if outcome == .saved {
+        submit(
+            draftToRecover: replyDraft,
+            operation: {
+                await onReply(trimmed)
+            },
+            onSaved: {
                 replyDraft = ""
-            }
-            return outcome
-        }
+            })
     }
 
     private func submit(
         draftToRecover: String? = nil,
-        operation: @escaping () async -> AnnotationSaveOutcome
+        operation: @escaping () async -> AnnotationSaveOutcome,
+        onSaved: @escaping () -> Void = {}
     ) {
         guard canSubmit, submission.begin() else { return }
         let activePresentation = presentationID
@@ -295,6 +302,9 @@ struct FullCommentPopover: View {
             onSubmissionChanged(false)
             recovery = outcome == .saved ? nil : outcome
             recoveryDraft = outcome == .copyOnly ? draftToRecover : nil
+            if outcome == .saved {
+                onSaved()
+            }
             AnnotationSaveRecovery.announce(
                 outcome,
                 hasRecoverableDraft: draftToRecover != nil
@@ -310,7 +320,7 @@ struct FullCommentPopover: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             if outcome == .copyOnly, let recoveryDraft {
-                Button("Copy Draft") {
+                Button(String(localized: "Copy Draft", comment: "Button to copy an annotation draft after a save conflict")) {
                     AnnotationSaveRecovery.copyDraft(recoveryDraft)
                 }
                 .buttonStyle(.bordered)
@@ -324,17 +334,25 @@ struct FullCommentPopover: View {
     private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
         switch outcome {
         case .reloadAndRetry:
-            "The document changed and has reloaded. Save again to retry."
+            String(
+                localized: "The document changed and has reloaded. Save again to retry.",
+                comment: "Annotation save recovery message after reloading a changed document")
         case .copyOnly:
             if recoveryDraft == nil {
-                "The annotation changed or was removed."
+                String(
+                    localized: "The annotation changed or was removed.",
+                    comment: "Annotation save recovery message when no draft can be recovered")
             } else {
-                "The annotation changed or was removed. Copy your draft before closing."
+                String(
+                    localized: "The annotation changed or was removed. Copy your draft before closing.",
+                    comment: "Annotation save recovery message when a draft can be copied")
             }
         case .copyAndReselect:
-            "The selection is stale. Copy your draft and select the text again."
+            String(
+                localized: "The selection is stale. Copy your draft and select the text again.",
+                comment: "Annotation save recovery message for a stale selection")
         case .failed:
-            "The draft was not saved."
+            String(localized: "The draft was not saved.", comment: "Annotation save failure message")
         case .saved:
             ""
         }
@@ -363,9 +381,9 @@ struct ComposeCommentPopover: View {
 
     private var placeholder: String {
         switch intent {
-        case .comment: "Add a note…"
-        case .replace: "Replacement text…"
-        case .delete: "Why remove? (optional)"
+        case .comment: String(localized: "Add a note…", comment: "Placeholder for a new comment annotation")
+        case .replace: String(localized: "Replacement text…", comment: "Placeholder for a replacement annotation")
+        case .delete: String(localized: "Why remove? (optional)", comment: "Placeholder for an optional deletion rationale")
         }
     }
 
@@ -399,7 +417,7 @@ struct ComposeCommentPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("NEW ANNOTATION")
+            Text(String(localized: "NEW ANNOTATION", comment: "Heading for the new annotation popover"))
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Color.aw.mauve)
                 .padding(.horizontal, 12)
@@ -410,14 +428,14 @@ struct ComposeCommentPopover: View {
                 .padding(.horizontal, 12)
 
             VStack(alignment: .trailing, spacing: 6) {
-                Picker("Intent", selection: $intent) {
-                    Text("Comment").tag(PlanAnnotationIntent.comment)
-                    Text("Replace").tag(PlanAnnotationIntent.replace)
-                    Text("Delete").tag(PlanAnnotationIntent.delete)
+                Picker(String(localized: "Intent", comment: "Label for the annotation intent picker"), selection: $intent) {
+                    Text(String(localized: "Comment", comment: "Annotation intent option")).tag(PlanAnnotationIntent.comment)
+                    Text(String(localized: "Replace", comment: "Annotation intent option")).tag(PlanAnnotationIntent.replace)
+                    Text(String(localized: "Delete", comment: "Annotation intent option")).tag(PlanAnnotationIntent.delete)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .accessibilityLabel("Annotation intent")
+                .accessibilityLabel(String(localized: "Annotation intent", comment: "Accessibility label for the annotation intent picker"))
 
                 TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -442,7 +460,8 @@ struct ComposeCommentPopover: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                         if recovery == .copyAndReselect {
-                            Button("Copy Draft") {
+                            Button(String(localized: "Copy Draft", comment: "Button to copy a new annotation draft after a save conflict"))
+                            {
                                 AnnotationSaveRecovery.copyDraft(draft)
                             }
                             .buttonStyle(.bordered)
@@ -453,13 +472,13 @@ struct ComposeCommentPopover: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button("Cancel", action: onCancel)
+                    Button(String(localized: "Cancel", comment: "Button to cancel composing an annotation"), action: onCancel)
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                         .font(.system(size: 12))
                         .disabled(submission.isInFlight)
 
-                    Button("Save", action: save)
+                    Button(String(localized: "Save", comment: "Button to save a new annotation"), action: save)
                         .buttonStyle(.borderedProminent)
                         .tint(Color.aw.mauve)
                         .font(.system(size: 12, weight: .medium))
@@ -473,7 +492,7 @@ struct ComposeCommentPopover: View {
         .frame(width: 300)
         .disabled(submission.isInFlight)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("New annotation")
+        .accessibilityLabel(String(localized: "New annotation", comment: "Accessibility label for the new annotation popover"))
         .onAppear { presentationID = UUID() }
         .onDisappear { presentationID = nil }
     }
@@ -481,13 +500,17 @@ struct ComposeCommentPopover: View {
     private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
         switch outcome {
         case .copyAndReselect:
-            "The document changed, so this selection is no longer safe. Copy the draft and select the text again."
+            String(
+                localized: "The document changed, so this selection is no longer safe. Copy the draft and select the text again.",
+                comment: "New annotation recovery message for a stale selection")
         case .reloadAndRetry:
-            "The document changed and has reloaded. Save again to retry."
+            String(
+                localized: "The document changed and has reloaded. Save again to retry.",
+                comment: "New annotation recovery message after reloading a changed document")
         case .copyOnly:
-            "Copy the draft before closing."
+            String(localized: "Copy the draft before closing.", comment: "New annotation recovery message when only copying is safe")
         case .failed:
-            "The draft was not saved."
+            String(localized: "The draft was not saved.", comment: "New annotation save failure message")
         case .saved:
             ""
         }
