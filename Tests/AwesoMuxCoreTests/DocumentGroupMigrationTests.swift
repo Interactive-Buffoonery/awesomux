@@ -150,4 +150,52 @@ import Testing
         #expect(group.tabs.map(\.id) == [firstTab.id, secondTab.id])
         #expect(group.tabs.map(\.associatedTerminalPaneID) == [firstPane.id, secondPane.id])
     }
+
+    @Test func broadNestedLayoutKeepsTreeOrderAndLocalAdjacency() throws {
+        let panes = (0..<5).map {
+            TerminalPane(title: "pane-\($0)", workingDirectory: "/\($0)", executionPlan: .local)
+        }
+        let tabs = (0..<5).map { makeTab("tab-\($0).md") }
+        let duplicateGroupID = UUID()
+        let pairs = panes.indices.map { index in
+            TerminalPaneLayout.split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(panes[index]),
+                    second: .documentGroup(
+                        DocumentGroup(
+                            id: index.isMultiple(of: 2) ? duplicateGroupID : UUID(),
+                            tabs: [tabs[index]],
+                            selectedTabID: tabs[index].id
+                        ))
+                ))
+        }
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .horizontal,
+                first: .split(
+                    TerminalSplit(
+                        orientation: .horizontal,
+                        first: pairs[0],
+                        second: pairs[1]
+                    )),
+                second: .split(
+                    TerminalSplit(
+                        orientation: .horizontal,
+                        first: pairs[2],
+                        second: .split(
+                            TerminalSplit(
+                                orientation: .horizontal,
+                                first: pairs[3],
+                                second: pairs[4]
+                            ))
+                    ))
+            ))
+
+        let migrated = DocumentGroupMigration.migratingLegacyDocumentLeaves(in: layout)
+        let group = try #require(migrated.firstDocumentGroup)
+
+        #expect(group.tabs.map(\.id) == tabs.map(\.id))
+        #expect(group.tabs.map(\.associatedTerminalPaneID) == panes.map { Optional($0.id) })
+    }
 }
