@@ -79,6 +79,7 @@ private func sanitizeInheritedTerminalContextFromProcessEnvironment() {
 @main
 struct AwesoMuxApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sessionStore: SessionStore
     @State private var ghosttyRuntime: GhosttyRuntime
     @State private var workspaceEditRequest: WorkspaceEditRequest?
@@ -552,8 +553,8 @@ struct AwesoMuxApp: App {
                 .padding(.top, 18)
                 .padding(.trailing, 18)
             }
-            .animation(.easeOut(duration: 0.16), value: quickRunToast)
-            .animation(.easeOut(duration: 0.16), value: documentTabActions.noticeID)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: quickRunToast)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: documentTabActions.noticeID)
             .preferredColorScheme(preferredScheme)
             .environment(appSettingsStore)
             .environment(documentTabActions)
