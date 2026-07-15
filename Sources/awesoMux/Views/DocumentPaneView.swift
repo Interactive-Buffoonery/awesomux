@@ -496,6 +496,7 @@ struct DocumentPaneView: View {
     @State private var lastSelfWrittenSource: String? = nil
     @State private var reloadGeneration: Int = 0
     @State private var reloadSource: ReloadSource? = nil
+    @State private var renderTask: Task<(DocumentLoader.LoadResult, RenderedDocument?)?, Never>? = nil
 
     // Bigfoot: driven by NSPopover directly so we can anchor to a pill rect.
     @State private var nsPopover: NSPopover? = nil
@@ -588,6 +589,8 @@ struct DocumentPaneView: View {
             watcherReloadTask?.cancel()
             watcherReloadTask = nil
             watcherReloadGeneration += 1
+            renderTask?.cancel()
+            renderTask = nil
             nsPopover?.close()
             nsPopover = nil
         }
@@ -603,24 +606,30 @@ struct DocumentPaneView: View {
             // from the tab cache (or a watcher wobble) skips the whole
             // attributed rebuild (INT-748 PR2).
             let priorDoc = renderedDoc
-            let (result, doc): (DocumentLoader.LoadResult, RenderedDocument?) =
-                await Task.detached(priority: .userInitiated) {
-                    let result =
+            renderTask?.cancel()
+            let task = Task.detached(priority: .userInitiated) {
+                await DocumentLoader.loadAndRender(
+                    load: {
                         source.map { DocumentLoader.load(source: $0) }
-                        ?? DocumentLoader.load(reloadTaskID.fileURL)
-                    if case let .loaded(_, source) = result {
-                        if let priorDoc, priorDoc.source == source {
-                            return (result, priorDoc)
-                        }
-                        return (result, AttributedMarkdownBuilder.build(source))
-                    }
-                    return (result, nil)
-                }.value
+                            ?? DocumentLoader.load(reloadTaskID.fileURL)
+                    },
+                    priorDocument: priorDoc,
+                    render: { AttributedMarkdownBuilder.build($0) }
+                )
+            }
+            renderTask = task
+            let output = await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
 
-            guard !Task.isCancelled,
+            guard let (result, doc) = output,
+                !Task.isCancelled,
                 reloadTaskID.fileURL == pane.fileURL,
                 reloadTaskID.generation == reloadGeneration
             else { return }
+            renderTask = nil
             renderedDoc = doc
             loadResult = result
             // Report only when the content actually changed (source compare is
@@ -1253,6 +1262,8 @@ struct DocumentPaneView: View {
     /// task reassigns both unconditionally when it completes. Each caller sets
     /// `pendingScrollAnchor` first (watcher → captured offset; reset paths → nil).
     private func triggerReload(source: String? = nil) {
+        renderTask?.cancel()
+        renderTask = nil
         let generation = reloadGeneration + 1
         reloadSource = source.map {
             ReloadSource(generation: generation, source: $0)

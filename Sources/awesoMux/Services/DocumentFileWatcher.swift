@@ -86,7 +86,7 @@ final class DocumentFileWatcher {
     ///
     /// If the file is momentarily absent (ENOENT — transient during atomic replace),
     /// schedule a brief retry.
-    private func arm(retryBudget: Int = 20) {
+    private func arm(retryBudget: Int = 20, notifyOnSuccess: Bool = false) {
         // Bail if stop() fired while a retry was sleeping — otherwise the retry path
         // would re-arm a live source after teardown, leaking the fd/source until deinit.
         guard !stopped else { return }
@@ -103,7 +103,10 @@ final class DocumentFileWatcher {
             // unlink and the creation of the replacement inode during an atomic write.
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 10_000_000)  // 10 ms
-                self?.arm(retryBudget: retryBudget - 1)
+                self?.arm(
+                    retryBudget: retryBudget - 1,
+                    notifyOnSuccess: notifyOnSuccess
+                )
             }
             return
         }
@@ -140,6 +143,9 @@ final class DocumentFileWatcher {
 
         newSource.resume()
         source = newSource
+        if notifyOnSuccess {
+            scheduleOnChange()
+        }
     }
 
     /// Handle a vnode event (main actor).
@@ -154,8 +160,7 @@ final class DocumentFileWatcher {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 20_000_000)  // 20 ms settle
                 guard let self, !self.stopped else { return }
-                self.arm()
-                self.scheduleOnChange()
+                self.arm(notifyOnSuccess: true)
             }
         } else {
             scheduleOnChange()

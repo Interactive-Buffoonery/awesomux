@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AwesoMuxTestSupport
 @testable import AwesoMuxCore
 
 // MARK: - DocumentLoader Tests
@@ -134,6 +135,49 @@ struct DocumentLoaderTests {
         #expect(source == "# Save A")
     }
 
+    @MainActor
+    @Test("cancellation stops at parse and render boundaries")
+    func cancellationStopsAtStageBoundaries() async {
+        let parseGate = AsyncGate()
+        let renderProbe = RenderProbe()
+        let parsing = Task.detached {
+            await DocumentLoader.loadAndRender(
+                load: {
+                    await parseGate.wait()
+                    return DocumentLoader.load(source: "# Superseded")
+                },
+                priorDocument: nil,
+                render: { source in
+                    await renderProbe.record(source)
+                    return AttributedMarkdownBuilder.build(source)
+                }
+            )
+        }
+        #expect(await waitUntil { parseGate.waiterCount == 1 })
+        parsing.cancel()
+        parseGate.open()
+
+        #expect(await parsing.value == nil)
+        #expect(await renderProbe.sources.isEmpty)
+
+        let renderGate = AsyncGate()
+        let rendering = Task.detached {
+            await DocumentLoader.loadAndRender(
+                load: { DocumentLoader.load(source: "# Current") },
+                priorDocument: nil,
+                render: { source in
+                    await renderGate.wait()
+                    return AttributedMarkdownBuilder.build(source)
+                }
+            )
+        }
+        #expect(await waitUntil { renderGate.waiterCount == 1 })
+        rendering.cancel()
+        renderGate.open()
+
+        #expect(await rendering.value == nil)
+    }
+
     // MARK: - Rejection: non-file URL
 
     @Test("rejects an https URL")
@@ -241,5 +285,13 @@ struct DocumentLoaderTests {
             DocumentLoader.load(file)
                 == .readError("The file couldn’t be opened because it isn’t in the correct format.")
         )
+    }
+}
+
+private actor RenderProbe {
+    private(set) var sources: [String] = []
+
+    func record(_ source: String) {
+        sources.append(source)
     }
 }
