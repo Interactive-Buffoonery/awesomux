@@ -30,8 +30,9 @@ public struct CommandBridgeRespawnLedger: Equatable {
     public static let defaultMaxRespawnAttempts = 3
 
     /// Number of respawn attempts spent since the budget was last refilled.
-    /// Refilled to 0 only by `refillBudget()` — which the enactor calls after a
-    /// fresh incarnation has *survived a grace window*, NOT on every `attached`.
+    /// `refillBudget()` resets all attempts after a fresh incarnation survives
+    /// a grace window. A reconnect refunds only attempts still awaiting an
+    /// attach outcome; attempts locked in by a fresh attach remain spent.
     ///
     /// This distinction is load-bearing: a crash-looping daemon emits an
     /// `attached` event on every respawn (that is what a respawn IS), so
