@@ -221,6 +221,23 @@ struct CommandBridgeExitSupervisionTests {
         #expect(ledger.respawnAttempts == maxAttempts)
     }
 
+    @Test("a fresh attach locks prior attempts out of a later reconnect refund")
+    func freshAttachLocksPriorAttempts() {
+        var ledger = CommandBridgeRespawnLedger()
+        let freshIncarnation = AmxDaemonIncarnation(pid: 8, createdAt: 43)
+        ledger.recordAttach(AmxDaemonIncarnation(pid: 7, createdAt: 42))
+        ledger.recordRespawnAttempt()
+        ledger.recordRespawnAttempt()
+
+        #expect(ledger.recordAttach(freshIncarnation) == .fresh)
+        #expect(ledger.respawnAttempts == 2)
+        ledger.recordRespawnAttempt()
+        #expect(ledger.respawnAttempts == 3)
+
+        #expect(ledger.recordAttach(freshIncarnation) == .reconnect)
+        #expect(ledger.respawnAttempts == 2)
+    }
+
     @Test("attaching to a different daemon incarnation is a fresh respawn")
     func differentIncarnationIsFresh() {
         var ledger = CommandBridgeRespawnLedger()
