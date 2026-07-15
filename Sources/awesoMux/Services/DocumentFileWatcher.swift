@@ -105,7 +105,7 @@ final class DocumentFileWatcher {
                 try? await Task.sleep(nanoseconds: 10_000_000)  // 10 ms
                 self?.arm(
                     retryBudget: retryBudget - 1,
-                    notifyOnSuccess: notifyOnSuccess
+                    notifyOnSuccess: true
                 )
             }
             return
