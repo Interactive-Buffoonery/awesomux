@@ -27,4 +27,22 @@ struct DocumentComposeTabActionHandlerTests {
         #expect(handler.noticeID != firstNoticeID)
         #expect(announcements == [DocumentComposeGuard.tabActionBlockedMessage])
     }
+
+    @Test("allowed action clears an obsolete compose notice")
+    func allowedActionClearsNotice() {
+        defer { DocumentComposeGuard.isComposing = { false } }
+
+        let handler = DocumentComposeTabActionHandler()
+        var actionCount = 0
+
+        DocumentComposeGuard.isComposing = { true }
+        handler.perform({ actionCount += 1 }) { _ in }
+        #expect(handler.noticeID != nil)
+
+        DocumentComposeGuard.isComposing = { false }
+        handler.perform({ actionCount += 1 }) { _ in }
+
+        #expect(actionCount == 1)
+        #expect(handler.noticeID == nil)
+    }
 }

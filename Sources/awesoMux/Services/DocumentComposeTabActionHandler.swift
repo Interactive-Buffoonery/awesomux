@@ -13,6 +13,7 @@ final class DocumentComposeTabActionHandler {
     ) {
         switch DocumentComposeGuard.tabActionDecision() {
         case .allowed:
+            noticeID = nil
             action()
         case .blocked(let message):
             let shouldAnnounce = noticeID == nil
