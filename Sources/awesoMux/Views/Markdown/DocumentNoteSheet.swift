@@ -1,28 +1,28 @@
+import AppKit
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
 struct DocumentNoteSheet: View {
     let note: PlanAnnotation?
-    /// Write callbacks report success; the sheet closes (and drops draft
-    /// state) only when the write landed, so a stale-source failure keeps the
-    /// user's typing on screen next to the explanatory alert.
-    let onAdd: (String) -> Bool
-    let onEdit: (String, String) -> Bool
-    let onSetStatus: (String, PlanAnnotationStatus) -> Bool
-    let onDelete: (String) -> Bool
+    let onAdd: (String) async -> AnnotationSaveOutcome
+    let onEdit: (String, String) async -> AnnotationSaveOutcome
+    let onSetStatus: (String, PlanAnnotationStatus) async -> AnnotationSaveOutcome
+    let onDelete: (String) async -> AnnotationSaveOutcome
     let onClose: () -> Void
     var allowsEditing = true
 
     @State private var isEditing: Bool
     @State private var draft: String
+    @State private var submission = AnnotationSubmissionGate()
+    @State private var recovery: AnnotationSaveOutcome?
 
     init(
         note: PlanAnnotation?,
-        onAdd: @escaping (String) -> Bool,
-        onEdit: @escaping (String, String) -> Bool,
-        onSetStatus: @escaping (String, PlanAnnotationStatus) -> Bool,
-        onDelete: @escaping (String) -> Bool,
+        onAdd: @escaping (String) async -> AnnotationSaveOutcome,
+        onEdit: @escaping (String, String) async -> AnnotationSaveOutcome,
+        onSetStatus: @escaping (String, PlanAnnotationStatus) async -> AnnotationSaveOutcome,
+        onDelete: @escaping (String) async -> AnnotationSaveOutcome,
         onClose: @escaping () -> Void,
         allowsEditing: Bool = true
     ) {
@@ -42,6 +42,9 @@ struct DocumentNoteSheet: View {
             header
             Divider().overlay(Color.aw.border2)
             content
+            if !isEditing, let recovery, recovery != .saved {
+                recoveryNotice(recovery)
+            }
         }
         .frame(width: 620)
         .accessibilityElement(children: .contain)
@@ -60,6 +63,7 @@ struct DocumentNoteSheet: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
+            .disabled(submission.isInFlight)
             // Esc parity with the app's other sheets. While editing, the
             // editor's Cancel owns Esc (cancel the edit, not the sheet).
             .keyboardShortcut(isEditing ? nil : .cancelAction)
@@ -78,11 +82,16 @@ struct DocumentNoteSheet: View {
                 title: note == nil ? "Add document note" : "Edit document note",
                 draft: $draft,
                 submitTitle: note == nil ? "Add Note" : "Save Changes",
-                onCancel: note == nil ? onClose : {
-                    draft = note?.payload ?? ""
-                    isEditing = false
-                },
-                onSubmit: save
+                onCancel: note == nil
+                    ? onClose
+                    : {
+                        draft = note?.payload ?? ""
+                        isEditing = false
+                    },
+                onSubmit: save,
+                isSubmitting: submission.isInFlight,
+                recovery: recovery,
+                onCopyDraft: copyDraft
             )
         } else if let note {
             VStack(alignment: .leading, spacing: 16) {
@@ -103,11 +112,12 @@ struct DocumentNoteSheet: View {
                     Divider().overlay(Color.aw.border2)
                     HStack(spacing: 10) {
                         Button("Delete", role: .destructive) {
-                            if onDelete(note.id) {
-                                onClose()
+                            submit {
+                                await onDelete(note.id)
                             }
                         }
                         .buttonStyle(.plain)
+                        .disabled(submission.isInFlight)
 
                         Spacer()
 
@@ -118,11 +128,11 @@ struct DocumentNoteSheet: View {
                         .buttonStyle(.bordered)
 
                         Button {
-                            // Close on success: the sheet shows the note as of
-                            // when it opened, so staying open after a status
-                            // write would display a stale status.
-                            if onSetStatus(note.id, note.status == .open ? .resolved : .open) {
-                                onClose()
+                            submit {
+                                await onSetStatus(
+                                    note.id,
+                                    note.status == .open ? .resolved : .open
+                                )
                             }
                         } label: {
                             Label(
@@ -134,6 +144,7 @@ struct DocumentNoteSheet: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(Color.aw.mauve)
+                        .disabled(submission.isInFlight)
                     }
                     .padding(16)
                 }
@@ -163,9 +174,58 @@ struct DocumentNoteSheet: View {
     private func save() {
         let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
-        let saved = note.map { onEdit($0.id, value) } ?? onAdd(value)
-        if saved {
-            onClose()
+        submit {
+            if let note {
+                await onEdit(note.id, value)
+            } else {
+                await onAdd(value)
+            }
+        }
+    }
+
+    private func submit(operation: @escaping () async -> AnnotationSaveOutcome) {
+        guard submission.begin() else { return }
+        Task {
+            let outcome = await operation()
+            submission.finish()
+            recovery = outcome == .saved ? nil : outcome
+            if outcome == .saved {
+                onClose()
+            }
+        }
+    }
+
+    private func copyDraft() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(draft, forType: .string)
+    }
+
+    private func recoveryNotice(_ outcome: AnnotationSaveOutcome) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider().overlay(Color.aw.border2)
+            Text(recoveryMessage(outcome))
+                .font(.system(size: 11))
+                .foregroundStyle(Color.aw.text2)
+            if outcome == .copyOnly, !draft.isEmpty {
+                Button("Copy Draft", action: copyDraft)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(16)
+    }
+
+    private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
+        switch outcome {
+        case .reloadAndRetry:
+            "The document changed. It is reloading; try the action again after it updates."
+        case .copyOnly:
+            "The document note no longer exists. Copy its text before closing."
+        case .copyAndReselect:
+            "Copy the draft before closing."
+        case .failed:
+            "The change was not saved."
+        case .saved:
+            ""
         }
     }
 }
@@ -176,6 +236,9 @@ private struct MultilineDocumentNoteEditor: View {
     let submitTitle: String
     let onCancel: () -> Void
     let onSubmit: () -> Void
+    let isSubmitting: Bool
+    let recovery: AnnotationSaveOutcome?
+    let onCopyDraft: () -> Void
 
     @FocusState private var isFocused: Bool
 
@@ -216,14 +279,45 @@ private struct MultilineDocumentNoteEditor: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.aw.text2)
                     .keyboardShortcut(.cancelAction)
+                    .disabled(isSubmitting)
                 Button(submitTitle, action: onSubmit)
                     .buttonStyle(.borderedProminent)
                     .tint(Color.aw.mauve)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        isSubmitting
+                            || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+            }
+
+            if let recovery, recovery != .saved {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(recoveryMessage(recovery))
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.aw.text2)
+                    if recovery == .copyOnly {
+                        Button("Copy Draft", action: onCopyDraft)
+                            .buttonStyle(.bordered)
+                    }
+                }
             }
         }
         .padding(16)
         .onAppear { isFocused = true }
+    }
+
+    private func recoveryMessage(_ outcome: AnnotationSaveOutcome) -> String {
+        switch outcome {
+        case .reloadAndRetry:
+            "The document changed. It is reloading; save again after it updates."
+        case .copyOnly:
+            "The document note no longer exists. Copy your draft before closing."
+        case .copyAndReselect:
+            "Copy your draft before closing."
+        case .failed:
+            "The draft was not saved."
+        case .saved:
+            ""
+        }
     }
 }

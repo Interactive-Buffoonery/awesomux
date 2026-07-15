@@ -806,29 +806,37 @@ struct DocumentPaneView: View {
                     DocumentNoteSheet(
                         note: noteDoc.documentNote,
                         onAdd: { note in
-                            let saved = addDocumentNote(note, doc: noteDoc)
-                            if saved {
+                            let outcome = await addDocumentNote(note, doc: noteDoc)
+                            if outcome == .saved {
                                 TerminalAccessibilityAnnouncer.announce(
                                     String(
                                         localized: "Document note added", comment: "VoiceOver announcement after adding the document note")
                                 )
                             }
-                            return saved
+                            return outcome
                         },
                         onEdit: { id, newNote in
-                            let saved = updateAnnotation(id: id, doc: noteDoc) { $0.payload = newNote }
-                            if saved {
+                            let outcome = await updateAnnotationPayload(
+                                id: id,
+                                payload: newNote,
+                                doc: noteDoc
+                            )
+                            if outcome == .saved {
                                 TerminalAccessibilityAnnouncer.announce(
                                     String(
                                         localized: "Document note updated",
                                         comment: "VoiceOver announcement after editing the document note")
                                 )
                             }
-                            return saved
+                            return outcome
                         },
                         onSetStatus: { id, status in
-                            let saved = updateAnnotation(id: id, doc: noteDoc) { $0.status = status }
-                            if saved {
+                            let outcome = await setAnnotationStatus(
+                                id: id,
+                                status: status,
+                                doc: noteDoc
+                            )
+                            if outcome == .saved {
                                 TerminalAccessibilityAnnouncer.announce(
                                     status == .resolved
                                         ? String(
@@ -839,18 +847,18 @@ struct DocumentPaneView: View {
                                             comment: "VoiceOver announcement after reopening the document note")
                                 )
                             }
-                            return saved
+                            return outcome
                         },
                         onDelete: { id in
-                            let saved = deleteAnnotation(id: id, doc: noteDoc)
-                            if saved {
+                            let outcome = await deleteAnnotation(id: id, doc: noteDoc)
+                            if outcome == .saved {
                                 TerminalAccessibilityAnnouncer.announce(
                                     String(
                                         localized: "Document note deleted",
                                         comment: "VoiceOver announcement after deleting the document note")
                                 )
                             }
-                            return saved
+                            return outcome
                         },
                         onClose: {
                             documentNoteSheetDoc = nil
@@ -977,31 +985,33 @@ struct DocumentPaneView: View {
                 displayNumber: displayNumber,
                 annotation: annotation,
                 quotedText: quotedText,
-                // Close only on SUCCESS: a stale-source failure keeps the popover
-                // (and any typed draft) on screen next to the explanatory alert
-                // instead of silently discarding the user's input (review). The
-                // Bool result lets the popover gate its own draft/edit state the
-                // same way.
                 onEdit: { [weak popover] newNote in
-                    let saved = updateAnnotation(id: markID, doc: doc, mutate: { $0.payload = newNote })
-                    if saved {
+                    let outcome = await updateAnnotationPayload(
+                        id: markID,
+                        payload: newNote,
+                        doc: doc
+                    )
+                    if outcome == .saved {
                         popover?.close()
                         TerminalAccessibilityAnnouncer.announce(
                             String(localized: "Annotation updated", comment: "VoiceOver announcement after editing an annotation's note")
                         )
                     }
-                    return saved
+                    return outcome
                 },
                 onDelete: { [weak popover] in
-                    if deleteAnnotation(id: markID, doc: doc) {
+                    let outcome = await deleteAnnotation(id: markID, doc: doc)
+                    if outcome == .saved {
                         popover?.close()
                         TerminalAccessibilityAnnouncer.announce(
                             String(localized: "Annotation deleted", comment: "VoiceOver announcement after deleting an annotation")
                         )
                     }
+                    return outcome
                 },
                 onSetStatus: { [weak popover] status in
-                    if updateAnnotation(id: markID, doc: doc, mutate: { $0.status = status }) {
+                    let outcome = await setAnnotationStatus(id: markID, status: status, doc: doc)
+                    if outcome == .saved {
                         popover?.close()
                         TerminalAccessibilityAnnouncer.announce(
                             status == .resolved
@@ -1011,10 +1021,11 @@ struct DocumentPaneView: View {
                                 : String(localized: "Annotation reopened", comment: "VoiceOver announcement after reopening an annotation")
                         )
                     }
+                    return outcome
                 },
                 onReply: { [weak popover] reply in
-                    let saved = replyToAnnotation(id: markID, reply: reply, doc: doc)
-                    if saved {
+                    let outcome = await replyToAnnotation(id: markID, reply: reply, doc: doc)
+                    if outcome == .saved {
                         popover?.close()
                         TerminalAccessibilityAnnouncer.announce(
                             annotation.status == .resolved
@@ -1024,7 +1035,7 @@ struct DocumentPaneView: View {
                                 : String(localized: "Reply added", comment: "VoiceOver announcement after replying to an annotation")
                         )
                     }
-                    return saved
+                    return outcome
                 },
                 allowsEditing: !pane.isReadOnlySnapshot
             ))
@@ -1066,12 +1077,19 @@ struct DocumentPaneView: View {
         let hosting = NSHostingController(
             rootView: ComposeCommentPopover(
                 onSave: { [weak popover] note, intent in
-                    if insertAnnotation(span: span, intent: intent, payload: note, doc: doc) {
+                    let outcome = await insertAnnotation(
+                        span: span,
+                        intent: intent,
+                        payload: note,
+                        doc: doc
+                    )
+                    if outcome == .saved {
                         popover?.close()
                         TerminalAccessibilityAnnouncer.announce(
                             String(localized: "Annotation added", comment: "VoiceOver announcement after adding a new annotation")
                         )
                     }
+                    return outcome
                 },
                 onCancel: { [weak popover] in
                     popover?.close()
@@ -1128,18 +1146,20 @@ struct DocumentPaneView: View {
 
     // MARK: - Annotation writes
 
-    @discardableResult
     private func insertAnnotation(
         span: Range<Int>,
         intent: PlanAnnotationIntent,
         payload: String,
         doc: RenderedDocument
-    ) -> Bool {
+    ) async -> AnnotationSaveOutcome {
         if SelectionSourceMapping.spanTouchesExistingMark(span, in: doc) {
             showNestedMarkAlert(span: span, doc: doc)
-            return false
+            return .failed
         }
-        return guardedWrite(renderTimeSource: doc.source) { freshSource in
+        return await guardedWrite(
+            renderTimeSource: doc.source,
+            conflictOutcome: .copyAndReselect
+        ) { freshSource in
             PlanAnnotationWriter.insertingAnnotation(
                 in: freshSource, span: span, author: .user, intent: intent, payload: payload
             )?.source
@@ -1169,68 +1189,116 @@ struct DocumentPaneView: View {
         )
     }
 
-    /// Payload edits and status flips share one marker-local rewrite; a legacy
-    /// USER COMMENT marker upgrades to the AMX form on its first write.
-    @discardableResult
-    private func updateAnnotation(
+    private func updateAnnotationPayload(
         id: String,
-        doc: RenderedDocument,
-        mutate: @escaping (inout PlanAnnotationMarker.Annotation) -> Void
-    ) -> Bool {
-        guardedWrite(renderTimeSource: doc.source) { freshSource in
-            PlanAnnotationWriter.updatingAnnotation(id: id, in: freshSource, mutate: mutate)
+        payload: String,
+        doc: RenderedDocument
+    ) async -> AnnotationSaveOutcome {
+        await writeExistingAnnotation(id: id, doc: doc) { source in
+            PlanAnnotationWriter.updatingAnnotation(id: id, in: source) {
+                $0.payload = payload
+            }
         }
     }
 
-    @discardableResult
-    private func addDocumentNote(_ note: String, doc: RenderedDocument) -> Bool {
-        guardedWrite(renderTimeSource: doc.source) { freshSource in
+    private func setAnnotationStatus(
+        id: String,
+        status: PlanAnnotationStatus,
+        doc: RenderedDocument
+    ) async -> AnnotationSaveOutcome {
+        await writeExistingAnnotation(id: id, doc: doc) { source in
+            PlanAnnotationWriter.updatingAnnotation(id: id, in: source) {
+                $0.status = status
+            }
+        }
+    }
+
+    private func addDocumentNote(
+        _ note: String,
+        doc: RenderedDocument
+    ) async -> AnnotationSaveOutcome {
+        let source = renderedDoc?.source ?? doc.source
+        return await guardedWrite(
+            renderTimeSource: source,
+            conflictOutcome: .reloadAndRetry
+        ) { freshSource in
             PlanAnnotationWriter.appendingDocumentAnnotation(
                 in: freshSource, author: .user, payload: note
             )?.source
         }
     }
 
-    @discardableResult
-    private func replyToAnnotation(id: String, reply: String, doc: RenderedDocument) -> Bool {
-        guardedWrite(renderTimeSource: doc.source) { freshSource in
-            PlanAnnotationWriter.appendingNote(to: id, in: freshSource, author: .user, payload: reply)
+    private func replyToAnnotation(
+        id: String,
+        reply: String,
+        doc: RenderedDocument
+    ) async -> AnnotationSaveOutcome {
+        await writeExistingAnnotation(id: id, doc: doc) { source in
+            PlanAnnotationWriter.appendingNote(
+                to: id,
+                in: source,
+                author: .user,
+                payload: reply
+            )
         }
     }
 
-    @discardableResult
-    private func deleteAnnotation(id: String, doc: RenderedDocument) -> Bool {
-        guardedWrite(renderTimeSource: doc.source) { freshSource in
-            PlanAnnotationWriter.removingAnnotation(id: id, in: freshSource)
+    private func deleteAnnotation(
+        id: String,
+        doc: RenderedDocument
+    ) async -> AnnotationSaveOutcome {
+        await writeExistingAnnotation(id: id, doc: doc) { source in
+            PlanAnnotationWriter.removingAnnotation(id: id, in: source)
         }
     }
 
-    /// Applies `writer` only while the rendered source is still current.
-    @discardableResult
+    private func writeExistingAnnotation(
+        id: String,
+        doc: RenderedDocument,
+        writer: @escaping @Sendable (String) -> String?
+    ) async -> AnnotationSaveOutcome {
+        guard
+            let source = AnnotationSaveRecovery.reboundSource(
+                annotationID: id,
+                openedDocument: doc,
+                currentDocument: renderedDoc
+            )
+        else { return .copyOnly }
+
+        return await guardedWrite(
+            renderTimeSource: source,
+            conflictOutcome: .reloadAndRetry,
+            writer: writer
+        )
+    }
+
     private func guardedWrite(
         renderTimeSource: String,
-        writer: (String) -> String?
-    ) -> Bool {
+        conflictOutcome: AnnotationSaveOutcome,
+        writer: @escaping @Sendable (String) -> String?
+    ) async -> AnnotationSaveOutcome {
         guard !pane.isReadOnlySnapshot else {
             showAlert(title: "Read-Only Snapshot", message: "Remote Markdown snapshots cannot be edited in awesoMux yet.")
-            return false
+            return .failed
         }
 
-        switch MarkdownDocumentWriter.applyIfCurrent(
-            at: pane.fileURL,
-            expectedSource: renderTimeSource,
-            transform: writer
-        ) {
-        case .written(let newSource):
-            Self.selfWriteRegistry.record(fileURL: pane.fileURL, source: newSource)
-            return true
-        case .conflict:
-            showAlert(
-                title: "Document Changed on Disk",
-                message: "The document changed on disk. Reloading — please try again."
+        let fileURL = pane.fileURL
+        let result = await Task.detached(priority: .userInitiated) {
+            MarkdownDocumentCommitter.commitObserved(
+                at: fileURL,
+                renderedSource: renderTimeSource,
+                transform: writer
             )
+        }.value
+
+        switch result {
+        case .committed(let newSource):
+            Self.selfWriteRegistry.record(fileURL: fileURL, source: newSource)
+            return .saved
+        case .observedConflict:
             pendingScrollAnchor = nil
             triggerReload()
+            return conflictOutcome
         case .unreadable:
             showAlert(title: "Couldn't Save", message: "The document couldn't be read from disk.")
         case .invalidEdit:
@@ -1238,10 +1306,12 @@ struct DocumentPaneView: View {
                 title: "Couldn't Save",
                 message: "The annotation couldn't be saved. It may be too long, invalid, or duplicated."
             )
-        case .writeFailed:
-            showAlert(title: "Couldn't Save", message: "The document couldn't be written to disk.")
+        case .outputTooLarge:
+            showAlert(title: "Couldn't Save", message: "The edited document would be too large.")
+        case .failed(let failure):
+            showAlert(title: "Couldn't Save", message: failure.message)
         }
-        return false
+        return .failed
     }
 
     private func showAlert(title: String, message: String) {
