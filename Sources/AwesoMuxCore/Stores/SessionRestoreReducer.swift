@@ -517,6 +517,8 @@ struct SessionRestoreReducer: Sendable {
         case let .pane(pane):
             var restoredPane = transformPane(pane)
             var idReassignments = 0
+            let daemonIDWasSeen =
+                !seenTerminalSessionIDs.insert(restoredPane.terminalSessionID).inserted
             if !seenPaneIDs.insert(restoredPane.id).inserted {
                 var freshPaneID = UUID()
                 while !seenPaneIDs.insert(freshPaneID).inserted {
@@ -537,7 +539,7 @@ struct SessionRestoreReducer: Sendable {
                     executionPlan: restoredPane.executionPlan
                 )
                 idReassignments += 2
-            } else if !seenTerminalSessionIDs.insert(restoredPane.terminalSessionID).inserted {
+            } else if daemonIDWasSeen {
                 let terminalSessionID = generateUniqueTerminalSessionID(
                     avoiding: &seenTerminalSessionIDs
                 )
@@ -550,9 +552,7 @@ struct SessionRestoreReducer: Sendable {
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
-                    agentExecutionState: restoredPane.agentExecutionState,
-                    attentionReason: restoredPane.attentionReason,
-                    unreadNotificationCount: restoredPane.unreadNotificationCount,
+                    agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )
                 idReassignments += 1

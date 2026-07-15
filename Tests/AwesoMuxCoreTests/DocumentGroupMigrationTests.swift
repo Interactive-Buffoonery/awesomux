@@ -110,4 +110,44 @@ import Testing
             "a recorded association wins over adjacency, even a dangling one"
         )
     }
+
+    @Test func duplicateGroupIDsKeepDistinctHybridTabsAndAssociations() throws {
+        let duplicateID = UUID()
+        let firstPane = TerminalPane(title: "first", workingDirectory: "/first", executionPlan: .local)
+        let secondPane = TerminalPane(title: "second", workingDirectory: "/second", executionPlan: .local)
+        let firstTab = makeTab("first.md")
+        let secondTab = makeTab("second.md")
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .horizontal,
+                first: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(firstPane),
+                        second: .documentGroup(
+                            DocumentGroup(
+                                id: duplicateID,
+                                tabs: [firstTab],
+                                selectedTabID: firstTab.id
+                            ))
+                    )),
+                second: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(secondPane),
+                        second: .documentGroup(
+                            DocumentGroup(
+                                id: duplicateID,
+                                tabs: [secondTab],
+                                selectedTabID: secondTab.id
+                            ))
+                    ))
+            ))
+
+        let migrated = DocumentGroupMigration.migratingLegacyDocumentLeaves(in: layout)
+        let group = try #require(migrated.firstDocumentGroup)
+
+        #expect(group.tabs.map(\.id) == [firstTab.id, secondTab.id])
+        #expect(group.tabs.map(\.associatedTerminalPaneID) == [firstPane.id, secondPane.id])
+    }
 }

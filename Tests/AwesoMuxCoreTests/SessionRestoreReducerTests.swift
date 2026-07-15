@@ -73,6 +73,97 @@ struct SessionRestoreReducerTests {
         #expect(restoredSecond.unreadNotificationCount == 0)
     }
 
+    @Test("discarded daemon ids remain reserved for later panes")
+    func discardedDaemonIDRemainsReserved() {
+        let duplicatePaneID = UUID()
+        let finalPaneID = UUID()
+        let firstDaemon = TerminalSessionID(rawValue: "ordering-d1")!
+        let repeatedDaemon = TerminalSessionID(rawValue: "ordering-d2")!
+        let panes = [
+            TerminalPane(
+                id: duplicatePaneID,
+                terminalSessionID: firstDaemon,
+                title: "x1",
+                workingDirectory: "/x1",
+                executionPlan: .local
+            ),
+            TerminalPane(
+                id: duplicatePaneID,
+                terminalSessionID: repeatedDaemon,
+                title: "x2",
+                workingDirectory: "/x2",
+                executionPlan: .local
+            ),
+            TerminalPane(
+                id: finalPaneID,
+                terminalSessionID: repeatedDaemon,
+                title: "y",
+                workingDirectory: "/y",
+                executionPlan: .local
+            ),
+        ]
+        var seenSplits: Set<TerminalSplit.ID> = []
+        var seenPanes: Set<TerminalPane.ID> = []
+        var seenDaemons: Set<TerminalSessionID> = []
+        let result = SessionRestoreReducer.restoredLayout(
+            from: Self.layout(for: panes),
+            seenSplitIDs: &seenSplits,
+            seenPaneIDs: &seenPanes,
+            seenTerminalSessionIDs: &seenDaemons,
+            transformPane: { $0 }
+        )
+        var restored: [TerminalPane] = []
+        result.layout.forEachPane { restored.append($0) }
+
+        #expect(restored[0].terminalSessionID == firstDaemon)
+        #expect(restored[1].terminalSessionID != repeatedDaemon)
+        #expect(restored[2].terminalSessionID != repeatedDaemon)
+        #expect(Set(restored.map(\.terminalSessionID)).count == 3)
+    }
+
+    @Test("a duplicate daemon resets waiting and attention state")
+    func duplicateDaemonResetsRuntimeState() {
+        let daemon = TerminalSessionID(rawValue: "shared-waiting-daemon")!
+        let panes = [
+            TerminalPane(
+                terminalSessionID: daemon,
+                title: "first",
+                workingDirectory: "/first",
+                executionPlan: .local
+            ),
+            TerminalPane(
+                terminalSessionID: daemon,
+                title: "second",
+                workingDirectory: "/second",
+                executionPlan: .local
+            ),
+        ]
+        var seenSplits: Set<TerminalSplit.ID> = []
+        var seenPanes: Set<TerminalPane.ID> = []
+        var seenDaemons: Set<TerminalSessionID> = []
+        let result = SessionRestoreReducer.restoredLayout(
+            from: Self.layout(for: panes),
+            seenSplitIDs: &seenSplits,
+            seenPaneIDs: &seenPanes,
+            seenTerminalSessionIDs: &seenDaemons
+        ) { pane in
+            var pane = pane
+            pane.agentExecutionState = .waiting
+            pane.attentionReason = .userInputRequired
+            pane.unreadNotificationCount = 2
+            return pane
+        }
+        var restored: [TerminalPane] = []
+        result.layout.forEachPane { restored.append($0) }
+
+        #expect(restored[0].agentExecutionState == .waiting)
+        #expect(restored[0].attentionReason == .userInputRequired)
+        #expect(restored[1].terminalSessionID != daemon)
+        #expect(restored[1].agentExecutionState == .idle)
+        #expect(restored[1].attentionReason == nil)
+        #expect(restored[1].unreadNotificationCount == 0)
+    }
+
     @Test("restore clears document and active references to a duplicated pane id")
     func restoreRejectsAmbiguousPaneReferences() throws {
         let duplicateID = UUID()
@@ -267,6 +358,12 @@ struct SessionRestoreReducerTests {
         #expect(Set(policy.keys) == Set(AgentExecutionState.allCases))
         for (state, expected) in policy {
             #expect(SessionRestoreReducer.restoredAgentExecutionState(state) == expected)
+        }
+    }
+
+    private static func layout(for panes: [TerminalPane]) -> TerminalPaneLayout {
+        panes.dropFirst().reduce(.pane(panes[0])) { layout, pane in
+            .split(TerminalSplit(orientation: .horizontal, first: layout, second: .pane(pane)))
         }
     }
 
