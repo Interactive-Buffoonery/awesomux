@@ -41,6 +41,10 @@ public struct CommandBridgeRespawnLedger: Equatable {
     /// daemon that dies the instant it comes back.
     public private(set) var respawnAttempts: Int = 0
 
+    /// Attempts still waiting for an attach event to prove whether they spawned
+    /// a fresh daemon or merely reconnected to the existing one.
+    private var respawnAttemptsAwaitingAttachOutcome = 0
+
     /// The most recently attached daemon incarnation, or nil before the first
     /// attach. Consumed to distinguish a fresh respawn from a live reconnect.
     public private(set) var lastIncarnation: AmxDaemonIncarnation?
@@ -66,10 +70,10 @@ public struct CommandBridgeRespawnLedger: Equatable {
     /// Record an `attached` event: update the last-seen incarnation and report
     /// whether it is a fresh daemon (respawn) or the same live one (reconnect).
     ///
-    /// Deliberately does NOT touch `respawnAttempts`. Budget refill is gated on
-    /// proven uptime via `refillBudget()` (see `respawnAttempts` docs) — an
-    /// attach alone is not evidence of health, because a crash-looping daemon
-    /// attaches on every cycle.
+    /// A reconnect refunds unresolved attempts because the matching incarnation
+    /// proves the daemon stayed alive. Fresh and first attaches retain them;
+    /// their budget refill remains gated on proven uptime via `refillBudget()`
+    /// because a crash-looping daemon attaches on every cycle.
     ///
     /// - Returns: Whether this attach is to a fresh daemon (respawn) or the
     ///   same live one (reconnect).
@@ -82,6 +86,12 @@ public struct CommandBridgeRespawnLedger: Equatable {
             outcome = .firstAttach
         }
         lastIncarnation = incarnation
+        if respawnAttemptsAwaitingAttachOutcome > 0 {
+            if outcome == .reconnect {
+                respawnAttempts = max(0, respawnAttempts - respawnAttemptsAwaitingAttachOutcome)
+            }
+            respawnAttemptsAwaitingAttachOutcome = 0
+        }
         return outcome
     }
 
@@ -92,6 +102,7 @@ public struct CommandBridgeRespawnLedger: Equatable {
     /// it the cap is unreachable (see `respawnAttempts`).
     public mutating func refillBudget() {
         respawnAttempts = 0
+        respawnAttemptsAwaitingAttachOutcome = 0
     }
 
     /// Spend one respawn attempt. Called when the exit-supervision path decides
@@ -101,12 +112,14 @@ public struct CommandBridgeRespawnLedger: Equatable {
     /// detach-happy user would otherwise latch `.error` on a healthy session).
     public mutating func recordRespawnAttempt() {
         respawnAttempts += 1
+        respawnAttemptsAwaitingAttachOutcome += 1
     }
 
     /// Drop all bridge bookkeeping (pane re-pointed at a new session, or surface
     /// disposed). Returns the ledger to its just-initialized state.
     public mutating func reset() {
         respawnAttempts = 0
+        respawnAttemptsAwaitingAttachOutcome = 0
         lastIncarnation = nil
     }
 }
