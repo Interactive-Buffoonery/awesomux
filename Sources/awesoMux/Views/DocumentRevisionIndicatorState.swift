@@ -1,5 +1,29 @@
 import AwesoMuxCore
 
+extension LineDiffCount.ExternalEdit {
+    var displayLabel: String {
+        switch self {
+        case let .exact(diff):
+            LocalizedPluralStrings.documentRevisionIndicator(
+                added: diff.added,
+                removed: diff.removed
+            )
+        case .countUnavailable:
+            String(
+                localized: "Document revised",
+                comment: "Document revision indicator when exact added and removed line counts were skipped"
+            )
+        }
+    }
+
+    func accessibilityAnnouncement(documentTitle: String) -> String {
+        String(
+            localized: "\(documentTitle): \(displayLabel)",
+            comment: "VoiceOver announcement when an external edit revises the visible document"
+        )
+    }
+}
+
 struct DocumentRevisionIndicatorState: Equatable {
     enum Presentation: Equatable {
         case expanded
@@ -7,7 +31,7 @@ struct DocumentRevisionIndicatorState: Equatable {
     }
 
     struct Indicator: Equatable {
-        let revision: LineDiffCount
+        let revision: LineDiffCount.ExternalEdit
         let generation: Int
         var presentation: Presentation
         var activeViewingTime: Duration
@@ -23,14 +47,14 @@ struct DocumentRevisionIndicatorState: Equatable {
 
     func indicator(for tab: DocumentPane) -> Indicator? {
         guard let entry = entries[tab.id],
-              entry.sourcePath == tab.fileURL.standardizedFileURL.path
+            entry.sourcePath == tab.fileURL.standardizedFileURL.path
         else {
             return nil
         }
         return entry.indicator
     }
 
-    mutating func record(_ revision: LineDiffCount, for tab: DocumentPane) {
+    mutating func record(_ revision: LineDiffCount.ExternalEdit, for tab: DocumentPane) {
         nextGeneration += 1
         entries[tab.id] = Entry(
             sourcePath: tab.fileURL.standardizedFileURL.path,
@@ -49,10 +73,10 @@ struct DocumentRevisionIndicatorState: Equatable {
         generation: Int
     ) {
         guard duration > .zero,
-              var entry = entries[tab.id],
-              entry.sourcePath == tab.fileURL.standardizedFileURL.path,
-              entry.indicator.generation == generation,
-              entry.indicator.presentation == .expanded
+            var entry = entries[tab.id],
+            entry.sourcePath == tab.fileURL.standardizedFileURL.path,
+            entry.indicator.generation == generation,
+            entry.indicator.presentation == .expanded
         else {
             return
         }
@@ -72,7 +96,7 @@ struct DocumentRevisionIndicatorState: Equatable {
 
     mutating func expand(for tab: DocumentPane) {
         guard var entry = entries[tab.id],
-              entry.sourcePath == tab.fileURL.standardizedFileURL.path
+            entry.sourcePath == tab.fileURL.standardizedFileURL.path
         else {
             return
         }
@@ -96,7 +120,7 @@ struct DocumentRevisionIndicatorState: Equatable {
 
     private mutating func updatePresentation(_ presentation: Presentation, for tab: DocumentPane) {
         guard var entry = entries[tab.id],
-              entry.sourcePath == tab.fileURL.standardizedFileURL.path
+            entry.sourcePath == tab.fileURL.standardizedFileURL.path
         else {
             return
         }
