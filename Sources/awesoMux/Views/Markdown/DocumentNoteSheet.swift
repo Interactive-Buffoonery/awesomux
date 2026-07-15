@@ -225,7 +225,7 @@ struct DocumentNoteSheet: View {
         case .reloadAndRetry:
             "The document changed and has reloaded. Try the action again."
         case .copyOnly:
-            "The document note no longer exists. Copy its text before closing."
+            "The document note changed or was removed. Copy your draft before closing."
         case .copyAndReselect:
             "Copy the draft before closing."
         case .failed:
@@ -317,7 +317,7 @@ private struct MultilineDocumentNoteEditor: View {
         case .reloadAndRetry:
             "The document changed and has reloaded. Save again to retry."
         case .copyOnly:
-            "The document note no longer exists. Copy your draft before closing."
+            "The document note changed or was removed. Copy your draft before closing."
         case .copyAndReselect:
             "Copy your draft before closing."
         case .failed:

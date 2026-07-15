@@ -307,7 +307,7 @@ struct FullCommentPopover: View {
         case .reloadAndRetry:
             "The document changed and has reloaded. Save again to retry."
         case .copyOnly:
-            "The annotation no longer exists. Copy your draft before closing."
+            "The annotation changed or was removed. Copy your draft before closing."
         case .copyAndReselect:
             "The selection is stale. Copy your draft and select the text again."
         case .failed:
