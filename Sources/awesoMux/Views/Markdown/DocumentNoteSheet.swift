@@ -16,6 +16,7 @@ struct DocumentNoteSheet: View {
     @State private var draft: String
     @State private var submission = AnnotationSubmissionGate()
     @State private var recovery: AnnotationSaveOutcome?
+    @State private var presentationID: UUID?
 
     init(
         note: PlanAnnotation?,
@@ -50,6 +51,8 @@ struct DocumentNoteSheet: View {
         .disabled(submission.isInFlight)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Document note")
+        .onAppear { presentationID = UUID() }
+        .onDisappear { presentationID = nil }
     }
 
     private var header: some View {
@@ -186,8 +189,10 @@ struct DocumentNoteSheet: View {
 
     private func submit(operation: @escaping () async -> AnnotationSaveOutcome) {
         guard submission.begin() else { return }
+        let activePresentation = presentationID
         Task {
             let outcome = await operation()
+            guard let activePresentation, presentationID == activePresentation else { return }
             submission.finish()
             recovery = outcome == .saved ? nil : outcome
             AnnotationSaveRecovery.announce(outcome)

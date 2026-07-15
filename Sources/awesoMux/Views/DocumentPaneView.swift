@@ -583,6 +583,7 @@ struct DocumentPaneView: View {
             }
         }
         .onAppear {
+            reloadCompletion = DocumentReloadCompletion()
             // No triggerReload() here: .task(id:) below already fires on
             // appearance, and a generation bump at this point cancels that
             // first task after its detached load has launched — a duplicate
@@ -598,7 +599,7 @@ struct DocumentPaneView: View {
             watcherReloadGeneration += 1
             renderTask?.cancel()
             renderTask = nil
-            reloadCompletion.completeAll()
+            reloadCompletion.invalidate()
             nsPopover?.close()
             nsPopover = nil
         }
@@ -1283,8 +1284,16 @@ struct DocumentPaneView: View {
         doc: RenderedDocument,
         snapshot: MarkdownDocumentSnapshot
     ) async -> AnnotationSaveOutcome {
+        guard
+            let observed = AnnotationSaveRecovery.snapshotForNewDocumentNote(
+                openedSnapshot: snapshot,
+                currentSnapshot: currentSnapshot,
+                currentDocument: renderedDoc
+            )
+        else { return .copyOnly }
+
         return await guardedWrite(
-            observed: snapshot,
+            observed: observed,
             conflictOutcome: .reloadAndRetry
         ) { freshSource in
             PlanAnnotationWriter.appendingDocumentAnnotation(
@@ -1359,6 +1368,7 @@ struct DocumentPaneView: View {
         }
 
         let fileURL = pane.fileURL
+        let reloadCompletion = reloadCompletion
         let result = await Task.detached(priority: .userInitiated) {
             MarkdownDocumentCommitter.commitObserved(
                 at: fileURL,
@@ -1372,9 +1382,10 @@ struct DocumentPaneView: View {
             Self.selfWriteRegistry.record(fileURL: fileURL, source: newSource)
             return .saved
         case .observedConflict:
+            guard !reloadCompletion.isInvalidated else { return .failed }
             pendingScrollAnchor = nil
             let generation = triggerReload()
-            await reloadCompletion.wait(for: generation)
+            guard await reloadCompletion.wait(for: generation) else { return .failed }
             return conflictOutcome
         case .unreadable:
             showAlert(title: "Couldn't Save", message: "The document couldn't be read from disk.")
