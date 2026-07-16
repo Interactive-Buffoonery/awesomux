@@ -48,10 +48,14 @@ struct DocumentPaneSendBar: View {
     ) -> DocumentNudgeTargetResolution {
         let resolution = layout.documentNudgeTarget(for: documentID)
         guard case .available(let target) = resolution else { return resolution }
-        guard foregroundExecutableMatch("ssh", target.id) == .notMatching else {
-            return .unavailable(.requiresLocalTerminal)
+        switch foregroundExecutableMatch("ssh", target.id) {
+        case .matching:
+            return .unavailable(.foregroundSSH)
+        case .unknown:
+            return .unavailable(.localTerminalUnverified)
+        case .notMatching:
+            return resolution
         }
-        return resolution
     }
 
     /// The agent running in the terminal the nudge targets. Drives the button label
@@ -66,6 +70,16 @@ struct DocumentPaneSendBar: View {
     private var sendUnavailableDescription: String? {
         guard case .unavailable(let reason) = nudgeResolution else { return nil }
         switch reason {
+        case .foregroundSSH:
+            return String(
+                localized: "Exit SSH to send this local document path",
+                comment: "Unavailable reason for sending a Mac-local document path while the terminal is inside manual SSH"
+            )
+        case .localTerminalUnverified:
+            return String(
+                localized: "Couldn't verify a local terminal for this document path",
+                comment: "Unavailable reason for sending a Mac-local document path when foreground process evidence is unavailable"
+            )
         case .readOnlyRemoteSnapshot:
             return String(
                 localized: "Remote Markdown snapshots are read-only and cannot be sent",

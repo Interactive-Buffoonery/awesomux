@@ -6,19 +6,19 @@ import Testing
 @MainActor
 @Suite("Document nudge foreground gate")
 struct DocumentNudgeForegroundGateTests {
-    @Test(
-        "declared local panes require foreground evidence that is not SSH",
-        arguments: [
-            ProcessLivenessProbe.ForegroundExecutableMatch.matching,
-            .unknown,
-        ])
-    func rejectsUnsafeForegroundEvidence(
-        _ match: ProcessLivenessProbe.ForegroundExecutableMatch
-    ) {
+    @Test("declared local pane rejects foreground SSH")
+    func rejectsForegroundSSH() {
+        let fixture = makeFixture(executionPlan: .local)
+
+        #expect(resolve(fixture, returning: .matching) == .unavailable(.foregroundSSH))
+    }
+
+    @Test("declared local pane rejects unknown foreground evidence")
+    func rejectsUnknownForeground() {
         let fixture = makeFixture(executionPlan: .local)
 
         #expect(
-            resolve(fixture, returning: match) == .unavailable(.requiresLocalTerminal)
+            resolve(fixture, returning: .unknown) == .unavailable(.localTerminalUnverified)
         )
     }
 
@@ -26,7 +26,7 @@ struct DocumentNudgeForegroundGateTests {
     func rechecksForegroundEvidence() {
         let fixture = makeFixture(executionPlan: .local)
 
-        #expect(resolve(fixture, returning: .matching) == .unavailable(.requiresLocalTerminal))
+        #expect(resolve(fixture, returning: .matching) == .unavailable(.foregroundSSH))
         #expect(resolve(fixture, returning: .notMatching) == .available(fixture.terminal))
     }
 
@@ -46,31 +46,35 @@ struct DocumentNudgeForegroundGateTests {
         #expect(resolution == .unavailable(.requiresLocalTerminal))
     }
 
-    @Test("availability and activation resolve through the same foreground gate")
-    func availabilityAndActivationParity() {
-        let fixture = makeFixture(executionPlan: .local)
-        var checks = 0
-        let probe: (String, TerminalPane.ID) -> ProcessLivenessProbe.ForegroundExecutableMatch = {
-            executable, paneID in
-            checks += 1
-            #expect(executable == "ssh")
-            #expect(paneID == fixture.terminal.id)
-            return .matching
-        }
-
-        let availability = DocumentPaneSendBar.resolveNudgeTarget(
-            in: fixture.layout,
-            for: fixture.document.id,
-            foregroundExecutableMatch: probe
+    @Test("command-finished shell activity invalidates a disabled send bar")
+    func commandFinishedInvalidatesSendBar() {
+        let fixture = makeFixture(executionPlan: .local, shellActivity: .busy)
+        let store = SessionStore(groups: [
+            SessionGroup(name: "main", sessions: [fixture.session])
+        ])
+        let busyID = DocumentNudgeSendBarID(
+            documentID: fixture.document.id,
+            shellActivity: .busy
         )
-        let activation = DocumentPaneSendBar.resolveNudgeTarget(
-            in: fixture.layout,
-            for: fixture.document.id,
-            foregroundExecutableMatch: probe
+        let start = Date()
+        let idle = ShellActivitySnapshot(
+            sessionID: fixture.session.id,
+            paneID: fixture.terminal.id,
+            isBusy: false
         )
 
-        #expect(availability == activation)
-        #expect(checks == 2)
+        _ = store.updateShellActivity([idle], now: start)
+        _ = store.updateShellActivity([idle], now: start.addingTimeInterval(0.11))
+
+        let activity = store.session(id: fixture.session.id)?.layout
+            .documentSendTarget(for: fixture.document.id)?.shellActivity
+        #expect(activity == .idle)
+        #expect(
+            DocumentNudgeSendBarID(
+                documentID: fixture.document.id,
+                shellActivity: activity
+            ) != busyID
+        )
     }
 
     private func resolve(
@@ -87,10 +91,14 @@ struct DocumentNudgeForegroundGateTests {
         }
     }
 
-    private func makeFixture(executionPlan: PaneExecutionPlan) -> Fixture {
+    private func makeFixture(
+        executionPlan: PaneExecutionPlan,
+        shellActivity: ShellActivity = .idle
+    ) -> Fixture {
         let terminal = TerminalPane(
             title: "terminal",
             workingDirectory: "/tmp",
+            shellActivity: shellActivity,
             executionPlan: executionPlan
         )
         let document = DocumentPane(
@@ -99,16 +107,24 @@ struct DocumentNudgeForegroundGateTests {
             associatedTerminalPaneID: terminal.id
         )
         let group = DocumentGroup(tabs: [document], selectedTabID: document.id)
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(terminal),
+                second: .documentGroup(group)
+            )
+        )
+        let session = TerminalSession(
+            title: "test",
+            workingDirectory: "/tmp",
+            layout: layout,
+            activePaneID: terminal.id
+        )
         return Fixture(
             terminal: terminal,
             document: document,
-            layout: .split(
-                TerminalSplit(
-                    orientation: .vertical,
-                    first: .pane(terminal),
-                    second: .documentGroup(group)
-                )
-            )
+            layout: layout,
+            session: session
         )
     }
 
@@ -116,5 +132,6 @@ struct DocumentNudgeForegroundGateTests {
         let terminal: TerminalPane
         let document: DocumentPane
         let layout: TerminalPaneLayout
+        let session: TerminalSession
     }
 }
