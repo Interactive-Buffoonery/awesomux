@@ -1129,6 +1129,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         guard !isSidebarHidden, case .persistent = hostMode else { return }
         sidebarChild.view.setAccessibilityHidden(false)
+        // A detach hid the clip and left a stale frame; re-mirror the pane and
+        // un-hide it now instead of waiting for a later layout tick, which could
+        // leave a persistently-visible sidebar invisible after reattach. Self-no-ops
+        // when hidden.
+        syncSidebarHostFrame()
         hostPresentationState.settle(
             mode: hostMode, effectiveVisibleWidth: sidebarPaneWidth)
     }
