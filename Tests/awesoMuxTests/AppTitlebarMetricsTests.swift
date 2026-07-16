@@ -7,5 +7,6 @@ struct AppTitlebarMetricsTests {
     func sharedTitlebarMetricsStayStable() {
         #expect(AppTitlebarMetrics.trafficLightClearance == 78)
         #expect(AppTitlebarMetrics.contentColumnGutter == 16)
+        #expect(AppTitlebarMetrics.lockupPadding == 10)
     }
 }

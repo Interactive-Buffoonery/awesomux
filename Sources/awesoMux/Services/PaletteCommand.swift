@@ -91,6 +91,7 @@ struct PaletteAppActions {
     let toggleCommandPalette: @MainActor () -> Void
     let focusSidebar: @MainActor () -> Void
     let toggleSidebarWidth: @MainActor () -> Void
+    let toggleSidebarVisibility: @MainActor () -> Void
     let jumpWorkspace: @MainActor (Int) -> Void
     let previousWorkspace: @MainActor () -> Void
     let nextWorkspace: @MainActor () -> Void
@@ -147,6 +148,7 @@ struct PaletteAppActions {
             toggleCommandPalette: action,
             focusSidebar: action,
             toggleSidebarWidth: action,
+            toggleSidebarVisibility: action,
             jumpWorkspace: indexedAction,
             previousWorkspace: action,
             nextWorkspace: action,
@@ -164,6 +166,8 @@ struct PaletteAppActions {
 struct PaletteCommandAvailability {
     var isAnySheetPresented = false
     var isOpenInIDEEnabled = true
+    var isSidebarHidden = false
+    var isSidebarCommandTargetAvailable = true
 }
 
 @MainActor
@@ -201,9 +205,10 @@ enum PaletteCommandRegistry {
             count + group.sessions.count
         }
         let hasSelectedSession = selected != nil
-        let selectedNeedsAcknowledgement = selected.map {
-            $0.unreadNotificationCount > 0 || $0.needsAcknowledgement
-        } ?? false
+        let selectedNeedsAcknowledgement =
+            selected.map {
+                $0.unreadNotificationCount > 0 || $0.needsAcknowledgement
+            } ?? false
         let activePaneID = selected?.activePaneID
         let selectedSessionID = selected?.id
         let nextSwapPaneID = selected.flatMap(nextPaneIDForSwap(in:))
@@ -528,21 +533,22 @@ enum PaletteCommandRegistry {
                     sessionStore: sessionStore
                 ),
                 run: actions.swapPaneWithNext
-            )
+            ),
         ]
 
-        commands.append(contentsOf: KeyboardShortcutCatalog.focusPaneBindings.enumerated().map { offset, binding in
-            let paneIndex = offset + 1
-            return PaletteCommand(
-                id: binding.id,
-                title: binding.action,
-                subtitle: nil,
-                keywords: ["pane", "terminal", "focus", "\(paneIndex)"],
-                shortcut: binding,
-                isEnabled: selectedPaneCount > 1 && paneIndex <= selectedPaneCount,
-                run: { actions.focusPane(paneIndex) }
-            )
-        })
+        commands.append(
+            contentsOf: KeyboardShortcutCatalog.focusPaneBindings.enumerated().map { offset, binding in
+                let paneIndex = offset + 1
+                return PaletteCommand(
+                    id: binding.id,
+                    title: binding.action,
+                    subtitle: nil,
+                    keywords: ["pane", "terminal", "focus", "\(paneIndex)"],
+                    shortcut: binding,
+                    isEnabled: selectedPaneCount > 1 && paneIndex <= selectedPaneCount,
+                    run: { actions.focusPane(paneIndex) }
+                )
+            })
 
         commands.append(contentsOf: [
             PaletteCommand(
@@ -608,7 +614,8 @@ enum PaletteCommandRegistry {
                 subtitle: nil,
                 keywords: ["search", "workspaces", "sessions"],
                 shortcut: KeyboardShortcutCatalog.focusSidebar,
-                isEnabled: !availability.isAnySheetPresented,
+                isEnabled: !availability.isAnySheetPresented
+                    && availability.isSidebarCommandTargetAvailable,
                 run: actions.focusSidebar
             ),
             PaletteCommand(
@@ -617,23 +624,35 @@ enum PaletteCommandRegistry {
                 subtitle: nil,
                 keywords: ["toggle", "rail", "workspace list"],
                 shortcut: KeyboardShortcutCatalog.toggleSidebarWidth,
-                isEnabled: !availability.isAnySheetPresented,
+                isEnabled: !availability.isAnySheetPresented
+                    && availability.isSidebarCommandTargetAvailable,
                 run: actions.toggleSidebarWidth
-            )
+            ),
+            PaletteCommand(
+                id: KeyboardShortcutCatalog.toggleSidebarVisibility.id,
+                title: SidebarVisibilityActionTitle.resolve(isHidden: availability.isSidebarHidden),
+                subtitle: nil,
+                keywords: ["toggle", "hide", "show", "workspace list"],
+                shortcut: KeyboardShortcutCatalog.toggleSidebarVisibility,
+                isEnabled: !availability.isAnySheetPresented
+                    && availability.isSidebarCommandTargetAvailable,
+                run: actions.toggleSidebarVisibility
+            ),
         ])
 
-        commands.append(contentsOf: KeyboardShortcutCatalog.jumpWorkspaces.enumerated().map { offset, binding in
-            let workspaceIndex = offset + 1
-            return PaletteCommand(
-                id: binding.id,
-                title: binding.action,
-                subtitle: nil,
-                keywords: ["workspace", "session", "jump", "\(workspaceIndex)"],
-                shortcut: binding,
-                isEnabled: !availability.isAnySheetPresented && offset < workspaceCount,
-                run: { actions.jumpWorkspace(offset) }
-            )
-        })
+        commands.append(
+            contentsOf: KeyboardShortcutCatalog.jumpWorkspaces.enumerated().map { offset, binding in
+                let workspaceIndex = offset + 1
+                return PaletteCommand(
+                    id: binding.id,
+                    title: binding.action,
+                    subtitle: nil,
+                    keywords: ["workspace", "session", "jump", "\(workspaceIndex)"],
+                    shortcut: binding,
+                    isEnabled: !availability.isAnySheetPresented && offset < workspaceCount,
+                    run: { actions.jumpWorkspace(offset) }
+                )
+            })
 
         commands.append(contentsOf: [
             PaletteCommand(
@@ -721,28 +740,29 @@ enum PaletteCommandRegistry {
                 shortcut: KeyboardShortcutCatalog.sessionManager,
                 isEnabled: !availability.isAnySheetPresented,
                 run: actions.openSessionManager
-            )
+            ),
         ])
 
         // One targeted-reopen command per recently-closed entry (INT-282) —
         // the palette twin of the Dock "Recent Workspaces" submenu. Dot id
         // matches the `daemonJump.` / `customCommand.` precedent; sessionID
         // is unique per close (see RecentlyClosedWorkspaceReducer.drain).
-        commands.append(contentsOf: sessionStore.recentWorkspaces(
-            limit: SessionStore.maxRecentlyClosed
-        ).map { entry in
-            PaletteCommand(
-                id: "\(reopenRecentIDPrefix)\(entry.sessionID.uuidString)",
-                title: "Reopen: \(DockRecentWorkspaceMenu.displayTitle(for: entry))",
-                // Relative close time so same-titled entries (two "scratch"
-                // workspaces) stay distinguishable in the list.
-                subtitle: "Closed \(entry.closedAt.formatted(.relative(presentation: .named)))",
-                keywords: ["restore", "recent", "reopen", "closed"],
-                shortcut: nil,
-                isEnabled: true,
-                run: { actions.reopenRecent(entry) }
-            )
-        })
+        commands.append(
+            contentsOf: sessionStore.recentWorkspaces(
+                limit: SessionStore.maxRecentlyClosed
+            ).map { entry in
+                PaletteCommand(
+                    id: "\(reopenRecentIDPrefix)\(entry.sessionID.uuidString)",
+                    title: "Reopen: \(DockRecentWorkspaceMenu.displayTitle(for: entry))",
+                    // Relative close time so same-titled entries (two "scratch"
+                    // workspaces) stay distinguishable in the list.
+                    subtitle: "Closed \(entry.closedAt.formatted(.relative(presentation: .named)))",
+                    keywords: ["restore", "recent", "reopen", "closed"],
+                    shortcut: nil,
+                    isEnabled: true,
+                    run: { actions.reopenRecent(entry) }
+                )
+            })
 
         return commands.map { command in
             guard let shortcut = command.shortcut else { return command }
@@ -797,7 +817,8 @@ enum PaletteCommandRegistry {
     private static func nextPaneIDForSwap(in session: TerminalSession) -> TerminalPane.ID? {
         let paneIDs = session.layout.paneIDs
         guard paneIDs.count > 1,
-              let activeIndex = paneIDs.firstIndex(of: session.activePaneID) else {
+            let activeIndex = paneIDs.firstIndex(of: session.activePaneID)
+        else {
             return nil
         }
         return paneIDs[(activeIndex + 1) % paneIDs.count]

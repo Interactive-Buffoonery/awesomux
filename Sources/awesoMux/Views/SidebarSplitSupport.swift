@@ -1,6 +1,231 @@
+import AppKit
 import AwesoMuxCore
+import AwesoMuxConfig
 import CoreGraphics
+import Foundation
 import Observation
+
+struct SidebarFocusHandoffRequest: Equatable, Sendable {
+    let requiresKeyboardFocus: Bool
+    let requiresAccessibilityFocus: Bool
+}
+
+@MainActor
+struct SidebarFocusHandoffOutcome {
+    let destination: NSView
+    let keyboardFocusSucceeded: Bool
+    let accessibilityFocusSucceeded: Bool
+
+    init(destination: NSView, satisfying request: SidebarFocusHandoffRequest) {
+        self.destination = destination
+        keyboardFocusSucceeded = request.requiresKeyboardFocus
+        accessibilityFocusSucceeded = request.requiresAccessibilityFocus
+    }
+
+    init(
+        destination: NSView,
+        keyboardFocusSucceeded: Bool,
+        accessibilityFocusSucceeded: Bool
+    ) {
+        self.destination = destination
+        self.keyboardFocusSucceeded = keyboardFocusSucceeded
+        self.accessibilityFocusSucceeded = accessibilityFocusSucceeded
+    }
+}
+
+enum SidebarHostMode: Equatable {
+    case persistent(width: CGFloat)
+    case hidden
+    case overlay(width: CGFloat)
+}
+
+@Observable
+@MainActor
+final class SidebarHostPresentationState {
+    private(set) var mode: SidebarHostMode
+    private(set) var effectiveVisibleWidth: CGFloat
+    private(set) var titlebarPresentationWidth: CGFloat
+    private(set) var titlebarTranslationX: CGFloat = 0
+    private(set) var isOverlayAnimating = false
+    @ObservationIgnored var overlayPresentationTranslation: (() -> CGFloat?)?
+    @ObservationIgnored var onSettleForTesting: (() -> Void)?
+
+    init(mode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.expandedWidth)) {
+        self.mode = mode
+        switch mode {
+        case let .persistent(width), let .overlay(width):
+            effectiveVisibleWidth = width
+            titlebarPresentationWidth = width
+        case .hidden:
+            effectiveVisibleWidth = 0
+            titlebarPresentationWidth = SidebarWidthPolicy.expandedWidth
+        }
+    }
+
+    func settle(mode: SidebarHostMode, effectiveVisibleWidth: CGFloat) {
+        if case .overlay = mode {
+            // Preserve active compositor sampling across overlay relayouts.
+        } else {
+            isOverlayAnimating = false
+        }
+        self.mode = mode
+        self.effectiveVisibleWidth = effectiveVisibleWidth
+        if effectiveVisibleWidth > 0 {
+            titlebarPresentationWidth = effectiveVisibleWidth
+        }
+        if case .persistent = mode {
+            titlebarTranslationX = 0
+        }
+        onSettleForTesting?()
+    }
+
+    func beginOverlayTransition(
+        presented: Bool,
+        width: CGFloat,
+        position: AppearanceConfig.SidebarPosition
+    ) {
+        titlebarPresentationWidth = width
+        titlebarTranslationX =
+            presented
+            ? SidebarOverlayAnimator.presentedTranslation
+            : SidebarOverlayAnimator.hiddenTranslation(width: width, position: position)
+    }
+
+    func setOverlayAnimating(_ animating: Bool) {
+        isOverlayAnimating = animating
+    }
+
+    var currentTitlebarTranslationX: CGFloat {
+        guard let translation = overlayPresentationTranslation?(), translation.isFinite else {
+            return titlebarTranslationX
+        }
+        return translation
+    }
+
+    func currentTitlebarVisibleWidth(
+        position _: AppearanceConfig.SidebarPosition,
+        translation: CGFloat? = nil
+    ) -> CGFloat {
+        let width = max(0, titlebarPresentationWidth)
+        guard width.isFinite else { return 0 }
+        return width
+            * currentOverlayVisibleFraction(
+                translation: translation ?? currentTitlebarTranslationX)
+    }
+
+    func currentOverlayVisibleFraction(translation: CGFloat) -> CGFloat {
+        let width = titlebarPresentationWidth
+        guard width.isFinite, width > 0, translation.isFinite else { return 0 }
+        return min(max(0, 1 - abs(translation) / width), 1)
+    }
+}
+
+enum SidebarHostHandoffAction: Equatable {
+    case beginNoActionsTransaction
+    case cancelOverlayGeneration
+    case captureSidebarResponder
+    case removeOverlayAnimation
+    case reparentHostToSplitContainer
+    case setPersistentState
+    case applySingleDividerIntent(CGFloat)
+    case settleLayout
+    case clearTransform
+    case hideOverlayContainer
+    case restoreSidebarResponder
+    case endNoActionsTransaction
+    case querySidebarAccessibilityFocus
+    case handOffSidebarFocus
+    case setHiddenState
+    case applySingleCollapseIntent
+    case hideSidebarAccessibility
+    case enableEdgeTracking
+}
+
+enum SidebarPhysicalEdge: Equatable {
+    case leading
+    case trailing
+}
+
+enum SidebarPeekDirection: Equatable {
+    case left
+    case right
+}
+
+enum AppTitlebarColumn: Equatable {
+    case sidebar
+    case detail
+}
+
+enum AppTitlebarLockupAlignment: Equatable {
+    case leading
+    case trailing
+}
+
+struct AppTitlebarLayoutGeometry: Equatable {
+    let titlebarWidth: CGFloat
+    let sidebarReservationWidth: CGFloat
+    let workgroupBoundary: CGFloat
+}
+
+struct SidebarPresentationLayoutPolicy {
+    let position: AppearanceConfig.SidebarPosition
+
+    var edge: SidebarPhysicalEdge { position == .left ? .leading : .trailing }
+    var peekDirection: SidebarPeekDirection { position == .left ? .right : .left }
+    var titlebarColumns: [AppTitlebarColumn] {
+        position == .left ? [.sidebar, .detail] : [.detail, .sidebar]
+    }
+    var trafficLightColumn: AppTitlebarColumn { titlebarColumns[0] }
+    var dividerGutterColumn: AppTitlebarColumn { position == .left ? .detail : .sidebar }
+    var dividerGutterEdge: SidebarPhysicalEdge { .leading }
+    var titlebarLockupAlignment: AppTitlebarLockupAlignment {
+        position == .left ? .leading : .trailing
+    }
+    var titlebarLockupOuterPadding: CGFloat { AppTitlebarMetrics.lockupPadding }
+
+    func titlebarGeometry(
+        titlebarWidth: CGFloat,
+        visibleSidebarWidth: CGFloat,
+        overlayVisibleFraction: CGFloat? = nil,
+        limitsLeftWorkgroupToLockup: Bool = false,
+        sidebarPresentationWidth: CGFloat? = nil
+    ) -> AppTitlebarLayoutGeometry {
+        let width = titlebarWidth.isFinite ? max(0, titlebarWidth) : 0
+        let visibleWidth =
+            visibleSidebarWidth.isFinite
+            ? min(max(0, visibleSidebarWidth), width)
+            : 0
+        let gutter = min(AppTitlebarMetrics.contentColumnGutter, width - visibleWidth)
+        let boundary: CGFloat
+        if position == .left {
+            let overlayBoundary =
+                visibleWidth + gutter
+                + max(0, AppTitlebarMetrics.trafficLightClearance + 10 - visibleWidth)
+            let presentationWidth = sidebarPresentationWidth ?? visibleWidth
+            let rendersBrandLockup =
+                presentationWidth.isFinite
+                && presentationWidth >= AppTitlebarMetrics.brandWithTextMinimumWidth
+            if limitsLeftWorkgroupToLockup, rendersBrandLockup, let overlayVisibleFraction {
+                let fraction =
+                    overlayVisibleFraction.isFinite
+                    ? min(max(0, overlayVisibleFraction), 1)
+                    : 0
+                let hiddenBoundary = AppTitlebarMetrics.trafficLightClearance + 10 + gutter
+                let shownBoundary = AppTitlebarMetrics.brandWithTextMinimumWidth + gutter
+                boundary = min(width, hiddenBoundary + (shownBoundary - hiddenBoundary) * fraction)
+            } else {
+                boundary = min(width, overlayBoundary)
+            }
+        } else {
+            boundary = width - visibleWidth - gutter
+        }
+        return AppTitlebarLayoutGeometry(
+            titlebarWidth: width,
+            sidebarReservationWidth: visibleWidth,
+            workgroupBoundary: boundary
+        )
+    }
+}
 
 /// Live sidebar width published on every divider tick (INT-535, A4).
 ///
@@ -62,6 +287,8 @@ final class SidebarPeekModel {
     /// collapsed AND right of the full-width row when expanded — one anchor,
     /// both modes (INT-538 expanded support).
     private(set) var anchorX: CGFloat = 0
+    private(set) var peekDirection: SidebarPeekDirection = .right
+    @ObservationIgnored private var anchorFrame: CGRect = .zero
 
     /// Routes a pane-row click up to `ContentView` (select workspace + focus
     /// pane + acknowledge). Set once when the overlay is installed — the same
@@ -79,6 +306,11 @@ final class SidebarPeekModel {
     /// group B), so the handler must target the group the action actually
     /// came from, not `group?.id` read off the model at call time.
     @ObservationIgnored var onSelectGroupSession: ((SessionGroup.ID, TerminalSession.ID) -> Void)?
+
+    /// Publishes interactive-card pointer ownership to the hidden-sidebar
+    /// presentation model, including explicit removals that may not emit a
+    /// matching SwiftUI hover-exit callback.
+    @ObservationIgnored var onPointerChanged: ((Bool) -> Void)?
 
     /// True while the pointer rests over the (hittable) multi-pane card. Gates
     /// the graced hide so the card can't vanish under a cursor reaching for a
@@ -107,7 +339,8 @@ final class SidebarPeekModel {
         session: TerminalSession,
         location: SidebarSessionLocation,
         tint: ProjectTint,
-        frame: CGRect
+        frame: CGRect,
+        position: AppearanceConfig.SidebarPosition = .left
     ) {
         hideGraceTask?.cancel()
         hideGraceTask = nil
@@ -116,7 +349,7 @@ final class SidebarPeekModel {
         // session-id guard and would otherwise leave `isPointerOverCard == true`
         // stuck — permanently blocking B's `requestHide` at the `!isPointerOverCard`
         // gate, stranding B's card open (Codex 538 review).
-        isPointerOverCard = false
+        setPointerOverCardState(false)
         group = nil
         groupSessionItems = []
         self.session = session
@@ -125,17 +358,21 @@ final class SidebarPeekModel {
         self.paneItems = PanePeekItem.items(for: session)
         anchorY = frame.minY
         tileHeight = frame.height
-        anchorX = frame.maxX
+        updateAnchor(frame: frame, position: position)
     }
 
     /// Keep the card tracking its tile as the rail scrolls or resizes. No-op
     /// unless the given tile currently owns the peek, so a non-hovered tile's
     /// geometry churn can't yank the card.
-    func updateFrame(for id: TerminalSession.ID, frame: CGRect) {
+    func updateFrame(
+        for id: TerminalSession.ID,
+        frame: CGRect,
+        position: AppearanceConfig.SidebarPosition = .left
+    ) {
         guard session?.id == id else { return }
         anchorY = frame.minY
         tileHeight = frame.height
-        anchorX = frame.maxX
+        updateAnchor(frame: frame, position: position)
     }
 
     /// Refresh the displayed content if this tile owns the peek. The model holds
@@ -156,7 +393,7 @@ final class SidebarPeekModel {
         guard session?.id == id else { return }
         hideGraceTask?.cancel()
         hideGraceTask = nil
-        isPointerOverCard = false
+        setPointerOverCardState(false)
         session = nil
         location = nil
         tint = nil
@@ -168,7 +405,7 @@ final class SidebarPeekModel {
     /// the user reaches for a row; leaving requests a graced hide (538 R5).
     func setPointerOverCard(_ over: Bool, for id: TerminalSession.ID) {
         guard session?.id == id else { return }
-        isPointerOverCard = over
+        setPointerOverCardState(over)
         if over {
             hideGraceTask?.cancel()
             hideGraceTask = nil
@@ -199,11 +436,12 @@ final class SidebarPeekModel {
         tint: ProjectTint,
         sessions: [TerminalSession],
         activeSessionID: TerminalSession.ID?,
-        frame: CGRect
+        frame: CGRect,
+        position: AppearanceConfig.SidebarPosition = .left
     ) {
         hideGraceTask?.cancel()
         hideGraceTask = nil
-        isPointerOverCard = false
+        setPointerOverCardState(false)
         session = nil
         location = nil
         paneItems = []
@@ -212,16 +450,43 @@ final class SidebarPeekModel {
         groupSessionItems = SessionPeekItem.items(for: sessions, activeSessionID: activeSessionID)
         anchorY = frame.minY
         tileHeight = frame.height
-        anchorX = frame.maxX
+        updateAnchor(frame: frame, position: position)
     }
 
     /// Keep the card tracking its header as the rail scrolls or resizes.
     /// No-op unless the given group currently owns the peek.
-    func updateGroupFrame(for id: SessionGroup.ID, frame: CGRect) {
+    func updateGroupFrame(
+        for id: SessionGroup.ID,
+        frame: CGRect,
+        position: AppearanceConfig.SidebarPosition = .left
+    ) {
         guard group?.id == id else { return }
         anchorY = frame.minY
         tileHeight = frame.height
-        anchorX = frame.maxX
+        updateAnchor(frame: frame, position: position)
+    }
+
+    func hideAll() {
+        hideGraceTask?.cancel()
+        hideGraceTask = nil
+        setPointerOverCardState(false)
+        session = nil
+        location = nil
+        group = nil
+        tint = nil
+        paneItems = []
+        groupSessionItems = []
+    }
+
+    func updatePosition(_ position: AppearanceConfig.SidebarPosition) {
+        updateAnchor(frame: anchorFrame, position: position)
+    }
+
+    private func updateAnchor(frame: CGRect, position: AppearanceConfig.SidebarPosition) {
+        anchorFrame = frame
+        let policy = SidebarPresentationLayoutPolicy(position: position)
+        peekDirection = policy.peekDirection
+        anchorX = position == .left ? frame.maxX : frame.minX
     }
 
     /// Refresh the displayed content if this group owns the peek — same
@@ -244,7 +509,7 @@ final class SidebarPeekModel {
         guard group?.id == id else { return }
         hideGraceTask?.cancel()
         hideGraceTask = nil
-        isPointerOverCard = false
+        setPointerOverCardState(false)
         group = nil
         tint = nil
         groupSessionItems = []
@@ -254,7 +519,7 @@ final class SidebarPeekModel {
     /// cancel/request shape as `setPointerOverCard(_:for:)`.
     func setPointerOverGroupCard(_ over: Bool, for id: SessionGroup.ID) {
         guard group?.id == id else { return }
-        isPointerOverCard = over
+        setPointerOverCardState(over)
         if over {
             hideGraceTask?.cancel()
             hideGraceTask = nil
@@ -274,16 +539,49 @@ final class SidebarPeekModel {
             self.hideGroup(for: id)
         }
     }
+
+    private func setPointerOverCardState(_ over: Bool) {
+        guard over != isPointerOverCard else { return }
+        isPointerOverCard = over
+        onPointerChanged?(over)
+    }
 }
 
 /// Lets `ContentView` command the native divider position (for the `⌘\` toggle)
 /// without holding the `NSSplitViewController` directly. The controller registers
 /// its setter in `makeNSViewController`; reading/calling `command` does not create
 /// an observation dependency, so invoking it never re-renders `ContentView`.
+enum SidebarPersistentVisibilityDeliveryResult: Equatable, Sendable {
+    case applied
+    case deferredUntilHostReady
+    case rejected
+}
+
 @Observable
 @MainActor
 final class SidebarSplitProxy {
+    private(set) var commandHostGeneration = 0
+    private(set) var usableLayoutGeneration = 0
+
     /// Set by `SidebarSplitView.makeNSViewController`. Moves the divider so the
     /// sidebar pane is the given width (clamped, un-animated).
-    @ObservationIgnored var setWidth: ((CGFloat) -> Void)?
+    @ObservationIgnored var setSelectedWidth: ((CGFloat) -> Void)?
+    @ObservationIgnored var setOverlayVisible: ((Bool, SidebarOverlayTransition, Bool) -> Bool)?
+    @ObservationIgnored var setPosition: ((AppearanceConfig.SidebarPosition) -> Void)?
+    /// Changes only the user's persistent split visibility. Transient hover
+    /// presentation must use the overlay host instead of moving this divider.
+    @ObservationIgnored var setPersistentVisible: ((Bool) -> SidebarPersistentVisibilityDeliveryResult)?
+    @ObservationIgnored var sidebarPointerChanged: ((Bool) -> Void)?
+    @ObservationIgnored var resampleSidebarPointer: (() -> Bool?)?
+
+    @discardableResult
+    func commandHostDidInstall() -> Int {
+        commandHostGeneration &+= 1
+        return commandHostGeneration
+    }
+
+    func commandHostBecameUsable(for generation: Int) {
+        guard generation == commandHostGeneration else { return }
+        usableLayoutGeneration &+= 1
+    }
 }

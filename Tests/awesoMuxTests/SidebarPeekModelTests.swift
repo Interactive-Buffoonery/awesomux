@@ -1,6 +1,9 @@
 import AwesoMuxCore
+import AwesoMuxConfig
 import AwesoMuxTestSupport
 import CoreGraphics
+import Foundation
+import SwiftUI
 import Testing
 @testable import awesoMux
 
@@ -25,6 +28,49 @@ struct SidebarPeekModelTests {
 
     private var tint: ProjectTint { ProjectTint(groupName: "g", color: nil, index: 0) }
     private var location: SidebarSessionLocation { .local("~") }
+
+    @Test("session peek stores the inward edge for either sidebar position")
+    func sessionPeekUsesPositionAwareInwardEdge() {
+        let model = SidebarPeekModel()
+        let session = twoPaneSession("A")
+        let frame = CGRect(x: 40, y: 10, width: 80, height: 30)
+
+        model.show(session: session, location: location, tint: tint, frame: frame, position: .left)
+        #expect(model.anchorX == frame.maxX)
+        #expect(model.peekDirection == .right)
+
+        model.updateFrame(for: session.id, frame: frame, position: .right)
+        #expect(model.anchorX == frame.minX)
+        #expect(model.peekDirection == .left)
+    }
+
+    @Test("intrinsic card alignment hugs the rail on either side")
+    func intrinsicCardAlignmentHugsRail() {
+        #expect(SidebarPeekCardAlignmentPolicy.resolve(peekDirection: .right) == .leading)
+        #expect(SidebarPeekCardAlignmentPolicy.resolve(peekDirection: .left) == .trailing)
+    }
+
+    @Test("group peek stores the inward edge for either sidebar position")
+    func groupPeekUsesPositionAwareInwardEdge() {
+        let model = SidebarPeekModel()
+        let (group, a, b) = twoSessionGroup("Code")
+        let frame = CGRect(x: 40, y: 10, width: 80, height: 30)
+
+        model.showGroup(
+            group: group,
+            tint: tint,
+            sessions: [a, b],
+            activeSessionID: a.id,
+            frame: frame,
+            position: .right
+        )
+        #expect(model.anchorX == frame.minX)
+        #expect(model.peekDirection == .left)
+
+        model.updateGroupFrame(for: group.id, frame: frame, position: .left)
+        #expect(model.anchorX == frame.maxX)
+        #expect(model.peekDirection == .right)
+    }
 
     @Test("requestHide hides after the grace when the pointer never reaches the card")
     func requestHideHidesAfterGrace() async {
@@ -55,6 +101,100 @@ struct SidebarPeekModelTests {
         gate.advance()
         await drainMainQueue()
         #expect(model.session?.id == a.id)
+    }
+
+    @Test("peek hover retains temporary sidebar reveal until its own grace ends")
+    func peekHoverRetainsTemporarySidebarReveal() async throws {
+        let peekGate = TestScheduler()
+        let presentationGate = TestScheduler()
+        let peek = SidebarPeekModel(sleep: { duration in await peekGate.wait(for: duration) })
+        let suiteName = "SidebarPeekModelTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SidebarPresentationPreferenceStore(defaults: defaults)
+        store.saveHidden(true)
+        let presentation = SidebarPresentationModel(
+            store: store,
+            delay: { duration in await presentationGate.wait(for: duration) })
+        peek.onPointerChanged = presentation.peekPointerChanged
+        let session = twoPaneSession("A")
+        peek.show(session: session, location: location, tint: tint, frame: .zero)
+        presentation.pointerMoved(x: 15, width: 100, position: .left)
+        presentation.trackingRegionExited()
+        #expect(await waitUntil { presentationGate.sleeperCount == 1 })
+
+        peek.setPointerOverCard(true, for: session.id)
+        presentationGate.advanceOneCycle()
+        await drainMainQueue()
+        #expect(presentation.isTemporarilyRevealed)
+
+        peek.setPointerOverCard(false, for: session.id)
+        #expect(await waitUntil { presentationGate.sleeperCount == 1 })
+        presentationGate.advance()
+        #expect(await waitUntil { !presentation.isSidebarVisible })
+
+        let proxy = SidebarSplitProxy()
+        proxy.setOverlayVisible = { _, _, _ in true }
+        ContentView.reconcileSidebarOverlay(
+            presentation: presentation,
+            peekModel: peek,
+            proxy: proxy,
+            transition: .hover,
+            reduceMotion: true)
+
+        #expect(peek.session == nil)
+        peekGate.advance()
+        await drainMainQueue()
+        #expect(peek.session == nil)
+        #expect(presentation.proximityState == .dormant)
+    }
+
+    @Test("clearing a hovered peek releases sidebar retention")
+    func clearingHoveredPeekReleasesSidebarRetention() async throws {
+        let gate = TestScheduler()
+        let peek = SidebarPeekModel()
+        let suiteName = "SidebarPeekModelTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SidebarPresentationPreferenceStore(defaults: defaults)
+        store.saveHidden(true)
+        let presentation = SidebarPresentationModel(
+            store: store, delay: { duration in await gate.wait(for: duration) })
+        peek.onPointerChanged = presentation.peekPointerChanged
+        let session = twoPaneSession("A")
+        peek.show(session: session, location: location, tint: tint, frame: .zero)
+        presentation.pointerMoved(x: 15, width: 100, position: .left)
+        peek.setPointerOverCard(true, for: session.id)
+        presentation.trackingRegionExited()
+
+        peek.hideAll()
+
+        #expect(peek.session == nil)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        gate.advance()
+        #expect(await waitUntil { !presentation.isSidebarVisible })
+    }
+
+    @Test("stale peek teardown does not steal explicit visibility ownership")
+    func stalePeekTeardownPreservesExplicitOwnership() throws {
+        let peek = SidebarPeekModel()
+        let suiteName = "SidebarPeekModelTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SidebarPresentationPreferenceStore(defaults: defaults)
+        store.saveHidden(false)
+        let presentation = SidebarPresentationModel(store: store)
+        peek.onPointerChanged = presentation.peekPointerChanged
+        let session = twoPaneSession("A")
+        peek.show(session: session, location: location, tint: tint, frame: .zero)
+        peek.setPointerOverCard(true, for: session.id)
+
+        #expect(presentation.applyPersistentHidden(true) { _ in .applied } == .applied)
+        peek.hideAll()
+
+        #expect(presentation.userWantsHidden)
+        #expect(presentation.proximityState == .dormant)
+        #expect(presentation.visibilitySource == .explicit)
     }
 
     @Test("show takeover resets the pointer flag so the new card can still hide")

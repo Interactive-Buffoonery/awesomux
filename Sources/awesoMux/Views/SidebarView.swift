@@ -6,6 +6,23 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum SidebarDragPointerPolicy {
+    static func hoverPublication(
+        isDragActive: Bool,
+        pointerInside: Bool
+    ) -> Bool? {
+        if isDragActive, !pointerInside { return nil }
+        return pointerInside
+    }
+
+    static func clearPublication(
+        wasDragActive: Bool,
+        resampledPointerInside: Bool
+    ) -> Bool? {
+        wasDragActive ? resampledPointerInside : nil
+    }
+}
+
 struct SidebarView: View {
     @Bindable var sessionStore: SessionStore
     let ghosttyRuntime: GhosttyRuntime
@@ -34,6 +51,8 @@ struct SidebarView: View {
     /// switches live as the drag crosses width bands — without re-rendering
     /// `ContentView` or the terminal pane (INT-535).
     let sidebarLiveWidth: SidebarLiveWidth
+    let resampleSidebarPointer: () -> Bool?
+    let onSidebarHover: (Bool) -> Void
 
     @State private var searchText = ""
     @State private var collapsedGroupIDs = Set<SessionGroup.ID>()
@@ -56,6 +75,7 @@ struct SidebarView: View {
     @State private var groupDropIndex: Int?
     @FocusState private var isSearchFocused: Bool
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
+    @FocusState private var isCollapsedEmptyActionFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var isCommandKeyHeld = false
@@ -174,7 +194,8 @@ struct SidebarView: View {
                             displayMode == .collapsed
                         {
                             CollapsedEmptySidebarAction(
-                                onNewWorkspace: addWorkspaceInCurrentContext
+                                onNewWorkspace: addWorkspaceInCurrentContext,
+                                focused: $isCollapsedEmptyActionFocused
                             )
                         }
 
@@ -433,6 +454,15 @@ struct SidebarView: View {
             )
         }
         .background(Color.aw.surface.sidebar)
+        .onHover { pointerInside in
+            guard
+                let publication = SidebarDragPointerPolicy.hoverPublication(
+                    isDragActive: activeDragID != nil,
+                    pointerInside: pointerInside
+                )
+            else { return }
+            onSidebarHover(publication)
+        }
         .accessibilityRotor(
             "Workspaces",
             entries: rotorEntries,
@@ -533,7 +563,13 @@ struct SidebarView: View {
                 ShortcutDiagnostics.log("stage=sidebarView receivedFocusRequest=true")
                 if displayMode == .collapsed {
                     ShortcutDiagnostics.log("stage=sidebarView action=focusRail")
-                    focusKeyboardTarget(defaultSidebarFocusTarget(in: visibleRows))
+                    if let target = defaultSidebarFocusTarget(in: visibleRows) {
+                        isCollapsedEmptyActionFocused = false
+                        focusKeyboardTarget(target)
+                    } else {
+                        focusedRowTarget = nil
+                        isCollapsedEmptyActionFocused = true
+                    }
                     return
                 }
 
@@ -1137,6 +1173,7 @@ struct SidebarView: View {
         activeGroupDragSourceID = kind == .group ? groupID : nil
         activeWorkspaceDragSourceID = workspaceID
         activeWorkspaceDragSourceGroupID = kind == .workspace ? groupID : nil
+        onSidebarHover(true)
         lastDragWatchdogRefresh = Date()
         scheduleSidebarDragStateClear(delay: SidebarDragStateTiming.activeTimeout)
         return dragID
@@ -1169,6 +1206,7 @@ struct SidebarView: View {
     /// so a future field can't be added to one path and forgotten in the
     /// other (which would leave a half-cleared drag).
     private func resetActiveDragState() {
+        let wasDragActive = activeDragID != nil
         activeDragID = nil
         activeDragKind = nil
         activeGroupDragSourceID = nil
@@ -1178,6 +1216,14 @@ struct SidebarView: View {
         lastDragWatchdogRefresh = .distantPast
         sidebarDragClearDeadline = nil
         groupDropIndex = nil
+        guard
+            let pointerInside = resampleSidebarPointer(),
+            SidebarDragPointerPolicy.clearPublication(
+                wasDragActive: wasDragActive,
+                resampledPointerInside: pointerInside
+            ) != nil
+        else { return }
+        onSidebarHover(pointerInside)
     }
 
     private func clearSidebarDragState() {
@@ -1199,6 +1245,7 @@ struct SidebarView: View {
 
 private struct CollapsedEmptySidebarAction: View {
     let onNewWorkspace: () -> Void
+    let focused: FocusState<Bool>.Binding
 
     var body: some View {
         Button(action: onNewWorkspace) {
@@ -1219,6 +1266,7 @@ private struct CollapsedEmptySidebarAction: View {
                 }
         }
         .buttonStyle(.plain)
+        .focused(focused)
         .frame(maxWidth: .infinity)
         .accessibilityLabel("New workspace")
         .help("New Workspace")
