@@ -41,6 +41,11 @@ private final class SidebarSplitRootView: NSView {
     }
 }
 
+private struct SidebarApplicationFocusRecovery {
+    let request: SidebarFocusHandoffRequest
+    let sidebarAccessibilityElement: Any?
+}
+
 /// Native split host for the sidebar/detail divider (INT-535).
 ///
 /// Hosts a bare `NSSplitView` inside a plain `NSViewController`. We deliberately do
@@ -55,15 +60,22 @@ private final class SidebarSplitRootView: NSView {
 /// clock (kills the seam shimmer) and the existing `SurfaceResizeUpdatePolicy`
 /// coalescing engages for free.
 final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
+    typealias AddLocalMouseMovedMonitor = (
+        NSEvent.EventTypeMask, @escaping (NSEvent) -> NSEvent?
+    ) -> Any?
+    typealias RemoveLocalMouseMovedMonitor = (Any) -> Void
+    typealias CurrentMouseLocation = () -> NSPoint
+    typealias ApplicationIsActive = () -> Bool
+
     /// Fires on every divider resize tick with the sidebar pane's live width.
     var onLiveWidthChange: ((CGFloat) -> Void)?
 
     /// Fires once when a user divider drag ends (wired in A6).
     var onCommitWidth: ((CGFloat) -> Void)?
 
-    /// Moves focus out of the sidebar before it becomes zero-width. Returns
-    /// whether the caller established a visible first responder.
-    var onSidebarFocusHandoff: ((SidebarFocusHandoffRequest) -> Bool)?
+    /// Moves focus out of the sidebar before it becomes zero-width and reports
+    /// the exact destination plus the focus modalities established there.
+    var onSidebarFocusHandoff: ((SidebarFocusHandoffRequest) -> SidebarFocusHandoffOutcome?)?
 
     var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
     var onEdgeExit: (() -> Void)?
@@ -91,7 +103,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var sidebarViewController: NSViewController { sidebarChild }
     var detailViewController: NSViewController { detailChild }
     private var sidebarPosition: AppearanceConfig.SidebarPosition = .left
-    private var isSidebarHidden = false
+    private var isSidebarHidden = false {
+        didSet {
+            splitView.isPersistentSidebarHidden = isSidebarHidden
+        }
+    }
     private var isEdgeTrackingEnabled = false
     private var hostMode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.expandedWidth)
     private var selectedSidebarWidth: CGFloat = SidebarWidthPolicy.expandedWidth
@@ -102,6 +118,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private let overlayPresentationTranslation: (() -> CGFloat?)?
     private let interactionFocusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement?
     private let interactionNotificationCenter: NotificationCenter
+    private let addLocalMouseMovedMonitor: AddLocalMouseMovedMonitor
+    private let removeLocalMouseMovedMonitor: RemoveLocalMouseMovedMonitor
+    private let currentMouseLocation: CurrentMouseLocation
+    private let applicationIsActive: ApplicationIsActive
+    private var localMouseMovedMonitor: Any?
+    private weak var localMouseMovedWindow: NSWindow?
+    private var localMouseMovedWindowPreviouslyAcceptedEvents = false
+    nonisolated(unsafe) private var applicationActivityObservations: [NSObjectProtocol] = []
+    private var acceptsApplicationPointerEvents = true
+    private var applicationFocusRecovery: SidebarApplicationFocusRecovery?
 
     /// Set around our own `setPosition` calls so `splitViewDidResizeSubviews` (which
     /// also fires for programmatic position changes and window layout) does not echo
@@ -109,6 +135,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var isSettingPositionProgrammatically = false
     private var isPerformingHostHandoff = false
     private var isFinalized = false
+    private weak var installedCommandProxy: SidebarSplitProxy?
+    private var installedCommandHostGeneration: Int?
+    private var didPublishUsableCommandHost = false
     #if DEBUG
         private var dividerIntentCount = 0
         private var isGeometryInstrumentationArmedForTesting = false
@@ -136,7 +165,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         overlayPresentationTranslation: (() -> CGFloat?)? = nil,
         overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner? = nil,
         interactionFocusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement? = nil,
-        interactionNotificationCenter: NotificationCenter = .default
+        interactionNotificationCenter: NotificationCenter = .default,
+        addLocalMouseMovedMonitor: @escaping AddLocalMouseMovedMonitor = NSEvent.addLocalMonitorForEvents,
+        removeLocalMouseMovedMonitor: @escaping RemoveLocalMouseMovedMonitor = NSEvent.removeMonitor,
+        currentMouseLocation: @escaping CurrentMouseLocation = { NSEvent.mouseLocation },
+        applicationIsActive: @escaping ApplicationIsActive = { NSApp.isActive }
     ) {
         sidebarChild = sidebar
         detailChild = detail
@@ -144,6 +177,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         self.overlayAnimationRunner = overlayAnimationRunner
         self.interactionFocusedAccessibilityElement = interactionFocusedAccessibilityElement
         self.interactionNotificationCenter = interactionNotificationCenter
+        self.addLocalMouseMovedMonitor = addLocalMouseMovedMonitor
+        self.removeLocalMouseMovedMonitor = removeLocalMouseMovedMonitor
+        self.currentMouseLocation = currentMouseLocation
+        self.applicationIsActive = applicationIsActive
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -178,7 +215,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         edgeTrackingView.isHidden = !isEdgeTrackingEnabled
         edgeTrackingView.position = sidebarPosition
         edgeTrackingView.onPointerMove = { [weak self] x, width in
-            self?.installInteractionMonitor()
             self?.onEdgePointerMove?(x, width)
         }
         edgeTrackingView.onExit = { [weak self] in
@@ -220,12 +256,13 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         root.addSubview(overlayClipView)
         root.addSubview(edgeTrackingView)
         view = root
-        installInteractionMonitor()
+        installApplicationActivityObserversIfNeeded()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
         splitView.frame = view.bounds
+        publishCommandHostUsableIfNeeded()
         if case .overlay = hostMode { layoutOverlayPreservingAnimation() }
         let trackingWidth = max(0, view.bounds.width / 3)
         let trackingFrame = CGRect(
@@ -271,10 +308,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         settleAttached()
     }
 
-    deinit {
-        MainActor.assumeIsolated {
-            settleFinal()
-        }
+    isolated deinit {
+        settleFinal()
     }
 
     // MARK: - Public API
@@ -308,7 +343,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func setSelectedSidebarWidth(_ width: CGFloat) {
-        selectedSidebarWidth = Self.clampedWidth(width, maxWidth: maxSidebarWidth)
+        selectedSidebarWidth = Self.clampedWidth(width, maxWidth: .greatestFiniteMagnitude)
+        userChoseRail = selectedSidebarWidth < SidebarWidthPolicy.railThreshold
+        recordIfExpanded(selectedSidebarWidth)
         pendingWidth = selectedSidebarWidth
         switch hostMode {
         case .overlay:
@@ -324,36 +361,44 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
     }
 
-    func setOverlayPresentedImmediately(_ presented: Bool) {
+    @discardableResult
+    func setOverlayPresentedImmediately(_ presented: Bool) -> Bool {
         setOverlayPresented(presented, transition: .immediate, reduceMotion: true)
     }
 
+    @discardableResult
     func setOverlayPresented(
         _ presented: Bool,
         transition: SidebarOverlayTransition,
         reduceMotion: Bool
-    ) {
-        guard isSidebarHidden else { return }
+    ) -> Bool {
+        guard isSidebarHidden else { return false }
         if presented {
             guard overlayContentView.layer != nil, overlayAnimator != nil else {
                 reconcileStableHiddenOwnership()
-                return
+                return false
             }
             let wasStablyHidden = hostMode == .hidden
             moveSidebarHost(to: overlayContentView)
             overlayClipView.isHidden = false
             layoutOverlay(presented: false)
             hostMode = .overlay(width: selectedSidebarWidth)
+            installInteractionMonitor()
             hostPresentationState.settle(
                 mode: hostMode, effectiveVisibleWidth: selectedSidebarWidth)
             if wasStablyHidden {
+                onLiveWidthChange?(overlayClipView.bounds.width)
                 overlayAnimator?.cancelAndSettle(
                     presented: false,
                     width: overlayClipView.bounds.width,
                     position: sidebarPosition)
             }
         } else {
-            guard !sidebarAccessibilityFocusIsActive else { return }
+            let hasAccessibilityFocus = sidebarAccessibilityFocusIsActive
+            guard !hasAccessibilityFocus, interactionMonitor?.isActive != true else {
+                interactionMonitor?.synchronizeActiveState()
+                return true
+            }
             sidebarChild.view.setAccessibilityHidden(true)
         }
         hostPresentationState.beginOverlayTransition(
@@ -370,6 +415,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             self?.finishOverlayTransition(presented: presented)
         }
         hostPresentationState.setOverlayAnimating(overlayAnimator?.isAnimating == true)
+        return true
     }
 
     var maxSidebarWidth: CGFloat {
@@ -378,21 +424,40 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     func setSidebarPosition(_ position: AppearanceConfig.SidebarPosition) {
         guard position != sidebarPosition else { return }
+        interactionMonitor?.synchronizeActiveState()
+        let preservesVisibleOverlay: Bool
+        if isViewLoaded, isSidebarHidden, case .overlay = hostMode,
+            interactionMonitor?.isActive == true
+        {
+            preservesVisibleOverlay = true
+        } else {
+            preservesVisibleOverlay = false
+        }
         if isViewLoaded, isSidebarHidden, case .overlay = hostMode {
             overlayAnimator?.cancelAndSettle(
-                presented: false, width: overlayClipView.bounds.width, position: sidebarPosition)
-            reconcileStableHiddenOwnership()
+                presented: preservesVisibleOverlay,
+                width: overlayClipView.bounds.width,
+                position: sidebarPosition)
+            overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
+            if !preservesVisibleOverlay {
+                reconcileStableHiddenOwnership()
+            }
         }
         let width = sidebarPaneWidth
         sidebarPosition = position
         edgeTrackingView.position = position
         if isSidebarHidden {
-            hostPresentationState.beginOverlayTransition(
-                presented: false,
-                width: selectedSidebarWidth,
-                position: position)
+            if preservesVisibleOverlay {
+                hostPresentationState.setOverlayAnimating(false)
+            } else {
+                hostPresentationState.beginOverlayTransition(
+                    presented: false,
+                    width: selectedSidebarWidth,
+                    position: position)
+            }
         }
         guard isViewLoaded else { return }
+        view.needsLayout = true
         let responder = view.window?.firstResponder
         let ownsResponder = [sidebarChild.view, detailChild.view].contains { root in
             guard let responderView = responder as? NSView else { return false }
@@ -410,7 +475,21 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         splitView.adjustSubviews()
         if isSidebarHidden {
             applyHiddenPosition()
-            if case .overlay = hostMode { layoutOverlay(presented: true) }
+            if preservesVisibleOverlay {
+                layoutOverlay(presented: true)
+                overlayAnimator?.cancelAndSettle(
+                    presented: true,
+                    width: overlayClipView.bounds.width,
+                    position: position)
+                overlayClipView.isHidden = false
+                sidebarChild.view.setAccessibilityHidden(false)
+                hostMode = .overlay(width: overlayClipView.bounds.width)
+                hostPresentationState.settle(
+                    mode: hostMode,
+                    effectiveVisibleWidth: overlayClipView.bounds.width)
+            } else if case .overlay = hostMode {
+                layoutOverlay(presented: true)
+            }
         } else {
             applyPosition(width)
         }
@@ -423,13 +502,33 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         setPersistentSidebarVisible(!hidden)
     }
 
-    func setPersistentSidebarVisible(_ visible: Bool) {
+    @discardableResult
+    func setPersistentSidebarVisible(_ visible: Bool) -> Bool {
+        guard !isFinalized else { return false }
+        return applyPersistentSidebarVisible(visible) == .applied
+    }
+
+    func deliverPersistentSidebarVisible(
+        _ visible: Bool
+    ) -> SidebarPersistentVisibilityDeliveryResult {
+        guard !isFinalized else { return .deferredUntilHostReady }
+        guard
+            isViewLoaded,
+            splitView.bounds.width > 0,
+            overlayContentView.layer != nil
+        else { return .deferredUntilHostReady }
+        return applyPersistentSidebarVisible(visible)
+    }
+
+    private func applyPersistentSidebarVisible(
+        _ visible: Bool
+    ) -> SidebarPersistentVisibilityDeliveryResult {
         if visible {
-            if !isSidebarHidden, case .persistent = hostMode { return }
-            performAtomicPersistentShow()
+            if !isSidebarHidden, case .persistent = hostMode { return .applied }
+            return performAtomicPersistentShow()
         } else {
-            if isSidebarHidden, hostMode == .hidden { return }
-            performAtomicPersistentHide()
+            if isSidebarHidden, hostMode == .hidden { return .applied }
+            return performAtomicPersistentHide()
         }
     }
 
@@ -438,7 +537,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         isEdgeTrackingEnabled = enabled
         guard isViewLoaded else { return }
         edgeTrackingView.isHidden = !enabled
-        if !enabled {
+        if enabled {
+            installEdgeMouseMovedMonitorIfNeeded()
+        } else {
+            removeEdgeMouseMovedMonitor()
             edgeTrackingView.invalidatePointer()
         }
     }
@@ -447,10 +549,54 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         interactionMonitor?.pointerChanged(inside)
     }
 
-    func installPersistentVisibilityHandler(on proxy: SidebarSplitProxy) {
-        proxy.setPersistentVisible = { [weak self] visible in
-            self?.setPersistentSidebarVisible(visible)
+    func resampleSidebarPointer() -> Bool? {
+        guard isViewLoaded, let window = view.window else { return nil }
+        let windowPoint = window.convertPoint(fromScreen: currentMouseLocation())
+        edgeTrackingView.synchronizePointer(locationInWindow: windowPoint)
+        let sidebarPoint = sidebarChild.view.convert(windowPoint, from: nil)
+        return sidebarChild.view.bounds.contains(sidebarPoint)
+    }
+
+    func installCommandHandlers(on proxy: SidebarSplitProxy) {
+        guard !isFinalized else { return }
+        proxy.setSelectedWidth = { [weak self] width in
+            self?.setSelectedSidebarWidth(width)
         }
+        proxy.setOverlayVisible = { [weak self] visible, transition, reduceMotion in
+            self?.setOverlayPresented(
+                visible, transition: transition, reduceMotion: reduceMotion) == true
+        }
+        proxy.setPersistentVisible = { [weak self] visible in
+            guard let self else { return .deferredUntilHostReady }
+            return self.deliverPersistentSidebarVisible(visible)
+        }
+        proxy.setPosition = { [weak self] position in
+            self?.setSidebarPosition(position)
+        }
+        proxy.sidebarPointerChanged = { [weak self] inside in
+            self?.sidebarPointerChanged(inside)
+        }
+        proxy.resampleSidebarPointer = { [weak self] in
+            self?.resampleSidebarPointer()
+        }
+        installedCommandProxy = proxy
+        installedCommandHostGeneration = proxy.commandHostDidInstall()
+        didPublishUsableCommandHost = false
+        publishCommandHostUsableIfNeeded()
+    }
+
+    private func publishCommandHostUsableIfNeeded() {
+        guard
+            !isFinalized,
+            !didPublishUsableCommandHost,
+            let proxy = installedCommandProxy,
+            let generation = installedCommandHostGeneration,
+            isViewLoaded,
+            splitView.bounds.width > 0,
+            overlayContentView.layer != nil
+        else { return }
+        didPublishUsableCommandHost = true
+        proxy.commandHostBecameUsable(for: generation)
     }
 
     func simulateDividerDragCompletionForTesting() {
@@ -461,11 +607,14 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var edgeTrackingViewForTesting: SidebarEdgeTrackingView { edgeTrackingView }
     var isEdgeTrackingVisibleForTesting: Bool { !edgeTrackingView.isHidden }
     var splitPaneViewsForTesting: [NSView] { splitView.subviews }
+    var splitViewForTesting: NSSplitView { splitView }
+    var dividerThicknessForTesting: CGFloat { splitView.dividerThickness }
     var sidebarPaneContainerForTesting: NSView { sidebarPaneContainer }
     var overlayClipViewForTesting: SidebarOverlayClipView { overlayClipView }
     var overlayContentViewForTesting: NSView { overlayContentView }
     var hostModeForTesting: SidebarHostMode { hostMode }
     var sidebarSplitPaneWidthForTesting: CGFloat { sidebarPaneContainer.frame.width }
+    func resampleSidebarPointerForTesting() -> Bool? { resampleSidebarPointer() }
     #if DEBUG
         var dividerIntentCountForTesting: Int { dividerIntentCount }
         var splitPositionMutationIntentCountForTesting: Int { splitPositionMutationIntentCount }
@@ -570,38 +719,188 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private func handOffSidebarFocusIfNeeded(requiresAccessibilityFocus: Bool) -> Bool {
         let window = view.window
         let responderView = window?.firstResponder as? NSView
-        let keyboardFocusIsInSidebar =
-            responderView.map {
-                $0 === sidebarChild.view || $0.isDescendant(of: sidebarChild.view)
-            } ?? false
+        let sidebarKeyboardFocus = sidebarKeyboardFocusView(for: responderView)
+        let keyboardFocusIsInSidebar = sidebarKeyboardFocus != nil
         guard keyboardFocusIsInSidebar || requiresAccessibilityFocus else { return true }
+        let originalResponder = keyboardFocusOwner(for: responderView)
+        let originalSidebarAccessibilityElement =
+            requiresAccessibilityFocus ? focusedSidebarAccessibilityElement : nil
 
-        let establishedVisibleResponder =
-            onSidebarFocusHandoff?(
-                SidebarFocusHandoffRequest(
-                    requiresAccessibilityFocus: requiresAccessibilityFocus)) == true
-        let currentResponderIsStillInSidebar =
-            (window?.firstResponder as? NSView).map {
-                $0 === sidebarChild.view || $0.isDescendant(of: sidebarChild.view)
-            } ?? false
-        if keyboardFocusIsInSidebar,
-            !establishedVisibleResponder || currentResponderIsStillInSidebar
-        {
-            window?.makeFirstResponder(nil)
+        let request = SidebarFocusHandoffRequest(
+            requiresKeyboardFocus: keyboardFocusIsInSidebar,
+            requiresAccessibilityFocus: requiresAccessibilityFocus)
+        let outcome = onSidebarFocusHandoff?(request)
+        let keyboardHandoffSucceeded =
+            !keyboardFocusIsInSidebar
+            || outcome.map { hasVerifiedKeyboardFocus($0, in: window) } == true
+        let accessibilityHandoffSucceeded =
+            !requiresAccessibilityFocus
+            || outcome.map { hasVerifiedAccessibilityFocus($0, in: window) } == true
+        guard keyboardHandoffSucceeded, accessibilityHandoffSucceeded else {
+            restoreSidebarFocus(
+                responder: originalResponder,
+                accessibilityElement: originalSidebarAccessibilityElement,
+                in: window)
+            return false
         }
-        return !requiresAccessibilityFocus || establishedVisibleResponder
+        if requiresAccessibilityFocus,
+            let element = originalSidebarAccessibilityElement as? NSAccessibilityProtocol,
+            sidebarContainsAccessibilityElement(element)
+        {
+            element.setAccessibilityFocused(false)
+        }
+        return true
     }
 
-    private func performAtomicPersistentShow() {
-        guard isViewLoaded, splitView.bounds.width > 0, overlayContentView.layer != nil else {
-            isSidebarHidden = true
-            reconcileStableHiddenOwnership()
-            applyHiddenPosition()
-            setEdgeTrackingEnabled(true)
-            return
+    private func sidebarKeyboardFocusView(for responder: NSResponder?) -> NSView? {
+        guard let view = responder as? NSView else { return nil }
+        if let fieldEditor = view as? NSTextView,
+            fieldEditor.isFieldEditor,
+            let owner = fieldEditor.delegate as? NSView,
+            owner === sidebarChild.view || owner.isDescendant(of: sidebarChild.view)
+        {
+            return owner
         }
-        let target = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
-        var capturedResponder: NSResponder?
+        if view === sidebarChild.view || view.isDescendant(of: sidebarChild.view) {
+            return view
+        }
+        return nil
+    }
+
+    private func clearSidebarKeyboardFocusIfNeeded(in window: NSWindow?) -> Bool {
+        guard let window,
+            sidebarKeyboardFocusView(for: window.firstResponder) != nil
+        else { return true }
+        window.endEditing(for: nil)
+        if sidebarKeyboardFocusView(for: window.firstResponder) == nil {
+            return true
+        }
+        guard window.makeFirstResponder(nil) else { return false }
+        return sidebarKeyboardFocusView(for: window.firstResponder) == nil
+    }
+
+    private func keyboardFocusOwner(for responder: NSResponder?) -> NSView? {
+        guard let view = responder as? NSView else { return nil }
+        if let fieldEditor = view as? NSTextView,
+            fieldEditor.isFieldEditor,
+            let owner = fieldEditor.delegate as? NSView
+        {
+            return owner
+        }
+        return view
+    }
+
+    private func hasVisibleKeyboardFocusOutsideSidebar(in window: NSWindow?) -> Bool {
+        guard let window, let responderView = window.firstResponder as? NSView,
+            sidebarKeyboardFocusView(for: responderView) == nil
+        else { return false }
+        let focusView = keyboardFocusOwner(for: responderView) ?? responderView
+        return isVisibleKeyView(focusView, in: window)
+    }
+
+    private func hasVerifiedKeyboardFocus(
+        _ outcome: SidebarFocusHandoffOutcome,
+        in window: NSWindow?
+    ) -> Bool {
+        guard outcome.keyboardFocusSucceeded,
+            let window,
+            isValidHandoffDestination(outcome.destination, in: window),
+            let responder = window.firstResponder
+        else { return false }
+        return keyboardFocusOwner(for: responder) === outcome.destination
+    }
+
+    private func hasVerifiedAccessibilityFocus(
+        _ outcome: SidebarFocusHandoffOutcome,
+        in window: NSWindow?
+    ) -> Bool {
+        guard outcome.accessibilityFocusSucceeded,
+            let window,
+            isValidHandoffDestination(outcome.destination, in: window),
+            outcome.destination.isAccessibilityFocused(),
+            let focusedElement = currentFocusedAccessibilityElement
+        else { return false }
+        return SidebarInteractionMonitor.containsAccessibilityElement(
+            focusedElement, in: outcome.destination)
+    }
+
+    private func isValidHandoffDestination(_ destination: NSView, in window: NSWindow) -> Bool {
+        guard destination.window === window,
+            let root = window.contentView,
+            destination === root || destination.isDescendant(of: root),
+            destination !== sidebarChild.view,
+            !destination.isDescendant(of: sidebarChild.view)
+        else { return false }
+        return isVisibleKeyView(destination, in: window)
+    }
+
+    private func hasVisibleAccessibilityFocusOutsideSidebar(in window: NSWindow) -> Bool {
+        guard window.isVisible, window.isKeyWindow,
+            let root = window.contentView,
+            let element = currentFocusedAccessibilityElement,
+            !sidebarContainsAccessibilityElement(element),
+            SidebarInteractionMonitor.containsAccessibilityElement(element, in: root),
+            let focusView = accessibilityFocusView(for: element)
+        else { return false }
+        return isVisibleKeyView(focusView, in: window)
+    }
+
+    private func accessibilityFocusView(for element: Any) -> NSView? {
+        var current: Any? = element
+        var visited: Set<ObjectIdentifier> = []
+        while let candidate = current,
+            visited.insert(ObjectIdentifier(candidate as AnyObject)).inserted
+        {
+            if let view = candidate as? NSView { return view }
+            current = (candidate as? NSAccessibilityProtocol)?.accessibilityParent()
+        }
+        return nil
+    }
+
+    private func isVisibleKeyView(_ view: NSView, in window: NSWindow) -> Bool {
+        guard view.window === window, let root = window.contentView else { return false }
+        var current: NSView? = view
+        while let ancestor = current {
+            if ancestor.isHidden || ancestor.alphaValue == 0 { return false }
+            current = ancestor.superview
+        }
+
+        let clippedBounds = view.bounds.intersection(view.visibleRect)
+        guard !clippedBounds.isEmpty else { return false }
+        let frameInRoot = view.convert(clippedBounds, to: root)
+        let rootVisibleBounds = root.bounds.intersection(root.visibleRect)
+        return !frameInRoot.intersection(rootVisibleBounds).isEmpty
+    }
+
+    private func restoreSidebarFocus(
+        responder: NSView?,
+        accessibilityElement: Any?,
+        in window: NSWindow?
+    ) {
+        guard isFocusHandoffReady(in: window) else { return }
+        if let window, let responder, isVisibleKeyView(responder, in: window) {
+            window.makeFirstResponder(responder)
+        }
+        if let accessibilityElement = accessibilityElement as? NSAccessibilityProtocol,
+            sidebarContainsAccessibilityElement(accessibilityElement)
+        {
+            accessibilityElement.setAccessibilityFocused(true)
+        }
+    }
+
+    private func isFocusHandoffReady(in window: NSWindow?) -> Bool {
+        applicationIsActive() && window?.isVisible == true && window?.isKeyWindow == true
+    }
+
+    private func performAtomicPersistentShow() -> SidebarPersistentVisibilityDeliveryResult {
+        guard isViewLoaded, splitView.bounds.width > 0, overlayContentView.layer != nil else {
+            if isSidebarHidden {
+                setEdgeTrackingEnabled(true)
+            }
+            return .deferredUntilHostReady
+        }
+        var target = selectedSidebarWidth
+        var capturedResponder: NSView?
         let capturedAccessibilityElement = focusedSidebarAccessibilityElement
         var handoffSucceeded = true
         isPerformingHostHandoff = true
@@ -617,11 +916,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             overlayAnimator?.cancelAndSettle(
                 presented: true, width: overlayClipView.bounds.width, position: sidebarPosition)
             record(.captureSidebarResponder)
-            if let responder = view.window?.firstResponder as? NSView,
-                responder === sidebarChild.view || responder.isDescendant(of: sidebarChild.view)
-            {
-                capturedResponder = responder
-            }
+            capturedResponder = sidebarKeyboardFocusView(for: view.window?.firstResponder)
+            isSidebarHidden = false
+            target = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
             record(.removeOverlayAnimation)
             overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
             record(.reparentHostToSplitContainer)
@@ -632,6 +929,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             {
                 handoffSucceeded = false
                 lastPreservedSidebarAccessibilityElementForTesting = false
+                isSidebarHidden = true
                 moveSidebarHost(to: overlayContentView)
                 overlayClipView.isHidden = false
                 layoutOverlay(presented: true)
@@ -639,7 +937,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                 return
             }
             record(.setPersistentState)
-            isSidebarHidden = false
             pendingWidth = nil
             hostMode = .persistent(width: target)
             sidebarChild.view.setAccessibilityHidden(false)
@@ -653,9 +950,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             record(.hideOverlayContainer)
             overlayClipView.isHidden = true
             record(.restoreSidebarResponder)
-            if let capturedResponder = capturedResponder as? NSView,
-                capturedResponder === sidebarChild.view
-                    || capturedResponder.isDescendant(of: sidebarChild.view)
+            if isFocusHandoffReady(in: view.window),
+                let capturedResponder,
+                sidebarKeyboardFocusView(for: capturedResponder) != nil
             {
                 view.window?.makeFirstResponder(capturedResponder)
             }
@@ -668,35 +965,57 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             hostMode = .overlay(width: selectedSidebarWidth)
             hostPresentationState.settle(
                 mode: hostMode, effectiveVisibleWidth: selectedSidebarWidth)
-            return
+            return .rejected
         }
+        applicationFocusRecovery = nil
         let rendered = sidebarPaneWidth
         hostMode = .persistent(width: rendered)
         recordIfExpanded(rendered)
         onLiveWidthChange?(rendered)
         hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
         setEdgeTrackingEnabled(false)
+        removeInteractionMonitor()
+        return .applied
     }
 
-    private func performAtomicPersistentHide() {
+    private func performAtomicPersistentHide() -> SidebarPersistentVisibilityDeliveryResult {
+        if isViewLoaded {
+            record(.captureSidebarResponder)
+            record(.querySidebarAccessibilityFocus)
+            let requiresAccessibilityFocus = sidebarAccessibilityFocusIsActive
+            let requiresKeyboardFocus =
+                sidebarKeyboardFocusView(for: view.window?.firstResponder) != nil
+            lastCapturedSidebarAccessibilityFocusForTesting = requiresAccessibilityFocus
+            if requiresKeyboardFocus || requiresAccessibilityFocus,
+                !isFocusHandoffReady(in: view.window)
+            {
+                applicationFocusRecovery = SidebarApplicationFocusRecovery(
+                    request: SidebarFocusHandoffRequest(
+                        requiresKeyboardFocus: requiresKeyboardFocus,
+                        requiresAccessibilityFocus: requiresAccessibilityFocus),
+                    sidebarAccessibilityElement: requiresAccessibilityFocus
+                        ? focusedSidebarAccessibilityElement : nil)
+                guard clearSidebarKeyboardFocusIfNeeded(in: view.window) else {
+                    applicationFocusRecovery = nil
+                    return .rejected
+                }
+            } else {
+                record(.handOffSidebarFocus)
+                guard
+                    handOffSidebarFocusIfNeeded(
+                        requiresAccessibilityFocus: requiresAccessibilityFocus)
+                else { return .rejected }
+            }
+        }
         guard isViewLoaded, splitView.bounds.width > 0, overlayContentView.layer != nil else {
             isSidebarHidden = true
             reconcileStableHiddenOwnership()
             applyHiddenPosition()
             setEdgeTrackingEnabled(true)
-            return
+            return .applied
         }
         pendingWidth = selectedSidebarWidth
         recordIfExpanded(sidebarPaneWidth)
-        record(.captureSidebarResponder)
-        record(.querySidebarAccessibilityFocus)
-        let requiresAccessibilityFocus = sidebarAccessibilityFocusIsActive
-        lastCapturedSidebarAccessibilityFocusForTesting = requiresAccessibilityFocus
-        record(.handOffSidebarFocus)
-        guard
-            handOffSidebarFocusIfNeeded(
-                requiresAccessibilityFocus: requiresAccessibilityFocus)
-        else { return }
         isPerformingHostHandoff = true
         record(.beginNoActionsTransaction)
         NSAnimationContext.runAnimationGroup { context in
@@ -713,6 +1032,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             record(.reparentHostToSplitContainer)
             moveSidebarHost(to: sidebarPaneContainer)
             record(.setHiddenState)
+            interactionMonitor?.pointerChanged(false)
             isSidebarHidden = true
             hostMode = .hidden
             record(.applySingleCollapseIntent)
@@ -729,6 +1049,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         record(.endNoActionsTransaction)
         isPerformingHostHandoff = false
+        removeInteractionMonitor()
         hostPresentationState.settle(mode: .hidden, effectiveVisibleWidth: 0)
         hostPresentationState.beginOverlayTransition(
             presented: false,
@@ -736,6 +1057,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             position: sidebarPosition)
         record(.enableEdgeTracking)
         setEdgeTrackingEnabled(true)
+        return .applied
     }
 
     private func record(_ action: SidebarHostHandoffAction) {
@@ -758,6 +1080,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func reconcileStableHiddenOwnership() {
+        interactionMonitor?.pointerChanged(false)
         overlayAnimator?.cancelAndSettle(
             presented: false, width: overlayContentView.bounds.width, position: sidebarPosition)
         moveSidebarHost(to: sidebarPaneContainer)
@@ -770,13 +1093,17 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             presented: false,
             width: selectedSidebarWidth,
             position: sidebarPosition)
+        removeInteractionMonitor()
     }
 
     private var sidebarAccessibilityFocusIsActive: Bool {
         if let hasActiveSidebarAccessibilityFocus {
             return hasActiveSidebarAccessibilityFocus()
         }
-        return interactionMonitor?.hasAccessibilityFocus == true
+        if let interactionMonitor {
+            return interactionMonitor.hasAccessibilityFocus
+        }
+        return focusedSidebarAccessibilityElement != nil
     }
 
     private var focusedSidebarAccessibilityElement: Any? {
@@ -784,30 +1111,51 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             guard let element = sidebarAccessibilityFocusedElement() else { return nil }
             return sidebarContainsAccessibilityElement(element) ? element : nil
         }
-        return interactionMonitor?.focusedAccessibilityElementInsideSidebar
+        if let interactionMonitor {
+            return interactionMonitor.focusedAccessibilityElementInsideSidebar
+        }
+        let element = currentFocusedAccessibilityElement
+        guard let element else { return nil }
+        return sidebarContainsAccessibilityElement(element) ? element : nil
+    }
+
+    private var currentFocusedAccessibilityElement: Any? {
+        interactionFocusedAccessibilityElement?()
+            ?? NSApp.accessibilityFocusedUIElement
     }
 
     private func sidebarContainsAccessibilityElement(_ element: Any) -> Bool {
         interactionMonitor?.containsAccessibilityElement(element)
-            ?? ((element as? NSView).map {
-                $0 === sidebarChild.view || $0.isDescendant(of: sidebarChild.view)
-            } ?? false)
+            ?? SidebarInteractionMonitor.containsAccessibilityElement(
+                element, in: sidebarChild.view)
     }
 
     private func installInteractionMonitor() {
-        guard isViewLoaded, interactionMonitor == nil else { return }
+        guard isViewLoaded, case .overlay = hostMode, interactionMonitor == nil else { return }
         interactionMonitor = SidebarInteractionMonitor(
             sidebarRoot: sidebarChild.view,
             focusedAccessibilityElement: interactionFocusedAccessibilityElement,
             notificationCenter: interactionNotificationCenter,
+            isAccessibilityRefreshRelevant: { [weak self] in
+                guard let self, case .overlay = self.hostMode else { return false }
+                return true
+            },
             onActiveChange: { [weak self] active in
                 self?.onSidebarInteractionChanged?(active)
             })
     }
 
-    func settleDetached() {
+    private func removeInteractionMonitor() {
         interactionMonitor?.detach()
         interactionMonitor = nil
+    }
+
+    func settleDetached() {
+        applicationFocusRecovery = nil
+        removeApplicationActivityObservers()
+        removeEdgeMouseMovedMonitor()
+        edgeTrackingView.invalidatePointer()
+        removeInteractionMonitor()
         guard isViewLoaded else { return }
         overlayAnimator?.cancelAndSettle(
             presented: false,
@@ -829,7 +1177,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     private func settleAttached() {
         guard !isFinalized else { return }
-        installInteractionMonitor()
+        installApplicationActivityObserversIfNeeded()
+        installEdgeMouseMovedMonitorIfNeeded()
+        if case .overlay = hostMode {
+            installInteractionMonitor()
+        }
         guard !isSidebarHidden, case .persistent = hostMode else { return }
         sidebarChild.view.setAccessibilityHidden(false)
         hostPresentationState.settle(
@@ -862,6 +1214,219 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     private func settleFinal() {
         finalizeOwnedLifecycle()
+    }
+
+    private func installEdgeMouseMovedMonitorIfNeeded() {
+        guard
+            isEdgeTrackingEnabled,
+            isViewLoaded,
+            let owningWindow = view.window
+        else { return }
+        if let localMouseMovedWindow, localMouseMovedWindow !== owningWindow {
+            removeEdgeMouseMovedMonitor()
+        }
+        guard localMouseMovedMonitor == nil else { return }
+        let previouslyAcceptedEvents = owningWindow.acceptsMouseMovedEvents
+        owningWindow.acceptsMouseMovedEvents = true
+        guard
+            let monitor = addLocalMouseMovedMonitor(
+                .mouseMoved,
+                { [weak self] event in
+                    guard
+                        let self,
+                        self.acceptsApplicationPointerEvents,
+                        let owningWindow = self.view.window,
+                        event.window === owningWindow
+                    else { return event }
+                    self.edgeTrackingView.synchronizePointer(locationInWindow: event.locationInWindow)
+                    return event
+                })
+        else {
+            owningWindow.acceptsMouseMovedEvents = previouslyAcceptedEvents
+            return
+        }
+        localMouseMovedWindow = owningWindow
+        localMouseMovedWindowPreviouslyAcceptedEvents = previouslyAcceptedEvents
+        localMouseMovedMonitor = monitor
+    }
+
+    private func removeEdgeMouseMovedMonitor() {
+        if let localMouseMovedMonitor {
+            removeLocalMouseMovedMonitor(localMouseMovedMonitor)
+        }
+        localMouseMovedWindow?.acceptsMouseMovedEvents =
+            localMouseMovedWindowPreviouslyAcceptedEvents
+        self.localMouseMovedMonitor = nil
+        localMouseMovedWindow = nil
+        localMouseMovedWindowPreviouslyAcceptedEvents = false
+    }
+
+    private func installApplicationActivityObserversIfNeeded() {
+        guard applicationActivityObservations.isEmpty else { return }
+        acceptsApplicationPointerEvents = applicationIsActive()
+        edgeTrackingView.acceptsPointerUpdates = acceptsApplicationPointerEvents
+        applicationActivityObservations.append(
+            interactionNotificationCenter.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.acceptsApplicationPointerEvents = false
+                    self.edgeTrackingView.acceptsPointerUpdates = false
+                    if self.isSidebarHidden {
+                        let existingRecovery = self.applicationFocusRecovery
+                        let currentAccessibilityFocus =
+                            self.sidebarAccessibilityFocusIsActive
+                        let currentKeyboardFocus =
+                            self.sidebarKeyboardFocusView(
+                                for: self.view.window?.firstResponder) != nil
+                        let requiresKeyboardFocus =
+                            existingRecovery?.request.requiresKeyboardFocus == true
+                            || currentKeyboardFocus
+                        let requiresAccessibilityFocus =
+                            existingRecovery?.request.requiresAccessibilityFocus == true
+                            || currentAccessibilityFocus
+                        if requiresKeyboardFocus || requiresAccessibilityFocus {
+                            let currentSidebarAccessibilityElement =
+                                currentAccessibilityFocus
+                                ? self.focusedSidebarAccessibilityElement : nil
+                            self.applicationFocusRecovery = SidebarApplicationFocusRecovery(
+                                request: SidebarFocusHandoffRequest(
+                                    requiresKeyboardFocus: requiresKeyboardFocus,
+                                    requiresAccessibilityFocus: requiresAccessibilityFocus),
+                                sidebarAccessibilityElement: requiresAccessibilityFocus
+                                    ? currentSidebarAccessibilityElement
+                                        ?? existingRecovery?.sidebarAccessibilityElement
+                                    : nil)
+                            _ = self.clearSidebarKeyboardFocusIfNeeded(in: self.view.window)
+                        }
+                    } else {
+                        self.applicationFocusRecovery = nil
+                    }
+                    self.onTrackingAvailabilityLost?()
+                    if self.isSidebarHidden {
+                        self.reconcileStableHiddenOwnership()
+                    }
+                }
+            })
+        applicationActivityObservations.append(
+            interactionNotificationCenter.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.acceptsApplicationPointerEvents = true
+                    self.edgeTrackingView.acceptsPointerUpdates = true
+                    guard let window = self.view.window, window.isKeyWindow else { return }
+                    self.recoverApplicationFocusIfReady(in: window)
+                }
+            })
+        applicationActivityObservations.append(
+            interactionNotificationCenter.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                nonisolated(unsafe) let notification = notification
+                MainActor.assumeIsolated {
+                    guard let self, let window = notification.object as? NSWindow else { return }
+                    self.windowDidBecomeKey(window)
+                }
+            })
+        applicationActivityObservations.append(
+            interactionNotificationCenter.addObserver(
+                forName: GhosttySurfaceFocusReadiness.didBecomeReadyNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                nonisolated(unsafe) let notification = notification
+                MainActor.assumeIsolated {
+                    guard let self,
+                        self.applicationFocusRecovery != nil,
+                        let surface = GhosttySurfaceFocusReadiness.surface(from: notification),
+                        let window = self.view.window,
+                        surface.window === window,
+                        window.isAwesoMuxPrimaryContentWindow,
+                        self.applicationIsActive(),
+                        window.isVisible,
+                        window.isKeyWindow
+                    else { return }
+                    self.recoverApplicationFocusIfReady(in: window)
+                }
+            })
+    }
+
+    private func windowDidBecomeKey(_ window: NSWindow) {
+        guard applicationFocusRecovery != nil else { return }
+        guard window === view.window else { return }
+        recoverApplicationFocusIfReady(in: window)
+    }
+
+    private func recoverApplicationFocusIfReady(in window: NSWindow) {
+        guard applicationFocusRecovery != nil,
+            applicationIsActive(),
+            window === view.window,
+            window.isVisible,
+            window.isKeyWindow
+        else { return }
+        reduceApplicationFocusRecovery(for: window)
+        guard let recovery = applicationFocusRecovery else { return }
+
+        let outcome = onSidebarFocusHandoff?(recovery.request)
+        let keyboardSucceeded =
+            !recovery.request.requiresKeyboardFocus
+            || outcome.map { hasVerifiedKeyboardFocus($0, in: window) } == true
+        let accessibilitySucceeded =
+            !recovery.request.requiresAccessibilityFocus
+            || outcome.map { hasVerifiedAccessibilityFocus($0, in: window) } == true
+        if keyboardSucceeded, accessibilitySucceeded {
+            if recovery.request.requiresAccessibilityFocus,
+                let element = recovery.sidebarAccessibilityElement as? NSAccessibilityProtocol,
+                sidebarContainsAccessibilityElement(element)
+            {
+                element.setAccessibilityFocused(false)
+            }
+            applicationFocusRecovery = nil
+            return
+        }
+        applicationFocusRecovery = SidebarApplicationFocusRecovery(
+            request: SidebarFocusHandoffRequest(
+                requiresKeyboardFocus: !keyboardSucceeded,
+                requiresAccessibilityFocus: !accessibilitySucceeded),
+            sidebarAccessibilityElement: accessibilitySucceeded
+                ? nil : recovery.sidebarAccessibilityElement)
+    }
+
+    private func reduceApplicationFocusRecovery(for window: NSWindow) {
+        guard let recovery = applicationFocusRecovery,
+            window.isVisible,
+            window.isKeyWindow
+        else { return }
+        let requiresKeyboardFocus =
+            recovery.request.requiresKeyboardFocus
+            && !hasVisibleKeyboardFocusOutsideSidebar(in: window)
+        let requiresAccessibilityFocus =
+            recovery.request.requiresAccessibilityFocus
+            && !hasVisibleAccessibilityFocusOutsideSidebar(in: window)
+        guard requiresKeyboardFocus || requiresAccessibilityFocus else {
+            applicationFocusRecovery = nil
+            return
+        }
+        applicationFocusRecovery = SidebarApplicationFocusRecovery(
+            request: SidebarFocusHandoffRequest(
+                requiresKeyboardFocus: requiresKeyboardFocus,
+                requiresAccessibilityFocus: requiresAccessibilityFocus),
+            sidebarAccessibilityElement: requiresAccessibilityFocus
+                ? recovery.sidebarAccessibilityElement : nil)
+    }
+
+    private func removeApplicationActivityObservers() {
+        applicationActivityObservations.forEach(interactionNotificationCenter.removeObserver)
+        applicationActivityObservations.removeAll()
     }
 
     private func invalidateOverlayForDetach() {
@@ -910,7 +1475,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func layoutOverlay(presented: Bool) {
-        let width = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
+        let width = Self.dividerCoordinate(
+            forSidebarWidth: selectedSidebarWidth, paneExtent: paneExtent, position: .left)
         let x = sidebarPosition == .left ? 0 : view.bounds.maxX - width
         overlayClipView.frame = CGRect(x: x, y: 0, width: width, height: view.bounds.height)
         overlayContentView.frame = overlayClipView.bounds
@@ -1059,6 +1625,17 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 final class DividerTrackingSplitView: NSSplitView {
     var onDragEnded: (() -> Void)?
     var sidebarWidthProvider: (() -> CGFloat?)?
+    var isPersistentSidebarHidden = false {
+        didSet {
+            guard isPersistentSidebarHidden != oldValue else { return }
+            needsLayout = true
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    override var dividerThickness: CGFloat {
+        isPersistentSidebarHidden ? 0 : super.dividerThickness
+    }
 
     /// True for the duration of a user divider drag's synchronous tracking loop.
     /// Restore-on-grow must not fire inside that loop or it fights the drag and the

@@ -94,12 +94,14 @@ struct SidebarHoverGeometryIsolationTests {
 
         model.pointerMoved(x: 400, width: 400, position: .left)
         #expect(model.proximityState == .cue)
-        #expect(model.cueIntensity == 0)
-        #expect(
-            SidebarPresentationRouting.command(
-                userWantsHidden: model.userWantsHidden, proximity: model.proximityState)
-                == .hideOverlay)
-        controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
+        let proxy = SidebarSplitProxy()
+        controller.installCommandHandlers(on: proxy)
+        ContentView.reconcileSidebarOverlay(
+            presentation: model,
+            peekModel: SidebarPeekModel(),
+            proxy: proxy,
+            transition: .hover,
+            reduceMotion: false)
 
         #expect(controller.splitPositionMutationIntentCountForTesting == 0)
         #expect(detail.changedSubmittedBackingSizes.isEmpty)

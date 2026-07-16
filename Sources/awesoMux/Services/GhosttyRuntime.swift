@@ -309,6 +309,10 @@ final class GhosttyRuntime {
         secureInputCoordinator.setFocused(focused, for: paneID)
     }
 
+    func isSecureInputFocusedForTesting(_ paneID: TerminalPane.ID) -> Bool {
+        secureInputCoordinator.isFocusedForTesting(paneID)
+    }
+
     /// A cached surface view for a pane that should be on screen found itself
     /// detached from the window after the render churn settled — a split
     /// collapse let the outgoing split subtree update after the surviving

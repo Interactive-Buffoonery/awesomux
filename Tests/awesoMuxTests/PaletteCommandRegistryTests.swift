@@ -38,6 +38,26 @@ struct PaletteCommandRegistryTests {
         )
     }
 
+    @Test("Unavailable primary target gates sidebar commands")
+    @MainActor
+    func unavailablePrimaryTargetGatesSidebarCommands() throws {
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: SessionStore(groups: []),
+            availability: .init(isSidebarCommandTargetAvailable: false),
+            actions: .noop)
+
+        for commandID in [
+            KeyboardShortcutCatalog.focusSidebar.id,
+            KeyboardShortcutCatalog.toggleSidebarWidth.id,
+            KeyboardShortcutCatalog.toggleSidebarVisibility.id,
+        ] {
+            #expect(
+                try !#require(
+                    PaletteCommandRegistry.command(id: commandID, in: commands)
+                ).isEnabled)
+        }
+    }
+
     @Test("Registry covers menu-equivalent command IDs")
     @MainActor
     func registryCoversMenuEquivalentCommands() {

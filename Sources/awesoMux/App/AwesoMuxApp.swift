@@ -105,10 +105,10 @@ struct AwesoMuxApp: App {
     @State private var appSettingsStore: AppSettingsStore
     @State private var customCommandStore = CustomCommandStore()
     @State private var isCloseConfirmAlertPresented = false
-    @State private var sidebarFocusRequestID: UUID?
+    @State private var sidebarPresentationCommandMailbox = SidebarPresentationCommandMailbox()
     @State private var sidebarWidthToggleRequestID: UUID?
-    @State private var sidebarVisibilityToggleRequestID: UUID?
     @State private var isSidebarPersistentlyHidden = SidebarPresentationPreferenceStore().isHidden()
+    @State private var sidebarCommandTargetAvailability = SidebarCommandTargetAvailability()
     @State private var quickRunToast: QuickRunToast?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
 
@@ -290,9 +290,11 @@ struct AwesoMuxApp: App {
                     announcePaneFocused(index: paneIndex + 1)
                 },
                 onFocusActiveTerminal: focusActiveTerminal,
-                sidebarFocusRequestID: sidebarFocusRequestID,
+                sidebarPresentationCommandMailbox: sidebarPresentationCommandMailbox,
                 sidebarWidthToggleRequestID: sidebarWidthToggleRequestID,
-                sidebarVisibilityToggleRequestID: sidebarVisibilityToggleRequestID,
+                onSidebarPresentationCommandAcknowledged: { commandID in
+                    sidebarPresentationCommandMailbox.acknowledge(id: commandID)
+                },
                 onSidebarPersistentVisibilityChange: { hidden in
                     isSidebarPersistentlyHidden = hidden
                 }
@@ -914,15 +916,18 @@ struct AwesoMuxApp: App {
 
                 Button("Focus Sidebar", action: requestSidebarFocus)
                     .keyboardShortcut(shortcut(KeyboardShortcutCatalog.focusSidebar))
-                    .disabled(isAnySheetPresented)
+                    .disabled(
+                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
 
                 Button("Collapse/Expand Sidebar", action: requestSidebarWidthToggle)
                     .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarWidth))
-                    .disabled(isAnySheetPresented)
+                    .disabled(
+                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
 
                 Button(sidebarVisibilityMenuTitle, action: requestSidebarVisibilityToggle)
                     .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarVisibility))
-                    .disabled(isAnySheetPresented)
+                    .disabled(
+                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
 
                 let jumpRows = DockRecentWorkspaceMenu.openWorkspaceRows(
                     groups: sessionStore.groups,
@@ -2508,16 +2513,27 @@ struct AwesoMuxApp: App {
     }
 
     private func requestSidebarFocus() {
+        sidebarCommandTargetAvailability.refresh()
+        guard sidebarCommandTargetAvailability.isAvailable else {
+            ShortcutDiagnostics.log("stage=requestSidebarFocus blocked=noPrimaryContentWindow")
+            return
+        }
         guard !isAnySheetPresented else {
             ShortcutDiagnostics.log("stage=requestSidebarFocus blocked=sheetPresented")
             return
         }
 
+        appDelegate.surfacePrimaryWindow()
         ShortcutDiagnostics.log("stage=requestSidebarFocus action=emitRequest")
-        sidebarFocusRequestID = UUID()
+        sidebarPresentationCommandMailbox.requestFocus()
     }
 
     private func requestSidebarWidthToggle() {
+        sidebarCommandTargetAvailability.refresh()
+        guard sidebarCommandTargetAvailability.isAvailable else {
+            ShortcutDiagnostics.log("stage=requestSidebarWidthToggle blocked=noPrimaryContentWindow")
+            return
+        }
         guard !isAnySheetPresented else {
             ShortcutDiagnostics.log("stage=requestSidebarWidthToggle blocked=sheetPresented")
             return
@@ -2528,12 +2544,19 @@ struct AwesoMuxApp: App {
     }
 
     private func requestSidebarVisibilityToggle() {
+        sidebarCommandTargetAvailability.refresh()
+        guard sidebarCommandTargetAvailability.isAvailable else {
+            ShortcutDiagnostics.log(
+                "stage=requestSidebarVisibilityToggle blocked=noPrimaryContentWindow")
+            return
+        }
         guard !isAnySheetPresented else {
             ShortcutDiagnostics.log("stage=requestSidebarVisibilityToggle blocked=sheetPresented")
             return
         }
         ShortcutDiagnostics.log("stage=requestSidebarVisibilityToggle action=emitRequest")
-        sidebarVisibilityToggleRequestID = UUID()
+        sidebarPresentationCommandMailbox.requestVisibilityToggle(
+            currentIsHidden: isSidebarPersistentlyHidden)
     }
 
     private func toggleFloatingPanel() {
@@ -2908,12 +2931,14 @@ struct AwesoMuxApp: App {
     }
 
     private func currentPaletteCommands() -> [PaletteCommand] {
+        sidebarCommandTargetAvailability.refresh()
         var commands = PaletteCommandRegistry.commands(
             sessionStore: sessionStore,
             availability: PaletteCommandAvailability(
                 isAnySheetPresented: isAnySheetPresented,
                 isOpenInIDEEnabled: appSettingsStore.workspaces.value.openInIDEEnabled,
-                isSidebarHidden: isSidebarPersistentlyHidden
+                isSidebarHidden: isSidebarPersistentlyHidden,
+                isSidebarCommandTargetAvailable: sidebarCommandTargetAvailability.isAvailable
             ),
             actions: paletteActions,
             keyboard: keyboardConfig
@@ -3389,11 +3414,11 @@ struct AwesoMuxApp: App {
         paneID: TerminalPane.ID
     ) {
         DispatchQueue.main.async {
-            guard let window = NSApp.mainWindow ?? NSApp.keyWindow else {
+            guard let window = NSApp.awesoMuxPrimaryContentWindow else {
                 return
             }
             guard
-                let surface = Self.terminalSurface(
+                let surface = PrimaryContentFocusRouter.terminalSurface(
                     in: window.contentView,
                     sessionID: sessionID,
                     paneID: paneID
@@ -3406,47 +3431,13 @@ struct AwesoMuxApp: App {
         }
     }
 
-    private func focusActiveTerminal(_ request: SidebarFocusHandoffRequest) -> Bool {
-        guard let session = sessionStore.selectedSession,
-            let window = NSApp.mainWindow ?? NSApp.keyWindow,
-            let surface = Self.terminalSurface(
-                in: window.contentView,
-                sessionID: session.id,
-                paneID: session.activePaneID
-            )
-        else {
-            return false
-        }
-        guard window.makeFirstResponder(surface) else { return false }
-        guard request.requiresAccessibilityFocus else { return true }
-        surface.setAccessibilityFocused(true)
-        return surface.isAccessibilityFocused()
-    }
-
-    private static func terminalSurface(
-        in view: NSView?,
-        sessionID: TerminalSession.ID,
-        paneID: TerminalPane.ID
-    ) -> GhosttySurfaceNSView? {
-        guard let view else {
-            return nil
-        }
-        if let surface = view as? GhosttySurfaceNSView,
-            surface.sessionID == sessionID,
-            surface.paneID == paneID
-        {
-            return surface
-        }
-        for subview in view.subviews {
-            if let surface = terminalSurface(
-                in: subview,
-                sessionID: sessionID,
-                paneID: paneID
-            ) {
-                return surface
-            }
-        }
-        return nil
+    private func focusActiveTerminal(
+        _ request: SidebarFocusHandoffRequest
+    ) -> SidebarFocusHandoffOutcome? {
+        PrimaryContentFocusRouter.focus(
+            request,
+            sessionStore: sessionStore,
+            application: NSApp)
     }
 
     private func dismissWorkspaceEditorIfTargetClosed() {

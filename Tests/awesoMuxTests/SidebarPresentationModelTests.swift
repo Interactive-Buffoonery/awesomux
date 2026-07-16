@@ -1,6 +1,7 @@
 import Foundation
 import AwesoMuxCore
 import AwesoMuxTestSupport
+import Observation
 import Testing
 @testable import awesoMux
 
@@ -14,22 +15,17 @@ struct SidebarPresentationModelTests {
 
         model.pointerMoved(x: 400, width: 400, position: .left)
         #expect(model.proximityState == .cue)
-        #expect(model.cueIntensity == 0)
 
         model.pointerMoved(x: 399, width: 400, position: .left)
         #expect(model.proximityState == .cue)
-        #expect(model.cueIntensity > 0)
         model.pointerMoved(x: 40, width: 400, position: .left)
         #expect(model.proximityState == .revealed)
-        #expect(model.cueIntensity == 0)
 
         model.invalidateTransientState()
         model.pointerMoved(x: 0, width: 400, position: .right)
         #expect(model.proximityState == .cue)
-        #expect(model.cueIntensity == 0)
         model.pointerMoved(x: 1, width: 400, position: .right)
         #expect(model.proximityState == .cue)
-        #expect(model.cueIntensity > 0)
         model.pointerMoved(x: 360, width: 400, position: .right)
         #expect(model.proximityState == .revealed)
     }
@@ -42,7 +38,6 @@ struct SidebarPresentationModelTests {
         model.pointerMoved(x: 400, width: 400, position: .left)
         model.trackingRegionExited()
         #expect(model.proximityState == .dormant)
-        #expect(model.cueIntensity == 0)
     }
 
     @Test("invalid pointer samples fail dormant")
@@ -62,84 +57,71 @@ struct SidebarPresentationModelTests {
             model.pointerMoved(x: x, width: width, position: .left)
 
             #expect(model.proximityState == .dormant)
-            #expect(model.cueIntensity == 0)
         }
     }
 
-    @Test("cue intensity increases smoothly toward reveal")
-    func cueIntensityCurve() throws {
-        let (model, _, defaults, suiteName) = try makeHiddenModel()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let distances: [CGFloat] = [399, 300, 200, 100, 41]
-        let intensities = distances.map { distance -> CGFloat in
-            model.pointerMoved(x: distance, width: 400, position: .left)
-            return model.cueIntensity
-        }
-
-        #expect(zip(intensities, intensities.dropFirst()).allSatisfy(<))
-    }
-
-    @Test("tracker resize recomputes cue intensity")
-    func trackerResizeRecomputesIntensity() throws {
-        let (model, _, defaults, suiteName) = try makeHiddenModel()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        model.pointerMoved(x: 200, width: 400, position: .left)
-        let wideIntensity = model.cueIntensity
-        model.pointerMoved(x: 200, width: 300, position: .left)
-
-        #expect(model.cueIntensity < wideIntensity)
-    }
-
-    @Test("explicit transitions reset cue intensity")
-    func explicitTransitionsResetCueIntensity() throws {
-        for reset in [
-            { (model: SidebarPresentationModel) in model.showPersistently() },
-            { (model: SidebarPresentationModel) in model.positionDidChange() },
-            { (model: SidebarPresentationModel) in model.invalidateTransientState() },
-        ] {
-            let (model, _, defaults, suiteName) = try makeHiddenModel()
-            defer { defaults.removePersistentDomain(forName: suiteName) }
-            model.pointerMoved(x: 200, width: 400, position: .left)
-            #expect(model.cueIntensity > 0)
-
-            reset(model)
-
-            #expect(model.cueIntensity == 0)
-        }
-    }
-
-    @Test("leave grace restores tracker cue intensity")
-    func leaveGraceRestoresTrackerCueIntensity() async throws {
+    @Test("leave grace restores tracker cue")
+    func leaveGraceRestoresTrackerCue() async throws {
         let (model, gate, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         model.pointerMoved(x: 200, width: 400, position: .left)
-        let trackerIntensity = model.cueIntensity
         model.sidebarPointerChanged(true)
-        #expect(model.cueIntensity == 0)
         model.sidebarPointerChanged(false)
         #expect(await waitUntil { gate.sleeperCount == 1 })
 
         gate.advance()
         #expect(await waitUntil { model.proximityState == .cue })
-        #expect(model.cueIntensity == trackerIntensity)
     }
 
-    @Test("persistent toggle saves hide intent and clears temporary reveal")
-    func persistentToggleSavesIntent() throws {
+    @Test("tracker motion then sidebar exit shares one leave grace")
+    func trackerMotionThenSidebarExitSharesGrace() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 60, width: 100, position: .left)
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.sidebarPointerChanged(true)
+        model.pointerMoved(x: 60, width: 100, position: .left)
+        model.sidebarPointerChanged(false)
+
+        #expect(model.proximityState == .revealed)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        gate.advance()
+        #expect(await waitUntil { model.proximityState == .cue })
+    }
+
+    @Test("sidebar exit then tracker motion shares one leave grace and latest cue")
+    func sidebarExitThenTrackerMotionSharesGrace() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        model.pointerMoved(x: 60, width: 100, position: .left)
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.sidebarPointerChanged(true)
+        model.sidebarPointerChanged(false)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        model.pointerMoved(x: 60, width: 100, position: .left)
+
+        #expect(model.proximityState == .revealed)
+        #expect(gate.sleepCallCount == 1)
+        gate.advance()
+        #expect(await waitUntil { model.proximityState == .cue })
+    }
+
+    @Test("explicit persistent targets save intent and clear temporary reveal")
+    func explicitPersistentTargetsSaveIntent() throws {
         let (model, _, defaults, suiteName) = try makeHiddenModel()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         model.pointerMoved(x: 15, width: 100, position: .left)
-        model.togglePersistentVisibility()
+        #expect(model.applyPersistentHidden(false) { _ in .applied } == .applied)
         #expect(!model.userWantsHidden)
         #expect(model.permitsWidthChanges)
         #expect(!model.isTemporarilyRevealed)
         #expect(!SidebarPresentationPreferenceStore(defaults: defaults).isHidden())
 
-        model.togglePersistentVisibility()
+        #expect(model.applyPersistentHidden(true) { _ in .applied } == .applied)
         #expect(model.userWantsHidden)
         #expect(!model.permitsWidthChanges)
         #expect(!model.isSidebarVisible)
@@ -152,7 +134,7 @@ struct SidebarPresentationModelTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         model.pointerMoved(x: 15, width: 100, position: .left)
-        model.showPersistently()
+        #expect(model.applyPersistentHidden(false) { _ in .applied } == .applied)
 
         #expect(!model.userWantsHidden)
         #expect(!model.isTemporarilyRevealed)
@@ -167,10 +149,10 @@ struct SidebarPresentationModelTests {
 
         model.pointerMoved(x: 15, width: 100, position: .left)
         model.sidebarPointerChanged(true)
-        model.showPersistently()
+        #expect(model.applyPersistentHidden(false) { _ in .applied } == .applied)
         model.sidebarPointerChanged(false)
 
-        model.togglePersistentVisibility()
+        #expect(model.applyPersistentHidden(true) { _ in .applied } == .applied)
         model.pointerMoved(x: 15, width: 100, position: .left)
         model.trackingRegionExited()
         #expect(await waitUntil { gate.sleeperCount == 1 })
@@ -205,6 +187,117 @@ struct SidebarPresentationModelTests {
         await drainMainQueue()
 
         #expect(model.isTemporarilyRevealed)
+    }
+
+    @Test("completed grace blocked by interaction permits a fresh dismissal")
+    func completedBlockedGraceReschedules() async throws {
+        let (model, gate, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        model.pointerMoved(x: 15, width: 100, position: .left)
+        model.trackingRegionExited()
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+
+        model.sidebarInteractionChanged(true)
+        gate.advanceOneCycle()
+        await drainMainQueue()
+        #expect(model.isTemporarilyRevealed)
+
+        model.sidebarInteractionChanged(false)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        #expect(gate.sleepCallCount == 2)
+        gate.advance()
+        #expect(await waitUntil { !model.isSidebarVisible })
+    }
+
+    @Test("rejected persistent transition leaves model and preference unchanged")
+    func rejectedPersistentTransitionIsTransactional() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        model.pointerMoved(x: 15, width: 100, position: .left)
+
+        var requestedVisibility: Bool?
+        #expect(
+            model.applyPersistentHidden(false) { visible in
+                requestedVisibility = visible
+                return .rejected
+            } == .rejected)
+
+        #expect(requestedVisibility == true)
+        #expect(model.userWantsHidden)
+        #expect(model.isTemporarilyRevealed)
+        #expect(SidebarPresentationPreferenceStore(defaults: defaults).isHidden())
+        #expect(SidebarVisibilityActionTitle.resolve(isHidden: model.userWantsHidden) == "Show Sidebar")
+    }
+
+    @Test("an explicit target can retry after native rejection")
+    func explicitTargetRetriesAfterRejection() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var requestedVisibility: [Bool] = []
+        #expect(
+            model.applyPersistentHidden(false) { visible in
+                requestedVisibility.append(visible)
+                return .rejected
+            } == .rejected)
+        #expect(
+            model.applyPersistentHidden(false) { visible in
+                requestedVisibility.append(visible)
+                return .applied
+            } == .applied)
+
+        #expect(requestedVisibility == [true, true])
+        #expect(!model.userWantsHidden)
+        #expect(!SidebarPresentationPreferenceStore(defaults: defaults).isHidden())
+    }
+
+    @Test("deferred persistent transition leaves model and preference unchanged")
+    func deferredPersistentTransitionIsTransactional() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        model.pointerMoved(x: 15, width: 100, position: .left)
+
+        #expect(
+            model.applyPersistentHidden(false) { _ in .deferredUntilHostReady }
+                == .deferredUntilHostReady)
+
+        #expect(model.userWantsHidden)
+        #expect(model.isTemporarilyRevealed)
+        #expect(SidebarPresentationPreferenceStore(defaults: defaults).isHidden())
+    }
+
+    @Test("repeated pointer classification does not republish the same state")
+    func repeatedPointerStateIsNotRepublished() async throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        model.pointerMoved(x: 200, width: 400, position: .left)
+
+        await confirmation(expectedCount: 0) { changed in
+            withObservationTracking {
+                _ = model.proximityState
+            } onChange: {
+                changed()
+            }
+
+            model.pointerMoved(x: 199, width: 400, position: .left)
+        }
+
+        #expect(model.proximityState == .cue)
+    }
+
+    @Test("pointer churn without a pending hide does not advance the transient generation")
+    func pointerChurnWithoutPendingHideKeepsGenerationStable() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let initialGeneration = model.transientGenerationForTesting
+
+        for _ in 0..<100 {
+            model.pointerMoved(x: 15, width: 100, position: .left)
+            model.sidebarPointerChanged(true)
+        }
+
+        #expect(model.proximityState == .revealed)
+        #expect(model.transientGenerationForTesting == initialGeneration)
     }
 
     @Test("clearing sidebar interaction starts a fresh leave grace")
@@ -361,6 +454,19 @@ struct SidebarPresentationModelTests {
         }
     }
 
+    @Test("rejected interaction-only reveal returns dormant without tracker presence")
+    func rejectedInteractionRevealReturnsDormant() throws {
+        let (model, _, defaults, suiteName) = try makeHiddenModel()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        model.sidebarInteractionChanged(true)
+        #expect(model.proximityState == .revealed)
+
+        model.transientPresentationRejected()
+
+        #expect(model.proximityState == .dormant)
+        #expect(!model.isSidebarVisible)
+    }
+
     @Test("position change invalidates a pending leave grace")
     func positionChangeInvalidatesPendingGrace() async throws {
         let (model, gate, defaults, suiteName) = try makeHiddenModel()
@@ -395,23 +501,6 @@ struct SidebarPresentationModelTests {
             #expect(model.proximityState == .dormant)
             #expect(model.visibilitySource == .explicit)
         }
-    }
-
-    @Test("hidden width selection leaves presentation dormant and hidden")
-    func hiddenWidthSelectionPreservesPresentation() throws {
-        let (model, _, defaults, suiteName) = try makeHiddenModel()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let result = SidebarHiddenWidthTogglePolicy.resolve(
-            currentWidth: 300,
-            lastNonCollapsedWidth: 300,
-            persistentlyHidden: model.userWantsHidden
-        )
-
-        #expect(result.targetWidth == SidebarWidthPolicy.collapsedWidth)
-        #expect(!result.shouldReveal)
-        #expect(model.proximityState == .dormant)
-        #expect(model.userWantsHidden)
     }
 
     private func makeHiddenModel() throws -> ModelFixture {
