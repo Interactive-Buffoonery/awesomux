@@ -50,6 +50,24 @@ struct SidebarHoverIntegrationTests {
         #expect(model.userWantsHidden)
     }
 
+    @Test("hover reveal and dismissal never reparent the permanent sidebar host")
+    func hoverRevealNeverReparents() {
+        let controller = makeController()
+        #expect(controller.setPersistentSidebarVisible(false))
+        let sidebarView = controller.sidebarViewController.view
+        let host = sidebarView.superview
+        #expect(host === controller.sidebarHostViewForTesting)
+
+        #expect(controller.setOverlayPresented(true, transition: .hover, reduceMotion: false))
+        #expect(sidebarView.superview === host)
+        #expect(controller.hostModeForTesting == .overlay(width: 300))
+
+        controller.setOverlayPresentedImmediately(false)
+        #expect(sidebarView.superview === host)
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(controller.overlayClipViewForTesting.isHidden)
+    }
+
     @Test("overlay transition timing follows pointer versus explicit ownership")
     func overlayTransitionTimingPolicy() {
         #expect(SidebarOverlayTransitionPolicy.resolve(source: .pointer) == .hover)
