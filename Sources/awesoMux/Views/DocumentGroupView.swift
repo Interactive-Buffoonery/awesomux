@@ -243,8 +243,16 @@ struct DocumentGroupView: View {
                     showAllResolvedNotice: $showAllResolvedNotice
                 )
                 // Fresh identity per tab so a failure state (Peach button) from
-                // one tab never bleeds into the next tab's healthy send bar.
-                .id(document.id)
+                // one tab never bleeds into the next tab's healthy send bar. A
+                // shell-activity flip is the existing event-driven invalidation
+                // for command submit/finish, so leaving manual SSH also forces a
+                // fresh foreground check without polling.
+                .id(
+                    DocumentNudgeSendBarID(
+                        documentID: document.id,
+                        shellActivity: session.layout.documentSendTarget(for: document.id)?.shellActivity
+                    )
+                )
             case .files:
                 DocumentFileBrowserView(
                     rootURL: markdownBrowserRootURL,
@@ -434,6 +442,11 @@ struct DocumentGroupView: View {
             comment: "Help text for the Files toggle naming the folder it will browse"
         )
     }
+}
+
+struct DocumentNudgeSendBarID: Hashable {
+    let documentID: DocumentPane.ID
+    let shellActivity: ShellActivity?
 }
 
 private enum DocumentPaneMode {

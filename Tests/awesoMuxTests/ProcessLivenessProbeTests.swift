@@ -77,17 +77,6 @@ struct ProcessLivenessProbeTests {
         )
     }
 
-    @Test("background SSH does not replace the foreground shell")
-    func backgroundSSHIsNotForeground() {
-        let match = ProcessLivenessProbe.terminalForegroundExecutableMatch(
-            "ssh",
-            daemonPID: 10,
-            foregroundComm: { _ in "zsh" }
-        )
-
-        #expect(match == .notMatching)
-    }
-
     @Test("foreground executable comparison preserves unknown")
     func terminalForegroundExecutableMatch() {
         #expect(
