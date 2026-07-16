@@ -192,15 +192,12 @@ struct CommandBridgeEnactorTests {
         #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .unknown)
     }
 
-    @Test("foreground evidence requires an armed watcher and a fresh receipt")
-    func foregroundEvidenceRequiresLiveFeed() throws {
+    @Test("unchanged foreground evidence remains usable while its watcher is armed")
+    func unchangedForegroundEvidenceRequiresLiveFeed() throws {
         let fixture = try makeFixture()
         let enactor = fixture.view.commandBridgeEnactor
         let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
         defer { try? FileManager.default.removeItem(at: channel.fileURL) }
-        let receivedAt = ContinuousClock.now
-        var now = receivedAt
-        enactor.foregroundStatusNow = { now }
         enactor.sessionID = fixture.sessionID
         enactor.beginStatusWatch(channel: channel)
         enactor.handleStatusEvents([
@@ -209,13 +206,8 @@ struct CommandBridgeEnactorTests {
         ])
 
         #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .matching)
-        now = receivedAt.advanced(by: .milliseconds(2_001))
-        #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .unknown)
-
-        now = receivedAt
-        enactor.handleStatusEvents([
-            try #require(Self.foregroundEvent(sessionID: fixture.sessionID, state: "foreground", executable: "ssh", sequence: 2))
-        ])
+        enactor.handleStatusEvents([])
+        #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .matching)
         enactor.statusWatcher?.stop()
         #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .unknown)
     }

@@ -71,8 +71,6 @@ final class CommandBridgeEnactor {
     /// Runtime-only and deliberately separate from the pane's durable execution
     /// plan; consumers may use it as a deny signal, never as host authority.
     private var foregroundProcessState = AmxForegroundProcessState()
-    /// Monotonic time seam for deterministic receipt-age fencing tests.
-    var foregroundStatusNow: () -> ContinuousClock.Instant = { .now }
     /// True after the host view has been evicted from `GhosttyRuntime.surfaceViews`
     /// as the stale half of an in-place command-bridge heal. Late libghostty close
     /// callbacks can still target the retained userdata for the old native surface;
@@ -466,10 +464,7 @@ final class CommandBridgeEnactor {
                     )
                 }
             case let .foregroundProcess(publication):
-                foregroundProcessState.consume(
-                    publication,
-                    receivedAt: foregroundStatusNow()
-                )
+                foregroundProcessState.consume(publication)
 
             case .foregroundProcessInvalid:
                 foregroundProcessState.invalidate()
@@ -515,10 +510,7 @@ final class CommandBridgeEnactor {
             !errorLatched,
             statusWatcher?.isArmed == true
         else { return .unknown }
-        return foregroundProcessState.match(
-            executable: executable,
-            at: foregroundStatusNow()
-        )
+        return foregroundProcessState.match(executable: executable)
     }
 
     /// Schedule the grace-gated respawn-budget refill. Replaces any prior pending
