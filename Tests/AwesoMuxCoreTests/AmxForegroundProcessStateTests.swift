@@ -25,6 +25,36 @@ struct AmxForegroundProcessStateTests {
         #expect(state.match(executable: "zsh") == .notMatching)
     }
 
+    @Test("receipt age expires and rejects future monotonic instants")
+    func receiptAgeFence() {
+        let receivedAt = ContinuousClock.now
+        var state = AmxForegroundProcessState()
+        state.beginAttach(to: daemon)
+        state.consume(
+            publication(sequence: 1, executable: "ssh"),
+            receivedAt: receivedAt
+        )
+
+        #expect(
+            state.match(
+                executable: "ssh",
+                at: receivedAt.advanced(by: .seconds(2))
+            ) == .matching
+        )
+        #expect(
+            state.match(
+                executable: "ssh",
+                at: receivedAt.advanced(by: .milliseconds(2_001))
+            ) == .unknown
+        )
+        #expect(
+            state.match(
+                executable: "ssh",
+                at: receivedAt.advanced(by: .nanoseconds(-1))
+            ) == .unknown
+        )
+    }
+
     @Test("first foreground publication completes an attached identity with an unknown nonce")
     func foregroundCompletesAttachedIdentity() {
         var state = AmxForegroundProcessState()
