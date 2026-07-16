@@ -606,9 +606,14 @@ struct SidebarOverlayHostControllerTests {
         searchField.selectText(nil)
         let fieldEditor = try #require(searchField.currentEditor() as? NSTextView)
         #expect(window.firstResponder === fieldEditor)
+        // The disabled dual-host trace test used to pin single-publication; assert it
+        // live here now that the reparenting handoff (and its double-publish risk) is gone.
+        var livePublications = 0
+        controller.onLiveWidthChange = { _ in livePublications += 1 }
 
         #expect(controller.setPersistentSidebarVisible(true))
 
+        #expect(livePublications == 1)
         let responder = try #require(window.firstResponder as? NSView)
         let focusOwner = (responder as? NSTextView)?.delegate as? NSView ?? responder
         #expect(focusOwner === searchField)
@@ -3986,5 +3991,113 @@ struct SidebarOverlayHostControllerTests {
             await Task.yield()
         }
         return condition()
+    }
+
+    // MARK: - Root-level hit testing (INT-845)
+
+    /// Hosts the controller inside a window-backed container at a NON-ZERO origin so
+    /// `controller.view.hitTest` runs against the superview-coordinate trap the
+    /// permanent root-sibling host introduces. Returns the origin offset to add to a
+    /// view-local point to reach the container coordinate space `hitTest` expects.
+    private func hostAtNonZeroOrigin(
+        _ controller: SidebarSplitController,
+        origin: CGPoint = CGPoint(x: 213, y: 137)
+    ) -> (window: NSWindow, offset: CGPoint) {
+        let container = NSView(
+            frame: CGRect(x: 0, y: 0, width: origin.x + 1_400, height: origin.y + 1_000))
+        let window = NSWindow(
+            contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = container
+        controller.view.frame = CGRect(origin: origin, size: CGSize(width: 1_200, height: 800))
+        container.addSubview(controller.view)
+        controller.view.layoutSubtreeIfNeeded()
+        return (window, origin)
+    }
+
+    @Test(
+        "root hit testing routes sidebar body, divider, and terminal for both positions",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right])
+    func rootHitTestingRoutesPanes(position: AppearanceConfig.SidebarPosition) {
+        let (controller, sidebar, detail) = makeController(position: position)
+        controller.setSidebarWidth(300)
+        let (window, offset) = hostAtNonZeroOrigin(controller)
+        defer { window.orderOut(nil) }
+
+        let pane = controller.sidebarPaneFrameForTesting
+        let detailFrame = detail.view.frame
+        let thickness = controller.dividerThicknessForTesting
+        #expect(thickness > 0)
+        func rootPoint(x: CGFloat, y: CGFloat) -> NSPoint {
+            NSPoint(x: x + offset.x, y: y + offset.y)
+        }
+
+        // 1. Sidebar body -> a sidebar descendant.
+        let bodyHit = controller.view.hitTest(rootPoint(x: pane.midX, y: pane.midY))
+        #expect(bodyHit === sidebar.view || bodyHit?.isDescendant(of: sidebar.view) == true)
+
+        // 2. Divider center -> the split view's divider tracking, not the host container.
+        let dividerX = position == .left ? pane.maxX + thickness / 2 : pane.minX - thickness / 2
+        let dividerHit = controller.view.hitTest(rootPoint(x: dividerX, y: pane.midY))
+        #expect(dividerHit === controller.splitViewForTesting)
+        #expect(dividerHit?.isDescendant(of: sidebar.view) != true)
+
+        // 3. Terminal-side of the divider -> the detail view. Clear NSSplitView's
+        // expanded divider grab region (a few points past the thin divider) so the
+        // point lands in the terminal pane, not the divider tracking.
+        let terminalX = position == .left ? detailFrame.minX + 20 : detailFrame.maxX - 20
+        let terminalHit = controller.view.hitTest(rootPoint(x: terminalX, y: detailFrame.midY))
+        #expect(terminalHit === detail.view || terminalHit?.isDescendant(of: detail.view) == true)
+    }
+
+    @Test(
+        "root hit testing never reaches a persistently hidden sidebar",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right])
+    func rootHitTestingHiddenSidebarUnreachable(position: AppearanceConfig.SidebarPosition) {
+        let (controller, sidebar, _) = makeController(position: position)
+        controller.setSidebarWidth(300)
+        #expect(controller.setPersistentSidebarVisible(false))
+        let (window, offset) = hostAtNonZeroOrigin(controller)
+        defer { window.orderOut(nil) }
+
+        let width = controller.view.bounds.width
+        let height = controller.view.bounds.height
+        let sidebarEdge: CGFloat = position == .left ? 4 : width - 4
+        for x in [sidebarEdge, width / 4, width / 2, 3 * width / 4] {
+            let hit = controller.view.hitTest(NSPoint(x: x + offset.x, y: height / 2 + offset.y))
+            #expect(hit !== sidebar.view)
+            #expect(hit?.isDescendant(of: sidebar.view) != true)
+        }
+    }
+
+    @Test(
+        "root hit testing exposes only the revealed slice mid-animation",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right])
+    func rootHitTestingPartialRevealSlice(position: AppearanceConfig.SidebarPosition) {
+        let driver = AnimationDriver()
+        let (controller, sidebar, _) = makeControlledController(position: position, driver: driver)
+        controller.setSidebarWidth(300)
+        controller.setPersistentSidebarVisible(false)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        let (window, offset) = hostAtNonZeroOrigin(controller)
+        defer { window.orderOut(nil) }
+
+        // Hold the reveal half-open: a 300-wide overlay translated 120pt off-edge
+        // leaves a 180pt visually exposed slice against the clip.
+        driver.presentationTranslation = position == .left ? -120 : 120
+        let clip = controller.overlayClipViewForTesting.frame
+        #expect(clip.width == 300)
+        func rootPoint(x: CGFloat, y: CGFloat) -> NSPoint {
+            NSPoint(x: x + offset.x, y: y + offset.y)
+        }
+
+        // The on-screen edge of the slice hits the sidebar; the covered side falls
+        // through to the terminal beneath.
+        let exposedX = position == .left ? clip.minX + 40 : clip.maxX - 40
+        let coveredX = position == .left ? clip.maxX - 40 : clip.minX + 40
+        let exposedHit = controller.view.hitTest(rootPoint(x: exposedX, y: clip.midY))
+        #expect(exposedHit === sidebar.view || exposedHit?.isDescendant(of: sidebar.view) == true)
+        let coveredHit = controller.view.hitTest(rootPoint(x: coveredX, y: clip.midY))
+        #expect(coveredHit !== sidebar.view)
+        #expect(coveredHit?.isDescendant(of: sidebar.view) != true)
     }
 }

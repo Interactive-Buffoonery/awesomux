@@ -133,7 +133,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// also fires for programmatic position changes and window layout) does not echo
     /// a programmatic change back out as a "live" width change.
     private var isSettingPositionProgrammatically = false
-    private var isPerformingHostHandoff = false
     private var isFinalized = false
     private weak var installedCommandProxy: SidebarSplitProxy?
     private var installedCommandHostGeneration: Int?
@@ -383,7 +382,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                 return false
             }
             let wasStablyHidden = hostMode == .hidden
-            moveSidebarHost(to: overlayContentView)
             overlayClipView.isHidden = false
             layoutOverlay(presented: false)
             hostMode = .overlay(width: selectedSidebarWidth)
@@ -1034,17 +1032,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         overlayClipView.presentationTranslationX = { 0 }
     }
 
-    private func moveSidebarHost(to destination: NSView) {
-        guard sidebarChild.view.superview !== destination else { return }
-        removeConstraints(for: sidebarChild.view, from: sidebarChild.view.superview)
-        removeConstraints(for: sidebarChild.view, from: destination)
-        sidebarChild.view.removeFromSuperview()
-        sidebarChild.view.translatesAutoresizingMaskIntoConstraints = true
-        destination.addSubview(sidebarChild.view)
-        sidebarChild.view.frame = destination.bounds
-        sidebarChild.view.autoresizingMask = [.width, .height]
-    }
-
     private func reconcileStableHiddenOwnership() {
         interactionMonitor?.pointerChanged(false)
         overlayAnimator?.cancelAndSettle(
@@ -1448,14 +1435,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         hostPresentationState.setOverlayAnimating(overlayAnimator?.isAnimating == true)
     }
 
-    private func removeConstraints(for child: NSView, from container: NSView?) {
-        guard let container else { return }
-        container.removeConstraints(
-            container.constraints.filter {
-                ($0.firstItem as AnyObject?) === child || ($0.secondItem as AnyObject?) === child
-            })
-    }
-
     private func layoutOverlay(presented: Bool) {
         let width = Self.dividerCoordinate(
             forSidebarWidth: selectedSidebarWidth, paneExtent: paneExtent, position: .left)
@@ -1498,10 +1477,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // Report the rendered pane width, not just the requested target. AppKit
         // can preserve a wider child during first layout or constraint pressure;
         // SwiftUI's sidebar mode must follow the pane that actually rendered.
-        if !isPerformingHostHandoff {
-            onLiveWidthChange?(rendered)
-            hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
-        }
+        onLiveWidthChange?(rendered)
+        hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
     }
 
     private func applyHiddenPosition() {
@@ -1596,7 +1573,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // programmatic setPosition, window layout). The sync is idempotent and
         // no-ops while hidden, so it is safe ahead of the echo-suppression guard.
         syncSidebarHostFrame()
-        guard !isSettingPositionProgrammatically, !isPerformingHostHandoff, !isSidebarHidden else {
+        guard !isSettingPositionProgrammatically, !isSidebarHidden else {
             return
         }
         let width = sidebarPaneWidth
