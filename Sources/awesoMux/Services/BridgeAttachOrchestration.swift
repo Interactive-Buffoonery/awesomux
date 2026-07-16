@@ -58,9 +58,10 @@ enum BridgeAttachDecision {
 
     /// The remote helper path, resolved against the captured `$HOME` (contributor
     /// ruling): a fixed convention beside the `~/.awesomux/bridge` state dir.
-    /// INT-693 owns installing the binary here; the attach only assumes the
-    /// convention. `remoteHome` is already an absolute path (helpers never
-    /// expand `~`), so this is pure string composition with the same
+    /// The attach only assumes the convention when a compatible helper is
+    /// already available; awesoMux does not install it. `remoteHome` is already
+    /// an absolute path (helpers never expand `~`), so this is pure string
+    /// composition with the same
     /// trailing-slash normalization `BridgeChannel.mint` applies to the state
     /// path so `/` (root home) can't bake a `//`.
     static func helperPath(remoteHome: String) -> String {
