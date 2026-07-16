@@ -201,9 +201,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         addChild(sidebarChild)
         addChild(detailChild)
         // NSSplitView treats its direct subviews as panes (index 0 = leading).
+        // The sidebar renders from the root-level `overlayContentView` full-time;
+        // `sidebarPaneContainer` is a permanently empty width-reservation spacer
+        // that the host mirrors while the sidebar is persistently visible.
         sidebarChild.view.translatesAutoresizingMaskIntoConstraints = true
-        sidebarPaneContainer.addSubview(sidebarChild.view)
-        sidebarChild.view.frame = sidebarPaneContainer.bounds
+        overlayContentView.addSubview(sidebarChild.view)
+        sidebarChild.view.frame = overlayContentView.bounds
         sidebarChild.view.autoresizingMask = [.width, .height]
         if sidebarPosition == .left {
             splitView.addSubview(sidebarPaneContainer)
@@ -252,7 +255,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         overlayClipView.contentView = overlayContentView
         overlayClipView.addSubview(overlayContentView)
-        overlayClipView.isHidden = true
+        overlayClipView.isHidden = isSidebarHidden
         root.addSubview(overlayClipView)
         root.addSubview(edgeTrackingView)
         view = root
@@ -289,6 +292,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // constrainMaxCoordinate during a divider drag, not a window resize.
         // Re-clamp on every layout so the terminal can never be starved.
         reclampToBounds()
+        syncSidebarHostFrame()
     }
 
     override func viewWillDisappear() {
@@ -492,6 +496,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             }
         } else {
             applyPosition(width)
+            // The reserved pane just moved to the other side; mirror it so the host
+            // follows the new leading/trailing origin.
+            syncSidebarHostFrame()
         }
         if ownsResponder, view.window?.firstResponder !== responder {
             view.window?.makeFirstResponder(responder)
@@ -610,6 +617,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var splitViewForTesting: NSSplitView { splitView }
     var dividerThicknessForTesting: CGFloat { splitView.dividerThickness }
     var sidebarPaneContainerForTesting: NSView { sidebarPaneContainer }
+    var sidebarHostViewForTesting: NSView { overlayContentView }
+    var sidebarHostFrameForTesting: CGRect { overlayClipView.frame }
+    var sidebarPaneFrameForTesting: CGRect { sidebarPaneContainer.frame }
     var overlayClipViewForTesting: SidebarOverlayClipView { overlayClipView }
     var overlayContentViewForTesting: NSView { overlayContentView }
     var hostModeForTesting: SidebarHostMode { hostMode }
@@ -891,75 +901,29 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             }
             return .deferredUntilHostReady
         }
-        var target = selectedSidebarWidth
-        var capturedResponder: NSView?
-        let capturedAccessibilityElement = focusedSidebarAccessibilityElement
-        var handoffSucceeded = true
-        isPerformingHostHandoff = true
-        record(.beginNoActionsTransaction)
+        // The sidebar never moves — it already lives in `overlayContentView`. This is
+        // a pure geometry settle: the reserved pane expands and the host mirrors it.
+        overlayAnimator?.cancelAndSettle(
+            presented: true, width: overlayClipView.bounds.width, position: sidebarPosition)
+        overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
+        isSidebarHidden = false
+        let target = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
+        pendingWidth = nil
+        hostMode = .persistent(width: target)
+        // Keep the zero-duration / disabled-actions wrapper: the layer-transform,
+        // clip-visibility, divider, and a11y mutations can still expose one-frame
+        // implicit-animation mismatches even though nothing reparents anymore.
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             context.allowsImplicitAnimation = false
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
-
-            record(.cancelOverlayGeneration)
-            overlayAnimator?.cancelAndSettle(
-                presented: true, width: overlayClipView.bounds.width, position: sidebarPosition)
-            record(.captureSidebarResponder)
-            capturedResponder = sidebarKeyboardFocusView(for: view.window?.firstResponder)
-            isSidebarHidden = false
-            target = Self.clampedWidth(selectedSidebarWidth, maxWidth: maxSidebarWidth)
-            record(.removeOverlayAnimation)
-            overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
-            record(.reparentHostToSplitContainer)
-            moveSidebarHost(to: sidebarPaneContainer)
-            persistentHandoffBeforeAccessibilityValidationForTesting?()
-            if let capturedAccessibilityElement,
-                !sidebarContainsAccessibilityElement(capturedAccessibilityElement)
-            {
-                handoffSucceeded = false
-                lastPreservedSidebarAccessibilityElementForTesting = false
-                isSidebarHidden = true
-                moveSidebarHost(to: overlayContentView)
-                overlayClipView.isHidden = false
-                layoutOverlay(presented: true)
-                sidebarChild.view.setAccessibilityHidden(false)
-                return
-            }
-            record(.setPersistentState)
-            pendingWidth = nil
-            hostMode = .persistent(width: target)
             sidebarChild.view.setAccessibilityHidden(false)
-            record(.applySingleDividerIntent(target))
             setDividerPosition(target)
-            record(.settleLayout)
             splitView.layoutSubtreeIfNeeded()
-            view.layoutSubtreeIfNeeded()
-            record(.clearTransform)
-            overlayContentView.layer?.transform = CATransform3DIdentity
-            record(.hideOverlayContainer)
-            overlayClipView.isHidden = true
-            record(.restoreSidebarResponder)
-            if isFocusHandoffReady(in: view.window),
-                let capturedResponder,
-                sidebarKeyboardFocusView(for: capturedResponder) != nil
-            {
-                view.window?.makeFirstResponder(capturedResponder)
-            }
-            lastPreservedSidebarAccessibilityElementForTesting =
-                capturedAccessibilityElement.map(sidebarContainsAccessibilityElement) ?? false
+            syncSidebarHostFrame()
         }
-        record(.endNoActionsTransaction)
-        isPerformingHostHandoff = false
-        guard handoffSucceeded else {
-            hostMode = .overlay(width: selectedSidebarWidth)
-            hostPresentationState.settle(
-                mode: hostMode, effectiveVisibleWidth: selectedSidebarWidth)
-            return .rejected
-        }
-        applicationFocusRecovery = nil
         let rendered = sidebarPaneWidth
         hostMode = .persistent(width: rendered)
         recordIfExpanded(rendered)
@@ -967,6 +931,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
         setEdgeTrackingEnabled(false)
         removeInteractionMonitor()
+        applicationFocusRecovery = nil
         return .applied
     }
 
@@ -1008,46 +973,40 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         pendingWidth = selectedSidebarWidth
         recordIfExpanded(sidebarPaneWidth)
-        isPerformingHostHandoff = true
-        record(.beginNoActionsTransaction)
+        // Keep the zero-duration / disabled-actions wrapper around the settlement
+        // block: the host frame collapse, layer-transform reset, clip-visibility,
+        // divider, and a11y mutations can still expose one-frame implicit-animation
+        // mismatches even though nothing reparents anymore.
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             context.allowsImplicitAnimation = false
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
-            record(.cancelOverlayGeneration)
             overlayAnimator?.cancelAndSettle(
                 presented: false, width: overlayClipView.bounds.width, position: sidebarPosition)
-            record(.removeOverlayAnimation)
             overlayContentView.layer?.removeAnimation(forKey: SidebarOverlayAnimator.animationKey)
-            record(.reparentHostToSplitContainer)
-            moveSidebarHost(to: sidebarPaneContainer)
-            record(.setHiddenState)
             interactionMonitor?.pointerChanged(false)
             isSidebarHidden = true
             hostMode = .hidden
-            record(.applySingleCollapseIntent)
             applyHiddenPosition()
-            record(.settleLayout)
             splitView.layoutSubtreeIfNeeded()
-            view.layoutSubtreeIfNeeded()
-            record(.clearTransform)
+            // The sidebar renders from the root container full-time; collapse the
+            // host onto the now-zero-width spacer pane so a hidden sidebar has zero
+            // width (the moved-into-collapsing-pane behavior the old dual host gave).
+            overlayClipView.frame = sidebarPaneContainer.frame
+            overlayContentView.frame = overlayClipView.bounds
+            sidebarChild.view.frame = overlayContentView.bounds
             overlayContentView.layer?.transform = CATransform3DIdentity
-            record(.hideOverlayContainer)
             overlayClipView.isHidden = true
-            record(.hideSidebarAccessibility)
             sidebarChild.view.setAccessibilityHidden(true)
         }
-        record(.endNoActionsTransaction)
-        isPerformingHostHandoff = false
         removeInteractionMonitor()
         hostPresentationState.settle(mode: .hidden, effectiveVisibleWidth: 0)
         hostPresentationState.beginOverlayTransition(
             presented: false,
             width: selectedSidebarWidth,
             position: sidebarPosition)
-        record(.enableEdgeTracking)
         setEdgeTrackingEnabled(true)
         return .applied
     }
@@ -1058,6 +1017,21 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     private var sidebarPaneWidth: CGFloat {
         sidebarPaneContainer.frame.width
+    }
+
+    /// One host: the split's sidebar pane is an empty width reservation; the
+    /// sidebar renders from this root-level container, which mirrors the pane
+    /// frame whenever the sidebar is persistently visible. In HIDDEN mode the
+    /// overlay path (`layoutOverlay`) is the geometry authority instead — the two
+    /// are mutually exclusive on `isSidebarHidden`.
+    private func syncSidebarHostFrame() {
+        guard !isSidebarHidden else { return }
+        overlayClipView.frame = sidebarPaneContainer.frame
+        overlayContentView.frame = overlayClipView.bounds
+        sidebarChild.view.frame = overlayContentView.bounds
+        overlayContentView.layer?.transform = CATransform3DIdentity
+        overlayClipView.isHidden = false
+        overlayClipView.presentationTranslationX = { 0 }
     }
 
     private func moveSidebarHost(to destination: NSView) {
@@ -1075,7 +1049,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         interactionMonitor?.pointerChanged(false)
         overlayAnimator?.cancelAndSettle(
             presented: false, width: overlayContentView.bounds.width, position: sidebarPosition)
-        moveSidebarHost(to: sidebarPaneContainer)
         overlayContentView.layer?.setAffineTransform(.identity)
         overlayClipView.isHidden = true
         hostMode = .hidden
@@ -1157,7 +1130,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         if isSidebarHidden {
             reconcileStableHiddenOwnership()
         } else {
-            moveSidebarHost(to: sidebarPaneContainer)
+            // The sidebar stays in the permanent root host; a reattach layout
+            // re-mirrors it via `syncSidebarHostFrame`. Hiding the host here matches
+            // the prior detach resting state and avoids a stale frame flash.
             overlayContentView.layer?.transform = CATransform3DIdentity
             overlayClipView.isHidden = true
             sidebarChild.view.setAccessibilityHidden(true)
@@ -1617,6 +1592,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
+        // Mirror the reserved pane into the host on every resize (divider drag,
+        // programmatic setPosition, window layout). The sync is idempotent and
+        // no-ops while hidden, so it is safe ahead of the echo-suppression guard.
+        syncSidebarHostFrame()
         guard !isSettingPositionProgrammatically, !isPerformingHostHandoff, !isSidebarHidden else {
             return
         }

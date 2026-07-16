@@ -392,7 +392,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(false)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.sidebarHostOccurrenceCountForTesting == 1)
         #expect(controller.overlayClipViewForTesting.isHidden)
     }
@@ -536,12 +536,15 @@ struct SidebarOverlayHostControllerTests {
         staleCompletion()
 
         #expect(controller.hostModeForTesting == .persistent(width: 300))
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
+        // Single host: the sidebar renders from the visible root container now.
+        #expect(!controller.overlayClipViewForTesting.isHidden)
     }
 
+    // INT-845: asserts deleted dual-host mechanism, removed in Task 5.
     @Test(
         "overlay to persistent handoff is one silent atomic geometry mutation",
+        .disabled("INT-845 single-host refactor"),
         arguments: [AppearanceConfig.SidebarPosition.left, .right]
     )
     func atomicOverlayToPersistentHandoff(position: AppearanceConfig.SidebarPosition) {
@@ -611,11 +614,13 @@ struct SidebarOverlayHostControllerTests {
         #expect(focusOwner === searchField)
         #expect(searchField.window === window)
         #expect(controller.hostModeForTesting == .persistent(width: 300))
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
     }
 
+    // INT-845: asserts deleted dual-host mechanism, removed in Task 5.
     @Test(
         "persistent to hidden handoff is one silent atomic collapse",
+        .disabled("INT-845 single-host refactor"),
         arguments: [AppearanceConfig.SidebarPosition.left, .right]
     )
     func atomicPersistentToHiddenHandoff(position: AppearanceConfig.SidebarPosition) {
@@ -656,7 +661,7 @@ struct SidebarOverlayHostControllerTests {
         #expect(controller.dividerIntentCountForTesting - dividerIntentsBefore == 1)
         #expect(controller.hostPresentationState.mode == .hidden)
         #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
         #expect(controller.isEdgeTrackingVisibleForTesting)
@@ -674,7 +679,7 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(controller.hostModeForTesting == .hidden)
         #expect(controller.hostPresentationState.mode == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect(controller.isEdgeTrackingVisibleForTesting)
     }
@@ -723,7 +728,15 @@ struct SidebarOverlayHostControllerTests {
                         requiresAccessibilityFocus: true)
                 ])
         #expect(controller.lastCapturedSidebarAccessibilityFocusForTesting)
-        #expect(trace.firstIndex(of: .beginNoActionsTransaction) == 3)
+        // INT-845: the geometry settlement is no longer a traced transaction; the
+        // callbacks (AX query, focus handoff) are the only recorded actions, which
+        // proves they precede any geometry mutation.
+        #expect(
+            trace == [
+                .captureSidebarResponder,
+                .querySidebarAccessibilityFocus,
+                .handOffSidebarFocus,
+            ])
         #expect(window.firstResponder !== sidebar.view)
     }
 
@@ -1727,7 +1740,7 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(controller.hostModeForTesting == .hidden)
         #expect(controller.hostPresentationState.mode == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect(controller.isEdgeTrackingVisibleForTesting)
     }
@@ -1956,7 +1969,7 @@ struct SidebarOverlayHostControllerTests {
         staleCompletion()
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
     }
 
@@ -1968,7 +1981,7 @@ struct SidebarOverlayHostControllerTests {
         controller.viewWillDisappear()
 
         #expect(controller.hostModeForTesting == .persistent(width: 300))
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
         controller.viewWillAppear()
@@ -2002,7 +2015,7 @@ struct SidebarOverlayHostControllerTests {
         window.contentView = NSView()
 
         #expect(controller.hostModeForTesting == .persistent(width: 300))
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
         #expect(controller.interactionObserverCountForTesting == 0)
         #expect(!controller.isFinalizedForTesting)
@@ -2305,12 +2318,17 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(ObjectIdentifier(descendant) == identity)
         #expect(descendant.isDescendant(of: sidebar.view))
-        #expect(controller.lastPreservedSidebarAccessibilityElementForTesting)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        // INT-845: the sidebar never moves, so the focused descendant's identity and
+        // ancestry are preserved intrinsically (no capture/validate flag anymore).
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
     }
 
-    @Test("persistent handoff aborts before publication when AX ancestry breaks")
+    // INT-845: asserts deleted AX-validation rollback (the view never moves now),
+    // removed in Task 5.
+    @Test(
+        "persistent handoff aborts before publication when AX ancestry breaks",
+        .disabled("INT-845 single-host refactor"))
     func persistentHandoffRejectsBrokenAccessibilityAncestry() {
         let (controller, sidebar, _) = makeController()
         let descendant = NSView()
@@ -2354,7 +2372,7 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(controller.interactionObserverCountForTesting == 0)
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
         controller.viewWillAppear()
@@ -2446,7 +2464,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(false)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
     }
 
     @Test(
@@ -2659,7 +2677,11 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(availabilityLossCount == 1)
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(window.refusedFirstResponderClearCount == 1)
+        // INT-845: two refused clears now — the deliberate resignation clear, plus an
+        // AppKit-induced resign when the permanent host is hidden while it still owns
+        // the first responder. In production (no artificial refusal) both succeed and
+        // focus correctly leaves the hidden sidebar; the cleanup still completes.
+        #expect(window.refusedFirstResponderClearCount == 2)
     }
 
     @Test(
@@ -3520,7 +3542,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(model.proximityState == .revealed)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
     }
 
     @Test("explicit hide clears stale sidebar pointer attribution before another menu begins")
@@ -3646,7 +3668,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(false)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
     }
 
     @Test("hide reconciliation retains a keyboard interaction missed before window update")
@@ -3856,7 +3878,7 @@ struct SidebarOverlayHostControllerTests {
         staleCompletion()
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
         #expect(controller.hostPresentationState.mode == .hidden)
         #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
@@ -3880,7 +3902,7 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(controller.hostModeForTesting == .hidden)
         #expect(controller.hostPresentationState.mode == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
     }
@@ -3895,7 +3917,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setSidebarHidden(true)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
     }
@@ -3911,7 +3933,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(true)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
     }
