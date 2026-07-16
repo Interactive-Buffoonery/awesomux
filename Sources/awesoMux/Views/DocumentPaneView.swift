@@ -34,7 +34,24 @@ struct DocumentPaneSendBar: View {
     private static let agentDetectionTrustworthy = false
 
     private var nudgeResolution: DocumentNudgeTargetResolution {
-        session.layout.documentNudgeTarget(for: pane.id)
+        Self.resolveNudgeTarget(
+            in: session.layout,
+            for: pane.id,
+            foregroundExecutableMatch: runtime.foregroundExecutableMatch
+        )
+    }
+
+    static func resolveNudgeTarget(
+        in layout: TerminalPaneLayout,
+        for documentID: DocumentPane.ID,
+        foregroundExecutableMatch: (String, TerminalPane.ID) -> ProcessLivenessProbe.ForegroundExecutableMatch
+    ) -> DocumentNudgeTargetResolution {
+        let resolution = layout.documentNudgeTarget(for: documentID)
+        guard case .available(let target) = resolution else { return resolution }
+        guard foregroundExecutableMatch("ssh", target.id) == .notMatching else {
+            return .unavailable(.requiresLocalTerminal)
+        }
+        return resolution
     }
 
     /// The agent running in the terminal the nudge targets. Drives the button label
@@ -132,8 +149,7 @@ struct DocumentPaneSendBar: View {
         // activePaneID fallback: live stored associations win, nil associations
         // may recover to the document group's direct split sibling, and stale
         // explicit associations fail closed rather than guessing.
-        guard case .available(let targetPane) = session.layout.documentNudgeTarget(for: pane.id)
-        else {
+        guard case .available(let targetPane) = nudgeResolution else {
             reportNudgeUnavailable()
             return
         }
