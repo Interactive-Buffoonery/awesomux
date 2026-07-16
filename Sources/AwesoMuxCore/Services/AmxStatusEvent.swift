@@ -122,7 +122,9 @@ extension AmxStatusEvent {
                 // stale agent chrome on a respawned shell. Drop the line instead
                 // (same as the unknown-event default), forcing the caller to act
                 // only on a complete incarnation.
-                guard let daemonPid, let daemonCreatedAt else {
+                guard let daemonPid, daemonPid > 0,
+                    let daemonCreatedAt, daemonCreatedAt > 0
+                else {
                     return nil
                 }
                 kind = .attached(

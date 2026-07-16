@@ -78,8 +78,8 @@ struct CommandBridgeEnactorTests {
 
         // First attach establishes the incarnation baseline; a second attach with
         // a different daemon pid/createdAt classifies as `.fresh`.
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000)])
-        enactor.handleStatusEvents([try attachedEvent(pid: 200, createdAt: 1_700_000_100)])
+        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
+        enactor.handleStatusEvents([try attachedEvent(pid: 200, createdAt: 1_700_000_100, sessionID: fixture.sessionID)])
 
         let pane = try #require(fixture.livePane)
         #expect(pane.agentKind == AgentKind.shell)
@@ -157,6 +157,52 @@ struct CommandBridgeEnactorTests {
         #expect(enactor.statusChannel == nil)
     }
 
+    @Test("foreground executable probe uses only the current daemon")
+    func foregroundExecutableProbeUsesCurrentDaemon() throws {
+        let fixture = try makeFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        #expect(enactor.foregroundExecutableMatch("ssh") == .unknown)
+
+        enactor.sessionID = fixture.sessionID
+        enactor.respawnLedger.recordAttach(AmxDaemonIncarnation(pid: 42, createdAt: 1))
+        var probedExecutable: String?
+        var probedDaemonPID: pid_t?
+        let result = enactor.foregroundExecutableMatch("ssh") { executable, daemonPID in
+            probedExecutable = executable
+            probedDaemonPID = daemonPID
+            return .matching
+        }
+        #expect(result == .matching)
+        #expect(probedExecutable == "ssh")
+        #expect(probedDaemonPID == 42)
+
+        enactor.errorLatched = true
+        #expect(
+            enactor.foregroundExecutableMatch("ssh") { _, _ in
+                Issue.record("latched panes must not probe")
+                return .matching
+            } == .unknown
+        )
+    }
+
+    @Test("status events for another session are ignored")
+    func mismatchedSessionStatusIsIgnored() throws {
+        let fixture = try makeFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.sessionID = fixture.sessionID
+        let event = try #require(
+            Self.attachedStatusEvent(
+                pid: 42,
+                createdAt: 1,
+                session: "00000000-0000-4000-8000-000000000002"
+            )
+        )
+
+        enactor.handleStatusEvents([event])
+
+        #expect(enactor.respawnLedger.lastIncarnation == nil)
+    }
+
     @Test(
         "a remote-tagged pane whose attach command is unavailable never falls back to a local shell"
     )
@@ -219,7 +265,7 @@ struct CommandBridgeEnactorTests {
 
         // A stray `attached` line must not un-latch the pane or record an
         // incarnation while the user is looking at the error state.
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000)])
+        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
 
         #expect(enactor.errorLatched)
         #expect(enactor.respawnLedger.lastIncarnation == nil)
@@ -299,7 +345,7 @@ struct CommandBridgeEnactorTests {
         enactor.sessionID = fixture.sessionID
         enactor.respawnLedger.recordRespawnAttempt()
         let recoveryRecord = try #require(enactor.recoveryRecord)
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000)])
+        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
         let pendingRefill = try #require(enactor.budgetRefillWorkItem)
 
         enactor.handleSessionRepoint()
@@ -316,7 +362,7 @@ struct CommandBridgeEnactorTests {
         let fixture = try makeFixture()
         let enactor = fixture.view.commandBridgeEnactor
         enactor.sessionID = fixture.sessionID
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000)])
+        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
         enactor.respawnLedger.recordRespawnAttempt()
         let recoveryRecord = try #require(enactor.recoveryRecord)
         let pendingRefill = try #require(enactor.budgetRefillWorkItem)
@@ -335,12 +381,12 @@ struct CommandBridgeEnactorTests {
         let fixture = try makeFixture()
         let enactor = fixture.view.commandBridgeEnactor
         enactor.sessionID = fixture.sessionID
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000)])
+        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
         let staleRefill = try #require(enactor.budgetRefillWorkItem)
         enactor.respawnLedger.recordRespawnAttempt()
         let recoveryRecord = try #require(enactor.recoveryRecord)
 
-        enactor.handleStatusEvents([try attachedEvent(pid: 200, createdAt: 1_700_000_100)])
+        enactor.handleStatusEvents([try attachedEvent(pid: 200, createdAt: 1_700_000_100, sessionID: fixture.sessionID)])
         let currentRefill = try #require(enactor.budgetRefillWorkItem)
         staleRefill.perform()
 
@@ -358,7 +404,7 @@ struct CommandBridgeEnactorTests {
         let fixture = try makeFixture()
         let enactor = fixture.view.commandBridgeEnactor
         enactor.sessionID = fixture.sessionID
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000)])
+        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
         let pendingRefill = try #require(enactor.budgetRefillWorkItem)
         let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
         defer { try? FileManager.default.removeItem(at: channel.fileURL) }
@@ -502,8 +548,18 @@ struct CommandBridgeEnactorTests {
         enactor.handleStatusEvents([event])
     }
 
-    private func attachedEvent(pid: Int, createdAt: Int) throws -> AmxStatusEvent {
-        try #require(Self.attachedStatusEvent(pid: pid, createdAt: createdAt))
+    private func attachedEvent(
+        pid: Int,
+        createdAt: Int,
+        sessionID: TerminalSessionID
+    ) throws -> AmxStatusEvent {
+        try #require(
+            Self.attachedStatusEvent(
+                pid: pid,
+                createdAt: createdAt,
+                session: sessionID.rawValue
+            )
+        )
     }
 
     // MARK: - Event construction (matches AmxStatusChannel JSONL shape)
@@ -520,11 +576,15 @@ struct CommandBridgeEnactorTests {
         return AmxStatusEvent.parseLines(line + "\n", expectedToken: token).first
     }
 
-    private static func attachedStatusEvent(pid: Int, createdAt: Int) -> AmxStatusEvent? {
+    private static func attachedStatusEvent(
+        pid: Int,
+        createdAt: Int,
+        session: String = "00000000-0000-4000-8000-000000000001"
+    ) -> AmxStatusEvent? {
         let token = "tok"
         let line = """
-        {"event":"attached","token":"\(token)","created":true,"daemon_pid":\(pid),"daemon_created_at":\(createdAt),"session":"00000000-0000-4000-8000-000000000001","ts":1700000001}
-        """
+            {"event":"attached","token":"\(token)","created":true,"daemon_pid":\(pid),"daemon_created_at":\(createdAt),"session":"\(session)","ts":1700000001}
+            """
         return AmxStatusEvent.parseLines(line + "\n", expectedToken: token).first
     }
 
