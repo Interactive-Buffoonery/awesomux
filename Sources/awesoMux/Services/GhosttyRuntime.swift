@@ -301,6 +301,14 @@ final class GhosttyRuntime {
         surfaceViews[paneID]
     }
 
+    func foregroundExecutableMatch(
+        _ executable: String,
+        in paneID: TerminalPane.ID
+    ) -> ProcessLivenessProbe.ForegroundExecutableMatch {
+        surfaceViews[paneID]?.commandBridgeEnactor.foregroundExecutableMatch(executable)
+            ?? .unknown
+    }
+
     func applySecureInput(_ mode: SecureInputCoordinator.Mode, for paneID: TerminalPane.ID) {
         secureInputCoordinator.apply(mode, for: paneID)
     }

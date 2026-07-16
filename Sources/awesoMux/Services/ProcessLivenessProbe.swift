@@ -8,6 +8,12 @@ import Foundation
 /// a fact cannot be resolved so the caller classifies it as indeterminate rather
 /// than silently idle.
 enum ProcessLivenessProbe {
+    enum ForegroundExecutableMatch: Equatable, Sendable {
+        case matching
+        case notMatching
+        case unknown
+    }
+
     /// The process name (`p_comm`) for `pid`, or nil if it cannot be read
     /// (dead/reaped pid, or a permission error).
     static func foregroundComm(pid: pid_t) -> String? {
@@ -47,6 +53,31 @@ enum ProcessLivenessProbe {
         else { return nil }
         let tpgid = info.kp_eproc.e_tpgid
         return tpgid > 0 ? tpgid : nil
+    }
+
+    static func terminalForegroundComm(
+        daemonPID: pid_t,
+        childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },
+        foregroundGroup: (pid_t) -> pid_t? = {
+            ProcessLivenessProbe.terminalForegroundProcessGroup(pid: $0)
+        },
+        comm: (pid_t) -> String? = { ProcessLivenessProbe.foregroundComm(pid: $0) }
+    ) -> String? {
+        guard let roots = childPIDs(daemonPID), roots.count == 1,
+            let processGroup = foregroundGroup(roots[0])
+        else { return nil }
+        return comm(processGroup)
+    }
+
+    static func terminalForegroundExecutableMatch(
+        _ executable: String,
+        daemonPID: pid_t,
+        foregroundComm: (pid_t) -> String? = {
+            ProcessLivenessProbe.terminalForegroundComm(daemonPID: $0)
+        }
+    ) -> ForegroundExecutableMatch {
+        guard let observed = foregroundComm(daemonPID) else { return .unknown }
+        return observed == executable ? .matching : .notMatching
     }
 
     static func bridgedLiveness(
