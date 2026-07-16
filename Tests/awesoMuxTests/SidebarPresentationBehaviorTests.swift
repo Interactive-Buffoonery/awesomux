@@ -2519,6 +2519,38 @@ struct SidebarPresentationBehaviorTests {
         #expect(window.firstResponder === primaryContent)
     }
 
+    @Test("key-first reactivation retries a pending focus repair on app activation")
+    func keyFirstReactivationRetriesPendingRepairOnActivation() {
+        var applicationIsActive = false
+        let center = NotificationCenter()
+        let fixture = ProductionFocusFixture(
+            notificationCenter: center,
+            applicationIsActive: { applicationIsActive })
+        defer { fixture.cleanUp() }
+        let selectedSurface = fixture.mountSelectedSurface()
+        fixture.window.recordsMakeFirstResponder = true
+
+        // Focus is in the sidebar with the app inactive but the primary window key.
+        // Hiding now defers the repair (handoff isn't ready while the app is inactive).
+        #expect(fixture.window.makeFirstResponder(fixture.sidebarFocus))
+        fixture.window.reportsKey = true
+        #expect(fixture.controller.setPersistentSidebarVisible(false))
+        #expect(fixture.controller.hostModeForTesting == .hidden)
+        #expect(fixture.window.firstResponder !== fixture.sidebarFocus)
+
+        // Key-first ordering: `didBecomeKey` fires while the app is still inactive, so
+        // the repair's app-active guard skips it — and no further `didBecomeKey` will
+        // fire because the window is already key. Without the activation retry the
+        // repair would be stranded here forever.
+        center.post(name: NSWindow.didBecomeKeyNotification, object: fixture.window)
+        #expect(fixture.window.firstResponder !== selectedSurface)
+
+        // Activation with the window already key must retry the pending repair.
+        applicationIsActive = true
+        center.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        #expect(fixture.window.firstResponder === selectedSurface)
+    }
+
     @Test("application resignation cleans up when sidebar focus refuses to clear")
     func applicationResignationStillCleansUpWhenFocusRefusesToClear() {
         var applicationIsActive = true
@@ -3143,6 +3175,9 @@ struct SidebarPresentationBehaviorTests {
         #expect(requests.isEmpty)
 
         applicationIsActive = true
+        // Activation now retries a pending repair (INT-845 key-first ordering fix),
+        // but the retry re-checks every precondition: the primary window is not key
+        // yet, so the repair still correctly defers and no handoff fires.
         center.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
         #expect(requests.isEmpty)
 

@@ -1264,11 +1264,15 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     guard let self else { return }
                     self.acceptsApplicationPointerEvents = true
                     self.edgeTrackingView.acceptsPointerUpdates = true
-                    // Focus repair is owned by the primary window's `didBecomeKey`
-                    // and Ghostty-surface-readiness triggers. Reactivation makes the
-                    // primary window key (firing `didBecomeKey`), so activation alone
-                    // needs no separate repair path — this observer only re-gates
-                    // pointer/edge-tracking availability.
+                    // AppKit does not guarantee `didBecomeKey` fires after the app is
+                    // active. On a key-first reactivation (the primary window is already
+                    // key when the app reactivates) the repair's app-active guard skips
+                    // the `didBecomeKey` firing and nothing retries, stranding a pending
+                    // repair. Retrying on activation closes that ordering hole; every
+                    // precondition is re-checked inside `recoverApplicationFocusIfReady`,
+                    // so a redundant fire on the ordinary path is a no-op.
+                    guard let window = self.view.window else { return }
+                    self.recoverApplicationFocusIfReady(in: window)
                 }
             })
         applicationActivityObservations.append(
