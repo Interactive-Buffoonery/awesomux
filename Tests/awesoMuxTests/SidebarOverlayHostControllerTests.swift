@@ -541,56 +541,6 @@ struct SidebarOverlayHostControllerTests {
         #expect(!controller.overlayClipViewForTesting.isHidden)
     }
 
-    // INT-845: asserts deleted dual-host mechanism, removed in Task 5.
-    @Test(
-        "overlay to persistent handoff is one silent atomic geometry mutation",
-        .disabled("INT-845 single-host refactor"),
-        arguments: [AppearanceConfig.SidebarPosition.left, .right]
-    )
-    func atomicOverlayToPersistentHandoff(position: AppearanceConfig.SidebarPosition) {
-        let (controller, _, _) = makeController(position: position)
-        controller.setSidebarWidth(300)
-        #expect(controller.setPersistentSidebarVisible(false))
-        controller.setOverlayPresentedImmediately(true)
-        var trace: [SidebarHostHandoffAction] = []
-        var publications = 0
-        var livePublications = 0
-        var callbackActionCounts: [Int] = []
-        controller.handoffActionObserverForTesting = { trace.append($0) }
-        controller.hostPresentationState.onSettleForTesting = {
-            publications += 1
-            callbackActionCounts.append(trace.count)
-        }
-        controller.onLiveWidthChange = { _ in
-            livePublications += 1
-            callbackActionCounts.append(trace.count)
-        }
-        let dividerIntentsBefore = controller.dividerIntentCountForTesting
-
-        #expect(controller.setPersistentSidebarVisible(true))
-
-        #expect(
-            trace == [
-                .beginNoActionsTransaction,
-                .cancelOverlayGeneration,
-                .captureSidebarResponder,
-                .removeOverlayAnimation,
-                .reparentHostToSplitContainer,
-                .setPersistentState,
-                .applySingleDividerIntent(300),
-                .settleLayout,
-                .clearTransform,
-                .hideOverlayContainer,
-                .restoreSidebarResponder,
-                .endNoActionsTransaction,
-            ])
-        #expect(publications == 1)
-        #expect(livePublications == 1)
-        #expect(callbackActionCounts == [12, 12])
-        #expect(controller.dividerIntentCountForTesting - dividerIntentsBefore == 1)
-        #expect(controller.hostPresentationState.mode == .persistent(width: 300))
-    }
-
     @Test("overlay to persistent preserves a real search field editor")
     func overlayToPersistentPreservesSearchFieldEditor() throws {
         let (controller, sidebar, _) = makeController()
@@ -620,56 +570,6 @@ struct SidebarOverlayHostControllerTests {
         #expect(searchField.window === window)
         #expect(controller.hostModeForTesting == .persistent(width: 300))
         #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
-    }
-
-    // INT-845: asserts deleted dual-host mechanism, removed in Task 5.
-    @Test(
-        "persistent to hidden handoff is one silent atomic collapse",
-        .disabled("INT-845 single-host refactor"),
-        arguments: [AppearanceConfig.SidebarPosition.left, .right]
-    )
-    func atomicPersistentToHiddenHandoff(position: AppearanceConfig.SidebarPosition) {
-        let (controller, sidebar, _) = makeController(position: position)
-        controller.setSidebarWidth(300)
-        var trace: [SidebarHostHandoffAction] = []
-        var callbackActionCounts: [Int] = []
-        var livePublications = 0
-        controller.handoffActionObserverForTesting = { trace.append($0) }
-        controller.hostPresentationState.onSettleForTesting = {
-            callbackActionCounts.append(trace.count)
-        }
-        controller.onLiveWidthChange = { _ in livePublications += 1 }
-        let dividerIntentsBefore = controller.dividerIntentCountForTesting
-
-        #expect(controller.setPersistentSidebarVisible(false))
-
-        #expect(
-            trace == [
-                .captureSidebarResponder,
-                .querySidebarAccessibilityFocus,
-                .handOffSidebarFocus,
-                .beginNoActionsTransaction,
-                .cancelOverlayGeneration,
-                .removeOverlayAnimation,
-                .reparentHostToSplitContainer,
-                .setHiddenState,
-                .applySingleCollapseIntent,
-                .settleLayout,
-                .clearTransform,
-                .hideOverlayContainer,
-                .hideSidebarAccessibility,
-                .endNoActionsTransaction,
-                .enableEdgeTracking,
-            ])
-        #expect(callbackActionCounts == [14])
-        #expect(livePublications == 0)
-        #expect(controller.dividerIntentCountForTesting - dividerIntentsBefore == 1)
-        #expect(controller.hostPresentationState.mode == .hidden)
-        #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
-        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
-        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
-        #expect(controller.isEdgeTrackingVisibleForTesting)
     }
 
     @Test("persistent show fails closed when handoff prerequisites disappear")
@@ -2327,38 +2227,6 @@ struct SidebarOverlayHostControllerTests {
         // ancestry are preserved intrinsically (no capture/validate flag anymore).
         #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
-    }
-
-    // INT-845: asserts deleted AX-validation rollback (the view never moves now),
-    // removed in Task 5.
-    @Test(
-        "persistent handoff aborts before publication when AX ancestry breaks",
-        .disabled("INT-845 single-host refactor"))
-    func persistentHandoffRejectsBrokenAccessibilityAncestry() {
-        let (controller, sidebar, _) = makeController()
-        let descendant = NSView()
-        sidebar.view.addSubview(descendant)
-        controller.setSidebarWidth(300)
-        controller.setSidebarHidden(true)
-        controller.setOverlayPresentedImmediately(true)
-        controller.sidebarAccessibilityFocusedElement = { descendant }
-        var persistentPublications = 0
-        controller.hostPresentationState.onSettleForTesting = {
-            if case .persistent = controller.hostPresentationState.mode {
-                persistentPublications += 1
-            }
-        }
-        controller.persistentHandoffBeforeAccessibilityValidationForTesting = {
-            descendant.removeFromSuperview()
-        }
-
-        controller.setPersistentSidebarVisible(true)
-
-        #expect(persistentPublications == 0)
-        #expect(controller.hostModeForTesting == .overlay(width: 300))
-        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
-        #expect(!controller.overlayClipViewForTesting.isHidden)
-        #expect(!controller.lastPreservedSidebarAccessibilityElementForTesting)
     }
 
     @Test("detach is idempotent, invalidates stale completion, and stays idle after reattach")

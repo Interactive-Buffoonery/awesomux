@@ -113,7 +113,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var selectedSidebarWidth: CGFloat = SidebarWidthPolicy.expandedWidth
     var hostPresentationState = SidebarHostPresentationState()
     var handoffActionObserverForTesting: ((SidebarHostHandoffAction) -> Void)?
-    var persistentHandoffBeforeAccessibilityValidationForTesting: (() -> Void)?
     private let overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner?
     private let overlayPresentationTranslation: (() -> CGFloat?)?
     private let interactionFocusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement?
@@ -149,7 +148,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         private var splitPositionMutationIntentCount = 0
     #endif
     private(set) var lastCapturedSidebarAccessibilityFocusForTesting = false
-    private(set) var lastPreservedSidebarAccessibilityElementForTesting = false
 
     /// Width requested before the split had real bounds (first launch / restore).
     /// Applied once the first non-zero layout lands — dodges the zero-bounds trap
@@ -1159,7 +1157,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         sidebarAccessibilityFocusedElement = nil
         onSidebarInteractionChanged = nil
         handoffActionObserverForTesting = nil
-        persistentHandoffBeforeAccessibilityValidationForTesting = nil
     }
 
     func finalizeOwnedLifecycle() {
