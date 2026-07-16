@@ -86,18 +86,10 @@ enum EmptyWorkspaceAccessibilityFocusHandoff {
     ) -> Bool {
         guard !element.accessibilityFrame().isEmpty else { return false }
 
-        var current: Any? = element
-        var visited: Set<ObjectIdentifier> = []
-        while let candidate = current,
-            visited.insert(ObjectIdentifier(candidate as AnyObject)).inserted
-        {
-            if let view = candidate as? NSView {
-                guard view === root || view.isDescendant(of: root) else { return false }
-                return isVisible(view, within: root)
-            }
-            current = (candidate as? NSAccessibilityProtocol)?.accessibilityParent()
-        }
-        return false
+        guard let view = SidebarInteractionMonitor.accessibilityAncestorView(of: element),
+            view === root || view.isDescendant(of: root)
+        else { return false }
+        return isVisible(view, within: root)
     }
 
     private static func isVisible(_ view: NSView, within root: NSView) -> Bool {

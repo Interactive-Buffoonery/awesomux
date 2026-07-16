@@ -102,17 +102,6 @@ final class SidebarPresentationModel {
         transitionRespectingLeaveGrace(to: .dormant)
     }
 
-    // Kept until the tracking view switches to coordinate-based pointer updates.
-    func edgePointerChanged(_ isPresent: Bool) {
-        guard userWantsHidden else { return }
-        if isPresent {
-            trackerState = .revealed
-            transition(to: .revealed)
-        } else {
-            trackingRegionExited()
-        }
-    }
-
     func sidebarPointerChanged(_ isPresent: Bool) {
         guard userWantsHidden else { return }
         sidebarPointerPresent = isPresent

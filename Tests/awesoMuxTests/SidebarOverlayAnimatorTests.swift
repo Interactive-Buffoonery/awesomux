@@ -67,7 +67,7 @@ struct SidebarOverlayAnimatorTests {
         #expect(driver.requests.last?.from == -120)
         driver.completions[0]()
         #expect(completed.isEmpty)
-        #expect(animator.requestedPresentedForTesting == false)
+        #expect(animator.requestedPresentedState == false)
         driver.completions[1]()
         #expect(completed.count == 1)
         #expect(layer.affineTransform().tx == -300)
