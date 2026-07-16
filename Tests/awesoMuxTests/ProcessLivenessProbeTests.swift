@@ -58,6 +58,44 @@ struct ProcessLivenessProbeTests {
         }
     }
 
+    @Test("daemon foreground executable uses its sole root shell's terminal")
+    func terminalForegroundExecutable() {
+        let comm = ProcessLivenessProbe.terminalForegroundComm(
+            daemonPID: 10,
+            childPIDs: { $0 == 10 ? [20] : nil },
+            foregroundGroup: { $0 == 20 ? 30 : nil },
+            comm: { $0 == 30 ? "ssh" : nil }
+        )
+        #expect(comm == "ssh")
+        #expect(
+            ProcessLivenessProbe.terminalForegroundComm(
+                daemonPID: 10,
+                childPIDs: { _ in [20, 21] },
+                foregroundGroup: { _ in 30 },
+                comm: { _ in "ssh" }
+            ) == nil
+        )
+    }
+
+    @Test("foreground executable comparison preserves unknown")
+    func terminalForegroundExecutableMatch() {
+        #expect(
+            ProcessLivenessProbe.terminalForegroundExecutableMatch(
+                "ssh", daemonPID: 10, foregroundComm: { _ in "ssh" }
+            ) == .matching
+        )
+        #expect(
+            ProcessLivenessProbe.terminalForegroundExecutableMatch(
+                "ssh", daemonPID: 10, foregroundComm: { _ in "zsh" }
+            ) == .notMatching
+        )
+        #expect(
+            ProcessLivenessProbe.terminalForegroundExecutableMatch(
+                "ssh", daemonPID: 10, foregroundComm: { _ in nil }
+            ) == .unknown
+        )
+    }
+
     @Test("a zmx daemon samples its direct shell instead of itself")
     func zmxDaemonSamplesDirectShell() {
         let idleSnapshot = [
