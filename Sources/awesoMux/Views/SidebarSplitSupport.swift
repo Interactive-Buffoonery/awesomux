@@ -39,6 +39,23 @@ enum SidebarHostMode: Equatable {
     case overlay(width: CGFloat)
 }
 
+/// The single host's titlebar-lockstep authority. One permanent host renders the
+/// sidebar (INT-845), so this is now the minimal state the titlebar reads to stay
+/// in step — but "one host" does NOT mean "one translation source". The animator's
+/// presentation layer is nil outside an active animation, so the source is layered:
+///
+/// | state                        | translation source                              |
+/// |------------------------------|-------------------------------------------------|
+/// | overlay animating            | presentation layer, else animator's mapped value |
+/// | settled hidden               | deterministic hidden translation (∓width)       |
+/// | settled overlay (at rest)    | 0                                               |
+/// | persistent                   | 0                                               |
+///
+/// `currentTitlebarTranslationX` therefore keeps a two-layer fallback: the wired
+/// closure resolves the animator (which itself falls back to its settle target),
+/// and `titlebarTranslationX` covers the case where no animator/closure exists yet
+/// — the very first reveal before any presentation layer. Collapsing this to a
+/// single authority was reviewed and rejected; don't.
 @Observable
 @MainActor
 final class SidebarHostPresentationState {

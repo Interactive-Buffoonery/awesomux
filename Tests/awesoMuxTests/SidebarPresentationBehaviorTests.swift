@@ -1774,6 +1774,65 @@ struct SidebarPresentationBehaviorTests {
         #expect(state.currentTitlebarVisibleWidth(position: .right) == 0)
     }
 
+    @Test(
+        "titlebar translation falls back to the stored target before any presentation layer",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right]
+    )
+    func firstRevealFallsBackWithoutPresentationLayer(
+        position: AppearanceConfig.SidebarPosition
+    ) {
+        let hidden = SidebarOverlayAnimator.hiddenTranslation(width: 300, position: position)
+        let state = SidebarHostPresentationState(mode: .hidden)
+
+        // Settled hidden with no animator/closure wired yet: the deterministic
+        // stored target is the only source.
+        state.beginOverlayTransition(presented: false, width: 300, position: position)
+        #expect(state.currentTitlebarTranslationX == hidden)
+        #expect(state.currentTitlebarVisibleWidth(position: position) == 0)
+
+        // The very first reveal renders before the presentation layer exists — the
+        // fallback must read the presented target (0), not a live layer.
+        state.beginOverlayTransition(presented: true, width: 300, position: position)
+        #expect(state.currentTitlebarTranslationX == 0)
+        #expect(state.currentTitlebarVisibleWidth(position: position) == 300)
+
+        // A wired-but-empty presentation layer (animator present, layer not yet
+        // sampling / returning non-finite) still falls through to the stored target.
+        state.overlayPresentationTranslation = { nil }
+        #expect(state.currentTitlebarTranslationX == 0)
+        state.overlayPresentationTranslation = { .nan }
+        #expect(state.currentTitlebarTranslationX == 0)
+    }
+
+    @Test(
+        "overlay relayout reframes titlebar presentation width without dropping the animation",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right]
+    )
+    func overlayReframeUpdatesTitlebarPresentationWidth(
+        position: AppearanceConfig.SidebarPosition
+    ) {
+        let state = SidebarHostPresentationState(mode: .overlay(width: 300))
+        state.beginOverlayTransition(presented: true, width: 300, position: position)
+        state.setOverlayAnimating(true)
+
+        // Sample a mid-reveal translation (60% revealed at width 300).
+        let mid: CGFloat = position == .left ? -120 : 120
+        state.overlayPresentationTranslation = { mid }
+        #expect(state.currentTitlebarVisibleWidth(position: position) == 180)
+
+        // A divider drag mid-reveal drives publishOverlayLayout -> settle(.overlay,
+        // newWidth): the width republishes while the overlay keeps animating (the
+        // reframe path). The animating flag must survive the relayout...
+        state.settle(mode: .overlay(width: 500), effectiveVisibleWidth: 500)
+        #expect(state.isOverlayAnimating)
+        #expect(state.titlebarPresentationWidth == 500)
+        // ...and visible width now tracks the new presentation width at the same
+        // sampled translation.
+        #expect(
+            state.currentTitlebarVisibleWidth(position: position, translation: mid)
+                == 500 - abs(mid))
+    }
+
     @Test("Reduce Motion keeps titlebar and overlay transition targets instant")
     func reduceMotionTitlebarParity() {
         let (controller, _, _) = makeController(position: .right)
