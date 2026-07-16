@@ -233,11 +233,19 @@ layout or screen-reader read with one line.
 
 ## Write safety
 
-All writes go through the stale-source guard (`applyIfCurrent` semantics): a write is
-applied only if the bytes on disk still equal the render-time source; otherwise the
-write is refused and the UI re-offers after reload. Status flips, note edits, thread
-appends, and removals all use guarded, marker-local rewrites — never whole-file
-regeneration.
+awesoMux reads through the bounded secure-file path and binds the render to its resolved
+URL, device/inode identity, and exact bytes. Save renders the marker-local change without
+merging content, then coordinates the replacement with participating file writers.
+Inside coordination it revalidates that render-time identity and performs one final
+bounded byte comparison before an atomic, metadata-preserving replacement. Any source,
+alias-target, or resolved-file change observed before that replacement refuses the write.
+
+This is not a universal filesystem compare-and-swap. `NSFileCoordinator` serializes
+writers that participate in coordination, but an unrelated process can ignore it and
+race after awesoMux's final comparison. On an observed conflict, the pane reloads and
+keeps the draft. Existing annotation and reply drafts retry against the same stable id
+only when that annotation itself is unchanged after reload. A new text selection cannot
+be remapped safely, so the pane asks the user to copy the draft and select the text again.
 
 ## Privacy boundary
 
