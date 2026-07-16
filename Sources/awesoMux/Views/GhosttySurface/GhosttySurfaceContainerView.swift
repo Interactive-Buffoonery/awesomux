@@ -3,6 +3,24 @@ import AwesoMuxConfig
 import os
 
 @MainActor
+enum GhosttySurfaceFocusReadiness {
+    static let didBecomeReadyNotification = Notification.Name(
+        "com.interactivebuffoonery.awesomux.ghosttySurfaceFocusDidBecomeReady"
+    )
+
+    static func post(
+        _ surface: GhosttySurfaceNSView,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        notificationCenter.post(name: didBecomeReadyNotification, object: surface)
+    }
+
+    static func surface(from notification: Notification) -> GhosttySurfaceNSView? {
+        notification.object as? GhosttySurfaceNSView
+    }
+}
+
+@MainActor
 final class GhosttySurfaceContainerView: NSView {
     private static let terminalDiagnosticsLogger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -167,6 +185,7 @@ final class GhosttySurfaceContainerView: NSView {
         }
         needsLayout = true
         synchronizeLayout()
+        postFocusReadinessIfMounted(surfaceView)
     }
 
     override func layout() {
@@ -232,6 +251,16 @@ final class GhosttySurfaceContainerView: NSView {
             return nil
         }
         return mountedSurfaceView
+    }
+
+    private func postFocusReadinessIfMounted(_ surfaceView: GhosttySurfaceNSView) {
+        guard mountedSurfaceView === surfaceView,
+            surfaceView.scrollContainer === self,
+            surfaceView.superview === documentView,
+            let contentView = surfaceView.window?.contentView,
+            surfaceView.isDescendant(of: contentView)
+        else { return }
+        GhosttySurfaceFocusReadiness.post(surfaceView)
     }
 
     private func synchronizeLayout() {

@@ -1,4 +1,4 @@
-## J'onn J'onzz — Architecture Review
+## Architecture Review
 
 **Proposal:** Persistent sidebar hide/show with hover reveal, left/right placement, and Markdown toggle alignment.
 **Clarity rating:** CRYSTALLINE after revision (initial draft: FORMING)
@@ -67,8 +67,8 @@ The revised plan is proportional. A focused state model and two pure geometry he
 - **Earth:** Existing shortcut routing, UserDefaults profile isolation, TOML defaults, width policy, and cancellable peek-task pattern.
 - **New concrete:** Semantic split roles, pane-extent conversion, explicit hidden endpoints, generation-guarded presentation state.
 - **Requires live validation:** AppKit responder preservation during side swap and the subjective 220ms pointer grace.
-- **Deliberately visual-only validation:** The 2pt Markdown offset; the metric is unit-tested, while actual optical centering requires the running app.
+- **Already satisfied in the merge base:** PR #68's full-bar Markdown strip centers every 24-point pill within 28-point chrome and gives each control the full 28-point hit target. The sidebar work should preserve that shared geometry without adding a Files/Document offset.
 
-### J'onn's Recommendation
+### Review Recommendation
 
 The plan may proceed. I sensed several unspoken beliefs in the first draft: that the divider had no thickness, that leading always meant sidebar, and that AppKit would preserve terminal focus through any rearrangement. Those beliefs are now replaced by explicit invariants and tests. No architectural question remains unanswered before code; the two platform-sensitive claims are named as mandatory live-verification gates rather than assumed truths.

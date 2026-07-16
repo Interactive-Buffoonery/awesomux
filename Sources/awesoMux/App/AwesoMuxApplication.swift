@@ -11,7 +11,7 @@ final class AwesoMuxApplication: NSApplication {
         ShortcutDiagnostics.logSendEvent(event)
 
         if SidebarFocusShortcut.matches(event) {
-            guard canHandleAppShortcut else {
+            guard canHandleSidebarShortcut else {
                 ShortcutDiagnostics.log("stage=sendEvent matched=true blocked=modalOrNoWindow")
                 super.sendEvent(event)
                 return
@@ -30,7 +30,7 @@ final class AwesoMuxApplication: NSApplication {
         // would fall through to the focused responder — leaking the ⌃ as a
         // control byte into the PTY. Swallow them on the handleable path.
         if SidebarFocusShortcut.isRepeat(ofFocusSidebarChord: event) {
-            guard canHandleAppShortcut else {
+            guard canHandleSidebarShortcut else {
                 ShortcutDiagnostics.log("stage=sendEvent matched=false repeat=true blocked=modalOrNoWindow")
                 super.sendEvent(event)
                 return
@@ -41,7 +41,7 @@ final class AwesoMuxApplication: NSApplication {
         }
 
         if SidebarVisibilityToggleShortcut.matches(event) {
-            guard canHandleAppShortcut else {
+            guard canHandleSidebarShortcut else {
                 ShortcutDiagnostics.log("stage=sendEvent toggleSidebarVisibility=true blocked=modalOrNoWindow")
                 super.sendEvent(event)
                 return
@@ -52,7 +52,7 @@ final class AwesoMuxApplication: NSApplication {
         }
 
         if SidebarVisibilityToggleShortcut.isRepeat(ofToggleSidebarVisibilityChord: event) {
-            guard canHandleAppShortcut else {
+            guard canHandleSidebarShortcut else {
                 ShortcutDiagnostics.log("stage=sendEvent toggleSidebarVisibility=false repeat=true blocked=modalOrNoWindow")
                 super.sendEvent(event)
                 return
@@ -62,7 +62,7 @@ final class AwesoMuxApplication: NSApplication {
         }
 
         if SidebarWidthToggleShortcut.matches(event) {
-            guard canHandleAppShortcut else {
+            guard canHandleSidebarShortcut else {
                 ShortcutDiagnostics.log("stage=sendEvent toggleSidebarWidth=true blocked=modalOrNoWindow")
                 super.sendEvent(event)
                 return
@@ -77,7 +77,7 @@ final class AwesoMuxApplication: NSApplication {
         }
 
         if SidebarWidthToggleShortcut.isRepeat(ofToggleSidebarWidthChord: event) {
-            guard canHandleAppShortcut else {
+            guard canHandleSidebarShortcut else {
                 ShortcutDiagnostics.log("stage=sendEvent toggleSidebarWidth=false repeat=true blocked=modalOrNoWindow")
                 super.sendEvent(event)
                 return
@@ -155,9 +155,11 @@ final class AwesoMuxApplication: NSApplication {
             // sibling branches use: only a sheet on THIS panel contends for
             // the ⌘Return chord; a sheet on some other window shouldn't
             // disable promote on the key floating panel.
-            guard FloatingPanelEventPolicy.canPromoteFloatingPanel(
-                hasAttachedSheet: floatingPanel.attachedSheet != nil
-            ) else {
+            guard
+                FloatingPanelEventPolicy.canPromoteFloatingPanel(
+                    hasAttachedSheet: floatingPanel.attachedSheet != nil
+                )
+            else {
                 ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true blocked=attachedSheet")
                 super.sendEvent(event)
                 return
@@ -181,5 +183,9 @@ final class AwesoMuxApplication: NSApplication {
         }
 
         return !windows.contains { $0.attachedSheet != nil }
+    }
+
+    private var canHandleSidebarShortcut: Bool {
+        canHandleAppShortcut && awesoMuxPrimaryContentWindow != nil
     }
 }

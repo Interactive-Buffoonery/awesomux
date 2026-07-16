@@ -59,10 +59,11 @@ struct KeyboardShortcutCatalogTests {
                 )
             ]
         )
-        let binding = try #require(KeyboardShortcutCatalog.resolvedBinding(
-            id: KeyboardShortcutCatalog.toggleFloatingPanel.id,
-            keyboard: keyboard
-        ))
+        let binding = try #require(
+            KeyboardShortcutCatalog.resolvedBinding(
+                id: KeyboardShortcutCatalog.toggleFloatingPanel.id,
+                keyboard: keyboard
+            ))
 
         #expect(binding.key == ";")
         #expect(binding.modifiers == [.command, .option])
@@ -72,11 +73,12 @@ struct KeyboardShortcutCatalogTests {
 
     @Test("custom shortcut collision reports existing action")
     func customShortcutCollisionReportsExistingAction() throws {
-        let collision = try #require(KeyboardShortcutCatalog.collision(
-            for: KeyboardShortcutCatalog.splitRight.configValue,
-            assigning: KeyboardShortcutCatalog.toggleFloatingPanel.id,
-            keyboard: .defaultValue
-        ))
+        let collision = try #require(
+            KeyboardShortcutCatalog.collision(
+                for: KeyboardShortcutCatalog.splitRight.configValue,
+                assigning: KeyboardShortcutCatalog.toggleFloatingPanel.id,
+                keyboard: .defaultValue
+            ))
 
         #expect(collision.id == KeyboardShortcutCatalog.splitRight.id)
         #expect(collision.action == KeyboardShortcutCatalog.splitRight.action)
@@ -84,14 +86,18 @@ struct KeyboardShortcutCatalogTests {
 
     @Test("reserved and invalid shortcuts are rejected")
     func reservedAndInvalidShortcutsAreRejected() {
-        #expect(KeyboardShortcutCatalog.validationMessage(for: ShortcutBindingConfig(
-            key: "q",
-            modifiers: [.command]
-        )) == "That shortcut is reserved by macOS.")
-        #expect(KeyboardShortcutCatalog.validationMessage(for: ShortcutBindingConfig(
-            key: "x",
-            modifiers: []
-        )) == "Shortcuts must include the Command key.")
+        #expect(
+            KeyboardShortcutCatalog.validationMessage(
+                for: ShortcutBindingConfig(
+                    key: "q",
+                    modifiers: [.command]
+                )) == "That shortcut is reserved by macOS.")
+        #expect(
+            KeyboardShortcutCatalog.validationMessage(
+                for: ShortcutBindingConfig(
+                    key: "x",
+                    modifiers: []
+                )) == "Shortcuts must include the Command key.")
     }
 
     @Test("resetting an override restores the default binding")
@@ -103,14 +109,16 @@ struct KeyboardShortcutCatalogTests {
             )
         ])
 
-        let changed = try #require(KeyboardShortcutCatalog.resolvedBinding(
-            id: KeyboardShortcutCatalog.toggleFloatingPanel.id,
-            keyboard: overridden
-        ))
-        let reset = try #require(KeyboardShortcutCatalog.resolvedBinding(
-            id: KeyboardShortcutCatalog.toggleFloatingPanel.id,
-            keyboard: .defaultValue
-        ))
+        let changed = try #require(
+            KeyboardShortcutCatalog.resolvedBinding(
+                id: KeyboardShortcutCatalog.toggleFloatingPanel.id,
+                keyboard: overridden
+            ))
+        let reset = try #require(
+            KeyboardShortcutCatalog.resolvedBinding(
+                id: KeyboardShortcutCatalog.toggleFloatingPanel.id,
+                keyboard: .defaultValue
+            ))
 
         #expect(changed.displaySymbol == "⌥⌘;")
         #expect(reset.displaySymbol == "⌘'")
@@ -122,18 +130,20 @@ struct KeyboardShortcutCatalogTests {
         let originalKeyboard = CurrentKeyboardShortcuts.keyboard
         defer { CurrentKeyboardShortcuts.keyboard = originalKeyboard }
 
-        let defaultEvent = try #require(makeKeyEvent(
-            modifierFlags: [.command],
-            characters: "'",
-            charactersIgnoringModifiers: "'",
-            keyCode: 0x27
-        ))
-        let overrideEvent = try #require(makeKeyEvent(
-            modifierFlags: [.command, .option],
-            characters: ";",
-            charactersIgnoringModifiers: ";",
-            keyCode: 0x29
-        ))
+        let defaultEvent = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command],
+                characters: "'",
+                charactersIgnoringModifiers: "'",
+                keyCode: 0x27
+            ))
+        let overrideEvent = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command, .option],
+                characters: ";",
+                charactersIgnoringModifiers: ";",
+                keyCode: 0x29
+            ))
 
         CurrentKeyboardShortcuts.keyboard = KeyboardConfig(shortcuts: [
             KeyboardShortcutCatalog.toggleFloatingPanel.id: ShortcutBindingConfig(
@@ -141,17 +151,19 @@ struct KeyboardShortcutCatalogTests {
                 modifiers: [.command, .option]
             )
         ])
-        let overridden = try #require(CurrentKeyboardShortcuts.binding(
-            id: KeyboardShortcutCatalog.toggleFloatingPanel.id
-        ))
+        let overridden = try #require(
+            CurrentKeyboardShortcuts.binding(
+                id: KeyboardShortcutCatalog.toggleFloatingPanel.id
+            ))
 
         #expect(overridden.matches(overrideEvent))
         #expect(!overridden.matches(defaultEvent))
 
         CurrentKeyboardShortcuts.keyboard = .defaultValue
-        let reset = try #require(CurrentKeyboardShortcuts.binding(
-            id: KeyboardShortcutCatalog.toggleFloatingPanel.id
-        ))
+        let reset = try #require(
+            CurrentKeyboardShortcuts.binding(
+                id: KeyboardShortcutCatalog.toggleFloatingPanel.id
+            ))
 
         #expect(reset.matches(defaultEvent))
         #expect(!reset.matches(overrideEvent))
@@ -159,21 +171,38 @@ struct KeyboardShortcutCatalogTests {
 
     @Test("shortcut capture cancels only for bare escape")
     func shortcutCaptureCancelsOnlyForBareEscape() throws {
-        let bareEscape = try #require(makeKeyEvent(
-            modifierFlags: [],
-            characters: "\u{1b}",
-            charactersIgnoringModifiers: "\u{1b}",
-            keyCode: UInt16(kVK_Escape)
-        ))
-        let commandEscape = try #require(makeKeyEvent(
-            modifierFlags: [.command],
-            characters: "\u{1b}",
-            charactersIgnoringModifiers: "\u{1b}",
-            keyCode: UInt16(kVK_Escape)
-        ))
+        let bareEscape = try #require(
+            makeKeyEvent(
+                modifierFlags: [],
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                keyCode: UInt16(kVK_Escape)
+            ))
+        let commandEscape = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command],
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                keyCode: UInt16(kVK_Escape)
+            ))
 
         #expect(ShortcutCapture.shouldCancel(bareEscape))
         #expect(!ShortcutCapture.shouldCancel(commandEscape))
+    }
+
+    @Test("shortcut capture normalizes equal shifted punctuation fields")
+    func shortcutCaptureNormalizesEqualShiftedPunctuationFields() throws {
+        let event = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command, .shift],
+                characters: "|",
+                charactersIgnoringModifiers: "|",
+                keyCode: 0x2A))
+
+        let captured = try #require(ShortcutCapture.capturedBinding(from: event))
+
+        #expect(captured.key == "\\")
+        #expect(captured.modifiers == [.shift, .command])
     }
 
     @Test("settings data use an override")
@@ -288,7 +317,7 @@ struct KeyboardShortcutCatalogTests {
             (KeyboardShortcutCatalog.movePaneUp, .upArrow, "⌥⌘↑", "Move Pane Up"),
             (KeyboardShortcutCatalog.movePaneDown, .downArrow, "⌥⌘↓", "Move Pane Down"),
             (KeyboardShortcutCatalog.movePaneLeft, .leftArrow, "⌥⌘←", "Move Pane Left"),
-            (KeyboardShortcutCatalog.movePaneRight, .rightArrow, "⌥⌘→", "Move Pane Right")
+            (KeyboardShortcutCatalog.movePaneRight, .rightArrow, "⌥⌘→", "Move Pane Right"),
         ]
         for (binding, key, display, action) in cases {
             #expect(binding.key == key)
@@ -531,6 +560,18 @@ struct KeyboardShortcutCatalogTests {
         #expect(!SidebarFocusShortcut.matches(ansiSWithWrongCharacterEvent!))
     }
 
+    @Test("shortcut matcher preserves supplied non-ANSI logical characters")
+    func shortcutMatcherPreservesSuppliedNonANSILogicalCharacters() throws {
+        let event = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command, .control, .shift],
+                characters: "s",
+                charactersIgnoringModifiers: "s",
+                keyCode: 0x2D))
+
+        #expect(ShortcutEventMatcher.matches(key: "s", event: event))
+    }
+
     @Test("shortcut matcher aligns with catalog chord")
     @MainActor
     func shortcutMatcherAlignsWithCatalogChord() {
@@ -629,6 +670,33 @@ struct KeyboardShortcutCatalogTests {
             ))
         #expect(!SidebarVisibilityToggleShortcut.matches(event))
         #expect(SidebarVisibilityToggleShortcut.isRepeat(ofToggleSidebarVisibilityChord: event))
+    }
+
+    @Test("sidebar visibility toggle normalizes equal shifted punctuation fields")
+    @MainActor
+    func sidebarVisibilityToggleNormalizesEqualShiftedPunctuationFields() throws {
+        let originalKeyboard = CurrentKeyboardShortcuts.keyboard
+        defer { CurrentKeyboardShortcuts.keyboard = originalKeyboard }
+        CurrentKeyboardShortcuts.keyboard = .defaultValue
+        let initialEvent = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command, .shift],
+                characters: "|",
+                charactersIgnoringModifiers: "|",
+                keyCode: 0x2A))
+        let repeatEvent = try #require(
+            makeKeyEvent(
+                modifierFlags: [.command, .shift],
+                characters: "|",
+                charactersIgnoringModifiers: "|",
+                isARepeat: true,
+                keyCode: 0x2A))
+
+        #expect(SidebarVisibilityToggleShortcut.matches(initialEvent))
+        #expect(!SidebarVisibilityToggleShortcut.matches(repeatEvent))
+        #expect(
+            SidebarVisibilityToggleShortcut.isRepeat(
+                ofToggleSidebarVisibilityChord: repeatEvent))
     }
 
     @Test("command palette matcher aligns with catalog chord")
@@ -730,18 +798,21 @@ struct KeyboardShortcutCatalogTests {
 
         #expect(textEvent != nil)
         #expect(repeatEvent != nil)
-        #expect(KeyboardCheatsheetShortcut.shouldDismissPanelForUnhandledKey(
-            textEvent!,
-            firstResponder: nil
-        ))
-        #expect(!KeyboardCheatsheetShortcut.shouldDismissPanelForUnhandledKey(
-            textEvent!,
-            firstResponder: NSTextView()
-        ))
-        #expect(!KeyboardCheatsheetShortcut.shouldDismissPanelForUnhandledKey(
-            repeatEvent!,
-            firstResponder: nil
-        ))
+        #expect(
+            KeyboardCheatsheetShortcut.shouldDismissPanelForUnhandledKey(
+                textEvent!,
+                firstResponder: nil
+            ))
+        #expect(
+            !KeyboardCheatsheetShortcut.shouldDismissPanelForUnhandledKey(
+                textEvent!,
+                firstResponder: NSTextView()
+            ))
+        #expect(
+            !KeyboardCheatsheetShortcut.shouldDismissPanelForUnhandledKey(
+                repeatEvent!,
+                firstResponder: nil
+            ))
     }
 
     @Test("floating panel policy catches close chord")
@@ -795,19 +866,19 @@ struct KeyboardShortcutCatalogTests {
             modifierFlags: [.command, .numericPad],
             characters: "1",
             charactersIgnoringModifiers: "1",
-            keyCode: 0x53 // kVK_ANSI_Keypad1
+            keyCode: 0x53  // kVK_ANSI_Keypad1
         )
         let keypadNineEvent = makeKeyEvent(
             modifierFlags: [.command, .numericPad],
             characters: "9",
             charactersIgnoringModifiers: "9",
-            keyCode: 0x5C // kVK_ANSI_Keypad9
+            keyCode: 0x5C  // kVK_ANSI_Keypad9
         )
         let keypadZeroEvent = makeKeyEvent(
             modifierFlags: [.command, .numericPad],
             characters: "0",
             charactersIgnoringModifiers: "0",
-            keyCode: 0x52 // kVK_ANSI_Keypad0
+            keyCode: 0x52  // kVK_ANSI_Keypad0
         )
 
         #expect(jumpEvent != nil)
@@ -826,26 +897,30 @@ struct KeyboardShortcutCatalogTests {
 
     @Test("workspace command gate blocks while command palette is visible")
     func workspaceCommandGateBlocksWhileCommandPaletteIsVisible() {
-        #expect(WorkspaceCommandShortcutPolicy.canRun(
-            isAnySheetPresented: false,
-            isCommandPaletteVisible: false,
-            hasTarget: true
-        ))
-        #expect(!WorkspaceCommandShortcutPolicy.canRun(
-            isAnySheetPresented: true,
-            isCommandPaletteVisible: false,
-            hasTarget: true
-        ))
-        #expect(!WorkspaceCommandShortcutPolicy.canRun(
-            isAnySheetPresented: false,
-            isCommandPaletteVisible: true,
-            hasTarget: true
-        ))
-        #expect(!WorkspaceCommandShortcutPolicy.canRun(
-            isAnySheetPresented: false,
-            isCommandPaletteVisible: false,
-            hasTarget: false
-        ))
+        #expect(
+            WorkspaceCommandShortcutPolicy.canRun(
+                isAnySheetPresented: false,
+                isCommandPaletteVisible: false,
+                hasTarget: true
+            ))
+        #expect(
+            !WorkspaceCommandShortcutPolicy.canRun(
+                isAnySheetPresented: true,
+                isCommandPaletteVisible: false,
+                hasTarget: true
+            ))
+        #expect(
+            !WorkspaceCommandShortcutPolicy.canRun(
+                isAnySheetPresented: false,
+                isCommandPaletteVisible: true,
+                hasTarget: true
+            ))
+        #expect(
+            !WorkspaceCommandShortcutPolicy.canRun(
+                isAnySheetPresented: false,
+                isCommandPaletteVisible: false,
+                hasTarget: false
+            ))
     }
 
     @Test("shortcut matcher does not recognize nearby focus sidebar chords")

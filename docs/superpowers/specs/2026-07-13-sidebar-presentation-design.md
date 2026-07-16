@@ -4,6 +4,8 @@
 
 Add a persistent hide/show mode for the workspace sidebar, temporarily reveal a hidden sidebar from its configured window edge, let the user place the sidebar on the left or right, and correct the vertical alignment of the Markdown viewer's Files/Document toggle.
 
+> **Superseded transient geometry (July 14):** The hidden-edge-tab design supersedes the shift-based temporary reveal described in the original July 13 draft. The final hover reveal overlays the sidebar while Ghostty and the detail pane keep their existing geometry; only an explicit persistent show changes the split layout.
+
 The existing collapsed rail remains a distinct width mode. The current customizable `Command-Backslash` shortcut continues to collapse or expand the sidebar, while a new customizable `Command-Shift-Backslash` shortcut hides or shows it.
 
 ## Goals
@@ -19,7 +21,7 @@ The existing collapsed rail remains a distinct width mode. The current customiza
 
 - Replacing the existing 60-point collapsed sidebar rail.
 - Turning the hidden state into a third persisted sidebar width.
-- Floating the temporarily revealed sidebar over terminal content.
+- Moving or resizing terminal content for a temporary hover reveal.
 - Changing the layout or behavior of unrelated Markdown controls.
 - Adding Ghostty app-action keybindings for awesoMux commands.
 
@@ -42,7 +44,7 @@ The existing Focus Sidebar action reveals a persistently hidden sidebar before m
 
 ### Edge reveal
 
-When the sidebar is persistently hidden, a narrow invisible pointer trigger occupies its configured window edge. Entering that trigger temporarily reveals the normal split sidebar at its remembered width, shifting the detail content rather than covering it.
+When the sidebar is persistently hidden, a narrow invisible pointer trigger occupies its configured window edge. Entering that trigger temporarily reveals the sidebar at its remembered width as an overlay. Ghostty and the detail pane remain stationary beneath it.
 
 The trigger and revealed sidebar form one hover region. Leaving both begins a short grace period before hiding, allowing the pointer to cross their boundary without flicker. Re-entering cancels the pending hide. Delayed work carries a generation/token so an obsolete delay cannot hide a newer reveal.
 
@@ -90,7 +92,7 @@ The controller identifies the sidebar and detail views by role rather than assum
 - left sidebar width is measured from the leading edge to the divider;
 - right sidebar width is measured from the divider to the trailing edge.
 
-Normal visible widths continue through `SidebarWidthPolicy`. Hidden layout collapses the sidebar role without committing a width preference. Temporary reveal restores the remembered visible width. Reclamping, live resize, drag completion, and narrow-window recovery operate on sidebar width regardless of physical side.
+Normal visible widths continue through `SidebarWidthPolicy`. Hidden layout collapses the sidebar role without committing a width preference. Temporary reveal uses the remembered visible width in an overlay without changing split geometry. Reclamping, live resize, drag completion, and narrow-window recovery operate on sidebar width regardless of physical side.
 
 `ContentView` owns the edge trigger and presentation orchestration so pointer changes do not rebuild or re-host terminal surfaces. The existing observable proxy/live-width pattern remains the bridge to AppKit.
 
@@ -115,9 +117,9 @@ The existing Collapse/Expand Sidebar identifier and `Command-Backslash` behavior
 
 ### Markdown alignment
 
-The Files/Document toggle is centered within the lower 24-point tab strip while a separate 4-point focus-accent band sits above it. Its visual center is therefore 2 points below the combined 28-point titlebar center.
+The merge-base implementation from PR #68 already uses full-bar geometry for the Markdown tab strip. The Files/Document toggle, document tabs, and revision control all render as 24-point pills centered within 28-point chrome, with each outer control frame spanning the full 28 points for hit testing.
 
-Apply a 2-point upward offset to the outer Files/Document toggle while preserving its 20-point visible pill, 24-point hit target, VoiceOver label, and both Files and Document states. Do not change the neighboring revision indicator unless visual verification shows the same user-facing defect and it is explicitly added to scope.
+This satisfies the alignment requirement without a per-control vertical offset. Preserve the shared full-bar treatment, VoiceOver label, and both Files and Document states; do not add an offset or special-case the neighboring revision indicator.
 
 ## Accessibility and Failure Behavior
 

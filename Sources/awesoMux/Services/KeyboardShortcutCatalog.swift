@@ -52,8 +52,8 @@ struct KeyBinding: Identifiable {
 
     func applying(_ override: ShortcutBindingConfig?) -> KeyBinding {
         guard let override,
-              KeyboardShortcutCatalog.validationMessage(for: override) == nil,
-              let resolved = ShortcutKeyResolver.keyEquivalent(for: override.key)
+            KeyboardShortcutCatalog.validationMessage(for: override) == nil,
+            let resolved = ShortcutKeyResolver.keyEquivalent(for: override.key)
         else {
             return self
         }
@@ -71,10 +71,10 @@ struct KeyBinding: Identifiable {
 
     func matches(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,
-              ShortcutEventMatcher.modifiersMatch(
+            ShortcutEventMatcher.modifiersMatch(
                 expected: modifiers.eventFlags,
                 event: event
-              )
+            )
         else {
             return false
         }
@@ -89,7 +89,7 @@ struct KeyBinding: Identifiable {
             modifiers.contains(.control) ? .control : nil,
             modifiers.contains(.option) ? .option : nil,
             modifiers.contains(.shift) ? .shift : nil,
-            modifiers.contains(.command) ? .command : nil
+            modifiers.contains(.command) ? .command : nil,
         ].compactMap { $0 }
     }
 }
@@ -140,11 +140,12 @@ struct KeyboardShortcutEntry: Identifiable {
             return true
         }
 
-        let haystacks = [
-            sectionTitle,
-            action,
-            detail
-        ].compactMap { $0 }
+        let haystacks =
+            [
+                sectionTitle,
+                action,
+                detail,
+            ].compactMap { $0 }
             + keywords
             + bindings.flatMap { [$0.displaySymbol, $0.spokenForm] }
 
@@ -576,84 +577,92 @@ enum KeyboardShortcutCatalog {
         )
 
         return [
-        KeyboardShortcutSection(
-            title: "General",
-            entries: [
-                KeyboardShortcutEntry(newWorkspace, detail: "Create a new workspace"),
-                KeyboardShortcutEntry(
-                    newWorkspaceInCurrentDirectory,
-                    detail: "Create a workspace from the selected workspace directory",
-                    keywords: ["cwd"]
-                ),
-                KeyboardShortcutEntry(newWorkspaceGroup, detail: "Create a sidebar workspace group"),
-                KeyboardShortcutEntry(openMarkdownFile, detail: "Open a Markdown file in a document pane"),
-                KeyboardShortcutEntry(previousDocumentTab, detail: "Switch to the previous document tab", keywords: ["document", "tab"]),
-                KeyboardShortcutEntry(nextDocumentTab, detail: "Switch to the next document tab", keywords: ["document", "tab"]),
-                KeyboardShortcutEntry(closeDocumentTab, detail: "Close the selected document tab", keywords: ["document", "tab"]),
-                KeyboardShortcutEntry(renameWorkspace, detail: "Rename the selected workspace"),
-                KeyboardShortcutEntry(closeWorkspace, detail: "Close the selected workspace"),
-                KeyboardShortcutEntry(clearWorkspace, detail: "Permanently close the selected workspace — no reopen", keywords: ["clear", "permanent", "delete"]),
-                KeyboardShortcutEntry(reopenClosedWorkspace, detail: "Restore the most recent eligible workspace")
-            ]
-        ),
-        KeyboardShortcutSection(
-            title: "Workspaces",
-            entries: [
-                KeyboardShortcutEntry(acknowledgeWorkspace, detail: "Clear attention on the active workspace"),
-                KeyboardShortcutEntry(focusSidebar, detail: "Move keyboard focus to sidebar search"),
-                KeyboardShortcutEntry(toggleSidebarWidth, detail: "Collapse or expand the sidebar"),
+            KeyboardShortcutSection(
+                title: "General",
+                entries: [
+                    KeyboardShortcutEntry(newWorkspace, detail: "Create a new workspace"),
+                    KeyboardShortcutEntry(
+                        newWorkspaceInCurrentDirectory,
+                        detail: "Create a workspace from the selected workspace directory",
+                        keywords: ["cwd"]
+                    ),
+                    KeyboardShortcutEntry(newWorkspaceGroup, detail: "Create a sidebar workspace group"),
+                    KeyboardShortcutEntry(openMarkdownFile, detail: "Open a Markdown file in a document pane"),
+                    KeyboardShortcutEntry(
+                        previousDocumentTab, detail: "Switch to the previous document tab", keywords: ["document", "tab"]),
+                    KeyboardShortcutEntry(nextDocumentTab, detail: "Switch to the next document tab", keywords: ["document", "tab"]),
+                    KeyboardShortcutEntry(closeDocumentTab, detail: "Close the selected document tab", keywords: ["document", "tab"]),
+                    KeyboardShortcutEntry(renameWorkspace, detail: "Rename the selected workspace"),
+                    KeyboardShortcutEntry(closeWorkspace, detail: "Close the selected workspace"),
+                    KeyboardShortcutEntry(
+                        clearWorkspace, detail: "Permanently close the selected workspace — no reopen",
+                        keywords: ["clear", "permanent", "delete"]),
+                    KeyboardShortcutEntry(reopenClosedWorkspace, detail: "Restore the most recent eligible workspace"),
+                ]
+            ),
+            KeyboardShortcutSection(
+                title: "Workspaces",
+                entries: [
+                    KeyboardShortcutEntry(acknowledgeWorkspace, detail: "Clear attention on the active workspace"),
+                    KeyboardShortcutEntry(focusSidebar, detail: "Move keyboard focus to sidebar search"),
+                    KeyboardShortcutEntry(toggleSidebarWidth, detail: "Collapse or expand the sidebar"),
                     KeyboardShortcutEntry(toggleSidebarVisibility, detail: "Hide or show the sidebar"),
-            ] + jumpWorkspaces.map {
-                KeyboardShortcutEntry($0, detail: "Jump by flattened sidebar order")
-            } + [
-                KeyboardShortcutEntry(previousWorkspace, detail: "Move to the previous workspace"),
-                KeyboardShortcutEntry(nextWorkspace, detail: "Move to the next workspace"),
-                KeyboardShortcutEntry(togglePinWorkspace, detail: "Pin or unpin the selected workspace in the sidebar", keywords: ["pin", "favorite"])
-            ]
-        ),
-        KeyboardShortcutSection(
-            title: "Panes",
-            entries: [
-                KeyboardShortcutEntry(splitRight, detail: "Create a vertical split"),
-                KeyboardShortcutEntry(splitDown, detail: "Create a horizontal split"),
-                KeyboardShortcutEntry(renamePane, detail: "Pin a custom active pane title"),
+                ]
+                    + jumpWorkspaces.map {
+                        KeyboardShortcutEntry($0, detail: "Jump by flattened sidebar order")
+                    } + [
+                        KeyboardShortcutEntry(previousWorkspace, detail: "Move to the previous workspace"),
+                        KeyboardShortcutEntry(nextWorkspace, detail: "Move to the next workspace"),
+                        KeyboardShortcutEntry(
+                            togglePinWorkspace, detail: "Pin or unpin the selected workspace in the sidebar", keywords: ["pin", "favorite"]),
+                    ]
+            ),
+            KeyboardShortcutSection(
+                title: "Panes",
+                entries: [
+                    KeyboardShortcutEntry(splitRight, detail: "Create a vertical split"),
+                    KeyboardShortcutEntry(splitDown, detail: "Create a horizontal split"),
+                    KeyboardShortcutEntry(renamePane, detail: "Pin a custom active pane title"),
                     KeyboardShortcutEntry(closePane, detail: "Close the active pane; closes the workspace when it's the last pane"),
-                KeyboardShortcutEntry(find, detail: "Search terminal scrollback"),
-                KeyboardShortcutEntry(scrollbackDump, detail: "Open scrollback in a text sheet"),
-                KeyboardShortcutEntry(previousPane, detail: "Move focus within the pane tree"),
-                KeyboardShortcutEntry(nextPane, detail: "Move focus within the pane tree"),
-                KeyboardShortcutEntry(growActivePane, detail: "Resize the active split larger"),
-                KeyboardShortcutEntry(shrinkActivePane, detail: "Resize the active split smaller"),
-                KeyboardShortcutEntry(movePaneUp, detail: "Move the active pane toward the workspace edge"),
-                KeyboardShortcutEntry(movePaneDown, detail: "Move the active pane toward the workspace edge"),
-                KeyboardShortcutEntry(movePaneLeft, detail: "Move the active pane toward the workspace edge"),
-                KeyboardShortcutEntry(movePaneRight, detail: "Move the active pane toward the workspace edge"),
-                KeyboardShortcutEntry(swapPaneWithNext, detail: "Swap with the next pane in depth-first order"),
-                KeyboardShortcutEntry(focusPermissionPrompt, detail: "Move focus to the active remote permission prompt", keywords: ["permission", "allow", "deny", "remote", "agent", "prompt"])
-            ] + focusPaneBindings.map {
-                KeyboardShortcutEntry($0, detail: "Focus pane by depth-first order")
-            }
-        ),
-        KeyboardShortcutSection(
-            title: "Terminal Panels",
-            entries: [
-                KeyboardShortcutEntry(toggleFloatingPanel, detail: "Show or hide the workspace floating panel"),
-                KeyboardShortcutEntry(togglePopUpTerminal, detail: "Show or minimize the Terminal Companion")
-            ]
-        ),
-        KeyboardShortcutSection(
-            title: "Search",
-            entries: [
-                KeyboardShortcutEntry(toggleCommandPalette, detail: "Search workspaces and actions"),
-                showKeyboardCheatsheetEntry
-            ]
-        ),
-        KeyboardShortcutSection(
-            title: "Misc",
-            entries: [
-                KeyboardShortcutEntry(sessionManager, detail: "Open background session management")
-            ]
-        )
+                    KeyboardShortcutEntry(find, detail: "Search terminal scrollback"),
+                    KeyboardShortcutEntry(scrollbackDump, detail: "Open scrollback in a text sheet"),
+                    KeyboardShortcutEntry(previousPane, detail: "Move focus within the pane tree"),
+                    KeyboardShortcutEntry(nextPane, detail: "Move focus within the pane tree"),
+                    KeyboardShortcutEntry(growActivePane, detail: "Resize the active split larger"),
+                    KeyboardShortcutEntry(shrinkActivePane, detail: "Resize the active split smaller"),
+                    KeyboardShortcutEntry(movePaneUp, detail: "Move the active pane toward the workspace edge"),
+                    KeyboardShortcutEntry(movePaneDown, detail: "Move the active pane toward the workspace edge"),
+                    KeyboardShortcutEntry(movePaneLeft, detail: "Move the active pane toward the workspace edge"),
+                    KeyboardShortcutEntry(movePaneRight, detail: "Move the active pane toward the workspace edge"),
+                    KeyboardShortcutEntry(swapPaneWithNext, detail: "Swap with the next pane in depth-first order"),
+                    KeyboardShortcutEntry(
+                        focusPermissionPrompt, detail: "Move focus to the active remote permission prompt",
+                        keywords: ["permission", "allow", "deny", "remote", "agent", "prompt"]),
+                ]
+                    + focusPaneBindings.map {
+                        KeyboardShortcutEntry($0, detail: "Focus pane by depth-first order")
+                    }
+            ),
+            KeyboardShortcutSection(
+                title: "Terminal Panels",
+                entries: [
+                    KeyboardShortcutEntry(toggleFloatingPanel, detail: "Show or hide the workspace floating panel"),
+                    KeyboardShortcutEntry(togglePopUpTerminal, detail: "Show or minimize the Terminal Companion"),
+                ]
+            ),
+            KeyboardShortcutSection(
+                title: "Search",
+                entries: [
+                    KeyboardShortcutEntry(toggleCommandPalette, detail: "Search workspaces and actions"),
+                    showKeyboardCheatsheetEntry,
+                ]
+            ),
+            KeyboardShortcutSection(
+                title: "Misc",
+                entries: [
+                    KeyboardShortcutEntry(sessionManager, detail: "Open background session management")
+                ]
+            ),
         ]
     }
 
@@ -721,7 +730,8 @@ enum KeyboardShortcutCatalog {
     }
 
     private static let defaultBindingsByID = Dictionary(
-        uniqueKeysWithValues: settingsSections
+        uniqueKeysWithValues:
+            settingsSections
             .flatMap(\.entries)
             .flatMap(\.bindings)
             .map { ($0.id, $0) }
@@ -822,8 +832,8 @@ enum ShortcutKeyResolver {
         case kVK_Escape:
             return "\u{1b}"
         default:
-            guard let characters = event.charactersIgnoringModifiers,
-                  let character = characters.first
+            guard let characters = ShortcutEventMatcher.unmodifiedCharacters(for: event),
+                let character = characters.first
             else {
                 return nil
             }
@@ -851,6 +861,37 @@ enum ShortcutKeyResolver {
 }
 
 enum ShortcutEventMatcher {
+    static func unmodifiedCharacters(for event: NSEvent) -> String? {
+        let suppliedCharacters = event.charactersIgnoringModifiers
+        if normalizedModifierFlags(for: event).contains(.shift),
+            let characters = event.characters,
+            let suppliedCharacters,
+            !suppliedCharacters.isEmpty,
+            characters.caseInsensitiveCompare(suppliedCharacters) == .orderedSame,
+            let shiftedCharacters = event.characters(byApplyingModifiers: [.shift]),
+            shiftedCharacters == suppliedCharacters,
+            let unshiftedCharacters = event.characters(byApplyingModifiers: []),
+            !unshiftedCharacters.isEmpty
+        {
+            return unshiftedCharacters
+        }
+        if let characters = event.characters,
+            let suppliedCharacters,
+            !suppliedCharacters.isEmpty,
+            characters.caseInsensitiveCompare(suppliedCharacters) == .orderedSame
+        {
+            // Synthesized and accessibility-generated events can carry a logical
+            // layout character that cannot be reconstructed from their keyCode.
+            return suppliedCharacters
+        }
+        if let characters = event.characters(byApplyingModifiers: []),
+            !characters.isEmpty
+        {
+            return characters
+        }
+        return suppliedCharacters
+    }
+
     static func normalizedModifierFlags(for event: NSEvent) -> NSEvent.ModifierFlags {
         event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
@@ -876,7 +917,7 @@ enum ShortcutEventMatcher {
                 return event.characters == "?"
                     || event.charactersIgnoringModifiers == "?"
             }
-            guard let characters = event.charactersIgnoringModifiers else {
+            guard let characters = unmodifiedCharacters(for: event) else {
                 return false
             }
             let expected = String(key.character)
@@ -899,7 +940,7 @@ extension ShortcutEventModifiers {
             contains(.control) ? .control : nil,
             contains(.option) ? .option : nil,
             contains(.shift) ? .shift : nil,
-            contains(.command) ? .command : nil
+            contains(.command) ? .command : nil,
         ].compactMap { $0 }
     }
 

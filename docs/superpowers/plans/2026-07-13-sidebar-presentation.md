@@ -33,7 +33,7 @@
 - `Sources/awesoMux/Views/SidebarSplitSupport.swift`: proxy API plus position-aware peek anchors.
 - `Sources/awesoMux/Views/ContentView.swift`: presentation orchestration, edge trigger, titlebar ordering, focus behavior.
 - `Sources/awesoMux/Services/KeyboardShortcutCatalog.swift` and app routing files: Hide/Show command family.
-- `Sources/awesoMux/Views/DocumentTabStripView.swift`: isolated 2-point alignment correction.
+- `Sources/awesoMux/Views/DocumentTabStripView.swift`: existing PR #68 full-bar geometry already satisfies the alignment requirement; no sidebar-feature change is needed.
 
 ## Architecture Review Fold-In
 
@@ -466,47 +466,30 @@ Commit: `feat(sidebar): add hide and show keyboard command`
 ### Task 6: Center the Markdown Files/Document Toggle
 
 **Files:**
-- Modify: `Sources/awesoMux/Views/DocumentTabStripView.swift`
-- Create: `Tests/awesoMuxTests/DocumentTabStripAlignmentTests.swift`
+- Inspect only: `Sources/awesoMux/Views/DocumentTabStripView.swift`
 
 **Interfaces:**
-- Produces a testable metric `DocumentTabStripView.filesToggleVerticalOffset` equal to `-PaneFocusAccent.reservedHeight / 2` (currently `-2`).
+- Preserves the merge-base PR #68 full-bar geometry: every document-strip control uses a 24-point visible pill centered within 28-point chrome, and its outer frame provides the full 28-point hit target.
 
-- [ ] **Step 1: Add a failing metric test**
+- [ ] **Step 1: Confirm the merge-base geometry**
 
-```swift
-@Test func filesToggleCompensatesForFocusBand() {
-    #expect(
-        DocumentTabStripView.filesToggleVerticalOffset
-            == -PaneFocusAccent.reservedHeight / 2
-    )
-}
-```
+Inspect `DocumentTabStripView.height`, `pillHeight`, and each outer control frame. Confirm that tabs, Files/Document, and revision controls share the same full-bar centering model.
 
-- [ ] **Step 2: Run the test and verify RED**
+- [ ] **Step 2: Keep the existing implementation unchanged**
 
-Run: `./script/swift-test.sh --filter DocumentTabStripAlignmentTests`
+Do not introduce a vertical offset or a Files/Document-only metric. The requested alignment is already satisfied by the full-bar implementation.
 
-Expected: compilation fails because the metric does not exist.
-
-- [ ] **Step 3: Add the minimal offset**
-
-Define the metric next to the strip height metrics and add `.offset(y: Self.filesToggleVerticalOffset)` to the outer Files/Document `Button` modifier chain after the 24pt hit-target frame. Do not change the visible pill height, content shape, accessibility label/hint, or revision indicator.
-
-- [ ] **Step 4: Run focused tests and commit**
+- [ ] **Step 3: Run focused regression tests**
 
 Run:
 
 ```bash
-script/format.sh Sources/awesoMux/Views/DocumentTabStripView.swift Tests/awesoMuxTests/DocumentTabStripAlignmentTests.swift
-./script/swift-test.sh --filter DocumentTabStripAlignmentTests
+./script/swift-test.sh --filter PaneTitleBarBandTreatmentTests
 ./script/swift-test.sh --filter DocumentRevisionIndicatorStateTests
 git diff --check
 ```
 
-Expected: both test selections pass.
-
-Commit: `fix(markdown): center document mode toggle`
+Expected: both test selections pass, and no Markdown alignment code change is present in this feature diff.
 
 ---
 
@@ -518,7 +501,7 @@ Commit: `fix(markdown): center document mode toggle`
 - Potentially modify after a reproduced integration failure: `Sources/awesoMux/Views/SidebarSplitView.swift`
 - Potentially modify after a reproduced integration failure: `Sources/awesoMux/Views/SidebarSplitSupport.swift`
 - Potentially modify after a reproduced integration failure: `Sources/awesoMux/Views/DocumentTabStripView.swift`
-- Update: `/Users/edequalsawesome/Obsidian/JiggyBrain/Daily/2026/07/2026-07-13 - awesoMux Sidebar Presentation Controls.md` after implementation (not committed to this repo).
+- Update the private session note outside this repository after implementation.
 
 **Interfaces:**
 - Consumes all prior tasks.
@@ -575,9 +558,9 @@ If PR #22 or its successor still overlaps app/sidebar command files, record the 
 
 Run the repository's multi-reviewer code-review workflow, address valid findings, and repeat focused/full verification for any fixes. Use neutral public wording; never copy internal reviewer/persona names into commits, PRs, comments, or issues.
 
-- [ ] **Step 6: Update the session note and commit final integration fixes**
+- [ ] **Step 6: Finish private documentation and commit final integration fixes**
 
-Record the final commits, test counts, preflight result, visual checks, overlap outcome, and resume/PR state in the existing JiggyBrain note.
+Update the private session note outside this repository.
 
 If integration fixes exist, commit them as: `fix(sidebar): address integration findings`
 

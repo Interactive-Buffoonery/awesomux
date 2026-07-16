@@ -1,4 +1,4 @@
-## J'onn J'onzz — Architecture Review
+## Architecture Review
 
 **Proposal:** Sidebar Hover Refinement Implementation Plan
 **Clarity rating:** CRYSTALLINE

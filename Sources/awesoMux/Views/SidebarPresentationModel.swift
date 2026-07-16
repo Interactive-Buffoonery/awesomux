@@ -16,7 +16,6 @@ final class SidebarPresentationModel {
 
     private(set) var userWantsHidden: Bool
     private(set) var proximityState: ProximityState = .dormant
-    private(set) var cueIntensity: CGFloat = 0
     @ObservationIgnored private(set) var visibilitySource: SidebarVisibilitySource = .explicit
 
     var isTemporarilyRevealed: Bool {
@@ -38,8 +37,8 @@ final class SidebarPresentationModel {
     @ObservationIgnored private let store: SidebarPresentationPreferenceStore
     @ObservationIgnored private let delay: @Sendable (Duration) async -> Void
     @ObservationIgnored private var trackerState: ProximityState = .dormant
-    @ObservationIgnored private var trackerCueIntensity: CGFloat = 0
     @ObservationIgnored private var sidebarPointerPresent = false
+    @ObservationIgnored private var peekPointerPresent = false
     @ObservationIgnored private var sidebarInteractionActive = false
     @ObservationIgnored private var delayedHideTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -55,27 +54,23 @@ final class SidebarPresentationModel {
         userWantsHidden = store.isHidden()
     }
 
-    func togglePersistentVisibility() {
-        if userWantsHidden {
-            showPersistently()
-        } else {
-            clearTransientState()
-            userWantsHidden = true
-            store.saveHidden(true)
-        }
-    }
-
-    func showPersistently() {
+    @discardableResult
+    func applyPersistentHidden(
+        _ hidden: Bool,
+        applyNativeVisibility: (Bool) -> SidebarPersistentVisibilityDeliveryResult
+    ) -> SidebarPersistentVisibilityDeliveryResult {
+        let deliveryResult = applyNativeVisibility(!hidden)
+        guard deliveryResult == .applied else { return deliveryResult }
         clearTransientState()
-        userWantsHidden = false
-        store.saveHidden(false)
+        userWantsHidden = hidden
+        store.saveHidden(hidden)
+        return .applied
     }
 
     func pointerMoved(x: CGFloat, width: CGFloat, position: AppearanceConfig.SidebarPosition) {
         guard userWantsHidden else { return }
         guard width.isFinite, width > 0, x.isFinite else {
             trackerState = .dormant
-            trackerCueIntensity = 0
             transition(to: .dormant)
             return
         }
@@ -89,31 +84,22 @@ final class SidebarPresentationModel {
             next = .cue
         }
         trackerState = next
-        trackerCueIntensity =
-            next == .cue
-            ? Self.easedCueIntensity(distance: distance, trackingWidth: width)
-            : 0
 
-        if sidebarPointerPresent {
+        if sidebarPointerPresent || peekPointerPresent {
             transition(to: .revealed)
             return
         }
-        transition(to: next)
+        transitionRespectingLeaveGrace(to: next)
     }
 
     func trackingRegionExited() {
         guard userWantsHidden else { return }
         trackerState = .dormant
-        trackerCueIntensity = 0
-        if sidebarInteractionActive {
+        if sidebarInteractionActive || peekPointerPresent {
             transition(to: .revealed)
             return
         }
-        if proximityState == .revealed {
-            scheduleDelayedTransition(to: .dormant)
-        } else {
-            transition(to: .dormant)
-        }
+        transitionRespectingLeaveGrace(to: .dormant)
     }
 
     // Kept until the tracking view switches to coordinate-based pointer updates.
@@ -132,12 +118,27 @@ final class SidebarPresentationModel {
         sidebarPointerPresent = isPresent
         if isPresent {
             transition(to: .revealed)
-        } else if sidebarInteractionActive {
-            transition(to: .revealed)
-        } else if trackerState == .revealed {
+        } else if sidebarInteractionActive || peekPointerPresent {
             transition(to: .revealed)
         } else if proximityState == .revealed {
-            scheduleDelayedTransition(to: trackerState)
+            scheduleDelayedTrackerTransition()
+        } else {
+            transitionRespectingLeaveGrace(to: trackerState)
+        }
+    }
+
+    func peekPointerChanged(_ isPresent: Bool) {
+        guard userWantsHidden else { return }
+        guard isPresent != peekPointerPresent else { return }
+        peekPointerPresent = isPresent
+        if isPresent {
+            transition(to: .revealed)
+        } else if sidebarPointerPresent || sidebarInteractionActive {
+            transition(to: .revealed)
+        } else if proximityState == .revealed {
+            scheduleDelayedTrackerTransition()
+        } else {
+            transitionRespectingLeaveGrace(to: trackerState)
         }
     }
 
@@ -146,17 +147,32 @@ final class SidebarPresentationModel {
         sidebarInteractionActive = active
         if active {
             transition(to: .revealed)
-        } else if !sidebarPointerPresent, trackerState != .revealed {
-            scheduleDelayedTransition(to: trackerState)
+        } else if !sidebarPointerPresent, !peekPointerPresent, trackerState != .revealed {
+            transitionRespectingLeaveGrace(to: trackerState)
         }
     }
 
     func positionDidChange() {
-        clearTransientState()
+        cancelDelayedHide()
+        trackerState = .dormant
+        sidebarPointerPresent = false
+        peekPointerPresent = false
+        visibilitySource = .explicit
+        proximityState = sidebarInteractionActive ? .revealed : .dormant
     }
 
     func invalidateTransientState() {
         clearTransientState()
+    }
+
+    func transientPresentationRejected() {
+        guard userWantsHidden, proximityState == .revealed else { return }
+        cancelDelayedHide()
+        visibilitySource = .pointer
+        proximityState =
+            trackerState == .dormant && !sidebarPointerPresent && !peekPointerPresent
+            ? .dormant
+            : .cue
     }
 
     var transientGenerationForTesting: Int { generation }
@@ -167,27 +183,41 @@ final class SidebarPresentationModel {
         publish(next)
     }
 
-    private func scheduleDelayedTransition(to next: ProximityState) {
-        cancelDelayedHide()
+    private func transitionRespectingLeaveGrace(to next: ProximityState) {
+        guard proximityState == .revealed, next != .revealed else {
+            transition(to: next)
+            return
+        }
+        scheduleDelayedTrackerTransition()
+    }
+
+    private func scheduleDelayedTrackerTransition() {
+        guard delayedHideTask == nil else { return }
         let scheduledGeneration = generation
         delayedHideTask = Task { @MainActor [weak self, delay] in
             await delay(Self.leaveGrace)
             guard let self,
                 !Task.isCancelled,
-                self.generation == scheduledGeneration,
+                self.generation == scheduledGeneration
+            else {
+                return
+            }
+            self.delayedHideTask = nil
+            guard
                 !self.sidebarPointerPresent,
+                !self.peekPointerPresent,
                 !self.sidebarInteractionActive,
                 self.userWantsHidden
             else {
                 return
             }
             self.visibilitySource = .pointer
-            self.publish(next)
-            self.delayedHideTask = nil
+            self.publish(self.trackerState)
         }
     }
 
     private func cancelDelayedHide() {
+        guard delayedHideTask != nil else { return }
         generation += 1
         delayedHideTask?.cancel()
         delayedHideTask = nil
@@ -196,47 +226,70 @@ final class SidebarPresentationModel {
     private func clearTransientState() {
         cancelDelayedHide()
         trackerState = .dormant
-        trackerCueIntensity = 0
         sidebarPointerPresent = false
+        peekPointerPresent = false
         sidebarInteractionActive = false
         visibilitySource = .explicit
         proximityState = .dormant
-        cueIntensity = 0
     }
 
     private func publish(_ next: ProximityState) {
+        guard proximityState != next else { return }
         proximityState = next
-        cueIntensity = next == .cue ? trackerCueIntensity : 0
-    }
-
-    private static func easedCueIntensity(distance: CGFloat, trackingWidth: CGFloat) -> CGFloat {
-        guard trackingWidth.isFinite,
-            distance.isFinite,
-            trackingWidth > revealDistance,
-            distance > revealDistance,
-            distance < trackingWidth
-        else { return 0 }
-        let raw = min(max(0, (trackingWidth - distance) / (trackingWidth - revealDistance)), 1)
-        return raw * raw * (3 - 2 * raw)
     }
 }
 
-enum SidebarAttentionCuePolicy {
-    static func visualStrength(intensity: CGFloat, attention: Bool) -> CGFloat {
-        attention ? 1 : min(max(0, intensity), 1)
+enum SidebarEdgeTabPolicy {
+    enum Style: Equatable {
+        case cue
+        case attention
     }
 
-    static func hasAttention(needsAcknowledgement: Bool, unreadNotificationCount: Int) -> Bool {
+    static func resolve(
+        isPersistentlyHidden: Bool,
+        proximity: SidebarPresentationModel.ProximityState,
+        hasAttention: Bool,
+        isControlActive: Bool = true
+    ) -> Style? {
+        guard isControlActive, isPersistentlyHidden else { return nil }
+        switch proximity {
+        case .cue:
+            return .cue
+        case .revealed:
+            return nil
+        case .dormant:
+            return hasAttention ? .attention : nil
+        }
+    }
+
+    static func hasAttention(
+        needsAcknowledgement: Bool,
+        unreadNotificationCount: Int
+    ) -> Bool {
         needsAcknowledgement || unreadNotificationCount > 0
     }
 
-    static func shouldGlow(isPersistentlyHidden: Bool, hasAttention: Bool) -> Bool {
-        isPersistentlyHidden && hasAttention
+    static func shouldScanAttention(
+        isPersistentlyHidden: Bool,
+        proximity: SidebarPresentationModel.ProximityState,
+        isControlActive: Bool = true
+    ) -> Bool {
+        isControlActive && isPersistentlyHidden && proximity == .dormant
     }
+
 }
 
 enum SidebarVisibilityActionTitle {
     static func resolve(isHidden: Bool) -> String {
-        isHidden ? "Show Sidebar" : "Hide Sidebar"
+        if isHidden {
+            return String(
+                localized: "Show Sidebar",
+                comment: "Menu and command palette action that makes the sidebar persistently visible."
+            )
+        }
+        return String(
+            localized: "Hide Sidebar",
+            comment: "Menu and command palette action that hides the sidebar persistently."
+        )
     }
 }

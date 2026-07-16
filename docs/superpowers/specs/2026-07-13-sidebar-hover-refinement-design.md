@@ -4,6 +4,8 @@
 
 Refine the hidden-sidebar pointer interaction from the original [Sidebar Presentation and Markdown Toggle Alignment](2026-07-13-sidebar-presentation-design.md) design. A pass-through attraction field covering the sidebar-side third of the window provides a progressively stronger proximity cue, then temporarily reveals the user's selected rail or full sidebar when the pointer reaches the inner 40 points.
 
+> **Superseded mouse-delivery ownership (July 14):** The final [Hidden Sidebar Edge Tab Design](2026-07-14-hidden-sidebar-edge-tab-design.md) supersedes this draft's prohibition on an event-monitor fallback. `SidebarSplitController` owns a window-filtered local `NSEvent` mouse-moved monitor as the AppKit delivery fallback for the attraction field. App-global or broad unfiltered input monitoring remains prohibited.
+
 Only pointer-driven transitions animate. Explicit keyboard commands remain immediate and deterministic.
 
 ## Goals
@@ -67,7 +69,7 @@ If `Command-Backslash` is used during a temporary hover reveal, it follows the e
 
 Add an AppKit tracking surface owned by the existing split-view/content orchestration described in the original design. It covers the sidebar-side third of the root content bounds (the full usable window content width, excluding no terminal area) while the sidebar is persistently hidden. The surface observes pointer movement and entry/exit but is pass-through for hit testing, so terminal input remains owned by the terminal/detail view beneath it.
 
-The implementation must not install a window-wide event monitor or a SwiftUI hit-testing overlay. Tracking is local to the relevant content/split geometry and updates when the window resizes or the sidebar changes sides. Its coordinate conversion computes edge distance from current bounds rather than cached screen coordinates.
+The primary tracking surface remains local to the relevant content/split geometry and updates when the window resizes or the sidebar changes sides. `SidebarSplitController` supplements it with the final design's local `NSEvent` mouse-moved monitor, filtering events to the owning window before forwarding movement. The implementation must not install app-global or broad unfiltered input monitoring or a SwiftUI hit-testing overlay. Coordinate conversion computes edge distance from current bounds rather than cached screen coordinates.
 
 Pointer observation reports current edge distance and local tracking width to the main-actor sidebar presentation model. It must not recreate terminal hosting views, change first responder, synthesize mouse events, or consume clicks, drags, scroll events, contextual clicks, or terminal text selection within the attraction field.
 
@@ -124,7 +126,7 @@ The existing left-side titlebar behavior remains unchanged. This alignment follo
 - **Window resize:** refresh tracking geometry, recalculate edge distance, and reclamp the overlay frame without resizing Ghostty or persisting an intermediate width.
 - **Position change:** clear all transient left/right state before installing tracking on the new side; no cue may remain on the old edge.
 - **Keyboard during hover:** `Command-Shift-Backslash` cancels hover state and applies the real split result instantly, with one intentional Ghostty resize when showing; `Command-Backslash` changes the overlay's rail/full selection without changing hidden persistence or terminal geometry.
-- **Tracking unavailable:** remain safely hidden with keyboard/menu commands functional; do not install a broader input monitor as fallback.
+- **Tracking unavailable:** remain safely hidden with keyboard/menu commands functional. The required window-filtered local mouse-moved monitor may backstop AppKit delivery, but it must not expand into app-global or broad unfiltered input monitoring.
 - **Narrow window:** clamp the overlay using the existing width policy without changing the real split, then return fully hidden after hover.
 - **Inactive or detached host:** cancel delayed work and animation and remove the cue rather than retaining stale pointer state.
 - **Overlay-to-split handoff:** remove the transient host and reveal the persistent sidebar atomically enough to avoid duplicate UI, flashes, lost sidebar state, or focus landing on a detached view.

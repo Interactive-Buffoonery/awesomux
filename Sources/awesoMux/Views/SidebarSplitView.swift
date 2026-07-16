@@ -22,7 +22,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     var edgeTrackingEnabled = false
     var onLiveWidthChange: ((CGFloat) -> Void)?
     var onCommitWidth: ((CGFloat) -> Void)?
-    var onSidebarFocusHandoff: ((SidebarFocusHandoffRequest) -> Bool)?
+    var onSidebarFocusHandoff: ((SidebarFocusHandoffRequest) -> SidebarFocusHandoffOutcome?)?
     var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
     var onEdgeExit: (() -> Void)?
     var onTrackingAvailabilityLost: (() -> Void)?
@@ -48,20 +48,7 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.setSidebarHidden(initiallyHidden)
         controller.setSidebarWidth(initialWidth)
         controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
-        proxy.setSelectedWidth = { [weak controller] width in
-            controller?.setSelectedSidebarWidth(width)
-        }
-        proxy.setOverlayVisible = { [weak controller] visible, transition, reduceMotion in
-            controller?.setOverlayPresented(
-                visible, transition: transition, reduceMotion: reduceMotion)
-        }
-        proxy.setPersistentVisible = { [weak controller] visible in
-            controller?.setPersistentSidebarVisible(visible)
-        }
-        proxy.setPosition = { [weak controller] position in controller?.setSidebarPosition(position) }
-        proxy.sidebarPointerChanged = { [weak controller] inside in
-            controller?.sidebarPointerChanged(inside)
-        }
+        controller.installCommandHandlers(on: proxy)
         return controller
     }
 

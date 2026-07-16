@@ -912,7 +912,7 @@ Commit: `test(sidebar): prove hover geometry isolation`
 
 **Files:**
 - Modify only if verification exposes an approved defect: files from Tasks 1–6 and their focused tests.
-- Update: `/Users/edequalsawesome/Obsidian/JiggyBrain/Daily/2026/07/2026-07-13 - awesoMux Sidebar Presentation Controls.md`
+- Update the private session note outside this repository.
 
 **Interfaces:**
 - Consumes all prior task interfaces.
@@ -1093,9 +1093,9 @@ git status --short
 
 Expected: preflight passes, or only the already documented macOS Bash 3 `mapfile: command not found` infrastructure failure remains after preceding guards pass. Report every open PR touching changed files. Preserve unrelated concurrent worktree changes. A preflight-driven code change invalidates the recorded SHA and returns to Gate A.
 
-- [ ] **Step 12: Update the session note with both review gates**
+- [ ] **Step 12: Finish private documentation after both review gates**
 
-Update the existing JiggyBrain note with overlay architecture, commands, test counts, screenshots, preflight status, overlap, every specialist/adversarial round path, dispositions, `FINAL-CLEAN-SHA`, and remaining sharp edges. Use generic review wording in future public artifacts; local artifact names remain local-only.
+Update the private session note outside this repository.
 
 - [ ] **Step 13: Commit verification-only fixes if any, then rerun both gates**
 

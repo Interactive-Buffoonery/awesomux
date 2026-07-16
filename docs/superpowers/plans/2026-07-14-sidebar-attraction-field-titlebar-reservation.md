@@ -8,16 +8,23 @@
 
 **Tech Stack:** Swift 6, SwiftUI Observation, AppKit tracking areas, Core Animation presentation layers, swift-testing, SwiftPM macOS 15+
 
+## Approved final behavior
+
+The later dogfood decision supersedes the shared-translation titlebar steps below: the native sidebar body slides, while the titlebar brand lockup remains in place and fades. Partially presented lockups are accessibility-hidden. A left rail that is too narrow to render the lockup reserves its actual visible width rather than the larger brand footprint, which keeps temporary and persistent 60-point rail layouts aligned.
+
+The window-local mouse-moved monitor remains an intentional AppKit delivery fallback for the one-third attraction field. It must restore each owning window's previous `acceptsMouseMovedEvents` value when disabled, transferred, detached, or finalized; this lifecycle exception does not authorize a second presentation state or divider mutation.
+
+Pointer-driven reveal and dismissal keep the hover transition. Explicit side changes reconcile immediately after native placement, including same-value proximity states that cannot retrigger SwiftUI `onChange`. Passive pointer-only overlays and in-flight hides collapse to stable hidden ownership during that move. A keyboard-, menu-, or accessibility-active overlay stays mounted, visible, and focus-safe while mirroring, then dismisses through ordinary leave grace after the interaction ends.
+
 ## Global Constraints
 
 - Cue field is the sidebar-side third of the full root content bounds; reveal begins at or inside 40 points.
-- Cue remains a fixed 4-point strip. Only opacity and glow strength change; widening remains future tuning.
-- Cue intensity is continuous, monotonic, eased, faint at the field boundary, and strongest immediately before reveal. It never pulses or loops.
-- Attention glow continues to use `needsAcknowledgement || unreadNotificationCount > 0` and remains visible while persistently hidden.
+- `.cue` is a distance-invariant 7-point edge strip with a centered 28×52-point directional tab; `.revealed` removes the tab because the full sidebar replaces it.
+- Hidden attention outside the attraction field is a static 7-point strip with no chevron. It continues to use `needsAcknowledgement || unreadNotificationCount > 0` while persistently hidden.
 - The tracker and cue remain pass-through, non-focusable, and absent from accessibility traversal.
-- Sidebar body, awesoMux lockup, and workgroup title derive from one authoritative compositor translation. No duration-matched second animation is allowed.
+- The sidebar body slides while the titlebar brand lockup stays stationary and fades. Reservation follows the live visible sidebar width and the approved brand-footprint policy rather than sharing the sidebar translation.
 - Hover presentation must not mutate the real split, divider intent, Ghostty bounds, or terminal backing size.
-- `Command-Shift-Backslash` remains instant; Reduce Motion removes movement/interpolation without removing positional cue strength.
+- `Command-Shift-Backslash` remains instant; Reduce Motion removes the edge-tab translation and sidebar interpolation without changing the presentation states.
 - Preserve left/right symmetry, rail/full selection, reversal, resize, focus, and overlay lifecycle behavior.
 
 ---
@@ -393,7 +400,7 @@ Evidence (2026-07-14): `./script/build_and_run.sh --verify` built, signed, and l
 
 - [ ] **Step 5: Perform honest live QA**
 
-Using a real button-up pointer gesture, verify left and right sides, faint cue on entering the sidebar-side third, smoothly increasing intensity, reveal at 40 points, rail/full overlay, titlebar non-overlap through reveal/hide/reversal, resize, Reduce Motion, terminal selection/scroll/context-click pass-through, and no terminal reflow. Computer Use cannot synthesize a pure mouse move, so leave any unobserved path explicitly manual rather than fabricating evidence.
+Using a real button-up pointer gesture, verify left and right sides, the fixed 7-point cue and centered directional tab on entering the sidebar-side third, no distance-based ramp, reveal at 40 points, cue replacement by the rail/full overlay, the stationary fading titlebar lockup and reservation through reveal/hide/reversal, resize, Reduce Motion, terminal selection/scroll/context-click pass-through, and no terminal reflow. Computer Use cannot synthesize a pure mouse move, so leave any unobserved path explicitly manual rather than fabricating evidence.
 
 Evidence (2026-07-14): not automated. The complete button-up pointer and terminal pass-through matrix remains manual QA.
 

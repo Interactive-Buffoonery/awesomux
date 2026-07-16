@@ -1214,6 +1214,9 @@
     "Hide Resolved Annotations" : {
 
     },
+    "Hide Sidebar" : {
+      "comment" : "Menu and command palette action that hides the sidebar persistently."
+    },
     "Hide resolved annotations" : {
 
     },
@@ -2437,6 +2440,9 @@
     },
     "Show Scrollback" : {
 
+    },
+    "Show Sidebar" : {
+      "comment" : "Menu and command palette action that makes the sidebar persistently visible."
     },
     "Show Terminal Companion" : {
       "comment" : "Dock right-click menu item that shows the Terminal Companion."

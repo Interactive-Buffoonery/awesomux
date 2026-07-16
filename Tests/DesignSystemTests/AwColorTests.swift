@@ -701,6 +701,49 @@ struct AwColorTests {
         }
     }
 
+    @Test("attention stripe holds the non-text floor on mismatched terminal appearances")
+    func attentionStripeClearsMismatchedTerminalContrastFloor() {
+        let backgrounds: [(Color, String)] = [
+            (terminalBackgroundHex("#1e1e2e"), "dark terminal"),
+            (terminalBackgroundHex("#eff1f5"), "light terminal"),
+        ]
+
+        for (background, label) in backgrounds {
+            guard
+                let stripe = NSColor(
+                    Color.aw.contrastTuned(
+                        Color.aw.status.needs,
+                        terminalBackground: background
+                    )
+                ).usingColorSpace(.sRGB),
+                let backgroundResolved = NSColor(background).usingColorSpace(.sRGB)
+            else {
+                Issue.record("Could not resolve attention stripe against \(label)")
+                continue
+            }
+
+            #expect(
+                contrastRatio(stripe, backgroundResolved) >= 3,
+                "Attention stripe did not clear 3:1 against \(label)"
+            )
+        }
+    }
+
+    @Test("background crossover chooses a black or white foreground clearing AA")
+    func backgroundCrossoverClearsAA() {
+        for red in stride(from: 0.0, through: 1.0, by: 0.1) {
+            for green in stride(from: 0.0, through: 1.0, by: 0.1) {
+                for blue in stride(from: 0.0, through: 1.0, by: 0.1) {
+                    let background = Color(red: red, green: green, blue: blue)
+                    let foreground = Color.aw.backgroundIsDark(background) ? Color.white : Color.black
+                    let ratio = contrastRatio(NSColor(foreground), NSColor(background))
+
+                    #expect(ratio >= 4.5, "rgb(\(red), \(green), \(blue)): \(ratio) < 4.5")
+                }
+            }
+        }
+    }
+
     // The hover-overlay contrast assertion above leans entirely on
     // `composited(over:)` producing the right blended color. Pin the helper's
     // own math so a regression there can't silently weaken a contrast claim.
