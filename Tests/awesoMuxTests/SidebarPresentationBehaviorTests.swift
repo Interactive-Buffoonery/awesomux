@@ -1903,6 +1903,11 @@ struct SidebarPresentationBehaviorTests {
         controller.viewWillAppear()
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
         #expect(controller.interactionObserverCountForTesting == 0)
+        // Reattach must un-hide the host and re-mirror the reserved pane immediately,
+        // not defer to a later layout tick (INT-845): a persistently-visible sidebar
+        // would otherwise stay invisible after a detach/reattach cycle.
+        #expect(!controller.sidebarHostClipViewForTesting.isHidden)
+        #expect(controller.sidebarHostFrameForTesting == controller.sidebarPaneFrameForTesting)
     }
 
     @Test("window removal and re-add preserve persistent semantics and restore AX")
