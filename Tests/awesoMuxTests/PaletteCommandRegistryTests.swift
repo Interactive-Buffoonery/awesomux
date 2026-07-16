@@ -4,6 +4,60 @@ import Testing
 
 @Suite("Palette command registry")
 struct PaletteCommandRegistryTests {
+    @Test("Sidebar visibility title follows persistent hidden intent")
+    @MainActor
+    func sidebarVisibilityTitleFollowsHiddenIntent() throws {
+        let store = SessionStore(groups: [])
+
+        let visibleCommands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(isSidebarHidden: false),
+            actions: .noop
+        )
+        let hiddenCommands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(isSidebarHidden: true),
+            actions: .noop
+        )
+
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(
+                    id: KeyboardShortcutCatalog.toggleSidebarVisibility.id,
+                    in: visibleCommands
+                )
+            ).title == "Hide Sidebar"
+        )
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(
+                    id: KeyboardShortcutCatalog.toggleSidebarVisibility.id,
+                    in: hiddenCommands
+                )
+            ).title == "Show Sidebar"
+        )
+    }
+
+    @Test("Unavailable primary target gates sidebar commands")
+    @MainActor
+    func unavailablePrimaryTargetGatesSidebarCommands() throws {
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: SessionStore(groups: []),
+            availability: .init(isSidebarCommandTargetAvailable: false),
+            actions: .noop)
+
+        for commandID in [
+            KeyboardShortcutCatalog.focusSidebar.id,
+            KeyboardShortcutCatalog.toggleSidebarWidth.id,
+            KeyboardShortcutCatalog.toggleSidebarVisibility.id,
+        ] {
+            #expect(
+                try !#require(
+                    PaletteCommandRegistry.command(id: commandID, in: commands)
+                ).isEnabled)
+        }
+    }
+
     @Test("Registry covers menu-equivalent command IDs")
     @MainActor
     func registryCoversMenuEquivalentCommands() {
@@ -56,6 +110,7 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.toggleCommandPalette.id,
                 KeyboardShortcutCatalog.focusSidebar.id,
                 KeyboardShortcutCatalog.toggleSidebarWidth.id,
+                KeyboardShortcutCatalog.toggleSidebarVisibility.id,
             ] + KeyboardShortcutCatalog.jumpWorkspaces.map(\.id) + [
                 KeyboardShortcutCatalog.previousWorkspace.id,
                 KeyboardShortcutCatalog.nextWorkspace.id,

@@ -670,11 +670,11 @@
     "Collapse/Expand Sidebar" : {
 
     },
+    "Hide/Show Sidebar" : {
+
+    },
     "Collapsed" : {
       "comment" : "Accessibility value for the footer total button while the agent activity panel is closed"
-    },
-    "Collapsed-rail behavior." : {
-      "comment" : "Sidebar section subtitle"
     },
     "Collecting" : {
       "comment" : "Diagnostics history state"
@@ -1214,6 +1214,9 @@
     "Hide Resolved Annotations" : {
 
     },
+    "Hide Sidebar" : {
+      "comment" : "Menu and command palette action that hides the sidebar persistently."
+    },
     "Hide resolved annotations" : {
 
     },
@@ -1319,6 +1322,9 @@
           }
         }
       }
+    },
+    "Left" : {
+
     },
     "Live processes" : {
       "comment" : "Diagnostics settings section title"
@@ -1907,6 +1913,12 @@
     "Preview: %arg" : {
       "comment" : "Preview line in the OSC 52 clipboard write confirmation dialog. Argument is a sanitized single-line preview.\nPreview line in the unsafe-paste confirmation dialog. Argument is a sanitized single-line preview of the pending paste content."
     },
+    "Position" : {
+      "comment" : "Settings field label for the sidebar position picker"
+    },
+    "Position and collapsed-rail behavior." : {
+      "comment" : "Sidebar section subtitle"
+    },
     "Previous Document Tab" : {
 
     },
@@ -2181,7 +2193,7 @@
     "Reset to Terminal Title" : {
 
     },
-    "Resets theme, accent, fonts, text size, glow, terminal background, and sidebar jump numbers to their shipped defaults. Doesn't touch settings on other panes." : {
+    "Resets theme, accent, fonts, text size, glow, terminal background, sidebar position, and jump numbers to their shipped defaults. Doesn't touch settings on other panes." : {
       "comment" : "Settings field hint for the reset-to-defaults button"
     },
     "Resolved annotations hidden" : {
@@ -2247,6 +2259,9 @@
 
     },
     "Review in Advanced" : {
+
+    },
+    "Right" : {
 
     },
     "Rising" : {
@@ -2426,6 +2441,9 @@
     "Show Scrollback" : {
 
     },
+    "Show Sidebar" : {
+      "comment" : "Menu and command palette action that makes the sidebar persistently visible."
+    },
     "Show Terminal Companion" : {
       "comment" : "Dock right-click menu item that shows the Terminal Companion."
     },
@@ -2459,6 +2477,9 @@
       "comment" : "Appearance settings section title"
     },
     "Sidebar compact mode" : {
+
+    },
+    "Sidebar position" : {
 
     },
     "Sidebar search" : {

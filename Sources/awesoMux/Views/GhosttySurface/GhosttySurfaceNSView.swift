@@ -85,6 +85,7 @@ final class GhosttySurfaceNSView: NSView {
     /// sampler only announces once per distinct change instead of once per
     /// sample tick. See `scheduleAccessibilityValueChangeAnnouncement()`.
     var lastAccessibilityReportedVisibleText: String?
+    private var accessibilityFocusRequested = false
     var hasObservedAgentActivity = false
     var lastRuntimeEventAppliedAt: TimeInterval?
     var lastRuntimeAttentionEventAppliedAt: TimeInterval?
@@ -368,9 +369,10 @@ final class GhosttySurfaceNSView: NSView {
     /// active-displays default, which can mispace vsync on a non-primary screen.
     func updateSurfaceDisplayID() {
         guard let surface,
-              let screenNumber = window?.screen?.deviceDescription[
+            let screenNumber = window?.screen?.deviceDescription[
                 NSDeviceDescriptionKey("NSScreenNumber")
-              ] as? NSNumber else {
+            ] as? NSNumber
+        else {
             return
         }
         ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
@@ -469,6 +471,9 @@ final class GhosttySurfaceNSView: NSView {
         // fix #3c). Change-guarded to keep the re-render hot path free of
         // redundant AppKit writes.
         let shouldBeAccessibilityElement = pane.remoteReconnect == nil
+        if !shouldBeAccessibilityElement {
+            accessibilityFocusRequested = false
+        }
         if isAccessibilityElement() != shouldBeAccessibilityElement {
             setAccessibilityElement(shouldBeAccessibilityElement)
         }
@@ -477,6 +482,9 @@ final class GhosttySurfaceNSView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil {
+            accessibilityFocusRequested = false
+        }
 
         // Fires on both attach (window != nil) and detach (window == nil).
         // updateWindowObservation handles both directions; everything else
@@ -594,7 +602,8 @@ final class GhosttySurfaceNSView: NSView {
         }
 
         let responder = window.firstResponder
-        let isVacant = responder == nil
+        let isVacant =
+            responder == nil
             || responder === window
             || responder is GhosttySurfaceNSView
         let claimed = isVacant && window.makeFirstResponder(self)
@@ -630,7 +639,8 @@ final class GhosttySurfaceNSView: NSView {
     // means nothing to a person; the short id is a last-resort disambiguator.
     // The result is sanitized + truncated downstream before it reaches the alert.
     var clipboardWriteSourceDescription: String {
-        let workspace = session.isTitleUserEdited && !session.title.isEmpty
+        let workspace =
+            session.isTitleUserEdited && !session.title.isEmpty
             ? session.title
             : "workspace \(String(self.sessionID.uuidString.prefix(8)))"
 
@@ -648,5 +658,26 @@ final class GhosttySurfaceNSView: NSView {
 
     override func accessibilityLabel() -> String? {
         "Terminal output, \(TerminalAccessibilityPathFormatter.sanitizedForSpeech(pane.title))"
+    }
+
+    override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        if accessibilityFocused {
+            guard isAccessibilityElement(),
+                let window,
+                window.isVisible,
+                window.isKeyWindow
+            else {
+                accessibilityFocusRequested = false
+                return
+            }
+        }
+        accessibilityFocusRequested = accessibilityFocused
+        if accessibilityFocused {
+            NSAccessibility.post(element: self, notification: .focusedUIElementChanged)
+        }
+    }
+
+    override func isAccessibilityFocused() -> Bool {
+        accessibilityFocusRequested
     }
 }

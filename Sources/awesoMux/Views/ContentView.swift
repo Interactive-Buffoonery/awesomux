@@ -4,6 +4,55 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
+enum SidebarVisibilitySource: Equatable {
+    case pointer
+    case explicit
+}
+
+enum SidebarOverlayTransitionPolicy {
+    static func resolve(source: SidebarVisibilitySource) -> SidebarOverlayTransition {
+        switch source {
+        case .pointer: .hover
+        case .explicit: .immediate
+        }
+    }
+}
+
+enum SidebarEdgeTabTransitionPolicy {
+    static func shouldAnimate(
+        source: SidebarVisibilitySource,
+        reduceMotion: Bool
+    ) -> Bool {
+        source == .pointer && !reduceMotion
+    }
+}
+
+enum SidebarHiddenWidthTogglePolicy {
+    static func currentWidth(
+        committedWidth: CGFloat,
+        liveWidth: CGFloat,
+        isTemporarilyRevealed: Bool
+    ) -> CGFloat {
+        isTemporarilyRevealed ? liveWidth : committedWidth
+    }
+
+    static func targetWidth(
+        currentWidth: CGFloat,
+        lastNonCollapsedWidth: CGFloat
+    ) -> CGFloat {
+        SidebarWidthPolicy.toggleWidth(
+            currentWidth: currentWidth,
+            lastNonCollapsedWidth: lastNonCollapsedWidth
+        )
+    }
+}
+
+enum SidebarPeekCardAlignmentPolicy {
+    static func resolve(peekDirection: SidebarPeekDirection) -> Alignment {
+        peekDirection == .right ? .leading : .trailing
+    }
+}
+
 struct ContentView: View {
     static let minimumWindowWidth: CGFloat = 720
     static let minimumWindowHeight: CGFloat = 640
@@ -38,8 +87,11 @@ struct ContentView: View {
     let onTerminalFooterHeightChange: (CGFloat) -> Void
     /// Jump to an exact agent pane from the sidebar activity panel (INT-722).
     let onFocusAgentPane: (TerminalSession.ID, UUID) -> Void
-    let sidebarFocusRequestID: UUID?
-    let sidebarToggleRequestID: UUID?
+    let onFocusActiveTerminal: (SidebarFocusHandoffRequest) -> SidebarFocusHandoffOutcome?
+    let sidebarPresentationCommandMailbox: SidebarPresentationCommandMailbox
+    let sidebarWidthToggleRequestID: UUID?
+    let onSidebarPresentationCommandAcknowledged: (UUID) -> Void
+    let onSidebarPersistentVisibilityChange: (Bool) -> Void
 
     @State private var sidebarWidth = SidebarWidthPreferenceStore().width()
     @State private var lastNonCollapsedSidebarWidth =
@@ -49,6 +101,10 @@ struct ContentView: View {
     @State private var sidebarLiveWidth = SidebarLiveWidth(value: SidebarWidthPreferenceStore().width())
     /// Command channel to move the native divider (the `⌘\` toggle).
     @State private var splitProxy = SidebarSplitProxy()
+    @State private var deliveredSidebarFocusRequestID: UUID?
+    @State private var hostPresentation = SidebarHostPresentationState()
+    @State private var sidebarPresentation = SidebarPresentationModel()
+    @State private var appliedSidebarPosition: AppearanceConfig.SidebarPosition = .left
     /// Collapsed-rail hover peek card, hoisted above the split (INT-533/535).
     /// The sidebar tile (inside the rail pane, which clips to its bounds)
     /// publishes which session is peeked and where; the card draws here, over
@@ -71,6 +127,7 @@ struct ContentView: View {
     // `.appearanceBridge` do NOT reach it. Re-read the store here and re-apply both
     // to each pane inside the split closures so the panes keep their environment.
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(\.controlActiveState) private var controlActiveState
 
     private let sidebarWidthPreferenceStore = SidebarWidthPreferenceStore()
 
@@ -79,6 +136,8 @@ struct ContentView: View {
             .ignoresSafeArea(.container)
             .background(WindowAccessor { hostingWindow = $0 })
             .onAppear {
+                onSidebarPersistentVisibilityChange(sidebarPresentation.userWantsHidden)
+                applySidebarPosition(appSettingsStore.appearance.value.sidebarPosition)
                 sessionStore.selectFirstSessionIfNeeded()
                 // `.onAppear` can fire more than once (window re-show, scene
                 // reactivation); wire the peek callback only once.
@@ -104,17 +163,60 @@ struct ContentView: View {
                 // dispatched, so a click into search can establish focus afterward.
                 clearInitialEmptyFocusIfEligible()
             }
-            .onChange(of: sidebarToggleRequestID) { _, requestID in
-                guard requestID != nil else {
-                    return
-                }
+            .onChange(of: sidebarWidthToggleRequestID) { _, requestID in
+                guard requestID != nil else { return }
                 toggleSidebarWidth()
+            }
+            .onChange(of: sidebarPresentationCommandMailbox.pending, initial: true) { _, _ in
+                deliverPendingSidebarPresentationCommand()
+            }
+            .onChange(of: splitProxy.commandHostGeneration, initial: true) { _, _ in
+                deliverPendingSidebarPresentationCommand()
+            }
+            .onChange(of: splitProxy.usableLayoutGeneration, initial: true) { _, _ in
+                deliverPendingSidebarPresentationCommand()
+            }
+            .onChange(of: sidebarPresentation.proximityState) { _, _ in
+                reconcileSidebarOverlay()
+            }
+            .onChange(of: appSettingsStore.appearance.value.sidebarPosition) { _, position in
+                applySidebarPosition(position)
             }
             .background(Color.aw.surface.window)
             .background(
                 WindowChromeConfigurator(windowRole: .primaryContent)
                     .allowsHitTesting(false)
             )
+    }
+
+    private var applyNativeSidebarVisibility: (Bool) -> SidebarPersistentVisibilityDeliveryResult {
+        { visible in
+            splitProxy.setPersistentVisible?(visible) ?? .deferredUntilHostReady
+        }
+    }
+
+    private func deliverPendingSidebarPresentationCommand() {
+        guard let command = sidebarPresentationCommandMailbox.pending else { return }
+        let deliveryResult = sidebarPresentation.applyPersistentHidden(
+            command.isHidden,
+            applyNativeVisibility: applyNativeSidebarVisibility)
+        switch deliveryResult {
+        case .deferredUntilHostReady:
+            return
+        case .rejected:
+            onSidebarPresentationCommandAcknowledged(command.id)
+            return
+        case .applied:
+            break
+        }
+        if command.isHidden {
+            peekModel.hideAll()
+        }
+        onSidebarPersistentVisibilityChange(command.isHidden)
+        if command.shouldFocusSidebar {
+            deliveredSidebarFocusRequestID = command.id
+        }
+        onSidebarPresentationCommandAcknowledged(command.id)
     }
 
     private func clearInitialEmptyFocusIfEligible() {
@@ -136,19 +238,59 @@ struct ContentView: View {
         let backgroundedWork = floatingPanelController.workspacesWithBackgroundedRunningWork
         let promotedSessionID = floatingPanelController.promotedSessionID
         let promotionPulseSessionID = floatingPanelController.promotionPulseSessionID
+        let sidebarPosition = appliedSidebarPosition
+        let hasAttention =
+            SidebarEdgeTabPolicy.shouldScanAttention(
+                isPersistentlyHidden: sidebarPresentation.userWantsHidden,
+                proximity: sidebarPresentation.proximityState,
+                isControlActive: controlActiveState != .inactive
+            )
+            && sessionStore.groups.contains { group in
+                group.sessions.contains { session in
+                    SidebarEdgeTabPolicy.hasAttention(
+                        needsAcknowledgement: session.needsAcknowledgement,
+                        unreadNotificationCount: session.unreadNotificationCount
+                    )
+                }
+            }
+        let edgeTabStyle = SidebarEdgeTabPolicy.resolve(
+            isPersistentlyHidden: sidebarPresentation.userWantsHidden,
+            proximity: sidebarPresentation.proximityState,
+            hasAttention: hasAttention,
+            isControlActive: controlActiveState != .inactive
+        )
         return VStack(spacing: 0) {
             AppTitlebarView(
                 session: sessionStore.selectedSession,
                 onRenameWorkspace: onRenameWorkspace,
-                sidebarLiveWidth: sidebarLiveWidth
+                sidebarLiveWidth: sidebarLiveWidth,
+                sidebarPosition: sidebarPosition,
+                hostPresentation: hostPresentation
             )
 
             SidebarSplitView(
                 terminalMinimumWidth: Self.terminalMinimumWidth,
                 initialWidth: sidebarWidth,
                 proxy: splitProxy,
+                hostPresentation: hostPresentation,
+                position: sidebarPosition,
+                initiallyHidden: !sidebarPresentation.isSidebarVisible,
+                edgeTrackingEnabled: sidebarPresentation.userWantsHidden,
                 onLiveWidthChange: { width in sidebarLiveWidth.value = width },
                 onCommitWidth: { width in commitSidebarWidth(width) },
+                onSidebarFocusHandoff: onFocusActiveTerminal,
+                onEdgePointerMove: { x, width in
+                    sidebarPresentation.pointerMoved(
+                        x: x,
+                        width: width,
+                        position: appliedSidebarPosition
+                    )
+                },
+                onEdgeExit: sidebarPresentation.trackingRegionExited,
+                onTrackingAvailabilityLost: {
+                    sidebarPresentation.invalidateTransientState()
+                },
+                onSidebarInteractionChanged: sidebarPresentation.sidebarInteractionChanged,
                 sidebar: {
                     SidebarView(
                         sessionStore: sessionStore,
@@ -168,8 +310,15 @@ struct ContentView: View {
                         onOpenQuickSettings: onOpenQuickSettings,
                         onToggleCommandPalette: onToggleCommandPalette,
                         onFocusPane: onFocusAgentPane,
-                        focusRequestID: sidebarFocusRequestID,
-                        sidebarLiveWidth: sidebarLiveWidth
+                        focusRequestID: deliveredSidebarFocusRequestID,
+                        sidebarLiveWidth: sidebarLiveWidth,
+                        resampleSidebarPointer: {
+                            splitProxy.resampleSidebarPointer?()
+                        },
+                        onSidebarHover: { inside in
+                            sidebarPresentation.sidebarPointerChanged(inside)
+                            splitProxy.sidebarPointerChanged?(inside)
+                        }
                     )
                     .environment(appSettingsStore)
                     .environment(peekModel)
@@ -186,7 +335,10 @@ struct ContentView: View {
                         onOpenSelectedWorkspaceInIDE: onOpenSelectedWorkspaceInIDE,
                         onOpenSelectedWorkspaceInIDEWithApp: onOpenSelectedWorkspaceInIDEWithApp,
                         onFooterHeightChange: onTerminalFooterHeightChange,
-                        hasRecoveryWarning: hasRecoveryWarning
+                        hasRecoveryWarning: hasRecoveryWarning,
+                        edgeTabStyle: edgeTabStyle,
+                        edgeTabVisibilitySource: sidebarPresentation.visibilitySource,
+                        sidebarPosition: sidebarPosition
                     )
                     .environment(appSettingsStore)
                     .appearanceBridge(appSettingsStore)
@@ -204,6 +356,49 @@ struct ContentView: View {
             .overlay(alignment: .topLeading) {
                 SidebarPeekCardOverlay(model: peekModel)
             }
+        }
+    }
+
+    private func applySidebarPosition(_ position: AppearanceConfig.SidebarPosition) {
+        let positionChanged = position != appliedSidebarPosition
+        splitProxy.setPosition?(position)
+        sidebarPresentation.positionDidChange()
+        reconcileSidebarOverlay(transition: .immediate)
+        guard positionChanged else { return }
+        peekModel.hideAll()
+        appliedSidebarPosition = position
+        peekModel.updatePosition(position)
+    }
+
+    private func reconcileSidebarOverlay(transition: SidebarOverlayTransition? = nil) {
+        guard sidebarPresentation.userWantsHidden else { return }
+        let resolvedTransition =
+            transition
+            ?? SidebarOverlayTransitionPolicy.resolve(source: sidebarPresentation.visibilitySource)
+        Self.reconcileSidebarOverlay(
+            presentation: sidebarPresentation,
+            peekModel: peekModel,
+            proxy: splitProxy,
+            transition: resolvedTransition,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    static func reconcileSidebarOverlay(
+        presentation: SidebarPresentationModel,
+        peekModel: SidebarPeekModel,
+        proxy: SidebarSplitProxy,
+        transition: SidebarOverlayTransition,
+        reduceMotion: Bool
+    ) {
+        guard presentation.userWantsHidden else { return }
+        let presented = presentation.proximityState == .revealed
+        let accepted =
+            proxy.setOverlayVisible?(presented, transition, reduceMotion) == true
+        if presented, !accepted {
+            peekModel.hideAll()
+            presentation.transientPresentationRejected()
+        } else if presentation.proximityState != .revealed {
+            peekModel.hideAll()
         }
     }
 
@@ -250,6 +445,7 @@ struct ContentView: View {
             sessionStore.acknowledgeSession(id: sessionID)
             peekModel?.hideGroup(for: groupID)
         }
+        peekModel.onPointerChanged = sidebarPresentation.peekPointerChanged
     }
 
     /// Persist a free-drag width on commit (drag end). Preserves the exact width
@@ -267,7 +463,7 @@ struct ContentView: View {
         sidebarWidthPreferenceStore.saveLastNonCollapsedWidth(updatedLastNonCollapsedWidth)
         // Move the divider to the committed width: snaps a rail-zone release tight to
         // the collapsed width, and is a no-op when the user released above it.
-        splitProxy.setWidth?(committed)
+        splitProxy.setSelectedWidth?(committed)
     }
 
     private func toggleSidebarWidth() {
@@ -276,8 +472,14 @@ struct ContentView: View {
         // width without re-committing, so the committed copy can be stale. Toggling
         // off the stale value inverts the first press (it thinks a collapsed rail is
         // still expanded and re-collapses it).
-        let targetWidth = SidebarWidthPolicy.toggleWidth(
-            currentWidth: sidebarLiveWidth.value,
+        let targetWidth = SidebarHiddenWidthTogglePolicy.targetWidth(
+            currentWidth: sidebarPresentation.userWantsHidden
+                ? SidebarHiddenWidthTogglePolicy.currentWidth(
+                    committedWidth: sidebarWidth,
+                    liveWidth: sidebarLiveWidth.value,
+                    isTemporarilyRevealed: sidebarPresentation.isTemporarilyRevealed
+                )
+                : sidebarLiveWidth.value,
             lastNonCollapsedWidth: lastNonCollapsedSidebarWidth
         )
         // Collapse/expand by commanding the native divider directly — instant
@@ -300,7 +502,11 @@ private struct AppTitlebarView: View {
     /// two anchored elements rather than vacuum around a centered cluster.
     /// Reading `.value` here re-renders only the titlebar, not `ContentView`.
     let sidebarLiveWidth: SidebarLiveWidth
-    private var sidebarWidth: CGFloat { sidebarLiveWidth.value }
+    let sidebarPosition: AppearanceConfig.SidebarPosition
+    let hostPresentation: SidebarHostPresentationState
+    private var layoutPolicy: SidebarPresentationLayoutPolicy {
+        SidebarPresentationLayoutPolicy(position: sidebarPosition)
+    }
 
     // Read the accent from the environment (published by AppearanceBridge)
     // rather than the bare `Color.aw.accent` getter. The bare getter reads the
@@ -310,13 +516,14 @@ private struct AppTitlebarView: View {
     // once a workspace switch forced AppTitlebarView to re-render (INT-712).
     @Environment(\.awAccent) private var accentResolver
 
-    private static let brandWithTextMinimumWidth = AppTitlebarMetrics.trafficLightClearance + 94
+    private static let brandWithTextMinimumWidth = AppTitlebarMetrics.brandWithTextMinimumWidth
     private static let brandIconMinimumWidth = AppTitlebarMetrics.trafficLightClearance + 28
 
+    @ViewBuilder
     var body: some View {
-        HStack(spacing: 0) {
-            sidebarColumn
-            contentColumn
+        GeometryReader { proxy in
+            titlebarContent(titlebarWidth: proxy.size.width)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         // Titlebar height stays fixed: it abuts macOS window chrome
         // (traffic-light controls) which does not scale with Dynamic Type.
@@ -344,6 +551,88 @@ private struct AppTitlebarView: View {
         }
     }
 
+    @ViewBuilder
+    private func titlebarContent(titlebarWidth: CGFloat) -> some View {
+        switch hostPresentation.mode {
+        case .persistent:
+            let geometry = layoutPolicy.titlebarGeometry(
+                titlebarWidth: titlebarWidth,
+                visibleSidebarWidth: hostPresentation.effectiveVisibleWidth
+            )
+            titlebarColumns(geometry: geometry)
+        case .overlay:
+            if hostPresentation.isOverlayAnimating {
+                TimelineView(.animation) { _ in
+                    overlayTitlebar(titlebarWidth: titlebarWidth)
+                }
+            } else {
+                overlayTitlebar(titlebarWidth: titlebarWidth)
+            }
+        case .hidden:
+            let geometry = layoutPolicy.titlebarGeometry(
+                titlebarWidth: titlebarWidth,
+                visibleSidebarWidth: 0
+            )
+            titlebarColumns(geometry: geometry)
+                .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
+                    sidebarColumn(
+                        width: hostPresentation.titlebarPresentationWidth,
+                        isPhysicalLeading: sidebarPosition == .left
+                    )
+                    .offset(x: hostPresentation.titlebarTranslationX)
+                    .accessibilityHidden(true)
+                }
+        }
+    }
+
+    private func overlayTitlebar(titlebarWidth: CGFloat) -> some View {
+        let translation = hostPresentation.currentTitlebarTranslationX
+        let fraction = hostPresentation.currentOverlayVisibleFraction(translation: translation)
+        let visibleWidth = hostPresentation.currentTitlebarVisibleWidth(
+            position: sidebarPosition,
+            translation: translation
+        )
+        let geometry = layoutPolicy.titlebarGeometry(
+            titlebarWidth: titlebarWidth,
+            visibleSidebarWidth: visibleWidth,
+            overlayVisibleFraction: fraction,
+            limitsLeftWorkgroupToLockup: true,
+            sidebarPresentationWidth: hostPresentation.titlebarPresentationWidth
+        )
+        return titlebarColumns(geometry: geometry, rendersSidebarLockup: false)
+            .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
+                sidebarColumn(
+                    width: hostPresentation.titlebarPresentationWidth,
+                    isPhysicalLeading: sidebarPosition == .left
+                )
+                .opacity(fraction)
+                .accessibilityHidden(fraction < 1)
+            }
+    }
+
+    private func titlebarColumns(
+        geometry: AppTitlebarLayoutGeometry,
+        rendersSidebarLockup: Bool = true
+    ) -> some View {
+        HStack(spacing: 0) {
+            if sidebarPosition == .left {
+                sidebarColumn(
+                    width: geometry.sidebarReservationWidth,
+                    isPhysicalLeading: true,
+                    rendersLockup: rendersSidebarLockup
+                )
+                contentColumn(geometry: geometry)
+            } else {
+                contentColumn(geometry: geometry)
+                sidebarColumn(
+                    width: geometry.sidebarReservationWidth,
+                    isPhysicalLeading: false,
+                    rendersLockup: rendersSidebarLockup
+                )
+            }
+        }
+    }
+
     /// Brand anchored over the sidebar column. The fixed-width frame matches
     /// the body's sidebar column width so a window resize keeps the brand
     /// aligned with the column beneath it.
@@ -351,20 +640,42 @@ private struct AppTitlebarView: View {
     /// The wordmark only appears when the sidebar is wide enough to clear
     /// traffic lights and fit the label. Narrow modes keep the titlebar quiet
     /// instead of clipping the brand into the content column.
-    private var sidebarColumn: some View {
+    private func sidebarColumn(
+        width: CGFloat,
+        isPhysicalLeading: Bool,
+        rendersLockup: Bool = true
+    ) -> some View {
         HStack(spacing: 0) {
-            if sidebarWidth >= Self.brandWithTextMinimumWidth {
-                Brandmark()
-                    .allowsHitTesting(false)
-            } else if sidebarWidth >= Self.brandIconMinimumWidth {
-                Brandmark(showsText: false)
-                    .allowsHitTesting(false)
+            if layoutPolicy.titlebarLockupAlignment == .trailing {
+                Spacer(minLength: 0)
+                if rendersLockup { titleLockup(width: width) }
+            } else {
+                if rendersLockup { titleLockup(width: width) }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
         }
-        .padding(.leading, AppTitlebarMetrics.trafficLightClearance)
-        .padding(.trailing, 10)
-        .frame(width: sidebarWidth, alignment: .leading)
+        .padding(
+            .leading,
+            isPhysicalLeading
+                ? AppTitlebarMetrics.trafficLightClearance
+                : 10
+        )
+        .padding(.trailing, layoutPolicy.titlebarLockupOuterPadding)
+        .frame(
+            width: width,
+            alignment: layoutPolicy.titlebarLockupAlignment == .trailing ? .trailing : .leading
+        )
+    }
+
+    @ViewBuilder
+    private func titleLockup(width: CGFloat) -> some View {
+        if width >= Self.brandWithTextMinimumWidth {
+            Brandmark()
+                .allowsHitTesting(false)
+        } else if width >= Self.brandIconMinimumWidth {
+            Brandmark(showsText: false)
+                .allowsHitTesting(false)
+        }
     }
 
     /// Workspace cluster anchored to the start of the content pane (i.e. the
@@ -373,7 +684,7 @@ private struct AppTitlebarView: View {
     /// draggable via the `WindowDragGesture` on the outer `HStack`'s
     /// background — do NOT attach a tap/click handler to this column without
     /// considering that it would compete with the underlying drag.
-    private var contentColumn: some View {
+    private func contentColumn(geometry: AppTitlebarLayoutGeometry) -> some View {
         HStack(spacing: 0) {
             if let session {
                 workspaceCluster(session)
@@ -386,12 +697,17 @@ private struct AppTitlebarView: View {
 
             Spacer(minLength: 12)
         }
-        .padding(.leading, AppTitlebarMetrics.contentColumnGutter)
         .padding(
             .leading,
-            max(0, AppTitlebarMetrics.trafficLightClearance + 10 - sidebarWidth)
+            sidebarPosition == .left ? geometry.workgroupBoundary - geometry.sidebarReservationWidth : 10
         )
-        .padding(.trailing, 10)
+        .padding(.leading, sidebarPosition == .right ? AppTitlebarMetrics.trafficLightClearance : 0)
+        .padding(
+            .trailing,
+            sidebarPosition == .right
+                ? geometry.titlebarWidth - geometry.sidebarReservationWidth - geometry.workgroupBoundary
+                : 10
+        )
     }
 
     private func workspaceCluster(_ session: TerminalSession) -> some View {
@@ -561,15 +877,16 @@ private struct SidebarPeekCardOverlay: View {
                     onSelectPane: { paneID in model.onSelectPane?(session.id, paneID) },
                     onHoverChanged: { over in model.setPointerOverCard(over, for: session.id) }
                 )
-                // `.leading` is load-bearing: the single-pane summary card
+                // The alignment is load-bearing: the single-pane summary card
                 // hugs its content (no expanding Spacer, unlike the pane
                 // rows), so the default `.center` alignment would float the
-                // visible card ~(cardWidth − contentWidth)/2 right of the
-                // rail while the `.position` math below assumes it starts
-                // at this frame's leading edge (INT-790). Like `anchorX`,
-                // this assumes LTR; an RTL locale would need the whole
-                // peek positioning system revisited, not just this line.
-                .frame(width: SidebarPeekMetrics.cardWidth, alignment: .leading)
+                // visible card away from the rail while the `.position` math
+                // below assumes its rail-facing edge hugs the frame (INT-790).
+                .frame(
+                    width: SidebarPeekMetrics.cardWidth,
+                    alignment: SidebarPeekCardAlignmentPolicy.resolve(
+                        peekDirection: model.peekDirection)
+                )
                 .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self) {
                     $0.size.height
@@ -582,14 +899,22 @@ private struct SidebarPeekCardOverlay: View {
                 // of the sidebar in both modes — vertically centered on the
                 // tile but clamped so a near-edge tile's card doesn't clip.
                 .position(
-                    x: model.anchorX - overlayOrigin.x + SidebarPeekMetrics.cardGap + SidebarPeekMetrics.cardWidth / 2,
+                    x: clampedCenterX(
+                        containerWidth: proxy.size.width,
+                        overlayOriginX: overlayOrigin.x
+                    ),
                     y: clampedCenterY(containerHeight: proxy.size.height, overlayOriginY: overlayOrigin.y)
                 )
                 .allowsHitTesting(interactive)
                 .transition(
                     reduceMotion
                         ? .identity
-                        : .opacity.combined(with: .scale(scale: 0.98, anchor: .leading))
+                        : .opacity.combined(
+                            with: .scale(
+                                scale: 0.98,
+                                anchor: model.peekDirection == .right ? .leading : .trailing
+                            )
+                        )
                 )
             } else if let group = model.group,
                 let tint = model.tint
@@ -612,13 +937,21 @@ private struct SidebarPeekCardOverlay: View {
                     cardHeight = $0
                 }
                 .position(
-                    x: model.anchorX - overlayOrigin.x + SidebarPeekMetrics.cardGap + SidebarPeekMetrics.cardWidth / 2,
+                    x: clampedCenterX(
+                        containerWidth: proxy.size.width,
+                        overlayOriginX: overlayOrigin.x
+                    ),
                     y: clampedTopAlignedY(containerHeight: proxy.size.height, overlayOriginY: overlayOrigin.y)
                 )
                 .transition(
                     reduceMotion
                         ? .identity
-                        : .opacity.combined(with: .scale(scale: 0.98, anchor: .leading))
+                        : .opacity.combined(
+                            with: .scale(
+                                scale: 0.98,
+                                anchor: model.peekDirection == .right ? .leading : .trailing
+                            )
+                        )
                 )
             }
         }
@@ -631,6 +964,18 @@ private struct SidebarPeekCardOverlay: View {
         // identity changes kind.
         .onChange(of: model.session?.id) { _, _ in cardHeight = 0 }
         .onChange(of: model.group?.id) { _, _ in cardHeight = 0 }
+    }
+
+    private func clampedCenterX(containerWidth: CGFloat, overlayOriginX: CGFloat) -> CGFloat {
+        let inwardOffset = SidebarPeekMetrics.cardGap + SidebarPeekMetrics.cardWidth / 2
+        let rawCenter =
+            model.anchorX - overlayOriginX
+            + (model.peekDirection == .right ? inwardOffset : -inwardOffset)
+        let halfCard = SidebarPeekMetrics.cardWidth / 2
+        let lower = halfCard + Self.edgeInset
+        let upper = containerWidth - halfCard - Self.edgeInset
+        guard lower <= upper else { return rawCenter }
+        return min(max(rawCenter, lower), upper)
     }
 
     private func clampedCenterY(containerHeight: CGFloat, overlayOriginY: CGFloat) -> CGFloat {

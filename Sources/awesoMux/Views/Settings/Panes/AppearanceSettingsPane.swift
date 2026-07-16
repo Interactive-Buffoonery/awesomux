@@ -41,8 +41,12 @@ struct AppearanceSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: String(localized: "Terminal background", comment: "Settings field label for the terminal background source picker"),
-                    hint: String(localized: "Use Ghostty config to keep imported/user terminal themes, or choose an awesoMux color from Catppuccin presets and adjust it if needed.", comment: "Settings field hint for the terminal background source picker")
+                    label: String(
+                        localized: "Terminal background", comment: "Settings field label for the terminal background source picker"),
+                    hint: String(
+                        localized:
+                            "Use Ghostty config to keep imported/user terminal themes, or choose an awesoMux color from Catppuccin presets and adjust it if needed.",
+                        comment: "Settings field hint for the terminal background source picker")
                 ) {
                     TerminalBackgroundSettings(
                         theme: appearance.theme,
@@ -58,7 +62,9 @@ struct AppearanceSettingsPane: View {
             SettingsSection(index: 2, title: String(localized: "Accent", comment: "Appearance settings section title")) {
                 SettingsField(
                     label: String(localized: "Accent color", comment: "Settings field label for the accent color swatches"),
-                    hint: String(localized: "Tints active sidebar rows, focus outlines, and progress affordances.", comment: "Settings field hint for the accent color swatches"),
+                    hint: String(
+                        localized: "Tints active sidebar rows, focus outlines, and progress affordances.",
+                        comment: "Settings field hint for the accent color swatches"),
                     isFirst: true
                 ) {
                     SettingsSwatchGrid(selection: accentBinding)
@@ -68,25 +74,32 @@ struct AppearanceSettingsPane: View {
             SettingsSection(
                 index: 3,
                 title: String(localized: "Fonts", comment: "Appearance settings section title"),
-                subtitle: String(localized: "Interface font applies to app chrome; terminal typography applies to existing and new panes.", comment: "Fonts section subtitle")
+                subtitle: String(
+                    localized: "Interface font applies to app chrome; terminal typography applies to existing and new panes.",
+                    comment: "Fonts section subtitle")
             ) {
                 SettingsField(
                     label: String(localized: "Interface font", comment: "Settings field label for the app UI font picker"),
-                    hint: String(localized: "Used across the sidebar, panels, and settings. Unavailable fonts fall back to the system font. Choose System (SF Pro) to restore the standard font.", comment: "Settings field hint for the app UI font picker, including how to recover from a missing font"),
+                    hint: String(
+                        localized:
+                            "Used across the sidebar, panels, and settings. Unavailable fonts fall back to the system font. Choose System (SF Pro) to restore the standard font.",
+                        comment: "Settings field hint for the app UI font picker, including how to recover from a missing font"),
                     isFirst: true
                 ) {
                     SettingsFontPickerMenu(
                         selection: appSettingsStore.binding(\.appearance.uiFont),
                         fieldLabel: String(localized: "Interface font", comment: "Accessibility label for the app UI font picker"),
                         systemValue: "system",
-                        systemLabel: String(localized: "System (SF Pro)", comment: "Font picker entry for the built-in macOS interface font"),
+                        systemLabel: String(
+                            localized: "System (SF Pro)", comment: "Font picker entry for the built-in macOS interface font"),
                         fonts: uiFonts
                     )
                 }
 
                 SettingsField(
                     label: String(localized: "Mono font", comment: "Settings field label for the terminal font picker"),
-                    hint: String(localized: "Used by the libghostty terminal surface.", comment: "Settings field hint for the terminal font picker")
+                    hint: String(
+                        localized: "Used by the libghostty terminal surface.", comment: "Settings field hint for the terminal font picker")
                 ) {
                     SettingsFontPickerMenu(
                         selection: appSettingsStore.binding(\.appearance.monoFont),
@@ -99,7 +112,9 @@ struct AppearanceSettingsPane: View {
 
                 SettingsField(
                     label: String(localized: "Font size", comment: "Settings field label for the terminal font size slider"),
-                    hint: String(localized: "Updates open terminal panes without restarting their shell.", comment: "Settings field hint for the terminal font size slider")
+                    hint: String(
+                        localized: "Updates open terminal panes without restarting their shell.",
+                        comment: "Settings field hint for the terminal font size slider")
                 ) {
                     TerminalFontSizeSlider(
                         draftValue: $draftFontSize,
@@ -109,7 +124,10 @@ struct AppearanceSettingsPane: View {
 
                 SettingsField(
                     label: String(localized: "Interface text size", comment: "Settings field label for the app UI text-size slider"),
-                    hint: String(localized: "Scales sidebar, panel, and settings text. macOS has no system control for app text size, so this is awesoMux's. Doesn't affect the terminal grid.", comment: "Settings field hint for the app UI text-size slider")
+                    hint: String(
+                        localized:
+                            "Scales sidebar, panel, and settings text. macOS has no system control for app text size, so this is awesoMux's. Doesn't affect the terminal grid.",
+                        comment: "Settings field hint for the app UI text-size slider")
                 ) {
                     InterfaceTextSizeSlider(
                         draftValue: $draftTextScale,
@@ -121,7 +139,9 @@ struct AppearanceSettingsPane: View {
             SettingsSection(index: 4, title: String(localized: "Glow", comment: "Appearance settings section title")) {
                 SettingsField(
                     label: String(localized: "Glow strength", comment: "Settings field label for the glow strength slider"),
-                    hint: String(localized: "Scales accent halos on the active sidebar rail and focus rings.", comment: "Settings field hint for the glow strength slider"),
+                    hint: String(
+                        localized: "Scales accent halos on the active sidebar rail and focus rings.",
+                        comment: "Settings field hint for the glow strength slider"),
                     isFirst: true
                 ) {
                     GlowSlider(
@@ -134,12 +154,28 @@ struct AppearanceSettingsPane: View {
             SettingsSection(
                 index: 5,
                 title: String(localized: "Sidebar", comment: "Appearance settings section title"),
-                subtitle: String(localized: "Collapsed-rail behavior.", comment: "Sidebar section subtitle")
+                subtitle: String(localized: "Position and collapsed-rail behavior.", comment: "Sidebar section subtitle")
             ) {
                 SettingsField(
-                    label: String(localized: "Always show jump numbers", comment: "Settings field label for the sidebar jump numbers toggle"),
-                    hint: String(localized: "When the sidebar is collapsed, show the ⌘1–9 jump number under each workspace. Off by default — the numbers appear while you hold ⌘.", comment: "Settings field hint for the sidebar jump numbers toggle"),
-                    isFirst: true,
+                    label: String(localized: "Position", comment: "Settings field label for the sidebar position picker"),
+                    isFirst: true
+                ) {
+                    Picker("Sidebar position", selection: appSettingsStore.appearance.binding(\.sidebarPosition)) {
+                        Text("Left").tag(AppearanceConfig.SidebarPosition.left)
+                        Text("Right").tag(AppearanceConfig.SidebarPosition.right)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .accessibilityLabel("Sidebar position")
+                }
+
+                SettingsField(
+                    label: String(
+                        localized: "Always show jump numbers", comment: "Settings field label for the sidebar jump numbers toggle"),
+                    hint: String(
+                        localized:
+                            "When the sidebar is collapsed, show the ⌘1–9 jump number under each workspace. Off by default — the numbers appear while you hold ⌘.",
+                        comment: "Settings field hint for the sidebar jump numbers toggle"),
                     // Bare .labelsHidden() Toggle — let the field supply its name.
                     forwardsAccessibilityToControl: true
                 ) {
@@ -152,11 +188,15 @@ struct AppearanceSettingsPane: View {
             SettingsSection(index: 6, title: String(localized: "Reset", comment: "Appearance settings section title")) {
                 SettingsField(
                     label: String(localized: "Reset to Defaults", comment: "Settings field label for the reset-to-defaults button"),
-                    hint: String(localized: "Resets theme, accent, fonts, text size, glow, terminal background, and sidebar jump numbers to their shipped defaults. Doesn't touch settings on other panes.", comment: "Settings field hint for the reset-to-defaults button"),
+                    hint: String(
+                        localized:
+                            "Resets theme, accent, fonts, text size, glow, terminal background, sidebar position, and jump numbers to their shipped defaults. Doesn't touch settings on other panes.",
+                        comment: "Settings field hint for the reset-to-defaults button"),
                     isFirst: true
                 ) {
                     Button("Reset to Defaults") { resetToDefaults() }
-                        .accessibilityHint("Immediately resets all appearance settings on this page to their shipped defaults. This cannot be undone.")
+                        .accessibilityHint(
+                            "Immediately resets all appearance settings on this page to their shipped defaults. This cannot be undone.")
                 }
             }
         }
@@ -245,6 +285,7 @@ struct AppearanceSettingsPane: View {
             appearance.terminalBackgroundMode = defaults.terminalBackgroundMode
             appearance.terminalBackgroundColor = defaults.terminalBackgroundColor
             appearance.alwaysShowJumpNumbers = defaults.alwaysShowJumpNumbers
+            appearance.sidebarPosition = defaults.sidebarPosition
         }
         // Read back from the store rather than the `defaults` constant above:
         // `AppearanceStore.update` only commits when the disk write succeeds
@@ -262,12 +303,13 @@ struct AppearanceSettingsPane: View {
         draftColorHex = appearance.terminalBackgroundColor
         // Only announce success if the fields we just tried to reset actually landed.
         // `attemptPersist` writes the whole candidate config atomically — if it failed,
-        // none of the 8 fields above changed — so this check is equivalent to checking
+        // none of the fields above changed — so this check is equivalent to checking
         // the persist's own success, without `AppearanceStore.update` needing to expose
         // one. Skipping the announcement on failure matters here specifically: telling
         // VoiceOver "reset to defaults" when the disk write silently failed is worse
         // than saying nothing, since sighted users at least see the sliders not move.
-        let didReset = appearance.theme == defaults.theme
+        let didReset =
+            appearance.theme == defaults.theme
             && appearance.accent == defaults.accent
             && appearance.uiFont == defaults.uiFont
             && appearance.monoFont == defaults.monoFont
@@ -278,13 +320,16 @@ struct AppearanceSettingsPane: View {
             && appearance.terminalBackgroundMode == defaults.terminalBackgroundMode
             && appearance.terminalBackgroundColor == defaults.terminalBackgroundColor
             && appearance.alwaysShowJumpNumbers == defaults.alwaysShowJumpNumbers
+            && appearance.sidebarPosition == defaults.sidebarPosition
         if didReset {
             NSAccessibility.post(
                 element: NSApplication.shared,
                 notification: .announcementRequested,
                 userInfo: [
-                    .announcement: String(localized: "Appearance settings reset to defaults.", comment: "VoiceOver announcement after resetting the Appearance settings pane"),
-                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                    .announcement: String(
+                        localized: "Appearance settings reset to defaults.",
+                        comment: "VoiceOver announcement after resetting the Appearance settings pane"),
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue,
                 ]
             )
         }
@@ -349,7 +394,8 @@ private struct InterfaceTextSizeSlider: View {
             .frame(maxWidth: 260)
             .accessibilityLabel(String(localized: "Interface text size", comment: "Accessibility label for the app UI text-size slider"))
             .accessibilityValue(percentText)
-            .accessibilityHint(String(localized: "Scales sidebar, panel, and settings text.", comment: "Accessibility hint for the UI text-size slider"))
+            .accessibilityHint(
+                String(localized: "Scales sidebar, panel, and settings text.", comment: "Accessibility hint for the UI text-size slider"))
 
             Text(percentText)
                 .awFont(AwFont.Mono.meta)
@@ -465,9 +511,10 @@ private struct TerminalBackgroundSettings: View {
         // (not `.black`) so a transient invalid `colorHex` doesn't make the
         // ColorPicker show pure black — the user would then think they've
         // already lost their picked color and re-pick from black.
-        let defaultBase = NSColor.awesoMuxSettingsHex(
-            AppearanceConfig.defaultValue.terminalBackgroundColor
-        ) ?? .black
+        let defaultBase =
+            NSColor.awesoMuxSettingsHex(
+                AppearanceConfig.defaultValue.terminalBackgroundColor
+            ) ?? .black
         return Binding(
             get: { Color(nsColor: NSColor.awesoMuxSettingsHex(effectiveCustomHex) ?? defaultBase) },
             set: { color in
@@ -599,7 +646,8 @@ private struct TerminalBackgroundPreview: View {
     // illegible at exactly the moment its job is to show readability.
     private var foregroundColor: Color {
         let srgb = backgroundNSColor.usingColorSpace(.sRGB) ?? backgroundNSColor
-        let luminance = 0.2126 * srgb.redComponent
+        let luminance =
+            0.2126 * srgb.redComponent
             + 0.7152 * srgb.greenComponent
             + 0.0722 * srgb.blueComponent
         return luminance > 0.5
@@ -656,7 +704,8 @@ private struct GlowSlider: View {
 private extension NSColor {
     static func awesoMuxSettingsHex(_ hex: String) -> NSColor? {
         guard let normalized = AppearanceConfig.normalizedTerminalBackgroundColor(hex),
-              let value = UInt32(String(normalized.dropFirst()), radix: 16) else { return nil }
+            let value = UInt32(String(normalized.dropFirst()), radix: 16)
+        else { return nil }
         return NSColor(
             srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
             green: CGFloat((value >> 8) & 0xFF) / 255,

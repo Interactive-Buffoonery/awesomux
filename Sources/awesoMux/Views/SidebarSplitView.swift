@@ -1,4 +1,6 @@
 import AppKit
+import AwesoMuxConfig
+import AwesoMuxCore
 import SwiftUI
 
 /// SwiftUI bridge to the native `SidebarSplitController` (INT-535).
@@ -14,8 +16,17 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     let initialWidth: CGFloat
     /// Channel for `ContentView` to command the divider (the `⌘\` toggle).
     let proxy: SidebarSplitProxy
+    let hostPresentation: SidebarHostPresentationState
+    var position: AppearanceConfig.SidebarPosition = .left
+    var initiallyHidden = false
+    var edgeTrackingEnabled = false
     var onLiveWidthChange: ((CGFloat) -> Void)?
     var onCommitWidth: ((CGFloat) -> Void)?
+    var onSidebarFocusHandoff: ((SidebarFocusHandoffRequest) -> SidebarFocusHandoffOutcome?)?
+    var onEdgePointerMove: ((CGFloat, CGFloat) -> Void)?
+    var onEdgeExit: (() -> Void)?
+    var onTrackingAvailabilityLost: (() -> Void)?
+    var onSidebarInteractionChanged: ((Bool) -> Void)?
     @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var detail: () -> Detail
 
@@ -27,15 +38,29 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         controller.terminalMinimumWidth = terminalMinimumWidth
         controller.onLiveWidthChange = onLiveWidthChange
         controller.onCommitWidth = onCommitWidth
+        controller.onSidebarFocusHandoff = onSidebarFocusHandoff
+        controller.onEdgePointerMove = onEdgePointerMove
+        controller.onEdgeExit = onEdgeExit
+        controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
+        controller.onSidebarInteractionChanged = onSidebarInteractionChanged
+        controller.hostPresentationState = hostPresentation
+        controller.setSidebarPosition(position)
+        controller.setSidebarHidden(initiallyHidden)
         controller.setSidebarWidth(initialWidth)
-        proxy.setWidth = { [weak controller] width in controller?.setSidebarWidth(width) }
+        controller.setEdgeTrackingEnabled(edgeTrackingEnabled)
+        controller.installCommandHandlers(on: proxy)
         return controller
     }
 
     func updateNSViewController(_ controller: SidebarSplitController, context: Context) {
-        controller.terminalMinimumWidth = terminalMinimumWidth
         controller.onLiveWidthChange = onLiveWidthChange
         controller.onCommitWidth = onCommitWidth
+        controller.onSidebarFocusHandoff = onSidebarFocusHandoff
+        controller.onEdgePointerMove = onEdgePointerMove
+        controller.onEdgeExit = onEdgeExit
+        controller.onTrackingAvailabilityLost = onTrackingAvailabilityLost
+        controller.onSidebarInteractionChanged = onSidebarInteractionChanged
+        precondition(controller.hostPresentationState === hostPresentation)
         // Re-host each pane's root view so @Observable / @Bindable updates inside the
         // panes propagate. SwiftUI diffs the new root against the old, so this is
         // cheap when nothing changed; it does not rebuild the hosting controllers.
@@ -47,11 +72,18 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         // pane stops updating. Both builders are stable today; keep them so (don't
         // erase to `AnyView` — that loses SwiftUI diffing — and don't branch the
         // root type).
-        if let host = controller.children.first as? NSHostingController<Sidebar> {
+        if let host = controller.sidebarViewController as? NSHostingController<Sidebar> {
             host.rootView = sidebar()
         }
-        if let host = controller.children.dropFirst().first as? NSHostingController<Detail> {
+        if let host = controller.detailViewController as? NSHostingController<Detail> {
             host.rootView = detail()
         }
+    }
+
+    static func dismantleNSViewController(
+        _ controller: SidebarSplitController,
+        coordinator: Void
+    ) {
+        controller.finalizeOwnedLifecycle()
     }
 }
