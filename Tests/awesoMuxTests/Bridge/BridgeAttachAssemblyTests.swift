@@ -194,6 +194,8 @@ struct BridgeAttachAssemblyTests {
                             "\(option) landed after `--` (inert): \(command)")
                 }
             }
+            let timeout = try #require(command.range(of: "-o ConnectTimeout=10"))
+            #expect(timeout.upperBound <= optionRegionEnd)
             #expect(
                 !command.contains("ForwardAgent"),
                 "the user's SSH config must control agent forwarding: \(command)"

@@ -372,7 +372,7 @@ struct AwesoMuxApp: App {
                                     paneID: paneID,
                                     target: target
                                 )
-                            else { return }
+                            else { return false }
                             ghosttyRuntime.discardSurface(for: discardedPaneID)
                         case .addToGroup(let groupID, _):
                             guard
@@ -380,10 +380,11 @@ struct AwesoMuxApp: App {
                                     target: target,
                                     toGroupID: groupID
                                 ) != nil
-                            else { return }
+                            else { return false }
                         }
                         appDelegate.surfacePrimaryWindow()
                         sshWorkspaceConnectRequest = nil
+                        return true
                     }
                 )
             }

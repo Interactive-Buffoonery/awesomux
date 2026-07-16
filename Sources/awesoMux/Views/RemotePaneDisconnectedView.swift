@@ -194,7 +194,12 @@ struct RemotePaneDisconnectedView: View {
                         !appSettingsStore.terminal.value.commandBridgeEnabled
                     {
                         appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
-                        guard appSettingsStore.terminal.value.commandBridgeEnabled else { return }
+                        guard appSettingsStore.terminal.value.commandBridgeEnabled else {
+                            if let settingsErrorMessage {
+                                TerminalAccessibilityAnnouncer.announce(settingsErrorMessage, priority: .high)
+                            }
+                            return
+                        }
                     }
                     runtime.reconnectRemotePane(in: paneID)
                 }
