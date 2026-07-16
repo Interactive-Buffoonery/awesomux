@@ -180,6 +180,19 @@ final class SidebarInteractionMonitor {
         return Self.containsAccessibilityElement(element, in: root)
     }
 
+    /// Climb the accessibility-parent chain (cycle-guarded) to the first NSView.
+    static func accessibilityAncestorView(of element: Any?) -> NSView? {
+        var current: Any? = element
+        var visited: Set<ObjectIdentifier> = []
+        while let candidate = current,
+            visited.insert(ObjectIdentifier(candidate as AnyObject)).inserted
+        {
+            if let view = candidate as? NSView { return view }
+            current = (candidate as? NSAccessibilityProtocol)?.accessibilityParent()
+        }
+        return nil
+    }
+
     static func containsAccessibilityElement(_ element: Any?, in root: NSView) -> Bool {
         guard var current = element else { return false }
         var visited: Set<ObjectIdentifier> = []
