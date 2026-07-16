@@ -82,4 +82,20 @@ struct SidebarOverlayClipViewTests {
             #expect(clip.hitTest(NSPoint(x: uncoveredX, y: 20)) == nil)
         }
     }
+
+    @Test("clip at a non-zero origin hits in superview coordinates (trailing sidebar)")
+    func nonZeroOriginHitsInSuperviewCoordinates() {
+        // AppKit hands hitTest points in SUPERVIEW space. A trailing sidebar's clip
+        // sits at maxX - width, so a bounds-only check silently rejects every hit.
+        let root = NSView(frame: CGRect(x: 0, y: 0, width: 1000, height: 40))
+        let clip = SidebarOverlayClipView(frame: CGRect(x: 900, y: 0, width: 100, height: 40))
+        root.addSubview(clip)
+        let content = Sentinel(frame: clip.bounds)
+        clip.addSubview(content)
+        clip.contentView = content
+        clip.presentationTranslationX = { 0 }
+
+        #expect(clip.hitTest(NSPoint(x: 950, y: 20)) === content)
+        #expect(clip.hitTest(NSPoint(x: 850, y: 20)) == nil)
+    }
 }
