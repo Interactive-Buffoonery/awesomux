@@ -2,6 +2,8 @@ import Foundation
 
 public enum DocumentNudgeUnavailableReason: Hashable, Sendable {
     case readOnlyRemoteSnapshot
+    case foregroundSSH
+    case localTerminalUnverified
     case terminalUnavailable
     case requiresLocalTerminal
 }
