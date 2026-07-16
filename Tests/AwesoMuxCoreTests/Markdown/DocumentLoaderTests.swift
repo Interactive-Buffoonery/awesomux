@@ -35,7 +35,7 @@ struct DocumentLoaderTests {
     func loadsValidMarkdown() throws {
         let url = try writeTempFile(name: "hello.md", content: "# Hello\n\nWorld")
         let result = DocumentLoader.load(url)
-        guard case let .loaded(blocks, _) = result else {
+        guard case let .loaded(blocks, _, _) = result else {
             Issue.record("Expected .loaded, got \(result)")
             return
         }
@@ -52,7 +52,7 @@ struct DocumentLoaderTests {
         let content = "# Hello\n\nWorld"
         let url = try writeTempFile(name: "source.md", content: content)
         let result = DocumentLoader.load(url)
-        guard case let .loaded(_, source) = result else {
+        guard case let .loaded(_, source, _) = result else {
             Issue.record("Expected .loaded, got \(result)")
             return
         }
@@ -73,7 +73,7 @@ struct DocumentLoaderTests {
     func loadsEmptyFile() throws {
         let url = try writeTempFile(name: "empty.md", content: "")
         let result = DocumentLoader.load(url)
-        guard case let .loaded(blocks, _) = result else {
+        guard case let .loaded(blocks, _, _) = result else {
             Issue.record("Expected .loaded, got \(result)")
             return
         }
@@ -128,11 +128,26 @@ struct DocumentLoaderTests {
         let captured = try #require(DocumentLoader.readSource(url))
         try "# Save B".write(to: url, atomically: true, encoding: .utf8)
 
-        guard case let .loaded(_, source) = DocumentLoader.load(source: captured) else {
+        guard case let .loaded(_, source, _) = DocumentLoader.load(source: captured) else {
             Issue.record("Expected captured source to load")
             return
         }
         #expect(source == "# Save A")
+    }
+
+    @Test("canonically equivalent source bytes still rebuild the render")
+    func rebuildsCanonicallyEquivalentDifferentBytes() async throws {
+        let prior = AttributedMarkdownBuilder.build("caf\u{00E9}")
+
+        let output = await DocumentLoader.loadAndRender(
+            load: { DocumentLoader.load(source: "cafe\u{0301}") },
+            priorDocument: prior,
+            render: { AttributedMarkdownBuilder.build($0) }
+        )
+        let document = try #require(output?.1)
+
+        #expect(document.source.utf8.elementsEqual("cafe\u{0301}".utf8))
+        #expect(!document.source.utf8.elementsEqual(prior.source.utf8))
     }
 
     @MainActor
@@ -265,7 +280,7 @@ struct DocumentLoaderTests {
 
         let result = DocumentLoader.load(symlink)
 
-        guard case let .loaded(_, source) = result else {
+        guard case let .loaded(_, source, _) = result else {
             Issue.record("Expected .loaded, got \(result)")
             return
         }

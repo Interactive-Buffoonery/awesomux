@@ -204,6 +204,16 @@ struct AmxStatusEventTests {
         #expect(events.isEmpty)
     }
 
+    @Test("attached line requires a positive daemon identity")
+    func attachedRequiresPositiveDaemonIdentity() {
+        for (pid, createdAt) in [(0, 1_700_000_000), (-1, 1_700_000_000), (42, 0), (42, -1)] {
+            let line = """
+                {"event":"attached","token":"tok-abc","created":true,"daemon_pid":\(pid),"daemon_created_at":\(createdAt),"session":"ses-1","ts":1700000001}
+                """
+            #expect(AmxStatusEvent.parseLines(line + "\n", expectedToken: "tok-abc").isEmpty)
+        }
+    }
+
     @Test("a well-formed attached line still parses with its real incarnation")
     func wellFormedAttachedStillParses() {
         let events = AmxStatusEvent.parseLines(attachedLine + "\n", expectedToken: "tok-abc")

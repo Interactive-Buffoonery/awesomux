@@ -8,6 +8,12 @@ import Foundation
 /// a fact cannot be resolved so the caller classifies it as indeterminate rather
 /// than silently idle.
 enum ProcessLivenessProbe {
+    enum ForegroundExecutableMatch: Equatable, Sendable {
+        case matching
+        case notMatching
+        case unknown
+    }
+
     /// The process name (`p_comm`) for `pid`, or nil if it cannot be read
     /// (dead/reaped pid, or a permission error).
     static func foregroundComm(pid: pid_t) -> String? {
@@ -29,6 +35,49 @@ enum ProcessLivenessProbe {
     /// than false (idle-safe).
     static func hasChildren(pid: pid_t) -> Bool? {
         childPIDs(pid: pid).map { !$0.isEmpty }
+    }
+
+    /// The foreground process group of `pid`'s controlling terminal
+    /// (`kinfo_proc.kp_eproc.e_tpgid`), or nil when the pid is gone, has no
+    /// controlling terminal, or that terminal has no foreground group. For a
+    /// bridged session root shell this is the daemon PTY's foreground group —
+    /// the same fact `tcgetpgrp` reports daemon-side — so a background or
+    /// stale descendant (e.g. ssh) is never mistaken for the foreground owner.
+    static func terminalForegroundProcessGroup(pid: pid_t) -> pid_t? {
+        guard pid > 0 else { return nil }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0,
+            size == MemoryLayout<kinfo_proc>.stride
+        else { return nil }
+        let tpgid = info.kp_eproc.e_tpgid
+        return tpgid > 0 ? tpgid : nil
+    }
+
+    static func terminalForegroundComm(
+        daemonPID: pid_t,
+        childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },
+        foregroundGroup: (pid_t) -> pid_t? = {
+            ProcessLivenessProbe.terminalForegroundProcessGroup(pid: $0)
+        },
+        comm: (pid_t) -> String? = { ProcessLivenessProbe.foregroundComm(pid: $0) }
+    ) -> String? {
+        guard let roots = childPIDs(daemonPID), roots.count == 1,
+            let processGroup = foregroundGroup(roots[0])
+        else { return nil }
+        return comm(processGroup)
+    }
+
+    static func terminalForegroundExecutableMatch(
+        _ executable: String,
+        daemonPID: pid_t,
+        foregroundComm: (pid_t) -> String? = {
+            ProcessLivenessProbe.terminalForegroundComm(daemonPID: $0)
+        }
+    ) -> ForegroundExecutableMatch {
+        guard let observed = foregroundComm(daemonPID) else { return .unknown }
+        return observed == executable ? .matching : .notMatching
     }
 
     static func bridgedLiveness(
