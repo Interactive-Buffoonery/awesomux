@@ -125,7 +125,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var localMouseMovedMonitor: Any?
     private weak var localMouseMovedWindow: NSWindow?
     private var localMouseMovedWindowPreviouslyAcceptedEvents = false
-    nonisolated(unsafe) private var applicationActivityObservations: [NSObjectProtocol] = []
+    private var applicationActivityObservations: [NSObjectProtocol] = []
     private var acceptsApplicationPointerEvents = true
     private var applicationFocusRecovery: SidebarApplicationFocusRecovery?
 
@@ -263,7 +263,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         super.viewDidLayout()
         splitView.frame = view.bounds
         publishCommandHostUsableIfNeeded()
-        if case .overlay = hostMode { layoutOverlayPreservingAnimation() }
+        if case .overlay = hostMode { layoutOverlayPreservingAnimation(deferringPublication: true) }
         let trackingWidth = max(0, view.bounds.width / 3)
         let trackingFrame = CGRect(
             x: sidebarPosition == .left ? 0 : view.bounds.width - trackingWidth,
@@ -846,15 +846,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func accessibilityFocusView(for element: Any) -> NSView? {
-        var current: Any? = element
-        var visited: Set<ObjectIdentifier> = []
-        while let candidate = current,
-            visited.insert(ObjectIdentifier(candidate as AnyObject)).inserted
-        {
-            if let view = candidate as? NSView { return view }
-            current = (candidate as? NSAccessibilityProtocol)?.accessibilityParent()
-        }
-        return nil
+        SidebarInteractionMonitor.accessibilityAncestorView(of: element)
     }
 
     private func isVisibleKeyView(_ view: NSView, in window: NSWindow) -> Bool {
@@ -1444,11 +1436,26 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
     }
 
-    private func layoutOverlayPreservingAnimation() {
+    private func layoutOverlayPreservingAnimation(deferringPublication: Bool = false) {
         let oldWidth = overlayClipView.bounds.width
         layoutOverlay(presented: true)
         let newWidth = overlayClipView.bounds.width
         hostMode = .overlay(width: newWidth)
+        if deferringPublication {
+            // viewDidLayout path: writing @Observable state synchronously inside an
+            // AppKit layout pass invalidates the SwiftUI titlebar that owns this
+            // representable and can re-enter layout (the codebase's documented
+            // crash class). Frames are already applied above; publish one hop later.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, case .overlay = self.hostMode else { return }
+                self.publishOverlayLayout(oldWidth: oldWidth, newWidth: newWidth)
+            }
+        } else {
+            publishOverlayLayout(oldWidth: oldWidth, newWidth: newWidth)
+        }
+    }
+
+    private func publishOverlayLayout(oldWidth: CGFloat, newWidth: CGFloat) {
         hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: newWidth)
         guard oldWidth > 0, oldWidth != newWidth,
             let requestedPresented = overlayAnimator?.requestedPresentedState
@@ -1523,6 +1530,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func applyHiddenPosition() {
+        // `sidebarPaneWidth > 0` is load-bearing: re-issuing setPosition(0) on an
+        // already-collapsed pane from viewDidLayout is what caused the hidden
+        // cold-launch layout recursion (see persistedHiddenColdLaunch regression
+        // test). Do not "simplify" this guard back to a bounds-only check.
         guard isViewLoaded, splitView.bounds.width > 0, sidebarPaneWidth > 0 else { return }
         setDividerPosition(0)
     }
