@@ -162,6 +162,9 @@ struct CommandBridgeEnactorTests {
         let fixture = try makeFixture()
         let enactor = fixture.view.commandBridgeEnactor
         enactor.sessionID = fixture.sessionID
+        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+        enactor.beginStatusWatch(channel: channel)
         enactor.handleStatusEvents([
             try attachedEvent(pid: 42, createdAt: 1_700_000_000, sessionID: fixture.sessionID)
         ])
@@ -187,6 +190,79 @@ struct CommandBridgeEnactorTests {
 
         enactor.beginStatusWatch(channel: nil)
         #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .unknown)
+    }
+
+    @Test("foreground evidence requires an armed watcher and a fresh receipt")
+    func foregroundEvidenceRequiresLiveFeed() throws {
+        let fixture = try makeFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+        let receivedAt = ContinuousClock.now
+        var now = receivedAt
+        enactor.foregroundStatusNow = { now }
+        enactor.sessionID = fixture.sessionID
+        enactor.beginStatusWatch(channel: channel)
+        enactor.handleStatusEvents([
+            try attachedEvent(pid: 42, createdAt: 1_700_000_000, sessionID: fixture.sessionID),
+            try #require(Self.foregroundEvent(sessionID: fixture.sessionID, state: "foreground", executable: "ssh")),
+        ])
+
+        #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .matching)
+        now = receivedAt.advanced(by: .milliseconds(2_001))
+        #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .unknown)
+
+        now = receivedAt
+        enactor.handleStatusEvents([
+            try #require(Self.foregroundEvent(sessionID: fixture.sessionID, state: "foreground", executable: "ssh", sequence: 2))
+        ])
+        enactor.statusWatcher?.stop()
+        #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .unknown)
+    }
+
+    @Test("session end rejects later foreground publications until a new attach")
+    func sessionEndFencesLaterForeground() throws {
+        let fixture = try makeFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+        enactor.sessionID = fixture.sessionID
+        enactor.beginStatusWatch(channel: channel)
+        enactor.handleStatusEvents([
+            try attachedEvent(pid: 42, createdAt: 1_700_000_000, sessionID: fixture.sessionID),
+            try #require(Self.foregroundEvent(sessionID: fixture.sessionID, state: "foreground", executable: "ssh")),
+        ])
+        #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .matching)
+
+        enactor.exitProbeInFlight = true
+        let sessionEnd = try #require(
+            Self.sessionEndEvent(
+                token: channel.token,
+                terminalSessionID: fixture.sessionID,
+                reason: .daemonDied,
+                code: 1
+            )
+        )
+        enactor.handleStatusEvents([
+            sessionEnd,
+            try #require(Self.foregroundEvent(sessionID: fixture.sessionID, state: "foreground", executable: "ssh", sequence: 2)),
+        ])
+        #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .unknown)
+
+        enactor.handleStatusEvents([
+            try attachedEvent(pid: 43, createdAt: 1_700_000_100, sessionID: fixture.sessionID),
+            try #require(
+                Self.foregroundEvent(
+                    sessionID: fixture.sessionID,
+                    state: "foreground",
+                    executable: "ssh",
+                    sequence: 3,
+                    daemonPID: 43,
+                    daemonCreatedAt: 1_700_000_100
+                )),
+        ])
+        #expect(fixture.runtime.foregroundExecutableMatch("ssh", in: fixture.paneID) == .matching)
+        enactor.exitProbeInFlight = false
     }
 
     @Test(
@@ -571,12 +647,15 @@ struct CommandBridgeEnactorTests {
     private static func foregroundEvent(
         sessionID: TerminalSessionID,
         state: String,
-        executable: String = ""
+        executable: String = "",
+        sequence: UInt64 = 1,
+        daemonPID: Int = 42,
+        daemonCreatedAt: Int = 1_700_000_000
     ) -> AmxStatusEvent? {
         let token = "tok"
         let processGroupID = state == "foreground" ? 567 : 0
         let line = """
-                    {"event":"foreground-process","token":"\(token)","daemon_pid":42,"daemon_created_at":1700000000,"daemon_incarnation":99,"transition_sequence":1,"sample_sequence":1,"state":"\(state)","process_group_id":\(processGroupID),"executable":"\(executable)","session":"\(sessionID.rawValue)","ts":1700000002}
+                    {"event":"foreground-process","token":"\(token)","daemon_pid":\(daemonPID),"daemon_created_at":\(daemonCreatedAt),"daemon_incarnation":99,"transition_sequence":\(sequence),"sample_sequence":\(sequence),"state":"\(state)","process_group_id":\(processGroupID),"executable":"\(executable)","session":"\(sessionID.rawValue)","ts":1700000002}
             """
         return AmxStatusEvent.parseLines(line + "\n", expectedToken: token).first
     }

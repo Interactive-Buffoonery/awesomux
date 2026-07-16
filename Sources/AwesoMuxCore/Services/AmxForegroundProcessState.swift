@@ -44,11 +44,14 @@ public struct AmxForegroundProcessPublication: Equatable, Sendable {
 /// Watermarks survive rejected samples so a replay cannot become current after
 /// it invalidates the prior observation.
 public struct AmxForegroundProcessState: Equatable, Sendable {
+    private static let maximumReceiptAge: Duration = .seconds(2)
+
     private var daemon: AmxDaemonIncarnation?
     private var lastTransitionSequence: UInt64 = 0
     private var lastSampleSequence: UInt64 = 0
     private var lastState: AmxForegroundProcessPublication.State?
     private var current: AmxForegroundProcessPublication?
+    private var currentReceivedAt: ContinuousClock.Instant?
 
     public init() {}
 
@@ -58,16 +61,20 @@ public struct AmxForegroundProcessState: Equatable, Sendable {
         lastSampleSequence = 0
         lastState = nil
         current = nil
+        currentReceivedAt = nil
     }
 
-    public mutating func consume(_ publication: AmxForegroundProcessPublication) {
+    public mutating func consume(
+        _ publication: AmxForegroundProcessPublication,
+        receivedAt: ContinuousClock.Instant = .now
+    ) {
         guard let attachedDaemon = daemon,
             publication.daemon.pid == attachedDaemon.pid,
             publication.daemon.createdAt == attachedDaemon.createdAt,
             publication.daemon.incarnation > 0,
             attachedDaemon.incarnation == 0 || publication.daemon == attachedDaemon
         else {
-            current = nil
+            invalidate()
             return
         }
         if attachedDaemon.incarnation == 0 {
@@ -78,7 +85,7 @@ public struct AmxForegroundProcessState: Equatable, Sendable {
         case .malformed, .stale:
             lastTransitionSequence = max(lastTransitionSequence, publication.transitionSequence)
             lastSampleSequence = max(lastSampleSequence, publication.sampleSequence)
-            current = nil
+            invalidate()
             return
         case .foreground, .noForeground, .unavailable:
             break
@@ -89,7 +96,7 @@ public struct AmxForegroundProcessState: Equatable, Sendable {
             publication.transitionSequence >= lastTransitionSequence,
             publication.transitionSequence <= publication.sampleSequence
         else {
-            current = nil
+            invalidate()
             return
         }
 
@@ -97,7 +104,7 @@ public struct AmxForegroundProcessState: Equatable, Sendable {
             let lastState,
             lastState != publication.state
         {
-            self.current = nil
+            invalidate()
             lastSampleSequence = publication.sampleSequence
             return
         }
@@ -108,18 +115,25 @@ public struct AmxForegroundProcessState: Equatable, Sendable {
         lastTransitionSequence = publication.transitionSequence
         lastSampleSequence = publication.sampleSequence
         current = publication
+        currentReceivedAt = receivedAt
     }
 
     public mutating func invalidate() {
         current = nil
+        currentReceivedAt = nil
     }
 
     public mutating func reset() {
         self = Self()
     }
 
-    public func match(executable: String) -> AmxForegroundExecutableMatch {
-        guard let current else { return .unknown }
+    public func match(
+        executable: String,
+        at now: ContinuousClock.Instant = .now
+    ) -> AmxForegroundExecutableMatch {
+        guard let current, let currentReceivedAt else { return .unknown }
+        let age = currentReceivedAt.duration(to: now)
+        guard age >= .zero, age <= Self.maximumReceiptAge else { return .unknown }
         switch current.state {
         case let .foreground(_, observed):
             return observed == executable ? .matching : .notMatching
