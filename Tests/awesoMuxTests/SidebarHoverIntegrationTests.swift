@@ -65,7 +65,7 @@ struct SidebarHoverIntegrationTests {
         controller.setOverlayPresentedImmediately(false)
         #expect(sidebarView.superview === host)
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
     }
 
     @Test("overlay transition timing follows pointer versus explicit ownership")
@@ -146,8 +146,8 @@ struct SidebarHoverIntegrationTests {
         peek.onPointerChanged = model.peekPointerChanged
         let proxy = SidebarSplitProxy()
         controller.installCommandHandlers(on: proxy)
-        let originalLayer = try #require(controller.overlayContentViewForTesting.layer)
-        controller.overlayContentViewForTesting.layer = nil
+        let originalLayer = try #require(controller.sidebarHostViewForTesting.layer)
+        controller.sidebarHostViewForTesting.layer = nil
         model.pointerMoved(x: 15, width: 100, position: .left)
         let session = TestData.session(title: "Peeked", workingDirectory: "~")
         peek.show(
@@ -169,7 +169,7 @@ struct SidebarHoverIntegrationTests {
         #expect(peek.session == nil)
         #expect(controller.hostModeForTesting == .hidden)
 
-        controller.overlayContentViewForTesting.layer = originalLayer
+        controller.sidebarHostViewForTesting.layer = originalLayer
         model.pointerMoved(x: 15, width: 100, position: .left)
         ContentView.reconcileSidebarOverlay(
             presentation: model,

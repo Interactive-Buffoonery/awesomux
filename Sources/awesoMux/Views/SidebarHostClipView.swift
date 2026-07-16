@@ -1,6 +1,6 @@
 import AppKit
 
-final class SidebarOverlayClipView: NSView {
+final class SidebarHostClipView: NSView {
     weak var contentView: NSView?
     var presentationTranslationX: () -> CGFloat = { 0 }
 

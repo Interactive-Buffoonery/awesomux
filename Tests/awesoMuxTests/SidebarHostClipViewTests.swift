@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Sidebar overlay clip hit testing")
 @MainActor
-struct SidebarOverlayClipViewTests {
+struct SidebarHostClipViewTests {
     struct HeldPresentation: Sendable {
         let translation: Double
         let coveredX: Double?
@@ -27,7 +27,7 @@ struct SidebarOverlayClipViewTests {
 
     @Test("partially translated content only hits its visible transformed region", arguments: [CGFloat(-50), 50])
     func partialHitTesting(translation: CGFloat) {
-        let clip = SidebarOverlayClipView(frame: CGRect(x: 0, y: 0, width: 100, height: 40))
+        let clip = SidebarHostClipView(frame: CGRect(x: 0, y: 0, width: 100, height: 40))
         let content = RoutedContentView(frame: clip.bounds)
         clip.addSubview(content)
         clip.contentView = content
@@ -44,7 +44,7 @@ struct SidebarOverlayClipViewTests {
 
     @Test("fully hidden translated content rejects hits", arguments: [CGFloat(-100), 100])
     func fullyHidden(translation: CGFloat) {
-        let clip = SidebarOverlayClipView(frame: CGRect(x: 0, y: 0, width: 100, height: 40))
+        let clip = SidebarHostClipView(frame: CGRect(x: 0, y: 0, width: 100, height: 40))
         let content = Sentinel(frame: clip.bounds)
         clip.addSubview(content)
         clip.contentView = content
@@ -67,7 +67,7 @@ struct SidebarOverlayClipViewTests {
     func heldFractionsRouteOnlyVisibleContent(
         fixture: HeldPresentation
     ) {
-        let clip = SidebarOverlayClipView(frame: CGRect(x: 0, y: 0, width: 100, height: 40))
+        let clip = SidebarHostClipView(frame: CGRect(x: 0, y: 0, width: 100, height: 40))
         let content = RoutedContentView(frame: clip.bounds)
         clip.addSubview(content)
         clip.contentView = content
@@ -88,7 +88,7 @@ struct SidebarOverlayClipViewTests {
         // AppKit hands hitTest points in SUPERVIEW space. A trailing sidebar's clip
         // sits at maxX - width, so a bounds-only check silently rejects every hit.
         let root = NSView(frame: CGRect(x: 0, y: 0, width: 1000, height: 40))
-        let clip = SidebarOverlayClipView(frame: CGRect(x: 900, y: 0, width: 100, height: 40))
+        let clip = SidebarHostClipView(frame: CGRect(x: 900, y: 0, width: 100, height: 40))
         root.addSubview(clip)
         let content = Sentinel(frame: clip.bounds)
         clip.addSubview(content)
