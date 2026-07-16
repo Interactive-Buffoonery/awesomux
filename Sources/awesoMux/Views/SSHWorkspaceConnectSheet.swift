@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
 import SwiftUI
@@ -6,17 +7,18 @@ struct SSHWorkspaceConnectSheet: View {
     let groupName: String?
     let initialDestination: String?
     let onCancel: () -> Void
-    let onConnect: (RemoteTarget) -> Void
+    let onConnect: (RemoteTarget) -> Bool
 
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var destination: String
+    @State private var isConnecting = false
     @FocusState private var isFocused: Bool
 
     init(
         groupName: String?,
         initialDestination: String? = nil,
         onCancel: @escaping () -> Void,
-        onConnect: @escaping (RemoteTarget) -> Void
+        onConnect: @escaping (RemoteTarget) -> Bool
     ) {
         self.groupName = groupName
         self.initialDestination = initialDestination
@@ -67,7 +69,7 @@ struct SSHWorkspaceConnectSheet: View {
                     connect(target)
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(target == nil)
+                .disabled(target == nil || isConnecting)
                 .accessibilityHint(
                     validationMessage
                         ?? String(
@@ -86,9 +88,12 @@ struct SSHWorkspaceConnectSheet: View {
     }
 
     private func connect(_ target: RemoteTarget?) {
-        guard let target else { return }
+        guard !isConnecting, let target else { return }
         guard backgroundSessionsEnabled || enableBackgroundSessions() else { return }
-        onConnect(target)
+        isConnecting = true
+        if !onConnect(target) {
+            isConnecting = false
+        }
     }
 
     private var backgroundSessionsEnabled: Bool {
@@ -148,6 +153,12 @@ struct SSHWorkspaceConnectSheet: View {
 
     private func enableBackgroundSessions() -> Bool {
         appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
-        return backgroundSessionsEnabled
+        guard backgroundSessionsEnabled else {
+            if let settingsErrorMessage {
+                TerminalAccessibilityAnnouncer.announce(settingsErrorMessage, priority: .high)
+            }
+            return false
+        }
+        return true
     }
 }

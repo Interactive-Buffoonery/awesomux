@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
 import SwiftUI
@@ -122,6 +123,12 @@ struct RemoteWorkspaceGroupCreateSheet: View {
 
     private func enableBackgroundSessions() -> Bool {
         appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
-        return backgroundSessionsEnabled
+        guard backgroundSessionsEnabled else {
+            if let settingsErrorMessage {
+                TerminalAccessibilityAnnouncer.announce(settingsErrorMessage, priority: .high)
+            }
+            return false
+        }
+        return true
     }
 }
