@@ -127,7 +127,13 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var localMouseMovedWindowPreviouslyAcceptedEvents = false
     private var applicationActivityObservations: [NSObjectProtocol] = []
     private var acceptsApplicationPointerEvents = true
-    private var applicationFocusRecovery: SidebarApplicationFocusRecovery?
+    /// Single deferred focus-repair record. A hide requested while the primary
+    /// window is not key (Settings frontmost, app inactive, or a mid-remount gap)
+    /// hides immediately and stashes the handoff here; the two readiness triggers
+    /// — primary `didBecomeKey` and Ghostty-surface-readiness — replay the handoff
+    /// once the window can accept focus, retry the still-failed modalities per
+    /// firing, and clear on success, a persistent show, or detach.
+    private var pendingFocusRepair: SidebarApplicationFocusRecovery?
 
     /// Set around our own `setPosition` calls so `splitViewDidResizeSubviews` (which
     /// also fires for programmatic position changes and window layout) does not echo
@@ -929,7 +935,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
         setEdgeTrackingEnabled(false)
         removeInteractionMonitor()
-        applicationFocusRecovery = nil
+        pendingFocusRepair = nil
         return .applied
     }
 
@@ -944,14 +950,14 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             if requiresKeyboardFocus || requiresAccessibilityFocus,
                 !isFocusHandoffReady(in: view.window)
             {
-                applicationFocusRecovery = SidebarApplicationFocusRecovery(
+                pendingFocusRepair = SidebarApplicationFocusRecovery(
                     request: SidebarFocusHandoffRequest(
                         requiresKeyboardFocus: requiresKeyboardFocus,
                         requiresAccessibilityFocus: requiresAccessibilityFocus),
                     sidebarAccessibilityElement: requiresAccessibilityFocus
                         ? focusedSidebarAccessibilityElement : nil)
                 guard clearSidebarKeyboardFocusIfNeeded(in: view.window) else {
-                    applicationFocusRecovery = nil
+                    pendingFocusRepair = nil
                     return .rejected
                 }
             } else {
@@ -1103,7 +1109,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func settleDetached() {
-        applicationFocusRecovery = nil
+        pendingFocusRepair = nil
         removeApplicationActivityObservers()
         removeEdgeMouseMovedMonitor()
         edgeTrackingView.invalidatePointer()
@@ -1230,7 +1236,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     self.acceptsApplicationPointerEvents = false
                     self.edgeTrackingView.acceptsPointerUpdates = false
                     if self.isSidebarHidden {
-                        let existingRecovery = self.applicationFocusRecovery
+                        let existingRecovery = self.pendingFocusRepair
                         let currentAccessibilityFocus =
                             self.sidebarAccessibilityFocusIsActive
                         let currentKeyboardFocus =
@@ -1246,7 +1252,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                             let currentSidebarAccessibilityElement =
                                 currentAccessibilityFocus
                                 ? self.focusedSidebarAccessibilityElement : nil
-                            self.applicationFocusRecovery = SidebarApplicationFocusRecovery(
+                            self.pendingFocusRepair = SidebarApplicationFocusRecovery(
                                 request: SidebarFocusHandoffRequest(
                                     requiresKeyboardFocus: requiresKeyboardFocus,
                                     requiresAccessibilityFocus: requiresAccessibilityFocus),
@@ -1257,7 +1263,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                             _ = self.clearSidebarKeyboardFocusIfNeeded(in: self.view.window)
                         }
                     } else {
-                        self.applicationFocusRecovery = nil
+                        self.pendingFocusRepair = nil
                     }
                     self.onTrackingAvailabilityLost?()
                     if self.isSidebarHidden {
@@ -1275,8 +1281,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     guard let self else { return }
                     self.acceptsApplicationPointerEvents = true
                     self.edgeTrackingView.acceptsPointerUpdates = true
-                    guard let window = self.view.window, window.isKeyWindow else { return }
-                    self.recoverApplicationFocusIfReady(in: window)
+                    // Focus repair is owned by the primary window's `didBecomeKey`
+                    // and Ghostty-surface-readiness triggers. Reactivation makes the
+                    // primary window key (firing `didBecomeKey`), so activation alone
+                    // needs no separate repair path — this observer only re-gates
+                    // pointer/edge-tracking availability.
                 }
             })
         applicationActivityObservations.append(
@@ -1300,7 +1309,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                 nonisolated(unsafe) let notification = notification
                 MainActor.assumeIsolated {
                     guard let self,
-                        self.applicationFocusRecovery != nil,
+                        self.pendingFocusRepair != nil,
                         let surface = GhosttySurfaceFocusReadiness.surface(from: notification),
                         let window = self.view.window,
                         surface.window === window,
@@ -1315,20 +1324,20 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func windowDidBecomeKey(_ window: NSWindow) {
-        guard applicationFocusRecovery != nil else { return }
+        guard pendingFocusRepair != nil else { return }
         guard window === view.window else { return }
         recoverApplicationFocusIfReady(in: window)
     }
 
     private func recoverApplicationFocusIfReady(in window: NSWindow) {
-        guard applicationFocusRecovery != nil,
+        guard pendingFocusRepair != nil,
             applicationIsActive(),
             window === view.window,
             window.isVisible,
             window.isKeyWindow
         else { return }
         reduceApplicationFocusRecovery(for: window)
-        guard let recovery = applicationFocusRecovery else { return }
+        guard let recovery = pendingFocusRepair else { return }
 
         let outcome = onSidebarFocusHandoff?(recovery.request)
         let keyboardSucceeded =
@@ -1344,10 +1353,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             {
                 element.setAccessibilityFocused(false)
             }
-            applicationFocusRecovery = nil
+            pendingFocusRepair = nil
             return
         }
-        applicationFocusRecovery = SidebarApplicationFocusRecovery(
+        pendingFocusRepair = SidebarApplicationFocusRecovery(
             request: SidebarFocusHandoffRequest(
                 requiresKeyboardFocus: !keyboardSucceeded,
                 requiresAccessibilityFocus: !accessibilitySucceeded),
@@ -1356,7 +1365,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     private func reduceApplicationFocusRecovery(for window: NSWindow) {
-        guard let recovery = applicationFocusRecovery,
+        guard let recovery = pendingFocusRepair,
             window.isVisible,
             window.isKeyWindow
         else { return }
@@ -1367,10 +1376,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             recovery.request.requiresAccessibilityFocus
             && !hasVisibleAccessibilityFocusOutsideSidebar(in: window)
         guard requiresKeyboardFocus || requiresAccessibilityFocus else {
-            applicationFocusRecovery = nil
+            pendingFocusRepair = nil
             return
         }
-        applicationFocusRecovery = SidebarApplicationFocusRecovery(
+        pendingFocusRepair = SidebarApplicationFocusRecovery(
             request: SidebarFocusHandoffRequest(
                 requiresKeyboardFocus: requiresKeyboardFocus,
                 requiresAccessibilityFocus: requiresAccessibilityFocus),
