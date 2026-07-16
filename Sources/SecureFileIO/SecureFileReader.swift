@@ -12,18 +12,31 @@ public enum SecureFileReadError: Error, Equatable, Sendable {
 
 public struct SecureFileContents: Equatable, Sendable {
     public let resolvedURL: URL
+    public let identity: SecureFileIdentity
     public let data: Data
+}
+
+public struct SecureFileIdentity: Equatable, Sendable {
+    public let device: UInt64
+    public let inode: UInt64
 }
 
 // MARK: - Validated handle
 
 public final class SecureFileReadHandle: @unchecked Sendable {
     public let resolvedURL: URL
+    public let identity: SecureFileIdentity
     public let size: UInt64
     private let descriptor: Int32
 
-    fileprivate init(resolvedURL: URL, size: UInt64, descriptor: Int32) {
+    fileprivate init(
+        resolvedURL: URL,
+        identity: SecureFileIdentity,
+        size: UInt64,
+        descriptor: Int32
+    ) {
         self.resolvedURL = resolvedURL
+        self.identity = identity
         self.size = size
         self.descriptor = descriptor
     }
@@ -116,6 +129,10 @@ public enum SecureFileReader {
 
             return SecureFileReadHandle(
                 resolvedURL: resolvedURL,
+                identity: SecureFileIdentity(
+                    device: UInt64(status.st_dev),
+                    inode: UInt64(status.st_ino)
+                ),
                 size: UInt64(status.st_size),
                 descriptor: descriptor
             )
@@ -143,7 +160,11 @@ public enum SecureFileReader {
 
         try afterOpen()
         let data = try handle.read(maximumBytes: maximumBytes)
-        return SecureFileContents(resolvedURL: handle.resolvedURL, data: data)
+        return SecureFileContents(
+            resolvedURL: handle.resolvedURL,
+            identity: handle.identity,
+            data: data
+        )
     }
 
     // MARK: Path opening
