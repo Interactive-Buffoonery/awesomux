@@ -31,6 +31,24 @@ enum ProcessLivenessProbe {
         childPIDs(pid: pid).map { !$0.isEmpty }
     }
 
+    /// The foreground process group of `pid`'s controlling terminal
+    /// (`kinfo_proc.kp_eproc.e_tpgid`), or nil when the pid is gone, has no
+    /// controlling terminal, or that terminal has no foreground group. For a
+    /// bridged session root shell this is the daemon PTY's foreground group —
+    /// the same fact `tcgetpgrp` reports daemon-side — so a background or
+    /// stale descendant (e.g. ssh) is never mistaken for the foreground owner.
+    static func terminalForegroundProcessGroup(pid: pid_t) -> pid_t? {
+        guard pid > 0 else { return nil }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0,
+            size == MemoryLayout<kinfo_proc>.stride
+        else { return nil }
+        let tpgid = info.kp_eproc.e_tpgid
+        return tpgid > 0 ? tpgid : nil
+    }
+
     static func bridgedLiveness(
         daemonPID: pid_t,
         childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },

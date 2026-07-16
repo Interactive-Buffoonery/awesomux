@@ -11,7 +11,7 @@ struct ProcessLivenessProbeTests {
         p.executableURL = URL(fileURLWithPath: "/bin/sleep")
         p.arguments = ["0"]
         try p.run()
-        p.waitUntilExit()              // process exits AND is reaped → pid invalid
+        p.waitUntilExit()  // process exits AND is reaped → pid invalid
         #expect(ProcessLivenessProbe.hasChildren(pid: p.processIdentifier) == nil)
     }
 
@@ -27,6 +27,35 @@ struct ProcessLivenessProbeTests {
         defer { p.terminate() }
         #expect(ProcessLivenessProbe.foregroundComm(pid: p.processIdentifier) != nil)
         #expect(ProcessLivenessProbe.hasChildren(pid: p.processIdentifier) == false)
+    }
+
+    @Test("terminal foreground group is nil for invalid and reaped pids")
+    func terminalForegroundGroupFailsClosed() throws {
+        #expect(ProcessLivenessProbe.terminalForegroundProcessGroup(pid: -1) == nil)
+        #expect(ProcessLivenessProbe.terminalForegroundProcessGroup(pid: 0) == nil)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        p.arguments = ["0"]
+        try p.run()
+        p.waitUntilExit()
+        #expect(ProcessLivenessProbe.terminalForegroundProcessGroup(pid: p.processIdentifier) == nil)
+    }
+
+    @Test("terminal foreground group is positive when resolvable")
+    func terminalForegroundGroupIsPositive() throws {
+        // Whether the test runner has a controlling terminal depends on the
+        // environment (interactive vs CI), so the contract under test is only
+        // "never a non-positive pgid": nil (indeterminate) or a real group.
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        p.arguments = ["30"]
+        try p.run()
+        defer { p.terminate() }
+        for pid in [getpid(), p.processIdentifier] {
+            if let pgid = ProcessLivenessProbe.terminalForegroundProcessGroup(pid: pid) {
+                #expect(pgid > 0)
+            }
+        }
     }
 
     @Test("a zmx daemon samples its direct shell instead of itself")
