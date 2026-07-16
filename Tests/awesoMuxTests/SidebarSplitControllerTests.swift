@@ -437,7 +437,7 @@ struct SidebarSplitControllerTests {
             controller.splitPaneViewsForTesting.contains {
                 $0 === controller.sidebarPaneContainerForTesting
             })
-        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
         #expect(controller.splitPaneViewsForTesting.contains { $0 === detail.view })
 
         controller.setSidebarPosition(.right)
