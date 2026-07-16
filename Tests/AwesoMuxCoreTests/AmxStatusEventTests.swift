@@ -7,8 +7,8 @@ struct AmxStatusEventTests {
     // MARK: - Wire fixtures
 
     let attachedLine = """
-    {"event":"attached","token":"tok-abc","created":true,"daemon_pid":1234,"daemon_created_at":1700000000,"session":"ses-1","ts":1700000001}
-    """
+            {"event":"attached","token":"tok-abc","created":true,"daemon_pid":1234,"daemon_created_at":1700000000,"daemon_incarnation":99,"session":"ses-1","ts":1700000001}
+        """
 
     let sessionEndLine = """
     {"event":"session-end","token":"tok-abc","reason":"shell-exit","code":0,"session":"ses-1","ts":1700000010}
@@ -24,13 +24,12 @@ struct AmxStatusEventTests {
         #expect(events.count == 2)
 
         // First event: attached
-        guard case let .attached(created, daemonPid, daemonCreatedAt) = events[0].kind else {
+        guard case let .attached(created, daemon) = events[0].kind else {
             Issue.record("Expected .attached as first event")
             return
         }
         #expect(created == true)
-        #expect(daemonPid == 1234)
-        #expect(daemonCreatedAt == 1700000000)
+        #expect(daemon == AmxDaemonIncarnation(pid: 1234, createdAt: 1700000000, incarnation: 99))
         #expect(events[0].token == "tok-abc")
         #expect(events[0].session == "ses-1")
 
@@ -68,8 +67,8 @@ struct AmxStatusEventTests {
     @Test("drops lines with wrong token")
     func wrongTokenDropped() {
         let wrongToken = """
-        {"event":"attached","token":"WRONG","created":false,"daemon_pid":9999,"daemon_created_at":1700000000,"session":"ses-x","ts":1700000001}
-        """
+                {"event":"attached","token":"WRONG","created":false,"daemon_pid":9999,"daemon_created_at":1700000000,"daemon_incarnation":99,"session":"ses-x","ts":1700000001}
+            """
         let buffer = wrongToken + "\n" + attachedLine + "\n"
         let events = AmxStatusEvent.parseLines(buffer, expectedToken: "tok-abc")
 
@@ -164,11 +163,11 @@ struct AmxStatusEventTests {
     @Test("created=false is preserved")
     func createdFalsePreserved() {
         let line = """
-        {"event":"attached","token":"tok-abc","created":false,"daemon_pid":5678,"daemon_created_at":1700000000,"session":"ses-3","ts":1700000001}
-        """
+                {"event":"attached","token":"tok-abc","created":false,"daemon_pid":5678,"daemon_created_at":1700000000,"daemon_incarnation":99,"session":"ses-3","ts":1700000001}
+            """
         let events = AmxStatusEvent.parseLines(line + "\n", expectedToken: "tok-abc")
         #expect(events.count == 1)
-        guard case let .attached(created, _, _) = events[0].kind else {
+        guard case let .attached(created, _) = events[0].kind else {
             Issue.record("Expected .attached")
             return
         }
@@ -182,24 +181,24 @@ struct AmxStatusEventTests {
         // Synthesizing daemon_pid=0 would make two such lines compare equal as an
         // incarnation → a false reconnect that never clears stale agent chrome.
         let missingPid = """
-        {"event":"attached","token":"tok-abc","created":true,"daemon_created_at":1700000000,"session":"ses-1","ts":1700000001}
-        """
+                {"event":"attached","token":"tok-abc","created":true,"daemon_created_at":1700000000,"daemon_incarnation":99,"session":"ses-1","ts":1700000001}
+            """
         let buffer = missingPid + "\n" + attachedLine + "\n"
         let events = AmxStatusEvent.parseLines(buffer, expectedToken: "tok-abc")
         // Only the well-formed line survives.
         #expect(events.count == 1)
-        guard case let .attached(_, daemonPid, _) = events[0].kind else {
+        guard case let .attached(_, daemon) = events[0].kind else {
             Issue.record("Expected the surviving event to be .attached")
             return
         }
-        #expect(daemonPid == 1234)
+        #expect(daemon.pid == 1234)
     }
 
     @Test("attached line missing daemon_created_at is dropped")
     func attachedMissingDaemonCreatedAtDropped() {
         let missingCreatedAt = """
-        {"event":"attached","token":"tok-abc","created":true,"daemon_pid":4242,"session":"ses-1","ts":1700000001}
-        """
+                {"event":"attached","token":"tok-abc","created":true,"daemon_pid":4242,"daemon_incarnation":99,"session":"ses-1","ts":1700000001}
+            """
         let events = AmxStatusEvent.parseLines(missingCreatedAt + "\n", expectedToken: "tok-abc")
         #expect(events.isEmpty)
     }
@@ -208,13 +207,86 @@ struct AmxStatusEventTests {
     func wellFormedAttachedStillParses() {
         let events = AmxStatusEvent.parseLines(attachedLine + "\n", expectedToken: "tok-abc")
         #expect(events.count == 1)
-        guard case let .attached(created, daemonPid, daemonCreatedAt) = events[0].kind else {
+        guard case let .attached(created, daemon) = events[0].kind else {
             Issue.record("Expected .attached")
             return
         }
         #expect(created == true)
-        #expect(daemonPid == 1234)
-        #expect(daemonCreatedAt == 1700000000)
+        #expect(daemon.pid == 1234)
+        #expect(daemon.createdAt == 1700000000)
+        #expect(daemon.incarnation == 99)
+    }
+
+    @Test("attached line missing daemon incarnation is dropped")
+    func attachedMissingIncarnationDropped() {
+        let line = """
+            {"event":"attached","token":"tok-abc","created":true,"daemon_pid":1234,"daemon_created_at":1700000000,"session":"ses-1","ts":1700000001}
+            """
+        #expect(AmxStatusEvent.parseLines(line + "\n", expectedToken: "tok-abc").isEmpty)
+    }
+
+    @Test("attached accepts the producer's unknown-incarnation sentinel")
+    func attachedUnknownIncarnationAccepted() throws {
+        let line = """
+                {"event":"attached","token":"tok-abc","created":true,"daemon_pid":1234,"daemon_created_at":1700000000,"daemon_incarnation":0,"session":"ses-1","ts":1700000001}
+            """
+        let event = try #require(
+            AmxStatusEvent.parseLines(line + "\n", expectedToken: "tok-abc").first
+        )
+        guard case let .attached(_, daemon) = event.kind else {
+            Issue.record("Expected .attached")
+            return
+        }
+        #expect(daemon.incarnation == 0)
+    }
+
+    @Test("parses validated foreground observation and explicit degradation")
+    func parsesForegroundPublications() throws {
+        let foreground = """
+            {"event":"foreground-process","token":"tok-abc","daemon_pid":1234,"daemon_created_at":1700000000,"daemon_incarnation":99,"transition_sequence":2,"sample_sequence":3,"state":"foreground","process_group_id":567,"executable":"ssh","session":"ses-1","ts":1700000002}
+            """
+        let stale = """
+            {"event":"foreground-process","token":"tok-abc","daemon_pid":1234,"daemon_created_at":1700000000,"daemon_incarnation":99,"transition_sequence":2,"sample_sequence":3,"state":"stale","process_group_id":0,"executable":"","session":"ses-1","ts":1700000003}
+            """
+        let events = AmxStatusEvent.parseLines(
+            foreground + "\n" + stale + "\n",
+            expectedToken: "tok-abc"
+        )
+
+        #expect(events.count == 2)
+        let first = try #require(events.first)
+        guard case let .foregroundProcess(publication) = first.kind else {
+            Issue.record("Expected foreground publication")
+            return
+        }
+        #expect(publication.daemon.incarnation == 99)
+        #expect(publication.transitionSequence == 2)
+        #expect(publication.sampleSequence == 3)
+        #expect(publication.state == .foreground(processGroupID: 567, executable: "ssh"))
+        guard case let .foregroundProcess(stalePublication) = events[1].kind else {
+            Issue.record("Expected stale publication")
+            return
+        }
+        #expect(stalePublication.state == .stale)
+    }
+
+    @Test("preserves authenticated invalid foreground envelopes for fail-closed reduction")
+    func invalidForegroundPreserved() {
+        let missingExecutable = """
+            {"event":"foreground-process","token":"tok-abc","daemon_pid":1234,"daemon_created_at":1700000000,"daemon_incarnation":99,"transition_sequence":1,"sample_sequence":1,"state":"foreground","process_group_id":567,"session":"ses-1","ts":1700000002}
+            """
+        let regressedShape = """
+            {"event":"foreground-process","token":"tok-abc","daemon_pid":1234,"daemon_created_at":1700000000,"daemon_incarnation":99,"transition_sequence":2,"sample_sequence":1,"state":"foreground","process_group_id":567,"executable":"ssh","session":"ses-1","ts":1700000002}
+            """
+        let malformedSession = """
+            {"event":"foreground-process","token":"tok-abc","daemon_pid":1234,"daemon_created_at":1700000000,"daemon_incarnation":99,"transition_sequence":1,"sample_sequence":1,"state":"foreground","process_group_id":567,"executable":"ssh","session":123,"ts":1700000002}
+            """
+        let events = AmxStatusEvent.parseLines(
+            missingExecutable + "\n" + regressedShape + "\n" + malformedSession + "\n",
+            expectedToken: "tok-abc"
+        )
+        #expect(events.count == 3)
+        #expect(events.allSatisfy { $0.kind == .foregroundProcessInvalid })
     }
 
     // MARK: - Unknown event types
@@ -225,8 +297,8 @@ struct AmxStatusEventTests {
         {"event":"reattached","token":"tok-abc","session":"ses-1","ts":1700000005}
         """
         let validAttachedLine = """
-        {"event":"attached","token":"tok-abc","created":true,"daemon_pid":1234,"daemon_created_at":1700000000,"session":"ses-1","ts":1700000001}
-        """
+                {"event":"attached","token":"tok-abc","created":true,"daemon_pid":1234,"daemon_created_at":1700000000,"daemon_incarnation":99,"session":"ses-1","ts":1700000001}
+            """
         let buffer = unknownEventLine + "\n" + validAttachedLine + "\n"
         let events = AmxStatusEvent.parseLines(buffer, expectedToken: "tok-abc")
 
