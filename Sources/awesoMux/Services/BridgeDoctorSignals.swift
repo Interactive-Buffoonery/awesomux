@@ -5,10 +5,8 @@ import Foundation
 
 /// The named bridge health checks the doctor reports.
 ///
-/// INT-693 owns install/repair *actions* and the doctor's UI wiring; F1
-/// contributes only the signals — one pass/fail plus a display-safe reason per
-/// check.
-// Signals only; repair actions are INT-693.
+/// These are diagnostic signals only: one pass/fail plus a display-safe reason
+/// per check. They do not install or repair the optional remote helper.
 enum BridgeDoctorCheck: Sendable, Equatable, CaseIterable {
     /// The remote helper is installed and advertises a protocol this app build
     /// supports (`--version` intersected against the app's supported set).
@@ -117,9 +115,9 @@ struct BridgeDoctorReport: Sendable, Equatable {
     /// Surfaces the failing checks through the SAME `AgentPluginDiagnostics`
     /// disclosure the plugin cards use — the "extend the lane, no parallel
     /// surface" ruling. Nil when everything passed (no disclosure to show).
-    /// INT-693's doctor UI drops the returned value into the existing
-    /// `diagnosticsDisclosure`; a user sees a "Diagnostics" disclosure listing
-    /// each failed check and its reason, with the degradation line as summary.
+    /// A caller can place the returned value in the existing
+    /// `diagnosticsDisclosure`, listing each failed check and its reason with
+    /// the degradation line as summary.
     func asDiagnostics() -> AgentPluginDiagnostics? {
         let failed = failures
         guard !failed.isEmpty else { return nil }
@@ -148,7 +146,7 @@ struct BridgeDoctorReport: Sendable, Equatable {
 ///
 /// **Check independence / ordering.** All six signals always run — no probe
 /// short-circuits a sibling. The couplings are genuine shared probes, not
-/// short-circuits, and are documented here so INT-693 can rely on them:
+/// short-circuits:
 ///
 ///  - `helperVersion` — independent (one `--version` over ssh).
 ///  - `reverseForward` + `remoteSocketOwnerOnly` — one throwaway `-O forward`
@@ -349,10 +347,10 @@ struct BridgeDoctorSignals: Sendable {
     /// signals from its exit code alone (stderr is discarded by the exec
     /// channel, so nothing sensitive is ever read).
     ///
-    /// ⚠️ Live-path caveat for INT-693's doctor wiring: `--self-check` opens a
+    /// ⚠️ Live-path caveat: `--self-check` opens a
     /// real handshake through the forward, and a new `hello` atomically replaces
     /// the prior connection (spec "Connection ownership"). Running this against a
-    /// live agent's listener would briefly displace that connection. INT-693
+    /// live agent's listener would briefly displace that connection. A caller
     /// must run the round-trip only when that is safe (no live agent connection)
     /// or bind a dedicated probe listener+forward. F1 supplies the classification
     /// only.
