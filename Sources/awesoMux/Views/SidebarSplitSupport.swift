@@ -80,17 +80,22 @@ final class SidebarHostPresentationState {
     }
 
     func settle(mode: SidebarHostMode, effectiveVisibleWidth: CGFloat) {
+        // The Observation framework does not dedupe equal writes; `settle` runs per
+        // frame during a divider drag, so guard each assignment to avoid spurious
+        // observer invalidations of the titlebar and sidebar pane.
         if case .overlay = mode {
             // Preserve active compositor sampling across overlay relayouts.
-        } else {
+        } else if isOverlayAnimating {
             isOverlayAnimating = false
         }
-        self.mode = mode
-        self.effectiveVisibleWidth = effectiveVisibleWidth
-        if effectiveVisibleWidth > 0 {
+        if self.mode != mode { self.mode = mode }
+        if self.effectiveVisibleWidth != effectiveVisibleWidth {
+            self.effectiveVisibleWidth = effectiveVisibleWidth
+        }
+        if effectiveVisibleWidth > 0, titlebarPresentationWidth != effectiveVisibleWidth {
             titlebarPresentationWidth = effectiveVisibleWidth
         }
-        if case .persistent = mode {
+        if case .persistent = mode, titlebarTranslationX != 0 {
             titlebarTranslationX = 0
         }
         onSettleForTesting?()
@@ -120,6 +125,9 @@ final class SidebarHostPresentationState {
     }
 
     func currentTitlebarVisibleWidth(
+        // Unused: the titlebar's visible width is deliberately position-invariant.
+        // The parameter stays for call-site symmetry with the position-taking
+        // geometry helpers.
         position _: AppearanceConfig.SidebarPosition,
         translation: CGFloat? = nil
     ) -> CGFloat {
