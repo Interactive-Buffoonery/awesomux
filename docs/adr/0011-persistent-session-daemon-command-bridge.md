@@ -281,6 +281,24 @@ The "out-of-band semantics" follow-ups are now implemented behind
   fresh-vs-reconnect; bridged non-zero shell-exit error badge; path-bar cwd poll
   interval/backoff. None block the disabled-default merge.
 
+## Update 2026-07-15 — authenticated daemon-PTY foreground evidence (INT-835)
+
+The same per-attach `AMX_STATUS_FILE` channel now carries typed
+`foreground-process` publications sampled from the persistent daemon's PTY.
+They contain only the process-group id and executable name, plus the daemon
+pid/creation/incarnation identity and monotonic transition/sample sequences —
+never arguments, environment, terminal contents, paths, or credentials.
+
+awesoMux accepts a publication only after the matching authenticated `attached`
+event. The attach event's zero incarnation is an explicit unknown-nonce sentinel;
+the first matching foreground publication supplies the nonzero daemon nonce, and
+later publications must match it exactly. A new attach generation, session end,
+daemon-identity mismatch, replay or sequence regression, malformed payload, and
+explicit `stale` state all clear usable evidence. The read seam is tri-state
+(matching, non-matching, unknown), runtime-only, and separate from
+`PaneExecutionPlan` / `ExecutionLocation`: it can deny a future action but cannot
+grant host or path authority.
+
 ## Update 2026-06-25 — config flip-off policy resolved (§223–226)
 
 **Decision: next-lifecycle, non-destructive.** Flipping

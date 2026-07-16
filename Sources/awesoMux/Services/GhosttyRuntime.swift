@@ -301,6 +301,16 @@ final class GhosttyRuntime {
         surfaceViews[paneID]
     }
 
+    /// Authenticated runtime evidence only. This never consults or changes the
+    /// pane's durable execution plan and therefore cannot grant host authority.
+    func foregroundExecutableMatch(
+        _ executable: String,
+        in paneID: TerminalPane.ID
+    ) -> AmxForegroundExecutableMatch {
+        surfaceViews[paneID]?.commandBridgeEnactor.foregroundExecutableMatch(executable)
+            ?? .unknown
+    }
+
     func applySecureInput(_ mode: SecureInputCoordinator.Mode, for paneID: TerminalPane.ID) {
         secureInputCoordinator.apply(mode, for: paneID)
     }

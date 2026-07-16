@@ -5,13 +5,18 @@
 /// incarnation against a freshly-attached one is how the attach client's
 /// `attached` event tells "fresh daemon" from "reconnect" without trusting the
 /// `created` flag alone (a respawn after a crash can race the flag).
-public struct AmxDaemonIncarnation: Equatable {
+public struct AmxDaemonIncarnation: Equatable, Sendable {
     public let pid: Int
     public let createdAt: Int
+    /// Per-daemon random nonce. `attached` reports zero until the first typed
+    /// foreground response supplies the daemon's nonce; older respawn-ledger
+    /// fixtures may also omit it.
+    public let incarnation: UInt64
 
-    public init(pid: Int, createdAt: Int) {
+    public init(pid: Int, createdAt: Int, incarnation: UInt64 = 0) {
         self.pid = pid
         self.createdAt = createdAt
+        self.incarnation = incarnation
     }
 }
 

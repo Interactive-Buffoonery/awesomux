@@ -100,6 +100,13 @@ Ghostty’s own **`macos/Sources/Ghostty/`** tree remains the best upstream refe
 3. **`GhosttyRuntime`** — Process-wide libghostty lifecycle: init, config, `ghostty_app_t`, tick/wakeups; creates surfaces for AppKit views embedded in SwiftUI.
 4. **Notification path** — `WorkspaceNotificationPolicy` + `WorkspaceNotificationTracker` + `WorkspaceNotificationBridge` / `UNUserNotificationCenter` (details below).
 
+Command-bridge surfaces also consume authenticated, per-attach foreground-process
+status from the persistent zmx daemon PTY. This runtime-only evidence is fenced
+by attach/session identity plus daemon incarnation and monotonic sequences, and
+degrades to unknown on missing, malformed, stale, or replayed input. It remains
+strictly separate from durable `PaneExecutionPlan` / `ExecutionLocation`
+authority; see [ADR-0011](adr/0011-persistent-session-daemon-command-bridge.md).
+
 ### Terminal panels
 
 One `TerminalPanelController` backs both the app-wide Terminal Companion and

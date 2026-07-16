@@ -19,7 +19,7 @@ struct AmxStatusFileWatcherConsumeTests {
     private static func attachedLine(token: String = token) -> String {
         // No trailing newline — caller adds it so split-point tests control placement.
         """
-        {"event":"attached","token":"\(token)","created":true,"daemon_pid":42,"daemon_created_at":1700000000,"session":"sess1","ts":1700000001}
+        {"event":"attached","token":"\(token)","created":true,"daemon_pid":42,"daemon_created_at":1700000000,"daemon_incarnation":99,"session":"sess1","ts":1700000001}
         """
     }
 
@@ -45,9 +45,9 @@ struct AmxStatusFileWatcherConsumeTests {
         #expect(result.events.count == 2)
         #expect(result.remainingTail.isEmpty)
 
-        if case .attached(let created, let pid, _) = result.events.first?.kind {
+        if case .attached(let created, let daemon) = result.events.first?.kind {
             #expect(created == true)
-            #expect(pid == 42)
+            #expect(daemon.pid == 42)
         } else {
             Issue.record("first event should be .attached")
         }

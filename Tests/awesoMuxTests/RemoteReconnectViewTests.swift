@@ -252,8 +252,8 @@ struct RemoteReconnectViewTests {
         daemonCreatedAt: Int
     ) -> AmxStatusEvent? {
         let line = """
-        {"event":"attached","token":"\(token)","created":\(created),"daemon_pid":\(daemonPid),"daemon_created_at":\(daemonCreatedAt),"session":"\(terminalSessionID.rawValue)","ts":1700000001}
-        """
+                {"event":"attached","token":"\(token)","created":\(created),"daemon_pid":\(daemonPid),"daemon_created_at":\(daemonCreatedAt),"daemon_incarnation":99,"session":"\(terminalSessionID.rawValue)","ts":1700000001}
+            """
         return AmxStatusEvent.parseLines(line + "\n", expectedToken: token).first
     }
 

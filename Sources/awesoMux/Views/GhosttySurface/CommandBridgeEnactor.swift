@@ -41,6 +41,7 @@ final class CommandBridgeEnactor {
             guard sessionID != oldValue else {
                 return
             }
+            foregroundProcessState.reset()
             recoveryRecord = sessionID.map {
                 host.runtime.commandBridgeRecoveryRecord(for: $0)
             }
@@ -66,6 +67,10 @@ final class CommandBridgeEnactor {
     /// kqueue watcher feeding `handleStatusEvents`. Stopped (and niled) on
     /// surface disposal and on a session re-point.
     var statusWatcher: AmxStatusFileWatcher?
+    /// Authenticated daemon-PTY foreground evidence for the live attach only.
+    /// Runtime-only and deliberately separate from the pane's durable execution
+    /// plan; consumers may use it as a deny signal, never as host authority.
+    private var foregroundProcessState = AmxForegroundProcessState()
     /// True after the host view has been evicted from `GhosttyRuntime.surfaceViews`
     /// as the stale half of an in-place command-bridge heal. Late libghostty close
     /// callbacks can still target the retained userdata for the old native surface;
@@ -273,6 +278,7 @@ final class CommandBridgeEnactor {
         statusWatcher?.stop()
         statusWatcher = nil
         statusChannel = nil
+        foregroundProcessState.reset()
         latestSessionEndReason = nil
         latestSessionEndCode = nil
         budgetRefillWorkItem?.cancel()
@@ -350,6 +356,7 @@ final class CommandBridgeEnactor {
         statusWatcher?.stop()
         statusWatcher = nil
         statusChannel = nil
+        foregroundProcessState.reset()
 
         guard let channel else {
             return
@@ -379,12 +386,19 @@ final class CommandBridgeEnactor {
         // .respawnFresh/.reconnect, or the async legacy probe) — which runs before
         // any new status events can arrive on a recycled pane.
         guard shouldProcessCommandBridgeStatusEvents(errorLatched: errorLatched) else {
+            foregroundProcessState.invalidate()
             return
         }
         for event in events {
+            guard let sessionID,
+                event.session == sessionID.rawValue
+            else {
+                foregroundProcessState.invalidate()
+                continue
+            }
             switch event.kind {
-            case let .attached(created, daemonPid, daemonCreatedAt):
-                let incarnation = AmxDaemonIncarnation(pid: daemonPid, createdAt: daemonCreatedAt)
+            case let .attached(created, incarnation):
+                foregroundProcessState.beginAttach(to: incarnation)
                 let outcome = respawnLedger.recordAttach(incarnation)
                 // `created` on a first attach means amx launched a new daemon
                 // (prior one gone), so any restored `.waiting` is dead. Safe
@@ -449,7 +463,14 @@ final class CommandBridgeEnactor {
                         )
                     )
                 }
+            case let .foregroundProcess(publication):
+                foregroundProcessState.consume(publication)
+
+            case .foregroundProcessInvalid:
+                foregroundProcessState.invalidate()
+
             case let .sessionEnd(reason, code):
+                foregroundProcessState.invalidate()
                 // The incarnation that just ended did not clear the grace window,
                 // so cancel its pending refill.
                 budgetRefillWorkItem?.cancel()
@@ -480,6 +501,13 @@ final class CommandBridgeEnactor {
                 }
             }
         }
+    }
+
+    /// Narrow read-only seam for policy layered above the bridge. Missing or
+    /// degraded evidence stays distinct from a fresh non-matching executable.
+    func foregroundExecutableMatch(_ executable: String) -> AmxForegroundExecutableMatch {
+        guard sessionID != nil, !errorLatched else { return .unknown }
+        return foregroundProcessState.match(executable: executable)
     }
 
     /// Schedule the grace-gated respawn-budget refill. Replaces any prior pending
@@ -674,6 +702,7 @@ final class CommandBridgeEnactor {
         // the same pane can't re-decide off this same stale signal.
         latestSessionEndReason = nil
         latestSessionEndCode = nil
+        foregroundProcessState.reset()
 
         switch command {
         case .respawnFresh, .reconnect:
@@ -783,6 +812,7 @@ final class CommandBridgeEnactor {
     /// reason to make the policy decision.
     func notifyNativeSurfaceDisposed() {
         statusWatcher?.stop()
+        foregroundProcessState.invalidate()
         budgetRefillWorkItem?.cancel()
         budgetRefillWorkItem = nil
     }
@@ -805,6 +835,7 @@ final class CommandBridgeEnactor {
         statusChannel = nil
         latestSessionEndReason = nil
         latestSessionEndCode = nil
+        foregroundProcessState.reset()
         budgetRefillWorkItem?.cancel()
         budgetRefillWorkItem = nil
         if let oldRecoverySessionID {
@@ -816,6 +847,7 @@ final class CommandBridgeEnactor {
         exitResolutionPending = false
         exitProbeInFlight = false
         errorLatched = true
+        foregroundProcessState.invalidate()
         // A latched pane's bridge generation is dead — break it (teardown parity
         // with the local-shell-fallback and re-point paths, same session-id
         // fallback: the recovery record can outlive a nil'd `sessionID` in a
