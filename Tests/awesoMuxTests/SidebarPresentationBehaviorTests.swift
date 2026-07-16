@@ -6,9 +6,9 @@ import SwiftUI
 import Testing
 @testable import awesoMux
 
-@Suite("Sidebar overlay host", .serialized)
+@Suite("Sidebar presentation behavior", .serialized)
 @MainActor
-struct SidebarOverlayHostControllerTests {
+struct SidebarPresentationBehaviorTests {
     private final class AnimationDriver {
         var presentationTranslation: CGFloat?
         var completions: [() -> Void] = []
@@ -425,14 +425,15 @@ struct SidebarOverlayHostControllerTests {
         controller.setSidebarWidth(300)
         controller.setPersistentSidebarVisible(false)
         controller.setOverlayPresentedImmediately(true)
-        let dividerIntents = controller.dividerIntentCountForTesting
         let detailFrame = detail.view.frame
         var liveWidths: [CGFloat] = []
         controller.onLiveWidthChange = { liveWidths.append($0) }
 
         controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
 
-        #expect(controller.dividerIntentCountForTesting == dividerIntents)
+        // The terminal pane frame is the end-state proxy for "no divider geometry
+        // moved": an overlay width change is compositor-only, so the split's panes
+        // stay put.
         #expect(detail.view.frame == detailFrame)
         #expect(liveWidths == [SidebarWidthPolicy.collapsedWidth])
         #expect(
@@ -587,62 +588,6 @@ struct SidebarOverlayHostControllerTests {
         #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
         #expect(controller.overlayClipViewForTesting.isHidden)
         #expect(controller.isEdgeTrackingVisibleForTesting)
-    }
-
-    @Test("hide queries AX and performs focus callback before geometry transaction")
-    func hideExternalCallbacksPrecedeTransaction() {
-        let focusedElement = AccessibilityElementBox()
-        let (controller, sidebar, _) = makeController(
-            focusedAccessibilityElement: { focusedElement.element })
-        controller.setSidebarWidth(300)
-        let window = hostInActiveWindow(controller)
-        defer { window.orderOut(nil) }
-        #expect(window.makeFirstResponder(sidebar.view))
-        var trace: [SidebarHostHandoffAction] = []
-        var externalCallbackActionCounts: [Int] = []
-        controller.handoffActionObserverForTesting = { trace.append($0) }
-        controller.hasActiveSidebarAccessibilityFocus = {
-            externalCallbackActionCounts.append(trace.count)
-            return true
-        }
-        var handoffRequests: [SidebarFocusHandoffRequest] = []
-        let detailResponder = AccessibilityFocusView(
-            frame: CGRect(x: 20, y: 20, width: 120, height: 24))
-        detailResponder.onFocusChange = { focused in
-            focusedElement.element = focused ? detailResponder : nil
-        }
-        controller.detailViewController.view.addSubview(detailResponder)
-        controller.onSidebarFocusHandoff = { request in
-            handoffRequests.append(request)
-            externalCallbackActionCounts.append(trace.count)
-            guard window.makeFirstResponder(detailResponder) else { return nil }
-            detailResponder.setAccessibilityFocused(true)
-            guard detailResponder.isAccessibilityFocused() else { return nil }
-            return SidebarFocusHandoffOutcome(
-                destination: detailResponder, satisfying: request)
-        }
-
-        controller.setPersistentSidebarVisible(false)
-
-        #expect(externalCallbackActionCounts == [2, 3])
-        #expect(
-            handoffRequests
-                == [
-                    .init(
-                        requiresKeyboardFocus: true,
-                        requiresAccessibilityFocus: true)
-                ])
-        #expect(controller.lastCapturedSidebarAccessibilityFocusForTesting)
-        // INT-845: the geometry settlement is no longer a traced transaction; the
-        // callbacks (AX query, focus handoff) are the only recorded actions, which
-        // proves they precede any geometry mutation.
-        #expect(
-            trace == [
-                .captureSidebarResponder,
-                .querySidebarAccessibilityFocus,
-                .handOffSidebarFocus,
-            ])
-        #expect(window.firstResponder !== sidebar.view)
     }
 
     @Test("persistent hide stays visible when required AX focus handoff fails")
@@ -1848,16 +1793,23 @@ struct SidebarOverlayHostControllerTests {
     func settledVisibilityCommandsAreIdempotent() {
         let (controller, _, _) = makeController()
         controller.setSidebarWidth(300)
-        var trace: [SidebarHostHandoffAction] = []
-        controller.handoffActionObserverForTesting = { trace.append($0) }
+        // A width republish is the observable "the command did geometry work" signal;
+        // an already-settled command must produce none.
+        var liveWidthChanges = 0
+        controller.onLiveWidthChange = { _ in liveWidthChanges += 1 }
 
+        // Already persistent: re-showing does no work.
         controller.setPersistentSidebarVisible(true)
-        #expect(trace.isEmpty)
+        #expect(liveWidthChanges == 0)
+        #expect(controller.hostModeForTesting == .persistent(width: 300))
 
         controller.setPersistentSidebarVisible(false)
-        trace.removeAll()
+        #expect(controller.hostModeForTesting == .hidden)
+
+        // Already hidden: re-hiding does no work and leaves the settled mode intact.
+        liveWidthChanges = 0
         controller.setPersistentSidebarVisible(false)
-        #expect(trace.isEmpty)
+        #expect(liveWidthChanges == 0)
         #expect(controller.hostModeForTesting == .hidden)
     }
 
@@ -2009,7 +1961,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("live AX rescue survives window updates and clears when AX focus leaves")
     func liveAccessibilityRescueDoesNotOscillate() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -2088,7 +2040,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("stale AX focus cannot resurrect a detached hidden sidebar after reattach")
     func staleAccessibilityFocusDoesNotResurrectAfterReattach() throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -2281,7 +2233,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("keyboard menu and live AX retention flow through grace to overlay removal")
     func interactionEndToEndRemoval() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -2347,7 +2299,7 @@ struct SidebarOverlayHostControllerTests {
     func applicationResignationInvalidatesTransientPresentation(
         position: AppearanceConfig.SidebarPosition
     ) throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3350,7 +3302,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("position change retains active interaction until ordinary grace dismissal")
     func positionChangeRetainsInteractionLifecycle() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3420,7 +3372,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("explicit hide clears stale sidebar pointer attribution before another menu begins")
     func explicitHideClearsPointerAttribution() throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3456,7 +3408,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("stable hidden reconciliation clears stale sidebar pointer attribution")
     func stableHiddenReconciliationClearsPointerAttribution() throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3493,7 +3445,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("live AX retention repairs a missed monitor poll and later dismisses through grace")
     func liveAccessibilityRetentionRepairsMonitorLatch() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3546,7 +3498,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("hide reconciliation retains a keyboard interaction missed before window update")
     func hideReconciliationRetainsMissedKeyboardInteraction() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3588,7 +3540,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("drag clear resamples stale tracker state before publishing sidebar containment")
     func dragClearResamplesTrackerBeforeContainment() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)

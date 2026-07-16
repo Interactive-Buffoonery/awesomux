@@ -112,7 +112,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var hostMode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.expandedWidth)
     private var selectedSidebarWidth: CGFloat = SidebarWidthPolicy.expandedWidth
     var hostPresentationState = SidebarHostPresentationState()
-    var handoffActionObserverForTesting: ((SidebarHostHandoffAction) -> Void)?
     private let overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner?
     private let overlayPresentationTranslation: (() -> CGFloat?)?
     private let interactionFocusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement?
@@ -143,11 +142,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private var installedCommandHostGeneration: Int?
     private var didPublishUsableCommandHost = false
     #if DEBUG
-        private var dividerIntentCount = 0
         private var isGeometryInstrumentationArmedForTesting = false
         private var splitPositionMutationIntentCount = 0
     #endif
-    private(set) var lastCapturedSidebarAccessibilityFocusForTesting = false
 
     /// Width requested before the split had real bounds (first launch / restore).
     /// Applied once the first non-zero layout lands — dodges the zero-bounds trap
@@ -628,7 +625,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var sidebarSplitPaneWidthForTesting: CGFloat { sidebarPaneContainer.frame.width }
     func resampleSidebarPointerForTesting() -> Bool? { resampleSidebarPointer() }
     #if DEBUG
-        var dividerIntentCountForTesting: Int { dividerIntentCount }
         var splitPositionMutationIntentCountForTesting: Int { splitPositionMutationIntentCount }
     #endif
     var sidebarHostOccurrenceCountForTesting: Int {
@@ -939,12 +935,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     private func performAtomicPersistentHide() -> SidebarPersistentVisibilityDeliveryResult {
         if isViewLoaded {
-            record(.captureSidebarResponder)
-            record(.querySidebarAccessibilityFocus)
             let requiresAccessibilityFocus = sidebarAccessibilityFocusIsActive
             let requiresKeyboardFocus =
                 sidebarKeyboardFocusView(for: view.window?.firstResponder) != nil
-            lastCapturedSidebarAccessibilityFocusForTesting = requiresAccessibilityFocus
             if requiresKeyboardFocus || requiresAccessibilityFocus,
                 !isFocusHandoffReady(in: view.window)
             {
@@ -959,7 +952,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     return .rejected
                 }
             } else {
-                record(.handOffSidebarFocus)
                 guard
                     handOffSidebarFocusIfNeeded(
                         requiresAccessibilityFocus: requiresAccessibilityFocus)
@@ -1011,10 +1003,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             position: sidebarPosition)
         setEdgeTrackingEnabled(true)
         return .applied
-    }
-
-    private func record(_ action: SidebarHostHandoffAction) {
-        handoffActionObserverForTesting?(action)
     }
 
     private var sidebarPaneWidth: CGFloat {
@@ -1156,7 +1144,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         hasActiveSidebarAccessibilityFocus = nil
         sidebarAccessibilityFocusedElement = nil
         onSidebarInteractionChanged = nil
-        handoffActionObserverForTesting = nil
     }
 
     func finalizeOwnedLifecycle() {
@@ -1465,7 +1452,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         )
         isSettingPositionProgrammatically = true
         #if DEBUG
-            dividerIntentCount += 1
             if isGeometryInstrumentationArmedForTesting {
                 splitPositionMutationIntentCount += 1
             }

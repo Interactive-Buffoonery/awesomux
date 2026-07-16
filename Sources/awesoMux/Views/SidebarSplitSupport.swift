@@ -120,12 +120,6 @@ final class SidebarHostPresentationState {
     }
 }
 
-enum SidebarHostHandoffAction: Equatable {
-    case captureSidebarResponder
-    case querySidebarAccessibilityFocus
-    case handOffSidebarFocus
-}
-
 enum SidebarPhysicalEdge: Equatable {
     case leading
     case trailing
