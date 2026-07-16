@@ -2605,6 +2605,93 @@ struct SidebarPresentationBehaviorTests {
         #expect(window.refusedFirstResponderClearCount == 2)
     }
 
+    @Test("production resignation strands no keyboard focus inside the hidden sidebar")
+    func applicationResignationLeavesNoStrandedSidebarFocusOnProductionPath() {
+        var applicationIsActive = true
+        let center = NotificationCenter()
+        let sidebar = NSViewController()
+        let sidebarFocus = FirstResponderView(
+            frame: CGRect(x: 16, y: 720, width: 180, height: 24))
+        sidebar.view.addSubview(sidebarFocus)
+        let controller = SidebarSplitController(
+            sidebar: sidebar,
+            detail: NSViewController(),
+            interactionNotificationCenter: center,
+            applicationIsActive: { applicationIsActive })
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        let window = FocusReadinessWindow(
+            contentRect: controller.view.bounds,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false)
+        window.contentViewController = controller
+        window.alphaValue = 0
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        controller.onTrackingAvailabilityLost = { [weak controller] in
+            controller?.setOverlayPresentedImmediately(false)
+        }
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        #expect(controller.setOverlayPresentedImmediately(true))
+        #expect(window.makeFirstResponder(sidebarFocus))
+        applicationIsActive = false
+
+        // No artificial refusal — the real makeFirstResponder path runs.
+        center.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+
+        #expect(controller.hostModeForTesting == .hidden)
+        // A keyboard user must never be left with focus inside the now-invisible
+        // sidebar host; the destination is either a visible view or the window.
+        let responder = window.firstResponder as? NSView
+        let strandedInSidebar =
+            responder === sidebar.view || responder?.isDescendant(of: sidebar.view) == true
+        #expect(!strandedInSidebar)
+    }
+
+    @Test("persistently hidden sidebar is excluded from the key-view loop")
+    func hiddenSidebarExcludedFromKeyViewLoop() {
+        let (controller, sidebar, detail) = makeController()
+        controller.setSidebarWidth(300)
+        let window = hostInActiveWindow(controller)
+        defer { window.orderOut(nil) }
+        let detailA = FirstResponderView(
+            frame: CGRect(x: 20, y: 20, width: 120, height: 24))
+        let detailB = FirstResponderView(
+            frame: CGRect(x: 20, y: 60, width: 120, height: 24))
+        detail.view.addSubview(detailA)
+        detail.view.addSubview(detailB)
+        let sidebarControl = FirstResponderView(
+            frame: CGRect(x: 16, y: 700, width: 120, height: 24))
+        sidebar.view.addSubview(sidebarControl)
+        // Manually wire a loop that passes through the sidebar control:
+        // detailA -> sidebarControl -> detailB -> detailA.
+        detailA.nextKeyView = sidebarControl
+        sidebarControl.nextKeyView = detailB
+        detailB.nextKeyView = detailA
+
+        // Keep focus out of the sidebar so the hide doesn't need a handoff; the
+        // key-view loop, not focus, is what this test exercises.
+        #expect(window.makeFirstResponder(detailA))
+        #expect(controller.setPersistentSidebarVisible(false))
+        controller.view.layoutSubtreeIfNeeded()
+
+        var reachable: [NSView] = []
+        var cursor = detailA.nextValidKeyView
+        var hops = 0
+        while let view = cursor, hops < 16 {
+            reachable.append(view)
+            if view === detailA { break }
+            cursor = view.nextValidKeyView
+            hops += 1
+        }
+        // A hidden host removes its subtree from keyboard navigation, so tabbing can
+        // never land on a control the user cannot see.
+        #expect(!reachable.contains(sidebarControl))
+    }
+
     @Test(
         "repeated resignation preserves unresolved hidden-sidebar focus for primary readiness",
         arguments: [
