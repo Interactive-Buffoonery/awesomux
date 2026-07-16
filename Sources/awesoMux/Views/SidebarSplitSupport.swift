@@ -121,24 +121,9 @@ final class SidebarHostPresentationState {
 }
 
 enum SidebarHostHandoffAction: Equatable {
-    case beginNoActionsTransaction
-    case cancelOverlayGeneration
     case captureSidebarResponder
-    case removeOverlayAnimation
-    case reparentHostToSplitContainer
-    case setPersistentState
-    case applySingleDividerIntent(CGFloat)
-    case settleLayout
-    case clearTransform
-    case hideOverlayContainer
-    case restoreSidebarResponder
-    case endNoActionsTransaction
     case querySidebarAccessibilityFocus
     case handOffSidebarFocus
-    case setHiddenState
-    case applySingleCollapseIntent
-    case hideSidebarAccessibility
-    case enableEdgeTracking
 }
 
 enum SidebarPhysicalEdge: Equatable {
