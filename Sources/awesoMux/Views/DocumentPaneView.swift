@@ -34,7 +34,28 @@ struct DocumentPaneSendBar: View {
     private static let agentDetectionTrustworthy = false
 
     private var nudgeResolution: DocumentNudgeTargetResolution {
-        session.layout.documentNudgeTarget(for: pane.id)
+        Self.resolveNudgeTarget(
+            in: session.layout,
+            for: pane.id,
+            foregroundExecutableMatch: runtime.foregroundExecutableMatch
+        )
+    }
+
+    static func resolveNudgeTarget(
+        in layout: TerminalPaneLayout,
+        for documentID: DocumentPane.ID,
+        foregroundExecutableMatch: (String, TerminalPane.ID) -> ProcessLivenessProbe.ForegroundExecutableMatch
+    ) -> DocumentNudgeTargetResolution {
+        let resolution = layout.documentNudgeTarget(for: documentID)
+        guard case .available(let target) = resolution else { return resolution }
+        switch foregroundExecutableMatch("ssh", target.id) {
+        case .matching:
+            return .unavailable(.foregroundSSH)
+        case .unknown:
+            return .unavailable(.localTerminalUnverified)
+        case .notMatching:
+            return resolution
+        }
     }
 
     /// The agent running in the terminal the nudge targets. Drives the button label
@@ -49,6 +70,16 @@ struct DocumentPaneSendBar: View {
     private var sendUnavailableDescription: String? {
         guard case .unavailable(let reason) = nudgeResolution else { return nil }
         switch reason {
+        case .foregroundSSH:
+            return String(
+                localized: "Exit SSH to send this local document path",
+                comment: "Unavailable reason for sending a Mac-local document path while the terminal is inside manual SSH"
+            )
+        case .localTerminalUnverified:
+            return String(
+                localized: "Couldn't verify a local terminal for this document path",
+                comment: "Unavailable reason for sending a Mac-local document path when foreground process evidence is unavailable"
+            )
         case .readOnlyRemoteSnapshot:
             return String(
                 localized: "Remote Markdown snapshots are read-only and cannot be sent",
@@ -132,8 +163,7 @@ struct DocumentPaneSendBar: View {
         // activePaneID fallback: live stored associations win, nil associations
         // may recover to the document group's direct split sibling, and stale
         // explicit associations fail closed rather than guessing.
-        guard case .available(let targetPane) = session.layout.documentNudgeTarget(for: pane.id)
-        else {
+        guard case .available(let targetPane) = nudgeResolution else {
             reportNudgeUnavailable()
             return
         }
