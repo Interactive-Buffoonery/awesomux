@@ -209,6 +209,21 @@ final class CommandBridgeEnactor {
         }
     }
 
+    /// Current local process evidence only. It may deny a safety-sensitive
+    /// action, but never grants execution-location authority.
+    func foregroundExecutableMatch(
+        _ executable: String,
+        probe: (String, pid_t) -> ProcessLivenessProbe.ForegroundExecutableMatch = {
+            ProcessLivenessProbe.terminalForegroundExecutableMatch($0, daemonPID: $1)
+        }
+    ) -> ProcessLivenessProbe.ForegroundExecutableMatch {
+        guard sessionID != nil, !errorLatched,
+            let rawPID = respawnLedger.lastIncarnation?.pid,
+            let daemonPID = pid_t(exactly: rawPID)
+        else { return .unknown }
+        return probe(executable, daemonPID)
+    }
+
     /// Break this pane's live bridge generation (INT-698 D4 teardown parity):
     /// cancel the reverse forward, `rm` the remote socket by exact ledger path,
     /// shut the listener/supervisor/coordinator, and drop the per-session
@@ -382,6 +397,7 @@ final class CommandBridgeEnactor {
             return
         }
         for event in events {
+            guard let sessionID, event.session == sessionID.rawValue else { continue }
             switch event.kind {
             case let .attached(created, daemonPid, daemonCreatedAt):
                 let incarnation = AmxDaemonIncarnation(pid: daemonPid, createdAt: daemonCreatedAt)
