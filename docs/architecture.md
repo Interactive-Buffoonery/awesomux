@@ -172,6 +172,10 @@ Older sketch docs assumed UserDefaults for v0; **the shipped direction is JSON o
 
 Splits live **inside** a session. `Command-D` creates **Split Right** and `Command-Shift-D` creates **Split Down**; each pane owns its own Ghostty surface and inherits cwd from the active pane when created (see keyboard catalog / session APIs in code). Sidebar rows stay **sessions**, not per-pane rows.
 
+## Sidebar presentation
+
+The sidebar/detail divider is a real `NSSplitView` divider in `SidebarSplitController`. The sidebar view mounts full-time in a **single permanent host** (the root-level `sidebarHostView` inside `sidebarHostClipView`) and never moves. The split-pane slot is an empty width reservation for the detail/terminal pane. `⌘\` toggles the sidebar with a one-shot resize; hover-reveal slides the permanent host's layer over a stationary detail pane (an overlap slide, not a divider animation — a per-frame divider animation would rewrap multi-pane terminal content). See [ADR 0025](adr/0025-sidebar-single-host-presentation.md).
+
 ## Agent state contract
 
 `AgentState` is the vocabulary for agent execution and attention. Shell command activity is tracked separately as **Shell activity** so a live login shell does not masquerade as an agent in `running`. `.done` means an agent run or detected agent command completed successfully; terminal process-exit workspace close does not set `.done`.
@@ -291,6 +295,7 @@ open -n dist/awesoMux.app
 | OpenCode and Pi provider opt-in | [0010 - OpenCode and Pi opt-in agent integrations](adr/0010-opencode-pi-opt-in-agent-integrations.md) |
 | Ghostty app actions and awesoMux command ownership | [0020 - Ghostty app actions are not an awesoMux command surface](adr/0020-ghostty-app-actions-are-not-an-awesomux-command-surface.md) |
 | Remote SSH workspaces: local `amx`, declared execution identity, SSH composition | [0023 - Remote workspace architecture](adr/0023-remote-workspace-architecture.md) |
+| Sidebar single-host presentation | [0025 - Sidebar single-host presentation](adr/0025-sidebar-single-host-presentation.md) |
 | Ghostty submodule, XCFramework, linker, resources | [`docs/ghostty-integration.md`](ghostty-integration.md) |
 | Ghostty XCFramework prebuilds, richer persistence | Open items in [`AGENTS.md`](../AGENTS.md) **Stack & decisions (open)** |
 
