@@ -136,6 +136,13 @@ struct ContentView: View {
             .ignoresSafeArea(.container)
             .background(WindowAccessor { hostingWindow = $0 })
             .onAppear {
+                WindowOrderDiagnostics.logSidebarPresentation(
+                    event: "sidebar-presentation-appeared",
+                    userWantsHidden: sidebarPresentation.userWantsHidden,
+                    isVisible: sidebarPresentation.isSidebarVisible,
+                    proximity: sidebarPresentation.proximityState,
+                    source: sidebarPresentation.visibilitySource
+                )
                 onSidebarPersistentVisibilityChange(sidebarPresentation.userWantsHidden)
                 applySidebarPosition(appSettingsStore.appearance.value.sidebarPosition)
                 sessionStore.selectFirstSessionIfNeeded()
@@ -177,7 +184,23 @@ struct ContentView: View {
                 deliverPendingSidebarPresentationCommand()
             }
             .onChange(of: sidebarPresentation.proximityState) { _, _ in
+                WindowOrderDiagnostics.logSidebarPresentation(
+                    event: "sidebar-proximity-changed",
+                    userWantsHidden: sidebarPresentation.userWantsHidden,
+                    isVisible: sidebarPresentation.isSidebarVisible,
+                    proximity: sidebarPresentation.proximityState,
+                    source: sidebarPresentation.visibilitySource
+                )
                 reconcileSidebarOverlay()
+            }
+            .onChange(of: sidebarPresentation.userWantsHidden) { _, _ in
+                WindowOrderDiagnostics.logSidebarPresentation(
+                    event: "sidebar-persistent-visibility-changed",
+                    userWantsHidden: sidebarPresentation.userWantsHidden,
+                    isVisible: sidebarPresentation.isSidebarVisible,
+                    proximity: sidebarPresentation.proximityState,
+                    source: sidebarPresentation.visibilitySource
+                )
             }
             .onChange(of: appSettingsStore.appearance.value.sidebarPosition) { _, position in
                 applySidebarPosition(position)

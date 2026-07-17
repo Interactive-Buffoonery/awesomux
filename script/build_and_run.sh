@@ -87,6 +87,8 @@ Modes:
     terminal-diagnostics              and stream only that log category.
   --shortcut-diagnostics,             Launch with focus-sidebar shortcut diagnostics
     shortcut-diagnostics              enabled and stream only that log category.
+  --window-diagnostics,               Launch with INT-746 window-order diagnostics
+    window-diagnostics                enabled and stream only that log category.
   --perf-install, perf-install        Stream performance logs for the installed bundle.
   --malloc-stack-logging,             Launch directly with MallocStackLogging=1.
     malloc-stack-logging
@@ -774,6 +776,13 @@ stream_shortcut_diagnostics_logs() {
     --predicate "subsystem == \"$LOG_SUBSYSTEM\" AND category == \"ShortcutDiagnostics\" AND processIdentifier == $pid"
 }
 
+stream_window_diagnostics_logs() {
+  local pid="$1"
+  echo "Streaming awesoMux window-order diagnostics. Reproduce the flash, then quit awesoMux or press Ctrl-C."
+  /usr/bin/log stream --info --style compact \
+    --predicate "subsystem == \"$LOG_SUBSYSTEM\" AND category == \"WindowOrderDiagnostics\" AND processIdentifier == $pid"
+}
+
 open_supports_env() {
   { /usr/bin/open --help 2>&1 || true; } | grep -q -- --env
 }
@@ -828,6 +837,10 @@ run_shortcut_diagnostics() {
   run_diagnostics AWESOMUX_SHORTCUT_DIAGNOSTICS stream_shortcut_diagnostics_logs shortcut
 }
 
+run_window_diagnostics() {
+  run_diagnostics AWESOMUX_WINDOW_ORDER_DIAGNOSTICS stream_window_diagnostics_logs window-order
+}
+
 install_app() {
   mkdir -p "$INSTALL_DIR"
   terminate_app_bundle_and_wait "$INSTALLED_APP_BUNDLE"
@@ -866,6 +879,9 @@ case "$MODE" in
     ;;
   --shortcut-diagnostics|shortcut-diagnostics)
     run_shortcut_diagnostics
+    ;;
+  --window-diagnostics|window-diagnostics)
+    run_window_diagnostics
     ;;
   --perf-install|perf-install)
     # This mode runs the *installed* production bundle, so the perf default must
