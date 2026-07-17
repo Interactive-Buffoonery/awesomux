@@ -67,16 +67,31 @@ extension TerminalSession {
     }
 
     /// The attention state the pane focus accent (stripe + needs-halo) and the
-    /// horizontal-split divider absorb should paint. Folds the INT-650 acknowledge
-    /// ledger into `.needs` so the focus rail stays peach for exactly as long as
-    /// the `NeedsInputBar` (gated on `needsAcknowledgement`) is up — even after the
-    /// execution rollup leaves `.needs` (a dead pane keeping a low-priority
+    /// horizontal-split divider absorb should paint for ONE pane. Folds that
+    /// pane's unacknowledged `attentionReason` into `.needs` so its rail stays
+    /// peach for exactly as long as the `NeedsInputBar` (gated on the
+    /// session-level `needsAcknowledgement`) is up — even after the execution
+    /// state leaves `.needs` (a dead pane keeping a low-priority
     /// `attentionReason` reads as its recovery hint, not `.needsAttention`, per
-    /// INT-506). Keeps the stripe and the banner in visual agreement (INT-721).
-    /// Deliberately NOT `chromeAwState`'s replacement: group-by-state counts and
-    /// per-pane execution display must keep reading the raw rollup, not this fold.
-    var focusAccentAwState: AwState {
-        needsAcknowledgement ? .needs : chromeAwState
+    /// INT-506).
+    ///
+    /// Pane-scoped on purpose, superseding the INT-721 session fold: a needy
+    /// background sibling used to turn the *focused* pane's rail peach, which
+    /// made the rail useless for telling WHICH pane wants input. Now the peach
+    /// rail sits on the needy pane itself and the focused pane keeps its normal
+    /// accent. Deliberately NOT `effectiveChromeState`'s replacement:
+    /// group-by-state counts and per-pane execution display must keep reading
+    /// the raw state, not this fold.
+    func focusAccentAwState(for pane: TerminalPane) -> AwState {
+        pane.attentionReason != nil ? .needs : pane.effectiveChromeState.awState
+    }
+
+    /// `focusAccentAwState(for:)` looked up by pane ID — the split divider only
+    /// knows the active pane's ID. Nil ID or a stale ID resolves to `.idle`
+    /// (renders identically to any non-`.needs` state).
+    func focusAccentAwState(forPaneID paneID: TerminalPane.ID?) -> AwState {
+        guard let paneID, let pane = layout.pane(id: paneID) else { return .idle }
+        return focusAccentAwState(for: pane)
     }
 
     /// Everything the sidebar peek card renders, as an `Equatable` key for
