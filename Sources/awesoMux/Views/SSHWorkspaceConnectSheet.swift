@@ -113,6 +113,7 @@ struct SSHWorkspaceConnectSheet: View {
     }
 
     private func connect(_ target: RemoteTarget?) {
+        guard let target else { return }
         guard backgroundSessionsEnabled || enableBackgroundSessions() else { return }
         submission.submit(
             target: target,

@@ -1,4 +1,3 @@
-import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
 import SwiftUI
