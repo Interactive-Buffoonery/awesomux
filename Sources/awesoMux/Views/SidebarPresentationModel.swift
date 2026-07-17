@@ -34,14 +34,31 @@ final class SidebarPresentationModel {
         !userWantsHidden
     }
 
+    /// The three sensors that can hold the sidebar revealed once it is up:
+    /// pointer over the sidebar body, pointer over a peek card, or an active
+    /// keyboard/AX interaction. They fan into one occupancy latch.
+    private enum RevealedSurface {
+        case sidebarBody
+        case peekCard
+        case interaction
+    }
+
     @ObservationIgnored private let store: SidebarPresentationPreferenceStore
     @ObservationIgnored private let delay: @Sendable (Duration) async -> Void
+    // Authority 1: edge distance. Authority 2: revealed-surface occupancy.
     @ObservationIgnored private var trackerState: ProximityState = .dormant
-    @ObservationIgnored private var sidebarPointerPresent = false
-    @ObservationIgnored private var peekPointerPresent = false
-    @ObservationIgnored private var sidebarInteractionActive = false
+    @ObservationIgnored private var occupancy: Set<RevealedSurface> = []
     @ObservationIgnored private var delayedHideTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+
+    /// Any sensor keeping the revealed sidebar up.
+    private var isRevealHeld: Bool { !occupancy.isEmpty }
+    /// Pointer-over presence only (excludes keyboard/AX). Rejection fallback
+    /// uses this: an interaction-only reveal that the host rejects has no
+    /// pointer anchor, so it collapses to dormant rather than cue.
+    private var pointerOverPresent: Bool {
+        occupancy.contains(.sidebarBody) || occupancy.contains(.peekCard)
+    }
 
     init(
         store: SidebarPresentationPreferenceStore = SidebarPresentationPreferenceStore(),
@@ -67,6 +84,8 @@ final class SidebarPresentationModel {
         return .applied
     }
 
+    // MARK: - Authority 1: edge distance
+
     func pointerMoved(x: CGFloat, width: CGFloat, position: AppearanceConfig.SidebarPosition) {
         guard userWantsHidden else { return }
         guard width.isFinite, width > 0, x.isFinite else {
@@ -77,15 +96,10 @@ final class SidebarPresentationModel {
 
         let clampedX = min(max(0, x), width)
         let distance = position == .left ? clampedX : width - clampedX
-        let next: ProximityState
-        if distance <= Self.revealDistance {
-            next = .revealed
-        } else {
-            next = .cue
-        }
+        let next: ProximityState = distance <= Self.revealDistance ? .revealed : .cue
         trackerState = next
 
-        if sidebarPointerPresent || peekPointerPresent {
+        if isRevealHeld {
             transition(to: .revealed)
             return
         }
@@ -95,59 +109,56 @@ final class SidebarPresentationModel {
     func trackingRegionExited() {
         guard userWantsHidden else { return }
         trackerState = .dormant
-        if sidebarInteractionActive || peekPointerPresent {
+        if isRevealHeld {
             transition(to: .revealed)
             return
         }
         transitionRespectingLeaveGrace(to: .dormant)
     }
 
+    // MARK: - Authority 2: revealed-surface occupancy
+
     func sidebarPointerChanged(_ isPresent: Bool) {
-        guard userWantsHidden else { return }
-        sidebarPointerPresent = isPresent
-        if isPresent {
-            transition(to: .revealed)
-        } else if sidebarInteractionActive || peekPointerPresent {
-            transition(to: .revealed)
-        } else if proximityState == .revealed {
-            scheduleDelayedTrackerTransition()
-        } else {
-            transitionRespectingLeaveGrace(to: trackerState)
-        }
+        setOccupancy(.sidebarBody, present: isPresent)
     }
 
     func peekPointerChanged(_ isPresent: Bool) {
+        setOccupancy(.peekCard, present: isPresent)
+    }
+
+    func sidebarInteractionChanged(_ active: Bool) {
+        setOccupancy(.interaction, present: active)
+    }
+
+    /// Single occupancy latch shared by every revealed-surface sensor. While
+    /// any sensor is present the sidebar stays revealed; when the last one
+    /// leaves we fall back to the edge tracker through the leave grace.
+    private func setOccupancy(_ surface: RevealedSurface, present: Bool) {
         guard userWantsHidden else { return }
-        guard isPresent != peekPointerPresent else { return }
-        peekPointerPresent = isPresent
-        if isPresent {
+        if present {
+            occupancy.insert(surface)
             transition(to: .revealed)
-        } else if sidebarPointerPresent || sidebarInteractionActive {
+            return
+        }
+        // A redundant release (the surface was never held) must not run the
+        // fallback — doing so would stomp visibility ownership set elsewhere.
+        guard occupancy.remove(surface) != nil else { return }
+        if isRevealHeld {
             transition(to: .revealed)
         } else if proximityState == .revealed {
             scheduleDelayedTrackerTransition()
         } else {
-            transitionRespectingLeaveGrace(to: trackerState)
-        }
-    }
-
-    func sidebarInteractionChanged(_ active: Bool) {
-        guard userWantsHidden else { return }
-        sidebarInteractionActive = active
-        if active {
-            transition(to: .revealed)
-        } else if !sidebarPointerPresent, !peekPointerPresent, trackerState != .revealed {
-            transitionRespectingLeaveGrace(to: trackerState)
+            transition(to: trackerState)
         }
     }
 
     func positionDidChange() {
         cancelDelayedHide()
         trackerState = .dormant
-        sidebarPointerPresent = false
-        peekPointerPresent = false
+        occupancy.remove(.sidebarBody)
+        occupancy.remove(.peekCard)
         visibilitySource = .explicit
-        proximityState = sidebarInteractionActive ? .revealed : .dormant
+        proximityState = isRevealHeld ? .revealed : .dormant
     }
 
     func invalidateTransientState() {
@@ -159,7 +170,7 @@ final class SidebarPresentationModel {
         cancelDelayedHide()
         visibilitySource = .pointer
         proximityState =
-            trackerState == .dormant && !sidebarPointerPresent && !peekPointerPresent
+            trackerState == .dormant && !pointerOverPresent
             ? .dormant
             : .cue
     }
@@ -192,12 +203,7 @@ final class SidebarPresentationModel {
                 return
             }
             self.delayedHideTask = nil
-            guard
-                !self.sidebarPointerPresent,
-                !self.peekPointerPresent,
-                !self.sidebarInteractionActive,
-                self.userWantsHidden
-            else {
+            guard self.occupancy.isEmpty, self.userWantsHidden else {
                 return
             }
             self.visibilitySource = .pointer
@@ -215,9 +221,7 @@ final class SidebarPresentationModel {
     private func clearTransientState() {
         cancelDelayedHide()
         trackerState = .dormant
-        sidebarPointerPresent = false
-        peekPointerPresent = false
-        sidebarInteractionActive = false
+        occupancy.removeAll()
         visibilitySource = .explicit
         proximityState = .dormant
     }

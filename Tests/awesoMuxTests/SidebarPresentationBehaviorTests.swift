@@ -6,9 +6,9 @@ import SwiftUI
 import Testing
 @testable import awesoMux
 
-@Suite("Sidebar overlay host", .serialized)
+@Suite("Sidebar presentation behavior", .serialized)
 @MainActor
-struct SidebarOverlayHostControllerTests {
+struct SidebarPresentationBehaviorTests {
     private final class AnimationDriver {
         var presentationTranslation: CGFloat?
         var completions: [() -> Void] = []
@@ -366,19 +366,19 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(true)
 
         #expect(controller.hostModeForTesting == .overlay(width: 300))
-        #expect(controller.overlayClipViewForTesting.accessibilityIsIgnored())
-        #expect(!controller.overlayClipViewForTesting.isAccessibilityElement())
-        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
+        #expect(controller.sidebarHostClipViewForTesting.accessibilityIsIgnored())
+        #expect(!controller.sidebarHostClipViewForTesting.isAccessibilityElement())
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
         #expect(controller.sidebarHostOccurrenceCountForTesting == 1)
         #expect(controller.sidebarSplitPaneWidthForTesting == 0)
         #expect(detail.view.frame == detailFrame)
         #expect(
             controller.view.subviews.firstIndex(of: detail.view.superview!)! < controller.view.subviews.firstIndex(
-                of: controller.overlayClipViewForTesting)!)
+                of: controller.sidebarHostClipViewForTesting)!)
         if position == .left {
-            #expect(controller.overlayClipViewForTesting.frame.minX == 0)
+            #expect(controller.sidebarHostClipViewForTesting.frame.minX == 0)
         } else {
-            #expect(controller.overlayClipViewForTesting.frame.maxX == controller.view.bounds.maxX)
+            #expect(controller.sidebarHostClipViewForTesting.frame.maxX == controller.view.bounds.maxX)
         }
     }
 
@@ -392,9 +392,9 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(false)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
         #expect(controller.sidebarHostOccurrenceCountForTesting == 1)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
     }
 
     @Test(
@@ -411,10 +411,10 @@ struct SidebarOverlayHostControllerTests {
             true, transition: .hover, reduceMotion: false)
 
         #expect(
-            controller.overlayContentViewForTesting.layer?.animation(
+            controller.sidebarHostViewForTesting.layer?.animation(
                 forKey: SidebarOverlayAnimator.animationKey) != nil)
-        #expect(controller.overlayClipViewForTesting.frame.width == 300)
-        #expect(controller.overlayContentViewForTesting.frame.size == CGSize(width: 300, height: 800))
+        #expect(controller.sidebarHostClipViewForTesting.frame.width == 300)
+        #expect(controller.sidebarHostViewForTesting.frame.size == CGSize(width: 300, height: 800))
         #expect(controller.sidebarSplitPaneWidthForTesting == splitWidth)
         #expect(detail.view.frame == detailFrame)
     }
@@ -425,14 +425,15 @@ struct SidebarOverlayHostControllerTests {
         controller.setSidebarWidth(300)
         controller.setPersistentSidebarVisible(false)
         controller.setOverlayPresentedImmediately(true)
-        let dividerIntents = controller.dividerIntentCountForTesting
         let detailFrame = detail.view.frame
         var liveWidths: [CGFloat] = []
         controller.onLiveWidthChange = { liveWidths.append($0) }
 
         controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
 
-        #expect(controller.dividerIntentCountForTesting == dividerIntents)
+        // The terminal pane frame is the end-state proxy for "no divider geometry
+        // moved": an overlay width change is compositor-only, so the split's panes
+        // stay put.
         #expect(detail.view.frame == detailFrame)
         #expect(liveWidths == [SidebarWidthPolicy.collapsedWidth])
         #expect(
@@ -454,7 +455,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setSelectedSidebarWidth(300)
         controller.setOverlayPresentedImmediately(true)
 
-        #expect(controller.overlayClipViewForTesting.frame.width == 300)
+        #expect(controller.sidebarHostClipViewForTesting.frame.width == 300)
         #expect(controller.hostModeForTesting == .overlay(width: 300))
         #expect(controller.sidebarSplitPaneWidthForTesting == 0)
         #expect(detail.view.frame == detailFrame)
@@ -504,7 +505,7 @@ struct SidebarOverlayHostControllerTests {
             controller.hostModeForTesting
                 == .overlay(width: SidebarWidthPolicy.collapsedWidth))
         #expect(
-            controller.overlayClipViewForTesting.frame.width
+            controller.sidebarHostClipViewForTesting.frame.width
                 == SidebarWidthPolicy.collapsedWidth)
     }
 
@@ -517,10 +518,10 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresented(true, transition: .hover, reduceMotion: true)
 
         #expect(
-            controller.overlayContentViewForTesting.layer?.animation(
+            controller.sidebarHostViewForTesting.layer?.animation(
                 forKey: SidebarOverlayAnimator.animationKey) == nil)
-        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
-        #expect(controller.overlayClipViewForTesting.presentationTranslationX() == 0)
+        #expect(controller.sidebarHostViewForTesting.layer?.transform.m41 == 0)
+        #expect(controller.sidebarHostClipViewForTesting.presentationTranslationX() == 0)
     }
 
     @Test("persistent restore invalidates an in-flight overlay completion")
@@ -536,56 +537,9 @@ struct SidebarOverlayHostControllerTests {
         staleCompletion()
 
         #expect(controller.hostModeForTesting == .persistent(width: 300))
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
-    }
-
-    @Test(
-        "overlay to persistent handoff is one silent atomic geometry mutation",
-        arguments: [AppearanceConfig.SidebarPosition.left, .right]
-    )
-    func atomicOverlayToPersistentHandoff(position: AppearanceConfig.SidebarPosition) {
-        let (controller, _, _) = makeController(position: position)
-        controller.setSidebarWidth(300)
-        #expect(controller.setPersistentSidebarVisible(false))
-        controller.setOverlayPresentedImmediately(true)
-        var trace: [SidebarHostHandoffAction] = []
-        var publications = 0
-        var livePublications = 0
-        var callbackActionCounts: [Int] = []
-        controller.handoffActionObserverForTesting = { trace.append($0) }
-        controller.hostPresentationState.onSettleForTesting = {
-            publications += 1
-            callbackActionCounts.append(trace.count)
-        }
-        controller.onLiveWidthChange = { _ in
-            livePublications += 1
-            callbackActionCounts.append(trace.count)
-        }
-        let dividerIntentsBefore = controller.dividerIntentCountForTesting
-
-        #expect(controller.setPersistentSidebarVisible(true))
-
-        #expect(
-            trace == [
-                .beginNoActionsTransaction,
-                .cancelOverlayGeneration,
-                .captureSidebarResponder,
-                .removeOverlayAnimation,
-                .reparentHostToSplitContainer,
-                .setPersistentState,
-                .applySingleDividerIntent(300),
-                .settleLayout,
-                .clearTransform,
-                .hideOverlayContainer,
-                .restoreSidebarResponder,
-                .endNoActionsTransaction,
-            ])
-        #expect(publications == 1)
-        #expect(livePublications == 1)
-        #expect(callbackActionCounts == [12, 12])
-        #expect(controller.dividerIntentCountForTesting - dividerIntentsBefore == 1)
-        #expect(controller.hostPresentationState.mode == .persistent(width: 300))
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        // Single host: the sidebar renders from the visible root container now.
+        #expect(!controller.sidebarHostClipViewForTesting.isHidden)
     }
 
     @Test("overlay to persistent preserves a real search field editor")
@@ -603,63 +557,20 @@ struct SidebarOverlayHostControllerTests {
         searchField.selectText(nil)
         let fieldEditor = try #require(searchField.currentEditor() as? NSTextView)
         #expect(window.firstResponder === fieldEditor)
+        // The disabled dual-host trace test used to pin single-publication; assert it
+        // live here now that the reparenting handoff (and its double-publish risk) is gone.
+        var livePublications = 0
+        controller.onLiveWidthChange = { _ in livePublications += 1 }
 
         #expect(controller.setPersistentSidebarVisible(true))
 
+        #expect(livePublications == 1)
         let responder = try #require(window.firstResponder as? NSView)
         let focusOwner = (responder as? NSTextView)?.delegate as? NSView ?? responder
         #expect(focusOwner === searchField)
         #expect(searchField.window === window)
         #expect(controller.hostModeForTesting == .persistent(width: 300))
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-    }
-
-    @Test(
-        "persistent to hidden handoff is one silent atomic collapse",
-        arguments: [AppearanceConfig.SidebarPosition.left, .right]
-    )
-    func atomicPersistentToHiddenHandoff(position: AppearanceConfig.SidebarPosition) {
-        let (controller, sidebar, _) = makeController(position: position)
-        controller.setSidebarWidth(300)
-        var trace: [SidebarHostHandoffAction] = []
-        var callbackActionCounts: [Int] = []
-        var livePublications = 0
-        controller.handoffActionObserverForTesting = { trace.append($0) }
-        controller.hostPresentationState.onSettleForTesting = {
-            callbackActionCounts.append(trace.count)
-        }
-        controller.onLiveWidthChange = { _ in livePublications += 1 }
-        let dividerIntentsBefore = controller.dividerIntentCountForTesting
-
-        #expect(controller.setPersistentSidebarVisible(false))
-
-        #expect(
-            trace == [
-                .captureSidebarResponder,
-                .querySidebarAccessibilityFocus,
-                .handOffSidebarFocus,
-                .beginNoActionsTransaction,
-                .cancelOverlayGeneration,
-                .removeOverlayAnimation,
-                .reparentHostToSplitContainer,
-                .setHiddenState,
-                .applySingleCollapseIntent,
-                .settleLayout,
-                .clearTransform,
-                .hideOverlayContainer,
-                .hideSidebarAccessibility,
-                .endNoActionsTransaction,
-                .enableEdgeTracking,
-            ])
-        #expect(callbackActionCounts == [14])
-        #expect(livePublications == 0)
-        #expect(controller.dividerIntentCountForTesting - dividerIntentsBefore == 1)
-        #expect(controller.hostPresentationState.mode == .hidden)
-        #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
-        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
-        #expect(controller.isEdgeTrackingVisibleForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
     }
 
     @Test("persistent show fails closed when handoff prerequisites disappear")
@@ -668,63 +579,15 @@ struct SidebarOverlayHostControllerTests {
         controller.setSidebarWidth(300)
         controller.setPersistentSidebarVisible(false)
         controller.setEdgeTrackingEnabled(false)
-        controller.overlayContentViewForTesting.layer = nil
+        controller.sidebarHostViewForTesting.layer = nil
 
         #expect(!controller.setPersistentSidebarVisible(true))
 
         #expect(controller.hostModeForTesting == .hidden)
         #expect(controller.hostPresentationState.mode == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
         #expect(controller.isEdgeTrackingVisibleForTesting)
-    }
-
-    @Test("hide queries AX and performs focus callback before geometry transaction")
-    func hideExternalCallbacksPrecedeTransaction() {
-        let focusedElement = AccessibilityElementBox()
-        let (controller, sidebar, _) = makeController(
-            focusedAccessibilityElement: { focusedElement.element })
-        controller.setSidebarWidth(300)
-        let window = hostInActiveWindow(controller)
-        defer { window.orderOut(nil) }
-        #expect(window.makeFirstResponder(sidebar.view))
-        var trace: [SidebarHostHandoffAction] = []
-        var externalCallbackActionCounts: [Int] = []
-        controller.handoffActionObserverForTesting = { trace.append($0) }
-        controller.hasActiveSidebarAccessibilityFocus = {
-            externalCallbackActionCounts.append(trace.count)
-            return true
-        }
-        var handoffRequests: [SidebarFocusHandoffRequest] = []
-        let detailResponder = AccessibilityFocusView(
-            frame: CGRect(x: 20, y: 20, width: 120, height: 24))
-        detailResponder.onFocusChange = { focused in
-            focusedElement.element = focused ? detailResponder : nil
-        }
-        controller.detailViewController.view.addSubview(detailResponder)
-        controller.onSidebarFocusHandoff = { request in
-            handoffRequests.append(request)
-            externalCallbackActionCounts.append(trace.count)
-            guard window.makeFirstResponder(detailResponder) else { return nil }
-            detailResponder.setAccessibilityFocused(true)
-            guard detailResponder.isAccessibilityFocused() else { return nil }
-            return SidebarFocusHandoffOutcome(
-                destination: detailResponder, satisfying: request)
-        }
-
-        controller.setPersistentSidebarVisible(false)
-
-        #expect(externalCallbackActionCounts == [2, 3])
-        #expect(
-            handoffRequests
-                == [
-                    .init(
-                        requiresKeyboardFocus: true,
-                        requiresAccessibilityFocus: true)
-                ])
-        #expect(controller.lastCapturedSidebarAccessibilityFocusForTesting)
-        #expect(trace.firstIndex(of: .beginNoActionsTransaction) == 3)
-        #expect(window.firstResponder !== sidebar.view)
     }
 
     @Test("persistent hide stays visible when required AX focus handoff fails")
@@ -1709,11 +1572,11 @@ struct SidebarOverlayHostControllerTests {
         #expect(requests.isEmpty)
         #expect(controller.hostModeForTesting == .overlay(width: 300))
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
-        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
         #expect(
-            controller.overlayClipViewForTesting.frame.maxX
+            controller.sidebarHostClipViewForTesting.frame.maxX
                 == controller.view.bounds.maxX)
-        #expect(!controller.overlayClipViewForTesting.isHidden)
+        #expect(!controller.sidebarHostClipViewForTesting.isHidden)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
     }
 
@@ -1721,14 +1584,14 @@ struct SidebarOverlayHostControllerTests {
     func persistentHideRollback() {
         let (controller, sidebar, _) = makeController(position: .right)
         controller.setSidebarWidth(300)
-        controller.overlayContentViewForTesting.layer = nil
+        controller.sidebarHostViewForTesting.layer = nil
 
         controller.setPersistentSidebarVisible(false)
 
         #expect(controller.hostModeForTesting == .hidden)
         #expect(controller.hostPresentationState.mode == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
         #expect(controller.isEdgeTrackingVisibleForTesting)
     }
 
@@ -1764,8 +1627,8 @@ struct SidebarOverlayHostControllerTests {
             guard detailFocus.isAccessibilityFocused() else { return nil }
             return SidebarFocusHandoffOutcome(destination: detailFocus, satisfying: request)
         }
-        controller.overlayContentViewForTesting.wantsLayer = false
-        controller.overlayContentViewForTesting.layer = nil
+        controller.sidebarHostViewForTesting.wantsLayer = false
+        controller.sidebarHostViewForTesting.layer = nil
 
         #expect(controller.setPersistentSidebarVisible(false))
 
@@ -1802,8 +1665,8 @@ struct SidebarOverlayHostControllerTests {
             requests.append(request)
             return nil
         }
-        controller.overlayContentViewForTesting.wantsLayer = false
-        controller.overlayContentViewForTesting.layer = nil
+        controller.sidebarHostViewForTesting.wantsLayer = false
+        controller.sidebarHostViewForTesting.layer = nil
 
         #expect(!controller.setPersistentSidebarVisible(false))
 
@@ -1911,6 +1774,65 @@ struct SidebarOverlayHostControllerTests {
         #expect(state.currentTitlebarVisibleWidth(position: .right) == 0)
     }
 
+    @Test(
+        "titlebar translation falls back to the stored target before any presentation layer",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right]
+    )
+    func firstRevealFallsBackWithoutPresentationLayer(
+        position: AppearanceConfig.SidebarPosition
+    ) {
+        let hidden = SidebarOverlayAnimator.hiddenTranslation(width: 300, position: position)
+        let state = SidebarHostPresentationState(mode: .hidden)
+
+        // Settled hidden with no animator/closure wired yet: the deterministic
+        // stored target is the only source.
+        state.beginOverlayTransition(presented: false, width: 300, position: position)
+        #expect(state.currentTitlebarTranslationX == hidden)
+        #expect(state.currentTitlebarVisibleWidth(position: position) == 0)
+
+        // The very first reveal renders before the presentation layer exists — the
+        // fallback must read the presented target (0), not a live layer.
+        state.beginOverlayTransition(presented: true, width: 300, position: position)
+        #expect(state.currentTitlebarTranslationX == 0)
+        #expect(state.currentTitlebarVisibleWidth(position: position) == 300)
+
+        // A wired-but-empty presentation layer (animator present, layer not yet
+        // sampling / returning non-finite) still falls through to the stored target.
+        state.overlayPresentationTranslation = { nil }
+        #expect(state.currentTitlebarTranslationX == 0)
+        state.overlayPresentationTranslation = { .nan }
+        #expect(state.currentTitlebarTranslationX == 0)
+    }
+
+    @Test(
+        "overlay relayout reframes titlebar presentation width without dropping the animation",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right]
+    )
+    func overlayReframeUpdatesTitlebarPresentationWidth(
+        position: AppearanceConfig.SidebarPosition
+    ) {
+        let state = SidebarHostPresentationState(mode: .overlay(width: 300))
+        state.beginOverlayTransition(presented: true, width: 300, position: position)
+        state.setOverlayAnimating(true)
+
+        // Sample a mid-reveal translation (60% revealed at width 300).
+        let mid: CGFloat = position == .left ? -120 : 120
+        state.overlayPresentationTranslation = { mid }
+        #expect(state.currentTitlebarVisibleWidth(position: position) == 180)
+
+        // A divider drag mid-reveal drives publishOverlayLayout -> settle(.overlay,
+        // newWidth): the width republishes while the overlay keeps animating (the
+        // reframe path). The animating flag must survive the relayout...
+        state.settle(mode: .overlay(width: 500), effectiveVisibleWidth: 500)
+        #expect(state.isOverlayAnimating)
+        #expect(state.titlebarPresentationWidth == 500)
+        // ...and visible width now tracks the new presentation width at the same
+        // sampled translation.
+        #expect(
+            state.currentTitlebarVisibleWidth(position: position, translation: mid)
+                == 500 - abs(mid))
+    }
+
     @Test("Reduce Motion keeps titlebar and overlay transition targets instant")
     func reduceMotionTitlebarParity() {
         let (controller, _, _) = makeController(position: .right)
@@ -1930,16 +1852,23 @@ struct SidebarOverlayHostControllerTests {
     func settledVisibilityCommandsAreIdempotent() {
         let (controller, _, _) = makeController()
         controller.setSidebarWidth(300)
-        var trace: [SidebarHostHandoffAction] = []
-        controller.handoffActionObserverForTesting = { trace.append($0) }
+        // A width republish is the observable "the command did geometry work" signal;
+        // an already-settled command must produce none.
+        var liveWidthChanges = 0
+        controller.onLiveWidthChange = { _ in liveWidthChanges += 1 }
 
+        // Already persistent: re-showing does no work.
         controller.setPersistentSidebarVisible(true)
-        #expect(trace.isEmpty)
+        #expect(liveWidthChanges == 0)
+        #expect(controller.hostModeForTesting == .persistent(width: 300))
 
         controller.setPersistentSidebarVisible(false)
-        trace.removeAll()
+        #expect(controller.hostModeForTesting == .hidden)
+
+        // Already hidden: re-hiding does no work and leaves the settled mode intact.
+        liveWidthChanges = 0
         controller.setPersistentSidebarVisible(false)
-        #expect(trace.isEmpty)
+        #expect(liveWidthChanges == 0)
         #expect(controller.hostModeForTesting == .hidden)
     }
 
@@ -1956,8 +1885,8 @@ struct SidebarOverlayHostControllerTests {
         staleCompletion()
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
     }
 
     @Test("persistent disappearance preserves ownership, hides AX, and restores on attach")
@@ -1968,12 +1897,17 @@ struct SidebarOverlayHostControllerTests {
         controller.viewWillDisappear()
 
         #expect(controller.hostModeForTesting == .persistent(width: 300))
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
         controller.viewWillAppear()
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
         #expect(controller.interactionObserverCountForTesting == 0)
+        // Reattach must un-hide the host and re-mirror the reserved pane immediately,
+        // not defer to a later layout tick (INT-845): a persistently-visible sidebar
+        // would otherwise stay invisible after a detach/reattach cycle.
+        #expect(!controller.sidebarHostClipViewForTesting.isHidden)
+        #expect(controller.sidebarHostFrameForTesting == controller.sidebarPaneFrameForTesting)
     }
 
     @Test("window removal and re-add preserve persistent semantics and restore AX")
@@ -2002,7 +1936,7 @@ struct SidebarOverlayHostControllerTests {
         window.contentView = NSView()
 
         #expect(controller.hostModeForTesting == .persistent(width: 300))
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
         #expect(controller.interactionObserverCountForTesting == 0)
         #expect(!controller.isFinalizedForTesting)
@@ -2091,7 +2025,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("live AX rescue survives window updates and clears when AX focus leaves")
     func liveAccessibilityRescueDoesNotOscillate() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -2170,7 +2104,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("stale AX focus cannot resurrect a detached hidden sidebar after reattach")
     func staleAccessibilityFocusDoesNotResurrectAfterReattach() throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -2305,37 +2239,10 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(ObjectIdentifier(descendant) == identity)
         #expect(descendant.isDescendant(of: sidebar.view))
-        #expect(controller.lastPreservedSidebarAccessibilityElementForTesting)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        // INT-845: the sidebar never moves, so the focused descendant's identity and
+        // ancestry are preserved intrinsically (no capture/validate flag anymore).
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == false)
-    }
-
-    @Test("persistent handoff aborts before publication when AX ancestry breaks")
-    func persistentHandoffRejectsBrokenAccessibilityAncestry() {
-        let (controller, sidebar, _) = makeController()
-        let descendant = NSView()
-        sidebar.view.addSubview(descendant)
-        controller.setSidebarWidth(300)
-        controller.setSidebarHidden(true)
-        controller.setOverlayPresentedImmediately(true)
-        controller.sidebarAccessibilityFocusedElement = { descendant }
-        var persistentPublications = 0
-        controller.hostPresentationState.onSettleForTesting = {
-            if case .persistent = controller.hostPresentationState.mode {
-                persistentPublications += 1
-            }
-        }
-        controller.persistentHandoffBeforeAccessibilityValidationForTesting = {
-            descendant.removeFromSuperview()
-        }
-
-        controller.setPersistentSidebarVisible(true)
-
-        #expect(persistentPublications == 0)
-        #expect(controller.hostModeForTesting == .overlay(width: 300))
-        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
-        #expect(!controller.overlayClipViewForTesting.isHidden)
-        #expect(!controller.lastPreservedSidebarAccessibilityElementForTesting)
     }
 
     @Test("detach is idempotent, invalidates stale completion, and stays idle after reattach")
@@ -2354,9 +2261,9 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(controller.interactionObserverCountForTesting == 0)
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
-        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
+        #expect(controller.sidebarHostViewForTesting.layer?.transform.m41 == 0)
         controller.viewWillAppear()
         controller.viewWillAppear()
         #expect(controller.interactionObserverCountForTesting == 0)
@@ -2390,7 +2297,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("keyboard menu and live AX retention flow through grace to overlay removal")
     func interactionEndToEndRemoval() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -2446,7 +2353,7 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(false)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
     }
 
     @Test(
@@ -2456,7 +2363,7 @@ struct SidebarOverlayHostControllerTests {
     func applicationResignationInvalidatesTransientPresentation(
         position: AppearanceConfig.SidebarPosition
     ) throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -2617,6 +2524,38 @@ struct SidebarOverlayHostControllerTests {
         #expect(window.firstResponder === primaryContent)
     }
 
+    @Test("key-first reactivation retries a pending focus repair on app activation")
+    func keyFirstReactivationRetriesPendingRepairOnActivation() {
+        var applicationIsActive = false
+        let center = NotificationCenter()
+        let fixture = ProductionFocusFixture(
+            notificationCenter: center,
+            applicationIsActive: { applicationIsActive })
+        defer { fixture.cleanUp() }
+        let selectedSurface = fixture.mountSelectedSurface()
+        fixture.window.recordsMakeFirstResponder = true
+
+        // Focus is in the sidebar with the app inactive but the primary window key.
+        // Hiding now defers the repair (handoff isn't ready while the app is inactive).
+        #expect(fixture.window.makeFirstResponder(fixture.sidebarFocus))
+        fixture.window.reportsKey = true
+        #expect(fixture.controller.setPersistentSidebarVisible(false))
+        #expect(fixture.controller.hostModeForTesting == .hidden)
+        #expect(fixture.window.firstResponder !== fixture.sidebarFocus)
+
+        // Key-first ordering: `didBecomeKey` fires while the app is still inactive, so
+        // the repair's app-active guard skips it — and no further `didBecomeKey` will
+        // fire because the window is already key. Without the activation retry the
+        // repair would be stranded here forever.
+        center.post(name: NSWindow.didBecomeKeyNotification, object: fixture.window)
+        #expect(fixture.window.firstResponder !== selectedSurface)
+
+        // Activation with the window already key must retry the pending repair.
+        applicationIsActive = true
+        center.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        #expect(fixture.window.firstResponder === selectedSurface)
+    }
+
     @Test("application resignation cleans up when sidebar focus refuses to clear")
     func applicationResignationStillCleansUpWhenFocusRefusesToClear() {
         var applicationIsActive = true
@@ -2659,7 +2598,98 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(availabilityLossCount == 1)
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(window.refusedFirstResponderClearCount == 1)
+        // INT-845: two refused clears now — the deliberate resignation clear, plus an
+        // AppKit-induced resign when the permanent host is hidden while it still owns
+        // the first responder. In production (no artificial refusal) both succeed and
+        // focus correctly leaves the hidden sidebar; the cleanup still completes.
+        #expect(window.refusedFirstResponderClearCount == 2)
+    }
+
+    @Test("production resignation strands no keyboard focus inside the hidden sidebar")
+    func applicationResignationLeavesNoStrandedSidebarFocusOnProductionPath() {
+        var applicationIsActive = true
+        let center = NotificationCenter()
+        let sidebar = NSViewController()
+        let sidebarFocus = FirstResponderView(
+            frame: CGRect(x: 16, y: 720, width: 180, height: 24))
+        sidebar.view.addSubview(sidebarFocus)
+        let controller = SidebarSplitController(
+            sidebar: sidebar,
+            detail: NSViewController(),
+            interactionNotificationCenter: center,
+            applicationIsActive: { applicationIsActive })
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        let window = FocusReadinessWindow(
+            contentRect: controller.view.bounds,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false)
+        window.contentViewController = controller
+        window.alphaValue = 0
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        controller.onTrackingAvailabilityLost = { [weak controller] in
+            controller?.setOverlayPresentedImmediately(false)
+        }
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        #expect(controller.setOverlayPresentedImmediately(true))
+        #expect(window.makeFirstResponder(sidebarFocus))
+        applicationIsActive = false
+
+        // No artificial refusal — the real makeFirstResponder path runs.
+        center.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+
+        #expect(controller.hostModeForTesting == .hidden)
+        // A keyboard user must never be left with focus inside the now-invisible
+        // sidebar host; the destination is either a visible view or the window.
+        let responder = window.firstResponder as? NSView
+        let strandedInSidebar =
+            responder === sidebar.view || responder?.isDescendant(of: sidebar.view) == true
+        #expect(!strandedInSidebar)
+    }
+
+    @Test("persistently hidden sidebar is excluded from the key-view loop")
+    func hiddenSidebarExcludedFromKeyViewLoop() {
+        let (controller, sidebar, detail) = makeController()
+        controller.setSidebarWidth(300)
+        let window = hostInActiveWindow(controller)
+        defer { window.orderOut(nil) }
+        let detailA = FirstResponderView(
+            frame: CGRect(x: 20, y: 20, width: 120, height: 24))
+        let detailB = FirstResponderView(
+            frame: CGRect(x: 20, y: 60, width: 120, height: 24))
+        detail.view.addSubview(detailA)
+        detail.view.addSubview(detailB)
+        let sidebarControl = FirstResponderView(
+            frame: CGRect(x: 16, y: 700, width: 120, height: 24))
+        sidebar.view.addSubview(sidebarControl)
+        // Manually wire a loop that passes through the sidebar control:
+        // detailA -> sidebarControl -> detailB -> detailA.
+        detailA.nextKeyView = sidebarControl
+        sidebarControl.nextKeyView = detailB
+        detailB.nextKeyView = detailA
+
+        // Keep focus out of the sidebar so the hide doesn't need a handoff; the
+        // key-view loop, not focus, is what this test exercises.
+        #expect(window.makeFirstResponder(detailA))
+        #expect(controller.setPersistentSidebarVisible(false))
+        controller.view.layoutSubtreeIfNeeded()
+
+        var reachable: [NSView] = []
+        var cursor = detailA.nextValidKeyView
+        var hops = 0
+        while let view = cursor, hops < 16 {
+            reachable.append(view)
+            if view === detailA { break }
+            cursor = view.nextValidKeyView
+            hops += 1
+        }
+        // A hidden host removes its subtree from keyboard navigation, so tabbing can
+        // never land on a control the user cannot see.
+        #expect(!reachable.contains(sidebarControl))
     }
 
     @Test(
@@ -3237,6 +3267,9 @@ struct SidebarOverlayHostControllerTests {
         #expect(requests.isEmpty)
 
         applicationIsActive = true
+        // Activation now retries a pending repair (INT-845 key-first ordering fix),
+        // but the retry re-checks every precondition: the primary window is not key
+        // yet, so the repair still correctly defers and no handoff fires.
         center.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
         #expect(requests.isEmpty)
 
@@ -3455,7 +3488,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("position change retains active interaction until ordinary grace dismissal")
     func positionChangeRetainsInteractionLifecycle() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3504,7 +3537,7 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(model.proximityState == .revealed)
         #expect(controller.hostModeForTesting == .overlay(width: 300))
-        #expect(controller.overlayClipViewForTesting.frame.maxX == controller.view.bounds.maxX)
+        #expect(controller.sidebarHostClipViewForTesting.frame.maxX == controller.view.bounds.maxX)
         #expect(gate.sleepCallCount == 0)
 
         window.makeFirstResponder(nil)
@@ -3520,12 +3553,12 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(model.proximityState == .revealed)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
     }
 
     @Test("explicit hide clears stale sidebar pointer attribution before another menu begins")
     func explicitHideClearsPointerAttribution() throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3561,7 +3594,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("stable hidden reconciliation clears stale sidebar pointer attribution")
     func stableHiddenReconciliationClearsPointerAttribution() throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3598,7 +3631,7 @@ struct SidebarOverlayHostControllerTests {
 
     @Test("live AX retention repairs a missed monitor poll and later dismisses through grace")
     func liveAccessibilityRetentionRepairsMonitorLatch() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3646,12 +3679,12 @@ struct SidebarOverlayHostControllerTests {
         controller.setOverlayPresentedImmediately(false)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
     }
 
     @Test("hide reconciliation retains a keyboard interaction missed before window update")
     func hideReconciliationRetainsMissedKeyboardInteraction() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3688,12 +3721,12 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(model.proximityState == .revealed)
         #expect(controller.hostModeForTesting == .overlay(width: 300))
-        #expect(sidebar.view.superview === controller.overlayContentViewForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
     }
 
     @Test("drag clear resamples stale tracker state before publishing sidebar containment")
     func dragClearResamplesTrackerBeforeContainment() async throws {
-        let suiteName = "SidebarOverlayHostControllerTests.\(UUID().uuidString)"
+        let suiteName = "SidebarPresentationBehaviorTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
@@ -3856,11 +3889,11 @@ struct SidebarOverlayHostControllerTests {
         staleCompletion()
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        #expect(controller.sidebarHostViewForTesting.layer?.transform.m41 == 0)
         #expect(controller.hostPresentationState.mode == .hidden)
         #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
         #expect(driver.requestCount == 1)
     }
 
@@ -3880,9 +3913,9 @@ struct SidebarOverlayHostControllerTests {
 
         #expect(controller.hostModeForTesting == .hidden)
         #expect(controller.hostPresentationState.mode == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
-        #expect(controller.overlayContentViewForTesting.layer?.transform.m41 == 0)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
+        #expect(controller.sidebarHostViewForTesting.layer?.transform.m41 == 0)
     }
 
     @Test("reasserting hidden dismisses a presented overlay into stable hidden ownership")
@@ -3895,8 +3928,8 @@ struct SidebarOverlayHostControllerTests {
         controller.setSidebarHidden(true)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
     }
 
@@ -3905,14 +3938,14 @@ struct SidebarOverlayHostControllerTests {
         let (controller, sidebar, _) = makeController()
         controller.setSidebarWidth(300)
         controller.setSidebarHidden(true)
-        controller.overlayContentViewForTesting.wantsLayer = false
-        controller.overlayContentViewForTesting.layer = nil
+        controller.sidebarHostViewForTesting.wantsLayer = false
+        controller.sidebarHostViewForTesting.layer = nil
 
         controller.setOverlayPresentedImmediately(true)
 
         #expect(controller.hostModeForTesting == .hidden)
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
-        #expect(controller.overlayClipViewForTesting.isHidden)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
         #expect((sidebar.view as? AccessibilityRecordingView)?.recordedAccessibilityHidden == true)
     }
 
@@ -3934,7 +3967,7 @@ struct SidebarOverlayHostControllerTests {
             controller.setSidebarHidden(true)
             controller.setOverlayPresentedImmediately(true)
             if mode == .midAnimation {
-                controller.overlayContentViewForTesting.layer?.setAffineTransform(
+                controller.sidebarHostViewForTesting.layer?.setAffineTransform(
                     CGAffineTransform(translationX: -150, y: 0))
             }
         case .persistent:
@@ -3964,5 +3997,113 @@ struct SidebarOverlayHostControllerTests {
             await Task.yield()
         }
         return condition()
+    }
+
+    // MARK: - Root-level hit testing (INT-845)
+
+    /// Hosts the controller inside a window-backed container at a NON-ZERO origin so
+    /// `controller.view.hitTest` runs against the superview-coordinate trap the
+    /// permanent root-sibling host introduces. Returns the origin offset to add to a
+    /// view-local point to reach the container coordinate space `hitTest` expects.
+    private func hostAtNonZeroOrigin(
+        _ controller: SidebarSplitController,
+        origin: CGPoint = CGPoint(x: 213, y: 137)
+    ) -> (window: NSWindow, offset: CGPoint) {
+        let container = NSView(
+            frame: CGRect(x: 0, y: 0, width: origin.x + 1_400, height: origin.y + 1_000))
+        let window = NSWindow(
+            contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = container
+        controller.view.frame = CGRect(origin: origin, size: CGSize(width: 1_200, height: 800))
+        container.addSubview(controller.view)
+        controller.view.layoutSubtreeIfNeeded()
+        return (window, origin)
+    }
+
+    @Test(
+        "root hit testing routes sidebar body, divider, and terminal for both positions",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right])
+    func rootHitTestingRoutesPanes(position: AppearanceConfig.SidebarPosition) {
+        let (controller, sidebar, detail) = makeController(position: position)
+        controller.setSidebarWidth(300)
+        let (window, offset) = hostAtNonZeroOrigin(controller)
+        defer { window.orderOut(nil) }
+
+        let pane = controller.sidebarPaneFrameForTesting
+        let detailFrame = detail.view.frame
+        let thickness = controller.dividerThicknessForTesting
+        #expect(thickness > 0)
+        func rootPoint(x: CGFloat, y: CGFloat) -> NSPoint {
+            NSPoint(x: x + offset.x, y: y + offset.y)
+        }
+
+        // 1. Sidebar body -> a sidebar descendant.
+        let bodyHit = controller.view.hitTest(rootPoint(x: pane.midX, y: pane.midY))
+        #expect(bodyHit === sidebar.view || bodyHit?.isDescendant(of: sidebar.view) == true)
+
+        // 2. Divider center -> the split view's divider tracking, not the host container.
+        let dividerX = position == .left ? pane.maxX + thickness / 2 : pane.minX - thickness / 2
+        let dividerHit = controller.view.hitTest(rootPoint(x: dividerX, y: pane.midY))
+        #expect(dividerHit === controller.splitViewForTesting)
+        #expect(dividerHit?.isDescendant(of: sidebar.view) != true)
+
+        // 3. Terminal-side of the divider -> the detail view. Clear NSSplitView's
+        // expanded divider grab region (a few points past the thin divider) so the
+        // point lands in the terminal pane, not the divider tracking.
+        let terminalX = position == .left ? detailFrame.minX + 20 : detailFrame.maxX - 20
+        let terminalHit = controller.view.hitTest(rootPoint(x: terminalX, y: detailFrame.midY))
+        #expect(terminalHit === detail.view || terminalHit?.isDescendant(of: detail.view) == true)
+    }
+
+    @Test(
+        "root hit testing never reaches a persistently hidden sidebar",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right])
+    func rootHitTestingHiddenSidebarUnreachable(position: AppearanceConfig.SidebarPosition) {
+        let (controller, sidebar, _) = makeController(position: position)
+        controller.setSidebarWidth(300)
+        #expect(controller.setPersistentSidebarVisible(false))
+        let (window, offset) = hostAtNonZeroOrigin(controller)
+        defer { window.orderOut(nil) }
+
+        let width = controller.view.bounds.width
+        let height = controller.view.bounds.height
+        let sidebarEdge: CGFloat = position == .left ? 4 : width - 4
+        for x in [sidebarEdge, width / 4, width / 2, 3 * width / 4] {
+            let hit = controller.view.hitTest(NSPoint(x: x + offset.x, y: height / 2 + offset.y))
+            #expect(hit !== sidebar.view)
+            #expect(hit?.isDescendant(of: sidebar.view) != true)
+        }
+    }
+
+    @Test(
+        "root hit testing exposes only the revealed slice mid-animation",
+        arguments: [AppearanceConfig.SidebarPosition.left, .right])
+    func rootHitTestingPartialRevealSlice(position: AppearanceConfig.SidebarPosition) {
+        let driver = AnimationDriver()
+        let (controller, sidebar, _) = makeControlledController(position: position, driver: driver)
+        controller.setSidebarWidth(300)
+        controller.setPersistentSidebarVisible(false)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        let (window, offset) = hostAtNonZeroOrigin(controller)
+        defer { window.orderOut(nil) }
+
+        // Hold the reveal half-open: a 300-wide overlay translated 120pt off-edge
+        // leaves a 180pt visually exposed slice against the clip.
+        driver.presentationTranslation = position == .left ? -120 : 120
+        let clip = controller.sidebarHostClipViewForTesting.frame
+        #expect(clip.width == 300)
+        func rootPoint(x: CGFloat, y: CGFloat) -> NSPoint {
+            NSPoint(x: x + offset.x, y: y + offset.y)
+        }
+
+        // The on-screen edge of the slice hits the sidebar; the covered side falls
+        // through to the terminal beneath.
+        let exposedX = position == .left ? clip.minX + 40 : clip.maxX - 40
+        let coveredX = position == .left ? clip.maxX - 40 : clip.minX + 40
+        let exposedHit = controller.view.hitTest(rootPoint(x: exposedX, y: clip.midY))
+        #expect(exposedHit === sidebar.view || exposedHit?.isDescendant(of: sidebar.view) == true)
+        let coveredHit = controller.view.hitTest(rootPoint(x: coveredX, y: clip.midY))
+        #expect(coveredHit !== sidebar.view)
+        #expect(coveredHit?.isDescendant(of: sidebar.view) != true)
     }
 }

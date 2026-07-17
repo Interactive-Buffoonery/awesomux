@@ -39,6 +39,23 @@ enum SidebarHostMode: Equatable {
     case overlay(width: CGFloat)
 }
 
+/// The single host's titlebar-lockstep authority. One permanent host renders the
+/// sidebar (INT-845), so this is now the minimal state the titlebar reads to stay
+/// in step — but "one host" does NOT mean "one translation source". The animator's
+/// presentation layer is nil outside an active animation, so the source is layered:
+///
+/// | state                        | translation source                              |
+/// |------------------------------|-------------------------------------------------|
+/// | overlay animating            | presentation layer, else animator's mapped value |
+/// | settled hidden               | deterministic hidden translation (∓width)       |
+/// | settled overlay (at rest)    | 0                                               |
+/// | persistent                   | 0                                               |
+///
+/// `currentTitlebarTranslationX` therefore keeps a two-layer fallback: the wired
+/// closure resolves the animator (which itself falls back to its settle target),
+/// and `titlebarTranslationX` covers the case where no animator/closure exists yet
+/// — the very first reveal before any presentation layer. Collapsing this to a
+/// single authority was reviewed and rejected; don't.
 @Observable
 @MainActor
 final class SidebarHostPresentationState {
@@ -63,17 +80,22 @@ final class SidebarHostPresentationState {
     }
 
     func settle(mode: SidebarHostMode, effectiveVisibleWidth: CGFloat) {
+        // The Observation framework does not dedupe equal writes; `settle` runs per
+        // frame during a divider drag, so guard each assignment to avoid spurious
+        // observer invalidations of the titlebar and sidebar pane.
         if case .overlay = mode {
             // Preserve active compositor sampling across overlay relayouts.
-        } else {
+        } else if isOverlayAnimating {
             isOverlayAnimating = false
         }
-        self.mode = mode
-        self.effectiveVisibleWidth = effectiveVisibleWidth
-        if effectiveVisibleWidth > 0 {
+        if self.mode != mode { self.mode = mode }
+        if self.effectiveVisibleWidth != effectiveVisibleWidth {
+            self.effectiveVisibleWidth = effectiveVisibleWidth
+        }
+        if effectiveVisibleWidth > 0, titlebarPresentationWidth != effectiveVisibleWidth {
             titlebarPresentationWidth = effectiveVisibleWidth
         }
-        if case .persistent = mode {
+        if case .persistent = mode, titlebarTranslationX != 0 {
             titlebarTranslationX = 0
         }
         onSettleForTesting?()
@@ -103,6 +125,9 @@ final class SidebarHostPresentationState {
     }
 
     func currentTitlebarVisibleWidth(
+        // Unused: the titlebar's visible width is deliberately position-invariant.
+        // The parameter stays for call-site symmetry with the position-taking
+        // geometry helpers.
         position _: AppearanceConfig.SidebarPosition,
         translation: CGFloat? = nil
     ) -> CGFloat {
@@ -118,27 +143,6 @@ final class SidebarHostPresentationState {
         guard width.isFinite, width > 0, translation.isFinite else { return 0 }
         return min(max(0, 1 - abs(translation) / width), 1)
     }
-}
-
-enum SidebarHostHandoffAction: Equatable {
-    case beginNoActionsTransaction
-    case cancelOverlayGeneration
-    case captureSidebarResponder
-    case removeOverlayAnimation
-    case reparentHostToSplitContainer
-    case setPersistentState
-    case applySingleDividerIntent(CGFloat)
-    case settleLayout
-    case clearTransform
-    case hideOverlayContainer
-    case restoreSidebarResponder
-    case endNoActionsTransaction
-    case querySidebarAccessibilityFocus
-    case handOffSidebarFocus
-    case setHiddenState
-    case applySingleCollapseIntent
-    case hideSidebarAccessibility
-    case enableEdgeTracking
 }
 
 enum SidebarPhysicalEdge: Equatable {

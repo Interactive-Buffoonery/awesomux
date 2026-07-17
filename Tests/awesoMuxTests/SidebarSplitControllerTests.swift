@@ -437,7 +437,7 @@ struct SidebarSplitControllerTests {
             controller.splitPaneViewsForTesting.contains {
                 $0 === controller.sidebarPaneContainerForTesting
             })
-        #expect(sidebar.view.superview === controller.sidebarPaneContainerForTesting)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
         #expect(controller.splitPaneViewsForTesting.contains { $0 === detail.view })
 
         controller.setSidebarPosition(.right)
@@ -1678,6 +1678,47 @@ struct SidebarSplitControllerTests {
         #expect(source.components(separatedBy: "splitView.setPosition(").count - 1 == 1)
         let helper = try #require(source.range(of: "private func setDividerPosition"))
         #expect(source[helper.lowerBound...].contains("splitView.setPosition("))
+    }
+}
+
+@Suite("Permanent host", .serialized)
+@MainActor
+struct PermanentHostTests {
+    private func makeController(
+        width: CGFloat = 1_200
+    ) -> (SidebarSplitController, NSViewController) {
+        let sidebar = NSViewController()
+        let controller = SidebarSplitController(
+            sidebar: sidebar, detail: NSViewController(), applicationIsActive: { true })
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        return (controller, sidebar)
+    }
+
+    @Test("sidebar is hosted in the root container, never the pane")
+    func sidebarIsHostedInRootContainerNotThePane() {
+        let (controller, sidebar) = makeController()
+        let host = controller.sidebarHostViewForTesting
+        // Fails on main: current code hosts in the pane container when visible.
+        #expect(sidebar.view.superview === host)
+        #expect(controller.sidebarPaneContainerForTesting.subviews.isEmpty)
+        #expect(controller.setPersistentSidebarVisible(false))
+        #expect(sidebar.view.superview === host)
+        #expect(controller.setPersistentSidebarVisible(true))
+        #expect(sidebar.view.superview === host)
+        #expect(controller.sidebarPaneContainerForTesting.subviews.isEmpty)
+    }
+
+    @Test("visible sidebar host mirrors the pane frame")
+    func visibleSidebarHostMirrorsPaneFrame() {
+        let (controller, _) = makeController()
+        controller.setSidebarWidth(296)
+        controller.view.layoutSubtreeIfNeeded()
+        let host = controller.sidebarHostFrameForTesting
+        let pane = controller.sidebarPaneFrameForTesting
+        #expect(host.width == pane.width)
+        #expect(host.origin == pane.origin)
     }
 }
 
