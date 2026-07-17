@@ -176,6 +176,17 @@ struct DiagnosticsSettingsPane: View {
                     metricCard(label: "awesoMux PID", value: "\(snapshot.appPID)")
                 }
 
+                Text(
+                    String(
+                        localized:
+                            "CPU percentages follow macOS process accounting: 100% equals one logical CPU core, not the whole machine.",
+                        comment: "Explanation of CPU percentages in Diagnostics"
+                    )
+                )
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text2)
+                .fixedSize(horizontal: false, vertical: true)
+
                 if !snapshot.appProcesses.isEmpty {
                     let cpuPercent = snapshot.appProcesses.reduce(0) { $0 + $1.cpuPercent }
                     let residentBytes = snapshot.appProcesses.reduce(0) { $0 + $1.residentBytes }
