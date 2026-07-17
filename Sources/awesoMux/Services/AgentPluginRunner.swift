@@ -247,7 +247,12 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
             return await operation()
         } catch AgentIntegrationInstallStateLockError.busy {
             return AgentPluginActionOutcome(
-                status: .needsRepair("Another awesoMux instance is changing agent integrations; try again")
+                status: .needsRepair(
+                    String(
+                        localized: "Another awesoMux instance is changing agent integrations; try again",
+                        comment: "CLI agent plugin install state lock contention action error"
+                    )
+                )
             )
         } catch let error as AgentInstallManifestLoadError {
             let message =

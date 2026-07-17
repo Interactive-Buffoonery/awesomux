@@ -1300,6 +1300,9 @@
     "Install state is temporarily unavailable" : {
       "comment" : "Unavailable agent integration install state error\nUnavailable agent integration install state status"
     },
+    "Installed, but the install record could not be saved. Disable and Remove may target your current settings instead of where this was installed." : {
+      "comment" : "CLI agent plugin install record persistence failure warning"
+    },
     "Intent" : {
 
     },
