@@ -163,15 +163,8 @@ enum RemoteHandoff {
     }
 
     private static func materializeImage(_ data: Data) throws -> PreparedSource {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(imagePasteDirectoryName, isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let url =
-                directory
-                .appendingPathComponent("pasted-image-\(UUID().uuidString)")
-                .appendingPathExtension("png")
-            try data.write(to: url, options: .atomic)
+            let url = try PastedImageFile.materialize(data)
             do {
                 return try preparedSource(at: url, isTemporary: true)
             } catch {
@@ -249,75 +242,23 @@ enum RemoteHandoff {
             "--expected-bytes", String(source.byteCount),
         ].joined(separator: " ")
 
-        let execution = RemoteHandoffExecution()
-        execution.process.executableURL = executableURL
-        execution.process.arguments = transferArguments(
-            remote: remote,
-            controlPath: controlPath,
-            remoteCommand: remoteCommand
-        )
-        execution.process.standardInput = execution.stdinPipe
-        execution.process.standardOutput = execution.stdoutPipe
-        execution.process.standardError = FileHandle.nullDevice
-        _ = fcntl(execution.stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         do {
-            try execution.process.run()
+            return try await BoundedProcessRunner.run(
+                executableURL: executableURL,
+                arguments: transferArguments(
+                    remote: remote,
+                    controlPath: controlPath,
+                    remoteCommand: remoteCommand
+                ),
+                input: .descriptor(sourceFD, byteCount: source.byteCount),
+                maximumOutputByteCount: maximumReceiptByteCount,
+                timeout: timeout
+            )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw Failure.transferFailed
         }
-
-        let outputTooLarge = HandoffFlag()
-        let stdoutTask = Task.detached {
-            var output = Data()
-            let reader = execution.stdoutPipe.fileHandleForReading
-            while let chunk = try? reader.read(upToCount: 1024), !chunk.isEmpty {
-                guard output.count + chunk.count <= maximumReceiptByteCount else {
-                    outputTooLarge.set()
-                    execution.terminate()
-                    break
-                }
-                output.append(chunk)
-            }
-            return output
-        }
-
-        let writerTask = Task.detached {
-            let result = stream(
-                sourceFD: sourceFD,
-                byteCount: source.byteCount,
-                to: execution.stdinPipe.fileHandleForWriting.fileDescriptor
-            )
-            try? execution.stdinPipe.fileHandleForWriting.close()
-            return result
-        }
-        let timedOut = HandoffFlag()
-        let timeoutTimer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
-        timeoutTimer.schedule(deadline: .now() + timeout)
-        timeoutTimer.setEventHandler {
-            timedOut.set()
-            execution.terminateThenKill()
-        }
-        timeoutTimer.resume()
-        let waitTask = Task.detached { execution.process.waitUntilExit() }
-
-        await withTaskCancellationHandler {
-            await waitTask.value
-        } onCancel: {
-            execution.terminateThenKill()
-        }
-        timeoutTimer.cancel()
-
-        let wroteAllBytes = await writerTask.value
-        let output = await stdoutTask.value
-        try Task.checkCancellation()
-        guard !timedOut.isSet,
-            !outputTooLarge.isSet,
-            wroteAllBytes,
-            execution.process.terminationStatus == 0
-        else {
-            throw Failure.transferFailed
-        }
-        return output
     }
 
     static func transferArguments(
@@ -443,28 +384,6 @@ enum RemoteHandoff {
         value.isEmpty ? "''" : "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private static func stream(sourceFD: Int32, byteCount: Int, to outputFD: Int32) -> Bool {
-        var offset: off_t = 0
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while offset < byteCount {
-            let amount = min(buffer.count, byteCount - Int(offset))
-            let bytesRead = buffer.withUnsafeMutableBytes { pread(sourceFD, $0.baseAddress, amount, offset) }
-            if bytesRead < 0, errno == EINTR { continue }
-            guard bytesRead > 0 else { return false }
-
-            var written = 0
-            while written < bytesRead {
-                let result = buffer.withUnsafeBytes {
-                    write(outputFD, $0.baseAddress!.advanced(by: written), bytesRead - written)
-                }
-                if result < 0, errno == EINTR { continue }
-                guard result > 0 else { return false }
-                written += result
-            }
-            offset += off_t(bytesRead)
-        }
-        return true
-    }
 }
 
 private final class HandoffSheetCancellation: @unchecked Sendable {
@@ -499,14 +418,6 @@ private final class HandoffSheetCancellation: @unchecked Sendable {
     }
 }
 
-private final class WeakHandoffWindow {
-    weak var value: NSWindow?
-
-    init(_ value: NSWindow?) {
-        self.value = value
-    }
-}
-
 @MainActor
 extension GhosttySurfaceNSView {
     func beginRemoteHandoff(_ candidate: RemoteHandoff.Candidate) {
@@ -523,7 +434,6 @@ extension GhosttySurfaceNSView {
             executionPlan: pane.executionPlan,
             remote: remote
         )
-        let originatingWindow = WeakHandoffWindow(window)
         let progressIndicator = NSProgressIndicator()
         progressIndicator.style = .spinning
         progressIndicator.controlSize = .small
@@ -540,7 +450,7 @@ extension GhosttySurfaceNSView {
         ])
         progressIndicator.startAnimation(nil)
 
-        remoteHandoffTask = Task { @MainActor [weak self] in
+        remoteHandoffTask = Task { @MainActor [weak self, weak originatingWindow = window] in
             var cleanupSource: RemoteHandoff.PreparedSource?
             defer {
                 cleanupSource?.cleanup()
@@ -579,7 +489,7 @@ extension GhosttySurfaceNSView {
                         authority.remote,
                         source.displayName,
                         proposedDirectory,
-                        originatingWindow.value
+                        originatingWindow
                     )
                 else {
                     TerminalAccessibilityAnnouncer.announce(
@@ -629,47 +539,11 @@ extension GhosttySurfaceNSView {
                 return
             } catch let failure as RemoteHandoff.Failure {
                 guard !Task.isCancelled else { return }
-                RemoteHandoff.failurePresenter(failure, originatingWindow.value)
+                RemoteHandoff.failurePresenter(failure, originatingWindow)
             } catch {
                 guard !Task.isCancelled else { return }
-                RemoteHandoff.failurePresenter(.transferFailed, originatingWindow.value)
+                RemoteHandoff.failurePresenter(.transferFailed, originatingWindow)
             }
         }
-    }
-}
-
-private final class RemoteHandoffExecution: @unchecked Sendable {
-    let process = Process()
-    let stdinPipe = Pipe()
-    let stdoutPipe = Pipe()
-
-    func terminate() {
-        if process.isRunning { process.terminate() }
-    }
-
-    func kill() {
-        if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
-    }
-
-    func terminateThenKill() {
-        terminate()
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1) { [self] in
-            kill()
-        }
-    }
-}
-
-private final class HandoffFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-
-    var isSet: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return value
-    }
-
-    func set() {
-        lock.lock(); defer { lock.unlock() }
-        value = true
     }
 }

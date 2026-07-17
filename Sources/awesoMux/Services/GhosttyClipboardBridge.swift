@@ -922,7 +922,6 @@ extension GhosttyRuntime {
         return nil
     }
 }
-let imagePasteDirectoryName = "awesomux-pasted-images"
 // Long enough that paths handed to a long-running agent thread (Claude Code,
 // etc.) are still readable when the user comes back to the same session.
 private let imagePasteMaxAge: TimeInterval = 24 * 60 * 60
@@ -1018,23 +1017,11 @@ enum TerminalPasteboardString {
     }
 
     private static func materializedImagePath(fromPNGData pngData: Data) -> String? {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(imagePasteDirectoryName, isDirectory: true)
-
         do {
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
-            let url =
-                directory
-                .appendingPathComponent("pasted-image-\(UUID().uuidString)")
-                .appendingPathExtension("png")
-            try pngData.write(to: url, options: .atomic)
-            return url.path
+            return try PastedImageFile.materialize(pngData).path
         } catch {
             log.error(
-                "paste: failed to materialize clipboard image at \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                "paste: failed to materialize clipboard image at \(PastedImageFile.directoryURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             return nil
         }
@@ -1048,28 +1035,8 @@ enum TerminalPasteboardString {
     }
 
     nonisolated static func cleanupOldImages() {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(imagePasteDirectoryName, isDirectory: true)
         let cutoff = Date().addingTimeInterval(-imagePasteMaxAge)
-        guard
-            let urls = try? FileManager.default.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.contentModificationDateKey]
-            )
-        else {
-            return
-        }
-
-        for url in urls where url.pathExtension.lowercased() == "png" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-            guard let modificationDate = values?.contentModificationDate,
-                modificationDate < cutoff
-            else {
-                continue
-            }
-
-            try? FileManager.default.removeItem(at: url)
-        }
+        PastedImageFile.cleanup(olderThan: cutoff)
     }
 }
 
