@@ -705,6 +705,56 @@ struct AgentIntegrationInstallerTests {
         }
     }
 
+    @Test("failed uninstall rollback reports the filesystem divergence")
+    func failedUninstallRollbackIsReported() throws {
+        try Self.withTemporaryDirectory { directory in
+            let support = directory.appending(path: "support", directoryHint: .isDirectory)
+            let installer = AgentIntegrationInstaller(
+                resourcesDirectoryURL: Self.packageResourcesURL,
+                supportDirectoryURL: support
+            )
+            let installed = try installer.install(
+                provider: .pi,
+                setup: .init(enabled: true),
+                homeDirectory: directory.appending(path: "home", directoryHint: .isDirectory)
+            )
+            let installedDirectory = installed.installedURL.deletingLastPathComponent()
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.posixPermissions: 0o700],
+                    ofItemAtPath: installedDirectory.path
+                )
+            }
+            let failingInstaller = AgentIntegrationInstaller(
+                resourcesDirectoryURL: Self.packageResourcesURL,
+                supportDirectoryURL: support,
+                manifestWriter: { _ in
+                    try FileManager.default.setAttributes(
+                        [.posixPermissions: 0o500],
+                        ofItemAtPath: installedDirectory.path
+                    )
+                    throw CocoaError(.fileWriteUnknown)
+                }
+            )
+
+            do {
+                try failingInstaller.uninstall(provider: .pi)
+                Issue.record("expected rollback failure")
+            } catch let error as AgentIntegrationInstallerError {
+                guard case .fileRollbackFailed(let url, let operationError, let rollbackError) = error else {
+                    Issue.record("expected fileRollbackFailed, got \(error)")
+                    return
+                }
+                #expect(url == installed.installedURL)
+                #expect(!operationError.isEmpty)
+                #expect(!rollbackError.isEmpty)
+            }
+
+            #expect(!FileManager.default.fileExists(atPath: installed.installedURL.path))
+            #expect(try installer.loadManifest().records.first?.installedPath == installed.installedURL.path)
+        }
+    }
+
     @Test("future manifest versions are rejected")
     func futureManifestVersionsAreRejected() throws {
         try Self.withTemporaryDirectory { supportDirectory in
@@ -754,6 +804,32 @@ struct AgentIntegrationInstallerTests {
                 includingPropertiesForKeys: nil
             ).filter { $0.lastPathComponent.hasPrefix("install-manifest.unsupported-v\(unsupportedVersion).backup") }
             #expect(backups.count == 1)
+        }
+    }
+
+    @Test("failed backup setup preserves the canonical future manifest")
+    func failedBackupSetupPreservesCanonicalManifest() throws {
+        try Self.withTemporaryDirectory { directory in
+            let manifestURL = directory.appending(path: "install-manifest.json")
+            let unsupportedVersion = AgentIntegrationInstallManifest.currentVersion + 1
+            let originalData = Data(#"{"records":[],"version":\#(unsupportedVersion)}"#.utf8)
+            try originalData.write(to: manifestURL)
+            let store = AgentInstallManifestStore<AgentIntegrationInstallManifest>(
+                manifestURL: manifestURL,
+                legacyManifestURL: manifestURL,
+                fileManager: BackupPermissionFailingFileManager()
+            )
+
+            #expect(throws: CocoaError.self) {
+                try store.loadForMutationRecoveringEmptyUnsupported()
+            }
+
+            #expect(try Data(contentsOf: manifestURL) == originalData)
+            let backups = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            ).filter { $0.lastPathComponent.contains(".unsupported-v") }
+            #expect(backups.isEmpty)
         }
     }
 
@@ -949,5 +1025,14 @@ struct AgentIntegrationInstallerTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appending(path: "Resources", directoryHint: .isDirectory)
+    }
+}
+
+private final class BackupPermissionFailingFileManager: FileManager {
+    override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+        if path.contains(".unsupported-v") {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.setAttributes(attributes, ofItemAtPath: path)
     }
 }

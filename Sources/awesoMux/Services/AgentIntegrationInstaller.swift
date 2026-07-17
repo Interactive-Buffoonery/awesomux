@@ -94,6 +94,7 @@ enum AgentIntegrationInstallerError: Error, Equatable, Sendable {
     case installStateUnavailable
     case unsupportedManifestVersion(Int)
     case installedFileModified(URL)
+    case fileRollbackFailed(URL, operationError: String, rollbackError: String)
     case installStateBusy
 }
 
@@ -252,12 +253,12 @@ struct AgentIntegrationInstaller {
             )
             manifest.upsert(record)
             try saveManifest(manifest)
-        } catch {
-            restoreFile(destinationData, at: installedURL)
+        } catch let operationError {
+            var snapshots = [FileSnapshot(data: destinationData, url: installedURL)]
             if let priorInstalledURL, priorInstalledURL != installedURL {
-                restoreFile(priorInstalledData, at: priorInstalledURL)
+                snapshots.append(FileSnapshot(data: priorInstalledData, url: priorInstalledURL))
             }
-            throw error
+            try throwAfterRollingBack(snapshots, operationError: operationError)
         }
 
         return AgentIntegrationInstalledTemplate(
@@ -290,9 +291,11 @@ struct AgentIntegrationInstaller {
         manifest.records.remove(at: index)
         do {
             try saveManifest(manifest)
-        } catch {
-            restoreFile(installedData, at: installedURL)
-            throw error
+        } catch let operationError {
+            try throwAfterRollingBack(
+                [FileSnapshot(data: installedData, url: installedURL)],
+                operationError: operationError
+            )
         }
         return installedURL
     }
@@ -380,19 +383,43 @@ struct AgentIntegrationInstaller {
         return try Data(contentsOf: url)
     }
 
-    private func restoreFile(_ data: Data?, at url: URL) {
-        do {
-            if let data {
-                try createProviderDirectory(url.deletingLastPathComponent())
-                try writePrivateFile(data, to: url)
-            } else if fileManager.fileExists(atPath: url.path) {
-                try fileManager.removeItem(at: url)
+    private func restoreFile(_ data: Data?, at url: URL) throws {
+        if let data {
+            try createProviderDirectory(url.deletingLastPathComponent())
+            try writePrivateFile(data, to: url)
+        } else if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    private func throwAfterRollingBack(
+        _ snapshots: [FileSnapshot],
+        operationError: Error
+    ) throws -> Never {
+        var firstFailure: (url: URL, error: Error)?
+        for snapshot in snapshots {
+            do {
+                try restoreFile(snapshot.data, at: snapshot.url)
+            } catch {
+                if firstFailure == nil {
+                    firstFailure = (snapshot.url, error)
+                }
             }
-        } catch {
-            Self.logger.error(
-                "failed to roll back agent integration file at \(url.path, privacy: .private): \(error.localizedDescription, privacy: .public)"
+        }
+
+        if let firstFailure {
+            throw AgentIntegrationInstallerError.fileRollbackFailed(
+                firstFailure.url,
+                operationError: operationError.localizedDescription,
+                rollbackError: firstFailure.error.localizedDescription
             )
         }
+        throw operationError
+    }
+
+    private struct FileSnapshot {
+        var data: Data?
+        var url: URL
     }
 
     func destinationFileURL(
