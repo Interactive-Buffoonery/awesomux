@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingSystemQuitWarningTimeout: DispatchWorkItem?
     private weak var primaryWindowForFrameSave: NSWindow?
     private var isSystemQuitWarningPresented = false
+    private let windowOrderDiagnostics = WindowOrderDiagnostics()
 
     /// True when `applicationShouldTerminate` is firing as part of a system
     /// logout / restart / shutdown sequence (rather than a user-initiated
@@ -98,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ sender: NSApplication,
         hasVisibleWindows: Bool
     ) -> Bool {
+        WindowOrderDiagnostics.logApplicationReopen(hasVisibleWindows: hasVisibleWindows)
         guard !hasVisibleWindows else { return true }
         // hasVisibleWindows is also false when the only primary window is
         // miniaturized; surfacePrimaryWindow prefers that window (and
@@ -409,18 +411,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// floating terminal panel; unconditional surfacing would let them steal
     /// key status from the panel mid-use. Only surface when no primary window
     /// is on screen — the zero-window/miniaturized case INT-718 fixes.
-    func surfacePrimaryWindowIfNotVisible() {
+    func surfacePrimaryWindowIfNotVisible(
+        caller: StaticString = #function,
+        fileID: StaticString = #fileID,
+        line: UInt = #line
+    ) {
         if let window = NSApp.windows.first(where: { $0.isAwesoMuxPrimaryContentWindow }),
            window.isVisible, !window.isMiniaturized {
+            WindowOrderDiagnostics.logSurfacePrimaryWindow(
+                event: "surface-primary-window-skipped-visible",
+                caller: caller,
+                fileID: fileID,
+                line: line
+            )
             return
         }
-        surfacePrimaryWindow()
+        surfacePrimaryWindow(caller: caller, fileID: fileID, line: line)
     }
 
     /// Bring the app forward and surface the singleton primary content window
     /// after an app-level workspace action, opening it first when the app is
     /// alive with no visible primary window.
-    func surfacePrimaryWindow() {
+    func surfacePrimaryWindow(
+        caller: StaticString = #function,
+        fileID: StaticString = #fileID,
+        line: UInt = #line
+    ) {
+        WindowOrderDiagnostics.logSurfacePrimaryWindow(
+            event: "surface-primary-window-begin",
+            caller: caller,
+            fileID: fileID,
+            line: line
+        )
         NSApp.activate(ignoringOtherApps: true)
         let primaryWindow = NSApp.windows
             .first(where: { $0.isAwesoMuxPrimaryContentWindow })
@@ -435,6 +457,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window: primaryWindow,
             openPrimaryWindow: openPrimaryWindow,
             beep: { NSSound.beep() }
+        )
+        WindowOrderDiagnostics.logSurfacePrimaryWindow(
+            event: "surface-primary-window-end",
+            caller: caller,
+            fileID: fileID,
+            line: line
         )
     }
 
@@ -463,6 +491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        windowOrderDiagnostics.start()
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         ShortcutDiagnostics.log("stage=applicationDidFinishLaunching applicationClass=\(type(of: NSApp))")
@@ -743,6 +772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        windowOrderDiagnostics.stop()
         let riskySessionCount = (sessionStore?.sessionsAtRiskOnQuitCount ?? 0)
             + (floatingPanelController?.sessionsAtRiskOnQuit.count ?? 0)
             + (popUpTerminalController?.sessionsAtRiskOnQuit.count ?? 0)
