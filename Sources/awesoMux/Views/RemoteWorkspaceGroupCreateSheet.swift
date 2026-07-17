@@ -124,9 +124,7 @@ struct RemoteWorkspaceGroupCreateSheet: View {
     private func enableBackgroundSessions() -> Bool {
         appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
         guard backgroundSessionsEnabled else {
-            if let settingsErrorMessage {
-                TerminalAccessibilityAnnouncer.announce(settingsErrorMessage, priority: .high)
-            }
+            TerminalAccessibilityAnnouncer.announceSettingsError(settingsErrorMessage)
             return false
         }
         return true
