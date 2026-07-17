@@ -153,8 +153,31 @@ struct AppearanceSettingsPane: View {
 
             SettingsSection(
                 index: 5,
+                title: String(localized: "CRT effect", comment: "Appearance settings section title"),
+                subtitle: String(
+                    localized: "Optional retro overlay on the terminal pane.",
+                    comment: "CRT effect section subtitle")
+            ) {
+                SettingsField(
+                    label: String(localized: "CRT scanlines", comment: "Settings field label for the CRT scanlines toggle"),
+                    hint: String(
+                        localized: "Visual-only overlay. Off by default.", comment: "Settings field hint for the CRT scanlines toggle"),
+                    isFirst: true,
+                    // Bare .labelsHidden() Toggle — let the field supply its name.
+                    forwardsAccessibilityToControl: true
+                ) {
+                    Toggle("CRT scanlines", isOn: appSettingsStore.appearance.binding(\.crtScanlines))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+            }
+
+            SettingsSection(
+                index: 6,
                 title: String(localized: "Sidebar", comment: "Appearance settings section title"),
-                subtitle: String(localized: "Position and collapsed-rail behavior.", comment: "Sidebar section subtitle")
+                subtitle: String(
+                    localized: "Position, row density, and collapsed-rail behavior.",
+                    comment: "Sidebar section subtitle")
             ) {
                 SettingsField(
                     label: String(localized: "Position", comment: "Settings field label for the sidebar position picker"),
@@ -167,6 +190,22 @@ struct AppearanceSettingsPane: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .accessibilityLabel("Sidebar position")
+                }
+
+                SettingsField(
+                    label: String(localized: "Compact mode", comment: "Settings field label for the sidebar compact mode toggle"),
+                    hint: String(
+                        localized: "Tighter row spacing for users with many sessions in a single workspace.",
+                        comment: "Settings field hint for the sidebar compact mode toggle"),
+                    // Bare .labelsHidden() Toggle — let the field supply its name.
+                    forwardsAccessibilityToControl: true
+                ) {
+                    // Still GeneralConfig / `general.sidebar_compact_mode` on disk:
+                    // moving the control here is a UI regrouping, not a config-key
+                    // migration.
+                    Toggle("Sidebar compact mode", isOn: appSettingsStore.general.binding(\.sidebarCompactMode))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
 
                 SettingsField(
@@ -185,12 +224,12 @@ struct AppearanceSettingsPane: View {
                 }
             }
 
-            SettingsSection(index: 6, title: String(localized: "Reset", comment: "Appearance settings section title")) {
+            SettingsSection(index: 7, title: String(localized: "Reset", comment: "Appearance settings section title")) {
                 SettingsField(
                     label: String(localized: "Reset to Defaults", comment: "Settings field label for the reset-to-defaults button"),
                     hint: String(
                         localized:
-                            "Resets theme, accent, fonts, text size, glow, terminal background, sidebar position, and jump numbers to their shipped defaults. Doesn't touch settings on other panes.",
+                            "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, sidebar position, and jump numbers to their shipped defaults. Doesn't touch sidebar compact mode or settings on other panes.",
                         comment: "Settings field hint for the reset-to-defaults button"),
                     isFirst: true
                 ) {
@@ -269,11 +308,13 @@ struct AppearanceSettingsPane: View {
     private func resetToDefaults() {
         let defaults = AppearanceConfig.defaultValue
         appSettingsStore.appearance.update { appearance in
-            // Field-by-field, not a whole-struct replace: `crtScanlines` and
-            // `cursorGlow` are real AppearanceConfig fields but they're only
-            // exposed as controls on TerminalSettingsPane, not here. A user
-            // clicking "Reset to Defaults" on the Appearance pane shouldn't see
-            // settings silently change on a pane they're not looking at.
+            // Field-by-field, not a whole-struct replace: `cursorGlow` is a real
+            // AppearanceConfig field but its control lives on
+            // TerminalSettingsPane, not here. A user clicking "Reset to
+            // Defaults" on the Appearance pane shouldn't see settings silently
+            // change on a pane they're not looking at. (Sidebar compact mode has
+            // its control here but persists via GeneralConfig, so it's also
+            // outside this appearance-store reset — the hint copy says so.)
             appearance.theme = defaults.theme
             appearance.accent = defaults.accent
             appearance.uiFont = defaults.uiFont
@@ -286,6 +327,7 @@ struct AppearanceSettingsPane: View {
             appearance.terminalBackgroundColor = defaults.terminalBackgroundColor
             appearance.alwaysShowJumpNumbers = defaults.alwaysShowJumpNumbers
             appearance.sidebarPosition = defaults.sidebarPosition
+            appearance.crtScanlines = defaults.crtScanlines
         }
         // Read back from the store rather than the `defaults` constant above:
         // `AppearanceStore.update` only commits when the disk write succeeds
@@ -321,6 +363,7 @@ struct AppearanceSettingsPane: View {
             && appearance.terminalBackgroundColor == defaults.terminalBackgroundColor
             && appearance.alwaysShowJumpNumbers == defaults.alwaysShowJumpNumbers
             && appearance.sidebarPosition == defaults.sidebarPosition
+            && appearance.crtScanlines == defaults.crtScanlines
         if didReset {
             NSAccessibility.post(
                 element: NSApplication.shared,
