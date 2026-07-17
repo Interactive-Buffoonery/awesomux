@@ -178,8 +178,7 @@ struct DiagnosticsSettingsPane: View {
 
                 Text(
                     String(
-                        localized:
-                            "CPU percentages follow macOS process accounting: 100% equals one logical CPU core, not the whole machine.",
+                        localized: "CPU is measured per core: 100% = one fully used core, 200% = two.",
                         comment: "Explanation of CPU percentages in Diagnostics"
                     )
                 )
