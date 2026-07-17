@@ -126,8 +126,11 @@ extension ProcessAgentPluginRunner {
             try recordInstall(provider: provider, setup: setup, tree: tree, ref: ref)
             return nil
         } catch {
-            return
-                "Installed, but the install record could not be saved. Disable and Remove may target your current settings instead of where this was installed."
+            return String(
+                localized:
+                    "Installed, but the install record could not be saved. Disable and Remove may target your current settings instead of where this was installed.",
+                comment: "CLI agent plugin install record persistence failure warning"
+            )
         }
     }
 
