@@ -30,28 +30,15 @@ struct TerminalSettingsPane: View {
                 }
             }
 
-            SettingsSection(index: 2, title: "CRT effect", subtitle: "Optional retro overlay on the terminal pane.") {
-                SettingsField(
-                    label: "CRT scanlines",
-                    hint: "Visual-only overlay. Off by default.",
-                    isFirst: true,
-                    // Bare .labelsHidden() Toggle — let the field supply its name.
-                    forwardsAccessibilityToControl: true
-                ) {
-                    Toggle("CRT scanlines", isOn: appSettingsStore.appearance.binding(\.crtScanlines))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-            }
-
             SettingsSection(
-                index: 3,
+                index: 2,
                 title: "Clipboard",
                 subtitle: "What terminal programs may read or write, and whether selecting text copies it. These controls are independent."
             ) {
                 SettingsField(
                     label: "Program writes (OSC 52)",
-                    hint: "Applies when terminal output asks awesoMux to replace the clipboard, including SSH and agent sessions. Commands like pbcopy write to macOS directly.",
+                    hint:
+                        "Applies when terminal output asks awesoMux to replace the clipboard, including SSH and agent sessions. Commands like pbcopy write to macOS directly.",
                     isFirst: true
                 ) {
                     SettingsSegmented(
@@ -69,7 +56,8 @@ struct TerminalSettingsPane: View {
 
                 SettingsField(
                     label: "Program reads (OSC 52)",
-                    hint: "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting.",
+                    hint:
+                        "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting.",
                     forwardsAccessibilityToControl: true
                 ) {
                     Toggle(
@@ -86,7 +74,8 @@ struct TerminalSettingsPane: View {
                     // selection, not a program write, so it copies even when
                     // program writes are denied. Name the privacy blast radius —
                     // the people most likely to enable it have secrets on screen.
-                    hint: "Copies text you select to the clipboard. Because it's your own selection it copies regardless of the program-writes setting above, and may sync to your other devices via Universal Clipboard. \"System default\" defers to Ghostty (on, for macOS)."
+                    hint:
+                        "Copies text you select to the clipboard. Because it's your own selection it copies regardless of the program-writes setting above, and may sync to your other devices via Universal Clipboard. \"System default\" defers to Ghostty (on, for macOS)."
                 ) {
                     SettingsSegmented(
                         options: copyOnSelectOptions,
@@ -98,34 +87,42 @@ struct TerminalSettingsPane: View {
             }
 
             SettingsSection(
-                index: 4,
+                index: 3,
                 title: "Background sessions",
-                subtitle: "Terminal sessions can keep running in the background through the command bridge, surviving a closed pane and reattaching later — including agent sessions. Optionally clean up ones that have been idle too long."
+                subtitle:
+                    "Terminal sessions can keep running in the background through the command bridge, surviving a closed pane and reattaching later — including agent sessions. Optionally clean up ones that have been idle too long."
             ) {
                 SettingsField(
                     label: "Keep sessions running in the background",
-                    hint: "Runs new terminal panes through the amx command bridge so a session keeps running when its pane closes and can reattach later. Takes effect when a pane opens or recreates its terminal; already-open panes keep their current mode until they close or awesoMux relaunches.",
+                    hint:
+                        "Runs new terminal panes through the amx command bridge so a session keeps running when its pane closes and can reattach later. Takes effect when a pane opens or recreates its terminal; already-open panes keep their current mode until they close or awesoMux relaunches.",
                     isFirst: true,
                     forwardsAccessibilityToControl: true
                 ) {
-                    Toggle("Keep terminal sessions running in the background", isOn: appSettingsStore.terminal.binding(\.commandBridgeEnabled))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
+                    Toggle(
+                        "Keep terminal sessions running in the background", isOn: appSettingsStore.terminal.binding(\.commandBridgeEnabled)
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.switch)
                 }
 
                 SettingsField(
                     label: "Auto-clean up at launch",
-                    hint: "Removes background sessions that have been idle longer than the threshold. Runs once each time awesoMux launches.",
+                    hint:
+                        "Removes background sessions that have been idle longer than the threshold. Runs once each time awesoMux launches.",
                     forwardsAccessibilityToControl: true
                 ) {
-                    Toggle("Auto-clean up idle background sessions at launch", isOn: appSettingsStore.terminal.binding(\.daemonIdleCapEnabled))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
+                    Toggle(
+                        "Auto-clean up idle background sessions at launch", isOn: appSettingsStore.terminal.binding(\.daemonIdleCapEnabled)
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.switch)
                 }
 
                 SettingsField(
                     label: "Idle threshold",
-                    hint: "Sessions idle for at least this long are eligible for removal on next launch. Only applies when auto-clean up is on."
+                    hint:
+                        "Sessions idle for at least this long are eligible for removal on next launch. Only applies when auto-clean up is on."
                 ) {
                     Stepper(
                         capDaysLabel,
@@ -168,7 +165,7 @@ struct TerminalSettingsPane: View {
                 value: .on,
                 label: "On",
                 accessibilityLabel: "Always copy selections to the clipboard"
-            )
+            ),
         ]
     }
 
@@ -188,7 +185,7 @@ struct TerminalSettingsPane: View {
                 value: .deny,
                 label: "Deny",
                 accessibilityLabel: "Always deny terminal clipboard writes"
-            )
+            ),
         ]
     }
 }
