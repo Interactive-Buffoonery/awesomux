@@ -402,9 +402,17 @@ final class GhosttyRuntime {
     /// spawned). The nudge button uses the return value to disable itself rather than
     /// silently no-op when the target terminal's process has died.
     @discardableResult
-    func sendText(_ text: String, toPane paneID: TerminalPane.ID) -> Bool {
+    func sendText(
+        _ text: String,
+        toPane paneID: TerminalPane.ID,
+        focusingSurface: Bool = true
+    ) -> Bool {
         guard let surface = surfaceViews[paneID] else { return false }
-        surface.writeFromChrome(text)
+        if focusingSurface {
+            surface.writeFromChrome(text)
+        } else {
+            surface.sendText(text)
+        }
         return true
     }
 
@@ -1653,7 +1661,6 @@ final class GhosttyRuntime {
     }
 
 }
-
 extension GhosttyRuntime {
     // ponytail: minimal recovery action is reload() (full "start over"),
     // not a session-preserving relaunch — see plan Task 8 context note.

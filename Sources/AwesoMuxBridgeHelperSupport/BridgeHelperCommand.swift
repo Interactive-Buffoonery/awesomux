@@ -10,7 +10,8 @@ public enum BridgeHelperCommand {
     /// its own line. A list, not a single string, so a
     /// future protocol bump can advertise both the old and new version
     /// during rollout.
-    public static let supportedProtocols = ["awesomux-bridge-v1"]
+    public static let supportedProtocols = ["awesomux-bridge-v1", "awesomux-handoff-v1"]
+    private static let supportedBridgeProtocols = ["awesomux-bridge-v1"]
 
     /// `--self-check` exit codes, consumed by the doctor's state-file-custody
     /// and round-trip signals (INT-698 F1). Ordered by the stage that failed so
@@ -30,6 +31,9 @@ public enum BridgeHelperCommand {
         connect: (BridgeStateFile, String) throws -> HelperConnection = { state, session in
             try HelperConnection.connect(state: state, session: session)
         },
+        receiveHandoff: (String, String, Int) throws -> HandoffReceiver.Receipt = {
+            try HandoffReceiver.receive(session: $0, advisoryName: $1, expectedBytes: $2)
+        },
         output: (String) -> Void = writeStandardOutput,
         errorOutput: (String) -> Void = writeStandardError
     ) -> Int32 {
@@ -48,7 +52,7 @@ public enum BridgeHelperCommand {
                 errorOutput("awesoMuxBridgeHelper: bridge unavailable")
                 return SelfCheckExit.unavailable
             }
-            guard supportedProtocols.contains(context.state.proto) else {
+            guard supportedBridgeProtocols.contains(context.state.proto) else {
                 errorOutput("awesoMuxBridgeHelper: incompatible protocol")
                 return SelfCheckExit.incompatibleProtocol
             }
@@ -62,10 +66,33 @@ public enum BridgeHelperCommand {
             }
         }
 
+        if arguments.first == "receive-handoff" {
+            guard let handoff = parseHandoffArguments(arguments) else {
+                errorOutput("awesoMuxBridgeHelper: invalid handoff arguments")
+                return 64
+            }
+            do {
+                let receipt = try receiveHandoff(handoff.session, handoff.name, handoff.expectedBytes)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.withoutEscapingSlashes]
+                guard let data = try? encoder.encode(receipt),
+                    let line = String(data: data, encoding: .utf8)
+                else {
+                    errorOutput("awesoMuxBridgeHelper: handoff failed")
+                    return 1
+                }
+                output(line)
+                return 0
+            } catch {
+                errorOutput("awesoMuxBridgeHelper: handoff failed")
+                return 1
+            }
+        }
+
         if arguments.count == 2, arguments[0] == "--emit" {
             guard let context = loadContext(environment: environment, readState: readState),
-                  supportedProtocols.contains(context.state.proto),
-                  let contents = try? String(contentsOfFile: arguments[1], encoding: .utf8)
+                supportedBridgeProtocols.contains(context.state.proto),
+                let contents = try? String(contentsOfFile: arguments[1], encoding: .utf8)
             else {
                 return 0
             }
@@ -92,6 +119,26 @@ public enum BridgeHelperCommand {
     }
 
     private static let helperVersion = "awesomux-remote-helper/1.0.0"
+
+    private static func parseHandoffArguments(
+        _ arguments: [String]
+    ) -> (session: String, name: String, expectedBytes: Int)? {
+        guard arguments.count == 7,
+            arguments[0] == "receive-handoff",
+            arguments[1] == "--session",
+            arguments[3] == "--name",
+            arguments[5] == "--expected-bytes",
+            TerminalSessionID.isValid(arguments[2]),
+            !arguments[4].isEmpty,
+            !arguments[6].isEmpty,
+            arguments[6].unicodeScalars.allSatisfy({ (0x30...0x39).contains($0.value) }),
+            let expectedBytes = Int(arguments[6]),
+            (0...HandoffReceiver.maximumByteCount).contains(expectedBytes)
+        else {
+            return nil
+        }
+        return (arguments[2], arguments[4], expectedBytes)
+    }
 
     private struct Context {
         let state: BridgeStateFile
