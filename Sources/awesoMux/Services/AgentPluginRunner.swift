@@ -86,10 +86,11 @@ struct AgentPluginConfirmation: Equatable, Sendable {
 /// wires `ProcessCodexAppServerClient.spawning`; tests inject a closure returning
 /// a `StubCodexAppServerClient`. Throws `CodexAppServerError.appServerUnavailable`
 /// when the subcommand cannot be started — the version-skew → `Unsupported` path.
-typealias CodexAppServerClientFactory = @Sendable (
-    _ codexExecutable: String,
-    _ codexHome: String
-) throws -> CodexAppServerClient
+typealias CodexAppServerClientFactory =
+    @Sendable (
+        _ codexExecutable: String,
+        _ codexHome: String
+    ) throws -> CodexAppServerClient
 
 // MARK: - ProcessAgentPluginRunner
 
@@ -130,7 +131,8 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         legacyInstallStateDirectoryURL: URL? = nil
     ) {
         let resolvedRenderer = renderer ?? AgentPluginTemplateRenderer()
-        let resolvedInstallStateDirectoryURL = installStateDirectoryURL
+        let resolvedInstallStateDirectoryURL =
+            installStateDirectoryURL
             ?? (renderer == nil
                 ? AgentIntegrationInstallStateLocation.canonicalDirectoryURL
                 : resolvedRenderer.rootDirectoryURL)
@@ -140,7 +142,8 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         self.homeDirectoryURL = homeDirectoryURL
         self.helperPathResolver = helperPathResolver
         self.installStateDirectoryURL = resolvedInstallStateDirectoryURL
-        self.legacyInstallStateDirectoryURL = legacyInstallStateDirectoryURL
+        self.legacyInstallStateDirectoryURL =
+            legacyInstallStateDirectoryURL
             ?? (renderer == nil && installStateDirectoryURL == nil
                 ? AgentIntegrationInstallStateLocation.legacyDevelopmentDirectoryURL
                 : resolvedInstallStateDirectoryURL)
@@ -235,17 +238,52 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         _ operation: () async -> AgentPluginActionOutcome
     ) async -> AgentPluginActionOutcome {
         do {
-            try importLegacyInstallManifestIfNeeded()
             let lock = try AgentIntegrationInstallStateLock.acquire(
                 in: installStateDirectoryURL,
                 fileManager: renderer.fileManager
             )
             defer { lock.release() }
+            try prepareInstallManifestForMutation()
             return await operation()
         } catch AgentIntegrationInstallStateLockError.busy {
             return AgentPluginActionOutcome(
-                status: .needsRepair("Another awesoMux instance is changing agent integrations; try again")
+                status: .needsRepair(
+                    String(
+                        localized: "Another awesoMux instance is changing agent integrations; try again",
+                        comment: "CLI agent plugin install state lock contention action error"
+                    )
+                )
             )
+        } catch let error as AgentInstallManifestLoadError {
+            let message =
+                switch error {
+                case .unreadable:
+                    String(
+                        localized: "The global integration install record could not be read",
+                        comment: "Unreadable CLI agent plugin install manifest action error"
+                    )
+                case .corrupt:
+                    String(
+                        localized: "The global integration install record is corrupt",
+                        comment: "Corrupt CLI agent plugin install manifest action error"
+                    )
+                case .busy:
+                    String(
+                        localized: "Another awesoMux instance is changing agent integrations; try again",
+                        comment: "CLI agent plugin install state lock contention action error"
+                    )
+                case .unavailable:
+                    String(
+                        localized: "The global integration install state is temporarily unavailable",
+                        comment: "Unavailable CLI agent plugin install state action error"
+                    )
+                case .recoverableUnsupportedVersion(let version), .unsupportedVersion(let version):
+                    String(
+                        localized: "Install record format \(version) is not supported by this version of awesoMux",
+                        comment: "Unsupported CLI agent plugin install manifest action error"
+                    )
+                }
+            return AgentPluginActionOutcome(status: .needsRepair(message))
         } catch {
             return AgentPluginActionOutcome(
                 status: .needsRepair("The global integration install state is unavailable: \(error.localizedDescription)")
@@ -264,7 +302,8 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         // Derive the ref from the rendered manifest if present; otherwise fall
         // back to the bundled tree's manifest. Reading a manifest is not a
         // mutation — confirmation must not render or shell out.
-        let ref = (try? marketplaceRef(provider: provider))
+        let ref =
+            (try? marketplaceRef(provider: provider))
             ?? AgentPluginMarketplaceRef(marketplaceName: provider.fallbackMarketplaceName, pluginName: provider.fallbackPluginName)
 
         switch provider {
@@ -320,11 +359,13 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         guard let record = installRecord(provider: provider) else {
             return nil
         }
-        guard let current = AgentPluginSourceFingerprint.digest(
-            provider: provider,
-            resourcesDirectoryURL: renderer.resourcesDirectoryURL,
-            fileManager: renderer.fileManager
-        ) else {
+        guard
+            let current = AgentPluginSourceFingerprint.digest(
+                provider: provider,
+                resourcesDirectoryURL: renderer.resourcesDirectoryURL,
+                fileManager: renderer.fileManager
+            )
+        else {
             return nil
         }
         guard let recorded = record.sourceContentDigest else {
@@ -429,13 +470,14 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         }
 
         guard result.isSuccess else {
-            return .failure(AgentPluginActionOutcome(
-                status: .needsRepair("The command failed; see diagnostics"),
-                diagnostics: diagnostics(
-                    executable: executable, args: args, result: result,
-                    summary: "\(executable) \(args.joined(separator: " ")) exited \(result.exitCode)"
-                )
-            ))
+            return .failure(
+                AgentPluginActionOutcome(
+                    status: .needsRepair("The command failed; see diagnostics"),
+                    diagnostics: diagnostics(
+                        executable: executable, args: args, result: result,
+                        summary: "\(executable) \(args.joined(separator: " ")) exited \(result.exitCode)"
+                    )
+                ))
         }
         return .success
     }
