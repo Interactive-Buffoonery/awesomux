@@ -336,3 +336,18 @@ they stand corrected here rather than edited in place:
   budget shrinks as `ZMX_DIR` grows. The 46-byte figure is awesoMux's own pin
   (`TerminalSessionID.maxAmxSessionNameUTF8Bytes`), sized for the dev
   socket-dir worst case. Bare UUIDs (36 bytes) fit under both.
+
+## Update 2026-07-17 — cwd follows the active terminal job
+
+The INT-572 implementation note above described `amx cwd` as querying the root
+shell. That proved misleading when a worktree helper changed directory in its
+own process and then `exec`'d an agent: the agent correctly worked in the linked
+worktree while awesoMux continued to display the unchanged parent shell path.
+
+`amx cwd` now queries the PTY's foreground process group and reads the group
+leader's cwd, falling back to the durable root shell if the foreground lookup
+races process exit or cannot be resolved. The foreground group leader is stable
+across an agent's tool subprocesses, so this corrects path-bar, Agents-panel,
+split-inheritance, IDE-open, and relative-link behavior through the existing
+single `pane.workingDirectory` update path without adding competing shell and
+active cwd fields to the model or IPC protocol.
