@@ -24,6 +24,11 @@ struct TerminalPaneView: View {
     let sessionStore: SessionStore
     let ghosttyRuntime: GhosttyRuntime
     let onManagedSSHWorkspaceOffer: ((TerminalSession.ID, TerminalPane.ID) -> Void)?
+    /// Whether this pane tree sits directly under the window titlebar (drives
+    /// the top-row tab-edge line, #82). Defaults true for the main workspace;
+    /// secondary hosts with their own header chrome (floating/companion
+    /// panels) pass false or they'd double the header's hairline.
+    var abutsWindowTop: Bool = true
     // One drag coordinator per workspace pane tree. Owned here (the tree's entry
     // point) so a drag started on one leaf is visible to the drop overlays on
     // every other leaf; passed down by reference.
@@ -33,12 +38,14 @@ struct TerminalPaneView: View {
         session: TerminalSession,
         sessionStore: SessionStore,
         ghosttyRuntime: GhosttyRuntime,
-        onManagedSSHWorkspaceOffer: ((TerminalSession.ID, TerminalPane.ID) -> Void)? = nil
+        onManagedSSHWorkspaceOffer: ((TerminalSession.ID, TerminalPane.ID) -> Void)? = nil,
+        abutsWindowTop: Bool = true
     ) {
         self.session = session
         self.sessionStore = sessionStore
         self.ghosttyRuntime = ghosttyRuntime
         self.onManagedSSHWorkspaceOffer = onManagedSSHWorkspaceOffer
+        self.abutsWindowTop = abutsWindowTop
     }
 
     var body: some View {
@@ -49,7 +56,8 @@ struct TerminalPaneView: View {
                 sessionStore: sessionStore,
                 runtime: ghosttyRuntime,
                 dragCoordinator: dragCoordinator,
-                suppressTopFocusAccentForActivePane: false
+                suppressTopFocusAccentForActivePane: false,
+                abutsWindowTop: abutsWindowTop
             )
             .background(Color.aw.surface.terminal)
             // Reading the runtime's resolved background here (not deeper) keeps
@@ -105,6 +113,13 @@ struct TerminalPaneLayoutView: View {
     let runtime: GhosttyRuntime
     let dragCoordinator: PaneDragCoordinator
     let suppressTopFocusAccentForActivePane: Bool
+    // True for panes in the layout's top row — the ones abutting the window's
+    // top chrome (the titlebar, or an interposed banner like needs-input /
+    // permission prompts, which still want the edge below them). Drives the
+    // inactive tab-edge line (#82). Horizontal splits clear it for their lower
+    // child — a line there would double with the split boundary. Secondary
+    // hosts opt out via TerminalPaneView's abutsWindowTop parameter.
+    var abutsWindowTop: Bool = false
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @Environment(AppSettingsStore.self) private var appSettingsStore
     // Read here (an ungated body) and handed to SurfaceProgressBar by value —
@@ -147,6 +162,21 @@ struct TerminalPaneLayoutView: View {
                                 state: session.focusAccentAwState,
                                 differentiateWithoutColor: differentiateWithoutColor
                             )
+                        } else if abutsWindowTop {
+                            // Top-row inactive panes draw the tab-edge line that
+                            // replaced the titlebar hairline (#82) — without it the
+                            // workspace title blends into the pane title strip.
+                            // Top-aligned so its top pixel row matches the focus
+                            // accent's; lower panes get separation from the split
+                            // divider instead.
+                            VStack(spacing: 0) {
+                                Rectangle()
+                                    .fill(Color.aw.border2)
+                                    .frame(height: 1)
+                                Spacer(minLength: 0)
+                            }
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                         }
                     }
                     .frame(height: PaneFocusAccent.reservedHeight)
@@ -277,7 +307,8 @@ struct TerminalPaneLayoutView: View {
                 sessionStore: sessionStore,
                 runtime: runtime,
                 dragCoordinator: dragCoordinator,
-                suppressTopFocusAccentForActivePane: suppressTopFocusAccentForActivePane
+                suppressTopFocusAccentForActivePane: suppressTopFocusAccentForActivePane,
+                abutsWindowTop: abutsWindowTop
             )
 
         case let .documentGroup(group):
@@ -297,6 +328,19 @@ struct TerminalPaneLayoutView: View {
                     sessionStore: sessionStore,
                     runtime: runtime
                 )
+                // Document groups sit outside the focus-accent band, so a
+                // top-row group draws the tab-edge line itself — without it
+                // the titlebar would blend straight into the tab strip now
+                // that the titlebar hairline is gone (#82).
+                .overlay(alignment: .top) {
+                    if abutsWindowTop {
+                        Rectangle()
+                            .fill(Color.aw.border2)
+                            .frame(height: 1)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
             }
         }
     }
