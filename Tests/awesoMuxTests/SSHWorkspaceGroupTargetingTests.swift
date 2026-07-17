@@ -62,4 +62,58 @@ struct SSHWorkspaceGroupTargetingTests {
 
         #expect(resolved.id == selectedGroup.id)
     }
+
+    @Test("connect submission blocks duplicates")
+    func connectSubmissionBlocksDuplicates() throws {
+        var submission = SSHWorkspaceConnectionSubmission()
+        let target = try #require(RemoteTarget(parsing: "my-server"))
+        var attempts = 0
+
+        submission.submit(
+            target: target,
+            connect: { _ in
+                attempts += 1
+                return true
+            }, announce: { _ in })
+        submission.submit(
+            target: target,
+            connect: { _ in
+                attempts += 1
+                return true
+            }, announce: { _ in })
+
+        #expect(attempts == 1)
+        #expect(submission.isConnecting)
+    }
+
+    @Test("rejected connect submissions show and announce an error, then allow retry")
+    func rejectedConnectSubmissionRecovers() throws {
+        var submission = SSHWorkspaceConnectionSubmission()
+        let target = try #require(RemoteTarget(parsing: "my-server"))
+        var attempts = 0
+        var announcements: [String] = []
+
+        submission.submit(
+            target: target,
+            connect: { _ in
+                attempts += 1
+                return false
+            }, announce: { announcements.append($0) })
+
+        #expect(!submission.isConnecting)
+        #expect(submission.errorMessage != nil)
+        #expect(announcements.count == 1)
+        #expect(announcements.first == submission.errorMessage)
+
+        submission.submit(
+            target: target,
+            connect: { _ in
+                attempts += 1
+                return true
+            }, announce: { announcements.append($0) })
+
+        #expect(attempts == 2)
+        #expect(submission.isConnecting)
+        #expect(submission.errorMessage == nil)
+    }
 }
