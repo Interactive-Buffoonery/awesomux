@@ -42,7 +42,8 @@ struct AgentsSettingsPane: View {
                     // doesn't announce the same string twice (the Terminal
                     // pane's clipboard-writes control does the same).
                     .accessibilityLabel(String(localized: "Agent permission posture"))
-                    .accessibilityHint(String(localized: "How awesoMux handles tool-use permission prompts. Applies to new agent sessions."))
+                    .accessibilityHint(
+                        String(localized: "How awesoMux handles tool-use permission prompts. Applies to new agent sessions."))
                 }
 
                 SettingsField(
@@ -108,24 +109,24 @@ struct AgentsSettingsPane: View {
             }
 
             #if DEBUG
-            SettingsSection(
-                index: 99,
-                title: "Debug",
-                subtitle: "Debug builds only. Forces the diagnostics disclosure with a sample payload."
-            ) {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(AgentPluginProvider.allCases, id: \.self) { provider in
-                        Toggle(
-                            "Force sample diagnostics: \(provider.displayName)",
-                            isOn: Binding(
-                                get: { pluginViewModel.isSampleDiagnosticsInjected(for: provider) },
-                                set: { _ in pluginViewModel.toggleSampleDiagnostics(for: provider) }
+                SettingsSection(
+                    index: 99,
+                    title: "Debug",
+                    subtitle: "Debug builds only. Forces the diagnostics disclosure with a sample payload."
+                ) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(AgentPluginProvider.allCases, id: \.self) { provider in
+                            Toggle(
+                                "Force sample diagnostics: \(provider.displayName)",
+                                isOn: Binding(
+                                    get: { pluginViewModel.isSampleDiagnosticsInjected(for: provider) },
+                                    set: { _ in pluginViewModel.toggleSampleDiagnostics(for: provider) }
+                                )
                             )
-                        )
-                        .toggleStyle(.switch)
+                            .toggleStyle(.switch)
+                        }
                     }
                 }
-            }
             #endif
         }
         .onAppear {
@@ -191,7 +192,7 @@ struct AgentsSettingsPane: View {
         pluginDraftSetups = [
             .claudeCode: integrations.claudeCode,
             .codex: integrations.codex,
-            .grok: integrations.grok
+            .grok: integrations.grok,
         ]
     }
 
@@ -389,7 +390,7 @@ struct AgentsSettingsPane: View {
                 value: .trustKnownTools,
                 label: "Trust known",
                 accessibilityLabel: String(localized: "Trust known tools without asking")
-            )
+            ),
         ]
     }
 
@@ -448,7 +449,7 @@ struct AgentsSettingsPane: View {
     private func syncDraftSetups(from integrations: AgentIntegrationsConfig) {
         draftSetups = [
             .openCode: integrations.openCode,
-            .pi: integrations.pi
+            .pi: integrations.pi,
         ]
     }
 
@@ -577,9 +578,10 @@ private struct AgentIntegrationSettingsCard: View {
                 .help(isEnabled ? "Disable \(state.title)" : "Enable \(state.title)")
                 .accessibilityLabel("\(state.title) integration")
                 .accessibilityValue(isEnabled ? "Enabled" : "Disabled")
-                .accessibilityHint(isEnabled
-                    ? "Disabling stops awesoMux from checking paths or applying local status events"
-                    : "Enabling allows checks and events; installing the provider plugin is a separate step")
+                .accessibilityHint(
+                    isEnabled
+                        ? "Disabling stops awesoMux from checking paths or applying local status events"
+                        : "Enabling allows checks and events; installing the provider plugin is a separate step")
 
             statusBadge
         }
@@ -754,7 +756,7 @@ private struct AgentIntegrationSettingsCard: View {
             Color.aw.sky
         case .installed:
             Color.aw.green
-        case .updateAvailable:
+        case .updateAvailable, .installStateRepairRequired:
             Color.aw.peach
         case .blocked:
             Color.aw.red

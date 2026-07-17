@@ -1,15 +1,9 @@
 import AwesoMuxConfig
 import Foundation
-import os
 
 // MARK: - Install manifest persistence
 
 extension ProcessAgentPluginRunner {
-    private static let persistenceLogger = Logger(
-        subsystem: "com.interactivebuffoonery.awesomux",
-        category: "AgentPluginPersistence"
-    )
-
     /// Global awesoMux-owned record of CLI-driven installs. Rendered trees stay
     /// profile-scoped, while this record follows the provider state all profiles
     /// mutate. Separate file from the file-drop installer's
@@ -18,9 +12,17 @@ extension ProcessAgentPluginRunner {
         installStateDirectoryURL.appending(path: "plugin-install-manifest.json")
     }
 
+    private var pluginManifestStore: AgentInstallManifestStore<AgentPluginInstallManifest> {
+        AgentInstallManifestStore(
+            manifestURL: pluginManifestURL,
+            legacyManifestURL: legacyInstallStateDirectoryURL.appending(path: "plugin-install-manifest.json"),
+            fileManager: renderer.fileManager
+        )
+    }
+
     func loadInstallManifest() -> AgentPluginInstallManifest {
-        switch loadInstallManifestState() {
-        case .missing, .corrupt:
+        switch pluginManifestStore.loadState() {
+        case .missing, .failed:
             return .empty
         case .loaded(let manifest):
             return manifest
@@ -28,41 +30,47 @@ extension ProcessAgentPluginRunner {
     }
 
     func installManifestLoadWarning() -> String? {
-        switch loadInstallManifestState() {
-        case .corrupt:
-            return Self.corruptInstallManifestWarning
+        switch pluginManifestStore.loadState() {
+        case .failed(.unreadable):
+            return String(
+                localized: "The install record could not be read. Agent integration changes are blocked until it is accessible.",
+                comment: "Unreadable CLI agent plugin install manifest warning"
+            )
+        case .failed(.corrupt):
+            return String(
+                localized: "The install record is corrupt. Agent integration changes are blocked to protect existing installs.",
+                comment: "Corrupt CLI agent plugin install manifest warning"
+            )
+        case .failed(.busy):
+            return String(
+                localized: "Another awesoMux instance is changing agent integrations; try again.",
+                comment: "CLI agent plugin install state lock contention warning"
+            )
+        case .failed(.unavailable):
+            return String(
+                localized: "The install state is temporarily unavailable. Agent integration changes are blocked.",
+                comment: "Unavailable CLI agent plugin install state warning"
+            )
+        case .failed(.recoverableUnsupportedVersion(let version)):
+            return String(
+                localized:
+                    "Install record format \(version) needs repair. The next agent integration change will back it up and rebuild it.",
+                comment: "Recoverable empty CLI agent plugin install manifest warning"
+            )
+        case .failed(.unsupportedVersion(let version)):
+            return String(
+                localized:
+                    "Install record format \(version) is not supported by this version of awesoMux. Agent integration changes are blocked.",
+                comment: "Unsupported CLI agent plugin install manifest warning"
+            )
         case .missing, .loaded:
             return nil
         }
     }
 
-    private enum InstallManifestLoadState {
-        case missing
-        case corrupt
-        case loaded(AgentPluginInstallManifest)
-    }
-
-    private static let corruptInstallManifestWarning =
-        "The install record could not be read. Disable and Remove may target your current settings instead of where this was installed."
-
-    private func loadInstallManifestState() -> InstallManifestLoadState {
-        try? importLegacyInstallManifestIfNeeded()
-        guard renderer.fileManager.fileExists(atPath: pluginManifestURL.path) else {
-            return .missing
-        }
-        guard let data = try? Data(contentsOf: pluginManifestURL) else {
-            Self.persistenceLogger.error(
-                "failed to read plugin install manifest at \(self.pluginManifestURL.path, privacy: .private)"
-            )
-            return .corrupt
-        }
-        guard let manifest = try? JSONDecoder().decode(AgentPluginInstallManifest.self, from: data) else {
-            Self.persistenceLogger.error(
-                "failed to decode plugin install manifest at \(self.pluginManifestURL.path, privacy: .private)"
-            )
-            return .corrupt
-        }
-        return .loaded(manifest)
+    func prepareInstallManifestForMutation() throws {
+        try pluginManifestStore.importLegacyIfNeededAssumingLock()
+        _ = try pluginManifestStore.loadForMutationRecoveringEmptyUnsupported()
     }
 
     func recordInstall(
@@ -96,7 +104,7 @@ extension ProcessAgentPluginRunner {
             )
         )
 
-        var manifest = loadInstallManifest()
+        var manifest = try pluginManifestStore.loadCurrent()
         manifest.records.removeAll { $0.provider == provider }
         manifest.records.append(record)
         try saveInstallManifest(manifest)
@@ -118,12 +126,13 @@ extension ProcessAgentPluginRunner {
             try recordInstall(provider: provider, setup: setup, tree: tree, ref: ref)
             return nil
         } catch {
-            return "Installed, but the install record could not be saved. Disable and Remove may target your current settings instead of where this was installed."
+            return
+                "Installed, but the install record could not be saved. Disable and Remove may target your current settings instead of where this was installed."
         }
     }
 
     func removeInstallRecord(provider: AgentPluginProvider) throws {
-        var manifest = loadInstallManifest()
+        var manifest = try pluginManifestStore.loadCurrent()
         manifest.records.removeAll { $0.provider == provider }
         try saveInstallManifest(manifest)
     }
@@ -151,58 +160,7 @@ extension ProcessAgentPluginRunner {
     }
 
     private func saveInstallManifest(_ manifest: AgentPluginInstallManifest) throws {
-        try renderer.fileManager.createDirectory(at: installStateDirectoryURL, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(manifest)
-        try writePrivateManifest(data)
-    }
-
-    private func writePrivateManifest(_ data: Data) throws {
-        let destination = pluginManifestURL
-        var isDirectory: ObjCBool = false
-        if renderer.fileManager.fileExists(atPath: destination.path, isDirectory: &isDirectory),
-           isDirectory.boolValue {
-            throw CocoaError(.fileWriteNoPermission)
-        }
-        let temporaryURL = destination.deletingLastPathComponent()
-            .appending(path: ".plugin-install-manifest-\(UUID().uuidString).tmp")
-        guard renderer.fileManager.createFile(
-            atPath: temporaryURL.path,
-            contents: data,
-            attributes: [.posixPermissions: 0o600]
-        ) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        _ = try renderer.fileManager.replaceItemAt(destination, withItemAt: temporaryURL)
-    }
-
-    func importLegacyInstallManifestIfNeeded() throws {
-        guard !renderer.fileManager.fileExists(atPath: pluginManifestURL.path) else { return }
-        let legacyURL = legacyInstallStateDirectoryURL.appending(path: "plugin-install-manifest.json")
-        guard legacyURL != pluginManifestURL,
-              renderer.fileManager.fileExists(atPath: legacyURL.path) else { return }
-
-        let lock = try AgentIntegrationInstallStateLock.acquire(
-            in: installStateDirectoryURL,
-            fileManager: renderer.fileManager
-        )
-        defer { lock.release() }
-        guard !renderer.fileManager.fileExists(atPath: pluginManifestURL.path) else { return }
-        let data = try Data(contentsOf: legacyURL)
-        guard let manifest = try? JSONDecoder().decode(AgentPluginInstallManifest.self, from: data),
-              manifest.version <= AgentPluginInstallManifest.currentVersion else {
-            Self.persistenceLogger.error(
-                "ignoring unreadable legacy plugin manifest at \(legacyURL.path, privacy: .private)"
-            )
-            return
-        }
-        try renderer.fileManager.createDirectory(at: installStateDirectoryURL, withIntermediateDirectories: true)
-        try data.write(to: pluginManifestURL, options: .atomic)
-        try renderer.fileManager.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: pluginManifestURL.path
-        )
+        try pluginManifestStore.save(manifest)
     }
 }
 

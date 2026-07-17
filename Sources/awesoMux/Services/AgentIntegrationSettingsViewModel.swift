@@ -13,35 +13,75 @@ struct AgentIntegrationSettingsViewModel {
         self.homeDirectoryURL = homeDirectoryURL
     }
 
-    func cardState(
-        provider: AgentIntegrationInstallProvider,
-        setup: AgentIntegrationSetup
-    ) -> AgentIntegrationSettingsCardState {
-        // The manifest is always read, even when the provider is off: an
-        // awesoMux file installed before disabling stays on disk, and the card
-        // must keep it visible and removable. Reading our own app-support
-        // manifest is not provider probing, so the consent gate is intact.
-        cardState(
-            provider: provider,
-            setup: setup,
-            manifest: try? installer.loadManifest()
-        )
-    }
-
     func cardStates(
         for setups: [AgentIntegrationInstallProvider: AgentIntegrationSetup]
     ) -> [AgentIntegrationInstallProvider: AgentIntegrationSettingsCardState] {
-        let manifest = try? installer.loadManifest()
+        // The manifest is always read, even for providers that are off: an
+        // existing awesoMux install must stay visible and removable.
+        let manifestState = installer.loadManifestState()
         return setups.reduce(into: [:]) { result, entry in
-            result[entry.key] = cardState(provider: entry.key, setup: entry.value, manifest: manifest)
+            result[entry.key] = cardState(
+                provider: entry.key,
+                setup: entry.value,
+                manifestState: manifestState
+            )
         }
     }
 
     private func cardState(
         provider: AgentIntegrationInstallProvider,
         setup: AgentIntegrationSetup,
-        manifest: AgentIntegrationInstallManifest?
+        manifestState: AgentInstallManifestLoadState<AgentIntegrationInstallManifest>
     ) -> AgentIntegrationSettingsCardState {
+        let manifest: AgentIntegrationInstallManifest?
+        let manifestStatus: AgentIntegrationSettingsStatus?
+        switch manifestState {
+        case .missing:
+            manifest = nil
+            manifestStatus = nil
+        case .loaded(let loadedManifest):
+            manifest = loadedManifest
+            manifestStatus = nil
+        case .failed(.recoverableUnsupportedVersion(let version)):
+            manifest = nil
+            manifestStatus = .installStateRepairRequired(
+                String(
+                    localized: "Install record format \(version) is newer than this app, but it is empty and can be safely rebuilt",
+                    comment: "Recoverable empty agent integration install manifest status"
+                )
+            )
+        case .failed(.unsupportedVersion(let version)):
+            manifest = nil
+            manifestStatus = .blocked(
+                String(
+                    localized: "Install record format \(version) is not supported by this version of awesoMux",
+                    comment: "Unsupported agent integration install manifest status"
+                )
+            )
+        case .failed(.corrupt):
+            manifest = nil
+            manifestStatus = .blocked(
+                String(localized: "Install record is corrupt", comment: "Corrupt agent integration install manifest status")
+            )
+        case .failed(.unreadable):
+            manifest = nil
+            manifestStatus = .blocked(
+                String(localized: "Install record could not be read", comment: "Unreadable agent integration install manifest status")
+            )
+        case .failed(.busy):
+            manifest = nil
+            manifestStatus = .blocked(
+                String(
+                    localized: "Another awesoMux instance is changing agent integrations; try again",
+                    comment: "Agent integration install state lock contention status"
+                )
+            )
+        case .failed(.unavailable):
+            manifest = nil
+            manifestStatus = .blocked(
+                String(localized: "Install state is temporarily unavailable", comment: "Unavailable agent integration install state status")
+            )
+        }
         let templateURL = installer.templateURL(provider: provider)
         let renderedURL = installer.renderedFileURL(provider: provider, setup: setup)
         let globalInstallURL = try? installer.destinationFileURL(
@@ -68,10 +108,10 @@ struct AgentIntegrationSettingsViewModel {
                 globalInstallPath: globalInstallURL?.path ?? provider.globalInstallPathPlaceholder(homeDirectory: homeDirectoryURL),
                 binaryValidation: .unset(provider.defaultBinaryPath),
                 configHomeValidation: .unset(provider.globalConfigHome(homeDirectory: homeDirectoryURL).path),
-                status: .disabled,
+                status: manifestStatus ?? .disabled,
                 installedPath: installedExists ? installedPath : nil,
                 isInstalledGlobally: installedExists,
-                canInstall: false,
+                isProviderEnabled: false,
                 canUninstall: installedExists
             )
         }
@@ -89,6 +129,8 @@ struct AgentIntegrationSettingsViewModel {
             status = .blocked("Bundled template is missing")
         } else if let error = binaryValidation.blockingMessage ?? configHomeValidation.blockingMessage {
             status = .blocked(error)
+        } else if let manifestStatus {
+            status = manifestStatus
         } else if installedExists, let installedPath {
             // Byte-compare the live install to the current bundled template so an
             // app update that ships new OpenCode/Pi status code surfaces Repair
@@ -121,7 +163,7 @@ struct AgentIntegrationSettingsViewModel {
             status: status,
             installedPath: installedExists ? installedPath : nil,
             isInstalledGlobally: installedExists,
-            canInstall: status.allowsInstall,
+            isProviderEnabled: true,
             canUninstall: installedExists
         )
     }
@@ -218,17 +260,27 @@ struct AgentIntegrationSettingsCardState: Equatable, Sendable {
     /// status badge no longer names.
     var installedPath: String?
     var isInstalledGlobally: Bool
-    var canInstall: Bool
+    var isProviderEnabled: Bool
     var canUninstall: Bool
+
+    var canInstall: Bool {
+        isProviderEnabled && status.allowsInstall
+    }
 
     /// "Repair" reinstalls an already-installed global file in place; otherwise
     /// the action is a first install.
     var actionTitle: String {
-        isInstalledGlobally ? "Repair globally" : "Install"
+        if case .installStateRepairRequired = status {
+            return String(localized: "Repair state & install", comment: "Agent integration recovery action")
+        }
+        return isInstalledGlobally ? "Repair globally" : "Install"
     }
 
     var actionSystemImage: String {
-        isInstalledGlobally ? "arrow.clockwise" : "square.and.arrow.down"
+        if case .installStateRepairRequired = status {
+            return "arrow.clockwise"
+        }
+        return isInstalledGlobally ? "arrow.clockwise" : "square.and.arrow.down"
     }
 }
 
@@ -266,6 +318,7 @@ enum AgentIntegrationSettingsStatus: Equatable, Sendable {
     /// On-disk install no longer matches the bundled template (app update or
     /// user edit). Offer Repair globally.
     case updateAvailable
+    case installStateRepairRequired(String)
     case blocked(String)
 
     var label: String {
@@ -280,7 +333,7 @@ enum AgentIntegrationSettingsStatus: Equatable, Sendable {
             "Installed"
         case .updateAvailable:
             "Update available"
-        case .blocked:
+        case .installStateRepairRequired, .blocked:
             "Needs attention"
         }
     }
@@ -297,6 +350,8 @@ enum AgentIntegrationSettingsStatus: Equatable, Sendable {
             "Installed. Restart already-running provider sessions once so they load this file."
         case .updateAvailable:
             "Installed file differs from the current awesoMux template. Repair globally to update, or Remove if you customized it."
+        case .installStateRepairRequired(let message):
+            message
         case .blocked(let message):
             message
         }
@@ -306,7 +361,7 @@ enum AgentIntegrationSettingsStatus: Equatable, Sendable {
         switch self {
         case .blocked, .disabled:
             false
-        case .notInstalled, .staged, .installed, .updateAvailable:
+        case .notInstalled, .staged, .installed, .updateAvailable, .installStateRepairRequired:
             true
         }
     }
@@ -374,8 +429,18 @@ private extension Error {
             return "Executable is not runnable"
         case .configHomeIsNotDirectory:
             return "Config home is not a directory"
+        case .installManifestUnreadable:
+            return String(localized: "Install record could not be read", comment: "Unreadable agent integration install manifest error")
+        case .installManifestCorrupt:
+            return String(localized: "Install record is corrupt", comment: "Corrupt agent integration install manifest error")
+        case .installStateUnavailable:
+            return String(
+                localized: "Install state is temporarily unavailable", comment: "Unavailable agent integration install state error")
         case .unsupportedManifestVersion:
-            return "Install manifest is newer than this app"
+            return String(
+                localized: "Install record format is not supported by this version of awesoMux",
+                comment: "Unsupported agent integration install manifest error"
+            )
         case .installedFileModified(let url):
             return "Installed file was modified; remove it manually at \(url.path)"
         case .installStateBusy:
