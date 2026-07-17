@@ -155,11 +155,17 @@ struct TerminalPaneLayoutView: View {
                     // pane's accent and glow to its own band.
                     ZStack {
                         Color.aw.surface.chrome
-                        if session.activePaneID == pane.id,
-                            !suppressTopFocusAccentForActivePane
+                        // Pane-scoped attention (superseding the INT-721 session
+                        // fold): a needy pane shows the peach rail itself, active
+                        // or not, so the rail identifies WHICH pane wants input.
+                        // The merely-focused pane keeps its normal accent.
+                        let accentState = session.focusAccentAwState(for: pane)
+                        if accentState == .needs
+                            || (session.activePaneID == pane.id
+                                && !suppressTopFocusAccentForActivePane)
                         {
                             PaneFocusAccent(
-                                state: session.focusAccentAwState,
+                                state: accentState,
                                 differentiateWithoutColor: differentiateWithoutColor
                             )
                         } else if abutsWindowTop {

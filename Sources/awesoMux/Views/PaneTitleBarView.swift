@@ -45,6 +45,30 @@ struct PaneTitleBarView: View {
             // `systemImageName` (Codex-verified), and the agent state is already
             // shown by the focus accent + sidebar peek. Reserve this slot for the
             // future tab strip / icon mapping rather than forcing one now.
+            //
+            // Remote badge leads and the title follows ("host: details") — the
+            // host is the pane's stable identity, the title is the long variable
+            // part. No greedy `frame(maxWidth:)` (the old 180pt box centered the
+            // label and read as a stray gap) and no `layoutPriority` boost: the
+            // host can be title-sniffed from a REMOTE-controlled OSC title, so
+            // a priority-boosted badge would let a hostile endpoint squeeze the
+            // user's own title out of a narrow bar. Equal priority means both
+            // truncate proportionally when space runs short.
+            if let remoteHost = pane.remotePresentationHost {
+                Label("\(remoteHost):", systemImage: "network")
+                    .awFont(AwFont.Mono.meta)
+                    .foregroundStyle(titleColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(
+                        String(
+                            localized: "Remote session on \(remoteHost)",
+                            comment: "Tooltip for the remote host badge in a pane title bar."
+                        )
+                    )
+                    .accessibilityHidden(true)
+            }
+
             if isEditing {
                 TextField("Pane name", text: $draft)
                     .textFieldStyle(.plain)
@@ -66,22 +90,6 @@ struct PaneTitleBarView: View {
                     }
             } else {
                 titleLabel(title)
-            }
-
-            if let remoteHost = pane.remotePresentationHost {
-                Label(remoteHost, systemImage: "network")
-                    .awFont(AwFont.Mono.meta)
-                    .foregroundStyle(titleColor)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 180)
-                    .help(
-                        String(
-                            localized: "Remote session on \(remoteHost)",
-                            comment: "Tooltip for the remote host badge in a pane title bar."
-                        )
-                    )
-                    .accessibilityHidden(true)
             }
 
             Spacer(minLength: 0)
@@ -310,9 +318,10 @@ struct PaneTitleBarView: View {
                 comment: "VoiceOver label for a local terminal pane title."
             )
         }
+        // Host first, matching the visual "host: title" order of the bar.
         return String(
-            localized: "Pane: \(title), Remote session on \(remoteHost)",
-            comment: "VoiceOver label for a remote terminal pane title and host."
+            localized: "Remote pane on \(remoteHost): \(title)",
+            comment: "VoiceOver label for a remote terminal pane, naming the host first and then the title."
         )
     }
 
