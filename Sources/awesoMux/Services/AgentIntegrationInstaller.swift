@@ -57,7 +57,7 @@ struct AgentIntegrationInstallRecord: Codable, Equatable, Sendable {
     var installedPath: String?
 }
 
-struct AgentIntegrationInstallManifest: Codable, Equatable, Sendable {
+struct AgentIntegrationInstallManifest: AgentInstallManifest, Equatable, Sendable {
     var version: Int
     var records: [AgentIntegrationInstallRecord]
 
@@ -66,6 +66,7 @@ struct AgentIntegrationInstallManifest: Codable, Equatable, Sendable {
         version: currentVersion,
         records: []
     )
+
 }
 
 struct AgentIntegrationRenderedInstall: Equatable, Sendable {
@@ -88,8 +89,12 @@ enum AgentIntegrationInstallerError: Error, Equatable, Sendable {
     case executableIsDirectory(URL)
     case executableNotExecutable(URL)
     case configHomeIsNotDirectory(URL)
+    case installManifestUnreadable
+    case installManifestCorrupt
+    case installStateUnavailable
     case unsupportedManifestVersion(Int)
     case installedFileModified(URL)
+    case fileRollbackFailed(URL, operationError: String, rollbackError: String)
     case installStateBusy
 }
 
@@ -104,26 +109,31 @@ struct AgentIntegrationInstaller {
     var installStateDirectoryURL: URL
     var legacyInstallStateDirectoryURL: URL
     var fileManager: FileManager
+    var manifestWriter: ((AgentIntegrationInstallManifest) throws -> Void)?
 
     init(
         resourcesDirectoryURL: URL = Bundle.main.resourceURL ?? Bundle.main.bundleURL,
         supportDirectoryURL: URL? = nil,
         installStateDirectoryURL: URL? = nil,
         legacyInstallStateDirectoryURL: URL? = nil,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        manifestWriter: ((AgentIntegrationInstallManifest) throws -> Void)? = nil
     ) {
         let resolvedSupportDirectoryURL = supportDirectoryURL ?? SessionPersistence.supportDirectoryURL
-        let resolvedInstallStateDirectoryURL = installStateDirectoryURL
+        let resolvedInstallStateDirectoryURL =
+            installStateDirectoryURL
             ?? supportDirectoryURL?.appending(path: "AgentIntegrations", directoryHint: .isDirectory)
             ?? AgentIntegrationInstallStateLocation.canonicalDirectoryURL
         self.resourcesDirectoryURL = resourcesDirectoryURL
         self.supportDirectoryURL = resolvedSupportDirectoryURL
         self.installStateDirectoryURL = resolvedInstallStateDirectoryURL
-        self.legacyInstallStateDirectoryURL = legacyInstallStateDirectoryURL
+        self.legacyInstallStateDirectoryURL =
+            legacyInstallStateDirectoryURL
             ?? (supportDirectoryURL == nil && installStateDirectoryURL == nil
                 ? AgentIntegrationInstallStateLocation.legacyDevelopmentDirectoryURL
                 : resolvedInstallStateDirectoryURL)
         self.fileManager = fileManager
+        self.manifestWriter = manifestWriter
     }
 
     var rootDirectoryURL: URL {
@@ -132,6 +142,14 @@ struct AgentIntegrationInstaller {
 
     var manifestURL: URL {
         installStateDirectoryURL.appending(path: "install-manifest.json")
+    }
+
+    private var manifestStore: AgentInstallManifestStore<AgentIntegrationInstallManifest> {
+        AgentInstallManifestStore(
+            manifestURL: manifestURL,
+            legacyManifestURL: legacyInstallStateDirectoryURL.appending(path: "install-manifest.json"),
+            fileManager: fileManager
+        )
     }
 
     func templateURL(provider: AgentIntegrationInstallProvider) -> URL {
@@ -187,49 +205,61 @@ struct AgentIntegrationInstaller {
 
         _ = try validateExecutablePath(setup.binaryPath)
 
-        try importLegacyManifestIfNeeded()
+        let lock = try acquireInstallStateLock()
+        defer { lock.release() }
+
+        try manifestStore.importLegacyIfNeededAssumingLock()
+        var manifest = try loadManifestForMutationRecoveringEmptyUnsupported()
         let renderedInstall = try render(provider: provider, setup: setup)
         let installedURL = try destinationFileURL(
             provider: provider,
             homeDirectory: homeDirectory,
             configuredConfigHome: setup.configHome
         )
-        let lock = try acquireInstallStateLock()
-        defer { lock.release() }
-
-        var manifest = try loadManifestFile()
         let priorRecord = manifest.records.first { $0.matchesSetup(provider: provider) }
         let priorInstalledPath = priorRecord?.installedPath
         let priorRenderedPath = priorRecord?.renderedPath
         try createProviderDirectory(installedURL.deletingLastPathComponent())
+        let priorInstalledURL = priorInstalledPath.map { URL(fileURLWithPath: $0) }
+        let priorInstalledData = try priorInstalledURL.flatMap { try existingFileData(at: $0) }
+        let destinationData = try existingFileData(at: installedURL)
 
-        // A single Remove button tracks one installed file per setup, so when an
-        // install lands at a new path (e.g. a changed config home moves the
-        // global destination) the previously tracked file would otherwise be
-        // orphaned beyond reach of uninstall. Remove the old managed file first,
-        // honoring the same modified-file safety check, before recording the new
-        // location.
-        if let priorInstalledPath, let priorRenderedPath,
-           priorInstalledPath != installedURL.path {
-            try removeManagedFile(
-                at: URL(fileURLWithPath: priorInstalledPath),
-                renderedPath: priorRenderedPath
+        do {
+            // A single Remove button tracks one installed file per setup, so when an
+            // install lands at a new path (e.g. a changed config home moves the
+            // global destination) the previously tracked file would otherwise be
+            // orphaned beyond reach of uninstall. Remove the old managed file first,
+            // honoring the same modified-file safety check, before recording the new
+            // location.
+            if let priorInstalledPath, let priorRenderedPath,
+                priorInstalledPath != installedURL.path
+            {
+                try removeManagedFile(
+                    at: URL(fileURLWithPath: priorInstalledPath),
+                    renderedPath: priorRenderedPath
+                )
+            }
+
+            let data = try Data(contentsOf: renderedInstall.renderedURL)
+            try writePrivateFile(data, to: installedURL)
+
+            let record = AgentIntegrationInstallRecord(
+                provider: provider,
+                binaryPath: normalizedOptional(setup.binaryPath),
+                configHome: normalizedOptional(setup.configHome),
+                templatePath: renderedInstall.templateURL.path,
+                renderedPath: renderedInstall.renderedURL.path,
+                installedPath: installedURL.path
             )
+            manifest.upsert(record)
+            try saveManifest(manifest)
+        } catch let operationError {
+            var snapshots = [FileSnapshot(data: destinationData, url: installedURL)]
+            if let priorInstalledURL, priorInstalledURL != installedURL {
+                snapshots.append(FileSnapshot(data: priorInstalledData, url: priorInstalledURL))
+            }
+            try throwAfterRollingBack(snapshots, operationError: operationError)
         }
-
-        let data = try Data(contentsOf: renderedInstall.renderedURL)
-        try writePrivateFile(data, to: installedURL)
-
-        let record = AgentIntegrationInstallRecord(
-            provider: provider,
-            binaryPath: normalizedOptional(setup.binaryPath),
-            configHome: normalizedOptional(setup.configHome),
-            templatePath: renderedInstall.templateURL.path,
-            renderedPath: renderedInstall.renderedURL.path,
-            installedPath: installedURL.path
-        )
-        manifest.upsert(record)
-        try saveManifest(manifest)
 
         return AgentIntegrationInstalledTemplate(
             renderedInstall: renderedInstall,
@@ -239,13 +269,15 @@ struct AgentIntegrationInstaller {
 
     @discardableResult
     func uninstall(provider: AgentIntegrationInstallProvider) throws -> URL? {
-        try importLegacyManifestIfNeeded()
         let lock = try acquireInstallStateLock()
         defer { lock.release() }
-        var manifest = try loadManifestFile()
-        guard let index = manifest.records.firstIndex(where: {
-            $0.matchesSetup(provider: provider)
-        }) else {
+        try manifestStore.importLegacyIfNeededAssumingLock()
+        var manifest = try loadManifestForMutationRecoveringEmptyUnsupported()
+        guard
+            let index = manifest.records.firstIndex(where: {
+                $0.matchesSetup(provider: provider)
+            })
+        else {
             return nil
         }
         guard let installedPath = manifest.records[index].installedPath else {
@@ -253,10 +285,18 @@ struct AgentIntegrationInstaller {
         }
 
         let installedURL = URL(fileURLWithPath: installedPath)
+        let installedData = try existingFileData(at: installedURL)
         try removeManagedFile(at: installedURL, renderedPath: manifest.records[index].renderedPath)
 
-        manifest.records[index].installedPath = nil
-        try saveManifest(manifest)
+        manifest.records.remove(at: index)
+        do {
+            try saveManifest(manifest)
+        } catch let operationError {
+            try throwAfterRollingBack(
+                [FileSnapshot(data: installedData, url: installedURL)],
+                operationError: operationError
+            )
+        }
         return installedURL
     }
 
@@ -293,13 +333,13 @@ struct AgentIntegrationInstaller {
         Self.compareCacheLock.unlock()
 
         guard fileManager.fileExists(atPath: installedPath),
-              fileManager.fileExists(atPath: templateURL.path),
-              installedSize >= 0,
-              templateSize >= 0,
-              installedSize <= Self.maximumTemplateCompareByteCount,
-              templateSize <= Self.maximumTemplateCompareByteCount,
-              let installedData = try? Data(contentsOf: URL(fileURLWithPath: installedPath)),
-              let templateData = try? Data(contentsOf: templateURL)
+            fileManager.fileExists(atPath: templateURL.path),
+            installedSize >= 0,
+            templateSize >= 0,
+            installedSize <= Self.maximumTemplateCompareByteCount,
+            templateSize <= Self.maximumTemplateCompareByteCount,
+            let installedData = try? Data(contentsOf: URL(fileURLWithPath: installedPath)),
+            let templateData = try? Data(contentsOf: templateURL)
         else {
             return false
         }
@@ -334,6 +374,52 @@ struct AgentIntegrationInstaller {
         }
 
         try fileManager.removeItem(at: installedURL)
+    }
+
+    private func existingFileData(at url: URL) throws -> Data? {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return try Data(contentsOf: url)
+    }
+
+    private func restoreFile(_ data: Data?, at url: URL) throws {
+        if let data {
+            try createProviderDirectory(url.deletingLastPathComponent())
+            try writePrivateFile(data, to: url)
+        } else if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    private func throwAfterRollingBack(
+        _ snapshots: [FileSnapshot],
+        operationError: Error
+    ) throws -> Never {
+        var firstFailure: (url: URL, error: Error)?
+        for snapshot in snapshots {
+            do {
+                try restoreFile(snapshot.data, at: snapshot.url)
+            } catch {
+                if firstFailure == nil {
+                    firstFailure = (snapshot.url, error)
+                }
+            }
+        }
+
+        if let firstFailure {
+            throw AgentIntegrationInstallerError.fileRollbackFailed(
+                firstFailure.url,
+                operationError: operationError.localizedDescription,
+                rollbackError: firstFailure.error.localizedDescription
+            )
+        }
+        throw operationError
+    }
+
+    private struct FileSnapshot {
+        var data: Data?
+        var url: URL
     }
 
     func destinationFileURL(
@@ -390,49 +476,61 @@ struct AgentIntegrationInstaller {
     }
 
     func loadManifest() throws -> AgentIntegrationInstallManifest {
-        try importLegacyManifestIfNeeded()
-        return try loadManifestFile()
+        try manifest(from: manifestStore.loadState())
     }
 
-    private func loadManifestFile() throws -> AgentIntegrationInstallManifest {
-        guard fileManager.fileExists(atPath: manifestURL.path) else {
-            return .empty
-        }
-
-        let data = try Data(contentsOf: manifestURL)
-        let manifest = try JSONDecoder().decode(AgentIntegrationInstallManifest.self, from: data)
-        guard manifest.version <= AgentIntegrationInstallManifest.currentVersion else {
-            throw AgentIntegrationInstallerError.unsupportedManifestVersion(manifest.version)
-        }
-        return manifest
+    func loadManifestState() -> AgentInstallManifestLoadState<AgentIntegrationInstallManifest> {
+        manifestStore.loadState()
     }
 
     private func saveManifest(_ manifest: AgentIntegrationInstallManifest) throws {
-        try createPrivateDirectory(installStateDirectoryURL)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(manifest)
-        try writePrivateFile(data, to: manifestURL)
-    }
-
-    private func importLegacyManifestIfNeeded() throws {
-        guard !fileManager.fileExists(atPath: manifestURL.path) else { return }
-        let legacyURL = legacyInstallStateDirectoryURL.appending(path: "install-manifest.json")
-        guard legacyURL != manifestURL, fileManager.fileExists(atPath: legacyURL.path) else { return }
-
-        let lock = try acquireInstallStateLock()
-        defer { lock.release() }
-        guard !fileManager.fileExists(atPath: manifestURL.path) else { return }
-        let data = try Data(contentsOf: legacyURL)
-        guard let manifest = try? JSONDecoder().decode(AgentIntegrationInstallManifest.self, from: data),
-              manifest.version <= AgentIntegrationInstallManifest.currentVersion else {
-            Self.logger.error(
-                "ignoring unreadable legacy install manifest at \(legacyURL.path, privacy: .private)"
-            )
+        if let manifestWriter {
+            try manifestWriter(manifest)
             return
         }
-        try createPrivateDirectory(installStateDirectoryURL)
-        try writePrivateFile(data, to: manifestURL)
+        try manifestStore.save(manifest)
+    }
+
+    private func loadManifestForMutationRecoveringEmptyUnsupported() throws
+        -> AgentIntegrationInstallManifest
+    {
+        do {
+            return try manifestStore.loadForMutationRecoveringEmptyUnsupported()
+        } catch let error as AgentInstallManifestLoadError {
+            throw installerError(for: error)
+        }
+    }
+
+    private func manifest(
+        from state: AgentInstallManifestLoadState<AgentIntegrationInstallManifest>
+    ) throws -> AgentIntegrationInstallManifest {
+        switch state {
+        case .missing:
+            return .empty
+        case .loaded(let manifest):
+            return manifest
+        case .failed(let error):
+            throw installerError(for: error)
+        }
+    }
+
+    private func installerError(
+        for error: AgentInstallManifestLoadError
+    ) -> AgentIntegrationInstallerError {
+        switch error {
+        case .unreadable:
+            .installManifestUnreadable
+        case .corrupt:
+            .installManifestCorrupt
+        case .busy:
+            .installStateBusy
+        case .unavailable:
+            .installStateUnavailable
+        case .recoverableUnsupportedVersion(let version):
+            .unsupportedManifestVersion(version)
+        case .unsupportedVersion(let version):
+            .unsupportedManifestVersion(version)
+        }
     }
 
     private func acquireInstallStateLock() throws -> AgentIntegrationInstallStateLock {
@@ -460,7 +558,8 @@ struct AgentIntegrationInstaller {
         let url = URL(fileURLWithPath: path, isDirectory: true)
         var isDirectory: ObjCBool = false
         if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
-           !isDirectory.boolValue {
+            !isDirectory.boolValue
+        {
             throw AgentIntegrationInstallerError.configHomeIsNotDirectory(url)
         }
         return url
@@ -514,7 +613,7 @@ struct AgentIntegrationInstaller {
         let key = [
             provider.rawValue,
             normalizedOptional(setup.binaryPath) ?? "",
-            normalizedOptional(setup.configHome) ?? ""
+            normalizedOptional(setup.configHome) ?? "",
         ].joined(separator: "\u{1F}")
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in key.utf8 {

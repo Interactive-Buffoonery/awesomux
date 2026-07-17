@@ -123,7 +123,7 @@ struct AgentPluginRunnerTests {
         try await Self.withRunner { runner, _, codex in
             codex.setHooksList([
                 Self.codexHook(enabled: false, trust: .trusted, key: "a"),
-                Self.codexHook(enabled: false, trust: .trusted, key: "b")
+                Self.codexHook(enabled: false, trust: .trusted, key: "b"),
             ])
             let report = await runner.status(provider: .codex, setup: Self.enabled)
             #expect(report.status == .disabled)
@@ -135,7 +135,7 @@ struct AgentPluginRunnerTests {
         try await Self.withRunner { runner, _, codex in
             codex.setHooksList([
                 Self.codexHook(enabled: true, trust: .trusted, key: "a"),
-                Self.codexHook(enabled: false, trust: .trusted, key: "b")
+                Self.codexHook(enabled: false, trust: .trusted, key: "b"),
             ])
             let report = await runner.status(provider: .codex, setup: Self.enabled)
             guard case .needsRepair = report.status else {
@@ -154,7 +154,7 @@ struct AgentPluginRunnerTests {
             // is offered ahead of Approve.
             codex.setHooksList([
                 Self.codexHook(enabled: true, trust: .untrusted, key: "a"),
-                Self.codexHook(enabled: false, trust: .trusted, key: "b")
+                Self.codexHook(enabled: false, trust: .trusted, key: "b"),
             ])
             let report = await runner.status(provider: .codex, setup: Self.enabled)
             guard case .needsRepair = report.status else {
@@ -664,19 +664,21 @@ struct AgentPluginRunnerTests {
             #expect(claude.configTargets.contains { $0.hasSuffix("/settings.json") })
 
             let codexInstall = runner.confirmation(for: .enableOrInstall, provider: .codex, setup: Self.enabled)
-            #expect(codexInstall.commandLines.contains {
-                $0.contains("codex plugin marketplace add [generated awesoMux marketplace path]")
-            })
+            #expect(
+                codexInstall.commandLines.contains {
+                    $0.contains("codex plugin marketplace add [generated awesoMux marketplace path]")
+                })
 
             let codexConfirm = runner.confirmation(for: .uninstall, provider: .codex, setup: Self.enabled)
             #expect(codexConfirm.commandLines.contains { $0.contains("awesomux-codex-status@awesomux-codex") })
             #expect(codexConfirm.configTargets.contains { $0.hasSuffix("/config.toml") })
 
             let grokConfirm = runner.confirmation(for: .enableOrInstall, provider: .grok, setup: Self.enabled)
-            #expect(grokConfirm.commandLines == [
-                "grok plugin validate [generated awesoMux plugin path]",
-                "grok plugin install [generated awesoMux plugin path] --trust"
-            ])
+            #expect(
+                grokConfirm.commandLines == [
+                    "grok plugin validate [generated awesoMux plugin path]",
+                    "grok plugin install [generated awesoMux plugin path] --trust",
+                ])
             #expect(grokConfirm.configTargets.isEmpty)
 
             // No CLI nor RPC was invoked to compute the confirmation.
@@ -893,16 +895,18 @@ struct AgentPluginRunnerTests {
             let keyB = "/home/.codex/config.toml:post_tool_use:0:0"
             codex.setHooksList([
                 Self.codexHook(enabled: false, trust: .trusted, key: keyA),
-                Self.codexHook(enabled: false, trust: .trusted, key: keyB)
+                Self.codexHook(enabled: false, trust: .trusted, key: keyB),
             ])
 
             _ = await runner.enableOrInstall(provider: .codex, setup: Self.enabled)
 
             let write = try #require(codex.batchWriteCalls.first?.writes.first)
-            #expect(write.value == .object([
-                keyA: .object(["enabled": .bool(true)]),
-                keyB: .object(["enabled": .bool(true)])
-            ]))
+            #expect(
+                write.value
+                    == .object([
+                        keyA: .object(["enabled": .bool(true)]),
+                        keyB: .object(["enabled": .bool(true)]),
+                    ]))
         }
     }
 
@@ -937,7 +941,8 @@ struct AgentPluginRunnerTests {
             #expect(write.writes[0].value == .object([liveKey: .object(["enabled": .bool(false)])]))
             // The write only touches enabled; it never sets a trusted_hash.
             if case .object(let outer) = write.writes[0].value,
-               case .object(let inner)? = outer[liveKey] {
+                case .object(let inner)? = outer[liveKey]
+            {
                 #expect(inner["enabled"] != nil)
                 #expect(inner["trusted_hash"] == nil)
             } else {
@@ -997,22 +1002,75 @@ struct AgentPluginRunnerTests {
         }
     }
 
-    @Test("a failed install-record write keeps the install successful but warns")
-    func manifestWriteFailureWarnsButSucceeds() async throws {
+    @Test("an unavailable install record blocks provider mutation")
+    func manifestWriteFailureBlocksMutation() async throws {
         try await Self.withRunner { runner, command, _ in
-            // Force the atomic manifest write to throw by occupying its path with a
-            // directory; the CLI install steps still succeed.
             try FileManager.default.createDirectory(at: runner.pluginManifestURL, withIntermediateDirectories: true)
             command.defaultOutcome = .result(.ok(stdout: ""))
 
             let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
 
-            // The install itself reports success...
+            guard case .needsRepair(let message) = outcome.status else {
+                Issue.record("expected needsRepair, got \(outcome.status)")
+                return
+            }
+            #expect(message.contains("could not be read"))
+            #expect(command.invocations.isEmpty)
+        }
+    }
+
+    @Test("an empty future plugin manifest is backed up and recovered")
+    func emptyFuturePluginManifestRecovers() async throws {
+        try await Self.withRunner { runner, command, _ in
+            try FileManager.default.createDirectory(
+                at: runner.pluginManifestURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let unsupportedVersion = AgentPluginInstallManifest.currentVersion + 1
+            try Data(#"{"records":[],"version":\#(unsupportedVersion)}"#.utf8)
+                .write(to: runner.pluginManifestURL)
+            command.defaultOutcome = .result(.ok(stdout: ""))
+
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+
             #expect(outcome.status == .enabled)
-            // ...but the lost bookkeeping is surfaced, not swallowed.
-            #expect(outcome.guidance?.contains("install record could not be saved") == true)
-            // And no record was persisted, confirming the warning is truthful.
-            #expect(runner.installRecord(provider: .claudeCode) == nil)
+            #expect(runner.installRecord(provider: .claudeCode) != nil)
+            let backups = try FileManager.default.contentsOfDirectory(
+                at: runner.pluginManifestURL.deletingLastPathComponent(),
+                includingPropertiesForKeys: nil
+            ).filter {
+                $0.lastPathComponent.hasPrefix(
+                    "plugin-install-manifest.unsupported-v\(unsupportedVersion).backup"
+                )
+            }
+            #expect(backups.count == 1)
+        }
+    }
+
+    @Test("a nonempty future plugin manifest blocks provider mutation")
+    func nonemptyFuturePluginManifestBlocksMutation() async throws {
+        try await Self.withRunner { runner, command, _ in
+            let tree = try runner.renderedTree(provider: .claudeCode, setup: Self.enabled)
+            try runner.recordInstall(
+                provider: .claudeCode,
+                setup: Self.enabled,
+                tree: tree,
+                ref: Self.claudeRef
+            )
+            var manifest = runner.loadInstallManifest()
+            let unsupportedVersion = AgentPluginInstallManifest.currentVersion + 1
+            manifest.version = unsupportedVersion
+            try JSONEncoder().encode(manifest).write(to: runner.pluginManifestURL)
+            command.defaultOutcome = .result(.ok(stdout: ""))
+
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+
+            guard case .needsRepair(let message) = outcome.status else {
+                Issue.record("expected needsRepair, got \(outcome.status)")
+                return
+            }
+            #expect(message.contains("format \(unsupportedVersion)"))
+            #expect(command.invocations.isEmpty)
         }
     }
 
@@ -1035,8 +1093,9 @@ struct AgentPluginRunnerTests {
 
         #expect(first.pluginManifestURL == second.pluginManifestURL)
         #expect(second.installRecord(provider: .codex)?.pluginRef == Self.codexRef)
-        #expect(first.renderer.renderedTreeURL(provider: .codex)
-            != second.renderer.renderedTreeURL(provider: .codex))
+        #expect(
+            first.renderer.renderedTreeURL(provider: .codex)
+                != second.renderer.renderedTreeURL(provider: .codex))
     }
 
     @Test("plugin manifest imports legacy development state only when canonical is absent")
@@ -1094,6 +1153,33 @@ struct AgentPluginRunnerTests {
         let tree = try runner.renderedTree(provider: .codex, setup: Self.enabled)
         try runner.recordInstall(provider: .codex, setup: Self.enabled, tree: tree, ref: Self.codexRef)
         #expect(runner.installRecord(provider: .codex)?.pluginRef == Self.codexRef)
+    }
+
+    @Test("plugin mutation does not reacquire the install-state lock")
+    func pluginMutationLoadsManifestAssumingExistingLock() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "awesomux-plugin-nested-lock-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let canonical = directory.appending(path: "canonical", directoryHint: .isDirectory)
+        let legacy = directory.appending(path: "legacy", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try Data(#"{"version":999,"records":[]}"#.utf8).write(
+            to: legacy.appending(path: "plugin-install-manifest.json")
+        )
+        let command = StubCommandRunner()
+        command.defaultOutcome = .result(.ok(stdout: ""))
+        let runner = Self.makeRunner(
+            renderedSupport: directory.appending(path: "rendered", directoryHint: .isDirectory),
+            installState: canonical,
+            legacyInstallState: legacy,
+            command: command
+        )
+
+        let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+
+        #expect(outcome.status == .enabled)
+        #expect(outcome.guidance?.contains("install record could not be saved") == false)
+        #expect(runner.installRecord(provider: .claudeCode)?.pluginRef == Self.claudeRef)
     }
 
     @Test("plugin mutation reports another awesoMux instance holding global state")
@@ -1192,8 +1278,8 @@ struct AgentPluginRunnerTests {
     static func claudeList(enabled: Bool, errors: [String] = []) -> String {
         let errorsJSON = errors.isEmpty ? "[]" : "[\(errors.map { "\"\($0)\"" }.joined(separator: ","))]"
         return """
-        [{"name":"awesomux-claude-status@awesomux-claude","enabled":\(enabled),"errors":\(errorsJSON)}]
-        """
+            [{"name":"awesomux-claude-status@awesomux-claude","enabled":\(enabled),"errors":\(errorsJSON)}]
+            """
     }
 
     static func grokList(
@@ -1242,7 +1328,8 @@ struct AgentPluginRunnerTests {
         eventNames: [String],
         homeDirectory: URL = FileManager.default.temporaryDirectory
     ) throws -> URL {
-        let root = homeDirectory
+        let root =
+            homeDirectory
             .appending(path: ".grok", directoryHint: .isDirectory)
             .appending(path: "installed-plugins", directoryHint: .isDirectory)
             .appending(path: "awesomux-grok-hooks-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -1343,13 +1430,13 @@ struct AgentPluginRunnerTests {
     static func startExternalLockHolder(in directory: URL) throws -> Process {
         let readyURL = directory.appending(path: "lock-ready")
         let script = """
-        import fcntl, os, sys, time
-        os.makedirs(sys.argv[1], exist_ok=True)
-        lock = open(os.path.join(sys.argv[1], ".install-state.lock"), "a+")
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        open(sys.argv[2], "w").close()
-        time.sleep(30)
-        """
+            import fcntl, os, sys, time
+            os.makedirs(sys.argv[1], exist_ok=True)
+            lock = open(os.path.join(sys.argv[1], ".install-state.lock"), "a+")
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            open(sys.argv[2], "w").close()
+            time.sleep(30)
+            """
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = ["-c", script, directory.path, readyURL.path]

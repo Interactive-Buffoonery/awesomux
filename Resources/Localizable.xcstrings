@@ -429,6 +429,12 @@
     "Annotation updated" : {
       "comment" : "VoiceOver announcement after editing an annotation's note"
     },
+    "Another awesoMux instance is changing agent integrations; try again" : {
+      "comment" : "Agent integration install state lock contention status\nCLI agent plugin install state lock contention action error"
+    },
+    "Another awesoMux instance is changing agent integrations; try again." : {
+      "comment" : "CLI agent plugin install state lock contention warning"
+    },
     "App" : {
       "comment" : "Diagnostics process type"
     },
@@ -1269,6 +1275,33 @@
     },
     "Install a supported Mac IDE or editor, then try again." : {
       "comment" : "Alert text shown when no supported IDE is installed."
+    },
+    "Install record could not be read" : {
+      "comment" : "Unreadable agent integration install manifest error\nUnreadable agent integration install manifest status"
+    },
+    "Install record format %arg is newer than this app, but it is empty and can be safely rebuilt" : {
+      "comment" : "Recoverable empty agent integration install manifest status"
+    },
+    "Install record format %arg is not supported by this version of awesoMux" : {
+      "comment" : "Unsupported CLI agent plugin install manifest action error\nUnsupported agent integration install manifest status"
+    },
+    "Install record format %arg is not supported by this version of awesoMux. Agent integration changes are blocked." : {
+      "comment" : "Unsupported CLI agent plugin install manifest warning"
+    },
+    "Install record format %arg needs repair. The next agent integration change will back it up and rebuild it." : {
+      "comment" : "Recoverable empty CLI agent plugin install manifest warning"
+    },
+    "Install record format is not supported by this version of awesoMux" : {
+      "comment" : "Unsupported agent integration install manifest error"
+    },
+    "Install record is corrupt" : {
+      "comment" : "Corrupt agent integration install manifest error\nCorrupt agent integration install manifest status"
+    },
+    "Install state is temporarily unavailable" : {
+      "comment" : "Unavailable agent integration install state error\nUnavailable agent integration install state status"
+    },
+    "Installed, but the install record could not be saved. Disable and Remove may target your current settings instead of where this was installed." : {
+      "comment" : "CLI agent plugin install record persistence failure warning"
     },
     "Intent" : {
 
@@ -2160,6 +2193,9 @@
     "Reopened workspace %arg" : {
       "comment" : "VoiceOver announcement after Cmd-Shift-T reopens a closed workspace; argument is the workspace title.\nVoiceOver announcement after a recently-closed workspace is reopened from the picker; argument is the workspace title."
     },
+    "Repair state & install" : {
+      "comment" : "Agent integration recovery action"
+    },
     "Replace" : {
 
     },
@@ -2664,8 +2700,26 @@
     "The config file on disk is invalid. Changes made here won't be saved until it's fixed." : {
 
     },
+    "The global integration install record could not be read" : {
+      "comment" : "Unreadable CLI agent plugin install manifest action error"
+    },
+    "The global integration install record is corrupt" : {
+      "comment" : "Corrupt CLI agent plugin install manifest action error"
+    },
+    "The global integration install state is temporarily unavailable" : {
+      "comment" : "Unavailable CLI agent plugin install state action error"
+    },
     "The group is empty, but removing it forgets its SSH target. Sessions on the remote host are not affected." : {
       "comment" : "Body of the empty-remote-group removal confirmation dialog."
+    },
+    "The install record could not be read. Agent integration changes are blocked until it is accessible." : {
+      "comment" : "Unreadable CLI agent plugin install manifest warning"
+    },
+    "The install record is corrupt. Agent integration changes are blocked to protect existing installs." : {
+      "comment" : "Corrupt CLI agent plugin install manifest warning"
+    },
+    "The install state is temporarily unavailable. Agent integration changes are blocked." : {
+      "comment" : "Unavailable CLI agent plugin install state warning"
     },
     "The remote bridge socket is group- or world-accessible." : {
       "comment" : "Bridge doctor failure reason"

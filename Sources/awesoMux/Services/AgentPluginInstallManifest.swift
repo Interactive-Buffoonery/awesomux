@@ -5,7 +5,7 @@ import Foundation
 /// The marketplace + plugin identity the provider CLIs key on, derived from the
 /// rendered `marketplace.json` rather than hardcoded. The marketplace name is the
 /// manifest's top-level `name`; the plugin name is `plugins[0].name`. The install
-    /// ref the provider CLIs consume is `<plugin>@<marketplace>` (decision 6,
+/// ref the provider CLIs consume is `<plugin>@<marketplace>` (decision 6,
 /// Context7-confirmed: e.g. `awesomux-claude-status@awesomux-claude`).
 struct AgentPluginMarketplaceRef: Equatable, Sendable {
     var marketplaceName: String
@@ -95,7 +95,7 @@ extension AgentPluginProvider: Codable {}
 /// awesoMux-owned record of the CLI-driven installs, separate from the file-drop
 /// `AgentIntegrationInstallManifest` (OpenCode/Pi) so the two install machineries
 /// never collide on a shared store.
-struct AgentPluginInstallManifest: Codable, Equatable, Sendable {
+struct AgentPluginInstallManifest: AgentInstallManifest, Equatable, Sendable {
     var version: Int
     var records: [AgentPluginInstallRecord]
 
