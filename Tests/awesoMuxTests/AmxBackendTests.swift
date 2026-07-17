@@ -49,6 +49,7 @@ struct AmxBackendAttachCommandTests {
         #expect(command.contains("/.awesomux/ssh"))
         #expect(command.contains("/%C'"))
         #expect(command.contains("ControlPersist=60"))
+        #expect(command.contains("ConnectTimeout=10"))
         #expect(command.contains("ServerAliveInterval=15"))
         // The user's SSH config remains authoritative.
         #expect(!command.contains("ForwardAgent"))

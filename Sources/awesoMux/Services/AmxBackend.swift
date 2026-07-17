@@ -273,6 +273,7 @@ enum AmxBackend {
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=" + sshControlPath(),
             "-o", "ControlPersist=60",
+            "-o", "ConnectTimeout=10",
             "-o", "ServerAliveInterval=15"
         ]
         if remoteCommand != nil {
@@ -521,6 +522,7 @@ enum AmxBackend {
     private static let bridgeExecMasterOptionTokens = [
         "-o", "ControlMaster=auto",
         "-o", "ControlPersist=60",
+        "-o", "ConnectTimeout=10",
         "-o", "ServerAliveInterval=15"
     ]
 
