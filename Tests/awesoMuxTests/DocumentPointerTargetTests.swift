@@ -7,7 +7,7 @@ struct DocumentPointerTargetTests {
     func documentIconButtonsUseMinimumTargets() throws {
         let commentPopover = try Self.source("Views/Markdown/CommentPopover.swift")
         let resolve = try Self.block(
-            from: "Button {\n                        submit {",
+            from: "Button {\n                        submit {\n                            await onSetStatus",
             through: ".accessibilityLabel(isResolved ? \"Reopen annotation\" : \"Mark annotation resolved\")",
             in: commentPopover
         )
