@@ -182,6 +182,15 @@ struct BuildAndRunScriptTests {
         #expect(script.contains(#"subsystem == \"$LOG_SUBSYSTEM\" AND processIdentifier == $pid"#))
         #expect(script.contains(#"category == \"TerminalDiagnostics\" AND processIdentifier == $pid"#))
         #expect(script.contains(#"category == \"ShortcutDiagnostics\" AND processIdentifier == $pid"#))
+        #expect(script.contains(#"category == \"WindowOrderDiagnostics\" AND processIdentifier == $pid"#))
+    }
+
+    @Test("window diagnostics are opt-in and use the shared diagnostic launcher")
+    func windowDiagnosticsAreOptIn() throws {
+        let script = try Self.contents(of: "script/build_and_run.sh")
+
+        #expect(script.contains("--window-diagnostics|window-diagnostics)"))
+        #expect(script.contains("run_diagnostics AWESOMUX_WINDOW_ORDER_DIAGNOSTICS stream_window_diagnostics_logs window-order"))
     }
 
     @Test("pid resolution fails closed for zero multiple and uninspectable candidates")
