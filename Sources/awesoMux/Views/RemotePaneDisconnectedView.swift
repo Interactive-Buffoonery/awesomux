@@ -56,7 +56,8 @@ struct RemotePaneDisconnectedContent {
         // While reconnecting, the title reflects the in-flight state so the
         // overlay isn't stuck reading "Disconnected" over a live retry (INT-697
         // fix #7).
-        let title = isReconnecting
+        let title =
+            isReconnecting
             ? String(
                 localized: "Reconnecting…",
                 comment: "Title on the remote-pane overlay while a manual reconnect is in flight"
@@ -74,10 +75,13 @@ struct RemotePaneDisconnectedContent {
         // one — spell out the move so the two hostnames aren't silently
         // contradictory (INT-697 fix #11).
         if let liveTarget, liveTarget.host != captured.host {
-            description += "\n" + String(
-                localized: "This workspace now targets \(liveTarget.host).",
-                comment: "Second description line on the remote-disconnected overlay when the workspace moved to a different remote host than the one that dropped"
-            )
+            description +=
+                "\n"
+                + String(
+                    localized: "This workspace now targets \(liveTarget.host).",
+                    comment:
+                        "Second description line on the remote-disconnected overlay when the workspace moved to a different remote host than the one that dropped"
+                )
         }
         if !isReconnecting {
             let diagnosticTarget = liveTarget ?? captured
@@ -114,7 +118,8 @@ struct RemotePaneDisconnectedContent {
         } else {
             buttonLabel = String(
                 localized: "Restart pane",
-                comment: "Button label on the remote-disconnected overlay when the pane's session has moved to a local group, so there is no remote host to reconnect to"
+                comment:
+                    "Button label on the remote-disconnected overlay when the pane's session has moved to a local group, so there is no remote host to reconnect to"
             )
         }
         return Self(title: title, description: description, buttonLabel: buttonLabel, buttonEnabled: true)
@@ -195,9 +200,7 @@ struct RemotePaneDisconnectedView: View {
                     {
                         appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
                         guard appSettingsStore.terminal.value.commandBridgeEnabled else {
-                            if let settingsErrorMessage {
-                                TerminalAccessibilityAnnouncer.announce(settingsErrorMessage, priority: .high)
-                            }
+                            TerminalAccessibilityAnnouncer.announceSettingsError(settingsErrorMessage)
                             return
                         }
                     }
@@ -328,7 +331,8 @@ private struct RemoteReconnectButton: NSViewRepresentable {
         // Prominent (filled) when actionable, muted while disabled/reconnecting.
         let accentColor = Color.aw.accent(accent)
         let accentFill = NSColor(accentColor)
-        nsView.layer?.backgroundColor = isEnabled
+        nsView.layer?.backgroundColor =
+            isEnabled
             ? accentFill.cgColor
             : accentFill.withAlphaComponent(0.25).cgColor
         nsView.attributedTitle = Self.makeTitle(title, enabled: isEnabled, accentFill: accentColor)
@@ -348,7 +352,8 @@ private struct RemoteReconnectButton: NSViewRepresentable {
         let symbolConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
             .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
         if let glyph = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)?
-            .withSymbolConfiguration(symbolConfig) {
+            .withSymbolConfiguration(symbolConfig)
+        {
             let attachment = NSTextAttachment()
             attachment.image = glyph
             attachment.bounds = CGRect(

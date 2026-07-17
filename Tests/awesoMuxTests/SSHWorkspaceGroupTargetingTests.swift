@@ -1,15 +1,9 @@
 import AwesoMuxCore
-import Foundation
 import Testing
 @testable import awesoMux
 
 @Suite("SSH workspace group targeting")
 struct SSHWorkspaceGroupTargetingTests {
-    private static let packageRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-
     @Test("sheet validation rejects option-like text and keeps aliases")
     func destinationValidation() {
         #expect(SSHWorkspaceDestinationValidation.target(from: "my-server")?.sshDestination == "my-server")
@@ -69,30 +63,57 @@ struct SSHWorkspaceGroupTargetingTests {
         #expect(resolved.id == selectedGroup.id)
     }
 
-    @Test("connect sheet guards duplicate submissions and recovers rejected requests")
-    func connectSheetSubmissionWiring() throws {
-        let source = try source("Sources/awesoMux/Views/SSHWorkspaceConnectSheet.swift")
+    @Test("connect submission blocks duplicates")
+    func connectSubmissionBlocksDuplicates() throws {
+        var submission = SSHWorkspaceConnectionSubmission()
+        let target = try #require(RemoteTarget(parsing: "my-server"))
+        var attempts = 0
 
-        #expect(source.contains("@State private var isConnecting = false"))
-        #expect(source.contains("guard !isConnecting, let target else { return }"))
-        #expect(source.contains(".disabled(target == nil || isConnecting)"))
-        #expect(source.contains("if !onConnect(target)"))
-        #expect(source.contains("isConnecting = false"))
+        submission.submit(
+            target: target,
+            connect: { _ in
+                attempts += 1
+                return true
+            }, announce: { _ in })
+        submission.submit(
+            target: target,
+            connect: { _ in
+                attempts += 1
+                return true
+            }, announce: { _ in })
+
+        #expect(attempts == 1)
+        #expect(submission.isConnecting)
     }
 
-    @Test("settings failures are announced from every managed SSH entry point")
-    func settingsFailureAnnouncementWiring() throws {
-        for path in [
-            "Sources/awesoMux/Views/SSHWorkspaceConnectSheet.swift",
-            "Sources/awesoMux/Views/RemoteWorkspaceGroupCreateSheet.swift",
-            "Sources/awesoMux/Views/RemotePaneDisconnectedView.swift",
-        ] {
-            let source = try source(path)
-            #expect(source.contains("TerminalAccessibilityAnnouncer.announce(settingsErrorMessage, priority: .high)"))
-        }
-    }
+    @Test("rejected connect submissions show and announce an error, then allow retry")
+    func rejectedConnectSubmissionRecovers() throws {
+        var submission = SSHWorkspaceConnectionSubmission()
+        let target = try #require(RemoteTarget(parsing: "my-server"))
+        var attempts = 0
+        var announcements: [String] = []
 
-    private func source(_ path: String) throws -> String {
-        try String(contentsOf: Self.packageRoot.appending(path: path), encoding: .utf8)
+        submission.submit(
+            target: target,
+            connect: { _ in
+                attempts += 1
+                return false
+            }, announce: { announcements.append($0) })
+
+        #expect(!submission.isConnecting)
+        #expect(submission.errorMessage != nil)
+        #expect(announcements.count == 1)
+        #expect(announcements.first == submission.errorMessage)
+
+        submission.submit(
+            target: target,
+            connect: { _ in
+                attempts += 1
+                return true
+            }, announce: { announcements.append($0) })
+
+        #expect(attempts == 2)
+        #expect(submission.isConnecting)
+        #expect(submission.errorMessage == nil)
     }
 }

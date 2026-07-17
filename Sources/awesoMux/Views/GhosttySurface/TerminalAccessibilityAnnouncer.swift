@@ -3,6 +3,16 @@ import AwesoMuxCore
 
 @MainActor
 enum TerminalAccessibilityAnnouncer {
+    static func announceSettingsError(
+        _ message: String?,
+        announce: (String) -> Void = {
+            TerminalAccessibilityAnnouncer.announce($0, priority: .high)
+        }
+    ) {
+        guard let message else { return }
+        announce(message)
+    }
+
     /// Tree-order pane descriptor (e.g. `"pane 2, web"`), spoken only when the
     /// session has multiple terminal panes so a VoiceOver user can tell which
     /// pane an announcement is about. The ordinal is the guaranteed
@@ -18,7 +28,8 @@ enum TerminalAccessibilityAnnouncer {
         guard let session else { return nil }
         let panes = session.panes
         guard panes.count > 1,
-              let index = panes.firstIndex(where: { $0.id == paneID }) else {
+            let index = panes.firstIndex(where: { $0.id == paneID })
+        else {
             return nil
         }
         let title = panes[index].title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -34,7 +45,8 @@ enum TerminalAccessibilityAnnouncer {
     /// so an overlong or multi-line title can't dominate a spoken string
     /// (INT-668).
     private static func compactTitle(_ raw: String) -> String {
-        let oneLine = raw
+        let oneLine =
+            raw
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
         return oneLine.count > 60
@@ -174,7 +186,8 @@ enum TerminalAccessibilityAnnouncer {
 
     private static func trimmedPaneDescriptor(_ descriptor: String?) -> String? {
         guard let trimmed = descriptor?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
+            !trimmed.isEmpty
+        else {
             return nil
         }
         return trimmed
@@ -208,10 +221,11 @@ enum TerminalAccessibilityAnnouncer {
         sessionTitle: String,
         paneDescriptor: String? = nil
     ) -> String {
-        "Session error cleared. " + waitingForInputAnnouncement(
-            sessionTitle: sessionTitle,
-            paneDescriptor: paneDescriptor
-        )
+        "Session error cleared. "
+            + waitingForInputAnnouncement(
+                sessionTitle: sessionTitle,
+                paneDescriptor: paneDescriptor
+            )
     }
 
     /// `.high` priority is deliberate (INT-419): "agent ready for your input" is
@@ -422,18 +436,21 @@ enum TerminalAccessibilityAnnouncer {
             withPane: { pane in
                 String(
                     localized: "Permission prompt focused in \(pane).",
-                    comment: "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to a named split pane's remote permission banner"
+                    comment:
+                        "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to a named split pane's remote permission banner"
                 )
             },
             withSession: { session in
                 String(
                     localized: "Permission prompt focused in \(session).",
-                    comment: "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner, naming the workspace"
+                    comment:
+                        "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner, naming the workspace"
                 )
             },
             plain: String(
                 localized: "Permission prompt focused.",
-                comment: "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner"
+                comment:
+                    "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner"
             )
         )
     }
@@ -490,7 +507,7 @@ enum TerminalAccessibilityAnnouncer {
             notification: .announcementRequested,
             userInfo: [
                 .announcement: message,
-                .priority: priority.rawValue
+                .priority: priority.rawValue,
             ]
         )
     }

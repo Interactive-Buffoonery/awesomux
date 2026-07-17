@@ -3,6 +3,31 @@ import AwesoMuxConfig
 import AwesoMuxCore
 import SwiftUI
 
+struct SSHWorkspaceConnectionSubmission {
+    private(set) var isConnecting = false
+    private(set) var errorMessage: String?
+
+    mutating func submit(
+        target: RemoteTarget?,
+        connect: (RemoteTarget) -> Bool,
+        announce: (String) -> Void
+    ) {
+        guard !isConnecting, let target else { return }
+        isConnecting = true
+        errorMessage = nil
+        guard connect(target) else {
+            isConnecting = false
+            let message = String(
+                localized: "Couldn’t connect. The workspace is no longer available.",
+                comment: "Error shown when a managed SSH connection request targets a workspace that no longer exists"
+            )
+            errorMessage = message
+            announce(message)
+            return
+        }
+    }
+}
+
 struct SSHWorkspaceConnectSheet: View {
     let groupName: String?
     let initialDestination: String?
@@ -11,7 +36,7 @@ struct SSHWorkspaceConnectSheet: View {
 
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var destination: String
-    @State private var isConnecting = false
+    @State private var submission = SSHWorkspaceConnectionSubmission()
     @FocusState private var isFocused: Bool
 
     init(
@@ -43,7 +68,7 @@ struct SSHWorkspaceConnectSheet: View {
                 .focused($isFocused)
                 .accessibilityLabel("SSH destination")
                 .onSubmit { connect(target) }
-            if let message = validationMessage ?? settingsErrorMessage {
+            if let message = validationMessage ?? settingsErrorMessage ?? submission.errorMessage {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -69,7 +94,7 @@ struct SSHWorkspaceConnectSheet: View {
                     connect(target)
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(target == nil || isConnecting)
+                .disabled(target == nil || submission.isConnecting)
                 .accessibilityHint(
                     validationMessage
                         ?? String(
@@ -88,12 +113,14 @@ struct SSHWorkspaceConnectSheet: View {
     }
 
     private func connect(_ target: RemoteTarget?) {
-        guard !isConnecting, let target else { return }
         guard backgroundSessionsEnabled || enableBackgroundSessions() else { return }
-        isConnecting = true
-        if !onConnect(target) {
-            isConnecting = false
-        }
+        submission.submit(
+            target: target,
+            connect: onConnect,
+            announce: {
+                TerminalAccessibilityAnnouncer.announce($0, priority: .high)
+            }
+        )
     }
 
     private var backgroundSessionsEnabled: Bool {
@@ -154,9 +181,7 @@ struct SSHWorkspaceConnectSheet: View {
     private func enableBackgroundSessions() -> Bool {
         appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
         guard backgroundSessionsEnabled else {
-            if let settingsErrorMessage {
-                TerminalAccessibilityAnnouncer.announce(settingsErrorMessage, priority: .high)
-            }
+            TerminalAccessibilityAnnouncer.announceSettingsError(settingsErrorMessage)
             return false
         }
         return true
