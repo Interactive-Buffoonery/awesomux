@@ -24,17 +24,10 @@ enum BoundedProcessRunner {
         timeout: DispatchTimeInterval
     ) async throws -> Data {
         try Task.checkCancellation()
-        let execution = Execution()
-        execution.process.executableURL = executableURL
-        execution.process.arguments = arguments
-        execution.process.standardInput = execution.stdinPipe
-        execution.process.standardOutput = execution.stdoutPipe
-        execution.process.standardError = FileHandle.nullDevice
-        _ = fcntl(execution.stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-
+        let execution: Execution
         do {
             try Task.checkCancellation()
-            try execution.process.run()
+            execution = try Execution(executableURL: executableURL, arguments: arguments)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -69,17 +62,19 @@ enum BoundedProcessRunner {
             execution.terminateThenKill()
         }
         timeoutTimer.resume()
-        let waitTask = Task.detached { @Sendable in execution.process.waitUntilExit() }
+        let waitTask = Task.detached { @Sendable in execution.waitForExit() }
 
-        await withTaskCancellationHandler {
-            await waitTask.value
+        let result = await withTaskCancellationHandler {
+            let status = await waitTask.value
+            let wroteAllBytes = await writerTask.value
+            let stdout = await stdoutTask.value
+            execution.markPipesFinished()
+            return (status: status, wroteAllBytes: wroteAllBytes, stdout: stdout)
         } onCancel: {
             execution.terminateThenKill()
         }
         timeoutTimer.cancel()
 
-        let wroteAllBytes = await writerTask.value
-        let stdout = await stdoutTask.value
         try Task.checkCancellation()
 
         if timedOut.isSet {
@@ -88,14 +83,13 @@ enum BoundedProcessRunner {
         if outputTooLarge.isSet {
             throw ExecError.outputTooLarge
         }
-        let status = execution.process.terminationStatus
-        guard status == 0 else {
-            throw ExecError.nonzeroExit(status)
+        guard result.status == 0 else {
+            throw ExecError.nonzeroExit(result.status)
         }
-        guard wroteAllBytes else {
+        guard result.wroteAllBytes else {
             throw ExecError.inputFailed
         }
-        return stdout
+        return result.stdout
     }
 
     private static func write(_ input: Input, to outputFD: Int32) -> Bool {
@@ -136,23 +130,111 @@ enum BoundedProcessRunner {
     }
 
     private final class Execution: @unchecked Sendable {
-        let process = Process()
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
+        private let lock = NSLock()
+        private var processID: pid_t = 0
+        private var pipesFinished = false
+        private var terminationStarted = false
 
-        func terminate() {
-            if process.isRunning { process.terminate() }
+        init(executableURL: URL, arguments: [String]) throws {
+            var fileActions: posix_spawn_file_actions_t? = nil
+            guard posix_spawn_file_actions_init(&fileActions) == 0 else {
+                throw ExecError.spawnFailed
+            }
+            defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+            let stdinRead = stdinPipe.fileHandleForReading.fileDescriptor
+            let stdinWrite = stdinPipe.fileHandleForWriting.fileDescriptor
+            let stdoutRead = stdoutPipe.fileHandleForReading.fileDescriptor
+            let stdoutWrite = stdoutPipe.fileHandleForWriting.fileDescriptor
+            guard posix_spawn_file_actions_adddup2(&fileActions, stdinRead, STDIN_FILENO) == 0,
+                posix_spawn_file_actions_adddup2(&fileActions, stdoutWrite, STDOUT_FILENO) == 0,
+                posix_spawn_file_actions_addopen(
+                    &fileActions, STDERR_FILENO, "/dev/null", O_WRONLY, 0
+                ) == 0,
+                [stdinRead, stdinWrite, stdoutRead, stdoutWrite].allSatisfy({
+                    posix_spawn_file_actions_addclose(&fileActions, $0) == 0
+                })
+            else {
+                throw ExecError.spawnFailed
+            }
+
+            var attributes: posix_spawnattr_t? = nil
+            guard posix_spawnattr_init(&attributes) == 0 else {
+                throw ExecError.spawnFailed
+            }
+            defer { posix_spawnattr_destroy(&attributes) }
+            guard
+                posix_spawnattr_setflags(
+                    &attributes, Int16(POSIX_SPAWN_SETPGROUP)
+                ) == 0,
+                posix_spawnattr_setpgroup(&attributes, 0) == 0
+            else {
+                throw ExecError.spawnFailed
+            }
+
+            let argumentStorage = ([executableURL.path] + arguments).map { strdup($0) }
+            guard argumentStorage.allSatisfy({ $0 != nil }) else {
+                argumentStorage.forEach { free($0) }
+                throw ExecError.spawnFailed
+            }
+            defer { argumentStorage.forEach { free($0) } }
+            var argumentVector = argumentStorage + [nil]
+            var spawnedPID: pid_t = 0
+            let spawnStatus = argumentVector.withUnsafeMutableBufferPointer { vector in
+                posix_spawn(
+                    &spawnedPID,
+                    executableURL.path,
+                    &fileActions,
+                    &attributes,
+                    vector.baseAddress!,
+                    environ
+                )
+            }
+            guard spawnStatus == 0 else { throw ExecError.spawnFailed }
+            processID = spawnedPID
+
+            try? stdinPipe.fileHandleForReading.close()
+            try? stdoutPipe.fileHandleForWriting.close()
+            _ = fcntl(stdinWrite, F_SETNOSIGPIPE, 1)
         }
 
-        func kill() {
-            if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
+        func waitForExit() -> Int32 {
+            var status: Int32 = 0
+            while waitpid(processID, &status, 0) < 0 {
+                if errno == EINTR { continue }
+                return -1
+            }
+            if status & 0x7f == 0 {
+                return (status >> 8) & 0xff
+            }
+            return 128 + (status & 0x7f)
         }
 
         func terminateThenKill() {
-            terminate()
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1) { [self] in
-                kill()
+            lock.lock()
+            guard !pipesFinished, !terminationStarted else {
+                lock.unlock()
+                return
             }
+            terminationStarted = true
+            lock.unlock()
+
+            Darwin.kill(-processID, SIGTERM)
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1) { [self] in
+                lock.lock()
+                let shouldKill = !pipesFinished
+                lock.unlock()
+                guard shouldKill else { return }
+                Darwin.kill(-processID, SIGKILL)
+            }
+        }
+
+        func markPipesFinished() {
+            lock.lock()
+            pipesFinished = true
+            lock.unlock()
         }
     }
 

@@ -122,4 +122,52 @@ struct BridgeHelperCommandTests {
         #expect(status == 64)
         #expect(errors == ["awesoMuxBridgeHelper: invalid handoff arguments"])
     }
+
+    @Test(
+        "receive-handoff rejects malformed command shapes before invoking the receiver",
+        arguments: [
+            ["receive-handoff"],
+            [
+                "receive-handoff", "--session", "session-1", "--name", "notes.md",
+                "--expected-bytes", "12", "extra",
+            ],
+            [
+                "receive-handoff", "--name", "notes.md", "--session", "session-1",
+                "--expected-bytes", "12",
+            ],
+            [
+                "receive-handoff", "--sessions", "session-1", "--name", "notes.md",
+                "--expected-bytes", "12",
+            ],
+            [
+                "receive-handoff", "--session", "session-1", "--filename", "notes.md",
+                "--expected-bytes", "12",
+            ],
+            [
+                "receive-handoff", "--session", "session-1", "--name", "notes.md",
+                "--bytes", "12",
+            ],
+            [
+                "receive-handoff", "--session", "Session-1", "--name", "notes.md",
+                "--expected-bytes", "12",
+            ],
+            [
+                "receive-handoff", "--session", "session-1", "--name", "",
+                "--expected-bytes", "12",
+            ],
+        ])
+    func receiveHandoffRejectsMalformedCommand(arguments: [String]) {
+        var errors: [String] = []
+        let status = BridgeHelperCommand.run(
+            arguments: arguments,
+            receiveHandoff: { _, _, _ in
+                Issue.record("invalid arguments must not reach receiver")
+                return .init(path: "/unreachable", bytes: 0)
+            },
+            output: { _ in Issue.record("unexpected stdout write") },
+            errorOutput: { errors.append($0) }
+        )
+        #expect(status == 64)
+        #expect(errors == ["awesoMuxBridgeHelper: invalid handoff arguments"])
+    }
 }
