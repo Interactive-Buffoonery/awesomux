@@ -668,6 +668,15 @@ private struct NeedsInputBar: View {
     let session: TerminalSession
     let onAcknowledge: () -> Void
 
+    /// In a single-pane layout the pane's own always-reserved accent band sits
+    /// directly under the banner — peach, since the lone pane is the needy one —
+    /// so the banner's bottom bar would double it at a mismatched width. The
+    /// pane band is the separator; drop the banner's. Multi-pane keeps it: the
+    /// peach rail may be on a non-adjacent pane.
+    private var showsBottomAccent: Bool {
+        session.layout.hasMultiplePanes
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             StatusDot(.needs)
@@ -720,7 +729,11 @@ private struct NeedsInputBar: View {
         .overlay(alignment: .leading) { edgeAccent }
         .overlay(alignment: .trailing) { edgeAccent }
         .overlay(alignment: .top) { horizontalAccent }
-        .overlay(alignment: .bottom) { horizontalAccent }
+        .overlay(alignment: .bottom) {
+            if showsBottomAccent {
+                horizontalAccent
+            }
+        }
     }
 
     private var edgeAccent: some View { accentBar(width: 3) }
