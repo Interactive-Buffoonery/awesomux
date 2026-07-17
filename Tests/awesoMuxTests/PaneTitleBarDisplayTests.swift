@@ -29,7 +29,7 @@ struct PaneTitleBarDisplayTests {
         #expect(pane.remotePresentationHost == "alice@buildbox-alias")
         #expect(
             PaneTitleBarView.accessibilityLabel(for: pane, title: "deploy@resolved.example")
-                == "Pane: deploy@resolved.example, Remote session on alice@buildbox-alias"
+                == "Remote pane on alice@buildbox-alias: deploy@resolved.example"
         )
     }
 }
