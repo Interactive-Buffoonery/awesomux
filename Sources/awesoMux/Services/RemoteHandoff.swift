@@ -524,11 +524,27 @@ extension GhosttySurfaceNSView {
             remote: remote
         )
         let originatingWindow = WeakHandoffWindow(window)
+        let progressIndicator = NSProgressIndicator()
+        progressIndicator.style = .spinning
+        progressIndicator.controlSize = .small
+        progressIndicator.translatesAutoresizingMaskIntoConstraints = false
+        progressIndicator.setAccessibilityLabel(
+            String(
+                localized: "Preparing remote file transfer",
+                comment: "Remote handoff initial progress status"
+            ))
+        addSubview(progressIndicator)
+        NSLayoutConstraint.activate([
+            progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+            progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        progressIndicator.startAnimation(nil)
 
         remoteHandoffTask = Task { @MainActor [weak self] in
             var cleanupSource: RemoteHandoff.PreparedSource?
             defer {
                 cleanupSource?.cleanup()
+                progressIndicator.removeFromSuperview()
                 self?.remoteHandoffTask = nil
             }
             do {
