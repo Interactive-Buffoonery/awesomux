@@ -118,7 +118,7 @@ struct SidebarHoverGeometryIsolationTests {
             let staleReveal = driver.completions.last
             driver.presentationTranslation = position == .left ? -150 : 150
             #expect(
-                controller.overlayClipViewForTesting.presentationTranslationX()
+                controller.sidebarHostClipViewForTesting.presentationTranslationX()
                     == driver.presentationTranslation)
             controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
             controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)

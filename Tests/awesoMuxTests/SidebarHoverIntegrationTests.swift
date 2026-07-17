@@ -50,6 +50,24 @@ struct SidebarHoverIntegrationTests {
         #expect(model.userWantsHidden)
     }
 
+    @Test("hover reveal and dismissal never reparent the permanent sidebar host")
+    func hoverRevealNeverReparents() {
+        let controller = makeController()
+        #expect(controller.setPersistentSidebarVisible(false))
+        let sidebarView = controller.sidebarViewController.view
+        let host = sidebarView.superview
+        #expect(host === controller.sidebarHostViewForTesting)
+
+        #expect(controller.setOverlayPresented(true, transition: .hover, reduceMotion: false))
+        #expect(sidebarView.superview === host)
+        #expect(controller.hostModeForTesting == .overlay(width: 300))
+
+        controller.setOverlayPresentedImmediately(false)
+        #expect(sidebarView.superview === host)
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
+    }
+
     @Test("overlay transition timing follows pointer versus explicit ownership")
     func overlayTransitionTimingPolicy() {
         #expect(SidebarOverlayTransitionPolicy.resolve(source: .pointer) == .hover)
@@ -128,8 +146,8 @@ struct SidebarHoverIntegrationTests {
         peek.onPointerChanged = model.peekPointerChanged
         let proxy = SidebarSplitProxy()
         controller.installCommandHandlers(on: proxy)
-        let originalLayer = try #require(controller.overlayContentViewForTesting.layer)
-        controller.overlayContentViewForTesting.layer = nil
+        let originalLayer = try #require(controller.sidebarHostViewForTesting.layer)
+        controller.sidebarHostViewForTesting.layer = nil
         model.pointerMoved(x: 15, width: 100, position: .left)
         let session = TestData.session(title: "Peeked", workingDirectory: "~")
         peek.show(
@@ -151,7 +169,7 @@ struct SidebarHoverIntegrationTests {
         #expect(peek.session == nil)
         #expect(controller.hostModeForTesting == .hidden)
 
-        controller.overlayContentViewForTesting.layer = originalLayer
+        controller.sidebarHostViewForTesting.layer = originalLayer
         model.pointerMoved(x: 15, width: 100, position: .left)
         ContentView.reconcileSidebarOverlay(
             presentation: model,
