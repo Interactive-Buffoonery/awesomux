@@ -500,6 +500,11 @@ struct SidebarView: View {
             }
         }
         .onChange(of: displayMode) { _, mode in
+            WindowOrderDiagnostics.logRoster(
+                event: "sidebar-display-mode-changed",
+                open: activityPanelOpen,
+                displayMode: mode
+            )
             searchText = SidebarSearchModePolicy.query(
                 afterChangingTo: mode,
                 currentQuery: searchText
@@ -510,6 +515,13 @@ struct SidebarView: View {
             if mode == .collapsed, activityPanelOpen {
                 setActivityPanel(open: false)
             }
+        }
+        .onAppear {
+            WindowOrderDiagnostics.logRoster(
+                event: "roster-appeared",
+                open: activityPanelOpen,
+                displayMode: displayMode
+            )
         }
         .onChange(of: sessionStore.selectedSessionID) { _, newValue in
             // Selection can land inside a collapsed group via more than
@@ -836,6 +848,11 @@ struct SidebarView: View {
             return
         }
         activityPanelOpen = open
+        WindowOrderDiagnostics.logRoster(
+            event: "roster-open-state-changed",
+            open: open,
+            displayMode: displayMode
+        )
         TerminalAccessibilityAnnouncer.announce(
             open
                 ? String(
