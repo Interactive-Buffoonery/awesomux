@@ -617,6 +617,19 @@ else
   echo "warning: actool not found (needs full Xcode); skipping app icon — bundle will use a generic icon" >&2
 fi
 
+# Marketing version for the dev bundle, derived from the latest tag (e.g.
+# "0.3.0-16-gb52777d" between releases). Without it, Bundle.main has no
+# CFBundleShortVersionString, TerminalAppearancePreferences can't advertise
+# TERM_PROGRAM_VERSION, and process-tree tools (fastfetch) that read the
+# bundle version off the amx daemon's exe path show nothing useful.
+# Whitelist the characters before interpolating into the plist heredoc: git
+# tag names may contain XML metacharacters ("<', '&', quotes), and a hostile
+# tag on a fetched fork would otherwise inject arbitrary Info.plist keys.
+# `|| true`: on a tagless clone (shallow/fork) `git describe` exits 128 and
+# `pipefail` would otherwise kill the script before the fallback below runs.
+APP_VERSION="$(git -C "$ROOT_DIR" describe --tags 2>/dev/null | sed 's/^v//' | tr -cd '0-9A-Za-z.-' || true)"
+APP_VERSION="${APP_VERSION:-0.0.0}"
+
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -624,6 +637,10 @@ cat >"$INFO_PLIST" <<PLIST
 <dict>
   <key>CFBundleExecutable</key>
   <string>$APP_NAME</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$APP_VERSION</string>
+  <key>CFBundleVersion</key>
+  <string>$APP_VERSION</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleIconFile</key>
