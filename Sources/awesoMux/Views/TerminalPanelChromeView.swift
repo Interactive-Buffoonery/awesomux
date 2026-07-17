@@ -15,10 +15,10 @@ struct TerminalPanelChromeView: View {
     let ghosttyRuntime: GhosttyRuntime
     let appSettingsStore: AppSettingsStore
     let focusState: FloatingPanelFocusState
-    let parentWorkspaceTitle: String?    // floating mode only
-    let onMinimize: () -> Void           // companion
-    let onClose: () -> Void              // companion
-    let onDismiss: () -> Void            // floating
+    let parentWorkspaceTitle: String?  // floating mode only
+    let onMinimize: () -> Void  // companion
+    let onClose: () -> Void  // companion
+    let onDismiss: () -> Void  // floating
     let onMakeWorkspace: () -> Void
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -60,10 +60,12 @@ struct TerminalPanelChromeView: View {
     }
 
     private func companionHeader(session: TerminalSession?) -> some View {
-        let directoryText = session?.workingDirectory ?? String(
-            localized: "Terminal unavailable",
-            comment: "Fallback header shown when the Terminal Companion store has no selected session."
-        )
+        let directoryText =
+            session?.workingDirectory
+            ?? String(
+                localized: "Terminal unavailable",
+                comment: "Fallback header shown when the Terminal Companion store has no selected session."
+            )
 
         return HStack(spacing: 10) {
             Text(directoryText)
@@ -125,7 +127,10 @@ struct TerminalPanelChromeView: View {
                 TerminalPaneView(
                     session: session,
                     sessionStore: sessionStore,
-                    ghosttyRuntime: ghosttyRuntime
+                    ghosttyRuntime: ghosttyRuntime,
+                    // The panel header draws its own bottom hairline; a tab-edge
+                    // line here would double it (#82).
+                    abutsWindowTop: false
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.aw.surface.terminal)
@@ -137,7 +142,8 @@ struct TerminalPanelChromeView: View {
             TerminalPaneView(
                 session: floatingSession,
                 sessionStore: sessionStore,
-                ghosttyRuntime: ghosttyRuntime
+                ghosttyRuntime: ghosttyRuntime,
+                abutsWindowTop: false
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.aw.surface.terminal)
@@ -193,9 +199,12 @@ struct TerminalPanelChromeView: View {
                 .font(.system(size: 18, weight: .medium))
             Text("Terminal session unavailable", comment: "Placeholder title in the Terminal Companion when no session exists.")
                 .awFont(AwFont.UI.body)
-            Text("Close and reopen Terminal Companion to start a new session.", comment: "Placeholder guidance in the Terminal Companion when no session exists.")
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text3)
+            Text(
+                "Close and reopen Terminal Companion to start a new session.",
+                comment: "Placeholder guidance in the Terminal Companion when no session exists."
+            )
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text3)
         }
         .foregroundStyle(Color.aw.text2)
         .multilineTextAlignment(.center)
@@ -213,10 +222,11 @@ struct TerminalPanelChromeView: View {
                 .foregroundStyle(Color.aw.text3)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(
-            localized: "Command W minimizes the Terminal Companion",
-            comment: "Accessibility label for the Terminal Companion minimize shortcut hint."
-        ))
+        .accessibilityLabel(
+            String(
+                localized: "Command W minimizes the Terminal Companion",
+                comment: "Accessibility label for the Terminal Companion minimize shortcut hint."
+            ))
     }
 
     // MARK: - Shared chrome
@@ -279,7 +289,8 @@ struct TerminalPanelChromeView: View {
 
     private var floatingAccessibilityHint: String {
         if focusState.discardConfirmationPending {
-            return "Running work is active. Press Escape again to discard, Command-W to hide, or Command-Return to promote into the workspace."
+            return
+                "Running work is active. Press Escape again to discard, Command-W to hide, or Command-Return to promote into the workspace."
         }
         return "Press Escape to dismiss, Command-W to hide, or Command-Return to promote into the workspace."
     }
@@ -338,7 +349,7 @@ private struct PopUpTerminalPanelGradient: View {
                 colors: [
                     Color.aw.accent(accentResolver.accent).opacity(0.10),
                     .clear,
-                    Color.aw.teal.opacity(0.06)
+                    Color.aw.teal.opacity(0.06),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -374,14 +385,17 @@ private struct PopUpTerminalMinimizeButton: View {
             )
         }
         .focused($isFocused)
-        .help(String(
-            localized: "Minimize Terminal Companion",
-            comment: "Tooltip on the Terminal Companion minimize button."
-        ))
-        .accessibilityLabel(String(
-            localized: "Minimize Terminal Companion",
-            comment: "Accessibility label for the Terminal Companion minimize button."
-        ))
+        .help(
+            String(
+                localized: "Minimize Terminal Companion",
+                comment: "Tooltip on the Terminal Companion minimize button."
+            )
+        )
+        .accessibilityLabel(
+            String(
+                localized: "Minimize Terminal Companion",
+                comment: "Accessibility label for the Terminal Companion minimize button."
+            ))
     }
 }
 
@@ -413,10 +427,11 @@ private struct PopUpTerminalPromoteButton: View {
                 )
         }
         .focused($isFocused)
-        .accessibilityLabel(String(
-            localized: "Promote to workspace, Command Return",
-            comment: "Accessibility label for the Terminal Companion promote button; action first, shortcut second."
-        ))
+        .accessibilityLabel(
+            String(
+                localized: "Promote to workspace, Command Return",
+                comment: "Accessibility label for the Terminal Companion promote button; action first, shortcut second."
+            ))
     }
 }
 

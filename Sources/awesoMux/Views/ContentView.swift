@@ -544,11 +544,9 @@ private struct AppTitlebarView: View {
                     .allowsWindowActivationEvents(true)
             }
         }
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.aw.border2)
-                .frame(height: 0.5)
-        }
+        // No bottom hairline: the sidebar column runs seamless into the titlebar
+        // band, and on the terminal side the top-row pane focus bands draw the
+        // tab-edge line that separates panes from the workspace title (#82).
     }
 
     @ViewBuilder
