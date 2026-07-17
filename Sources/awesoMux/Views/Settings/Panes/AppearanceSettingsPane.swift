@@ -229,7 +229,7 @@ struct AppearanceSettingsPane: View {
                     label: String(localized: "Reset to Defaults", comment: "Settings field label for the reset-to-defaults button"),
                     hint: String(
                         localized:
-                            "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, sidebar position, and jump numbers to their shipped defaults. Doesn't touch sidebar compact mode or settings on other panes.",
+                            "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes.",
                         comment: "Settings field hint for the reset-to-defaults button"),
                     isFirst: true
                 ) {
@@ -312,9 +312,7 @@ struct AppearanceSettingsPane: View {
             // AppearanceConfig field but its control lives on
             // TerminalSettingsPane, not here. A user clicking "Reset to
             // Defaults" on the Appearance pane shouldn't see settings silently
-            // change on a pane they're not looking at. (Sidebar compact mode has
-            // its control here but persists via GeneralConfig, so it's also
-            // outside this appearance-store reset — the hint copy says so.)
+            // change on a pane they're not looking at.
             appearance.theme = defaults.theme
             appearance.accent = defaults.accent
             appearance.uiFont = defaults.uiFont
@@ -328,6 +326,13 @@ struct AppearanceSettingsPane: View {
             appearance.alwaysShowJumpNumbers = defaults.alwaysShowJumpNumbers
             appearance.sidebarPosition = defaults.sidebarPosition
             appearance.crtScanlines = defaults.crtScanlines
+        }
+        // Sidebar compact mode persists via GeneralConfig, but its control
+        // lives on THIS pane — the reset button covers what the user can see
+        // here, so the storage split must not leak into behavior. Separate
+        // store, separate (still persist-gated) write.
+        appSettingsStore.general.update { general in
+            general.sidebarCompactMode = GeneralConfig.defaultValue.sidebarCompactMode
         }
         // Read back from the store rather than the `defaults` constant above:
         // `AppearanceStore.update` only commits when the disk write succeeds
@@ -364,6 +369,8 @@ struct AppearanceSettingsPane: View {
             && appearance.alwaysShowJumpNumbers == defaults.alwaysShowJumpNumbers
             && appearance.sidebarPosition == defaults.sidebarPosition
             && appearance.crtScanlines == defaults.crtScanlines
+            && appSettingsStore.general.value.sidebarCompactMode
+                == GeneralConfig.defaultValue.sidebarCompactMode
         if didReset {
             NSAccessibility.post(
                 element: NSApplication.shared,
