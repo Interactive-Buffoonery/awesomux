@@ -495,8 +495,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                 hostPresentationState.settle(
                     mode: hostMode,
                     effectiveVisibleWidth: sidebarHostClipView.bounds.width)
-            } else if case .overlay = hostMode {
-                layoutOverlay(presented: true)
             }
         } else {
             applyPosition(width)
