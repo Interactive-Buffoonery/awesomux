@@ -11,6 +11,8 @@ struct TerminalSplitLayoutView: View {
     let runtime: GhosttyRuntime
     let dragCoordinator: PaneDragCoordinator
     let suppressTopFocusAccentForActivePane: Bool
+    // See TerminalPaneLayoutView.abutsWindowTop (#82).
+    var abutsWindowTop: Bool = false
     @State private var dragStartFraction: Double?
     @State private var dragFraction: Double?
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
@@ -53,21 +55,7 @@ struct TerminalSplitLayoutView: View {
                     firstLayout
                         .frame(width: max(0, size.width * fraction - SplitDivider.layoutThickness / 2))
 
-                    SplitDivider(
-                        orientation: .vertical,
-                        currentFraction: fraction,
-                        focusAccentState: nil
-                    ) { translation in
-                        resize(using: translation.width, availableLength: size.width)
-                    } onEnded: {
-                        commitResize()
-                    } onAdjust: { delta in
-                        sessionStore.resizeSplit(
-                            id: split.id,
-                            firstFraction: split.firstFraction + delta,
-                            in: session.id
-                        )
-                    }
+                    verticalDividerColumn(size: size)
 
                     secondLayout
                         .frame(width: max(0, size.width * (1 - fraction) - SplitDivider.layoutThickness / 2))
@@ -96,9 +84,10 @@ struct TerminalSplitLayoutView: View {
 
                     layoutView(
                         split.second,
-                        suppressTopFocusAccentForActivePane: dividerAbsorbsTopAccent
+                        suppressTopFocusAccentForActivePane: dividerAbsorbsTopAccent,
+                        abutsWindowTop: false
                     )
-                        .frame(height: max(0, size.height * (1 - fraction) - SplitDivider.layoutThickness / 2))
+                    .frame(height: max(0, size.height * (1 - fraction) - SplitDivider.layoutThickness / 2))
                 }
             }
         }
@@ -115,9 +104,52 @@ struct TerminalSplitLayoutView: View {
         layoutView(split.second)
     }
 
+    /// A vertical divider in the top row gets a chrome cap the height of the
+    /// pane focus band, carrying the same top-aligned tab-edge line — so the
+    /// divider terminates at the tab edge instead of poking toward the
+    /// titlebar (the hairline that used to terminate it is gone, #82), and
+    /// the edge line reads as one continuous stroke across panes and divider.
+    @ViewBuilder
+    private func verticalDividerColumn(size: CGSize) -> some View {
+        let divider = SplitDivider(
+            orientation: .vertical,
+            currentFraction: dragFraction ?? split.firstFraction,
+            focusAccentState: nil
+        ) { translation in
+            resize(using: translation.width, availableLength: size.width)
+        } onEnded: {
+            commitResize()
+        } onAdjust: { delta in
+            sessionStore.resizeSplit(
+                id: split.id,
+                firstFraction: split.firstFraction + delta,
+                in: session.id
+            )
+        }
+        if abutsWindowTop {
+            VStack(spacing: 0) {
+                // Continue the tab-edge line across the divider column; the
+                // divider band rises to meet it. (A band-height chrome cap was
+                // tried first and left a dark notch at the top of every
+                // top-row divider once the edge line moved to the top of the
+                // band — the divider itself is the right filler below the
+                // line, #82.)
+                Rectangle()
+                    .fill(Color.aw.border2)
+                    .frame(width: SplitDivider.layoutThickness, height: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                divider
+            }
+        } else {
+            divider
+        }
+    }
+
     private func layoutView(
         _ layout: TerminalPaneLayout,
-        suppressTopFocusAccentForActivePane: Bool? = nil
+        suppressTopFocusAccentForActivePane: Bool? = nil,
+        abutsWindowTop: Bool? = nil
     ) -> some View {
         TerminalPaneLayoutView(
             session: session,
@@ -126,7 +158,8 @@ struct TerminalSplitLayoutView: View {
             runtime: runtime,
             dragCoordinator: dragCoordinator,
             suppressTopFocusAccentForActivePane: suppressTopFocusAccentForActivePane
-                ?? self.suppressTopFocusAccentForActivePane
+                ?? self.suppressTopFocusAccentForActivePane,
+            abutsWindowTop: abutsWindowTop ?? self.abutsWindowTop
         )
     }
 
