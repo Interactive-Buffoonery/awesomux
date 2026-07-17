@@ -150,9 +150,15 @@ if [[ -e "$WORKTREE_PATH" ]]; then
   exit 1
 fi
 
-if (( LAUNCH_TUI == 1 )) && ! command -v "$TUI_BIN" >/dev/null 2>&1; then
-  echo "error: $TUI_NAME executable not found: $TUI_BIN" >&2
-  exit 1
+if (( LAUNCH_TUI == 1 )); then
+  if ! TUI_BIN_PATH="$(command -v "$TUI_BIN")"; then
+    echo "error: $TUI_NAME executable not found: $TUI_BIN" >&2
+    exit 1
+  fi
+  if [[ "$TUI_BIN_PATH" != /* ]]; then
+    TUI_BIN_PATH="$PWD/$TUI_BIN_PATH"
+  fi
+  TUI_BIN="$TUI_BIN_PATH"
 fi
 
 echo "Fetching origin..."
