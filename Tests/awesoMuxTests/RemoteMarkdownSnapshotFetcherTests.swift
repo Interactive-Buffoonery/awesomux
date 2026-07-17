@@ -235,6 +235,16 @@ struct RemoteMarkdownReferenceTests {
         #expect(RemoteMarkdownSnapshotFetcher.shellSingleQuoted("a'b.md") == "'a'\\''b.md'")
     }
 
+    @Test func sshOptionParsingEndsBeforeDestination() throws {
+        let arguments = RemoteMarkdownSnapshotFetcher.sshArguments(
+            target: "-oProxyCommand=example",
+            path: "/repo/README.md"
+        )
+        let delimiterIndex = try #require(arguments.firstIndex(of: "--"))
+
+        #expect(arguments[delimiterIndex + 1] == "-oProxyCommand=example")
+    }
+
     @Test func markdownInlineCodeStripsBackticks() {
         #expect(RemoteMarkdownSnapshotFetcher.markdownInlineCode("dev:/tmp/a`b.md") == "dev:/tmp/ab.md")
     }
