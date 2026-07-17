@@ -7,7 +7,7 @@ struct DocumentPointerTargetTests {
     func documentIconButtonsUseMinimumTargets() throws {
         let commentPopover = try Self.source("Views/Markdown/CommentPopover.swift")
         let resolve = try Self.block(
-            from: "Button {\n                        onSetStatus",
+            from: "Button {\n                        submit {\n                            await onSetStatus",
             through: ".accessibilityLabel(isResolved ? \"Reopen annotation\" : \"Mark annotation resolved\")",
             in: commentPopover
         )
@@ -17,13 +17,13 @@ struct DocumentPointerTargetTests {
             in: commentPopover
         )
         let delete = try Self.block(
-            from: "Button(role: .destructive, action: onDelete)",
+            from: "Button(role: .destructive) {\n                        submit(operation: onDelete)",
             through: ".accessibilityLabel(\"Delete annotation\")",
             in: commentPopover
         )
         let reply = try Self.block(
             from: "Button(action: submitReply)",
-            through: ".accessibilityLabel(\"Send reply\")",
+            through: ".accessibilityLabel(String(localized: \"Send reply\"",
             in: commentPopover
         )
         Self.expectMinimumTarget(resolve)
