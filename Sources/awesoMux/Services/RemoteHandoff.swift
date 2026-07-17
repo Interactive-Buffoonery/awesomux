@@ -6,6 +6,8 @@ import ImageIO
 import UnicodeHygiene
 
 enum RemoteHandoff {
+    // MARK: - Types
+
     static let maximumByteCount = 10 * 1024 * 1024
     static let maximumReceiptByteCount = 4 * 1024
     static let maximumDecodedPixelCount = 32 * 1024 * 1024
@@ -75,46 +77,42 @@ enum RemoteHandoff {
             return descriptor
         }
 
+        func snapshotValidatedContents() throws -> Data {
+            let descriptor = try openValidated()
+            defer { close(descriptor) }
+
+            var contents = Data(count: byteCount)
+            var offset = 0
+            while offset < byteCount {
+                let amount = min(64 * 1024, byteCount - offset)
+                let bytesRead = contents.withUnsafeMutableBytes {
+                    pread(
+                        descriptor,
+                        $0.baseAddress!.advanced(by: offset),
+                        amount,
+                        off_t(offset)
+                    )
+                }
+                if bytesRead < 0, errno == EINTR { continue }
+                guard bytesRead > 0 else { throw Failure.sourceUnavailable }
+                offset += bytesRead
+            }
+
+            var status = stat()
+            guard fstat(descriptor, &status) == 0,
+                SourceSnapshot(status) == snapshot
+            else {
+                throw Failure.sourceUnavailable
+            }
+            return contents
+        }
+
         func cleanup() {
             if isTemporary { try? FileManager.default.removeItem(at: url) }
         }
     }
 
-    private struct Receipt: Decodable {
-        let path: String
-        let bytes: Int
-    }
-
-    @MainActor
-    static var confirmationProvider:
-        @MainActor (
-            _ remote: RemoteTarget,
-            _ displayName: String,
-            _ proposedDirectory: String,
-            _ window: NSWindow?
-        ) async -> Bool = presentConfirmation
-
-    @MainActor
-    static var failurePresenter: @MainActor (Failure, NSWindow?) -> Void = presentFailure
-
-    @MainActor
-    static func presentBusy(window: NSWindow?) {
-        if window?.attachedSheet != nil {
-            NSSound.beep()
-            TerminalAccessibilityAnnouncer.announce(
-                String(localized: "A file transfer is already in progress", comment: "Remote handoff busy accessibility status")
-            )
-            return
-        }
-        let alert = NSAlert()
-        alert.messageText = String(localized: "A file transfer is already in progress", comment: "Remote handoff busy indication")
-        alert.addButton(withTitle: String(localized: "OK", comment: "Dismiss remote handoff busy indication"))
-        if let window {
-            alert.beginSheetModal(for: window)
-        } else {
-            alert.runModal()
-        }
-    }
+    // MARK: - Source Preparation
 
     static func prepare(_ candidate: Candidate) async throws -> PreparedSource {
         switch candidate {
@@ -199,6 +197,8 @@ enum RemoteHandoff {
         )
     }
 
+    // MARK: - Transfer
+
     static func helperSupportsHandoff(
         controlPath: String,
         remote: RemoteTarget,
@@ -231,8 +231,7 @@ enum RemoteHandoff {
         timeout: DispatchTimeInterval = .seconds(90)
     ) async throws -> Data {
         try Task.checkCancellation()
-        let sourceFD = try source.openValidated()
-        defer { close(sourceFD) }
+        let sourceContents = try source.snapshotValidatedContents()
 
         let remoteCommand = [
             shellQuote(helperPath),
@@ -250,7 +249,7 @@ enum RemoteHandoff {
                     controlPath: controlPath,
                     remoteCommand: remoteCommand
                 ),
-                input: .descriptor(sourceFD, byteCount: source.byteCount),
+                input: .data(sourceContents),
                 maximumOutputByteCount: maximumReceiptByteCount,
                 timeout: timeout
             )
@@ -280,6 +279,13 @@ enum RemoteHandoff {
         pane?.id == authority.paneID
             && pane?.executionPlan == authority.executionPlan
             && pane?.terminalSessionID == authority.terminalSessionID
+    }
+
+    // MARK: - Receipt Validation
+
+    private struct Receipt: Decodable {
+        let path: String
+        let bytes: Int
     }
 
     static func validatedReceiptPath(
@@ -313,6 +319,39 @@ enum RemoteHandoff {
         return standardizedPath
     }
 
+    // MARK: - Presentation
+
+    @MainActor
+    static var confirmationProvider:
+        @MainActor (
+            _ remote: RemoteTarget,
+            _ displayName: String,
+            _ proposedDirectory: String,
+            _ window: NSWindow?
+        ) async -> Bool = presentConfirmation
+
+    @MainActor
+    static var failurePresenter: @MainActor (Failure, NSWindow?) -> Void = presentFailure
+
+    @MainActor
+    static func presentBusy(window: NSWindow?) {
+        if window?.attachedSheet != nil {
+            NSSound.beep()
+            TerminalAccessibilityAnnouncer.announce(
+                String(localized: "A file transfer is already in progress", comment: "Remote handoff busy accessibility status")
+            )
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "A file transfer is already in progress", comment: "Remote handoff busy indication")
+        alert.addButton(withTitle: String(localized: "OK", comment: "Dismiss remote handoff busy indication"))
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
     @MainActor
     private static func presentConfirmation(
         remote: RemoteTarget,
@@ -320,6 +359,7 @@ enum RemoteHandoff {
         proposedDirectory: String,
         window: NSWindow?
     ) async -> Bool {
+        guard let window else { return false }
         let alert = NSAlert()
         alert.messageText = String(
             localized: "Transfer file to \(remote.sshDestination)?",
@@ -335,19 +375,14 @@ enum RemoteHandoff {
             String(
                 localized: "Transfer file to declared SSH destination", comment: "VoiceOver label for approving remote clipboard handoff")
         )
-        let response: NSApplication.ModalResponse
-        if let window {
-            let cancellation = HandoffSheetCancellation(alert: alert, window: window)
-            response = await withTaskCancellationHandler {
-                guard cancellation.shouldPresent else { return .abort }
-                return await withCheckedContinuation { continuation in
-                    alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
-                }
-            } onCancel: {
-                cancellation.cancel()
+        let cancellation = HandoffSheetCancellation(alert: alert, window: window)
+        let response = await withTaskCancellationHandler {
+            guard cancellation.shouldPresent else { return NSApplication.ModalResponse.abort }
+            return await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
             }
-        } else {
-            response = alert.runModal()
+        } onCancel: {
+            cancellation.cancel()
         }
         return response == .alertFirstButtonReturn
     }
@@ -383,7 +418,6 @@ enum RemoteHandoff {
     private static func shellQuote(_ value: String) -> String {
         value.isEmpty ? "''" : "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
-
 }
 
 private final class HandoffSheetCancellation: @unchecked Sendable {
@@ -417,6 +451,8 @@ private final class HandoffSheetCancellation: @unchecked Sendable {
         }
     }
 }
+
+// MARK: - UI Orchestration
 
 @MainActor
 extension GhosttySurfaceNSView {

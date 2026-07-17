@@ -18,6 +18,10 @@ enum PastedImageFile {
     }
 
     static func cleanup(olderThan cutoff: Date) {
+        cleanup(olderThan: cutoff, in: directoryURL)
+    }
+
+    static func cleanup(olderThan cutoff: Date, in directoryURL: URL) {
         guard
             let urls = try? FileManager.default.contentsOfDirectory(
                 at: directoryURL,
