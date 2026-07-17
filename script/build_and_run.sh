@@ -617,18 +617,25 @@ else
   echo "warning: actool not found (needs full Xcode); skipping app icon — bundle will use a generic icon" >&2
 fi
 
-# Marketing version for the dev bundle, derived from the latest tag (e.g.
-# "0.3.0-16-gb52777d" between releases). Without it, Bundle.main has no
-# CFBundleShortVersionString, TerminalAppearancePreferences can't advertise
-# TERM_PROGRAM_VERSION, and process-tree tools (fastfetch) that read the
-# bundle version off the amx daemon's exe path show nothing useful.
-# Whitelist the characters before interpolating into the plist heredoc: git
-# tag names may contain XML metacharacters ("<', '&', quotes), and a hostile
-# tag on a fetched fork would otherwise inject arbitrary Info.plist keys.
+# Marketing version for the dev bundle, from the latest tag. Without it,
+# Bundle.main has no CFBundleShortVersionString, TerminalAppearancePreferences
+# can't advertise TERM_PROGRAM_VERSION, and process-tree tools (fastfetch)
+# that read the bundle version off the amx daemon's exe path show nothing
+# useful. Only the tag's numeric base survives: between tags `git describe`
+# yields "0.3.0-16-gabc1234", but both CFBundle version keys must be plain
+# period-separated integers or macOS can reject/misread the bundle. The regex
+# gate doubles as the injection guard — git tag names may contain XML
+# metacharacters, and a hostile tag on a fetched fork would otherwise inject
+# arbitrary Info.plist keys into the heredoc below.
 # `|| true`: on a tagless clone (shallow/fork) `git describe` exits 128 and
-# `pipefail` would otherwise kill the script before the fallback below runs.
-APP_VERSION="$(git -C "$ROOT_DIR" describe --tags 2>/dev/null | sed 's/^v//' | tr -cd '0-9A-Za-z.-' || true)"
+# `pipefail` would otherwise kill the script before the fallback runs.
+APP_VERSION="$(git -C "$ROOT_DIR" describe --tags 2>/dev/null | sed 's/^v//; s/[-+].*$//' || true)"
+[[ "$APP_VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || APP_VERSION=""
 APP_VERSION="${APP_VERSION:-0.0.0}"
+# CFBundleVersion wants a monotonic numeric build; commit count fits and keeps
+# successive dev builds distinguishable now that the describe suffix is gone.
+BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || true)"
+BUILD_NUMBER="${BUILD_NUMBER:-0}"
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -640,7 +647,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleShortVersionString</key>
   <string>$APP_VERSION</string>
   <key>CFBundleVersion</key>
-  <string>$APP_VERSION</string>
+  <string>$BUILD_NUMBER</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleIconFile</key>
