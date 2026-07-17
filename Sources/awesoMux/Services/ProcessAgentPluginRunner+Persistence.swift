@@ -104,7 +104,7 @@ extension ProcessAgentPluginRunner {
             )
         )
 
-        var manifest = try pluginManifestStore.loadCurrent()
+        var manifest = try pluginManifestStore.loadCurrentAssumingLock()
         manifest.records.removeAll { $0.provider == provider }
         manifest.records.append(record)
         try saveInstallManifest(manifest)
@@ -132,7 +132,7 @@ extension ProcessAgentPluginRunner {
     }
 
     func removeInstallRecord(provider: AgentPluginProvider) throws {
-        var manifest = try pluginManifestStore.loadCurrent()
+        var manifest = try pluginManifestStore.loadCurrentAssumingLock()
         manifest.records.removeAll { $0.provider == provider }
         try saveInstallManifest(manifest)
     }

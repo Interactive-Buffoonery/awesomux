@@ -443,6 +443,8 @@ private extension Error {
             )
         case .installedFileModified(let url):
             return "Installed file was modified; remove it manually at \(url.path)"
+        case .fileRollbackFailed(let url, _, _):
+            return "Install state could not be saved and file rollback failed at \(url.path). Repair the file manually before retrying."
         case .installStateBusy:
             return "Another awesoMux instance is changing agent integrations; try again"
         }

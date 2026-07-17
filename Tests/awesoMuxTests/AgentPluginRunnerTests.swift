@@ -1155,6 +1155,33 @@ struct AgentPluginRunnerTests {
         #expect(runner.installRecord(provider: .codex)?.pluginRef == Self.codexRef)
     }
 
+    @Test("plugin mutation does not reacquire the install-state lock")
+    func pluginMutationLoadsManifestAssumingExistingLock() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "awesomux-plugin-nested-lock-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let canonical = directory.appending(path: "canonical", directoryHint: .isDirectory)
+        let legacy = directory.appending(path: "legacy", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try Data(#"{"version":999,"records":[]}"#.utf8).write(
+            to: legacy.appending(path: "plugin-install-manifest.json")
+        )
+        let command = StubCommandRunner()
+        command.defaultOutcome = .result(.ok(stdout: ""))
+        let runner = Self.makeRunner(
+            renderedSupport: directory.appending(path: "rendered", directoryHint: .isDirectory),
+            installState: canonical,
+            legacyInstallState: legacy,
+            command: command
+        )
+
+        let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+
+        #expect(outcome.status == .enabled)
+        #expect(outcome.guidance?.contains("install record could not be saved") == false)
+        #expect(runner.installRecord(provider: .claudeCode)?.pluginRef == Self.claudeRef)
+    }
+
     @Test("plugin mutation reports another awesoMux instance holding global state")
     func pluginMutationLockContention() async throws {
         let directory = FileManager.default.temporaryDirectory

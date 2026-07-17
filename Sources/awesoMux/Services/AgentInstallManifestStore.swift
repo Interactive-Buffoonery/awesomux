@@ -44,7 +44,11 @@ struct AgentInstallManifestStore<Manifest: AgentInstallManifest> {
 
     func loadCurrent() throws -> Manifest {
         try importLegacyIfNeeded()
-        return try currentManifest(from: readState(at: manifestURL))
+        return try loadCurrentAssumingLock()
+    }
+
+    func loadCurrentAssumingLock() throws -> Manifest {
+        try currentManifest(from: readState(at: manifestURL))
     }
 
     func loadForMutationRecoveringEmptyUnsupported() throws -> Manifest {
@@ -164,11 +168,17 @@ struct AgentInstallManifestStore<Manifest: AgentInstallManifest> {
         if fileManager.fileExists(atPath: backupURL.path) {
             backupURL = directoryURL.appending(path: "\(stem)-\(UUID().uuidString).json")
         }
-        try fileManager.moveItem(at: manifestURL, to: backupURL)
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: backupURL.path
-        )
+        try fileManager.copyItem(at: manifestURL, to: backupURL)
+        do {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: backupURL.path
+            )
+        } catch {
+            try? fileManager.removeItem(at: backupURL)
+            throw error
+        }
+        try fileManager.removeItem(at: manifestURL)
     }
 
     private func writePrivateFile(_ data: Data, to url: URL) throws {
