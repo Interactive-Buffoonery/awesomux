@@ -209,6 +209,7 @@ final class GhosttySurfaceNSView: NSView {
     /// that ever shows on a profile, gate it on a libghostty content-change signal
     /// once one is exposed to the embedder.
     var visibleStateSamplingTask: Task<Void, Never>?
+    var remoteHandoffTask: Task<Void, Never>?
     static let visibleStateSampleInterval: Duration = .milliseconds(250)
 
     /// Single unsafe storage slot for the libghostty surface handle.
@@ -314,6 +315,8 @@ final class GhosttySurfaceNSView: NSView {
             pendingSurfaceCreationWorkItem = nil
             visibleStateSamplingTask?.cancel()
             visibleStateSamplingTask = nil
+            remoteHandoffTask?.cancel()
+            remoteHandoffTask = nil
             accessibilitySelectionChangeWorkItem?.cancel()
             accessibilitySelectionChangeWorkItem = nil
             accessibilityValueChangeWorkItem?.cancel()

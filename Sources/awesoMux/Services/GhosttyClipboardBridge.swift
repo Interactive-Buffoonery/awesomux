@@ -1,5 +1,6 @@
 import AppKit
 import AwesoMuxConfig
+import Darwin
 import DesignSystem
 import GhosttyKit
 import os
@@ -96,10 +97,6 @@ extension GhosttyRuntime {
         let stateAddress = state.map(UInt.init(bitPattern:))
 
         return onMainThread {
-            guard let pasteString = TerminalPasteboardString.from(NSPasteboard.general) else {
-                return false
-            }
-
             guard let userdata = UnsafeMutableRawPointer(bitPattern: userdataAddress) else {
                 return false
             }
@@ -107,6 +104,19 @@ extension GhosttyRuntime {
             let view = Unmanaged<GhosttySurfaceNSView>
                 .fromOpaque(userdata)
                 .takeUnretainedValue()
+
+            guard let content = TerminalPasteboardString.content(from: NSPasteboard.general) else {
+                return false
+            }
+            if view.pane.executionPlan.remoteTarget != nil,
+                let candidate = TerminalPasteboardString.remoteHandoffCandidate(from: content)
+            {
+                view.beginRemoteHandoff(candidate)
+                return false
+            }
+            guard let pasteString = TerminalPasteboardString.string(from: content) else {
+                return false
+            }
 
             // Propagate completion failure (surface already torn down):
             // libghostty frees the request state it allocated only when this
@@ -912,14 +922,13 @@ extension GhosttyRuntime {
         return nil
     }
 }
-
-private let imagePasteDirectoryName = "awesomux-pasted-images"
+let imagePasteDirectoryName = "awesomux-pasted-images"
 // Long enough that paths handed to a long-running agent thread (Claude Code,
 // etc.) are still readable when the user comes back to the same session.
 private let imagePasteMaxAge: TimeInterval = 24 * 60 * 60
 
 @MainActor
-private enum TerminalPasteboardString {
+enum TerminalPasteboardString {
     private static let log = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
         category: "clipboard-paste"
@@ -930,41 +939,85 @@ private enum TerminalPasteboardString {
     // the user almost always meant the text. Image-materialization fires only
     // when there is no usable text, which is the screenshot / image-only case.
     // Non-file URLs are the final fallback.
-    static func from(_ pasteboard: NSPasteboard) -> String? {
+    enum Content {
+        case fileURLs([URL])
+        case text(String)
+        case png(Data)
+        case tiff(Data)
+        case urls([URL])
+    }
+
+    static func content(from pasteboard: NSPasteboard) -> Content? {
         let allURLs = urls(from: pasteboard)
         let fileURLs = allURLs.filter(\.isFileURL)
         if !fileURLs.isEmpty {
-            return fileURLs
-                .map { TerminalInsertionEscaping.escape($0.path) }
-                .joined(separator: " ")
+            return .fileURLs(fileURLs)
         }
 
         if let text = pasteboard.string(forType: .string), !text.isEmpty {
-            return text
+            return .text(text)
         }
 
-        if let imagePath = materializedImagePath(from: pasteboard) {
-            return TerminalInsertionEscaping.escape(imagePath)
+        if let data = pasteboard.data(forType: .png) {
+            return .png(data)
+        }
+        if let data = pasteboard.data(forType: .tiff) {
+            return .tiff(data)
         }
 
         if !allURLs.isEmpty {
-            return allURLs
-                .map { TerminalInsertionEscaping.escape($0.absoluteString) }
-                .joined(separator: " ")
+            return .urls(allURLs)
         }
 
         return nil
+    }
+
+    static func string(from content: Content) -> String? {
+        switch content {
+        case .fileURLs(let urls):
+            urls.map { TerminalInsertionEscaping.escape($0.path) }.joined(separator: " ")
+        case .text(let text):
+            text
+        case .png(let data):
+            materializedImagePath(fromPNGData: data).map(TerminalInsertionEscaping.escape)
+        case .tiff(let data):
+            pngData(fromTIFFData: data)
+                .flatMap(materializedImagePath(fromPNGData:))
+                .map(TerminalInsertionEscaping.escape)
+        case .urls(let urls):
+            urls.map { TerminalInsertionEscaping.escape($0.absoluteString) }.joined(separator: " ")
+        }
+    }
+
+    static func remoteHandoffCandidate(from content: Content) -> RemoteHandoff.Candidate? {
+        switch content {
+        case .fileURLs(let urls):
+            guard urls.count == 1,
+                ["md", "markdown"].contains(urls[0].pathExtension.lowercased()),
+                !isDirectory(urls[0])
+            else {
+                return nil
+            }
+            return .markdown(urls[0])
+        case .png(let data):
+            return .png(data)
+        case .tiff(let data):
+            return .tiff(data)
+        case .text, .urls:
+            return nil
+        }
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        var status = stat()
+        return lstat(url.path, &status) == 0 && (status.st_mode & S_IFMT) == S_IFDIR
     }
 
     private static func urls(from pasteboard: NSPasteboard) -> [URL] {
         (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL]) ?? []
     }
 
-    private static func materializedImagePath(from pasteboard: NSPasteboard) -> String? {
-        guard let pngData = pngImageData(from: pasteboard) else {
-            return nil
-        }
-
+    private static func materializedImagePath(fromPNGData pngData: Data) -> String? {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(imagePasteDirectoryName, isDirectory: true)
 
@@ -973,27 +1026,18 @@ private enum TerminalPasteboardString {
                 at: directory,
                 withIntermediateDirectories: true
             )
-            let url = directory
+            let url =
+                directory
                 .appendingPathComponent("pasted-image-\(UUID().uuidString)")
                 .appendingPathExtension("png")
             try pngData.write(to: url, options: .atomic)
             return url.path
         } catch {
-            log.error("paste: failed to materialize clipboard image at \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "paste: failed to materialize clipboard image at \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
             return nil
         }
-    }
-
-    // Trust explicit type checks. Skipping the `NSImage(pasteboard:)` fallback
-    // avoids quietly thumbnailing PDFs / EPS / RTFD into a "pasted image."
-    private static func pngImageData(from pasteboard: NSPasteboard) -> Data? {
-        if let data = pasteboard.data(forType: .png) {
-            return data
-        }
-        if let data = pasteboard.data(forType: .tiff) {
-            return pngData(fromTIFFData: data)
-        }
-        return nil
     }
 
     private static func pngData(fromTIFFData data: Data) -> Data? {
@@ -1007,17 +1051,20 @@ private enum TerminalPasteboardString {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(imagePasteDirectoryName, isDirectory: true)
         let cutoff = Date().addingTimeInterval(-imagePasteMaxAge)
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey]
-        ) else {
+        guard
+            let urls = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey]
+            )
+        else {
             return
         }
 
         for url in urls where url.pathExtension.lowercased() == "png" {
             let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
             guard let modificationDate = values?.contentModificationDate,
-                  modificationDate < cutoff else {
+                modificationDate < cutoff
+            else {
                 continue
             }
 
