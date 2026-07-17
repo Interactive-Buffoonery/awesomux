@@ -33,14 +33,14 @@ struct GeneralSettingsPane: View {
                     forwardsHintToControl: false
                 ) {
                     VStack(alignment: .trailing, spacing: 4) {
-Toggle(
-    isOn: Binding(
-        get: { loginItemModel.isRequested },
-        set: { loginItemModel.setRequested($0) }
-    )
-) {
-    Text(Self.openAtLoginLabel)
-}
+                        Toggle(
+                            isOn: Binding(
+                                get: { loginItemModel.isRequested },
+                                set: { loginItemModel.setRequested($0) }
+                            )
+                        ) {
+                            Text(Self.openAtLoginLabel)
+                        }
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .disabled(loginItemModel.status == .unknown || loginItemModel.status == .unavailable)
@@ -65,21 +65,8 @@ Toggle(
                 }
             }
 
-            SettingsSection(index: 2, title: "Sidebar") {
-                SettingsField(
-                    label: "Compact mode",
-                    hint: "Tighter row spacing for users with many sessions in a single workspace.",
-                    isFirst: true,
-                    forwardsAccessibilityToControl: true
-                ) {
-                    Toggle("Sidebar compact mode", isOn: appSettingsStore.general.binding(\.sidebarCompactMode))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-            }
-
             SettingsSection(
-                index: 3,
+                index: 2,
                 title: "Menu bar",
                 subtitle: "Show a tiny attention dot in the macOS menu bar when a workspace needs input."
             ) {

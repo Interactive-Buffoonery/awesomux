@@ -37,17 +37,21 @@ struct TerminalSplitLayoutView: View {
             // glowing escalation (and goes neutral under Increase Contrast), so
             // letting it absorb a needs rail would hide the attention cue for a
             // bottom-of-horizontal-split pane. Keep the loud rail on the pane.
-            // Keyed on `focusAccentAwState` (not the raw rollup) so an
-            // acknowledge-pending pane keeps its peach rail too (INT-721).
+            // Keyed on the active pane's OWN `focusAccentAwState(for:)` (not the
+            // session fold) so only that pane's unacknowledged attention blocks
+            // the absorb — a needy sibling elsewhere paints its own rail instead.
+            let activePaneAccentState = session.focusAccentAwState(
+                forPaneID: session.activePaneID
+            )
             let dividerAbsorbsTopAccent =
                 split.orientation == .horizontal
                 && split.second.isSinglePane
                 && split.second.contains(paneID: session.activePaneID)
-                && session.focusAccentAwState != .needs
-            // Equal to `focusAccentAwState` in this branch (absorb requires it to
-            // be non-`.needs`, which means no ack fold is active).
+                && activePaneAccentState != .needs
+            // The absorbed rail carries the active pane's state (absorb requires
+            // it to be non-`.needs`, so this never paints the escalation hue).
             let dividerFocusState: AwState? =
-                dividerAbsorbsTopAccent ? session.chromeAwState : nil
+                dividerAbsorbsTopAccent ? activePaneAccentState : nil
 
             switch split.orientation {
             case .vertical:

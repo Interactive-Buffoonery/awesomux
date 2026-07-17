@@ -14,7 +14,7 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
         "font-family",
         "font-family-bold",
         "font-family-italic",
-        "font-family-bold-italic"
+        "font-family-bold-italic",
     ]
     private static let catppuccinLatteFaintOpacity = "0.95"
 
@@ -28,7 +28,7 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
         "STY",
         "TMUX",
         "TMUX_PANE",
-        "ZELLIJ"
+        "ZELLIJ",
     ]
 
     public enum EffectiveTheme: Equatable, Sendable {
@@ -68,7 +68,8 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
         self.monoFont = monoFont
         self.fontSize = fontSize
         self.terminalBackgroundMode = terminalBackgroundMode
-        self.terminalBackgroundColor = AppearanceConfig.normalizedTerminalBackgroundColor(terminalBackgroundColor)
+        self.terminalBackgroundColor =
+            AppearanceConfig.normalizedTerminalBackgroundColor(terminalBackgroundColor)
             ?? AppearanceConfig.defaultValue.terminalBackgroundColor
         self.terminalThemeID = terminalThemeID
         self.effectiveTheme = effectiveTheme
@@ -101,14 +102,33 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
         Self.terminalThemeCatalog.provider(for: terminalThemeID)
     }
 
+    /// The app's marketing version, advertised as `TERM_PROGRAM_VERSION`.
+    /// Resolved once from the main bundle; nil outside a real app bundle
+    /// (SwiftPM test runners, bare CLI runs).
+    private static let appVersion: String? =
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+
     public var terminalSpawnEnvironment: [String: String] {
-        [
+        // Identity is awesoMux (ADR-0011 follow-up: process-tree tools see the
+        // `amx` daemon, but env-trusting tools should name the real terminal).
+        // Capability stays `TERM=xterm-ghostty` — that's the signal CLI tools
+        // use for Ghostty features like terminal graphics.
+        var environment = [
             "AWESOMUX": "1",
             "COLORFGBG": terminalColorFGBG,
             "COLORTERM": "truecolor",
             "TERM": "xterm-ghostty",
-            "TERM_PROGRAM": "ghostty"
+            "TERM_PROGRAM": "awesoMux",
         ]
+        // Pair the identity with awesoMux's own version. libghostty injects
+        // TERM_PROGRAM_VERSION=<ghostty version> before applying this dict
+        // (vendor/ghostty src/termio/Exec.zig, env_override wins), so this key
+        // must ALWAYS be set — otherwise the ghostty version sits next to the
+        // awesoMux name. Outside an app bundle (SwiftPM test runners, bare CLI
+        // runs) there's no version to advertise; an empty value reads as unset
+        // to `[[ -n … ]]`-style probes, which beats lying with ghostty's.
+        environment["TERM_PROGRAM_VERSION"] = Self.appVersion ?? ""
+        return environment
     }
 
     /// Merges `environment` with awesoMux's terminal-identity environment,
@@ -263,7 +283,7 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
 
     private var ghosttyFaintOpacity: String? {
         guard ghosttyBackgroundColor != nil,
-              terminalIdentityTheme == .light
+            terminalIdentityTheme == .light
         else {
             return nil
         }
@@ -311,11 +331,11 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
         // control bytes; passing them through to libghostty's config
         // parser is unnecessary attack surface (defense in depth).
         guard !trimmed.isEmpty,
-              trimmed.unicodeScalars.allSatisfy({ scalar in
-                  scalar.value >= 0x20
-                      && scalar.value != 0x7F
-                      && !(0x80...0x9F).contains(scalar.value)
-              })
+            trimmed.unicodeScalars.allSatisfy({ scalar in
+                scalar.value >= 0x20
+                    && scalar.value != 0x7F
+                    && !(0x80...0x9F).contains(scalar.value)
+            })
         else {
             return nil
         }
@@ -365,7 +385,8 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
     }
 
     private var customBackgroundTheme: EffectiveTheme {
-        let background = AppearanceConfig.normalizedTerminalBackgroundColor(terminalBackgroundColor)
+        let background =
+            AppearanceConfig.normalizedTerminalBackgroundColor(terminalBackgroundColor)
             ?? AppearanceConfig.defaultValue.terminalBackgroundColor
         return Self.isLightHex(background) ? .light : .dark
     }
@@ -392,7 +413,8 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
         // like #808080 yields ~0.502 and gets classified light, when its
         // true relative luminance is ~0.216 (dark). 0.5 threshold matches
         // the WCAG "darker than mid-gray" intuition.
-        let luminance = 0.2126 * srgbToLinear(components.red)
+        let luminance =
+            0.2126 * srgbToLinear(components.red)
             + 0.7152 * srgbToLinear(components.green)
             + 0.0722 * srgbToLinear(components.blue)
         return luminance > 0.5
@@ -407,7 +429,8 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
     private static func rgbComponents(_ hex: String) -> (red: Double, green: Double, blue: Double)? {
         let trimmed = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         guard trimmed.count == 6,
-              let value = UInt32(trimmed, radix: 16) else {
+            let value = UInt32(trimmed, radix: 16)
+        else {
             return nil
         }
 

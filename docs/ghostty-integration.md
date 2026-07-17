@@ -106,6 +106,14 @@ Terminal appearance is split between visual config and terminal identity:
   config override.
 - Every surface spawn advertises terminal color capability with
   `TERM=xterm-ghostty`, `COLORTERM=truecolor`, and a light/dark `COLORFGBG`.
+- Identity and capability are deliberately split: `TERM_PROGRAM=awesoMux` (with
+  `TERM_PROGRAM_VERSION` set to the app's bundle version) names the terminal for
+  env-trusting tools, while `TERM=xterm-ghostty` stays the Ghostty-capability
+  signal (ADR-0011 follow-up). Process-tree walkers like fastfetch still see the
+  `amx` daemon's process name; fixing that display requires an upstream
+  fastfetch mapping, not env changes. Background `amx` sessions spawned before
+  an identity change keep their original env until the session itself is
+  recreated — a live process's environment can't be rewritten from outside.
 
 The app runtime is initialized with settings-backed terminal appearance after
 settings bootstrap, so the first surface spawn uses the same terminal identity

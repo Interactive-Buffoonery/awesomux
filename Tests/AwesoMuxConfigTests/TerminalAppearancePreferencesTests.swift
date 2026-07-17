@@ -8,9 +8,10 @@ struct TerminalAppearancePreferencesTests {
     func defaultTerminalAppearanceUsesBundledHackNerdFontMono() {
         #expect(AppearanceConfig.defaultValue.monoFont == TerminalAppearancePreferences.bundledMonoFont)
         #expect(TerminalAppearancePreferences.defaultValue.monoFont == TerminalAppearancePreferences.bundledMonoFont)
-        #expect(TerminalAppearancePreferences.defaultValue.ghosttyOverrideConfigContents.contains(
-            #"font-family = "Hack Nerd Font Mono""#
-        ))
+        #expect(
+            TerminalAppearancePreferences.defaultValue.ghosttyOverrideConfigContents.contains(
+                #"font-family = "Hack Nerd Font Mono""#
+            ))
     }
 
     @Test("appearance config maps terminal font family and size")
@@ -40,14 +41,15 @@ struct TerminalAppearancePreferencesTests {
         // setting `font-family-bold = "JetBrains Mono"` survive and produce a
         // mixed-font terminal. Reset all four; Ghostty derives bold/italic from
         // the regular family when style-specific lists are empty.
-        #expect(preferences.ghosttyOverrideConfigContents == """
-        font-size = 14
-        font-family = ""
-        font-family-bold = ""
-        font-family-italic = ""
-        font-family-bold-italic = ""
-        font-family = "Hack Nerd Font Mono"
-        """)
+        #expect(
+            preferences.ghosttyOverrideConfigContents == """
+                font-size = 14
+                font-family = ""
+                font-family-bold = ""
+                font-family-italic = ""
+                font-family-bold-italic = ""
+                font-family = "Hack Nerd Font Mono"
+                """)
     }
 
     @Test("Ghostty override config emits no font-family override for the system-monospace sentinel")
@@ -148,7 +150,13 @@ struct TerminalAppearancePreferencesTests {
         #expect(dark.terminalSpawnEnvironment["AWESOMUX"] == "1")
         #expect(dark.terminalSpawnEnvironment["COLORTERM"] == "truecolor")
         #expect(dark.terminalSpawnEnvironment["TERM"] == "xterm-ghostty")
-        #expect(dark.terminalSpawnEnvironment["TERM_PROGRAM"] == "ghostty")
+        #expect(dark.terminalSpawnEnvironment["TERM_PROGRAM"] == "awesoMux")
+        // ALWAYS set, so libghostty's own TERM_PROGRAM_VERSION=<ghostty
+        // version> can never sit next to the awesoMux identity. Under the
+        // SwiftPM test runner there is no app bundle, so the contract is
+        // "present, and empty when no bundle version exists" — in the real
+        // app it carries CFBundleShortVersionString.
+        #expect(dark.terminalSpawnEnvironment["TERM_PROGRAM_VERSION"] == "")
         // AWESOMUX appears in both `terminalSpawnEnvironment` (always "1") and
         // `inheritedTerminalContextKeys` (so a parent-supplied value gets
         // stripped before awesoMux's "1" is reapplied). Exclude it from the
@@ -180,7 +188,7 @@ struct TerminalAppearancePreferencesTests {
             "TERM_PROGRAM": "Ghostty",
             "TMUX": "/tmp/tmux-501/default,1,0",
             "TMUX_PANE": "%1",
-            "ZELLIJ": "1"
+            "ZELLIJ": "1",
         ])
 
         #expect(merged["AWESOMUX_SESSION_ID"] == "session-1")
@@ -189,7 +197,7 @@ struct TerminalAppearancePreferencesTests {
         #expect(merged["COLORTERM"] == "truecolor")
         #expect(merged["NO_COLOR"] == "1")
         #expect(merged["TERM"] == "xterm-ghostty")
-        #expect(merged["TERM_PROGRAM"] == "ghostty")
+        #expect(merged["TERM_PROGRAM"] == "awesoMux")
         // AWESOMUX is asserted above as "1" — awesoMux strips an inherited
         // value, then reapplies its own identity. Other inherited keys must
         // be fully absent.
@@ -207,7 +215,7 @@ struct TerminalAppearancePreferencesTests {
         let merged = TerminalAppearancePreferences.defaultValue.environmentForTerminalSpawn(
             merging: [
                 "AWESOMUX_COMPACT_TERMINAL": "1",
-                "AWESOMUX_FLOATING_PANEL": "1"
+                "AWESOMUX_FLOATING_PANEL": "1",
             ]
         )
         #expect(merged["AWESOMUX_COMPACT_TERMINAL"] == "1")
@@ -230,7 +238,7 @@ struct TerminalAppearancePreferencesTests {
             "GHOSTTY_SURFACE_ID": "42",
             "CMUX_SOCKET": "/tmp/cmux.sock",
             "CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION": "1",
-            "PATH": "/usr/bin"
+            "PATH": "/usr/bin",
         ])
 
         #expect(merged["GHOSTTY_RESOURCES_DIR"] == nil)
@@ -281,7 +289,7 @@ struct TerminalAppearancePreferencesTests {
             ["LC_CTYPE": "ja_JP.UTF-8"],
             ["LC_ALL": "de_DE.UTF-8"],
             ["LANG": "C", "LC_CTYPE": "en_GB.UTF-8"],  // LC_CTYPE wins over LANG
-            ["LANG": "C", "LC_ALL": "fr_FR.utf8"]      // unhyphenated form
+            ["LANG": "C", "LC_ALL": "fr_FR.utf8"],  // unhyphenated form
         ]
         for environment in utf8Environments {
             #expect(
@@ -384,52 +392,52 @@ struct TerminalAppearancePreferencesTests {
     }
 
     private static let mochaColorLines = """
-    palette = 0=#45475a
-    palette = 1=#f38ba8
-    palette = 2=#a6e3a1
-    palette = 3=#f9e2af
-    palette = 4=#89b4fa
-    palette = 5=#f5c2e7
-    palette = 6=#94e2d5
-    palette = 7=#a6adc8
-    palette = 8=#585b70
-    palette = 9=#f37799
-    palette = 10=#89d88b
-    palette = 11=#ebd391
-    palette = 12=#74a8fc
-    palette = 13=#f2aede
-    palette = 14=#6bd7ca
-    palette = 15=#bac2de
-    foreground = #cdd6f4
-    cursor-color = #f5e0dc
-    cursor-text = #1e1e2e
-    selection-background = #585b70
-    selection-foreground = #cdd6f4
-    """
+        palette = 0=#45475a
+        palette = 1=#f38ba8
+        palette = 2=#a6e3a1
+        palette = 3=#f9e2af
+        palette = 4=#89b4fa
+        palette = 5=#f5c2e7
+        palette = 6=#94e2d5
+        palette = 7=#a6adc8
+        palette = 8=#585b70
+        palette = 9=#f37799
+        palette = 10=#89d88b
+        palette = 11=#ebd391
+        palette = 12=#74a8fc
+        palette = 13=#f2aede
+        palette = 14=#6bd7ca
+        palette = 15=#bac2de
+        foreground = #cdd6f4
+        cursor-color = #f5e0dc
+        cursor-text = #1e1e2e
+        selection-background = #585b70
+        selection-foreground = #cdd6f4
+        """
 
     private static let latteColorLines = """
-    palette = 0=#5c5f77
-    palette = 1=#d20f39
-    palette = 2=#40a02b
-    palette = 3=#df8e1d
-    palette = 4=#1e66f5
-    palette = 5=#ea76cb
-    palette = 6=#179299
-    palette = 7=#acb0be
-    palette = 8=#6c6f85
-    palette = 9=#de293e
-    palette = 10=#49af3d
-    palette = 11=#eea02d
-    palette = 12=#456eff
-    palette = 13=#fe85d8
-    palette = 14=#2d9fa8
-    palette = 15=#bcc0cc
-    foreground = #4c4f69
-    cursor-color = #dc8a78
-    cursor-text = #eff1f5
-    selection-background = #acb0be
-    selection-foreground = #4c4f69
-    """
+        palette = 0=#5c5f77
+        palette = 1=#d20f39
+        palette = 2=#40a02b
+        palette = 3=#df8e1d
+        palette = 4=#1e66f5
+        palette = 5=#ea76cb
+        palette = 6=#179299
+        palette = 7=#acb0be
+        palette = 8=#6c6f85
+        palette = 9=#de293e
+        palette = 10=#49af3d
+        palette = 11=#eea02d
+        palette = 12=#456eff
+        palette = 13=#fe85d8
+        palette = 14=#2d9fa8
+        palette = 15=#bcc0cc
+        foreground = #4c4f69
+        cursor-color = #dc8a78
+        cursor-text = #eff1f5
+        selection-background = #acb0be
+        selection-foreground = #4c4f69
+        """
 
     // Byte-exact acceptance pin for INT-654: the provider refactor must
     // reproduce the pre-seam generated config for every mode x theme cell.
@@ -447,37 +455,37 @@ struct TerminalAppearancePreferencesTests {
             GhosttyConfigMatrixCase(
                 mode: .catppuccinTheme, effectiveTheme: .dark, customHex: "#1e1e2e",
                 expected: """
-                font-size = 13
-                \(mochaColorLines)
-                background = #1e1e2e
-                """
+                    font-size = 13
+                    \(mochaColorLines)
+                    background = #1e1e2e
+                    """
             ),
             GhosttyConfigMatrixCase(
                 mode: .catppuccinTheme, effectiveTheme: .light, customHex: "#eff1f5",
                 expected: """
-                font-size = 13
-                \(latteColorLines)
-                faint-opacity = 0.95
-                background = #eff1f5
-                """
+                    font-size = 13
+                    \(latteColorLines)
+                    faint-opacity = 0.95
+                    background = #eff1f5
+                    """
             ),
             GhosttyConfigMatrixCase(
                 mode: .custom, effectiveTheme: .dark, customHex: "#11111b",
                 expected: """
-                font-size = 13
-                \(mochaColorLines)
-                background = #11111b
-                """
+                    font-size = 13
+                    \(mochaColorLines)
+                    background = #11111b
+                    """
             ),
             GhosttyConfigMatrixCase(
                 mode: .custom, effectiveTheme: .dark, customHex: "#DCE0E8",
                 expected: """
-                font-size = 13
-                \(latteColorLines)
-                faint-opacity = 0.95
-                background = #dce0e8
-                """
-            )
+                    font-size = 13
+                    \(latteColorLines)
+                    faint-opacity = 0.95
+                    background = #dce0e8
+                    """
+            ),
         ]
     )
     func generatedGhosttyConfigIsByteExactAcrossModeThemeMatrix(
@@ -556,7 +564,7 @@ struct TerminalAppearancePreferencesTests {
         let samples = [
             ("foreground", colors.foreground),
             ("palette0", colors.palette0),
-            ("palette1", colors.palette1)
+            ("palette1", colors.palette1),
         ]
 
         for (label, sample) in samples {
@@ -633,7 +641,7 @@ struct TerminalAppearancePreferencesTests {
         let bel = TerminalAppearancePreferences(monoFont: "Hack\u{07}Mono", fontSize: 13)
         let tab = TerminalAppearancePreferences(monoFont: "Hack\tMono", fontSize: 13)
         let del = TerminalAppearancePreferences(monoFont: "Hack\u{7F}Mono", fontSize: 13)
-        let c1  = TerminalAppearancePreferences(monoFont: "Hack\u{80}Mono", fontSize: 13)
+        let c1 = TerminalAppearancePreferences(monoFont: "Hack\u{80}Mono", fontSize: 13)
 
         #expect(bel.ghosttyOverrideConfigContents == "font-size = 13")
         #expect(tab.ghosttyOverrideConfigContents == "font-size = 13")
@@ -723,7 +731,8 @@ struct TerminalAppearancePreferencesTests {
         guard let hex else { return nil }
         let trimmed = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         guard trimmed.count == 6,
-              let value = UInt32(trimmed, radix: 16) else {
+            let value = UInt32(trimmed, radix: 16)
+        else {
             return nil
         }
 

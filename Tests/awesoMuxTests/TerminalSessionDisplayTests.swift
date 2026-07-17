@@ -203,11 +203,12 @@ struct TerminalSessionDisplayTests {
         let split = TerminalSession(
             title: "split",
             workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(shell),
-                second: .pane(codex)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(shell),
+                    second: .pane(codex)
+                )),
             activePaneID: shell.id
         )
 
@@ -216,12 +217,12 @@ struct TerminalSessionDisplayTests {
     }
 }
 
-@Suite("Pane focus accent state (INT-721)")
+@Suite("Pane focus accent state (pane-scoped; supersedes INT-721)")
 struct FocusAccentAwStateTests {
-    /// The INT-506 divergence the fix targets: a dead pane keeping a low-priority
+    /// The INT-506 divergence the fold targets: a dead pane keeping a low-priority
     /// attention reason reads as its recovery hint (not `.needsAttention`), so the
-    /// execution rollup leaves `.needs` while `needsAcknowledgement` (and the
-    /// banner) stay up. The focus rail must follow the banner, not the rollup.
+    /// execution state leaves `.needs` while `needsAcknowledgement` (and the
+    /// banner) stay up. The pane's rail must follow the ledger, not the rollup.
     @Test("focus accent stays needs while acknowledgement pends but rollup left needs")
     func focusAccentFollowsAcknowledgementLedgerNotRollup() {
         let deadWithBell = TerminalPane(
@@ -237,20 +238,25 @@ struct FocusAccentAwStateTests {
         // Pin the divergence: banner up, rollup off `.needs`…
         #expect(session.needsAcknowledgement)
         #expect(session.chromeAwState != .needs)
-        // …but the focus rail stays peach so it agrees with the banner above it.
-        #expect(session.focusAccentAwState == .needs)
+        // …but the pane's rail stays peach so it agrees with the banner above it.
+        #expect(session.focusAccentAwState(for: deadWithBell) == .needs)
     }
 
-    @Test("focus accent equals the rollup when nothing needs acknowledgement")
-    func focusAccentEqualsRollupWithoutAcknowledgement() {
-        let idle = TerminalSession(
+    @Test("focus accent equals the pane's chrome state without acknowledgement")
+    func focusAccentEqualsPaneChromeStateWithoutAcknowledgement() {
+        let idle = TerminalPane(
             title: "shell", workingDirectory: "~", agentKind: .shell,
-            agentState: .idle, shellActivity: .idle
+            shellActivity: .idle,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "shell", workingDirectory: "~",
+            layout: .pane(idle), activePaneID: idle.id
         )
 
-        #expect(!idle.needsAcknowledgement)
-        #expect(idle.focusAccentAwState == idle.chromeAwState)
-        #expect(idle.focusAccentAwState != .needs)
+        #expect(!session.needsAcknowledgement)
+        #expect(session.focusAccentAwState(for: idle) == idle.effectiveChromeState.awState)
+        #expect(session.focusAccentAwState(for: idle) != .needs)
     }
 
     @Test("a live needs pane already resolves to needs on both planes")
@@ -266,15 +272,15 @@ struct FocusAccentAwStateTests {
         )
 
         #expect(session.chromeAwState == .needs)
-        #expect(session.focusAccentAwState == .needs)
+        #expect(session.focusAccentAwState(for: prompting) == .needs)
     }
 
-    /// Session-vs-pane scoping trap: `needsAcknowledgement` is session-scoped, the
-    /// stripe is the active pane's. A needy background sibling holds the banner up,
-    /// so the active (idle) pane's rail follows it — matching the session-scoped
-    /// banner, even though the active pane itself isn't needy.
-    @Test("focus accent follows a needy background sibling in a split")
-    func focusAccentFollowsNeedySiblingInSplit() {
+    /// The scoping fix that superseded INT-721's session fold: a needy background
+    /// sibling used to turn the *focused* pane's rail peach, so the rail couldn't
+    /// identify which pane wanted input. Now the peach rail belongs to the needy
+    /// pane and the focused idle pane keeps its normal accent.
+    @Test("focus accent stays on the needy pane, not its focused sibling")
+    func focusAccentStaysOnNeedyPaneNotFocusedSibling() {
         let idleActive = TerminalPane(
             title: "shell", workingDirectory: "~", agentKind: .shell,
             shellActivity: .idle,
@@ -287,16 +293,37 @@ struct FocusAccentAwStateTests {
         )
         let split = TerminalSession(
             title: "split", workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .horizontal,
-                first: .pane(idleActive),
-                second: .pane(deadWithBell)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .horizontal,
+                    first: .pane(idleActive),
+                    second: .pane(deadWithBell)
+                )),
             activePaneID: idleActive.id
         )
 
+        // Banner still session-scoped…
         #expect(split.needsAcknowledgement)
-        #expect(split.chromeAwState != .needs)
-        #expect(split.focusAccentAwState == .needs)
+        // …but only the needy pane's rail goes peach.
+        #expect(split.focusAccentAwState(for: idleActive) != .needs)
+        #expect(split.focusAccentAwState(for: deadWithBell) == .needs)
+        // ID-keyed lookup (the split divider's path) agrees with the direct one.
+        #expect(split.focusAccentAwState(forPaneID: idleActive.id) != .needs)
+        #expect(split.focusAccentAwState(forPaneID: deadWithBell.id) == .needs)
+    }
+
+    @Test("ID lookup for a stale or missing pane renders as a plain rail")
+    func focusAccentIDLookupFallsBackToIdle() {
+        let idle = TerminalPane(
+            title: "shell", workingDirectory: "~", agentKind: .shell,
+            shellActivity: .idle,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "shell", workingDirectory: "~",
+            layout: .pane(idle), activePaneID: idle.id
+        )
+
+        #expect(session.focusAccentAwState(forPaneID: UUID()) == .idle)
     }
 }
