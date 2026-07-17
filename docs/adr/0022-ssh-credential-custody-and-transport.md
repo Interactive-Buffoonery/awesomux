@@ -19,8 +19,9 @@ terminal between the user and `ssh`, exactly as in any terminal — awesoMux
 neither sees nor persists it.
 
 awesoMux injects only *transport* configuration it fully owns: connection
-multiplexing (`ControlMaster`/`ControlPath`/`ControlPersist`) and keepalive
-(`ServerAliveInterval`). These carry no secrets. Agent forwarding remains under
+multiplexing (`ControlMaster`/`ControlPath`/`ControlPersist`), bounded connection
+setup (`ConnectTimeout=10`), and keepalive (`ServerAliveInterval`). These carry no
+secrets. Agent forwarding remains under
 the user's existing OpenSSH configuration, like authentication, host aliases,
 proxy settings, and other host-specific behavior. awesoMux does not enable it,
 but it also does not override an explicit per-host `ForwardAgent yes`. Users

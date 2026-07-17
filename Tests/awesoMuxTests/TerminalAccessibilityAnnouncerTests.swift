@@ -4,6 +4,18 @@ import Testing
 @MainActor
 @Suite("Terminal accessibility announcements")
 struct TerminalAccessibilityAnnouncerTests {
+    @Test("settings errors are announced when present")
+    func settingsErrors() {
+        var announcements: [String] = []
+
+        TerminalAccessibilityAnnouncer.announceSettingsError(nil) { announcements.append($0) }
+        TerminalAccessibilityAnnouncer.announceSettingsError("Could not save settings") {
+            announcements.append($0)
+        }
+
+        #expect(announcements == ["Could not save settings"])
+    }
+
     @Test("workspace close announcement for clean or unknown process exit")
     func workspaceCloseAnnouncementForCleanOrUnknownExit() {
         #expect(

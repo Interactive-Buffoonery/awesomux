@@ -219,22 +219,23 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
             return await fetchOverride(reference)
         }
         return await runner.run(
-            arguments: sshArguments(target: reference.sshTarget, path: reference.remotePath),
+            arguments: Self.sshArguments(target: reference.sshTarget, path: reference.remotePath),
             inDirectory: FileManager.default.currentDirectoryPath
         )
     }
 
-    private func sshArguments(target: String, path: String) -> [String] {
+    static func sshArguments(target: String, path: String) -> [String] {
         [
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=5",
             "-o", "NumberOfPasswordPrompts=0",
+            "--",
             target,
             remoteReadCommand(path: path),
         ]
     }
 
-    private func remoteReadCommand(path: String) -> String {
+    private static func remoteReadCommand(path: String) -> String {
         let quotedPath = Self.shellSingleQuoted(path)
         return
             "p=\(quotedPath); case \"$p\" in \"~/\"*) p=\"$HOME/${p#~/}\";; esac; [ -f \"$p\" ] || exit 1; size=$(wc -c < \"$p\") || exit 1; [ \"$size\" -le \(DocumentURLValidator.maxFileSizeBytes) ] || exit 2; cat -- \"$p\""

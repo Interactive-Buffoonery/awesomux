@@ -58,8 +58,9 @@ would require a separate decision and demonstrated user need.
 ### 3. OpenSSH owns transport and credentials
 
 awesoMux never stores, prompts for, caches, or transmits passwords,
-passphrases, or keys. It supplies only the connection multiplexing and keepalive
-options defined by ADR-0022. Host-specific OpenSSH configuration remains
+passphrases, or keys. It supplies only the connection multiplexing, bounded
+connection setup, and keepalive options defined by ADR-0022. Host-specific
+OpenSSH configuration remains
 authoritative, including proxying and agent-forwarding choices.
 
 A remote pane that cannot build its declared command fails visibly. It never
