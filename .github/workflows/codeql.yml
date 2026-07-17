@@ -102,3 +102,25 @@ jobs:
 
       - name: Analyze
         uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+
+  complete:
+    name: CodeQL complete
+    if: always()
+    needs: [interpreted, swift]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify every analysis completed successfully
+        env:
+          INTERPRETED_RESULT: ${{ needs.interpreted.result }}
+          SWIFT_RESULT: ${{ needs.swift.result }}
+        run: |
+          set -euo pipefail
+
+          printf 'Interpreted analyses: %s\n' "$INTERPRETED_RESULT"
+          printf 'Swift analysis: %s\n' "$SWIFT_RESULT"
+
+          if [[ "$INTERPRETED_RESULT" != "success" || "$SWIFT_RESULT" != "success" ]]; then
+            echo "::error::one or more CodeQL analysis jobs did not succeed"
+            exit 1
+          fi
