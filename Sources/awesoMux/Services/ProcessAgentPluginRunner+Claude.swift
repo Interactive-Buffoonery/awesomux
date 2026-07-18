@@ -141,16 +141,45 @@ extension ProcessAgentPluginRunner {
         let root = tree.marketplaceRootURL.path
         let env = claudeEnvironment(setup: setup)
 
-        // validate → marketplace add → install. Each is a distinct argv (the
-        // confirmation sheet pre-named all three); a failure at any step surfaces
-        // that step's diagnostics verbatim. `validate` is read-only; the
-        // marketplace-add and install steps mutate, so only they arm the
-        // repairable-failure path.
-        let steps: [MutationStep] = [
-            MutationStep(["plugin", "validate", root], mutates: false),
-            MutationStep(["plugin", "marketplace", "add", root]),
-            MutationStep(["plugin", "install", ref.pluginRef, "--scope", "user"])
+        // validate → [uninstall stale install] → marketplace add → install. Each
+        // is a distinct argv (the confirmation sheet pre-named them); a failure
+        // at any step surfaces that step's diagnostics verbatim. `validate` is
+        // read-only; the uninstall, marketplace-add, and install steps mutate,
+        // so only they arm the repairable-failure path.
+        var steps: [MutationStep] = [
+            MutationStep(["plugin", "validate", root], mutates: false)
         ]
+        // `claude plugin install` keys its cache on the plugin manifest version,
+        // which awesoMux never changes — reinstalling over an existing install
+        // no-ops and keeps the previously baked hook config, including a dead
+        // dev dist/ helper path (INT-651). A recorded install whose baked
+        // content drifted must be uninstalled first so the install re-pulls the
+        // fresh render. The uninstall targets the *recorded* install (its
+        // executable, config home, and ref), and sits after the read-only
+        // validate so a malformed render can never remove a working install.
+        // Its failure aborts before install — recordInstall then never rewrites
+        // the record, so the staleness gate re-fires on the next attempt
+        // instead of being silenced by a "successful" no-op install.
+        if let staleRecord = staleCachedInstallRecord(provider: .claudeCode, tree: tree) {
+            let recordedSetup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
+            let recordedExecutable = resolvedExecutable(provider: .claudeCode, setup: recordedSetup)
+            let recordedEnv = claudeEnvironment(setup: recordedSetup)
+            if await claudePluginInstalled(
+                ref: staleRecord.pluginRef,
+                executable: recordedExecutable,
+                env: recordedEnv
+            ) {
+                steps.append(
+                    MutationStep(
+                        ["plugin", "uninstall", staleRecord.pluginRef.pluginRef, "--scope", "user"],
+                        executable: recordedExecutable,
+                        env: recordedEnv
+                    )
+                )
+            }
+        }
+        steps.append(MutationStep(["plugin", "marketplace", "add", root]))
+        steps.append(MutationStep(["plugin", "install", ref.pluginRef, "--scope", "user"]))
         if let failure = await runMutationSteps(
             executable: executable,
             steps: steps,
@@ -175,8 +204,10 @@ extension ProcessAgentPluginRunner {
     func claudeDisable(setup: AgentIntegrationSetup) async -> AgentPluginActionOutcome {
         let setup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
         let executable = resolvedExecutable(provider: .claudeCode, setup: setup)
-        guard let ref = effectiveRefForRecordedInstall(provider: .claudeCode)
-            ?? (try? marketplaceRef(provider: .claudeCode)) else {
+        guard
+            let ref = effectiveRefForRecordedInstall(provider: .claudeCode)
+                ?? (try? marketplaceRef(provider: .claudeCode))
+        else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
         // `disable` takes no scope (contract §1.2).
@@ -198,8 +229,10 @@ extension ProcessAgentPluginRunner {
     func claudeUninstall(setup: AgentIntegrationSetup) async -> AgentPluginActionOutcome {
         let setup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
         let executable = resolvedExecutable(provider: .claudeCode, setup: setup)
-        guard let ref = effectiveRefForRecordedInstall(provider: .claudeCode)
-            ?? (try? marketplaceRef(provider: .claudeCode)) else {
+        guard
+            let ref = effectiveRefForRecordedInstall(provider: .claudeCode)
+                ?? (try? marketplaceRef(provider: .claudeCode))
+        else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
         let env = claudeEnvironment(setup: setup)
@@ -209,7 +242,7 @@ extension ProcessAgentPluginRunner {
         // takes `--scope user`.
         let steps: [MutationStep] = [
             MutationStep(["plugin", "uninstall", ref.pluginRef, "--scope", "user"]),
-            MutationStep(["plugin", "marketplace", "remove", ref.marketplaceName, "--scope", "user"])
+            MutationStep(["plugin", "marketplace", "remove", ref.marketplaceName, "--scope", "user"]),
         ]
         if let failure = await runMutationSteps(
             executable: executable,
@@ -241,20 +274,47 @@ extension ProcessAgentPluginRunner {
         case .enableOrInstall, .repair:
             [
                 "claude plugin validate [generated awesoMux marketplace path]",
+                "claude plugin uninstall \(ref.pluginRef) --scope user (only when replacing a stale install)",
                 "claude plugin marketplace add [generated awesoMux marketplace path]",
-                "claude plugin install \(ref.pluginRef) --scope user"
+                "claude plugin install \(ref.pluginRef) --scope user",
             ]
         case .disable:
             ["claude plugin disable \(ref.pluginRef)"]
         case .uninstall:
             [
                 "claude plugin uninstall \(ref.pluginRef) --scope user",
-                "claude plugin marketplace remove \(ref.marketplaceName) --scope user"
+                "claude plugin marketplace remove \(ref.marketplaceName) --scope user",
             ]
         }
     }
 
     // MARK: Internals
+
+    /// Read-only presence probe for the clean-reinstall path. An unreadable or
+    /// unparseable list counts as installed: the staleness gate only fires with
+    /// a recorded install, and requiring the uninstall to succeed is safer than
+    /// skipping it and letting a stale cached copy survive a "successful"
+    /// reinstall — the exact silent failure INT-651 exists to prevent. Only a
+    /// definitive "not listed" (out-of-band manual uninstall) skips the step.
+    private func claudePluginInstalled(
+        ref: AgentPluginMarketplaceRef,
+        executable: String,
+        env: [String: String]
+    ) async -> Bool {
+        guard
+            let result = try? await commandRunner.run(
+                executable: executable,
+                args: ["plugin", "list", "--json"],
+                env: env,
+                cwd: nil
+            ),
+            result.isSuccess,
+            let entries = try? ClaudePluginList.parse(result.stdout)
+        else {
+            return true
+        }
+        return entries.contains { $0.matches(ref) }
+    }
 
     /// A note when the live Config home field diverges from the home the recorded
     /// install actually targeted. Status/disable/uninstall follow the recorded
@@ -267,7 +327,8 @@ extension ProcessAgentPluginRunner {
         let recordedHome = record.configHome
         let liveHome = claudeConfigHome(setup: liveSetup).path
         guard recordedHome != liveHome else { return nil }
-        return "Actions target the recorded config home \(recordedHome); the Config home field now points at \(liveHome). Repair to move the install, or restore the field to keep using the recorded home."
+        return
+            "Actions target the recorded config home \(recordedHome); the Config home field now points at \(liveHome). Repair to move the install, or restore the field to keep using the recorded home."
     }
 
     func claudeConfigHome(setup: AgentIntegrationSetup) -> URL {
