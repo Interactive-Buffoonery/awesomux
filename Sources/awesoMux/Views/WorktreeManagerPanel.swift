@@ -104,7 +104,13 @@ struct WorktreeManagerPanel: View {
             if rows.isEmpty {
                 errorState(message)
             } else {
-                rowList(rows: rows, errorMessage: openError ?? message)
+                // `message` is this refresh's own failure and is always the
+                // more current fact than a stale `openError` from a PRIOR
+                // Open attempt (which only clears on Open success, not on
+                // refresh) — showing it unconditionally here, rather than
+                // `openError ?? message`, keeps the banner honest about
+                // what just happened.
+                rowList(rows: rows, errorMessage: message)
             }
         }
     }
