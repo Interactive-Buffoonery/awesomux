@@ -660,10 +660,12 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     override func mouseExited(with event: NSEvent) {
         logMouseDiagnostic(event: "mouse-exited", extra: "gated=\(!self.hasNoMouseButtonHeld)")
 
-        // Pointer left the surface — no link is hovered anymore. libghostty also
-        // emits a nil `MOUSE_OVER_LINK` shortly, but dismiss here too so the peek
-        // doesn't linger the full grace window after the cursor is gone.
-        dismissLinkPeek()
+        // Pointer left the surface — schedule the graced dismiss rather than an
+        // immediate one: a `.maxY` popover flipped below a top-edge anchor covers
+        // the cursor and fires a transient `mouseExited`, and an instant dismiss
+        // here would close the peek the moment it opened (review finding). A
+        // genuine departure still dismisses after the short grace.
+        scheduleLinkPeekDismiss()
 
         guard let surface else {
             return
