@@ -227,7 +227,7 @@ struct WorktreeManagerPanel: View {
                 // Component-aware, not character-aware: plain `.middle`
                 // truncation on the raw string can land inside the leaf
                 // directory name itself on these long
-                // `<repo>-worktrees/<branch>` paths, which reads as noise
+                // `<repo>/.worktrees/<branch>` paths, which reads as noise
                 // rather than a recognizable path. `.truncationMode(.middle)`
                 // stays on as a fallback for a leaf name too long on its own.
                 Text(WorktreePathDisplay.condensed(row.record.canonicalPath.path))

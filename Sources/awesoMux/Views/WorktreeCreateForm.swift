@@ -97,7 +97,12 @@ struct WorktreeCreateForm: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520)
+        // 520 clipped Target path mid-word with no ellipsis for anything but
+        // the shortest branch names (round-4 smoke). 640 matches
+        // WorktreeManagerController's panel width — still no truncation
+        // affordance for a very deep home directory, but that's a real
+        // AppKit-level fix (head-truncating NSTextField), not a width tweak.
+        .frame(width: 640)
         .fixedSize(horizontal: false, vertical: true)
         .interactiveDismissDisabled(isBusy)
         .task { await loadBranches() }
@@ -143,7 +148,7 @@ struct WorktreeCreateForm: View {
     }
 
     // Shown as the field's grayed prompt even when `suggestPath()` can't
-    // pre-fill for real (the sibling `-worktrees` container doesn't exist
+    // pre-fill for real (the repo's `.worktrees` container doesn't exist
     // yet) — otherwise a first-time create has a bare empty field with no
     // hint at all about where the worktree will land.
     private var targetPathPlaceholder: String {
@@ -161,13 +166,20 @@ struct WorktreeCreateForm: View {
         panel.message = String(
             localized: "Choose the folder that will contain the new worktree.",
             comment: "Worktree target path picker guidance message.")
-        if let parent = existingParentDirectoryURL() {
-            panel.directoryURL = parent
-        }
+        panel.directoryURL = startingDirectoryForChoosePanel()
         guard panel.runModal() == .OK, let chosen = panel.url else { return }
         let name = mode == .existing ? selectedBranch : newBranchName
         let component = policy.sanitizedPathComponent(name)
         targetPath = component.isEmpty ? chosen.path : chosen.appendingPathComponent(component, isDirectory: true).path
+    }
+
+    // A bare NSOpenPanel opens wherever the user last browsed — not this
+    // repo — which is how round-4 smoke ended up with "/test" (picked the
+    // volume root, then appended the branch name). Prefer the already-typed
+    // path's parent (refining an existing choice); fall back to the repo
+    // root itself, which always exists, rather than the system default.
+    private func startingDirectoryForChoosePanel() -> URL {
+        existingParentDirectoryURL() ?? model.repositoryContext.invocationRoot
     }
 
     private func existingParentDirectoryURL() -> URL? {

@@ -6,7 +6,7 @@ import Testing
 struct GitWorktreeCreatePolicyTests {
     private let policy = GitWorktreeCreatePolicy()
 
-    @Test("suggestion is available only when the sibling container exists")
+    @Test("suggestion is available only when the .worktrees container exists")
     func suggestionRequiresExistingContainer() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -16,13 +16,12 @@ struct GitWorktreeCreatePolicyTests {
             invocationRoot: repo, canonicalCommonGitDirectory: repo.appendingPathComponent(".git"), displayName: "repo")
 
         #expect(policy.suggestedTargetPath(repositoryContext: context, branchName: "feature/foo") == nil)
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("repo-worktrees"), withIntermediateDirectories: true)
-        #expect(
-            policy.suggestedTargetPath(repositoryContext: context, branchName: "feature/foo")?.path.hasSuffix("repo-worktrees/feature-foo")
-                == true)
+        try FileManager.default.createDirectory(at: repo.appendingPathComponent(".worktrees"), withIntermediateDirectories: true)
+        let expected = repo.appendingPathComponent(".worktrees", isDirectory: true).appendingPathComponent("feature-foo", isDirectory: true)
+        #expect(policy.suggestedTargetPath(repositoryContext: context, branchName: "feature/foo")?.path == expected.path)
     }
 
-    @Test("candidate target path is available even without the sibling container")
+    @Test("candidate target path is available even without the .worktrees container, pinned for a named branch")
     func candidateIgnoresContainerExistence() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -31,13 +30,26 @@ struct GitWorktreeCreatePolicyTests {
         let context = GitRepositoryContext(
             invocationRoot: repo, canonicalCommonGitDirectory: repo.appendingPathComponent(".git"), displayName: "repo")
 
-        // No "repo-worktrees" container exists yet — the gated suggestion is
-        // nil, but the candidate (used as the form's placeholder hint) still
-        // resolves.
-        #expect(policy.suggestedTargetPath(repositoryContext: context, branchName: "feature/foo") == nil)
-        #expect(
-            policy.candidateTargetPath(repositoryContext: context, branchName: "feature/foo")?.path.hasSuffix(
-                "repo-worktrees/feature-foo") == true)
+        // No ".worktrees" container exists yet — the gated suggestion is nil,
+        // but the candidate (used as the form's placeholder hint) still
+        // resolves, pinned to the exact path (round-4 smoke: "I still don't
+        // get what the pre-filled text is" — it must read as an obvious,
+        // full, real path, not just "hasSuffix" close-enough).
+        #expect(policy.suggestedTargetPath(repositoryContext: context, branchName: "test-branch") == nil)
+        let expected = repo.appendingPathComponent(".worktrees", isDirectory: true).appendingPathComponent("test-branch", isDirectory: true)
+        #expect(policy.candidateTargetPath(repositoryContext: context, branchName: "test-branch")?.path == expected.path)
+    }
+
+    @Test("sanitized path component keeps internal and trailing hyphens from a branch name")
+    func sanitizationKeepsHyphens() {
+        // Regression for round-4 smoke: trimming "-" like ".", " " truncated
+        // a live-typed "test-" (before "branch" lands) down to "test".
+        #expect(policy.sanitizedPathComponent("test-branch") == "test-branch")
+        #expect(policy.sanitizedPathComponent("test-") == "test-")
+        #expect(policy.sanitizedPathComponent("-leading") == "-leading")
+        // Dots and spaces still trim — a leaf named "." or with stray
+        // whitespace is the actual hazard this trim exists to avoid.
+        #expect(policy.sanitizedPathComponent(" test-branch. ") == "test-branch")
     }
 
     @Test("validation covers absolute parent target overlap and blank branch rules")
