@@ -154,7 +154,15 @@ struct AboutWindowView: View {
         .frame(width: 360)
         .background(Color.aw.surface.window)
         .background(
-            WindowChromeConfigurator(windowRole: .about, standardWindowButtonVisibility: .closeOnly))
+            // reassertsOnBecomeKey mirrors SettingsShell: AppKit can restore
+            // standard-button visibility on become-key (e.g. Cmd-Tab away and
+            // back), so the close-only chrome must be re-applied then.
+            WindowChromeConfigurator(
+                windowRole: .about,
+                reassertsOnBecomeKey: true,
+                standardWindowButtonVisibility: .closeOnly
+            )
+            .allowsHitTesting(false))
     }
 
     private var identity: some View {
