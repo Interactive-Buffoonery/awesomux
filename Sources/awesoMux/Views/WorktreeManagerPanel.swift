@@ -4,7 +4,16 @@ import SwiftUI
 
 @MainActor
 struct WorktreeManagerPanel: View {
-    @State var model: WorktreeManagerModel
+    // NOT `@State`: `model` is owned and swapped by `WorktreeManagerController`
+    // (a new `WorktreeManagerModel` per repository, see
+    // `AwesoMuxApp.refreshWorktreeRepositoryContext()`), and the controller
+    // reuses the SAME hosting view across `show()` calls rather than
+    // recreating it — `@State`'s initializer only seeds storage on a view
+    // identity's FIRST appearance, so a later `show()` with a genuinely
+    // different model would have silently kept rendering the OLD one. A
+    // plain property picks up whatever `model` the hosting reassignment
+    // hands it, every time (INT-857 round-7 smoke).
+    let model: WorktreeManagerModel
     let onDismiss: () -> Void
     @State private var openError: String?
     @State private var isShowingCreateForm = false
@@ -60,6 +69,15 @@ struct WorktreeManagerPanel: View {
         .task(id: model.pendingCreatePresentation) {
             guard model.pendingCreatePresentation else { return }
             model.pendingCreatePresentation = false
+            // The palette's "Create Worktree…" route calls `show(...,
+            // presentingCreateForm: true)` even while this sheet is ALREADY
+            // open (`presentWorktreeCreateForm()`'s own `isAnySheetPresented`
+            // guard doesn't see into this floating panel's sheet) — minting a
+            // fresh presentation token in that case would silently discard
+            // whatever the user already typed. Only (re)present when it's
+            // not already up; already-open just no-ops, leaving the form and
+            // its in-progress fields alone (INT-857 round-7 smoke).
+            guard !isShowingCreateForm else { return }
             model.resetCreateResult()
             createFormPresentationToken = UUID()
             isShowingCreateForm = true
@@ -73,8 +91,15 @@ struct WorktreeManagerPanel: View {
         // actually readable before both windows go away.
         .onChange(of: model.createSubmissionState) { _, newValue in
             guard case .result(.opened) = newValue else { return }
+            // Capture the presentation this success belongs to: if the user
+            // dismisses and reopens the create form inside the 700ms window
+            // (`try? await Task.sleep` swallows cancellation, so a plain
+            // `Task { }` here doesn't stop on its own), this stale success
+            // must not reach out and close a form the user just reopened.
+            let presentationAtSuccess = createFormPresentationToken
             Task {
                 try? await Task.sleep(for: .milliseconds(700))
+                guard createFormPresentationToken == presentationAtSuccess else { return }
                 isShowingCreateForm = false
                 onDismiss()
             }

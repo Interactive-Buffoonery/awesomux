@@ -86,32 +86,59 @@ public struct GitWorktreeCreatePolicy: Sendable {
             issues.append(.targetPathMustBeAbsolute)
             return issues
         }
+        let candidate = canonicalPathComponents(request.targetPath)
         let parent = request.targetPath.deletingLastPathComponent()
         var isDirectory: ObjCBool = false
-        if !fileManager.fileExists(atPath: parent.path, isDirectory: &isDirectory) || !isDirectory.boolValue {
+        let parentIsRealDirectory = fileManager.fileExists(atPath: parent.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        if parentIsRealDirectory {
+            if !fileManager.isWritableFile(atPath: parent.path) {
+                issues.append(.parentDirectoryNotWritable)
+            }
+        } else if candidate.starts(with: canonicalPathComponents(targetContainerPath(repositoryContext: request.repositoryContext))) {
+            // `git worktree add` creates missing intermediate directories
+            // itself (verified against the installed `git`), and this app's
+            // OWN `.worktrees/` convention routinely doesn't exist yet for a
+            // freshly-created worktree — the exact suggested path this form
+            // pre-fills was still blocked here even after the prefill fix
+            // closed the placeholder/bound-value split (INT-857 round-7
+            // smoke: the error changed from "must be absolute" to "parent
+            // directory does not exist", but Create still never succeeded).
+            // Only require the invocation root itself — which definitely
+            // exists — to be writable; git materializes everything under
+            // `.worktrees/` on its own. A target OUTSIDE this convention
+            // still needs its immediate parent to already exist.
+            if !fileManager.isWritableFile(atPath: request.repositoryContext.invocationRoot.path) {
+                issues.append(.parentDirectoryNotWritable)
+            }
+        } else {
             issues.append(.parentDirectoryMissing)
-        } else if !fileManager.isWritableFile(atPath: parent.path) {
-            issues.append(.parentDirectoryNotWritable)
         }
         if fileManager.fileExists(atPath: request.targetPath.path) {
             issues.append(.targetAlreadyExists)
         }
-        let candidate = canonicalPathComponents(request.targetPath)
-        // Whichever worktree the request was INVOKED FROM is exempt, not just
-        // the main one: git allows linked worktrees nested under it, and
+        // Whichever worktree the request was INVOKED FROM is exempt from the
+        // "target NESTED UNDER an existing worktree" half of this check, not
+        // just the main one: git allows linked worktrees nested under it, and
         // `.worktrees/` — this app's own suggested convention — always lives
         // under the invocation root, main or linked (round-5 smoke covered
         // main; round-857 smoke found the same false overlap from a Worktree
         // Manager opened inside a LINKED worktree, since only `isMainWorktree`
-        // was ever exempted). Only some OTHER worktree's path can genuinely
-        // conflict; without this exemption every suggested `.worktrees/...`
-        // target "overlapped" the entry you're standing in and validation
-        // could never pass.
+        // was ever exempted). The OTHER half — an existing worktree nested
+        // under the new TARGET, i.e. the target is some ancestor of the
+        // worktree you're standing in — stays unconditional: an ancestor of
+        // a worktree that already exists on disk always already exists
+        // itself, so it's normally caught by `targetAlreadyExists` above
+        // regardless, but exempting it here too would be a silent gap if
+        // that assumption ever stops holding.
         let invocationRoot = canonicalPathComponents(request.repositoryContext.invocationRoot)
         for record in currentWorktrees where !record.isMainWorktree {
             let existing = canonicalPathComponents(record.canonicalPath)
-            guard existing != invocationRoot else { continue }
-            if candidate.starts(with: existing) || existing.starts(with: candidate) {
+            let isOwnInvocationRoot = existing == invocationRoot
+            if !isOwnInvocationRoot, candidate.starts(with: existing) {
+                issues.append(.targetOverlapsWorktree(record.canonicalPath))
+                break
+            }
+            if existing.starts(with: candidate) {
                 issues.append(.targetOverlapsWorktree(record.canonicalPath))
                 break
             }

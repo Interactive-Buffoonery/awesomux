@@ -12,7 +12,12 @@ struct WorktreeCreateForm: View {
         var id: Self { self }
     }
 
-    @State var model: WorktreeManagerModel
+    // NOT `@State`: same reasoning as `WorktreeManagerPanel.model` — this
+    // form's own `.id(createFormPresentationToken)` already forces a fresh
+    // identity per presentation, so it isn't independently stale, but an
+    // owned-elsewhere reference type has no business behind `@State` either
+    // way.
+    let model: WorktreeManagerModel
     let onDismiss: () -> Void
 
     @State private var mode: Mode = .existing
