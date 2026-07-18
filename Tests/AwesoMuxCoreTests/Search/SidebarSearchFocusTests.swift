@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import AwesoMuxCore
 
@@ -68,5 +69,18 @@ struct SidebarSearchFocusTests {
             ) == nil
         )
         #expect(SidebarSearchFocus.target(after: first, in: [], offset: 1) == nil)
+    }
+
+    @Test("accessibility announcement includes the workspace label and position")
+    func accessibilityAnnouncementIncludesPosition() {
+        #expect(
+            SidebarSearchFocus.accessibilityAnnouncement(
+                label: "Linear, Claude, Running",
+                position: 2,
+                count: 4,
+                bundle: .main,
+                locale: Locale(identifier: "en_US")
+            ) == "Linear, Claude, Running, 2 of 4"
+        )
     }
 }

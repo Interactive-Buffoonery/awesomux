@@ -1,6 +1,22 @@
 import Foundation
 
 public enum SidebarSearchFocus {
+    public static func accessibilityAnnouncement(
+        label: String,
+        position: Int,
+        count: Int,
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String {
+        let format = String(
+            localized: "%1$@, %2$lld of %3$lld",
+            bundle: bundle,
+            locale: locale,
+            comment: "VoiceOver sidebar search result. Arguments are the workspace label, position, and result count."
+        )
+        return String(format: format, locale: locale, arguments: [label, position, count])
+    }
+
     public static func target(
         after currentID: TerminalSession.ID?,
         in orderedIDs: [TerminalSession.ID],
