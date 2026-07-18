@@ -49,6 +49,26 @@ final class GhosttySurfaceNSView: NSView {
     var linkPeekShowWorkItem: DispatchWorkItem?
     var linkPeekDismissWorkItem: DispatchWorkItem?
     var peekedLink: String?
+    /// INT-453: link armed by a PLAIN left press while hovered, opened app-side
+    /// on the matching non-dragged release (libghostty's own release-time
+    /// activation requires exactly ⌘, so plain clicks must be app-driven).
+    /// Snapshotted at press because libghostty can clear `over_link` — and thus
+    /// `mouseOverLink` — asynchronously between press and release. ⌘-clicks are
+    /// never armed; libghostty handles those, so each click has exactly one
+    /// opener.
+    ///
+    /// ponytail: the snapshot can go stale if terminal output rewrites the cell
+    /// under a stationary pointer between hover and click — libghostty re-derives
+    /// at release for ⌘-clicks, but exposes no link-at-position query API for the
+    /// app to do the same. Every open still routes through the resolve/classify
+    /// gates (blocked classes always confirm). Upgrade path: a narrow query API
+    /// in the ghostty fork, then re-derive here instead of snapshotting.
+    var armedLinkClickValue: String?
+    /// Plain-click opens are deferred by `NSEvent.doubleClickInterval` so the
+    /// second press of a double-click (word-select inside a hyperlink) cancels
+    /// the open instead of racing it — the first press of the pair still has
+    /// `clickCount == 1`, so a press-time gate alone can't tell them apart.
+    var pendingLinkOpenWorkItem: DispatchWorkItem?
     /// INT-632: computed once at left mouseDown, reused unchanged for the
     /// paired mouseUp. Never recompute at release time — ⌘ can be released
     /// mid-gesture, and a press/release pair that disagreed on the injected
@@ -496,8 +516,12 @@ final class GhosttySurfaceNSView: NSView {
         if window == nil {
             accessibilityFocusRequested = false
             // Detaching (workspace switch, pane close) must not leave a peek
-            // popover orphaned against a windowless view.
+            // popover orphaned against a windowless view, nor let a deferred
+            // click-open fire against a detached pane.
             dismissLinkPeek()
+            armedLinkClickValue = nil
+            pendingLinkOpenWorkItem?.cancel()
+            pendingLinkOpenWorkItem = nil
         }
 
         // Fires on both attach (window != nil) and detach (window == nil).

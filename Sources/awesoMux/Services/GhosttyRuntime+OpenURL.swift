@@ -23,6 +23,16 @@ struct OpenURLAction {
         value = String(data: data, encoding: .utf8) ?? ""
     }
 
+    /// INT-453: plain-click link activation. libghostty's own release-time
+    /// activation (`processLinks` → `linkAtPos`) requires the click's real mods
+    /// to equal ⌘ exactly, so a plain click over a hovered link never fires
+    /// `GHOSTTY_ACTION_OPEN_URL` — the app opens those itself from the link
+    /// string it already received via `MOUSE_OVER_LINK`, through this same
+    /// struct so the resolve/classify/confirm path is byte-identical.
+    init(_ value: String) {
+        self.value = value
+    }
+
     static let allowedSchemes: Set<String> = ["http", "https", "mailto", "file"]
 
     var url: URL? {
