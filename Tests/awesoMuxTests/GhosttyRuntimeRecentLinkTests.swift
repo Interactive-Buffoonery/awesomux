@@ -111,6 +111,42 @@ struct GhosttyRuntimeRecentLinkTests {
         #expect(captured?.identity.path.rawValue == "/srv/project/docs/readme.md")
     }
 
+    @Test func remoteMarkdownLineReferenceNeverFallsThroughToSameNamedLocalFile() async throws {
+        GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
+        defer { GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting() }
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data("# Local impostor".utf8).write(to: directory.appending(path: "README.md"))
+
+        let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
+        let pane = TerminalPane(
+            title: "remote",
+            workingDirectory: directory.path,
+            remoteWorkingDirectory: "/srv/project",
+            executionPlan: .ssh(.init(target: target))
+        )
+        let session = makeSession(pane)
+        let store = makeStore(session)
+        var captured: RemoteMarkdownReference?
+        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { reference in
+            captured = reference
+            return nil
+        }
+
+        await GhosttyRuntime.openRecentLink(
+            "README.md:12",
+            in: session.id,
+            associatedWith: pane.id,
+            sessionStore: store
+        )
+
+        #expect(captured?.identity.location == .remote(target))
+        #expect(captured?.identity.path.rawValue == "/srv/project/README.md")
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+    }
+
     @Test func unresolvedRemoteMarkdownPresentsRoutingFailure() async throws {
         GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
         defer { GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting() }

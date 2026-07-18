@@ -158,6 +158,28 @@ struct RemoteMarkdownReferenceTests {
         #expect(reference.remotePath == "~/repo/docs/plan.md")
     }
 
+    @Test func relativeRemoteMarkdownStripsSourceLocationSuffixesBeforeSchemeDetection() throws {
+        for payload in ["README.md:12", "docs/readme.md:12:5", "docs/readme.md#anchor"] {
+            #expect(RemoteMarkdownReference.isPotentialPayload(payload))
+        }
+
+        let lineReference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "README.md:12",
+                pane: remotePane(remoteWorkingDirectory: "/srv/project")
+            )
+        )
+        #expect(lineReference.remotePath == "/srv/project/README.md")
+
+        let anchorReference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "docs/readme.md#anchor",
+                pane: remotePane(remoteWorkingDirectory: "/srv/project")
+            )
+        )
+        #expect(anchorReference.remotePath == "/srv/project/docs/readme.md")
+    }
+
     @Test func relativeRemoteMarkdownIgnoresTitleDirectory() {
         let pane = remotePane(title: "alice@devbox:~/repo")
         #expect(RemoteMarkdownReference.make(payload: "docs/plan.md", pane: pane) == nil)
