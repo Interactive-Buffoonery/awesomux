@@ -50,15 +50,55 @@ struct URLClassifierTests {
         #expect(punycodeHost != displayHost)
     }
 
-    @Test("pure-Cyrillic host also blocks (strict v1 posture)")
-    func pureCyrillicHostBlocks() throws {
+    // MARK: - blockConfirm/openDirect: TR39 mixed-script detection (INT-454)
+
+    @Test("pure-Cyrillic host opens direct (TR39: single-script hosts aren't a homograph risk)")
+    func pureCyrillicHostOpensDirect() throws {
+        // яндекс.рф — every label is entirely Cyrillic.
         let url = try #require(URL(string: "https://\u{044F}\u{043D}\u{0434}\u{0435}\u{043A}\u{0441}.\u{0440}\u{0444}/"))
+        #expect(URLClassifier.classify(url) == .openDirect)
+    }
+
+    @Test("pure-CJK host opens direct")
+    func pureCJKHostOpensDirect() throws {
+        // 日本語.jp — Han label plus an ASCII TLD label; each label alone
+        // is single-script, so this must not read as "mixed" even though
+        // the host as a whole isn't ASCII.
+        let url = try #require(URL(string: "https://\u{65E5}\u{672C}\u{8A9E}.jp/"))
+        #expect(URLClassifier.classify(url) == .openDirect)
+    }
+
+    @Test("non-Latin host with digits and a hyphen opens direct (Common script doesn't count as mixing)")
+    func nonLatinHostWithDigitsAndHyphenOpensDirect() throws {
+        let url = try #require(URL(string: "https://\u{044F}\u{043D}\u{0434}\u{0435}\u{043A}\u{0441}-2.\u{0440}\u{0444}/"))
+        #expect(URLClassifier.classify(url) == .openDirect)
+    }
+
+    @Test("script mixing across labels (not within one) opens direct")
+    func scriptMixingAcrossLabelsOpensDirect() throws {
+        // яндекс.com — a pure-Cyrillic label followed by a pure-Latin TLD
+        // label. TR39 mixing is a per-label property; different labels are
+        // allowed to use different scripts.
+        let url = try #require(URL(string: "https://\u{044F}\u{043D}\u{0434}\u{0435}\u{043A}\u{0441}.com/"))
+        #expect(URLClassifier.classify(url) == .openDirect)
+    }
+
+    @Test("Latin+Cyrillic mixed within one label blocks (the confusable case)")
+    func mixedScriptWithinOneLabelBlocks() throws {
+        let url = try #require(URL(string: "https://p\u{0430}ypal.com/login"))
         let decision = URLClassifier.classify(url)
         guard case .blockConfirm(let reason, _, _) = decision else {
             Issue.record("Expected blockConfirm, got \(decision)")
             return
         }
         #expect(reason == .nonAsciiHost)
+    }
+
+    @Test("punycode-encoded pure-script host opens direct")
+    func punycodeEncodedPureScriptHostOpensDirect() throws {
+        // xn--80adxhks.com decodes to москва.com — pure Cyrillic, encoded.
+        let url = try #require(URL(string: "https://xn--80adxhks.com/"))
+        #expect(URLClassifier.classify(url) == .openDirect)
     }
 
     @Test("punycode-encoded host (xn--) is decoded for display and still blocks")
@@ -320,7 +360,7 @@ struct URLClassifierTests {
             ("https://exa%3Fmple.com/", "?"),
             ("https://exa%23mple.com/", "#"),
             ("https://exa%5Bmple.com/", "["),
-            ("https://exa%5Dmple.com/", "]")
+            ("https://exa%5Dmple.com/", "]"),
         ]
     )
     func hostWithPercentDecodedReservedDelimiterBlocks(
