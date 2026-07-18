@@ -160,7 +160,8 @@ struct AboutWindowView: View {
             WindowChromeConfigurator(
                 windowRole: .about,
                 reassertsOnBecomeKey: true,
-                standardWindowButtonVisibility: .closeOnly
+                standardWindowButtonVisibility: .closeOnly,
+                centersOnAttach: true
             )
             .allowsHitTesting(false))
     }
