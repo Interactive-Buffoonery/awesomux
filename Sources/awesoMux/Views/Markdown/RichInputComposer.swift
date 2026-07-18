@@ -30,6 +30,7 @@ struct RichInputComposerSheet: View {
     @State private var editorHeight: CGFloat = RichInputComposerSheet.minEditorHeight
     @State private var isEditorFocused = false
     @State private var failureMessage: String?
+    @State private var isSending = false
 
     private static let minEditorHeight: CGFloat = 96
     private static let maxEditorHeight: CGFloat = 260
@@ -47,7 +48,9 @@ struct RichInputComposerSheet: View {
     }
 
     private var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Gate on the sanitized payload, not a raw whitespace trim, so a draft of
+        // only control/formatting characters can't enable Send and then fail.
+        !RichInputStaging.stagedPayload(draft).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -61,14 +64,12 @@ struct RichInputComposerSheet: View {
                     .font(.system(size: 11))
                     .foregroundStyle(Color.aw.peach)
                     .padding(.horizontal, 16)
-                    .accessibilityAddTraits(.isStaticText)
             }
             footer
         }
         .frame(width: 620)
         .background(Color.aw.surface.window)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(title)
     }
 
     private var header: some View {
@@ -95,7 +96,7 @@ struct RichInputComposerSheet: View {
             if draft.isEmpty {
                 Text("Write a prompt to send to this document's terminal…")
                     .font(.system(size: 13))
-                    .foregroundStyle(Color.aw.text3)
+                    .foregroundStyle(Color.aw.text2)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 10)
                     .allowsHitTesting(false)
@@ -117,13 +118,16 @@ struct RichInputComposerSheet: View {
             RoundedRectangle(cornerRadius: 7)
                 .stroke(isEditorFocused ? Color.aw.mauve : Color.aw.border2, lineWidth: 1)
         }
+        // A failure names the draft that was rejected; once the user edits, it's
+        // stale — clear it so it doesn't imply the new draft is still rejected.
+        .onChange(of: draft) { failureMessage = nil }
     }
 
     private var footer: some View {
         HStack {
-            Text("Return sends · ⇧Return or ⌥Return for a new line")
-                .font(.system(size: 10))
-                .foregroundStyle(Color.aw.text3)
+            Text("Return pastes into the terminal · ⇧Return or ⌥Return for a new line")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.aw.text2)
             Spacer()
             Button(String(localized: "Cancel", comment: "Button to dismiss the rich-input composer"), action: onClose)
                 .buttonStyle(.plain)
@@ -139,12 +143,16 @@ struct RichInputComposerSheet: View {
     }
 
     private func send() {
-        guard canSend else { return }
+        // Reentrancy guard: a second Return during the dismiss animation would
+        // otherwise stage the payload twice.
+        guard canSend, !isSending else { return }
+        isSending = true
         switch onSend(draft) {
         case .sent:
             onClose()
         case .failed(let reason):
             failureMessage = reason
+            isSending = false
         }
     }
 }
@@ -193,6 +201,15 @@ private struct RichInputTextView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.string = text
         textView.setAccessibilityLabel(String(localized: "Prompt", comment: "Accessibility label for the rich-input composer text editor"))
+        // The Return-sends convention lives in a visual footer; surface it to
+        // VoiceOver so a screen-reader user doesn't stage into a live PTY by
+        // surprise.
+        textView.setAccessibilityHelp(
+            String(
+                localized: "Return pastes into the terminal. Shift-Return or Option-Return inserts a new line.",
+                comment: "Accessibility help describing the composer's Return-key behavior"
+            )
+        )
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
@@ -207,15 +224,18 @@ private struct RichInputTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        // Refresh the coordinator's captured view so its onSend/onCancel closures
+        // and bindings don't go stale across SwiftUI struct recreations.
+        context.coordinator.parent = self
         guard let textView = scrollView.documentView as? NSTextView else { return }
         if textView.string != text {
             textView.string = text
-            context.coordinator.recomputeHeight()
         }
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
-        private let parent: RichInputTextView
+        var parent: RichInputTextView
         weak var textView: NSTextView?
 
         init(_ parent: RichInputTextView) { self.parent = parent }
@@ -237,6 +257,10 @@ private struct RichInputTextView: NSViewRepresentable {
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.insertNewline(_:)):
+                // A physical Return keeps its NSEvent here; AX/scripted
+                // insertNewline: has no currentEvent, so an empty flag set falls
+                // through to the send path — the intended default for a bare
+                // "commit this field" instruction.
                 let flags = NSApp.currentEvent?.modifierFlags ?? []
                 let outcome = RichInputStaging.returnKeyOutcome(
                     shift: flags.contains(.shift),

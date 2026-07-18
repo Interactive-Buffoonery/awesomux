@@ -19,11 +19,15 @@ struct DocumentPaneSendBar: View {
     /// vanishing on a clock (HIG: prefer clearing status on cause, not timeout).
     @Binding var showAllResolvedNotice: Bool
 
+    /// Opens the multiline composer for this document. Hosted by the enclosing
+    /// group (above this bar's shell-activity-keyed identity) so an in-flight
+    /// draft survives the bar being torn down and rebuilt when the target pane's
+    /// shell activity flips.
+    let onCompose: () -> Void
+
     /// Whether the last nudge attempt found no live surface — shown briefly so the
     /// user knows the action failed rather than silently no-oping.
     @State private var nudgeFailed = false
-    /// Whether the multiline composer sheet is open (INT-754).
-    @State private var composerPresented = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Whether `TerminalPane.agentKind` is a trustworthy "which agent is live in this
@@ -71,6 +75,13 @@ struct DocumentPaneSendBar: View {
 
     private var sendUnavailableDescription: String? {
         guard case .unavailable(let reason) = nudgeResolution else { return nil }
+        return Self.unavailableDescription(for: reason)
+    }
+
+    /// Localized reason a document can't be sent. Shared with the composer sheet
+    /// (hosted above the send bar's churning identity) so both surfaces speak the
+    /// same language for an unavailable target.
+    static func unavailableDescription(for reason: DocumentNudgeUnavailableReason) -> String {
         switch reason {
         case .foregroundSSH:
             return String(
@@ -124,7 +135,7 @@ struct DocumentPaneSendBar: View {
                     title: sendButtonTitle,
                     failed: nudgeFailed,
                     unavailableDescription: sendUnavailableDescription,
-                    action: openComposer
+                    action: requestCompose
                 )
                 .frame(height: 28)
                 Spacer(minLength: 0)
@@ -150,14 +161,6 @@ struct DocumentPaneSendBar: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showAllResolvedNotice)
         .accessibilityElement(children: .contain)
-        .sheet(isPresented: $composerPresented) {
-            RichInputComposerSheet(
-                seed: composerSeed,
-                title: sendButtonTitle,
-                onSend: stageComposerText,
-                onClose: { composerPresented = false }
-            )
-        }
         // Structured reset: when nudgeFailed flips true, sleep 2s then clear it.
         .task(id: nudgeFailed) {
             guard nudgeFailed else { return }
@@ -168,77 +171,16 @@ struct DocumentPaneSendBar: View {
 
     // MARK: - Composer
 
-    /// Opens the multiline composer, seeded with the review nudge (INT-754). The
-    /// composer replaces the old one-shot send: the user can revise or extend the
-    /// text before it is staged into the terminal. Availability is checked up
-    /// front so an unavailable target reports the reason instead of opening a
-    /// composer that cannot send.
-    private func openComposer() {
+    /// Opens the composer (hosted by the enclosing group) when the target is
+    /// eligible; otherwise reports the reason on the button rather than opening a
+    /// composer that can't send. The composer replaces the old one-shot send: the
+    /// user revises or extends the review nudge before staging it.
+    private func requestCompose() {
         guard case .available = nudgeResolution else {
             reportNudgeUnavailable()
             return
         }
-        composerPresented = true
-    }
-
-    /// The text the composer opens with: the review nudge, with the document path
-    /// made relative to the TARGET terminal's cwd (in a nested split that differs
-    /// from the active pane's, and the text lands in the target).
-    private var composerSeed: String {
-        guard case .available(let targetPane) = nudgeResolution else { return "" }
-        let displayPath = Self.resolveDisplayPath(
-            for: pane.fileURL,
-            relativeTo: targetPane.workingDirectory
-        )
-        return NudgeComposer.text(displayPath: displayPath)
-    }
-
-    /// Stages the composed draft into the target terminal. The target is
-    /// re-resolved at submit time (it may have died while the composer was open),
-    /// and the payload is control-char sanitized before it reaches the live PTY.
-    /// `.failed` keeps the composer open with the draft intact rather than losing
-    /// the user's edits.
-    private func stageComposerText(_ draft: String) -> RichInputSendResult {
-        guard case .available(let targetPane) = nudgeResolution else {
-            let reason =
-                sendUnavailableDescription
-                ?? String(
-                    localized: "Couldn't send — this document's terminal isn't available",
-                    comment: "Composer failure when a document has no eligible send target"
-                )
-            nudgeFailed = true
-            TerminalAccessibilityAnnouncer.announce(reason)
-            return .failed(reason)
-        }
-        let payload = RichInputStaging.stagedPayload(draft)
-        guard !payload.isEmpty else {
-            return .failed(
-                String(
-                    localized: "Nothing to send",
-                    comment: "Composer failure when the draft is empty after sanitizing"
-                )
-            )
-        }
-        // Drive the flag off the result both ways so a success after a prior failure
-        // clears the Peach state immediately (re-keying the reset task), rather than
-        // leaving it stale until the original 2s timer fires.
-        if runtime.sendText(payload, toPane: targetPane.id) {
-            nudgeFailed = false
-            TerminalAccessibilityAnnouncer.announce(
-                String(
-                    localized: "Sent to this document's terminal",
-                    comment: "VoiceOver announcement when staging composed text to the associated terminal succeeds"
-                )
-            )
-            return .sent
-        }
-        let reason = String(
-            localized: "Couldn't send — this document's terminal isn't running",
-            comment: "Composer failure when the target terminal's process has exited"
-        )
-        nudgeFailed = true
-        TerminalAccessibilityAnnouncer.announce(reason)
-        return .failed(reason)
+        onCompose()
     }
 
     private func reportNudgeUnavailable() {
