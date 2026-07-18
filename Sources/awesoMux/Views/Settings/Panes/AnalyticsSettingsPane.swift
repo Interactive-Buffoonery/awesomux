@@ -84,11 +84,7 @@ struct AnalyticsSettingsPane: View {
 
             SettingsSection(
                 index: 2,
-                title: String(localized: "Local event log", comment: "Analytics settings section title"),
-                subtitle: String(
-                    localized: "Every analytics event is recorded locally after redaction, whether or not it could be sent.",
-                    comment: "Analytics local event log section subtitle"
-                )
+                title: String(localized: "Local event log", comment: "Analytics settings section title")
             ) {
                 SettingsField(
                     label: String(localized: "Event log", comment: "Analytics view-events field label"),
