@@ -24,19 +24,24 @@ struct DocumentPaneSendBar: View {
     @State private var nudgeFailed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Whether `TerminalPane.agentKind` is a trustworthy "which agent is live in this
-    /// pane right now" signal. It is NOT yet: the runtime only resets `agentKind` to
-    /// `.shell` on a clean `sessionEnd` event, so a pane that once ran Claude reads
-    /// `.claudeCode` forever after even while sitting at a bare shell prompt. Reliable
-    /// per-pane agent detection is available; flip this to `true`
-    /// then and the button names the agent automatically. Until then the label stays
-    /// honest-but-generic ("Send to Agent") rather than mislabeling shells.
-    private static let agentDetectionTrustworthy = false
-
     private var nudgeResolution: DocumentNudgeTargetResolution {
-        Self.resolveNudgeTarget(
+        // Settings are read live per resolution (non-reactive source); a
+        // toggle flipped after render is caught by the click-time re-resolve
+        // in `performNudge`, the action-time safety floor.
+        let integrations = runtime.agentIntegrations
+        return Self.resolveNudgeTarget(
             in: session.layout,
             for: pane.id,
+            isIntegrationEnabled: { kind in
+                switch kind {
+                case .claudeCode: integrations.claudeCode.enabled
+                case .codex: integrations.codex.enabled
+                case .openCode: integrations.openCode.enabled
+                case .pi: integrations.pi.enabled
+                case .grok: integrations.grok.enabled
+                case .shell: false
+                }
+            },
             foregroundExecutableMatch: runtime.foregroundExecutableMatch
         )
     }
@@ -44,6 +49,7 @@ struct DocumentPaneSendBar: View {
     static func resolveNudgeTarget(
         in layout: TerminalPaneLayout,
         for documentID: DocumentPane.ID,
+        isIntegrationEnabled: (AgentKind) -> Bool,
         foregroundExecutableMatch: (String, TerminalPane.ID) -> ProcessLivenessProbe.ForegroundExecutableMatch
     ) -> DocumentNudgeTargetResolution {
         let resolution = layout.documentNudgeTarget(for: documentID)
@@ -54,17 +60,22 @@ struct DocumentPaneSendBar: View {
         case .unknown:
             return .unavailable(.localTerminalUnverified)
         case .notMatching:
-            return resolution
+            break
         }
-    }
-
-    /// The agent running in the terminal the nudge targets. Drives the button label
-    /// once `agentDetectionTrustworthy` is true. Uses the same deterministic
-    /// target resolver as the send action so nil associations may recover to a
-    /// direct sibling, while stale explicit associations still fail closed.
-    private var targetAgentKind: AgentKind {
-        guard case .available(let target) = nudgeResolution else { return .shell }
-        return target.agentKind
+        // Verified-agent-prompt gate (INT-569): only `.matching` counts as
+        // live evidence, so unknown probe results fail closed here too (the
+        // SSH check above already declined the shared probe's `.unknown`).
+        switch AgentPromptGate.verdict(
+            agentKind: target.agentKind,
+            agentState: target.agentState,
+            isIntegrationEnabled: isIntegrationEnabled,
+            matchesForegroundExecutable: { foregroundExecutableMatch($0, target.id) == .matching }
+        ) {
+        case .verified:
+            return resolution
+        case .unavailable(let reason):
+            return .unavailable(reason)
+        }
     }
 
     private var sendUnavailableDescription: String? {
@@ -95,15 +106,39 @@ struct DocumentPaneSendBar: View {
                 localized: "Local document paths can only be sent to a local terminal",
                 comment: "Unavailable reason for sending a Mac-local document path to a declared SSH terminal"
             )
+        case .noVerifiedAgent:
+            return String(
+                localized: "Sending is available when a supported agent is waiting in this document's terminal",
+                comment: "Unavailable reason when the document's terminal is not running a verified supported agent"
+            )
+        case .agentIntegrationDisabled(let kind):
+            return String(
+                localized: "Enable the \(kind.shortName) integration in Settings to send",
+                comment: "Unavailable reason when the target agent's integration is disabled in settings"
+            )
+        case .agentNotReceptive(let kind):
+            return String(
+                localized: "\(kind.shortName) isn't waiting for input yet",
+                comment: "Unavailable reason when the target agent is not currently waiting at its prompt"
+            )
         }
     }
 
-    /// "Send to Claude" / "Send to Codex" / … when the associated terminal's agent
-    /// is known and detection is trustworthy; generic "Send to Agent" otherwise.
+    /// "Send to Claude" / "Send to Codex" / … only when the prompt gate verified
+    /// the target agent (`AgentPromptGate` drives label, enabled state, and
+    /// action from ONE verdict); generic "Send to Agent" otherwise, so the
+    /// wording can never claim a verified agent while the action is unsafe.
     private var sendButtonTitle: String {
-        guard Self.agentDetectionTrustworthy else { return "Send to Agent" }
-        let kind = targetAgentKind
-        return kind == .shell ? "Send to Agent" : "Send to \(kind.shortName)"
+        guard case .available(let target) = nudgeResolution else {
+            return String(
+                localized: "Send to Agent",
+                comment: "Generic send-bar button title when no verified agent target exists"
+            )
+        }
+        return String(
+            localized: "Send to \(target.agentKind.shortName)",
+            comment: "Send-bar button title naming the verified agent in the target terminal"
+        )
     }
 
     var body: some View {
@@ -163,6 +198,12 @@ struct DocumentPaneSendBar: View {
         // activePaneID fallback: live stored associations win, nil associations
         // may recover to the document group's direct split sibling, and stale
         // explicit associations fail closed rather than guessing.
+        //
+        // Safety invariant: this click-time re-resolve (including the live
+        // foreground probe inside the prompt gate) and the `sendText` below run
+        // in one synchronous MainActor hop with no suspension between them —
+        // the same atomicity standard the bridge consent path documents. Do
+        // not introduce an `await` between the gate and the write.
         guard case .available(let targetPane) = nudgeResolution else {
             reportNudgeUnavailable()
             return
