@@ -219,13 +219,16 @@ public enum UnicodeHygiene {
         }
 
         // ponytail: this range table is maintained by report, not generated
-        // from Unicode's Script=Latin property (no public Foundation/ICU
-        // accessor exists — see URLClassifier.swift's file header for the
-        // `swift -e` proof). Every Latin block found reachable through a
-        // real IDN host so far is listed below; an as-yet-unlisted block
-        // (there are dozens in total, most vanishingly obscure) would read
-        // as single-script when paired with Cyrillic/Greek. Extend this
-        // switch, don't redesign the algorithm, when the next one surfaces.
+        // from Unicode's Script=Latin property — Swift's stdlib has no
+        // `Unicode.Scalar.Properties.script` accessor and there's no public
+        // Foundation/ICU wrapper for it either (confirmed: `import
+        // Foundation; Unicode.Scalar("я").properties.script` fails to
+        // compile — "has no member 'script'"). Every Latin block found
+        // reachable through a real IDN host so far is listed below; an
+        // as-yet-unlisted block (there are dozens in total, most
+        // vanishingly obscure) would read as single-script when paired
+        // with Cyrillic/Greek. Extend this switch, don't redesign the
+        // algorithm, when the next one surfaces.
         switch scalar.value {
         case 0x0041 ... 0x005A,
              0x0061 ... 0x007A,
