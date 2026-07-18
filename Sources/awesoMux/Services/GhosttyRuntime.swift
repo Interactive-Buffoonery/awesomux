@@ -65,12 +65,12 @@ final class GhosttyRuntime {
     /// reappears logs again instead of going silent forever after the first hit.
     private static var lastLoggedCollisions: Set<String> = []
 
-    #if DEBUG
-        nonisolated private static let logger = Logger(
-            subsystem: "com.interactivebuffoonery.awesomux",
-            category: "GhosttyRuntimeMemory"
-        )
-    #endif
+#if DEBUG
+    nonisolated private static let logger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "GhosttyRuntimeMemory"
+    )
+#endif
 
     nonisolated private static let configEnvironmentLogger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -162,15 +162,15 @@ final class GhosttyRuntime {
     @ObservationIgnored
     private var agentIntegrationsProvider: @MainActor () -> AgentIntegrationsConfig = { .defaultValue }
 
-    #if DEBUG
-        // Set of in-flight surface pointers, used to assert that we never free
-        // the same surface twice. Allocator pointer reuse is not a concern here:
-        // `freeSurface` is `@MainActor`-isolated, the insert-then-defer-remove
-        // is bracketed in one synchronous scope, and the only writer is the
-        // single MainActor. If this assertion fires, it's a genuine double-free.
-        @ObservationIgnored
-        private var surfacesBeingFreed: Set<UInt> = []
-    #endif
+#if DEBUG
+    // Set of in-flight surface pointers, used to assert that we never free
+    // the same surface twice. Allocator pointer reuse is not a concern here:
+    // `freeSurface` is `@MainActor`-isolated, the insert-then-defer-remove
+    // is bracketed in one synchronous scope, and the only writer is the
+    // single MainActor. If this assertion fires, it's a genuine double-free.
+    @ObservationIgnored
+    private var surfacesBeingFreed: Set<UInt> = []
+#endif
 
     @ObservationIgnored
     let wakeupCoalescer = GhosttyWakeupCoalescer()
@@ -278,9 +278,9 @@ final class GhosttyRuntime {
             return surfaceView
         }
 
-        #if DEBUG
-            logSurfaceCacheEvent("create-start", sessionID: session.id, paneID: pane.id)
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent("create-start", sessionID: session.id, paneID: pane.id)
+#endif
         let surfaceView = GhosttySurfaceNSView(
             runtime: self,
             sessionStore: sessionStore,
@@ -291,9 +291,9 @@ final class GhosttyRuntime {
         )
         surfaceViews[pane.id] = surfaceView
         surfaceCacheRevision &+= 1
-        #if DEBUG
-            logSurfaceCacheEvent("create-finish", sessionID: session.id, paneID: pane.id)
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent("create-finish", sessionID: session.id, paneID: pane.id)
+#endif
         return surfaceView
     }
 
@@ -339,8 +339,7 @@ final class GhosttyRuntime {
     @discardableResult
     func presentSearch(in paneID: TerminalPane.ID) -> Bool {
         guard !isScrollbackDumpSheetPresented,
-            let surfaceView = surfaceViews[paneID]
-        else {
+              let surfaceView = surfaceViews[paneID] else {
             return false
         }
         surfaceView.presentSearch()
@@ -363,8 +362,7 @@ final class GhosttyRuntime {
     @discardableResult
     func presentScrollbackDump(in paneID: TerminalPane.ID) -> Bool {
         guard !isScrollbackDumpSheetPresented,
-            let surfaceView = surfaceViews[paneID]
-        else {
+              let surfaceView = surfaceViews[paneID] else {
             return false
         }
         surfaceView.presentScrollbackDump()
@@ -435,9 +433,9 @@ final class GhosttyRuntime {
         shellActivityLifecycleRefreshTasks.removeValue(forKey: paneID)?.cancel()
         secureInputCoordinator.removePane(paneID)
         guard let surfaceView = surfaceViews.removeValue(forKey: paneID) else {
-            #if DEBUG
-                logSurfaceCacheEvent("discard-miss", paneID: paneID)
-            #endif
+#if DEBUG
+            logSurfaceCacheEvent("discard-miss", paneID: paneID)
+#endif
             return
         }
         surfaceCacheRevision &+= 1
@@ -449,8 +447,7 @@ final class GhosttyRuntime {
         // genuine close in that pre-attach window would otherwise leave the record
         // (preserved by the earlier heal) orphaned. The pane always carries its
         // terminalSessionID, so the key is always recoverable.
-        let recoverySessionID =
-            surfaceView.commandBridgeRecoveryRecord?.terminalSessionID
+        let recoverySessionID = surfaceView.commandBridgeRecoveryRecord?.terminalSessionID
             ?? surfaceView.commandBridgeSessionID
             ?? surfaceView.pane.terminalSessionID
         let preservesRecoveryRecord = surfaceView.ignoresProcessExitAfterCommandBridgeHeal
@@ -485,19 +482,19 @@ final class GhosttyRuntime {
                 }
             }
         }
-        #if DEBUG
-            logSurfaceCacheEvent("discard", paneID: paneID)
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent("discard", paneID: paneID)
+#endif
     }
 
     func discardSurfaces(for session: TerminalSession) {
-        #if DEBUG
-            logSurfaceCacheEvent(
-                "discard-session-start",
-                sessionID: session.id,
-                paneID: session.activePaneID
-            )
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent(
+            "discard-session-start",
+            sessionID: session.id,
+            paneID: session.activePaneID
+        )
+#endif
         // Tear down each pane's surface, then free its command-bridge recovery
         // record. A daemon-death heal that bailed before remount (pane unmounted,
         // no container) preserves the record but evicts the surface, so the
@@ -520,19 +517,19 @@ final class GhosttyRuntime {
                 }
             }
         }
-        #if DEBUG
-            logSurfaceCacheEvent(
-                "discard-session-finish",
-                sessionID: session.id,
-                paneID: session.activePaneID
-            )
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent(
+            "discard-session-finish",
+            sessionID: session.id,
+            paneID: session.activePaneID
+        )
+#endif
     }
 
     func discardAllSurfaces() {
-        #if DEBUG
-            logSurfaceCacheEvent("discard-all-start")
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent("discard-all-start")
+#endif
         agentRuntimeEventBridge.stopWatchingAll()
         for task in shellActivityLifecycleRefreshTasks.values {
             task.cancel()
@@ -546,9 +543,9 @@ final class GhosttyRuntime {
 
         surfaceViews.removeAll()
         commandBridgeRecoveryRecords.removeAll()
-        #if DEBUG
-            logSurfaceCacheEvent("discard-all-finish")
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent("discard-all-finish")
+#endif
     }
 
     /// True while no pane has spawned its native surface yet — the cold-launch
@@ -567,15 +564,15 @@ final class GhosttyRuntime {
             return
         }
 
-        #if DEBUG
-            logSurfaceCacheEvent("discard-stale-start")
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent("discard-stale-start")
+#endif
         for paneID in stalePaneIDs {
             discardSurface(for: paneID)
         }
-        #if DEBUG
-            logSurfaceCacheEvent("discard-stale-finish")
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent("discard-stale-finish")
+#endif
     }
 
     func refreshTerminalQuitConfirmationRisks(in sessionStore: SessionStore) {
@@ -601,8 +598,7 @@ final class GhosttyRuntime {
     func sampleShellActivity(in sessionStore: SessionStore) {
         let now = ContinuousClock.now
         if let last = lastShellActivitySampleAt,
-            now - last < Self.shellActivitySampleThrottle
-        {
+           now - last < Self.shellActivitySampleThrottle {
             return
         }
         lastShellActivitySampleAt = now
@@ -642,13 +638,13 @@ final class GhosttyRuntime {
         0.15,
         0.30,
         0.50,
-        0.80,
+        0.80
     ]
 
     static let shellActivityCommandFinishedRefreshDelays: [TimeInterval] = [
         0.05,
         0.15,
-        0.30,
+        0.30
     ]
 
     func scheduleShellActivityRefreshAfterCommandSubmit(
@@ -689,9 +685,8 @@ final class GhosttyRuntime {
                     try? await Task.sleep(for: .seconds(sleepDelay))
                 }
                 guard !Task.isCancelled,
-                    let self,
-                    let sessionStore
-                else {
+                      let self,
+                      let sessionStore else {
                     return
                 }
 
@@ -715,9 +710,8 @@ final class GhosttyRuntime {
         shellActivityDebounceRefreshTask = Task { @MainActor [weak self, weak sessionStore] in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled,
-                let self,
-                let sessionStore
-            else {
+                  let self,
+                  let sessionStore else {
                 return
             }
 
@@ -744,20 +738,18 @@ final class GhosttyRuntime {
 
     func applyTerminalAppearance(_ preferences: TerminalAppearancePreferences) {
         guard let app else {
-            #if DEBUG
-                Self.logger.debug("applyTerminalAppearance skipped: app not initialized")
-            #endif
+#if DEBUG
+            Self.logger.debug("applyTerminalAppearance skipped: app not initialized")
+#endif
             return
         }
-        guard
-            let config = makeGhosttyConfig(
-                terminalAppearance: preferences,
-                reportFailures: false
-            )
-        else {
-            #if DEBUG
-                Self.logger.debug("applyTerminalAppearance skipped: config build returned nil")
-            #endif
+        guard let config = makeGhosttyConfig(
+            terminalAppearance: preferences,
+            reportFailures: false
+        ) else {
+#if DEBUG
+            Self.logger.debug("applyTerminalAppearance skipped: config build returned nil")
+#endif
             return
         }
 
@@ -775,20 +767,18 @@ final class GhosttyRuntime {
 
     func applyTerminalSettings() {
         guard let app else {
-            #if DEBUG
-                Self.logger.debug("applyTerminalSettings skipped: app not initialized")
-            #endif
+#if DEBUG
+            Self.logger.debug("applyTerminalSettings skipped: app not initialized")
+#endif
             return
         }
-        guard
-            let config = makeGhosttyConfig(
-                terminalAppearance: terminalAppearanceProvider(),
-                reportFailures: false
-            )
-        else {
-            #if DEBUG
-                Self.logger.debug("applyTerminalSettings skipped: config build returned nil")
-            #endif
+        guard let config = makeGhosttyConfig(
+            terminalAppearance: terminalAppearanceProvider(),
+            reportFailures: false
+        ) else {
+#if DEBUG
+            Self.logger.debug("applyTerminalSettings skipped: config build returned nil")
+#endif
             return
         }
 
@@ -952,11 +942,10 @@ final class GhosttyRuntime {
         }
         let retainedUserdata = Unmanaged.passRetained(surfaceView).toOpaque()
         surfaceConfig.userdata = retainedUserdata
-        surfaceConfig.scale_factor = Double(
-            view.window?.screen?.backingScaleFactor
-                ?? view.window?.backingScaleFactor
-                ?? NSScreen.main?.backingScaleFactor
-                ?? 2)
+        surfaceConfig.scale_factor = Double(view.window?.screen?.backingScaleFactor
+            ?? view.window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 2)
         let terminalAppearance = terminalAppearanceProvider()
         surfaceConfig.font_size = terminalAppearance.ghosttyFontSize
         surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
@@ -1021,8 +1010,7 @@ final class GhosttyRuntime {
 
         let createConfiguredSurface: () -> ghostty_surface_t? = {
             if let validatedWorkingDirectory,
-                validatedWorkingDirectory.range(of: "\0") == nil
-            {
+               validatedWorkingDirectory.range(of: "\0") == nil {
                 // `withCString` only keeps the C buffer alive for the duration
                 // of the closure. That's sufficient because libghostty copies
                 // the path into its own storage synchronously inside
@@ -1083,14 +1071,14 @@ final class GhosttyRuntime {
     }
 
     func freeSurface(_ surface: ghostty_surface_t) {
-        #if DEBUG
-            let surfaceAddress = UInt(bitPattern: UnsafeRawPointer(surface))
-            assert(
-                surfacesBeingFreed.insert(surfaceAddress).inserted,
-                "native Ghostty surface freed more than once"
-            )
-            defer { surfacesBeingFreed.remove(surfaceAddress) }
-        #endif
+#if DEBUG
+        let surfaceAddress = UInt(bitPattern: UnsafeRawPointer(surface))
+        assert(
+            surfacesBeingFreed.insert(surfaceAddress).inserted,
+            "native Ghostty surface freed more than once"
+        )
+        defer { surfacesBeingFreed.remove(surfaceAddress) }
+#endif
         let userdata = ghostty_surface_userdata(surface)
         ghostty_surface_free(surface)
         if let userdata {
@@ -1174,9 +1162,9 @@ final class GhosttyRuntime {
     }
 
     func reload() {
-        #if DEBUG
-            logSurfaceCacheEvent("reload-start")
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent("reload-start")
+#endif
         performanceSampler.stop()
         eventLoopWatchdog?.stop()
         eventLoopWatchdog = nil
@@ -1199,9 +1187,9 @@ final class GhosttyRuntime {
         readiness = .uninitialized
         errorMessage = nil
         initialize()
-        #if DEBUG
-            logSurfaceCacheEvent("reload-finish")
-        #endif
+#if DEBUG
+        logSurfaceCacheEvent("reload-finish")
+#endif
     }
 
     private func initialize() {
@@ -1215,12 +1203,10 @@ final class GhosttyRuntime {
             event: "runtime-initialize",
             preferences: terminalAppearance
         )
-        guard
-            let config = makeGhosttyConfig(
-                terminalAppearance: terminalAppearance,
-                reportFailures: true
-            )
-        else {
+        guard let config = makeGhosttyConfig(
+            terminalAppearance: terminalAppearance,
+            reportFailures: true
+        ) else {
             return
         }
 
@@ -1484,42 +1470,42 @@ final class GhosttyRuntime {
     ) -> Bool {
         switch tag {
         case GHOSTTY_ACTION_QUIT,
-            GHOSTTY_ACTION_NEW_WINDOW,
-            GHOSTTY_ACTION_NEW_TAB,
-            GHOSTTY_ACTION_CLOSE_TAB,
-            GHOSTTY_ACTION_NEW_SPLIT,
-            GHOSTTY_ACTION_CLOSE_ALL_WINDOWS,
-            GHOSTTY_ACTION_TOGGLE_MAXIMIZE,
-            GHOSTTY_ACTION_TOGGLE_FULLSCREEN,
-            GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW,
-            GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS,
-            GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
-            GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
-            GHOSTTY_ACTION_TOGGLE_VISIBILITY,
-            GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY,
-            GHOSTTY_ACTION_MOVE_TAB,
-            GHOSTTY_ACTION_GOTO_TAB,
-            GHOSTTY_ACTION_GOTO_SPLIT,
-            GHOSTTY_ACTION_GOTO_WINDOW,
-            GHOSTTY_ACTION_RESIZE_SPLIT,
-            GHOSTTY_ACTION_EQUALIZE_SPLITS,
-            GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM,
-            GHOSTTY_ACTION_PRESENT_TERMINAL,
-            GHOSTTY_ACTION_RESET_WINDOW_SIZE,
-            GHOSTTY_ACTION_INITIAL_SIZE,
-            GHOSTTY_ACTION_INSPECTOR,
-            GHOSTTY_ACTION_SHOW_GTK_INSPECTOR,
-            GHOSTTY_ACTION_RENDER_INSPECTOR,
-            GHOSTTY_ACTION_OPEN_CONFIG,
-            GHOSTTY_ACTION_RELOAD_CONFIG,
-            GHOSTTY_ACTION_CONFIG_CHANGE,
-            GHOSTTY_ACTION_CLOSE_WINDOW,
-            GHOSTTY_ACTION_FLOAT_WINDOW,
-            GHOSTTY_ACTION_UNDO,
-            GHOSTTY_ACTION_REDO,
-            GHOSTTY_ACTION_CHECK_FOR_UPDATES,
-            GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD,
-            GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
+             GHOSTTY_ACTION_NEW_WINDOW,
+             GHOSTTY_ACTION_NEW_TAB,
+             GHOSTTY_ACTION_CLOSE_TAB,
+             GHOSTTY_ACTION_NEW_SPLIT,
+             GHOSTTY_ACTION_CLOSE_ALL_WINDOWS,
+             GHOSTTY_ACTION_TOGGLE_MAXIMIZE,
+             GHOSTTY_ACTION_TOGGLE_FULLSCREEN,
+             GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW,
+             GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS,
+             GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
+             GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
+             GHOSTTY_ACTION_TOGGLE_VISIBILITY,
+             GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY,
+             GHOSTTY_ACTION_MOVE_TAB,
+             GHOSTTY_ACTION_GOTO_TAB,
+             GHOSTTY_ACTION_GOTO_SPLIT,
+             GHOSTTY_ACTION_GOTO_WINDOW,
+             GHOSTTY_ACTION_RESIZE_SPLIT,
+             GHOSTTY_ACTION_EQUALIZE_SPLITS,
+             GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM,
+             GHOSTTY_ACTION_PRESENT_TERMINAL,
+             GHOSTTY_ACTION_RESET_WINDOW_SIZE,
+             GHOSTTY_ACTION_INITIAL_SIZE,
+             GHOSTTY_ACTION_INSPECTOR,
+             GHOSTTY_ACTION_SHOW_GTK_INSPECTOR,
+             GHOSTTY_ACTION_RENDER_INSPECTOR,
+             GHOSTTY_ACTION_OPEN_CONFIG,
+             GHOSTTY_ACTION_RELOAD_CONFIG,
+             GHOSTTY_ACTION_CONFIG_CHANGE,
+             GHOSTTY_ACTION_CLOSE_WINDOW,
+             GHOSTTY_ACTION_FLOAT_WINDOW,
+             GHOSTTY_ACTION_UNDO,
+             GHOSTTY_ACTION_REDO,
+             GHOSTTY_ACTION_CHECK_FOR_UPDATES,
+             GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD,
+             GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
             return true
         default:
             return false
@@ -1610,62 +1596,62 @@ final class GhosttyRuntime {
         }
     }
 
-    #if DEBUG
-        private struct MemorySnapshot {
-            let residentBytes: UInt64
-            let physFootprintBytes: UInt64
-        }
+#if DEBUG
+    private struct MemorySnapshot {
+        let residentBytes: UInt64
+        let physFootprintBytes: UInt64
+    }
 
-        private func logSurfaceCacheEvent(
-            _ event: String,
-            sessionID: TerminalSession.ID? = nil,
-            paneID: TerminalPane.ID? = nil
-        ) {
-            let session = sessionID?.uuidString ?? "-"
-            let pane = paneID?.uuidString ?? "-"
-            let memory = Self.currentMemorySnapshot()
-            let snapshotOK = memory != nil
+    private func logSurfaceCacheEvent(
+        _ event: String,
+        sessionID: TerminalSession.ID? = nil,
+        paneID: TerminalPane.ID? = nil
+    ) {
+        let session = sessionID?.uuidString ?? "-"
+        let pane = paneID?.uuidString ?? "-"
+        let memory = Self.currentMemorySnapshot()
+        let snapshotOK = memory != nil
 
-            Self.logger.debug(
-                """
-                surface-cache event=\(event, privacy: .public) \
-                session=\(session, privacy: .public) \
-                pane=\(pane, privacy: .public) \
-                surfaces=\(self.surfaceViews.count, privacy: .public) \
-                snapshot_ok=\(snapshotOK, privacy: .public) \
-                resident_bytes=\(memory?.residentBytes ?? 0, privacy: .public) \
-                phys_footprint_bytes=\(memory?.physFootprintBytes ?? 0, privacy: .public)
-                """
-            )
-        }
+        Self.logger.debug(
+            """
+            surface-cache event=\(event, privacy: .public) \
+            session=\(session, privacy: .public) \
+            pane=\(pane, privacy: .public) \
+            surfaces=\(self.surfaceViews.count, privacy: .public) \
+            snapshot_ok=\(snapshotOK, privacy: .public) \
+            resident_bytes=\(memory?.residentBytes ?? 0, privacy: .public) \
+            phys_footprint_bytes=\(memory?.physFootprintBytes ?? 0, privacy: .public)
+            """
+        )
+    }
 
-        private static func currentMemorySnapshot() -> MemorySnapshot? {
-            var info = task_vm_info_data_t()
-            var count = mach_msg_type_number_t(
-                MemoryLayout<task_vm_info_data_t>.stride / MemoryLayout<integer_t>.stride
-            )
+    private static func currentMemorySnapshot() -> MemorySnapshot? {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.stride / MemoryLayout<integer_t>.stride
+        )
 
-            let result = withUnsafeMutablePointer(to: &info) { pointer in
-                pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
-                    task_info(
-                        mach_task_self_,
-                        task_flavor_t(TASK_VM_INFO),
-                        rebound,
-                        &count
-                    )
-                }
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
+                task_info(
+                    mach_task_self_,
+                    task_flavor_t(TASK_VM_INFO),
+                    rebound,
+                    &count
+                )
             }
-
-            guard result == KERN_SUCCESS else {
-                return nil
-            }
-
-            return MemorySnapshot(
-                residentBytes: UInt64(info.resident_size),
-                physFootprintBytes: UInt64(info.phys_footprint)
-            )
         }
-    #endif
+
+        guard result == KERN_SUCCESS else {
+            return nil
+        }
+
+        return MemorySnapshot(
+            residentBytes: UInt64(info.resident_size),
+            physFootprintBytes: UInt64(info.phys_footprint)
+        )
+    }
+#endif
 
     // `internal` (not `private`) so `@testable` tests that need libghostty
     // initialized — `ghostty_config_new` segfaults otherwise — can run the
@@ -1705,16 +1691,14 @@ extension GhosttyRuntime {
             comment: "Title for the alert offering to recover from a wedged terminal event loop"
         )
         alert.informativeText = Self.eventLoopWedgeAlertBody
-        alert.addButton(
-            withTitle: String(
-                localized: "Restart Terminal Engine",
-                comment: "Button: recover from a wedged terminal event loop by reloading it"
-            ))
-        alert.addButton(
-            withTitle: String(
-                localized: "Not Now",
-                comment: "Button: dismiss the wedged terminal event loop alert without acting"
-            ))
+        alert.addButton(withTitle: String(
+            localized: "Restart Terminal Engine",
+            comment: "Button: recover from a wedged terminal event loop by reloading it"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "Not Now",
+            comment: "Button: dismiss the wedged terminal event loop alert without acting"
+        ))
         alert.alertStyle = .warning
 
         if alert.runModal() == .alertFirstButtonReturn {
