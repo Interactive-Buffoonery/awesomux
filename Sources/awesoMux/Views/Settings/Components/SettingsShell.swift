@@ -191,5 +191,6 @@ struct SettingsShell<Selection: Hashable, Sidebar: View, Detail: View>: View {
         else { return }
         proxy.scrollTo(anchor, anchor: .top)
         navigator.pendingScrollAnchor = nil
+        navigator.scrollDidLand(on: anchor)
     }
 }
