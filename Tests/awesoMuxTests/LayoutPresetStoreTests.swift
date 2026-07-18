@@ -93,6 +93,38 @@ import Testing
         #expect(LayoutPresetStore.listPresetNames(forWorkingDirectory: nested.path) == ["dev"])
     }
 
+    @Test func saveFromLinkedWorktreeLandsInTheWorktreeRootNotTheMainRepo() throws {
+        // A linked worktree's `.git` is a FILE (gitdir pointer). The walker
+        // must stop at the worktree's own root — the preset belongs to the
+        // checkout the user is working in, never silently to the main repo.
+        let mainRepo = try makeProjectRoot()
+        let worktree = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("layout-preset-wt-\(UUID().uuidString)", isDirectory: true)
+        let nested = worktree.appendingPathComponent("src", isDirectory: true)
+        try fileManager.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data("gitdir: \(mainRepo.path)/.git/worktrees/wt\n".utf8)
+            .write(to: worktree.appendingPathComponent(".git"))
+
+        let intent = sampleIntent()
+        let savedURL = try LayoutPresetStore.save(
+            intent, named: "dev", forWorkingDirectory: nested.path
+        )
+
+        #expect(
+            savedURL.standardizedFileURL.path
+                == worktree.standardizedFileURL
+                .appendingPathComponent(".awesomux/layouts/dev.json").path
+        )
+        #expect(
+            !fileManager.fileExists(
+                atPath: mainRepo.appendingPathComponent(".awesomux").path
+            )
+        )
+        // List and load resolve to the same root from the same anchor.
+        #expect(LayoutPresetStore.listPresetNames(forWorkingDirectory: nested.path) == ["dev"])
+        #expect(try LayoutPresetStore.load(named: "dev", forWorkingDirectory: nested.path) == intent)
+    }
+
     @Test func saveRefusesOverCapLayoutAndWritesNothing() throws {
         // 17 terminals as a chain — over both caps; the terminal-count error
         // surfaces first from the shared validation only when depth is within

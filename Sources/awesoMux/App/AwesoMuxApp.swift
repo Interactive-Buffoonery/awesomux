@@ -2991,7 +2991,7 @@ struct AwesoMuxApp: App {
         // summon and Enter fails with the normal load alert, not stale data.
         if !isAnySheetPresented, let selected = sessionStore.selectedSession {
             for presetName in LayoutPresetStore.listPresetNames(
-                forWorkingDirectory: selected.workingDirectory
+                forWorkingDirectory: layoutPresetAnchorDirectory(for: selected)
             ) {
                 commands.append(
                     PaletteCommand(
@@ -3342,6 +3342,15 @@ struct AwesoMuxApp: App {
 
     // MARK: - Layout presets (INT-757)
 
+    /// The directory the preset root is resolved FROM: the active pane's
+    /// live-validated cwd — what the path bar shows — falling back to the
+    /// session's declared cwd. A session created with a default cwd ("~") can
+    /// silently anchor somewhere the user never looks; save/apply/list must all
+    /// resolve from the location the user can SEE, and all from the same one.
+    private func layoutPresetAnchorDirectory(for session: TerminalSession) -> String {
+        session.activePane?.workingDirectory ?? session.workingDirectory
+    }
+
     private func saveLayoutPresetForSelectedWorkspace() {
         guard !isAnySheetPresented, let selected = sessionStore.selectedSession else { return }
 
@@ -3357,14 +3366,33 @@ struct AwesoMuxApp: App {
             return
         }
 
+        // Resolve the destination BEFORE asking for a name, so the dialog can
+        // say exactly where the file will land — the root can differ from
+        // where the user assumes (default-cwd sessions, worktrees).
+        let anchorDirectory = layoutPresetAnchorDirectory(for: selected)
+        guard let projectRoot = LayoutPresetStore.projectRoot(forWorkingDirectory: anchorDirectory)
+        else {
+            showLayoutPresetAlert(
+                title: String(
+                    localized: "Could Not Save Preset",
+                    comment: "Alert title when saving a layout preset fails."),
+                message: String(
+                    localized: "The workspace's project folder could not be found.",
+                    comment: "Failure reason when the layout preset project root cannot be resolved."))
+            return
+        }
+        let destinationDirectory =
+            projectRoot
+            .appendingPathComponent(".awesomux/layouts", isDirectory: true)
+
         let alert = NSAlert()
         alert.messageText = String(
             localized: "Save Layout as Preset",
             comment: "Alert title for naming a new layout preset.")
         alert.informativeText = String(
             localized:
-                "The preset is saved to .awesomux/layouts in the project root, so it can be checked in and shared.",
-            comment: "Alert text explaining where layout presets are saved.")
+                "The preset will be saved to \(destinationDirectory.path), so it can be checked in and shared.",
+            comment: "Alert text naming the folder the layout preset will be saved to.")
         alert.alertStyle = .informational
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         field.placeholderString = String(
@@ -3394,10 +3422,9 @@ struct AwesoMuxApp: App {
             return
         }
 
-        let workingDirectory = selected.workingDirectory
         if LayoutPresetStore.presetFileExists(
             named: name,
-            forWorkingDirectory: workingDirectory
+            forWorkingDirectory: anchorDirectory
         ) {
             let overwrite = NSAlert()
             overwrite.messageText = String(
@@ -3417,15 +3444,32 @@ struct AwesoMuxApp: App {
         }
 
         do {
-            try LayoutPresetStore.save(
+            let savedURL = try LayoutPresetStore.save(
                 intent,
                 named: name,
-                forWorkingDirectory: workingDirectory
+                forWorkingDirectory: anchorDirectory
             )
             postAccessibilityAnnouncement(
                 String(
                     localized: "Saved layout preset \(name)",
                     comment: "VoiceOver announcement after saving a layout preset."))
+            // Name the exact file that was written — the resolved root is not
+            // always where the user assumes, and a silent success hides that.
+            let confirmation = NSAlert()
+            confirmation.messageText = String(
+                localized: "Preset Saved",
+                comment: "Alert title confirming a layout preset was saved.")
+            confirmation.informativeText = savedURL.path
+            confirmation.alertStyle = .informational
+            confirmation.addButton(
+                withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
+            confirmation.addButton(
+                withTitle: String(
+                    localized: "Reveal in Finder",
+                    comment: "Button title that reveals the saved layout preset in Finder."))
+            if confirmation.runModal() == .alertSecondButtonReturn {
+                NSWorkspace.shared.activateFileViewerSelecting([savedURL])
+            }
         } catch {
             showLayoutPresetAlert(
                 title: String(
@@ -3439,7 +3483,7 @@ struct AwesoMuxApp: App {
         guard !isAnySheetPresented, let selected = sessionStore.selectedSession else { return }
 
         let names = LayoutPresetStore.listPresetNames(
-            forWorkingDirectory: selected.workingDirectory
+            forWorkingDirectory: layoutPresetAnchorDirectory(for: selected)
         )
         guard !names.isEmpty else {
             showLayoutPresetAlert(
@@ -3485,7 +3529,9 @@ struct AwesoMuxApp: App {
 
     private func applyLayoutPreset(named name: String) {
         guard let selected = sessionStore.selectedSession else { return }
-        let workingDirectory = selected.workingDirectory
+        // Same anchor as save/list: load from, and open the new panes in, the
+        // directory the user is looking at.
+        let workingDirectory = layoutPresetAnchorDirectory(for: selected)
 
         do {
             let intent = try LayoutPresetStore.load(
