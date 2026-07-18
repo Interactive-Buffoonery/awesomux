@@ -58,10 +58,12 @@ not third-party injection).
   - `PaneClosePhase` (`.active`/`.closing`/`.closed`) — supplied by the close
     pipeline; transient, with no derivable representation, so no classifier
     fabricates it.
-  - `PaneLifecycle` composes the three so the issue's whole vocabulary
-    (restored/awaiting-hydration, attached, hidden, disconnected/unavailable,
-    stale, closing, closed) is representable and pattern-matchable, each axis
-    produced only by the authority that can observe it. Close *consequence*
+  - `PaneLifecycle` is a SUM of mutually-exclusive stages
+    (`.live(availability, visibility)` / `.closing` / `.closed`) so invalid
+    combinations (closed-but-attached, closed-but-visible) are unrepresentable by
+    construction while the whole vocabulary — awaiting-hydration/attached/
+    unavailable/stale via `.live` availability, hidden via `.live` visibility,
+    plus closing/closed — stays covered. Close *consequence*
     (`PaneCloseConsequence`, risk) is a separate concern from close *phase*.
 - **Live state vs reusable layout intent.** `WorkspaceLayoutIntent` is the
   preset seam. It is produced only by the prune-and-normalize projection

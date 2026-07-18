@@ -21,47 +21,39 @@ public enum PaneClosePhase: String, CaseIterable, Hashable, Sendable {
     case closed
 }
 
-/// A leaf's full lifecycle across its three independent axes.
+/// A leaf's lifecycle, modeled as a SUM of mutually-exclusive stages so invalid
+/// combinations are unrepresentable by construction.
 ///
-/// Composing three small value types (rather than one muddy enum) keeps each
-/// axis produced by its own authority: `availability` is DERIVED from the leaf +
-/// runtime signals, `visibility` is supplied by the mounting layer, and
-/// `closePhase` by the close pipeline. Together they make the issue's whole
-/// lifecycle vocabulary — restored/awaiting-hydration, attached, hidden,
-/// disconnected/unavailable, stale/invalid, closing, closed — representable and
-/// pattern-matchable, without any axis fabricating a state it cannot observe
-/// (e.g. no classifier can emit `closing`, which only the close pipeline knows).
-public struct PaneLifecycle: Hashable, Sendable {
-    public let availability: PaneAvailability
-    public let visibility: PaneVisibility
-    public let closePhase: PaneClosePhase
-
-    public init(
-        availability: PaneAvailability,
-        visibility: PaneVisibility = .visible,
-        closePhase: PaneClosePhase = .active
-    ) {
-        self.availability = availability
-        // The one real cross-axis invariant: a `.closed` leaf is gone and cannot
-        // remain visible/mounted, so it normalizes to `.hidden`. `.closing` may
-        // still be visible (animating out), so it is left free.
-        self.visibility = closePhase == .closed ? .hidden : visibility
-        self.closePhase = closePhase
-    }
+/// A leaf is EITHER live — carrying its derived `availability` and its supplied
+/// `visibility` — or being torn down (`.closing`, which may still animate
+/// visibly) or gone (`.closed`). A product of three independent axes could
+/// express nonsense like closed-but-attached or closed-but-visible; the sum type
+/// cannot. It still covers the issue's whole vocabulary: awaiting-hydration /
+/// attached / unavailable / stale via `.live` availability, hidden via `.live`
+/// visibility, plus `.closing` and `.closed`. Each input is produced by its own
+/// authority — availability derived from the leaf, visibility from the mounting
+/// layer, phase from the close pipeline.
+public enum PaneLifecycle: Hashable, Sendable {
+    case live(availability: PaneAvailability, visibility: PaneVisibility)
+    case closing
+    case closed
 }
 
 public extension WorkspaceLeaf {
-    /// The leaf's lifecycle: `availability` derived from the leaf, `visibility`
-    /// and `closePhase` supplied by their owning layers (defaults
-    /// visible/active for a mounted, non-closing leaf).
+    /// The leaf's lifecycle: `availability` derived from the leaf, mount state
+    /// and close phase supplied by their owning layers (defaults to a mounted,
+    /// non-closing live leaf).
     func lifecycle(
         isMounted: Bool = true,
         closePhase: PaneClosePhase = .active
     ) -> PaneLifecycle {
-        PaneLifecycle(
-            availability: availability,
-            visibility: PaneVisibility(isMounted: isMounted),
-            closePhase: closePhase
-        )
+        switch closePhase {
+        case .active:
+            .live(availability: availability, visibility: PaneVisibility(isMounted: isMounted))
+        case .closing:
+            .closing
+        case .closed:
+            .closed
+        }
     }
 }

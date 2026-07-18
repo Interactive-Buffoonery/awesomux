@@ -16,33 +16,22 @@ import Testing
         #expect(PaneVisibility(isMounted: false) == .hidden)
     }
 
-    @Test func lifecycleDefaultsToMountedActive() {
-        let lifecycle = leaf().lifecycle()
-        #expect(lifecycle.availability == .attached)
-        #expect(lifecycle.visibility == .visible)
-        #expect(lifecycle.closePhase == .active)
+    @Test func mountedActiveLeafIsLiveAttachedVisible() {
+        #expect(leaf().lifecycle() == .live(availability: .attached, visibility: .visible))
     }
 
-    @Test func lifecycleComposesHiddenAndClosing() {
-        // The vocabulary the availability classifier cannot emit is representable
-        // through the other two axes.
-        let lifecycle = leaf().lifecycle(isMounted: false, closePhase: .closing)
-        #expect(lifecycle.visibility == .hidden)
-        #expect(lifecycle.closePhase == .closing)
+    @Test func unmountedActiveLeafIsLiveHidden() {
+        #expect(leaf().lifecycle(isMounted: false) == .live(availability: .attached, visibility: .hidden))
     }
 
-    @Test func closedLeafIsNeverVisible() {
-        // The one cross-axis invariant: a closed leaf is gone, so `.closed`
-        // normalizes visibility to `.hidden` regardless of the requested value.
-        let direct = PaneLifecycle(availability: .unavailable, visibility: .visible, closePhase: .closed)
-        #expect(direct.visibility == .hidden)
-        let viaLeaf = leaf().lifecycle(isMounted: true, closePhase: .closed)
-        #expect(viaLeaf.visibility == .hidden)
-        // .closing may still be visible (animating out).
-        let closing = PaneLifecycle(availability: .attached, visibility: .visible, closePhase: .closing)
-        #expect(closing.visibility == .visible)
+    @Test func closingAndClosedAreTerminalStages() {
+        #expect(leaf().lifecycle(closePhase: .closing) == .closing)
+        #expect(leaf().lifecycle(closePhase: .closed) == .closed)
     }
 
+    // The sum type makes contradictions (closed-but-attached, closed-but-visible)
+    // unrepresentable by construction — there is no case that pairs `.closed`
+    // with an availability or visibility.
     @Test func everyAxisStateIsDeclared() {
         #expect(Set(PaneVisibility.allCases) == [.visible, .hidden])
         #expect(Set(PaneClosePhase.allCases) == [.active, .closing, .closed])
