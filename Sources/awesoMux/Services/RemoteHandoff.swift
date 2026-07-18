@@ -221,6 +221,31 @@ enum RemoteHandoff {
         }
     }
 
+    static func helperSupportsRequiredProtocols(
+        controlPath: String,
+        remote: RemoteTarget,
+        helperPath: String
+    ) async -> Bool {
+        let command = AmxBackend.bridgeHelperVersionCommand(
+            controlPath: controlPath,
+            remote: remote,
+            helperPath: helperPath
+        )
+        guard let data = try? await BridgeExecChannel.run(command: command, stdin: nil) else {
+            return false
+        }
+        return advertisesRequiredProtocols(String(decoding: data, as: UTF8.self))
+    }
+
+    static func advertisesRequiredProtocols(_ versionOutput: String) -> Bool {
+        let protocols = Set(
+            versionOutput.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+        )
+        return protocols.contains("awesomux-bridge-v1")
+            && protocols.contains("awesomux-handoff-v1")
+    }
+
     static func transfer(
         source: PreparedSource,
         remote: RemoteTarget,
@@ -420,7 +445,7 @@ enum RemoteHandoff {
     }
 }
 
-private final class HandoffSheetCancellation: @unchecked Sendable {
+final class HandoffSheetCancellation: @unchecked Sendable {
     private weak var alert: NSAlert?
     private weak var window: NSWindow?
     private let lock = NSLock()
@@ -509,14 +534,84 @@ extension GhosttySurfaceNSView {
                     throw RemoteHandoff.Failure.unsupportedHelper
                 }
                 let helperPath = BridgeAttachDecision.helperPath(remoteHome: remoteHome)
-                let helperIsSupported = await RemoteHandoff.helperSupportsHandoff(
+                let helperIsSupported = await RemoteHandoff.helperSupportsRequiredProtocols(
                     controlPath: controlPath,
                     remote: authority.remote,
                     helperPath: helperPath
                 )
                 try Task.checkCancellation()
-                guard helperIsSupported else {
-                    throw RemoteHandoff.Failure.unsupportedHelper
+                if !helperIsSupported {
+                    do {
+                        _ = try await RemoteHelperInstaller.probePlatform(
+                            remote: authority.remote,
+                            controlPath: controlPath
+                        )
+                        guard let bundledHelperURL = RemoteHelperInstaller.bundledHelperURL() else {
+                            throw RemoteHelperInstaller.Failure.bundledHelperUnavailable
+                        }
+                        let helper = try RemoteHelperInstaller.prepareBundledHelper(at: bundledHelperURL)
+                        guard let self,
+                            let currentPane = self.sessionStore
+                                .session(id: authority.appSessionID)?
+                                .layout.pane(id: authority.paneID),
+                            RemoteHandoff.authorityMatches(authority, pane: currentPane)
+                        else {
+                            throw RemoteHandoff.Failure.destinationChanged
+                        }
+                        guard await RemoteHelperInstaller.confirmationProvider(authority.remote, originatingWindow) else {
+                            TerminalAccessibilityAnnouncer.announce(
+                                String(
+                                    localized: "Remote helper installation cancelled",
+                                    comment: "Remote helper installation cancellation accessibility status")
+                            )
+                            return
+                        }
+                        try Task.checkCancellation()
+                        guard
+                            let currentPane = self.sessionStore
+                                .session(id: authority.appSessionID)?
+                                .layout.pane(id: authority.paneID),
+                            RemoteHandoff.authorityMatches(authority, pane: currentPane)
+                        else {
+                            throw RemoteHandoff.Failure.destinationChanged
+                        }
+                        try await RemoteHelperInstaller.install(
+                            helper: helper,
+                            remote: authority.remote,
+                            controlPath: controlPath,
+                            remoteHome: remoteHome
+                        )
+                        try Task.checkCancellation()
+                        guard
+                            await RemoteHandoff.helperSupportsRequiredProtocols(
+                                controlPath: controlPath,
+                                remote: authority.remote,
+                                helperPath: helperPath
+                            )
+                        else {
+                            throw RemoteHelperInstaller.Failure.installedHelperIncompatible
+                        }
+                        guard
+                            let currentPane = self.sessionStore
+                                .session(id: authority.appSessionID)?
+                                .layout.pane(id: authority.paneID),
+                            RemoteHandoff.authorityMatches(authority, pane: currentPane)
+                        else {
+                            throw RemoteHandoff.Failure.destinationChanged
+                        }
+                        RemoteHelperInstaller.successPresenter(originatingWindow)
+                        return
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch let failure as RemoteHandoff.Failure {
+                        throw failure
+                    } catch let failure as RemoteHelperInstaller.Failure {
+                        RemoteHelperInstaller.failurePresenter(failure, originatingWindow)
+                        return
+                    } catch {
+                        RemoteHelperInstaller.failurePresenter(.installationFailed, originatingWindow)
+                        return
+                    }
                 }
 
                 let proposedDirectory = "~/.awesomux/handoffs/\(authority.terminalSessionID.rawValue)/"

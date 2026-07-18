@@ -197,6 +197,8 @@ struct RemoteHandoffTests {
     func capabilityAndArguments() throws {
         #expect(RemoteHandoff.advertisesHandoff("awesomux-bridge-v1\nawesomux-handoff-v1\n"))
         #expect(!RemoteHandoff.advertisesHandoff("awesomux-bridge-v1\n"))
+        #expect(RemoteHandoff.advertisesRequiredProtocols("awesomux-handoff-v1\nawesomux-bridge-v1\n"))
+        #expect(!RemoteHandoff.advertisesRequiredProtocols("awesomux-handoff-v1\n"))
 
         let remote = try #require(RemoteTarget(parsing: "me@example"))
         let arguments = RemoteHandoff.transferArguments(
