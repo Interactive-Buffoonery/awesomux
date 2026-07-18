@@ -3,6 +3,19 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
+private struct SidebarGroupHeaderHoverOverrideKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+extension EnvironmentValues {
+    /// Overrides pointer hover for deterministic hosted-view rendering tests.
+    /// Production leaves this nil and continues to use live `onHover` state.
+    var sidebarGroupHeaderHoverOverride: Bool? {
+        get { self[SidebarGroupHeaderHoverOverrideKey.self] }
+        set { self[SidebarGroupHeaderHoverOverrideKey.self] = newValue }
+    }
+}
+
 /// Gate for the group header's hover-revealed close-group X (INT-739).
 ///
 /// Beyond hover, the X carries the same guards as the context menu's
@@ -107,6 +120,7 @@ struct SidebarGroupHeaderRow: View {
     @Environment(SidebarPeekModel.self) private var peekModel
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.sidebarGroupHeaderHoverOverride) private var headerHoverOverride
     // Mirror the count badge's scaling: it renders with `.awFont(.Mono.meta)`,
     // whose point size is `@ScaledMetric(relativeTo: .subheadline)` off
     // `spec(.meta).baseSize` times the user `\.awTextScale` factor. Reproducing
@@ -176,7 +190,7 @@ struct SidebarGroupHeaderRow: View {
     /// unit-testable.
     private var showsGroupCloseButton: Bool {
         SidebarGroupClosePolicy.showsCloseButton(
-            isHeaderHovered: isHeaderHovered,
+            isHeaderHovered: headerHoverOverride ?? isHeaderHovered,
             displayMode: displayMode,
             isFiltering: isFiltering,
             hasResolvedGroupIndex: currentGroupIndex != nil,
