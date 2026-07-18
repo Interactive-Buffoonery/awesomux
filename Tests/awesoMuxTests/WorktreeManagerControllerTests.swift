@@ -34,18 +34,16 @@ struct WorktreeManagerControllerTests {
         let controller = WorktreeManagerController()
 
         controller.show(model: model, relativeTo: nil)
-        for _ in 0..<20 where controller.hasPendingRefresh {
-            await Task.yield()
-        }
+        await controller.waitForPendingRefresh()
         #expect(service.callCount == 1)
         #expect(!controller.hasPendingRefresh)
 
-        for _ in 0..<20 { await Task.yield() }
+        await controller.waitForPendingRefresh()
         #expect(service.callCount == 1)
         controller.dismiss()
     }
 
-    private func makeModel(service: any GitWorktreeListing) -> WorktreeManagerModel {
+    private func makeModel(service: any GitWorktreeManaging) -> WorktreeManagerModel {
         WorktreeManagerModel(
             repositoryContext: .init(
                 invocationRoot: URL(fileURLWithPath: "/tmp/repo"),
@@ -61,7 +59,7 @@ struct WorktreeManagerControllerTests {
     }
 }
 
-private final class CountingWorktreeListing: GitWorktreeListing, @unchecked Sendable {
+private final class CountingWorktreeListing: GitWorktreeManaging, @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
 
@@ -71,4 +69,8 @@ private final class CountingWorktreeListing: GitWorktreeListing, @unchecked Send
         lock.withLock { calls += 1 }
         return .success(.init(records: [], diagnostics: []))
     }
+
+    func branches(in repositoryContext: GitRepositoryContext) async -> GitWorktreeBranchesOutcome { .success([]) }
+    func validateNewBranchName(_ name: String, in repositoryContext: GitRepositoryContext) async -> Bool { true }
+    func create(_ request: GitWorktreeCreateRequest) async -> GitWorktreeCreateOutcome { .failure(.spawnFailure) }
 }

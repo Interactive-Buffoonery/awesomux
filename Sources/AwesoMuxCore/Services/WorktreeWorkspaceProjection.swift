@@ -23,13 +23,11 @@ public struct WorktreeWorkspaceProjection: Sendable {
         canonicalWorktreePath: URL,
         groups: [SessionGroup]
     ) -> WorktreeWorkspaceMatch? {
-        let worktreeComponents = canonicalComponents(of: canonicalWorktreePath)
+        let worktreeComponents = canonicalPathComponents(canonicalWorktreePath)
         for group in groups {
             for session in group.sessions {
                 for pane in session.panes where WorkspacePaneCapabilities.terminal(pane).localFileAccess {
-                    let paneComponents = canonicalComponents(
-                        of: URL(fileURLWithPath: pane.workingDirectory)
-                    )
+                    let paneComponents = canonicalPathComponents(URL(fileURLWithPath: pane.workingDirectory))
                     guard paneComponents.starts(with: worktreeComponents) else { continue }
                     return WorktreeWorkspaceMatch(
                         groupID: group.id,
@@ -40,9 +38,5 @@ public struct WorktreeWorkspaceProjection: Sendable {
             }
         }
         return nil
-    }
-
-    private func canonicalComponents(of url: URL) -> [String] {
-        url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
     }
 }

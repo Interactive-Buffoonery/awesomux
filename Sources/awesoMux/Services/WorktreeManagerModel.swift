@@ -33,13 +33,30 @@ enum WorktreeManagerOpenOutcome: Equatable, Sendable {
     case failed(String)
 }
 
+enum WorktreeManagerCreateResult: Equatable, Sendable {
+    case opened(WorktreeManagerOpenOutcome)
+    case worktreeCreatedWorkspaceOpenFailed(String)
+    case branchCreatedWithoutWorktree(String)
+    case failed(String)
+}
+
+enum WorktreeManagerCreateSubmissionState: Equatable, Sendable {
+    case idle
+    case submitting
+    case result(WorktreeManagerCreateResult)
+
+    var isSubmitting: Bool { self == .submitting }
+}
+
 @MainActor
 @Observable
 final class WorktreeManagerModel {
     let repositoryContext: GitRepositoryContext
     private(set) var state: WorktreeManagerState = .loading
+    private(set) var createSubmissionState: WorktreeManagerCreateSubmissionState = .idle
+    private(set) var lastCreateRequest: GitWorktreeCreateRequest?
 
-    @ObservationIgnored private let service: any GitWorktreeListing
+    @ObservationIgnored private let service: any GitWorktreeManaging
     @ObservationIgnored private let projection: WorktreeWorkspaceProjection
     @ObservationIgnored private let groups: () -> [SessionGroup]
     @ObservationIgnored private let currentGroupID: () -> SessionGroup.ID?
@@ -48,7 +65,7 @@ final class WorktreeManagerModel {
 
     init(
         repositoryContext: GitRepositoryContext,
-        service: any GitWorktreeListing = GitWorktreeService(),
+        service: any GitWorktreeManaging = GitWorktreeService(),
         projection: WorktreeWorkspaceProjection = WorktreeWorkspaceProjection(),
         groups: @escaping () -> [SessionGroup],
         currentGroupID: @escaping () -> SessionGroup.ID?,
@@ -66,7 +83,7 @@ final class WorktreeManagerModel {
 
     convenience init(
         repositoryContext: GitRepositoryContext,
-        service: any GitWorktreeListing = GitWorktreeService(),
+        service: any GitWorktreeManaging = GitWorktreeService(),
         sessionStore: SessionStore
     ) {
         self.init(
@@ -131,15 +148,66 @@ final class WorktreeManagerModel {
     }
 
     func open(row: WorktreeManagerRow) -> WorktreeManagerOpenOutcome {
+        open(record: row.record)
+    }
+
+    func branches() async -> GitWorktreeBranchesOutcome {
+        await service.branches(in: repositoryContext)
+    }
+
+    var destinationWorkspaceGroupID: SessionGroup.ID? { currentGroupID() }
+
+    func validateNewBranchName(_ name: String) async -> Bool {
+        await service.validateNewBranchName(name, in: repositoryContext)
+    }
+
+    @discardableResult
+    func create(request: GitWorktreeCreateRequest) async -> WorktreeManagerCreateResult? {
+        guard !createSubmissionState.isSubmitting else { return nil }
+        lastCreateRequest = request
+        createSubmissionState = .submitting
+        let outcome = await service.create(request)
+        await refresh()
+
+        let result: WorktreeManagerCreateResult
+        switch outcome {
+        case .success(let record):
+            let openOutcome = open(record: record, destinationGroupID: request.destinationWorkspaceGroupID)
+            if case .failed(let message) = openOutcome {
+                result = .worktreeCreatedWorkspaceOpenFailed(message)
+            } else {
+                result = .opened(openOutcome)
+            }
+        case .branchCreatedWithoutWorktree(let branchName, _):
+            result = .branchCreatedWithoutWorktree(branchName)
+        case .failure:
+            result = .failed(
+                String(
+                    localized: "Couldn’t create the worktree. Check the path and Git details, then try again.",
+                    comment: "Worktree creation failure message."))
+        }
+        createSubmissionState = .result(result)
+        return result
+    }
+
+    func resetCreateResult() {
+        guard !createSubmissionState.isSubmitting else { return }
+        createSubmissionState = .idle
+    }
+
+    private func open(
+        record: GitWorktreeRecord,
+        destinationGroupID: SessionGroup.ID? = nil
+    ) -> WorktreeManagerOpenOutcome {
         if let match = projection.match(
-            canonicalWorktreePath: row.record.canonicalPath,
+            canonicalWorktreePath: record.canonicalPath,
             groups: groups()
         ) {
             focus(match)
             return .focused(match)
         }
 
-        guard let groupID = currentGroupID() else {
+        guard let groupID = destinationGroupID ?? currentGroupID() else {
             return .failed(
                 String(
                     localized: "The current workspace group is no longer available.",
@@ -148,8 +216,8 @@ final class WorktreeManagerModel {
         }
         guard
             let sessionID = addLocalSession(
-                row.workspaceTitle,
-                row.record.canonicalPath.path,
+                record.isDetached ? record.canonicalPath.lastPathComponent : record.displayBranch,
+                record.canonicalPath.path,
                 groupID
             )
         else {

@@ -7,6 +7,7 @@ struct WorktreeManagerPanel: View {
     @State var model: WorktreeManagerModel
     let onDismiss: () -> Void
     @State private var openError: String?
+    @State private var isShowingCreateForm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,14 +27,21 @@ struct WorktreeManagerPanel: View {
                     localized: "Close Worktree Manager",
                     comment: "Accessibility label for the Worktree Manager close button."
                 ),
-                action: onDismiss
+                action: {
+                    guard !model.createSubmissionState.isSubmitting else { return }
+                    onDismiss()
+                }
             )
             .padding(.top, 12)
             .padding(.trailing, FloatingPanelChromeMetrics.closeButtonEdgeInset)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
-            String(localized: "Worktree Manager", comment: "Worktree Manager panel accessibility label."))
+            String(localized: "Worktree Manager", comment: "Worktree Manager panel accessibility label.")
+        )
+        .sheet(isPresented: $isShowingCreateForm, onDismiss: model.resetCreateResult) {
+            WorktreeCreateForm(model: model) { isShowingCreateForm = false }
+        }
     }
 
     private var header: some View {
@@ -48,6 +56,16 @@ struct WorktreeManagerPanel: View {
                     .foregroundStyle(Color.aw.text)
             }
             Spacer()
+            Button {
+                model.resetCreateResult()
+                isShowingCreateForm = true
+            } label: {
+                Label(
+                    String(localized: "New Worktree", comment: "Open the create worktree form."),
+                    systemImage: "plus"
+                )
+            }
+            .buttonStyle(.borderless)
             Button {
                 Task { await model.refresh() }
             } label: {
