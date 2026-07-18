@@ -7,6 +7,46 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct TerminalPanelWindowTests {
+    @Test("promotion follows the event window when another window is key")
+    func promotionFollowsEventWindowWhenAnotherWindowIsKey() throws {
+        let panel = TerminalPanelWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 360),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.orderFrontRegardless()
+        otherWindow.makeKeyAndOrderFront(nil)
+        defer {
+            panel.orderOut(nil)
+            panel.close()
+            otherWindow.orderOut(nil)
+            otherWindow.close()
+        }
+
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: .command,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: panel.windowNumber,
+                context: nil,
+                characters: "\r",
+                charactersIgnoringModifiers: "\r",
+                isARepeat: false,
+                keyCode: 36
+            ))
+
+        #expect(AwesoMuxApplication.promotionTarget(for: event) === panel)
+    }
+
     @Test("mouse input is forwarded without reading keyboard-only fields")
     func mouseInputIsForwardedWithoutReadingKeyboardFields() throws {
         let panel = TerminalPanelWindow(

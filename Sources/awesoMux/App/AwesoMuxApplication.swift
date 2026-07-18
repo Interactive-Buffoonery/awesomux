@@ -139,25 +139,26 @@ final class AwesoMuxApplication: NSApplication {
             return
         }
 
-        // Promote the floating panel's slot into the workspace (Cmd-Return).
-        // Only fires when the floating panel is key, so Cmd-Return in a normal
-        // workspace pane still falls through to the terminal. Handled here
-        // rather than in the panel's own `sendEvent` because command-key
-        // equivalents are consumed by menu/key-equivalent routing before they
-        // reach a window-level override.
+        // Promote a terminal panel into the workspace (Cmd-Return). Routing
+        // from the event's window keeps child-window Companion events attached
+        // to their source even when AppKit reports the primary window as key.
+        // Cmd-Return in a normal workspace pane still falls through to the
+        // terminal. Intercept here rather than in the panel's own `sendEvent`
+        // because menu/key-equivalent routing consumes command-key equivalents
+        // before they reach a window-level override.
         if FloatingPanelEventPolicy.isPromoteChord(
             type: event.type,
             keyCode: event.keyCode,
             isARepeat: event.isARepeat,
             modifiers: event.modifierFlags
-        ), let floatingPanel = keyWindow as? TerminalPanelWindow {
+        ), let terminalPanel = Self.promotionTarget(for: event) {
             // Panel-scoped rather than the app-wide canHandleAppShortcut the
             // sibling branches use: only a sheet on THIS panel contends for
             // the ⌘Return chord; a sheet on some other window shouldn't
-            // disable promote on the key floating panel.
+            // disable promote on the event's terminal panel.
             guard
                 FloatingPanelEventPolicy.canPromoteFloatingPanel(
-                    hasAttachedSheet: floatingPanel.attachedSheet != nil
+                    hasAttachedSheet: terminalPanel.attachedSheet != nil
                 )
             else {
                 ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true blocked=attachedSheet")
@@ -166,11 +167,15 @@ final class AwesoMuxApplication: NSApplication {
             }
 
             ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true action=promote")
-            floatingPanel.onPromote?()
+            terminalPanel.onPromote?()
             return
         }
 
         super.sendEvent(event)
+    }
+
+    static func promotionTarget(for event: NSEvent) -> TerminalPanelWindow? {
+        event.window as? TerminalPanelWindow
     }
 
     private var canHandleAppShortcut: Bool {
