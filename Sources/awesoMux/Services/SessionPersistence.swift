@@ -335,7 +335,7 @@ enum SessionPersistence {
         pendingWrite = Task.detached(priority: .utility) {
             try? await Task.sleep(for: debounceInterval)
             guard !Task.isCancelled else { return }
-            writeSnapshot(snapshot)
+            writeSnapshot(snapshot, isCancelled: { Task.isCancelled })
         }
     }
 
@@ -349,7 +349,10 @@ enum SessionPersistence {
         writeSnapshot(store.snapshot())
     }
 
-    nonisolated private static func writeSnapshot(_ snapshot: SessionSnapshot) {
+    nonisolated private static func writeSnapshot(
+        _ snapshot: SessionSnapshot,
+        isCancelled: () -> Bool = { false }
+    ) {
         do {
             try PrivateFilePermissions.createDirectory(at: supportDirectoryURL)
 
@@ -365,6 +368,14 @@ enum SessionPersistence {
             // leave no restore file at all.
             lastWrittenDigestLock.lock()
             defer { lastWrittenDigestLock.unlock() }
+            // Re-check cancellation inside the lock, not just before the sleep:
+            // `flush()`'s `task.cancel()` happens-before its own synchronous
+            // `writeSnapshot`, so whichever holder wins this lock, the debounced
+            // task either writes first (then flush overwrites) or sees cancelled
+            // and skips — it can never clobber flush's newer snapshot with stale
+            // bytes. `flush()` passes the default `{ false }`, so its write is
+            // never suppressed by ambient cancellation of the terminate context.
+            guard !isCancelled() else { return }
             let snapshotPath = snapshotURL.path
             let snapshotIsUsable =
                 FileManager.default.fileExists(atPath: snapshotPath)
