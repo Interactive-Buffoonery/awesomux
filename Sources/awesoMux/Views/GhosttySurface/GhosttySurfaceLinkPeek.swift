@@ -170,8 +170,12 @@ extension GhosttySurfaceNSView {
     }
 
     /// Debounced "cursor left the link" dismiss. No-op when nothing is pending or
-    /// shown so idle hovers stay cheap.
-    private func scheduleLinkPeekDismiss() {
+    /// shown so idle hovers stay cheap. Not `private`: `mouseExited` (input
+    /// bridge, separate file) must route through the same grace — near the top
+    /// screen edge AppKit flips a `.maxY` popover below the anchor where it
+    /// covers the cursor and fires a transient `mouseExited`; an immediate
+    /// dismiss there closes the peek the instant it opens (review finding).
+    func scheduleLinkPeekDismiss() {
         guard linkPeekPopover != nil else {
             peekedLink = nil
             return
