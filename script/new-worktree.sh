@@ -1,31 +1,48 @@
 #!/usr/bin/env bash
-# Create an isolated awesoMux worktree, initialize its submodules, and start Pi.
+# Create an isolated awesoMux worktree, initialize its submodules, and start an agent TUI.
 
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./script/new-worktree.sh [--no-launch] [branch]
+Usage: ./script/new-worktree.sh [--no-launch] [--tui NAME] [branch]
 
 Create a new branch from origin/main in the sibling awesomux-worktrees
-folder, initialize its submodules, and launch Pi from the new worktree.
+folder, initialize its submodules, and launch an agent TUI from the new worktree.
 
 Options:
-  --no-launch  Set up the worktree without launching Pi
+  --no-launch  Set up the worktree without launching an agent TUI
+  --tui NAME   Launch pi, claude, codex, opencode, or grok without prompting
   -h, --help   Show this help
 
 Environment:
   AWESOMUX_WORKTREE_DIR  Override the directory that contains worktrees
   PI_BIN                 Override the Pi executable (default: pi)
+  CLAUDE_BIN             Override the Claude Code executable (default: claude)
+  CODEX_BIN              Override the Codex executable (default: codex)
+  OPENCODE_BIN           Override the OpenCode executable (default: opencode)
+  GROK_BIN               Override the Grok executable (default: grok)
 EOF
 }
 
-LAUNCH_PI=1
+LAUNCH_TUI=1
+TUI=""
 BRANCH=""
 while (( $# > 0 )); do
   case "$1" in
     --no-launch)
-      LAUNCH_PI=0
+      LAUNCH_TUI=0
+      ;;
+    --tui)
+      if (( $# < 2 )); then
+        echo "error: --tui requires a name" >&2
+        exit 2
+      fi
+      TUI="$2"
+      shift
+      ;;
+    --tui=*)
+      TUI="${1#*=}"
       ;;
     -h|--help)
       usage
@@ -70,6 +87,56 @@ if [[ -z "$BRANCH" ]] || ! git check-ref-format --branch "$BRANCH" >/dev/null 2>
   exit 1
 fi
 
+if (( LAUNCH_TUI == 1 )) && [[ -z "$TUI" ]]; then
+  cat <<'EOF'
+Agent TUI to launch:
+  1) Pi
+  2) Claude Code
+  3) Codex
+  4) OpenCode
+  5) Grok
+EOF
+  printf 'Choice [1]: '
+  IFS= read -r TUI || {
+    echo >&2
+    echo "error: no agent TUI selected" >&2
+    exit 1
+  }
+  TUI="${TUI:-1}"
+fi
+
+TUI_NAME=""
+TUI_BIN=""
+if (( LAUNCH_TUI == 1 )); then
+  case "$TUI" in
+    1|pi|Pi)
+      TUI_NAME="Pi"
+      TUI_BIN="${PI_BIN:-pi}"
+      ;;
+    2|claude|Claude|claude-code)
+      TUI_NAME="Claude Code"
+      TUI_BIN="${CLAUDE_BIN:-claude}"
+      ;;
+    3|codex|Codex)
+      TUI_NAME="Codex"
+      TUI_BIN="${CODEX_BIN:-codex}"
+      ;;
+    4|opencode|OpenCode|open-code)
+      TUI_NAME="OpenCode"
+      TUI_BIN="${OPENCODE_BIN:-opencode}"
+      ;;
+    5|grok|Grok)
+      TUI_NAME="Grok"
+      TUI_BIN="${GROK_BIN:-grok}"
+      ;;
+    *)
+      echo "error: unknown agent TUI: ${TUI:-<empty>}" >&2
+      echo "choose pi, claude, codex, opencode, or grok" >&2
+      exit 2
+      ;;
+  esac
+fi
+
 WORKTREE_BASE="${AWESOMUX_WORKTREE_DIR:-$(dirname "$PRIMARY_ROOT")/${REPOSITORY_NAME}-worktrees}"
 WORKTREE_NAME="${BRANCH//\//-}"
 WORKTREE_PATH="$WORKTREE_BASE/$WORKTREE_NAME"
@@ -83,10 +150,15 @@ if [[ -e "$WORKTREE_PATH" ]]; then
   exit 1
 fi
 
-PI_BIN="${PI_BIN:-pi}"
-if (( LAUNCH_PI == 1 )) && ! command -v "$PI_BIN" >/dev/null 2>&1; then
-  echo "error: Pi executable not found: $PI_BIN" >&2
-  exit 1
+if (( LAUNCH_TUI == 1 )); then
+  if ! TUI_BIN_PATH="$(command -v "$TUI_BIN")"; then
+    echo "error: $TUI_NAME executable not found: $TUI_BIN" >&2
+    exit 1
+  fi
+  if [[ "$TUI_BIN_PATH" != /* ]]; then
+    TUI_BIN_PATH="$PWD/$TUI_BIN_PATH"
+  fi
+  TUI_BIN="$TUI_BIN_PATH"
 fi
 
 echo "Fetching origin..."
@@ -108,11 +180,11 @@ EOF
 fi
 
 printf '\nWorktree ready: %s\n' "$WORKTREE_PATH"
-if (( LAUNCH_PI == 0 )); then
-  printf 'Open it with:\n  cd %q && pi\n' "$WORKTREE_PATH"
+if (( LAUNCH_TUI == 0 )); then
+  printf 'Open it with:\n  cd %q\n' "$WORKTREE_PATH"
   exit 0
 fi
 
-echo "Launching Pi..."
+echo "Launching $TUI_NAME..."
 cd "$WORKTREE_PATH"
-exec "$PI_BIN"
+exec "$TUI_BIN"
