@@ -38,6 +38,7 @@ extension GhosttySurfaceNSView {
         mouseOverLink = link
         discardCursorRects()
         window?.invalidateCursorRects(for: self)
+        updateLinkPeek(for: link)
     }
 
     /// Handles `GHOSTTY_ACTION_MOUSE_SHAPE`. Ghostty's own app stores this

@@ -266,6 +266,14 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
                 GhosttyInputMapper.mouseModifiers(event.modifierFlags, mouseCaptured: true)
             )
         }
+
+        // INT-453: ⌘ pressed while already resting on a link promotes the peek to
+        // instant (no new `updateMouseOverLink` fires for an unchanged link).
+        if GhosttyInputMapper.isCommandKeyCode(event.keyCode),
+            event.modifierFlags.contains(.command)
+        {
+            promoteLinkPeekForCommandIfHovering()
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -422,6 +430,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // A click on the hovered link opens through libghostty's own OPEN_URL
+        // gate below; dismiss the peek preview first (transient would also close,
+        // but this clears state deterministically and keeps click-through intact).
+        dismissLinkPeek()
         // No extra `makeFirstResponder` here — `localEventLeftMouseDown`
         // (below) already transferred focus for this click, via a global
         // event monitor that runs BEFORE the responder chain.
@@ -648,6 +660,11 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     override func mouseExited(with event: NSEvent) {
         logMouseDiagnostic(event: "mouse-exited", extra: "gated=\(!self.hasNoMouseButtonHeld)")
 
+        // Pointer left the surface — no link is hovered anymore. libghostty also
+        // emits a nil `MOUSE_OVER_LINK` shortly, but dismiss here too so the peek
+        // doesn't linger the full grace window after the cursor is gone.
+        dismissLinkPeek()
+
         guard let surface else {
             return
         }
@@ -716,6 +733,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        // Scrolling moves the content under a peek anchored at a fixed cursor
+        // point; dismiss rather than let it float over unrelated text.
+        dismissLinkPeek()
+
         guard let surface else {
             return
         }
