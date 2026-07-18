@@ -134,7 +134,7 @@ struct AwesoMuxApp: App {
     }
 
     init() {
-        _ = AwesoMuxApplication.shared
+        _ = AwesoMuxApplication.installAsSharedApplicationIfNeeded()
         DesignSystemFonts.registerBundledFonts()
 
         // Ghostty snapshots the process environment when it builds each PTY's
@@ -961,6 +961,15 @@ struct AwesoMuxApp: App {
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextWorkspace))
                 .disabled(!canRunWorkspaceShortcut(hasTarget: hasMultipleSessions))
+
+                if let shortcutDiagnosticsURL = ShortcutDiagnostics.fileURL {
+                    Divider()
+
+                    Button("Copy Shortcut Diagnostics Path") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(shortcutDiagnosticsURL.path, forType: .string)
+                    }
+                }
 
                 #if DEBUG
                     Divider()

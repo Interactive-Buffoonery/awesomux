@@ -2,13 +2,21 @@ import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
 import Carbon.HIToolbox
-import ObjectiveC
 import Testing
 @testable import awesoMux
 
 @Suite(.serialized)
 @MainActor
 struct TerminalPanelWindowTests {
+    @Test("application installs the shared shortcut-routing subclass")
+    func applicationInstallsSharedShortcutRoutingSubclass() {
+        let application = AwesoMuxApplication.installAsSharedApplicationIfNeeded()
+
+        #expect(NSApplication.shared === application)
+        #expect(NSApplication.shared is AwesoMuxApplication)
+        #expect(AwesoMuxApplication.installAsSharedApplicationIfNeeded() === application)
+    }
+
     @Test("application promotes a Companion event when its parent is key")
     func applicationPromotesCompanionEventWhenParentIsKey() throws {
         let fixture = PromotionFixture(attachedToParent: true)
@@ -303,11 +311,6 @@ private final class PromotionFixture {
     }
 
     private static func application() -> AwesoMuxApplication {
-        let application = NSApplication.shared
-        if let application = application as? AwesoMuxApplication {
-            return application
-        }
-        object_setClass(application, AwesoMuxApplication.self)
-        return unsafeDowncast(application, to: AwesoMuxApplication.self)
+        AwesoMuxApplication.installAsSharedApplicationIfNeeded()
     }
 }

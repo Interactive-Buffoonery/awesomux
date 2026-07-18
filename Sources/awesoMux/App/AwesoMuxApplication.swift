@@ -1,7 +1,21 @@
 import AppKit
+import ObjectiveC
 
 @objc(AwesoMuxApplication)
 final class AwesoMuxApplication: NSApplication {
+    static func installAsSharedApplicationIfNeeded() -> AwesoMuxApplication {
+        let application = NSApplication.shared
+        if let application = application as? AwesoMuxApplication {
+            return application
+        }
+
+        // SwiftUI creates the shared NSApplication before the staged bundle's
+        // NSPrincipalClass is consulted. This subclass has no stored state, so
+        // installing its event-routing behavior preserves the singleton's layout.
+        object_setClass(application, AwesoMuxApplication.self)
+        return unsafeDowncast(application, to: AwesoMuxApplication.self)
+    }
+
     override func sendEvent(_ event: NSEvent) {
         guard event.type == .keyDown else {
             super.sendEvent(event)
@@ -151,7 +165,13 @@ final class AwesoMuxApplication: NSApplication {
             keyCode: event.keyCode,
             isARepeat: event.isARepeat,
             modifiers: event.modifierFlags
-        ), let terminalPanel = Self.promotionTarget(for: event) {
+        ) {
+            guard let terminalPanel = Self.promotionTarget(for: event) else {
+                ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true blocked=noTerminalPanelTarget")
+                super.sendEvent(event)
+                return
+            }
+
             // Scope sheet checks to the terminal panel and its Companion
             // parent. A sheet on an unrelated window does not own this chord,
             // while an app-modal session always does.
