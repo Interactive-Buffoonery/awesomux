@@ -27,6 +27,18 @@ const validAuthorization = {
 };
 const requestScript = fileURLToPath(new URL("../native-ci-request.mjs", import.meta.url));
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const nativeRequestWorkflow = readFileSync(
+  join(repoRoot, ".github/workflows/native-ci.yml"),
+  "utf8",
+);
+const nativeExecutorWorkflow = readFileSync(
+  join(repoRoot, ".github/workflows/native-ci-executor.yml"),
+  "utf8",
+);
+const nativeCleanupWorkflow = readFileSync(
+  join(repoRoot, ".github/workflows/native-ci-cleanup.yml"),
+  "utf8",
+);
 
 test("native CI commands map exact spellings to supported scopes", () => {
   assert.equal(parseNativeCICommand("/ci"), "all");
@@ -163,7 +175,7 @@ test("Swift CodeQL delegates native preparation to the shared action", () => {
 test("native CI exposes only slash-command and scoped manual triggers", () => {
   const workflowPath = join(repoRoot, ".github/workflows/native-ci.yml");
   assert.ok(existsSync(workflowPath), "native CI workflow must exist");
-  const workflow = readFileSync(workflowPath, "utf8");
+  const workflow = nativeRequestWorkflow;
 
   assert.match(workflow, /issue_comment:\n\s+types: \[created\]/);
   assert.match(workflow, /workflow_dispatch:[\s\S]*?scope:[\s\S]*?type: choice/);
@@ -175,31 +187,53 @@ test("native CI exposes only slash-command and scoped manual triggers", () => {
 });
 
 test("native CI resolves authorized requests in trusted workflow code", () => {
-  const workflow = readFileSync(join(repoRoot, ".github/workflows/native-ci.yml"), "utf8");
+  const workflow = nativeRequestWorkflow;
 
-  assert.match(workflow, /trusted-sha: \$\{\{ steps\.trusted\.outputs\.sha \}\}/);
-  assert.match(workflow, /id: trusted[\s\S]*sha=\$\(git rev-parse HEAD\)/);
   assert.match(workflow, /MAINTAINER_LOGINS_JSON: \$\{\{ vars\.MAINTAINER_LOGINS_JSON \|\| '\[\]' \}\}/);
   assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
   assert.match(workflow, /node \.github\/scripts\/native-ci-request\.mjs parse/);
   assert.match(workflow, /repos\/\$\{GITHUB_REPOSITORY\}\/pulls\/\$\{PR_NUMBER\}/);
   assert.match(workflow, /node \.github\/scripts\/native-ci-request\.mjs authorize/);
-  assert.match(workflow, /head-sha=\$head_sha/);
-  assert.match(workflow, /pr-number=\$pr_number/);
-  assert.match(workflow, /scope=\$scope/);
-  assert.match(workflow, /accepted=true/);
+  assert.match(workflow, /trusted_sha="\$\(git rev-parse HEAD\)"/);
+  assert.match(workflow, /execution_ref="native-ci-runs\/run-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}"/);
+  assert.match(workflow, /repos\/\$\{GITHUB_REPOSITORY\}\/git\/refs/);
+  assert.match(workflow, /native-ci-executor\.yml\/dispatches/);
+  for (const input of [
+    "target-sha",
+    "pr-number",
+    "scope",
+    "trusted-sha",
+    "execution-ref",
+    "trigger",
+  ]) {
+    assert.match(workflow, new RegExp(`inputs\\[${input}\\]`));
+  }
   assert.match(
     workflow,
-    /native-ci-request\.mjs authorize[\s\S]*issues\/comments\/\$\{COMMENT_ID\}\/reactions[\s\S]*-f content=eyes/,
+    /native-ci-executor\.yml\/dispatches[\s\S]*issues\/comments\/\$\{COMMENT_ID\}\/reactions[\s\S]*-f content=eyes/,
   );
 });
 
+test("native CI isolates untrusted execution in a disposable branch cache scope", () => {
+  assert.match(nativeExecutorWorkflow, /workflow_dispatch:/);
+  assert.doesNotMatch(
+    nativeExecutorWorkflow,
+    /^\s{2}(?:issue_comment|pull_request|pull_request_target|push|schedule):/m,
+  );
+  assert.match(nativeExecutorWorkflow, /\^native-ci-runs\/run-\[0-9\]\+\-\[0-9\]\+\$/);
+  assert.match(nativeExecutorWorkflow, /ACTUAL_REF: \$\{\{ github\.ref \}\}/);
+  assert.match(nativeExecutorWorkflow, /ACTUAL_SHA: \$\{\{ github\.sha \}\}/);
+  assert.match(nativeExecutorWorkflow, /ACTUAL_REF" != "refs\/heads\/\$EXECUTION_REF/);
+  assert.match(nativeExecutorWorkflow, /ACTUAL_SHA" != "\$TRUSTED_SHA/);
+  assert.match(nativeExecutorWorkflow, /\.head\.sha == \$targetSHA/);
+  assert.doesNotMatch(nativeRequestWorkflow, /Check out captured SHA|\.\/script\/test\.sh/);
+});
+
 test("native CI executes captured PR code with read-only permissions and restore-only caching", () => {
-  const workflow = readFileSync(join(repoRoot, ".github/workflows/native-ci.yml"), "utf8");
+  const workflow = nativeExecutorWorkflow;
   const nativeJob = workflow.match(/\n  native:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
   assert.ok(nativeJob, "native execution job must exist");
 
-  assert.match(nativeJob, /if: needs\.resolve\.outputs\.accepted == 'true'/);
   assert.match(nativeJob, /runs-on: \$\{\{ vars\.NATIVE_CI_RUNNER \|\| 'macos-26' \}\}/);
   assert.match(
     nativeJob,
@@ -208,7 +242,7 @@ test("native CI executes captured PR code with read-only permissions and restore
   assert.match(nativeJob, /cancel-in-progress: true/);
   assert.match(nativeJob, /permissions:\n\s+contents: read/);
   assert.doesNotMatch(nativeJob, /checks: write|issues: write|secrets\./);
-  assert.match(nativeJob, /ref: \$\{\{ needs\.resolve\.outputs\.head-sha \}\}/);
+  assert.match(nativeJob, /ref: \$\{\{ needs\.resolve\.outputs\.target-sha \}\}/);
   assert.match(nativeJob, /submodules: recursive/);
   assert.match(nativeJob, /persist-credentials: false/);
   assert.match(nativeJob, /actual_sha="\$\(git rev-parse HEAD\)"/);
@@ -234,7 +268,7 @@ test("native CI executes captured PR code with read-only permissions and restore
 });
 
 test("native CI never pre-seeds and mistake-preserves an xUnit failure", () => {
-  const workflow = readFileSync(join(repoRoot, ".github/workflows/native-ci.yml"), "utf8");
+  const workflow = nativeExecutorWorkflow;
   const initializeStep = workflow.match(
     /- name: Initialize native results\n([\s\S]*?)(?=\n\s+- name:)/,
   )?.[1];
@@ -251,17 +285,32 @@ test("native CI never pre-seeds and mistake-preserves an xUnit failure", () => {
 });
 
 test("native CI reporting is isolated from pull request execution", () => {
-  const workflow = readFileSync(join(repoRoot, ".github/workflows/native-ci.yml"), "utf8");
+  const workflow = nativeExecutorWorkflow;
   const reportJob = workflow.match(/\n  report:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
   assert.ok(reportJob, "trusted reporting job must exist");
 
   assert.match(reportJob, /needs: \[resolve, native\]/);
-  assert.match(reportJob, /if: always\(\) && needs\.resolve\.outputs\.accepted == 'true'/);
+  assert.match(reportJob, /if: always\(\)/);
   assert.match(reportJob, /permissions:\n\s+checks: write/);
   assert.doesNotMatch(reportJob, /actions\/checkout|\.\/script\/|secrets\.|contents: write|issues: write/);
   assert.match(reportJob, /name="Native CI"/);
+  assert.match(reportJob, /EXACT_SHA: \$\{\{ inputs\.target-sha \}\}/);
+  assert.match(reportJob, /RESOLVE_JOB_RESULT: \$\{\{ needs\.resolve\.result \}\}/);
   assert.match(reportJob, /head_sha="\$EXACT_SHA"/);
   assert.match(reportJob, /status=completed/);
   assert.match(reportJob, /conclusion="\$conclusion"/);
   assert.match(reportJob, /ARTIFACT_URL: \$\{\{ needs\.native\.outputs\.artifact-url \}\}/);
+});
+
+test("native CI deletes only completed disposable execution refs", () => {
+  assert.match(nativeCleanupWorkflow, /workflow_run:[\s\S]*workflows: \[Native CI executor\]/);
+  assert.match(nativeCleanupWorkflow, /types: \[completed\]/);
+  assert.match(
+    nativeCleanupWorkflow,
+    /startsWith\(github\.event\.workflow_run\.head_branch, 'native-ci-runs\/run-'\)/,
+  );
+  assert.match(nativeCleanupWorkflow, /permissions:\n\s+contents: write/);
+  assert.match(nativeCleanupWorkflow, /\^native-ci-runs\/run-\[0-9\]\+\-\[0-9\]\+\$/);
+  assert.match(nativeCleanupWorkflow, /git\/refs\/heads\/\$\{EXECUTION_REF\}/);
+  assert.doesNotMatch(nativeCleanupWorkflow, /actions\/checkout|\.\/script\/|secrets\./);
 });
