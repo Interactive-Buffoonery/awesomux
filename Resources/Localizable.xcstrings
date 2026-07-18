@@ -2747,8 +2747,8 @@
     "This URL uses a scheme outside the standard web/mail allowlist." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a non-standard scheme."
     },
-    "This URL's host contains non-Latin characters." : {
-      "comment" : "Fallback body line when host accessors are unavailable but the URL was flagged as non-ASCII."
+    "This URL's host could not be verified." : {
+      "comment" : "Fallback body line when host accessors are unavailable but the URL's host was flagged as suspicious."
     },
     "This URL's path contains invisible or direction-flipping characters that may disguise the file extension or target." : {
       "comment" : "Body of the OSC 8 confirmation dialog for a URL whose path contains bidi-override, zero-width, or control codepoints."
