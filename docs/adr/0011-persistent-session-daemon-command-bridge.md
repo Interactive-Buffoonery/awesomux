@@ -336,3 +336,32 @@ they stand corrected here rather than edited in place:
   budget shrinks as `ZMX_DIR` grows. The 46-byte figure is awesoMux's own pin
   (`TerminalSessionID.maxAmxSessionNameUTF8Bytes`), sized for the dev
   socket-dir worst case. Bare UUIDs (36 bytes) fit under both.
+
+## Update 2026-07-17 — cwd follows the active terminal job
+
+The INT-572 implementation note above described `amx cwd` as querying the root
+shell. That proved misleading when a worktree helper changed directory in its
+own process and then `exec`'d an agent: the agent correctly worked in the linked
+worktree while awesoMux continued to display the unchanged parent shell path.
+
+`amx cwd` now queries the PTY's foreground process group and reads, in order:
+the group leader's cwd while the leader lives, a surviving group member's cwd
+when the leader has exited (bash runs pipelines so the job can outlive its
+leader), and finally the durable root shell. Group membership is re-verified
+per lookup, so a recycled pid cannot contribute an unrelated process's path.
+The foreground group is stable across an agent's background tool subprocesses;
+an interactive child that seizes the terminal (an editor, a pager) becomes the
+reported job for as long as it holds it. This corrects path-bar, Agents-panel,
+split-inheritance, IDE-open, and relative-link behavior through the existing
+single `pane.workingDirectory` update path without adding competing shell and
+active cwd fields to the model or IPC protocol.
+
+Two fallback layers exist and are independent: the daemon-side resolution
+chain above, and the Swift consumer (`BridgeCwdRefreshPolicy.cwdUpdate`),
+which keeps the last-known path when the whole `amx cwd` query fails (timeout,
+dead daemon) rather than blanking or reverting the bar.
+
+Every consumer inherits the displayed value deliberately: a split seeds its
+cwd from whatever the path bar shows at the moment of the split — including a
+foreground job's directory mid-run. What-you-see-is-what-you-get is the
+invariant; there is no durable-shell shadow field.

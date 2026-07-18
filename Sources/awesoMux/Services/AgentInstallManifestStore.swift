@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import Foundation
 
 protocol AgentInstallManifest: Codable {
@@ -63,11 +64,7 @@ struct AgentInstallManifestStore<Manifest: AgentInstallManifest> {
     }
 
     func save(_ manifest: Manifest) throws {
-        try fileManager.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        try fileManager.createOwnerOnlyDirectory(at: directoryURL)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(manifest)
@@ -105,11 +102,7 @@ struct AgentInstallManifestStore<Manifest: AgentInstallManifest> {
         }
 
         let data = try Data(contentsOf: legacyManifestURL)
-        try fileManager.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        try fileManager.createOwnerOnlyDirectory(at: directoryURL)
         try writePrivateFile(data, to: manifestURL)
     }
 
@@ -170,10 +163,7 @@ struct AgentInstallManifestStore<Manifest: AgentInstallManifest> {
         }
         try fileManager.copyItem(at: manifestURL, to: backupURL)
         do {
-            try fileManager.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: backupURL.path
-            )
+            try fileManager.setOwnerOnlyPermissions(onFileAt: backupURL)
         } catch {
             try? fileManager.removeItem(at: backupURL)
             throw error
@@ -183,9 +173,6 @@ struct AgentInstallManifestStore<Manifest: AgentInstallManifest> {
 
     private func writePrivateFile(_ data: Data, to url: URL) throws {
         try data.write(to: url, options: [.atomic])
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: url.path
-        )
+        try fileManager.setOwnerOnlyPermissions(onFileAt: url)
     }
 }

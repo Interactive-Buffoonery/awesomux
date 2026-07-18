@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   review-automation-and-plurals:
-    name: Review automation and plurals
+    name: Fast deterministic guards
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository

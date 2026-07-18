@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
 
@@ -246,9 +247,13 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         for reference: RemoteMarkdownReference
     ) -> RemoteMarkdownSnapshot? {
         do {
-            try fileManager.createDirectory(at: cacheDirectoryURL, withIntermediateDirectories: true)
+            try fileManager.createOwnerOnlyDirectory(at: cacheDirectoryURL)
+            try fileManager.setOwnerOnlyPermissions(onDirectoryAt: cacheDirectoryURL)
             let fileURL = cacheDirectoryURL.appending(path: cacheFileName(for: reference))
             try content.write(to: fileURL, options: .atomic)
+            // The chmod follows symlinks; safe only because the atomic write
+            // above just replaced any pre-planted link at this path.
+            try fileManager.setOwnerOnlyPermissions(onFileAt: fileURL)
             return RemoteMarkdownSnapshot(fileURL: fileURL, identity: reference.identity)
         } catch {
             return nil
