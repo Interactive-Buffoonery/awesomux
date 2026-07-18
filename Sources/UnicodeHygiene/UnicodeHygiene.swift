@@ -153,19 +153,19 @@ public enum UnicodeHygiene {
     private static func isUnsafePathScalar(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
         case 0x0000...0x001F, 0x007F, 0x0080...0x009F:
-            return true // C0, DEL, C1 controls
+            return true  // C0, DEL, C1 controls
         case 0x2028, 0x2029:
-            return true // LINE SEPARATOR / PARAGRAPH SEPARATOR
+            return true  // LINE SEPARATOR / PARAGRAPH SEPARATOR
         case 0x202A...0x202E:
-            return true // Bidi formatting controls (LRE/RLE/PDF/LRO/RLO)
+            return true  // Bidi formatting controls (LRE/RLE/PDF/LRO/RLO)
         case 0x2066...0x2069:
-            return true // Bidi isolates (LRI/RLI/FSI/PDI)
+            return true  // Bidi isolates (LRI/RLI/FSI/PDI)
         case 0x200E, 0x200F, 0x061C:
-            return true // LRM / RLM / Arabic letter mark
+            return true  // LRM / RLM / Arabic letter mark
         case 0x200B, 0x200C, 0x200D, 0xFEFF, 0x2060:
-            return true // Zero-width space / ZWNJ / ZWJ / BOM / word joiner
+            return true  // Zero-width space / ZWNJ / ZWJ / BOM / word joiner
         case 0x2061...0x2064:
-            return true // Invisible math operators
+            return true  // Invisible math operators
         default:
             return false
         }
@@ -201,12 +201,12 @@ public enum UnicodeHygiene {
 
         switch scalar.properties.generalCategory {
         case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter,
-             .modifierLetter, .otherLetter,
-             .decimalNumber, .letterNumber, .otherNumber,
-             .connectorPunctuation, .dashPunctuation, .openPunctuation,
-             .closePunctuation, .initialPunctuation, .finalPunctuation,
-             .otherPunctuation,
-             .mathSymbol, .currencySymbol, .modifierSymbol, .otherSymbol:
+            .modifierLetter, .otherLetter,
+            .decimalNumber, .letterNumber, .otherNumber,
+            .connectorPunctuation, .dashPunctuation, .openPunctuation,
+            .closePunctuation, .initialPunctuation, .finalPunctuation,
+            .otherPunctuation,
+            .mathSymbol, .currencySymbol, .modifierSymbol, .otherSymbol:
             return true
         default:
             return false
@@ -230,33 +230,33 @@ public enum UnicodeHygiene {
         // with Cyrillic/Greek. Extend this switch, don't redesign the
         // algorithm, when the next one surfaces.
         switch scalar.value {
-        case 0x0041 ... 0x005A,
-             0x0061 ... 0x007A,
-             0x00C0 ... 0x00FF,
-             0x0100 ... 0x024F,
-             // IPA Extensions and Latin Extended Additional: without these a
-             // spoofer readmits the mixed-script class via e.g. Vietnamese
-             // letters (U+1E01) beside Cyrillic.
-             0x0250 ... 0x02AF,
-             0x1E00 ... 0x1EFF,
-             // Latin Extended-C/D/E/F/G: without these, a Latin-lookalike
-             // letter from one of these blocks (e.g. U+A7CA LATIN CAPITAL
-             // LETTER S WITH SHORT STROKE) returns nil from this switch —
-             // contributing NO family — so pairing it with a real
-             // Cyrillic/Greek letter reads as single-script and slips past
-             // the mixing check. Confirmed reachable through a real IDN
-             // host: Foundation accepts and punycode-encodes
-             // "\u{A7CA}\u{0430}.com".
-             0x2C60 ... 0x2C7F,
-             0xA720 ... 0xA7FF,
-             0xAB30 ... 0xAB6F,
-             0x10780 ... 0x107BF,
-             0x1DF00 ... 0x1DFFF:
+        case 0x0041...0x005A,
+            0x0061...0x007A,
+            0x00C0...0x00FF,
+            0x0100...0x024F,
+            // IPA Extensions and Latin Extended Additional: without these a
+            // spoofer readmits the mixed-script class via e.g. Vietnamese
+            // letters (U+1E01) beside Cyrillic.
+            0x0250...0x02AF,
+            0x1E00...0x1EFF,
+            // Latin Extended-C/D/E/F/G: without these, a Latin-lookalike
+            // letter from one of these blocks (e.g. U+A7CA LATIN CAPITAL
+            // LETTER S WITH SHORT STROKE) returns nil from this switch —
+            // contributing NO family — so pairing it with a real
+            // Cyrillic/Greek letter reads as single-script and slips past
+            // the mixing check. Confirmed reachable through a real IDN
+            // host: Foundation accepts and punycode-encodes
+            // "\u{A7CA}\u{0430}.com".
+            0x2C60...0x2C7F,
+            0xA720...0xA7FF,
+            0xAB30...0xAB6F,
+            0x10780...0x107BF,
+            0x1DF00...0x1DFFF:
             return .latin
-        case 0x0370 ... 0x03FF,
-             0x1F00 ... 0x1FFF:
+        case 0x0370...0x03FF,
+            0x1F00...0x1FFF:
             return .greek
-        case 0x0400 ... 0x052F:
+        case 0x0400...0x052F:
             return .cyrillic
         default:
             return nil
@@ -266,7 +266,7 @@ public enum UnicodeHygiene {
     private static func isLetterScalar(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.properties.generalCategory {
         case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter,
-             .modifierLetter, .otherLetter:
+            .modifierLetter, .otherLetter:
             return true
         default:
             return false
