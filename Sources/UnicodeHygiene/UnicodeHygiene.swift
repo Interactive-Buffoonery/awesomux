@@ -256,7 +256,15 @@ public enum UnicodeHygiene {
         case 0x0370...0x03FF,
             0x1F00...0x1FFF:
             return .greek
-        case 0x0400...0x052F:
+        case 0x0400...0x052F,
+            // Cyrillic Extended-B/C/D: the same false-open class as the
+            // Latin Extended-C/D/E/F/G gap above, on the Cyrillic side.
+            // Confirmed reachable through a real IDN host (e.g. U+A641,
+            // U+1E08F both round-trip through Foundation's punycode
+            // encoder the same way U+A7CA does).
+            0xA640...0xA69F,
+            0x1C80...0x1C8F,
+            0x1E030...0x1E08F:
             return .cyrillic
         default:
             return nil

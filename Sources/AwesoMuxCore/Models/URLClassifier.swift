@@ -200,8 +200,8 @@ public enum URLClassifier {
         // These are pure ASCII, no `xn--` label, but malformed/phishing-
         // shaped. Treat as suspicious.
         let hostHasUnsafeScalar =
-            displayHost.map(hostContainsUnsafeAuthorityScalar) ?? false
-            || punycodeHost.map(hostContainsUnsafeAuthorityScalar) ?? false
+            (displayHost.map(hostContainsUnsafeAuthorityScalar) ?? false)
+            || (punycodeHost.map(hostContainsUnsafeAuthorityScalar) ?? false)
 
         // An IDN host must decode fully to Unicode before we trust script
         // analysis on it. `punycodeHost` carries the `xn--` form for ANY
