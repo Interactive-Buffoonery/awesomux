@@ -22,14 +22,13 @@ struct FileManagerOwnerOnlyTests {
     func createsOwnerOnlyDirectory() throws {
         let scratch = try makeScratchDirectory()
         defer { try? fileManager.removeItem(at: scratch) }
-        let nested =
-            scratch
-            .appending(path: "intermediate", directoryHint: .isDirectory)
-            .appending(path: "leaf", directoryHint: .isDirectory)
+        let intermediate = scratch.appending(path: "intermediate", directoryHint: .isDirectory)
+        let nested = intermediate.appending(path: "leaf", directoryHint: .isDirectory)
 
         try fileManager.createOwnerOnlyDirectory(at: nested)
 
         #expect(try permissions(atPath: nested.path) == 0o700)
+        #expect(try permissions(atPath: intermediate.path) == 0o700)
     }
 
     @Test("creating an existing directory does not throw or re-clamp it")
