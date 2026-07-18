@@ -352,8 +352,11 @@ struct BoundedCommandRunnerTests {
     @Test("a non-zero exit past the cap is still nonZeroExit, not outputTruncated")
     func nonZeroExitTakesPriorityOverTruncation() async {
         let runner = BoundedCommandRunner(executableCandidates: ["/bin/sh"], maxOutputBytes: 10)
+        // Payload is passed as $1 rather than shelling out to `seq`, which isn't
+        // guaranteed to exist; the literal string reliably exceeds maxOutputBytes.
+        let payload = String(repeating: "X", count: 2_000)
         let result = await runner.runDetailed(
-            arguments: ["-c", "printf 'X%.0s' $(seq 1 1000); exit 3"],
+            arguments: ["-c", "printf '%s' \"$1\"; exit 3", "_", payload],
             inDirectory: NSTemporaryDirectory()
         )
         #expect(result == .nonZeroExit(3))

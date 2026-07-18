@@ -89,6 +89,21 @@ struct WorktreeManagerPanel: View {
         // untouched: only `.opened` closes anything, the sheet stays put
         // with the error otherwise. Brief delay so the success text is
         // actually readable before both windows go away.
+        // `model` is reassigned by the controller across `show()` calls but
+        // this hosted view (and its `@State`) is reused, not recreated —
+        // same reason `createFormPresentationToken` exists above. Without
+        // this, `openError` from a PRIOR model's failed Open survives into
+        // whatever model gets hosted next: the controller's OWN automatic
+        // refresh in `show()` doesn't route through `refreshClearingOpenError()`
+        // (that only covers this view's own Refresh/Retry buttons), and even
+        // if it did, `.onChange(of: model.state)` wouldn't reliably fire here
+        // — a refresh landing on the SAME rows is a no-op state change.
+        // Keying on the model's own identity clears it the instant a
+        // genuinely different model gets hosted, before any refresh even
+        // runs (INT-857 review).
+        .task(id: ObjectIdentifier(model)) {
+            openError = nil
+        }
         .onChange(of: model.createSubmissionState) { _, newValue in
             guard case .result(.opened) = newValue else { return }
             // Capture the presentation this success belongs to: if the user
@@ -146,7 +161,7 @@ struct WorktreeManagerPanel: View {
             }
             .buttonStyle(.borderless)
             Button {
-                Task { await model.refresh() }
+                Task { await refreshClearingOpenError() }
             } label: {
                 Label(
                     String(localized: "Refresh", comment: "Refresh Worktree Manager action."),
@@ -185,9 +200,11 @@ struct WorktreeManagerPanel: View {
             } else {
                 // `message` is this refresh's own failure and is always the
                 // more current fact than a stale `openError` from a PRIOR
-                // Open attempt (which only clears on Open success, not on
-                // refresh) — showing it unconditionally here, rather than
-                // `openError ?? message`, keeps the banner honest about
+                // Open attempt — `refreshClearingOpenError()` only clears
+                // `openError` once a refresh lands in `.loaded`, and this
+                // branch is `.error`, so a leftover `openError` could still
+                // be sitting here. Showing `message` unconditionally, rather
+                // than `openError ?? message`, keeps the banner honest about
                 // what just happened.
                 rowList(rows: rows, errorMessage: message)
             }
@@ -221,7 +238,7 @@ struct WorktreeManagerPanel: View {
                 .awFont(AwFont.UI.title)
             Text(message).foregroundStyle(Color.aw.text2).multilineTextAlignment(.center)
             Button(String(localized: "Retry", comment: "Retry Worktree Manager refresh action.")) {
-                Task { await model.refresh() }
+                Task { await refreshClearingOpenError() }
             }
         }
         .padding()
@@ -236,7 +253,7 @@ struct WorktreeManagerPanel: View {
                     Text(errorMessage)
                     Spacer()
                     Button(String(localized: "Retry", comment: "Retry Worktree Manager refresh action.")) {
-                        Task { await model.refresh() }
+                        Task { await refreshClearingOpenError() }
                     }
                 }
                 .foregroundStyle(Color.aw.peach)
@@ -306,6 +323,17 @@ struct WorktreeManagerPanel: View {
         .accessibilityLabel(accessibilityLabel(for: row))
         .accessibilityAction {
             Task { await open(row) }
+        }
+    }
+
+    // Routes every Refresh/Retry action through here so a refresh that lands
+    // in `.loaded` also clears a stale `openError` from a prior failed Open
+    // — otherwise that banner keeps showing under `rowList` even after the
+    // refresh it was supposedly about has long since succeeded.
+    private func refreshClearingOpenError() async {
+        await model.refresh()
+        if case .loaded = model.state {
+            openError = nil
         }
     }
 

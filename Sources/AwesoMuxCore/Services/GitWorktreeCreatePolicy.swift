@@ -2,6 +2,7 @@ import Foundation
 
 public enum GitWorktreeCreateValidationIssue: Equatable, Sendable {
     case blankBranchName
+    case invalidBranchName
     case targetPathMustBeAbsolute
     case parentDirectoryMissing
     case parentDirectoryNotWritable

@@ -62,13 +62,17 @@ struct WorktreeManagerModelTests {
         let service = StubWorktreeListing(
             outcomes: [.success(.init(records: [], diagnostics: []))],
             createOutcomes: [.failure(.spawnFailure)],
-            createDelay: .milliseconds(100)
+            gatesCreate: true
         )
         let model = makeModel(service: service)
         let request = request(groupID: UUID())
         let first = Task { await model.create(request: request) }
-        await Task.yield()
+        // A bare `Task.yield()` doesn't guarantee `create` has actually
+        // reached `.submitting` before the duplicate races in; wait for the
+        // stub's explicit start signal instead.
+        await service.waitForCreateToStart()
         let duplicate = await model.create(request: request)
+        service.releaseCreate()
         _ = await first.value
         #expect(duplicate == nil)
         #expect(service.createCallCount == 1)
@@ -308,25 +312,53 @@ private final class StubWorktreeListing: GitWorktreeManaging, @unchecked Sendabl
     private var outcomes: [GitWorktreeListOutcome]
     private var identityOutcomes: [GitRepositoryIdentityValidation]
     private var createOutcomes: [GitWorktreeCreateOutcome]
-    private let createDelay: Duration?
     private let listDelay: Duration?
+    private let gatesCreate: Bool
     private var recordedCreateCalls = 0
+    private var createStarted = false
+    private var createStartedContinuation: CheckedContinuation<Void, Never>?
+    private var createReleaseContinuation: CheckedContinuation<Void, Never>?
 
     init(
         outcomes: [GitWorktreeListOutcome],
         identityOutcomes: [GitRepositoryIdentityValidation] = [],
         createOutcomes: [GitWorktreeCreateOutcome] = [],
-        createDelay: Duration? = nil,
-        listDelay: Duration? = nil
+        listDelay: Duration? = nil,
+        gatesCreate: Bool = false
     ) {
         self.outcomes = outcomes
         self.identityOutcomes = identityOutcomes
         self.createOutcomes = createOutcomes
-        self.createDelay = createDelay
         self.listDelay = listDelay
+        self.gatesCreate = gatesCreate
     }
 
     var createCallCount: Int { lock.withLock { recordedCreateCalls } }
+
+    /// Suspends until `create(_:)` has actually been invoked. Pair with
+    /// `gatesCreate: true` so a test can prove a racing duplicate call is
+    /// evaluated while the first call is genuinely in flight, instead of
+    /// guessing via a bare `Task.yield()`.
+    func waitForCreateToStart() async {
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                if createStarted {
+                    continuation.resume()
+                } else {
+                    createStartedContinuation = continuation
+                }
+            }
+        }
+    }
+
+    /// Releases a `create(_:)` call suspended by `gatesCreate: true`.
+    func releaseCreate() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            defer { createReleaseContinuation = nil }
+            return createReleaseContinuation
+        }
+        continuation?.resume()
+    }
 
     func validateRepositoryIdentity(_ repositoryContext: GitRepositoryContext) async -> GitRepositoryIdentityValidation {
         lock.withLock { identityOutcomes.isEmpty ? .valid : identityOutcomes.removeFirst() }
@@ -341,14 +373,29 @@ private final class StubWorktreeListing: GitWorktreeManaging, @unchecked Sendabl
         .success(["main"])
     }
 
-    func validateNewBranchName(_ name: String, in repositoryContext: GitRepositoryContext) async -> Bool { true }
+    func validateNewBranchName(_ name: String, in repositoryContext: GitRepositoryContext) async -> GitWorktreeBranchNameValidation {
+        .valid
+    }
 
     func create(_ request: GitWorktreeCreateRequest) async -> GitWorktreeCreateOutcome {
-        let result = lock.withLock { () -> GitWorktreeCreateOutcome in
+        if gatesCreate {
+            // The release continuation must be stored before `createStarted`
+            // flips (same locked block) — otherwise a waiter could observe
+            // "started" and call `releaseCreate()` before there's anything to
+            // resume, deadlocking this call forever.
+            await withCheckedContinuation { continuation in
+                let startedContinuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+                    createReleaseContinuation = continuation
+                    createStarted = true
+                    defer { createStartedContinuation = nil }
+                    return createStartedContinuation
+                }
+                startedContinuation?.resume()
+            }
+        }
+        return lock.withLock {
             recordedCreateCalls += 1
             return createOutcomes.isEmpty ? .failure(.spawnFailure) : createOutcomes.removeFirst()
         }
-        if let createDelay { try? await Task.sleep(for: createDelay) }
-        return result
     }
 }
