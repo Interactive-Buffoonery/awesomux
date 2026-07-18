@@ -31,7 +31,12 @@ final class WorktreeManagerController {
         await refreshTask?.value
     }
 
-    static let defaultSize = CGSize(width: 780, height: 560)
+    // Rows are branch-name-first with a secondary condensed path, not the
+    // full absolute path at row width — 780pt was sized for the latter and
+    // read as near-full-window on a typical app window. Matches
+    // `FloatingPanelLayout.defaultSize`'s width, the repo's other narrow
+    // floating-panel default.
+    static let defaultSize = CGSize(width: 640, height: 520)
     private static let screenInset: CGFloat = 16
 
     func toggle(model: WorktreeManagerModel, relativeTo parentWindow: NSWindow?) {

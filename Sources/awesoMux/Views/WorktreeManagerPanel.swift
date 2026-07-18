@@ -165,7 +165,7 @@ struct WorktreeManagerPanel: View {
                 .background(Color.aw.peach.opacity(0.1))
             }
             ScrollView {
-                LazyVStack(spacing: 4) {
+                LazyVStack(spacing: 2) {
                     ForEach(rows) { row in rowView(row) }
                 }
                 .padding(8)
@@ -174,13 +174,16 @@ struct WorktreeManagerPanel: View {
     }
 
     private func rowView(_ row: WorktreeManagerRow) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Image(systemName: row.record.isDetached ? "point.topleft.down.to.point.bottomright.curvepath" : "arrow.triangle.branch")
                 .foregroundStyle(Color.aw.peach)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 8) {
                     Text(row.record.displayBranch)
+                        .awFont(AwFont.UI.label)
+                        .fontWeight(.semibold)
                         .foregroundStyle(Color.aw.text)
+                        .lineLimit(1)
                     if row.record.isMainWorktree {
                         Label(
                             String(localized: "Current", comment: "Main worktree indicator."),
@@ -196,13 +199,19 @@ struct WorktreeManagerPanel: View {
                         .foregroundStyle(Color.aw.text2)
                     }
                 }
-                Text(row.record.canonicalPath.path)
+                // Component-aware, not character-aware: plain `.middle`
+                // truncation on the raw string can land inside the leaf
+                // directory name itself on these long
+                // `<repo>-worktrees/<branch>` paths, which reads as noise
+                // rather than a recognizable path. `.truncationMode(.middle)`
+                // stays on as a fallback for a leaf name too long on its own.
+                Text(WorktreePathDisplay.condensed(row.record.canonicalPath.path))
                     .awFont(AwFont.Mono.meta)
-                    .foregroundStyle(Color.aw.text3)
+                    .foregroundStyle(Color.aw.text2)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            Spacer()
+            Spacer(minLength: 12)
             Button(
                 row.liveMatch == nil
                     ? String(localized: "Open", comment: "Open a worktree in a new workspace.")
@@ -211,8 +220,8 @@ struct WorktreeManagerPanel: View {
                 Task { await open(row) }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
         .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel(for: row))
@@ -260,5 +269,15 @@ struct WorktreeManagerPanel: View {
             comment:
                 "Accessibility label for a worktree row. Includes its action, branch state, branch name, current or linked state, open state, and path."
         )
+    }
+}
+
+/// Trailing-component path condensing for the row list, kept separate from
+/// SwiftUI so it's directly unit-testable.
+enum WorktreePathDisplay {
+    static func condensed(_ path: String, keepingTrailingComponents count: Int = 2) -> String {
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count > count else { return path }
+        return "…/" + components.suffix(count).joined(separator: "/")
     }
 }
