@@ -1,4 +1,5 @@
 import Charts
+import AwesoMuxConfig
 import DesignSystem
 import SwiftUI
 
@@ -13,6 +14,7 @@ struct DiagnosticsSettingsPane: View {
 
     @Environment(DiagnosticsModel.self) private var model
     @Environment(AnalyticsEventLogStore.self) private var analyticsLog
+    @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(SettingsNavigator.self) private var navigator
     @State private var historyWindow: DiagnosticsHistoryWindow = .fifteenMinutes
     @State private var metric: DiagnosticsMetric = .cpu
@@ -64,9 +66,6 @@ struct DiagnosticsSettingsPane: View {
             SettingsSection(
                 index: 4,
                 title: String(localized: "Analytics events", comment: "Diagnostics settings section title"),
-                subtitle: String(
-                    localized: "Final post-redaction payloads and delivery status. Nothing is sent while analytics is off.",
-                    comment: "Diagnostics settings section subtitle"),
                 accessibilityFocus: $isAnalyticsEventsHeadingFocused
             ) {
                 analyticsEvents
@@ -759,42 +758,66 @@ struct DiagnosticsSettingsPane: View {
             total: total
         )
         return VStack(alignment: .leading, spacing: 0) {
-            if visible.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("No analytics events recorded")
-                        .awFont(AwFont.UI.label)
-                        .foregroundStyle(Color.aw.text)
-                    Text(
-                        "Events appear here after analytics is enabled and an event occurs. Try Send Test Diagnostic Event in Analytics settings."
-                    )
-                    .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.text)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            } else {
-                if total > visible.count {
-                    Text(truncationNotice)
+            analyticsConsentStatus
+                .padding(.bottom, 12)
+
+            VStack(alignment: .leading, spacing: 0) {
+                if visible.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("No analytics events recorded")
+                            .awFont(AwFont.UI.label)
+                            .foregroundStyle(Color.aw.text)
+                        Text(
+                            "Events appear here after analytics is enabled and an event occurs. Try Send Test Diagnostic Event in Analytics settings."
+                        )
                         .awFont(AwFont.UI.meta)
                         .foregroundStyle(Color.aw.text)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 10)
-                        .padding(.bottom, 4)
-                        .accessibilityLabel(truncationNotice)
-                }
-                VStack(spacing: 0) {
-                    ForEach(Array(visible)) { entry in
-                        analyticsEventRow(entry)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                } else {
+                    if total > visible.count {
+                        Text(truncationNotice)
+                            .awFont(AwFont.UI.meta)
+                            .foregroundStyle(Color.aw.text)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 10)
+                            .padding(.bottom, 4)
+                            .accessibilityLabel(truncationNotice)
+                    }
+                    VStack(spacing: 0) {
+                        ForEach(Array(visible)) { entry in
+                            analyticsEventRow(entry)
+                        }
                     }
                 }
             }
-        }
-        .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
-        .overlay {
-            RoundedRectangle(cornerRadius: AwRadius.button)
-                .stroke(Color.aw.border2, lineWidth: 0.5)
+            .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
+            .overlay {
+                RoundedRectangle(cornerRadius: AwRadius.button)
+                    .stroke(Color.aw.border2, lineWidth: 0.5)
+            }
         }
         .padding(.top, 18)
+    }
+
+    @ViewBuilder
+    private var analyticsConsentStatus: some View {
+        if appSettingsStore.analytics.value.consentLevel == .off {
+            HStack(spacing: 4) {
+                Text("Your analytics are currently disabled.")
+                Button("Enable them here") {
+                    navigator.pendingSection = .analytics
+                }
+                .buttonStyle(.link)
+            }
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text2)
+        } else {
+            Text("Analytics are currently enabled. See a record of analytics events below.")
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text2)
+        }
     }
 
     private func analyticsEventRow(_ entry: AnalyticsLogEntry) -> some View {
