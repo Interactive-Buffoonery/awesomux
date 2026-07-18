@@ -100,6 +100,12 @@ final class GhosttyRuntime {
     @ObservationIgnored
     private var eventLoopWatchdog: GhosttyEventLoopWatchdog?
 
+    /// Reused across watchdog replacements so a stuck OSLog XPC query cannot
+    /// accumulate one blocked worker and queue per terminal reload.
+    @ObservationIgnored
+    private lazy var eventLoopFaultSource: any GhosttyFaultLogSource =
+        OSLogGhosttyFaultSource()
+
     /// Testing seam only - exposes the watchdog's last-tick timestamp so
     /// wiring can be asserted without reaching into OSLogStore or timers.
     var lastEventLoopTickAtForTesting: Date {
@@ -1230,7 +1236,9 @@ final class GhosttyRuntime {
         // first surface spawns.
         applyTerminalColorScheme(terminalAppearance.terminalColorScheme)
         readiness = .ready
-        eventLoopWatchdog = GhosttyEventLoopWatchdog { [weak self] in
+        eventLoopWatchdog = GhosttyEventLoopWatchdog(
+            faultSource: eventLoopFaultSource
+        ) { [weak self] in
             self?.presentEventLoopWedgeAlert()
         }
         eventLoopWatchdog?.start()
