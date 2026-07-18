@@ -142,6 +142,7 @@ struct AboutWindowView: View {
         string: "https://github.com/Interactive-Buffoonery/awesomux/blob/main/LICENSE")!
 
     private let info = AboutInfo()
+    let onDismiss: () -> Void
 
     var body: some View {
         VStack(spacing: AwSpacing.sectionGap) {
@@ -151,19 +152,36 @@ struct AboutWindowView: View {
             links
         }
         .padding(AwSpacing.panelPadding)
+        .padding(.top, 10)
         .frame(width: 360)
-        .background(Color.aw.surface.window)
-        .background(
-            // reassertsOnBecomeKey mirrors SettingsShell: AppKit can restore
-            // standard-button visibility on become-key (e.g. Cmd-Tab away and
-            // back), so the close-only chrome must be re-applied then.
-            WindowChromeConfigurator(
-                windowRole: .about,
-                reassertsOnBecomeKey: true,
-                standardWindowButtonVisibility: .closeOnly,
-                centersOnAttach: true
+        // Floating-panel container chrome, mirroring SessionManagerPanel: the
+        // hosting NSPanel is clear/non-opaque, so the view draws its own
+        // rounded surface, border, shadow, and close affordance.
+        .background {
+            RoundedRectangle(cornerRadius: AwRadius.window)
+                .fill(Color.aw.surface.window)
+                .awShadow(.sheet, rendering: .composited)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: AwRadius.window))
+        .overlay {
+            RoundedRectangle(cornerRadius: AwRadius.window)
+                .stroke(Color.aw.border2, lineWidth: 0.5)
+        }
+        .overlay(alignment: .topLeading) {
+            FloatingPanelCloseButton(
+                accessibilityLabel: String(
+                    localized: "Close About awesoMux",
+                    comment: "Accessibility label for the About panel's close button"),
+                action: onDismiss
             )
-            .allowsHitTesting(false))
+            .padding(.top, 12)
+            .padding(.leading, FloatingPanelChromeMetrics.closeButtonEdgeInset)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(
+            String(
+                localized: "About awesoMux",
+                comment: "Accessibility label for the About panel"))
     }
 
     private var identity: some View {

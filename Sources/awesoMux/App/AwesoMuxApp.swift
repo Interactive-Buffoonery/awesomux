@@ -95,6 +95,7 @@ struct AwesoMuxApp: App {
     @State private var popUpTerminalController = TerminalPanelController(mode: .companion)
     @State private var commandPaletteController = CommandPaletteController()
     @State private var keyboardCheatsheetController = KeyboardCheatsheetController()
+    @State private var aboutPanelController = AboutPanelController()
     @State private var sessionManagerController = SessionManagerController()
     @State private var sessionManagerModel: SessionManagerModel
     @State private var diagnosticsModel: DiagnosticsModel
@@ -431,6 +432,7 @@ struct AwesoMuxApp: App {
                 // (accent, glow, UI font, text scale). See INT-237/INT-367.
                 commandPaletteController.appSettingsStore = appSettingsStore
                 keyboardCheatsheetController.appSettingsStore = appSettingsStore
+                aboutPanelController.appSettingsStore = appSettingsStore
                 sessionManagerController.appSettingsStore = appSettingsStore
                 appDelegate.bind(
                     sessionStore: sessionStore,
@@ -588,7 +590,7 @@ struct AwesoMuxApp: App {
         }
         .windowResizability(.contentMinSize)
         .commands {
-            AboutCommands()
+            AboutCommands(aboutPanelController: aboutPanelController)
             SettingsCommands()
             NewWorkspaceCommands(
                 sessionStore: sessionStore,
@@ -1024,24 +1026,6 @@ struct AwesoMuxApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
 
-        Window("About awesoMux", id: AwesoMuxSceneID.about) {
-            AboutWindowView()
-                .preferredColorScheme(preferredScheme)
-                .environment(appSettingsStore)
-                .appearanceBridge(appSettingsStore)
-        }
-        // Fixed-size close-only auxiliary window: `.contentSize` owns the
-        // non-resizable behaviour (the chrome configurator only hides the
-        // miniaturize/zoom buttons); `.restorationBehavior(.disabled)` keeps a
-        // captured openWindow action from resurrecting a stale scene.
-        // `.defaultPosition(.center)` because without it SwiftUI cascades the
-        // window off the last-placed one — over the main window's content,
-        // where the matching background makes it read as embedded, not a
-        // standalone About window.
-        .windowResizability(.contentSize)
-        .restorationBehavior(.disabled)
-        .windowStyle(.hiddenTitleBar)
-        .defaultPosition(.center)
     }
 
     private func closeSelectedSession() {
@@ -2194,6 +2178,10 @@ struct AwesoMuxApp: App {
         }
 
         if commandPaletteController.hideIfKeyWindow() {
+            return
+        }
+
+        if aboutPanelController.hideIfKeyWindow() {
             return
         }
 
@@ -3414,16 +3402,15 @@ struct AwesoMuxApp: App {
     }
 
     private struct AboutCommands: Commands {
-        @Environment(\.openWindow) private var openWindow
+        let aboutPanelController: AboutPanelController
 
         var body: some Commands {
-            // Replaces SwiftUI's default About item in the app menu. Reads
-            // openWindow from the Commands environment directly (like
-            // SettingsCommands) so it stays live after every window closes —
-            // unlike a view-captured OpenWindowAction.
+            // Replaces SwiftUI's default About item in the app menu. Presents
+            // the controller-owned floating panel (not a Window scene) so
+            // placement is deterministic — see AboutPanelController.
             CommandGroup(replacing: .appInfo) {
                 Button("About awesoMux") {
-                    openWindow(id: AwesoMuxSceneID.about)
+                    aboutPanelController.show()
                 }
             }
         }
