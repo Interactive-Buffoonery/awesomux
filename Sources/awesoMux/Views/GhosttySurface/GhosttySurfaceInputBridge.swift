@@ -650,6 +650,14 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     override func mouseEntered(with event: NSEvent) {
         logMouseDiagnostic(event: "mouse-entered", extra: "gated=\(!self.hasNoMouseButtonHeld)")
 
+        // Re-entering over a NON-link cell emits no new `MOUSE_OVER_LINK`
+        // (nil → nil dedups), so a peek left open while the pointer crossed its
+        // own popover would otherwise never dismiss. No-ops when nothing is
+        // shown; a link cell re-arms normally via the hover callback.
+        if mouseOverLink == nil {
+            scheduleLinkPeekDismiss()
+        }
+
         guard hasNoMouseButtonHeld else {
             return
         }
