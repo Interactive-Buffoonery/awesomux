@@ -69,12 +69,21 @@ public struct AwModalView<Content: View>: View {
         .background {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(Color.aw.surface.chrome)
-                .awShadow(.sheet)
+                // .overlay, not .sheet: over the transparent borderless panel a
+                // heavy sheet shadow (r28 / y22 / 0.30) painted onto the dark
+                // terminal reads as a second "outer card" around the real one.
+                // The lighter overlay drop (r16 / y10 / 0.24) reads as one
+                // floating panel.
+                .awShadow(.overlay)
         }
         // The borderless panel clips to its frame, and AwModal sizes it to
-        // this view's fittingSize — inset by the sheet-shadow spread
-        // (radius 28, y-offset 22) so the shadow isn't truncated.
-        .padding(EdgeInsets(top: 6, leading: 28, bottom: 50, trailing: 28))
+        // this view's fittingSize — inset by the overlay-shadow spread
+        // (radius 16, y-offset 10: ~16 to the sides, ~6 up, ~26 down) plus a
+        // small safety margin so the shadow isn't truncated. This inset is
+        // pure shadow-reserve: under reduce-transparency / increased-contrast
+        // awShadow drops the shadow entirely, leaving inert transparent margin
+        // (the card sits a few points above the panel's center) — harmless.
+        .padding(EdgeInsets(top: 16, leading: 22, bottom: 32, trailing: 22))
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .onAppear(perform: announceAndFocusCancelButton)
@@ -102,7 +111,17 @@ public struct AwModalView<Content: View>: View {
                 .foregroundStyle(configuration.isConfirmDestructive ? Color.aw.red : Color.aw.text2)
         }
         .buttonStyle(.bordered)
-        .tint(configuration.isConfirmDestructive ? Color.aw.red : Color.aw.accent)
+        // No red .tint on the destructive branch: a red tint washes the
+        // bordered bezel to near-invisible on the dark chrome, so Open reads
+        // as disabled. A neutral (default) bezel keeps it clearly an enabled,
+        // tappable control while the red label carries the danger cue; Cancel's
+        // filled accent keeps the emphasis. The non-destructive branch (no
+        // production caller today) keeps its accent tint.
+        // ponytail: leans on the native macOS 15 bordered bezel reading as
+        // enabled under a neutral tint; if a future min-OS renders the
+        // destructive-role bezel too subtly, upgrade to a scoped bordered style
+        // built from AwColor/AwRadius tokens (keep the Button role).
+        .tint(configuration.isConfirmDestructive ? nil : Color.aw.accent)
         // No .keyboardShortcut here: the ⌘Return/keypad-Enter accept chord is
         // intercepted at the ModalPanel window level (AwModal.swift), which
         // covers keypad Enter and destructive-role buttons uniformly.
@@ -139,17 +158,20 @@ public struct AwModalView<Content: View>: View {
     }
 
     private var keyboardHintText: String {
-        configuration.keyboardHint ?? String(
-            localized: "Press ⌘Return to confirm. Return or Esc cancels.",
-            comment: "Generic keyboard hint line on an awModal confirmation dialog."
-        )
+        configuration.keyboardHint
+            ?? String(
+                localized: "Press ⌘Return to confirm. Return or Esc cancels.",
+                comment: "Generic keyboard hint line on an awModal confirmation dialog."
+            )
     }
 
     private var spokenKeyboardHintText: String {
-        keyboardHintText.replacingOccurrences(of: "⌘Return", with: String(
-            localized: "Command-Return",
-            comment: "Spelled-out form of the Command-Return chord for VoiceOver, substituted into keyboard hint lines."
-        ))
+        keyboardHintText.replacingOccurrences(
+            of: "⌘Return",
+            with: String(
+                localized: "Command-Return",
+                comment: "Spelled-out form of the Command-Return chord for VoiceOver, substituted into keyboard hint lines."
+            ))
     }
 }
 
