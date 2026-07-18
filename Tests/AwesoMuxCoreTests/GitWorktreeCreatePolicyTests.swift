@@ -22,6 +22,24 @@ struct GitWorktreeCreatePolicyTests {
                 == true)
     }
 
+    @Test("candidate target path is available even without the sibling container")
+    func candidateIgnoresContainerExistence() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        let context = GitRepositoryContext(
+            invocationRoot: repo, canonicalCommonGitDirectory: repo.appendingPathComponent(".git"), displayName: "repo")
+
+        // No "repo-worktrees" container exists yet — the gated suggestion is
+        // nil, but the candidate (used as the form's placeholder hint) still
+        // resolves.
+        #expect(policy.suggestedTargetPath(repositoryContext: context, branchName: "feature/foo") == nil)
+        #expect(
+            policy.candidateTargetPath(repositoryContext: context, branchName: "feature/foo")?.path.hasSuffix(
+                "repo-worktrees/feature-foo") == true)
+    }
+
     @Test("validation covers absolute parent target overlap and blank branch rules")
     func validationRules() throws {
         let root = temporaryDirectory()
