@@ -876,6 +876,11 @@ public final class SessionStore {
                 comment: "Undo action for moving a workspace within or between groups."
             )
         ) { target in
+            // ponytail: the restore index is the captured source index, clamped
+            // by the reducer. If a non-undoable close shifts positions before
+            // undo, the workspace lands near — not exactly at — its old slot.
+            // ID-anchored ordering would fix that at the cost of a bespoke
+            // ordering model; revisit only if drift shows up in practice.
             target.moveSession(
                 id: sessionID,
                 toGroupID: sourceGroupID,
@@ -908,6 +913,9 @@ public final class SessionStore {
             // could reorder an unrelated group.
             guard let currentIndex = target._groups.firstIndex(where: { $0.id == groupID })
             else { return }
+            // ponytail: sourceIndex is the captured original index, clamped by
+            // the reducer — same near-not-exact ceiling as the moveSession
+            // inverse when a non-undoable close shifted positions in between.
             target.moveGroup(from: currentIndex, to: sourceIndex)
         }
     }
