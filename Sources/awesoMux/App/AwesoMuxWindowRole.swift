@@ -11,6 +11,19 @@ extension Notification.Name {
 enum AwesoMuxWindowRole: String {
     case primaryContent
     case settings
+    case about
+
+    /// Auxiliary scene windows (Settings, About) that a global close command
+    /// should close directly rather than routing into pane/workspace teardown.
+    /// Fail-closed: an unclassified window (`nil`, or the primary content
+    /// window) is NOT an auxiliary target, so Cmd-W keeps its normal
+    /// pane-close behaviour when the role can't be determined.
+    static func isAuxiliaryCloseTarget(_ role: AwesoMuxWindowRole?) -> Bool {
+        switch role {
+        case .settings, .about: return true
+        case .primaryContent, .none: return false
+        }
+    }
 
     static func isPrimaryContentEligible(
         role: AwesoMuxWindowRole?,

@@ -153,7 +153,8 @@ struct AboutWindowView: View {
         .padding(AwSpacing.panelPadding)
         .frame(width: 360)
         .background(Color.aw.surface.window)
-        .background(WindowChromeConfigurator(standardWindowButtonVisibility: .closeOnly))
+        .background(
+            WindowChromeConfigurator(windowRole: .about, standardWindowButtonVisibility: .closeOnly))
     }
 
     private var identity: some View {

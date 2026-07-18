@@ -2206,26 +2206,28 @@ struct AwesoMuxApp: App {
             return
         }
 
-        // Cmd-W is a global menu command — it fires regardless of which window
-        // holds key (the same reason the sheet guard below exists, INT-269).
-        // When an auxiliary window (Settings, About) is key, close THAT window
-        // instead of destroying a pane in the primary window behind it. The
-        // floating/companion panels were already handled above, so any non-
-        // primary key window here is an auxiliary scene window.
-        if let keyWindow = NSApp.keyWindow,
-            keyWindow !== NSApp.awesoMuxPrimaryContentWindow
-        {
-            keyWindow.performClose(nil)
-            return
-        }
-
         // No floating surface owns key. If a sheet is presented, Cmd-W is a
         // sheet-class action — swallow it rather than fall through to pane
         // destruction in a workspace behind the sheet the user can't see
         // (INT-269). Every other workspace command is already
         // `.disabled(isAnySheetPresented)`; Cmd-W routes through here instead
-        // of a menu item, so it needs the guard explicitly.
+        // of a menu item, so it needs the guard explicitly. This runs BEFORE
+        // the auxiliary-window routing below: a presented sheet is its own key
+        // NSWindow, and swallowing here keeps Cmd-W from force-closing it.
         guard !isAnySheetPresented else { return }
+
+        // Cmd-W is a global menu command — it fires regardless of which window
+        // holds key. When an auxiliary scene window (Settings, About) is key,
+        // close THAT window instead of destroying a pane in the primary window
+        // behind it. Fail-closed on role: an unclassified/primary key window
+        // (including the primary before its role is assigned) falls through to
+        // normal pane routing rather than being force-closed.
+        if let keyWindow = NSApp.keyWindow,
+            AwesoMuxWindowRole.isAuxiliaryCloseTarget(keyWindow.awesoMuxWindowRole)
+        {
+            keyWindow.performClose(nil)
+            return
+        }
 
         guard sessionStore.selectedSessionID != nil else {
             NSApp.keyWindow?.performClose(nil)
