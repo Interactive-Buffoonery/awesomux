@@ -765,7 +765,7 @@ struct DiagnosticsSettingsPane: View {
                         .awFont(AwFont.UI.label)
                         .foregroundStyle(Color.aw.text)
                     Text(
-                        "Events appear here after analytics is enabled and an event occurs — try Send Test Diagnostic Event in Analytics settings."
+                        "Events appear here after analytics is enabled and an event occurs. Try Send Test Diagnostic Event in Analytics settings."
                     )
                     .awFont(AwFont.UI.meta)
                     .foregroundStyle(Color.aw.text)
@@ -878,11 +878,11 @@ struct DiagnosticsSettingsPane: View {
         case (.queued, _):
             String(localized: "Queued", comment: "Analytics event delivery status")
         case (_, .deliveryUnavailable):
-            String(localized: "Not sent — this build records analytics locally only", comment: "Analytics event delivery status")
+            String(localized: "Not sent. This build records analytics locally only", comment: "Analytics event delivery status")
         case (_, .analyticsDisabled):
-            String(localized: "Not recorded — analytics is off", comment: "Analytics event delivery status")
+            String(localized: "Not recorded. Analytics is off", comment: "Analytics event delivery status")
         case (_, .invalidPropertyValue):
-            String(localized: "Dropped — failed privacy checks", comment: "Analytics event delivery status")
+            String(localized: "Dropped. Failed privacy checks", comment: "Analytics event delivery status")
         case (.dropped, nil), (.failed, nil):
             String(localized: "Not sent", comment: "Analytics event delivery status")
         }
