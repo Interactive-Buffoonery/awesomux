@@ -37,6 +37,12 @@ final class WorktreeManagerController {
 
     func show(model: WorktreeManagerModel, relativeTo parentWindow: NSWindow?) {
         activeModel = model
+        // Refresh/create errors and results are otherwise visual-only —
+        // announcements on a non-key window are dropped, so route them
+        // through the panel element (same pattern as SessionManagerController).
+        model.announce = { [weak self] message in
+            self?.postAnnouncement(message)
+        }
         let panel = panel ?? makePanel(model: model)
         self.panel = panel
         panel.hostSwiftUIContent(makeRootView(model: model))
@@ -128,5 +134,20 @@ final class WorktreeManagerController {
                 y: min(max(reference.midY - size.height / 2, minY), max(minY, screenFrame.maxY - size.height - inset))
             ))
         panel.invalidateShadow()
+    }
+
+    private func postAnnouncement(
+        _ message: String,
+        priority: NSAccessibilityPriorityLevel = .medium
+    ) {
+        guard let panel else { return }
+        NSAccessibility.post(
+            element: panel,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: priority.rawValue,
+            ]
+        )
     }
 }

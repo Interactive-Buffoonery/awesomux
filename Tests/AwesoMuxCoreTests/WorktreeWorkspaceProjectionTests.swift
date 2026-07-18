@@ -4,7 +4,9 @@ import Testing
 
 @Suite("Worktree workspace projection")
 struct WorktreeWorkspaceProjectionTests {
-    private let projection = WorktreeWorkspaceProjection()
+    // Fixture paths are fictional, so stub existence to true for the
+    // path-matching tests below; the dedicated stale-directory test flips it.
+    private let projection = WorktreeWorkspaceProjection(directoryExists: { _ in true })
 
     @Test("returns nil when no pane is inside the worktree")
     func noMatch() {
@@ -57,6 +59,16 @@ struct WorktreeWorkspaceProjectionTests {
                     path: "/tmp/worktree",
                     executionPlan: .ssh(SSHExecution(target: remote))
                 )
+            ) == nil)
+    }
+
+    @Test("a matching pane whose directory no longer exists is not a live match")
+    func staleDirectoryDoesNotMatch() {
+        let stale = WorktreeWorkspaceProjection(directoryExists: { _ in false })
+        #expect(
+            stale.match(
+                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/worktree"),
+                groups: groups(path: "/tmp/worktree")
             ) == nil)
     }
 

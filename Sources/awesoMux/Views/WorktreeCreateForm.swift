@@ -19,7 +19,16 @@ struct WorktreeCreateForm: View {
     @State private var selectedBranch = ""
     @State private var newBranchName = ""
     @State private var targetPath = ""
+    @State private var lastSuggestedPath: String?
     @State private var validationMessage: String?
+    // Bridges the gap between tapping Create and `model.createSubmissionState`
+    // actually flipping to `.submitting` (which only happens once `create()`
+    // is invoked): the new-branch-name check below awaits before that call,
+    // and without this flag Cancel/dismiss stay enabled during that await —
+    // letting a "cancelled" sheet still create a worktree behind the scenes.
+    @State private var isValidatingBeforeSubmit = false
+
+    private var isBusy: Bool { isValidatingBeforeSubmit || model.createSubmissionState.isSubmitting }
 
     private let policy = GitWorktreeCreatePolicy()
 
@@ -62,26 +71,26 @@ struct WorktreeCreateForm: View {
             HStack {
                 Spacer()
                 Button(String(localized: "Cancel", comment: "Cancel worktree creation action."), action: onDismiss)
-                    .disabled(model.createSubmissionState.isSubmitting)
+                    .disabled(isBusy)
                     .keyboardShortcut(.cancelAction)
                 Button(action: submit) {
                     Text(
-                        model.createSubmissionState.isSubmitting
+                        isBusy
                             ? String(localized: "Creating…", comment: "Worktree creation in progress button label.")
                             : String(localized: "Create", comment: "Create worktree submit button label.")
                     )
                 }
-                .disabled(model.createSubmissionState.isSubmitting)
+                .disabled(isBusy)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityLabel(
-                    model.createSubmissionState.isSubmitting
+                    isBusy
                         ? String(localized: "Creating…", comment: "Worktree creation in progress accessibility label.")
                         : String(localized: "Create", comment: "Create worktree accessibility label."))
             }
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 360)
-        .interactiveDismissDisabled(model.createSubmissionState.isSubmitting)
+        .interactiveDismissDisabled(isBusy)
         .task { await loadBranches() }
         .onChange(of: mode) { _, _ in suggestPath() }
         .onChange(of: selectedBranch) { _, _ in suggestPath() }
@@ -100,16 +109,19 @@ struct WorktreeCreateForm: View {
     }
 
     private func suggestPath() {
-        guard targetPath.isEmpty else { return }
+        guard targetPath.isEmpty || targetPath == lastSuggestedPath else { return }
         let name = mode == .existing ? selectedBranch : newBranchName
-        targetPath =
+        let suggestion =
             policy.suggestedTargetPath(
                 repositoryContext: model.repositoryContext,
                 branchName: name
             )?.path ?? ""
+        targetPath = suggestion
+        lastSuggestedPath = suggestion
     }
 
     private func submit() {
+        guard !isBusy else { return }
         guard let groupID = model.destinationWorkspaceGroupID else {
             validationMessage = String(
                 localized: "The current workspace group is no longer available.", comment: "Worktree creation target group failure.")
@@ -135,7 +147,9 @@ struct WorktreeCreateForm: View {
             return
         }
         validationMessage = nil
+        isValidatingBeforeSubmit = true
         Task {
+            defer { isValidatingBeforeSubmit = false }
             if mode == .new, !(await model.validateNewBranchName(newBranchName)) {
                 validationMessage = String(localized: "Enter a valid Git branch name.", comment: "Invalid new Git branch name validation.")
                 return

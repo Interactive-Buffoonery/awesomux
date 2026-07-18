@@ -202,12 +202,7 @@ struct WorktreeManagerPanel: View {
                     ? String(localized: "Open", comment: "Open a worktree in a new workspace.")
                     : String(localized: "Focus", comment: "Focus an already-open worktree workspace.")
             ) {
-                let outcome = model.open(row: row)
-                if case .failed(let message) = outcome {
-                    openError = message
-                } else {
-                    openError = nil
-                }
+                Task { await open(row) }
             }
         }
         .padding(.horizontal, 12)
@@ -216,7 +211,16 @@ struct WorktreeManagerPanel: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel(for: row))
         .accessibilityAction {
-            _ = model.open(row: row)
+            Task { await open(row) }
+        }
+    }
+
+    private func open(_ row: WorktreeManagerRow) async {
+        let outcome = await model.open(row: row)
+        if case .failed(let message) = outcome {
+            openError = message
+        } else {
+            openError = nil
         }
     }
 
@@ -237,11 +241,13 @@ struct WorktreeManagerPanel: View {
             row.liveMatch == nil
             ? String(localized: "Open", comment: "Accessibility action for opening a worktree workspace.")
             : String(localized: "Focus", comment: "Accessibility action for focusing an open worktree workspace.")
+        // Path last: VoiceOver users hear the action and state first, the
+        // (often long) POSIX path only once that's established.
         return String(
             localized:
-                "\(action), \(branchState), \(row.record.displayBranch), \(row.record.canonicalPath.path), \(currentState), \(openState)",
+                "\(action), \(branchState), \(row.record.displayBranch), \(currentState), \(openState), \(row.record.canonicalPath.path)",
             comment:
-                "Accessibility label for a worktree row. Includes its action, branch state, branch name, path, current or linked state, and open state."
+                "Accessibility label for a worktree row. Includes its action, branch state, branch name, current or linked state, open state, and path."
         )
     }
 }

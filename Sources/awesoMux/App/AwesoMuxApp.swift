@@ -2651,6 +2651,13 @@ struct AwesoMuxApp: App {
     }
 
     private func refreshWorktreeRepositoryContext() async {
+        // While the manager is open, its own operations (list/create) already
+        // re-validate repository identity and fail closed on drift. Swapping
+        // `worktreeManagerModel` out from under a VISIBLE panel here would
+        // orphan the hosted view on the old model (the controller only
+        // rehosts on the next explicit `show()`) and could race an in-flight
+        // Create on that old model — simplest correct fix is to not do it.
+        guard !worktreeManagerController.isVisible else { return }
         guard let selectionID = worktreeRepositorySelectionID,
             let pane = sessionStore.selectedSession?.activePane
         else {

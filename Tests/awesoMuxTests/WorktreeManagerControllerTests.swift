@@ -65,6 +65,8 @@ private final class CountingWorktreeListing: GitWorktreeManaging, @unchecked Sen
 
     var callCount: Int { lock.withLock { calls } }
 
+    func validateRepositoryIdentity(_ repositoryContext: GitRepositoryContext) async -> GitRepositoryIdentityValidation { .valid }
+
     func list(in repositoryContext: GitRepositoryContext) async -> GitWorktreeListOutcome {
         lock.withLock { calls += 1 }
         return .success(.init(records: [], diagnostics: []))

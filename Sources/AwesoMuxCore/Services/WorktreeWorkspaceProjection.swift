@@ -17,7 +17,15 @@ public struct WorktreeWorkspaceMatch: Equatable, Sendable {
 }
 
 public struct WorktreeWorkspaceProjection: Sendable {
-    public init() {}
+    /// Injected so tests can stub existence without touching the real
+    /// filesystem; defaults to a real check so a pane whose worktree was
+    /// removed externally (e.g. `git worktree remove` run outside awesoMux)
+    /// is never reported as a live match on stale path text alone.
+    private let directoryExists: @Sendable (URL) -> Bool
+
+    public init(directoryExists: @escaping @Sendable (URL) -> Bool = Self.realDirectoryExists) {
+        self.directoryExists = directoryExists
+    }
 
     public func match(
         canonicalWorktreePath: URL,
@@ -27,8 +35,11 @@ public struct WorktreeWorkspaceProjection: Sendable {
         for group in groups {
             for session in group.sessions {
                 for pane in session.panes where WorkspacePaneCapabilities.terminal(pane).localFileAccess {
-                    let paneComponents = canonicalPathComponents(URL(fileURLWithPath: pane.workingDirectory))
-                    guard paneComponents.starts(with: worktreeComponents) else { continue }
+                    let paneURL = URL(fileURLWithPath: pane.workingDirectory)
+                    let paneComponents = canonicalPathComponents(paneURL)
+                    guard paneComponents.starts(with: worktreeComponents), directoryExists(paneURL) else {
+                        continue
+                    }
                     return WorktreeWorkspaceMatch(
                         groupID: group.id,
                         sessionID: session.id,
@@ -38,5 +49,10 @@ public struct WorktreeWorkspaceProjection: Sendable {
             }
         }
         return nil
+    }
+
+    public static func realDirectoryExists(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }

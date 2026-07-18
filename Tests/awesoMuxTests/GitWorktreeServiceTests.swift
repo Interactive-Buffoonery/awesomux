@@ -19,17 +19,23 @@ struct GitWorktreeServiceTests {
     }
 
     @Test(arguments: [
-        (false, ["worktree", "add", "/tmp/awesomux-phase3-target", "feature/foo"]),
+        (false, ["worktree", "add", "/tmp/awesomux-phase3-target", "refs/heads/feature/foo"]),
         (true, ["worktree", "add", "-b", "feature/foo", "/tmp/awesomux-phase3-target", "HEAD"]),
     ])
     func createUsesExactArgv(newBranch: Bool, expected: [String]) async {
         let context = repositoryContext()
         let validation = StubLocalGitRunner(
-            outcomes: Array(repeating: validationOutcomes(for: context), count: newBranch ? 4 : 3).flatMap { $0 })
+            // newBranch mode adds a branch-existence snapshot before running
+            // git (validateNewBranchName + the new before/after branches()
+            // check), each re-validating identity: +2 rounds over existing-branch.
+            outcomes: Array(repeating: validationOutcomes(for: context), count: newBranch ? 5 : 3).flatMap { $0 })
         let before = Data("worktree /repo\0HEAD abc\0branch refs/heads/main\0\0".utf8)
         let after = Data("worktree /tmp/awesomux-phase3-target\0HEAD def\0branch refs/heads/feature/foo\0\0".utf8)
         var outcomes: [BoundedCommandResult] = [.success(before)]
-        if newBranch { outcomes.append(.success(Data())) }
+        if newBranch {
+            outcomes.append(.success(Data()))  // check-ref-format
+            outcomes.append(.success(Data("main\n".utf8)))  // before-snapshot for-each-ref: branch absent
+        }
         outcomes.append(.success(Data()))
         outcomes.append(.success(after))
         let runner = StubLocalGitRunner(outcomes: outcomes)
@@ -41,6 +47,38 @@ struct GitWorktreeServiceTests {
                 destinationWorkspaceGroupID: UUID()))
         guard case .success = outcome else { Issue.record("Expected success, got \(outcome)"); return }
         #expect(runner.invocations.contains(.init(arguments: expected, directory: context.invocationRoot)))
+    }
+
+    @Test("an existing leading-dash branch is passed as a full ref")
+    func leadingDashExistingBranchIsNotTreatedAsAFlag() async {
+        let context = repositoryContext()
+        let validation = StubLocalGitRunner(
+            outcomes: Array(repeating: validationOutcomes(for: context), count: 3).flatMap { $0 })
+        let runner = StubLocalGitRunner(outcomes: [
+            .success(Data("worktree /repo\0HEAD abc\0branch refs/heads/main\0\0".utf8)),
+            .success(Data()),
+            .success(Data("worktree /tmp/awesomux-leading-dash\0HEAD def\0branch refs/heads/--detach\0\0".utf8)),
+        ])
+        let service = GitWorktreeService(locator: LocalGitRepositoryLocator(runner: validation), runner: runner)
+
+        let outcome = await service.create(
+            .init(
+                repositoryContext: context,
+                mode: .existingBranch("--detach"),
+                targetPath: URL(fileURLWithPath: "/tmp/awesomux-leading-dash"),
+                destinationWorkspaceGroupID: UUID()
+            ))
+
+        guard case .success(let record) = outcome else {
+            Issue.record("Expected leading-dash branch checkout, got \(outcome)")
+            return
+        }
+        #expect(record.branchRef == "refs/heads/--detach")
+        #expect(
+            runner.invocations.contains(
+                .init(
+                    arguments: ["worktree", "add", "/tmp/awesomux-leading-dash", "refs/heads/--detach"],
+                    directory: context.invocationRoot)))
     }
 
     @Test("non-zero create reconciles an actually-created worktree as success")
@@ -60,13 +98,99 @@ struct GitWorktreeServiceTests {
         guard case .success = outcome else { Issue.record("Expected reconciled success"); return }
     }
 
-    @Test("branch-only mutation is distinct from clean failure")
-    func branchOnlyPartial() async {
+    @Test("a new-branch name that already existed before the call is a clean failure, not a partial")
+    func preexistingNewBranchNameIsNotMisreportedAsPartial() async {
         let context = repositoryContext()
+        // Same shape as branchOnlyPartial, but the before-snapshot for-each-ref
+        // already lists the requested name: git's `-b` refusal is expected
+        // (the branch already existed), so this must resolve to a clean
+        // failure, not "branch created without worktree" for a branch this
+        // call never touched.
         let validation = StubLocalGitRunner(outcomes: Array(repeating: validationOutcomes(for: context), count: 5).flatMap { $0 })
         let emptyList = Data("worktree /repo\0HEAD abc\0branch refs/heads/main\0\0".utf8)
         let runner = StubLocalGitRunner(outcomes: [
-            .success(emptyList), .success(Data()), .nonZeroExit(4), .success(emptyList), .success(Data("main\nfeature/foo\n".utf8)),
+            .success(emptyList),  // list-before
+            .success(Data()),  // check-ref-format
+            .success(Data("main\nfeature/foo\n".utf8)),  // before-snapshot: branch ALREADY exists
+            .nonZeroExit(128),  // worktree add -b refuses: branch exists
+            .success(emptyList),  // list-after: target still not a worktree
+        ])
+        let service = GitWorktreeService(locator: LocalGitRepositoryLocator(runner: validation), runner: runner)
+        let outcome = await service.create(
+            .init(
+                repositoryContext: context, mode: .newBranchFromHEAD("feature/foo"),
+                targetPath: URL(fileURLWithPath: "/tmp/awesomux-phase3-target"), destinationWorkspaceGroupID: UUID()))
+        #expect(outcome == .failure(.nonZeroExit(128)))
+    }
+
+    @Test("post-create reconciliation requires the branch ref to match, not just the path")
+    func reconciliationRequiresMatchingBranchRef() async {
+        let context = repositoryContext()
+        let validation = StubLocalGitRunner(outcomes: Array(repeating: validationOutcomes(for: context), count: 3).flatMap { $0 })
+        // A concurrent external `worktree add` occupies the exact requested
+        // path with a DIFFERENT branch just as this call's command fails —
+        // the path alone must not be mistaken for this call's own result.
+        let wrongBranchAtPath = Data(
+            "worktree /repo\0HEAD abc\0branch refs/heads/main\0\0worktree /tmp/awesomux-phase3-target\0HEAD def\0branch refs/heads/someone-elses-branch\0\0"
+                .utf8)
+        let runner = StubLocalGitRunner(outcomes: [
+            .success(Data("worktree /repo\0HEAD abc\0branch refs/heads/main\0\0".utf8)),  // list-before
+            .nonZeroExit(1),  // worktree add fails
+            .success(wrongBranchAtPath),  // list-after: same path, wrong branch
+        ])
+        let service = GitWorktreeService(locator: LocalGitRepositoryLocator(runner: validation), runner: runner)
+        let outcome = await service.create(
+            .init(
+                repositoryContext: context, mode: .existingBranch("feature/foo"),
+                targetPath: URL(fileURLWithPath: "/tmp/awesomux-phase3-target"), destinationWorkspaceGroupID: UUID()))
+        #expect(outcome == .failure(.nonZeroExit(1)))
+    }
+
+    @Test("a target already present in the baseline cannot reconcile as a new success")
+    func reconciliationRejectsBaselineWorktreeAtTarget() async {
+        let context = repositoryContext()
+        let validation = StubLocalGitRunner(
+            outcomes: Array(repeating: validationOutcomes(for: context), count: 2).flatMap { $0 })
+        let occupiedPath = URL(fileURLWithPath: "/tmp/awesomux-preexisting-worktree")
+        let runner = StubLocalGitRunner(outcomes: [
+            .success(
+                Data(
+                    "worktree /repo\0HEAD abc\0branch refs/heads/main\0\0worktree \(occupiedPath.path)\0HEAD def\0branch refs/heads/unrelated\0\0"
+                        .utf8))
+        ])
+        let service = GitWorktreeService(locator: LocalGitRepositoryLocator(runner: validation), runner: runner)
+
+        let outcome = await service.create(
+            .init(
+                repositoryContext: context,
+                mode: .existingBranch("feature/foo"),
+                targetPath: occupiedPath,
+                destinationWorkspaceGroupID: UUID()
+            ))
+
+        guard case .failure(.invalidRequest(let issues)) = outcome else {
+            Issue.record("Expected occupied baseline target to fail, got \(outcome)")
+            return
+        }
+        #expect(issues.contains(.targetOverlapsWorktree(occupiedPath)))
+        #expect(runner.invocations.count == 1)
+    }
+
+    @Test("branch-only mutation is distinct from clean failure")
+    func branchOnlyPartial() async {
+        let context = repositoryContext()
+        // 6 rounds: create's own validateIdentity, list-before, validateNewBranchName,
+        // the new before-snapshot branches(), list-after, and the final
+        // branch-only-check branches() — each re-validates repository identity.
+        let validation = StubLocalGitRunner(outcomes: Array(repeating: validationOutcomes(for: context), count: 6).flatMap { $0 })
+        let emptyList = Data("worktree /repo\0HEAD abc\0branch refs/heads/main\0\0".utf8)
+        let runner = StubLocalGitRunner(outcomes: [
+            .success(emptyList),  // list-before
+            .success(Data()),  // check-ref-format
+            .success(Data("main\n".utf8)),  // before-snapshot for-each-ref: branch absent
+            .nonZeroExit(4),  // worktree add fails
+            .success(emptyList),  // list-after: target still not a worktree
+            .success(Data("main\nfeature/foo\n".utf8)),  // final branches() check: branch now exists
         ])
         let service = GitWorktreeService(locator: LocalGitRepositoryLocator(runner: validation), runner: runner)
         let outcome = await service.create(
@@ -121,7 +245,7 @@ struct GitWorktreeServiceTests {
         (BoundedCommandResult.nonZeroExit(7), GitWorktreeListFailure.nonZeroExit(7)),
         (.timedOut, .timedOut),
         (.spawnFailure, .spawnFailure),
-        (.outputTruncated, .outputTruncated),
+        (.outputTruncated(Data()), .outputTruncated),
     ])
     func processFailures(result: BoundedCommandResult, failure: GitWorktreeListFailure) async {
         let context = repositoryContext()
