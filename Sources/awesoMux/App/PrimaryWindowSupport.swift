@@ -49,8 +49,9 @@ enum PrimaryWindowFramePersistence {
 
         let frame = NSRectFromString(saved)
         guard WindowFrameClampPolicy.isFinite(frame),
-              frame.width > 0,
-              frame.height > 0 else {
+            frame.width > 0,
+            frame.height > 0
+        else {
             return nil
         }
 
@@ -80,11 +81,13 @@ enum PrimaryWindowFramePersistence {
         let screens = NSScreen.screens.map {
             (frame: $0.frame, visibleFrame: $0.visibleFrame)
         }
-        guard let visibleFrame = WindowFrameClampPolicy.restoreVisibleFrame(
-            forSavedFrame: savedFrame,
-            screens: screens,
-            fallbackVisibleFrame: NSScreen.main?.visibleFrame
-        ) else {
+        guard
+            let visibleFrame = WindowFrameClampPolicy.restoreVisibleFrame(
+                forSavedFrame: savedFrame,
+                screens: screens,
+                fallbackVisibleFrame: NSScreen.main?.visibleFrame
+            )
+        else {
             return WindowPlacement(savedFrame.origin, size: savedFrame.size)
         }
 
@@ -131,4 +134,5 @@ enum PrimaryWindowSurfacer {
 enum AwesoMuxSceneID {
     static let primary = "primary"
     static let settings = "settings"
+    static let about = "about"
 }

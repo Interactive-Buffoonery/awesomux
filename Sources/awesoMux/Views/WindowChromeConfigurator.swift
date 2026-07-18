@@ -5,6 +5,11 @@ import SwiftUI
 enum StandardWindowButtonVisibility {
     case visible
     case hidden
+    /// Close button only — miniaturize and zoom hidden. Used by the About
+    /// window, whose fixed size / non-restore are owned by the scene modifiers
+    /// (`.windowResizability(.contentSize)` / `.restorationBehavior(.disabled)`),
+    /// so this case deliberately does NOT touch the style mask.
+    case closeOnly
 
     @MainActor
     func apply(to window: NSWindow) {
@@ -12,8 +17,9 @@ enum StandardWindowButtonVisibility {
             window.styleMask.formUnion([.closable, .miniaturizable, .resizable])
         }
 
-        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            window.standardWindowButton(button)?.isHidden = self == .hidden
+        window.standardWindowButton(.closeButton)?.isHidden = self == .hidden
+        for button in [NSWindow.ButtonType.miniaturizeButton, .zoomButton] {
+            window.standardWindowButton(button)?.isHidden = self != .visible
         }
     }
 }
