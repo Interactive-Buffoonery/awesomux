@@ -54,23 +54,24 @@ public struct GitWorktreeCreatePolicy: Sendable {
         repositoryContext.invocationRoot.appendingPathComponent(".worktrees", isDirectory: true)
     }
 
-    /// The create form's live pre-fill for its Target path field: prefers the
-    /// filesystem-confirmed `suggestedTargetPath`, falling back to the
-    /// unconfirmed `candidateTargetPath` so the BOUND value is never emptier
+    /// The create form's live pre-fill for its Target path field: always the
+    /// ungated `candidateTargetPath`, so the BOUND value is never emptier
     /// than what the form displays. A freshly-created linked worktree has no
-    /// `.worktrees/` of its own yet — `suggestedTargetPath` correctly returns
+    /// `.worktrees/` of its own yet — the gated `suggestedTargetPath` returns
     /// nil there, but the form still SHOWED the candidate as if it were real
     /// content, so `submit()` validated an empty bound string against a
     /// visibly-absolute path and failed with "must be absolute" (INT-857
-    /// round-7 smoke).
+    /// round-7 smoke). `suggestedTargetPath`'s filesystem check exists purely
+    /// to gate whether to suggest AT ALL, not to change the resulting path —
+    /// for a given repository context and branch name, the two never differ
+    /// on the actual string, so preferring the gated call first here only
+    /// bought a redundant existence check on every keystroke for no
+    /// behavioral difference.
     public func formTargetPathPrefill(
         repositoryContext: GitRepositoryContext,
-        branchName: String,
-        fileManager: FileManager = .default
+        branchName: String
     ) -> String {
-        suggestedTargetPath(repositoryContext: repositoryContext, branchName: branchName, fileManager: fileManager)?.path
-            ?? candidateTargetPath(repositoryContext: repositoryContext, branchName: branchName)?.path
-            ?? ""
+        candidateTargetPath(repositoryContext: repositoryContext, branchName: branchName)?.path ?? ""
     }
 
     public func validate(
