@@ -184,19 +184,39 @@ struct GitWorktreeCreatePolicyTests {
         #expect(issues.contains(.targetOverlapsWorktree(fixture.linked)))
     }
 
-    @Test("a fresh .worktrees/<new-name> nested under a LINKED invocation root validates clean")
+    @Test("invoked from a linked worktree, fresh target under main's .worktrees validates clean")
+    func freshTargetUnderMainValidatesCleanFromLinkedInvocationRoot() throws {
+        let fixture = try mainPlusLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        // The exact maintainer repro (round-8 smoke): Worktree Manager opened
+        // FROM the linked worktree ("other-branch"), suggesting a fresh
+        // sibling under MAIN's `.worktrees/` — not nested under
+        // "other-branch" itself. `canonicalCommonGitDirectory` is main's real
+        // `.git` (never a linked worktree's own — confirmed against real
+        // git's `--git-common-dir`), which is what both the suggestion and
+        // this exemption now resolve against instead of `invocationRoot`.
+        let linkedContext = fixture.linkedInvocationContext()
+        let prefill = policy.formTargetPathPrefill(repositoryContext: linkedContext, branchName: "can-it-have-spaces")
+        #expect(prefill == fixture.worktreesDir.appendingPathComponent("can-it-have-spaces", isDirectory: true).path)
+
+        let issues = policy.validate(
+            request(linkedContext, .newBranchFromHEAD("can-it-have-spaces"), URL(fileURLWithPath: prefill)),
+            currentWorktrees: fixture.currentWorktrees)
+        #expect(issues.isEmpty)
+    }
+
+    @Test("a fresh .worktrees/<new-name> nested under a LINKED invocation root still validates clean")
     func freshWorktreesTargetValidatesCleanFromLinkedInvocationRoot() throws {
         let fixture = try mainPlusLinkedFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        // Opening Worktree Manager FROM the linked worktree ("other-branch")
-        // and creating a new one nests `.worktrees/` under THAT worktree, not
-        // main. Only `isMainWorktree` was ever exempted from the overlap
-        // check, so this genuinely git-allowed nesting always "overlapped"
-        // the linked worktree it's standing in (INT-857 round-7 smoke).
-        let linkedContext = GitRepositoryContext(
-            invocationRoot: fixture.linked, canonicalCommonGitDirectory: fixture.linked.appendingPathComponent(".git"),
-            displayName: "other-branch")
+        // The default suggestion now nests under MAIN, but a hand-typed or
+        // "Choose…"-picked target nested under the CURRENT invocation root
+        // is still git-allowed and must still validate clean — the exemption
+        // set is {main} ∪ {invocation root}, unconditionally, not just
+        // whichever one the suggestion happens to prefer.
+        let linkedContext = fixture.linkedInvocationContext()
         let linkedWorktreesDir = fixture.linked.appendingPathComponent(".worktrees", isDirectory: true)
         try FileManager.default.createDirectory(at: linkedWorktreesDir, withIntermediateDirectories: true)
         let target = linkedWorktreesDir.appendingPathComponent("brand-new-name", isDirectory: true)
@@ -205,48 +225,18 @@ struct GitWorktreeCreatePolicyTests {
         #expect(issues.isEmpty)
     }
 
-    @Test("the exact maintainer repro: prefill through validate succeeds with NO .worktrees container yet")
-    func prefillThroughValidateSucceedsWithoutWorktreesContainer() throws {
-        let fixture = try mainPlusLinkedFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-
-        // The reported repro, end to end: Worktree Manager opened from a
-        // JUST-CREATED linked worktree that has never had its own
-        // `.worktrees/` — unlike `freshWorktreesTargetValidatesCleanFromLinkedInvocationRoot`,
-        // this test does NOT pre-create it. `formTargetPathPrefill` closing
-        // the placeholder/bound-value split was necessary but not
-        // sufficient: the prefilled value it produces still has to clear
-        // `validate()`'s parent-directory check, and a naive relaxation of
-        // that check couldn't distinguish "the app's own convention, which
-        // git will happily create" from "a typo'd path nobody asked for"
-        // (round-7 smoke: the fix changed WHICH error appeared without
-        // changing whether Create ever worked).
-        let linkedContext = GitRepositoryContext(
-            invocationRoot: fixture.linked, canonicalCommonGitDirectory: fixture.linked.appendingPathComponent(".git"),
-            displayName: "other-branch")
-        #expect(!FileManager.default.fileExists(atPath: fixture.linked.appendingPathComponent(".worktrees").path))
-
-        let prefill = policy.formTargetPathPrefill(repositoryContext: linkedContext, branchName: "newest-branch")
-        #expect(prefill.hasPrefix("/"))
-
-        let issues = policy.validate(
-            request(linkedContext, .newBranchFromHEAD("newest-branch"), URL(fileURLWithPath: prefill)),
-            currentWorktrees: fixture.currentWorktrees)
-        #expect(issues.isEmpty)
-    }
-
     @Test("a target outside the app's .worktrees/ convention still requires its parent to already exist")
     func targetOutsideConventionStillRequiresExistingParent() throws {
         let fixture = try mainPlusLinkedFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        // The relaxation is scoped to THIS app's own suggested container —
-        // an arbitrary missing nested path elsewhere is still a real error,
-        // not something git is expected to paper over silently.
-        let linkedContext = GitRepositoryContext(
-            invocationRoot: fixture.linked, canonicalCommonGitDirectory: fixture.linked.appendingPathComponent(".git"),
-            displayName: "other-branch")
-        let elsewhere = fixture.linked.appendingPathComponent("not-worktrees/leaf", isDirectory: true)
+        // The parent-directory relaxation is scoped to THIS app's own
+        // suggested container (now resolved against main's `.worktrees/`) —
+        // an arbitrary missing nested path OUTSIDE it (a sibling of
+        // `.worktrees/`, not something nested under it) is still a real
+        // error, not something git is expected to paper over silently.
+        let linkedContext = fixture.linkedInvocationContext()
+        let elsewhere = fixture.context.invocationRoot.appendingPathComponent("not-worktrees/leaf", isDirectory: true)
         let issues = policy.validate(
             request(linkedContext, .newBranchFromHEAD("x"), elsewhere), currentWorktrees: fixture.currentWorktrees)
         #expect(issues.contains(.parentDirectoryMissing))
@@ -258,7 +248,7 @@ struct GitWorktreeCreatePolicyTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
         // A second, unrelated linked worktree the request is NOT invoked
-        // from — the exemption is scoped to the current invocation root, not
+        // from — the exemption is scoped to {main} ∪ {invocation root}, not
         // every non-main worktree.
         let thirdWorktree = fixture.worktreesDir.appendingPathComponent("third-branch", isDirectory: true)
         try FileManager.default.createDirectory(at: thirdWorktree, withIntermediateDirectories: true)
@@ -266,18 +256,34 @@ struct GitWorktreeCreatePolicyTests {
             canonicalPath: thirdWorktree, headObjectID: nil, branchRef: "refs/heads/third-branch", isDetached: false,
             displayBranch: "third-branch", isMainWorktree: false, isBare: false, lockReason: nil, prunableReason: nil)
 
-        let linkedContext = GitRepositoryContext(
-            invocationRoot: fixture.linked, canonicalCommonGitDirectory: fixture.linked.appendingPathComponent(".git"),
-            displayName: "other-branch")
+        let linkedContext = fixture.linkedInvocationContext()
         let insideThird = thirdWorktree.appendingPathComponent("nested", isDirectory: true)
         let issues = policy.validate(
             request(linkedContext, .newBranchFromHEAD("x"), insideThird), currentWorktrees: fixture.currentWorktrees + [thirdRecord])
         #expect(issues.contains(.targetOverlapsWorktree(thirdWorktree)))
     }
 
-    private func mainPlusLinkedFixture() throws -> (
-        root: URL, context: GitRepositoryContext, worktreesDir: URL, linked: URL, currentWorktrees: [GitWorktreeRecord]
-    ) {
+    private struct WorktreeFixture {
+        let root: URL
+        let context: GitRepositoryContext
+        let worktreesDir: URL
+        let linked: URL
+        let currentWorktrees: [GitWorktreeRecord]
+
+        /// The `GitRepositoryContext` a Worktree Manager opened FROM the
+        /// linked worktree would actually see: `invocationRoot` is that
+        /// worktree's own `--show-toplevel`, but `canonicalCommonGitDirectory`
+        /// is STILL main's real `.git` — a linked worktree's own `.git` is a
+        /// FILE pointing back at it, `--git-common-dir` never resolves to the
+        /// linked worktree itself (confirmed against real git).
+        func linkedInvocationContext() -> GitRepositoryContext {
+            GitRepositoryContext(
+                invocationRoot: linked, canonicalCommonGitDirectory: context.canonicalCommonGitDirectory,
+                displayName: "other-branch")
+        }
+    }
+
+    private func mainPlusLinkedFixture() throws -> WorktreeFixture {
         let root = temporaryDirectory()
         let repo = root.appendingPathComponent("repo", isDirectory: true)
         let worktreesDir = repo.appendingPathComponent(".worktrees", isDirectory: true)
@@ -293,7 +299,8 @@ struct GitWorktreeCreatePolicyTests {
         let linkedRecord = GitWorktreeRecord(
             canonicalPath: linked, headObjectID: nil, branchRef: "refs/heads/other-branch", isDetached: false,
             displayBranch: "other-branch", isMainWorktree: false, isBare: false, lockReason: nil, prunableReason: nil)
-        return (root, context, worktreesDir, linked, [main, linkedRecord])
+        return WorktreeFixture(
+            root: root, context: context, worktreesDir: worktreesDir, linked: linked, currentWorktrees: [main, linkedRecord])
     }
 
     private func request(_ context: GitRepositoryContext, _ mode: GitWorktreeCreateMode, _ target: URL) -> GitWorktreeCreateRequest {
