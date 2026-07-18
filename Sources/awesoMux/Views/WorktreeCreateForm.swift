@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -54,10 +55,16 @@ struct WorktreeCreateForm: View {
                 )
             }
 
-            TextField(
-                String(localized: "Target path", comment: "New worktree target path field label."),
-                text: $targetPath
-            )
+            HStack(spacing: 8) {
+                TextField(
+                    String(localized: "Target path", comment: "New worktree target path field label."),
+                    text: $targetPath,
+                    prompt: Text(targetPathPlaceholder)
+                )
+                Button(String(localized: "Choose…", comment: "Open a folder picker for the worktree target path.")) {
+                    chooseTargetPath()
+                }
+            }
 
             if let validationMessage {
                 Text(validationMessage)
@@ -90,7 +97,8 @@ struct WorktreeCreateForm: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 360)
+        .frame(width: 520)
+        .fixedSize(horizontal: false, vertical: true)
         .interactiveDismissDisabled(isBusy)
         .task { await loadBranches() }
         .onChange(of: mode) { _, _ in suggestPath() }
@@ -118,6 +126,44 @@ struct WorktreeCreateForm: View {
                 String(
                     localized: "Couldn’t load local branches.", comment: "Branch loading failure in worktree create form."))
         }
+    }
+
+    // Shown as the field's grayed prompt even when `suggestPath()` can't
+    // pre-fill for real (the sibling `-worktrees` container doesn't exist
+    // yet) — otherwise a first-time create has a bare empty field with no
+    // hint at all about where the worktree will land.
+    private var targetPathPlaceholder: String {
+        let name = mode == .existing ? selectedBranch : newBranchName
+        return policy.candidateTargetPath(repositoryContext: model.repositoryContext, branchName: name)?.path ?? ""
+    }
+
+    private func chooseTargetPath() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = String(localized: "Choose", comment: "Confirm button for the worktree target path picker.")
+        panel.message = String(
+            localized: "Choose the folder that will contain the new worktree.",
+            comment: "Worktree target path picker guidance message.")
+        if let parent = existingParentDirectoryURL() {
+            panel.directoryURL = parent
+        }
+        guard panel.runModal() == .OK, let chosen = panel.url else { return }
+        let name = mode == .existing ? selectedBranch : newBranchName
+        let component = policy.sanitizedPathComponent(name)
+        targetPath = component.isEmpty ? chosen.path : chosen.appendingPathComponent(component, isDirectory: true).path
+    }
+
+    private func existingParentDirectoryURL() -> URL? {
+        guard !targetPath.isEmpty else { return nil }
+        let parent = URL(fileURLWithPath: targetPath).deletingLastPathComponent()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return parent
     }
 
     private func suggestPath() {

@@ -17,12 +17,27 @@ public struct GitWorktreeCreatePolicy: Sendable {
         branchName: String,
         fileManager: FileManager = .default
     ) -> URL? {
-        let parent = repositoryContext.invocationRoot.deletingLastPathComponent()
-            .appendingPathComponent("\(repositoryContext.displayName)-worktrees", isDirectory: true)
+        guard let candidate = candidateTargetPath(repositoryContext: repositoryContext, branchName: branchName) else {
+            return nil
+        }
+        let parent = candidate.deletingLastPathComponent()
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             return nil
         }
+        return candidate
+    }
+
+    /// The same `<repo>-worktrees/<branch>` convention as `suggestedTargetPath`,
+    /// but computed with no filesystem check — used to show a hint even before
+    /// the sibling container directory exists (the create form's "Choose…"
+    /// panel can create it), where the gated version would return `nil`.
+    public func candidateTargetPath(
+        repositoryContext: GitRepositoryContext,
+        branchName: String
+    ) -> URL? {
+        let parent = repositoryContext.invocationRoot.deletingLastPathComponent()
+            .appendingPathComponent("\(repositoryContext.displayName)-worktrees", isDirectory: true)
         let component = sanitizedPathComponent(branchName)
         guard !component.isEmpty else { return nil }
         return parent.appendingPathComponent(component, isDirectory: true)
