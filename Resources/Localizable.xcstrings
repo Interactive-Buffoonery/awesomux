@@ -417,8 +417,8 @@
     "Annotation deleted" : {
       "comment" : "VoiceOver announcement after deleting an annotation"
     },
-    "Annotation intent" : {
-
+    "Annotation note" : {
+      "comment" : "Accessibility label for the new annotation note field"
     },
     "Annotation reopened" : {
       "comment" : "VoiceOver announcement after reopening an annotation"
@@ -741,6 +741,9 @@
         }
       }
     },
+    "Comment annotation intent" : {
+      "comment" : "Accessibility label for the comment annotation intent option"
+    },
     "Configuration" : {
       "comment" : "Diagnostics event category"
     },
@@ -889,6 +892,9 @@
     },
     "Delete annotation" : {
 
+    },
+    "Delete annotation intent" : {
+      "comment" : "Accessibility label for the delete annotation intent option"
     },
     "Denied" : {
       "comment" : "Settings label when macOS notification permission is denied."
@@ -2198,6 +2204,9 @@
     },
     "Replace Invalid File with Current Settings" : {
 
+    },
+    "Replace annotation intent" : {
+      "comment" : "Accessibility label for the replace annotation intent option"
     },
     "Reply added" : {
       "comment" : "VoiceOver announcement after replying to an annotation"
