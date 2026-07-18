@@ -92,6 +92,55 @@ struct AboutWindowInfoTests {
         #expect(Set(names).count == names.count)
     }
 
+    /// The source-tree test above proves the file exists in the repo, but the
+    /// bundle only ships what `build_and_run.sh`'s `required_license_files`
+    /// copies. A credit added to the manifest without updating that list would
+    /// resolve in the repo yet ship a release with no license file and an absent
+    /// button — green CI, legal omission. Assert every credit path is in the
+    /// copied set so the two lists can't drift silently.
+    @Test("Every credit license/notice is in build_and_run.sh's copied set")
+    func creditFilesAreBundled() throws {
+        let scriptURL = repositoryRoot.appendingPathComponent("script/build_and_run.sh")
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+
+        // Extract the quoted entries between `required_license_files=(` and `)`.
+        guard let arrayStart = script.range(of: "required_license_files=("),
+            let arrayEnd = script.range(of: ")", range: arrayStart.upperBound..<script.endIndex)
+        else {
+            Issue.record("Could not locate required_license_files=( … ) in build_and_run.sh")
+            return
+        }
+        let body = script[arrayStart.upperBound..<arrayEnd.lowerBound]
+        let copied = Set(
+            body.split(whereSeparator: \.isNewline)
+                .compactMap { line -> String? in
+                    guard let open = line.firstIndex(of: "\""),
+                        let close = line.lastIndex(of: "\""), open < close
+                    else { return nil }
+                    return String(line[line.index(after: open)..<close])
+                })
+        #expect(!copied.isEmpty, "Parsed no entries from required_license_files")
+
+        for credit in AboutCredit.all {
+            for path in creditRelativePaths(credit) {
+                #expect(
+                    copied.contains(path),
+                    "\(credit.name): \(path) is not in build_and_run.sh required_license_files")
+            }
+        }
+    }
+
+    /// `Licenses/`-relative paths a credit points at, matching the entries in
+    /// `required_license_files` (e.g. `Ghostty/LICENSE`, `swift-markdown/NOTICE.txt`).
+    private func creditRelativePaths(_ credit: AboutCredit) -> [String] {
+        let license = credit.ext.map { "\(credit.resource).\($0)" } ?? credit.resource
+        var paths = ["\(credit.subdirectory)/\(license)"]
+        if let notice = credit.notice {
+            paths.append("\(credit.subdirectory)/\(notice.resource).\(notice.ext)")
+        }
+        return paths
+    }
+
     /// Repo root derived from this test file's location:
     /// `<root>/Tests/awesoMuxTests/AboutWindowInfoTests.swift`.
     private var repositoryRoot: URL {

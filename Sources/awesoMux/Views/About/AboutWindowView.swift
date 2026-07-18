@@ -22,14 +22,19 @@ struct AboutInfo {
             short: infoValue("CFBundleShortVersionString") as? String,
             build: infoValue("CFBundleVersion") as? String
         )
-        let revision = (infoValue("AwesoMuxSourceRevision") as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        sourceRevision = (revision?.isEmpty == false) ? revision : nil
+        sourceRevision = Self.normalized(infoValue("AwesoMuxSourceRevision") as? String)
+    }
+
+    /// Trim and treat a blank string as absent — every info value goes through
+    /// this so a whitespace-only key never renders literally.
+    static func normalized(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed?.isEmpty == false) ? trimmed : nil
     }
 
     static func formatVersion(short: String?, build: String?) -> String {
-        let version = (short?.isEmpty == false) ? short : nil
-        let build = (build?.isEmpty == false) ? build : nil
+        let version = normalized(short)
+        let build = normalized(build)
         switch (version, build) {
         case let (.some(version), .some(build)): return "\(version) (\(build))"
         case let (.some(version), .none): return version
@@ -51,9 +56,11 @@ extension AboutInfo {
 // MARK: - Credits
 
 /// A bundled third-party component and its shipped license file. The file paths
-/// mirror `script/build_and_run.sh`'s `required_license_files`; the credits test
-/// asserts each one resolves so a dependency bump that renames a license file
-/// fails CI instead of leaving an inert "View license" button.
+/// mirror `script/build_and_run.sh`'s `required_license_files`; when a license
+/// URL fails to resolve the "View license" button is hidden entirely. The
+/// credits test asserts each entry exists in the source `Resources/Licenses`
+/// tree AND is listed in `required_license_files`, so a manifest that drifts
+/// from the shipped/copied set fails CI rather than silently dropping a license.
 struct AboutCredit: Identifiable {
     var id: String { name }
     let name: String
@@ -191,12 +198,18 @@ struct AboutWindowView: View {
             Text(label)
                 .awFont(AwFont.UI.label)
                 .foregroundStyle(Color.aw.text2)
+                .lineLimit(1)
             Spacer(minLength: 12)
             Text(value)
                 .awFont(AwFont.Mono.meta)
                 .foregroundStyle(Color.aw.text)
                 .textSelection(.enabled)
+                // The value is the load-bearing part; let it win space over the
+                // label so a long localized label can't truncate the version.
+                .layoutPriority(1)
         }
+        // One VoiceOver stop per row: "Version, 0.3.0 (128)" not two fragments.
+        .accessibilityElement(children: .combine)
     }
 
     private var credits: some View {
@@ -235,29 +248,42 @@ struct AboutWindowView: View {
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text2)
                 .fixedSize(horizontal: false, vertical: true)
+            // Short visible labels keep the two-button row inside the fixed
+            // window width under longer localizations; the accessibility labels
+            // carry the full "View license for <component>" phrasing (which also
+            // keeps the visible word as a substring for Voice Control, WCAG 2.5.3).
             HStack(spacing: 12) {
                 if let licenseURL = credit.licenseURL() {
-                    Button(String(localized: "View license", comment: "Button opening a bundled third-party license file")) {
-                        NSWorkspace.shared.open(licenseURL)
+                    Button(String(localized: "License", comment: "Button opening a bundled third-party license file")) {
+                        openReadable(licenseURL)
                     }
                     .buttonStyle(.link)
                     .accessibilityLabel(
                         String(
-                            localized: "View \(credit.name) license",
+                            localized: "View license for \(credit.name)",
                             comment: "Accessibility label for the button opening a component's license. Argument is the component name."))
                 }
                 if let noticeURL = credit.noticeURL() {
-                    Button(String(localized: "View notice", comment: "Button opening a bundled third-party NOTICE file")) {
-                        NSWorkspace.shared.open(noticeURL)
+                    Button(String(localized: "Notice", comment: "Button opening a bundled third-party NOTICE file")) {
+                        openReadable(noticeURL)
                     }
                     .buttonStyle(.link)
                     .accessibilityLabel(
                         String(
-                            localized: "View \(credit.name) notice",
+                            localized: "View notice for \(credit.name)",
                             comment: "Accessibility label for the button opening a component's NOTICE. Argument is the component name."))
                 }
             }
         }
+    }
+
+    /// Bundled license files are extension-less (`LICENSE`, `COPYING`) or `.md`,
+    /// which often have no default handler — `NSWorkspace.open` then silently
+    /// returns false. Fall back to revealing the file in Finder so the button
+    /// always does something observable.
+    private func openReadable(_ url: URL) {
+        guard !NSWorkspace.shared.open(url) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     private var links: some View {
