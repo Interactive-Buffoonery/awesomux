@@ -37,7 +37,6 @@ enum SessionPersistence {
         return encoder
     }()
     nonisolated private static let jsonEncoderLock = NSLock()
-    nonisolated private static let jsonDecoder = JSONDecoder()
     nonisolated private static let lastWrittenDigestLock = NSLock()
     // Guards `environment`: the `supportDirectoryURL` getter is `nonisolated`
     // and read from the detached write Task, while `withTemporarySupportDirectory`
@@ -188,18 +187,7 @@ enum SessionPersistence {
         }
 
         do {
-            // Peek the schema version first, then decode with it threaded into
-            // `userInfo` so nested `TerminalSession.init(from:)` can gate the v1
-            // legacy agent-state fold on the version (INT-504 M3). A fresh
-            // decoder avoids mutating the shared static across the write task.
-            let peekedVersion =
-                (try? jsonDecoder.decode(SchemaVersionPeek.self, from: data))?
-                .schemaVersion ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
-            let versionedDecoder = JSONDecoder()
-            versionedDecoder.userInfo[.snapshotSchemaVersion] = peekedVersion
-            versionedDecoder.userInfo[.snapshotDecodeRecoveryRecorder] =
-                SessionSnapshotDecodeRecoveryRecorder()
-            let snapshot = try versionedDecoder.decode(SessionSnapshot.self, from: data)
+            let snapshot = try SessionSnapshot.decode(from: data)
             let restored = SessionStore.restore(from: snapshot)
             scheduleRemoteMarkdownSnapshotPrune(keeping: restored.store)
             guard !restored.sanitizationSummary.isEmpty else {
@@ -348,7 +336,7 @@ enum SessionPersistence {
         pendingWrite = Task.detached(priority: .utility) {
             try? await Task.sleep(for: debounceInterval)
             guard !Task.isCancelled else { return }
-            writeSnapshot(snapshot)
+            writeSnapshot(snapshot, isCancelled: { Task.isCancelled })
         }
     }
 
@@ -362,12 +350,13 @@ enum SessionPersistence {
         writeSnapshot(store.snapshot())
     }
 
-    nonisolated private static func writeSnapshot(_ snapshot: SessionSnapshot) {
+    nonisolated private static func writeSnapshot(
+        _ snapshot: SessionSnapshot,
+        isCancelled: () -> Bool = { false }
+    ) {
         do {
-            try FileManager.default.createDirectory(
-                at: supportDirectoryURL,
-                withIntermediateDirectories: true
-            )
+            try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
+            try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
 
             let data = try encodeSnapshot(snapshot)
             let digest = StableDataDigest(data: data)
@@ -381,6 +370,14 @@ enum SessionPersistence {
             // leave no restore file at all.
             lastWrittenDigestLock.lock()
             defer { lastWrittenDigestLock.unlock() }
+            // Re-check cancellation inside the lock, not just before the sleep:
+            // `flush()`'s `task.cancel()` happens-before its own synchronous
+            // `writeSnapshot`, so whichever holder wins this lock, the debounced
+            // task either writes first (then flush overwrites) or sees cancelled
+            // and skips — it can never clobber flush's newer snapshot with stale
+            // bytes. `flush()` passes the default `{ false }`, so its write is
+            // never suppressed by ambient cancellation of the terminate context.
+            guard !isCancelled() else { return }
             let snapshotPath = snapshotURL.path
             let snapshotIsUsable =
                 FileManager.default.fileExists(atPath: snapshotPath)
@@ -390,7 +387,12 @@ enum SessionPersistence {
             }
 
             try data.write(to: snapshotURL, options: [.atomic])
-            setPrivatePermissions(on: snapshotURL)
+            // Only record the digest once the file is secured. A swallowed chmod
+            // failure would leave the snapshot world-readable AND gate every
+            // future unchanged save behind the digest, so the bad permissions
+            // would persist until content changes. Skipping recordWritten lets
+            // the next save (or terminate-time flush) retry the write + chmod.
+            try FileManager.default.setOwnerOnlyPermissions(onFileAt: snapshotURL)
             digestWriteGate.recordWritten(digest)
         } catch {
             logger.error("failed to save session snapshot: \(error.localizedDescription, privacy: .public)")
@@ -448,10 +450,8 @@ enum SessionPersistence {
         }
 
         do {
-            try FileManager.default.createDirectory(
-                at: supportDirectoryURL,
-                withIntermediateDirectories: true
-            )
+            try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
+            try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
             // Write the exact bytes we already decoded rather than re-reading
             // the file by path: a path copy can race a concurrent swap (TOCTOU)
             // and preserve the wrong snapshot, and `copyItem` would follow a
@@ -570,25 +570,5 @@ enum SessionPersistence {
 
     nonisolated static var supportDirectoryURL: URL {
         readEnvironment().supportDirectoryURL
-    }
-}
-
-/// Minimal decode of just the snapshot schema version, used to thread the
-/// version into `userInfo` ahead of the full decode (INT-504 M3). Tolerant to
-/// absence — a truly pre-versioned snapshot peeks as the assumed-legacy version
-/// (v1, fold enabled), the same default `TerminalSession.init(from:)` uses when
-/// `userInfo` is unset, so the two ends of the pipeline agree.
-private struct SchemaVersionPeek: Decodable {
-    let schemaVersion: Int
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion =
-            try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
-            ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case schemaVersion
     }
 }

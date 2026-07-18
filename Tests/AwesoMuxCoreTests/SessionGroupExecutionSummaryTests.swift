@@ -169,7 +169,7 @@ struct SessionGroupExecutionSummaryTests {
             withJSONObject: replacingExecutionPlans(in: encoded, with: NSNull())
         )
         let restored = SessionStore(
-            restoring: try JSONDecoder().decode(SessionSnapshot.self, from: data)
+            restoring: try SessionSnapshot.decode(from: data)
         )
         let group = try #require(restored.groups.first)
 
