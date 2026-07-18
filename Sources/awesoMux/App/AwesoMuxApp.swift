@@ -1034,9 +1034,14 @@ struct AwesoMuxApp: App {
         // non-resizable behaviour (the chrome configurator only hides the
         // miniaturize/zoom buttons); `.restorationBehavior(.disabled)` keeps a
         // captured openWindow action from resurrecting a stale scene.
+        // `.defaultPosition(.center)` because without it SwiftUI cascades the
+        // window off the last-placed one — over the main window's content,
+        // where the matching background makes it read as embedded, not a
+        // standalone About window.
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
         .windowStyle(.hiddenTitleBar)
+        .defaultPosition(.center)
     }
 
     private func closeSelectedSession() {
