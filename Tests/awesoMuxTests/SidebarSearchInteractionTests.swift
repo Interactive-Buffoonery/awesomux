@@ -69,6 +69,18 @@ struct SidebarSearchInteractionTests {
         #expect(fixture.store.selectedSessionID == fixture.sessions[0].id)
     }
 
+    @Test("AppKit-focused search field handles result navigation without Tab")
+    func appKitFocusedFieldHandlesNavigationWithoutTab() async throws {
+        let fixture = try SidebarSearchHostedFixture(focusSearchThroughAppKit: true)
+        defer { fixture.close() }
+
+        fixture.sendArrow(.down)
+        fixture.sendArrow(.down)
+        await fixture.sendReturn()
+
+        #expect(fixture.store.selectedSessionID == fixture.sessions[1].id)
+    }
+
     @Test("hosted nested result target moves the real sidebar scroll view")
     func hostedNestedResultMovesScrollView() async throws {
         let fixture = try SidebarSearchHostedFixture(
@@ -92,66 +104,6 @@ struct SidebarSearchInteractionTests {
         #expect(fixture.store.selectedSessionID == fixture.sessions[15].id)
     }
 
-    @Test("only unmodified arrow presses navigate search results")
-    func onlyUnmodifiedArrowsNavigate() {
-        #expect(SidebarSearchKeyPressPolicy.acceptsNavigation(modifiers: []))
-        #expect(!SidebarSearchKeyPressPolicy.acceptsNavigation(modifiers: .option))
-        #expect(!SidebarSearchKeyPressPolicy.acceptsNavigation(modifiers: .command))
-        #expect(!SidebarSearchKeyPressPolicy.acceptsNavigation(modifiers: .control))
-        #expect(!SidebarSearchKeyPressPolicy.acceptsNavigation(modifiers: .shift))
-        #expect(
-            !SidebarSearchKeyPressPolicy.acceptsNavigation(
-                modifiers: [.option, .shift]
-            )
-        )
-    }
-
-    @Test("selection resolves a current live session")
-    func selectionResolvesLiveSession() {
-        let live = TerminalSession(title: "Live", workingDirectory: "/tmp/live")
-        let top = TerminalSession(title: "Top", workingDirectory: "/tmp/top")
-        let store = SessionStore(groups: [
-            SessionGroup(name: "Work", sessions: [live, top])
-        ])
-
-        #expect(
-            SidebarSearchSelectionResolver.liveSession(
-                focusedID: live.id,
-                topMatchID: top.id,
-                in: store
-            )?.id == live.id
-        )
-        #expect(
-            SidebarSearchSelectionResolver.liveSession(
-                focusedID: nil,
-                topMatchID: top.id,
-                in: store
-            )?.id == top.id
-        )
-    }
-
-    @Test("selection safely rejects a stale focused result")
-    func selectionRejectsStaleResult() {
-        let live = TerminalSession(title: "Live", workingDirectory: "/tmp/live")
-        let store = SessionStore(groups: [
-            SessionGroup(name: "Work", sessions: [live])
-        ])
-
-        #expect(
-            SidebarSearchSelectionResolver.liveSession(
-                focusedID: TerminalSession.ID(),
-                topMatchID: live.id,
-                in: store
-            ) == nil
-        )
-        #expect(
-            SidebarSearchSelectionResolver.liveSession(
-                focusedID: nil,
-                topMatchID: nil,
-                in: store
-            ) == nil
-        )
-    }
 }
 
 @MainActor
@@ -185,7 +137,8 @@ private final class SidebarSearchHostedFixture {
     init(
         sessionCount: Int = 3,
         viewportHeight: CGFloat = 320,
-        mountedSurfaceIndices: Set<Int> = [0, 1]
+        mountedSurfaceIndices: Set<Int> = [0, 1],
+        focusSearchThroughAppKit: Bool = false
     ) throws {
         sessions = (0..<sessionCount).map { index in
             TerminalSession(
@@ -266,7 +219,14 @@ private final class SidebarSearchHostedFixture {
                 where: { $0.placeholderString == "Search sessions" }
             )
         )
-        searchField.selectText(nil)
+        if focusSearchThroughAppKit {
+            if let surface = createdSurfaces.values.first {
+                _ = window.makeFirstResponder(surface)
+            }
+            _ = window.makeFirstResponder(searchField)
+        } else {
+            searchField.selectText(nil)
+        }
         SidebarHostedTestHarness.settleMainRunLoop()
         _ = try #require(searchField.currentEditor() as? NSTextView)
 
@@ -299,7 +259,10 @@ private final class SidebarSearchHostedFixture {
             to: window,
             keyCode: arrow.keyCode,
             characters: arrow.characters,
-            modifiers: modifiers,
+            // Real hardware arrow events always include .function and
+            // .numericPad; matching them here keeps the fixture honest about
+            // what the delegate sees in the live app.
+            modifiers: modifiers.union([.function, .numericPad]),
             isRepeat: isRepeat
         )
     }

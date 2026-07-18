@@ -13,6 +13,7 @@ final class SidebarHostedTestWindow: NSWindow {
     private(set) var responderAttempts: [ResponderAttempt] = []
 
     override var isKeyWindow: Bool { reportsKey }
+    override var canBecomeKey: Bool { true }
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let succeeded = super.makeFirstResponder(responder)
@@ -28,17 +29,22 @@ final class SidebarHostedTestWindow: NSWindow {
 }
 
 @MainActor
+private final class SidebarHostedTestView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+@MainActor
 enum SidebarHostedTestHarness {
     static func makeWindow<Content: View>(
         rootView: Content,
         frame: NSRect
     ) -> (window: NSWindow, hostingView: NSHostingView<Content>) {
-        let hostingView = NSHostingView(rootView: rootView)
+        let hostingView = SidebarHostedTestView(rootView: rootView)
         hostingView.frame = frame
         let container = NSView(frame: frame)
         container.addSubview(hostingView)
 
-        let window = NSWindow(
+        let window = SidebarHostedTestWindow(
             contentRect: frame,
             styleMask: [.borderless],
             backing: .buffered,
