@@ -12,7 +12,8 @@ struct WorkspaceGroupNameDraftTests {
 
         #expect(draft.canSubmit)
         #expect(draft.sanitizedName == "Field Ops")
-        #expect(draft.sanitizationFeedback == nil)
+        #expect(draft.visualSanitizationFeedback == nil)
+        #expect(draft.spokenSanitizationFeedback == nil)
     }
 
     @Test("joiner removal previews the exact saved Persian name")
@@ -22,10 +23,16 @@ struct WorkspaceGroupNameDraftTests {
             existingGroupNames: []
         )
 
-        let feedback = try #require(draft.sanitizationFeedback)
+        let visualFeedback = try #require(draft.visualSanitizationFeedback)
+        let spokenFeedback = try #require(draft.spokenSanitizationFeedback)
         #expect(draft.canSubmit)
         #expect(draft.sanitizedName == "میروم")
-        #expect(feedback.contains("\u{2068}میروم\u{2069}"))
+        #expect(visualFeedback.contains("\u{2068}میروم\u{2069}"))
+        #expect(visualFeedback.filter { $0 == "\u{2068}" }.count == 1)
+        #expect(visualFeedback.filter { $0 == "\u{2069}" }.count == 1)
+        #expect(!spokenFeedback.contains("\u{2068}"))
+        #expect(!spokenFeedback.contains("\u{2069}"))
+        #expect(spokenFeedback.contains("میروم"))
     }
 
     @Test("directional hint removal previews the exact saved RTL name")
@@ -35,7 +42,7 @@ struct WorkspaceGroupNameDraftTests {
             existingGroupNames: []
         )
 
-        let feedback = try #require(draft.sanitizationFeedback)
+        let feedback = try #require(draft.visualSanitizationFeedback)
         #expect(draft.canSubmit)
         #expect(draft.sanitizedName == "عملیات")
         #expect(feedback.contains("\u{2068}عملیات\u{2069}"))
@@ -48,7 +55,7 @@ struct WorkspaceGroupNameDraftTests {
             existingGroupNames: []
         )
 
-        let feedback = try #require(draft.sanitizationFeedback)
+        let feedback = try #require(draft.visualSanitizationFeedback)
         #expect(draft.sanitizedName == "Field Ops")
         #expect(feedback.contains("\u{2068}Field Ops\u{2069}"))
     }
@@ -61,7 +68,7 @@ struct WorkspaceGroupNameDraftTests {
         )
 
         #expect(draft.typedName == draft.sanitizedName)
-        #expect(draft.sanitizationFeedback != nil)
+        #expect(draft.visualSanitizationFeedback != nil)
     }
 
     @Test(
@@ -79,6 +86,53 @@ struct WorkspaceGroupNameDraftTests {
 
         #expect(!draft.canSubmit)
         #expect(draft.validationMessage != nil)
-        #expect(draft.sanitizationFeedback == nil)
+        #expect(draft.visualSanitizationFeedback == nil)
+        #expect(draft.spokenSanitizationFeedback == nil)
+    }
+
+    @Test("remote joiner removal submits the previewed saved name")
+    func remoteJoinerRemoval() throws {
+        let draft = WorkspaceGroupNameDraft(
+            typedName: "می\u{200C}روم",
+            existingGroupNames: [],
+            allowsEmptyName: true
+        )
+
+        #expect(draft.canSubmit)
+        #expect(draft.sanitizedName == "میروم")
+        #expect(try #require(draft.visualSanitizationFeedback).contains("\u{2068}میروم\u{2069}"))
+    }
+
+    @Test("remote empty name remains valid for the host fallback")
+    func remoteEmptyName() {
+        let draft = WorkspaceGroupNameDraft(
+            typedName: "",
+            existingGroupNames: ["Personal"],
+            allowsEmptyName: true
+        )
+
+        #expect(draft.canSubmit)
+        #expect(draft.sanitizedName.isEmpty)
+        #expect(draft.validationMessage == nil)
+        #expect(draft.visualSanitizationFeedback == nil)
+    }
+
+    @MainActor
+    @Test("saved-form announcement is deduplicated until the name changes")
+    func adjustmentAnnouncementDeduplication() {
+        let draft = WorkspaceGroupNameDraft(
+            typedName: "  Field Ops  ",
+            existingGroupNames: []
+        )
+        let gate = WorkspaceGroupNameAdjustmentAnnouncementGate()
+        var announcements: [String] = []
+
+        gate.announceIfNeeded(for: draft) { announcements.append($0) }
+        gate.announceIfNeeded(for: draft) { announcements.append($0) }
+        #expect(announcements.count == 1)
+
+        gate.editingChanged()
+        gate.announceIfNeeded(for: draft) { announcements.append($0) }
+        #expect(announcements.count == 2)
     }
 }

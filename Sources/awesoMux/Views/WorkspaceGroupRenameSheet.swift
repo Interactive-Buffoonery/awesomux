@@ -9,6 +9,7 @@ struct WorkspaceGroupRenameSheet: View {
     let onSave: (String) -> Void
 
     @State private var draftName: String
+    @State private var adjustmentAnnouncementGate = WorkspaceGroupNameAdjustmentAnnouncementGate()
     @FocusState private var isNameFocused: Bool
 
     init(
@@ -49,20 +50,11 @@ struct WorkspaceGroupRenameSheet: View {
                 .focused($isNameFocused)
                 .accessibilityLabel("Workspace group name")
                 .onSubmit { save(nameDraft) }
+                .onChange(of: draftName) { _, _ in
+                    adjustmentAnnouncementGate.editingChanged()
+                }
 
-            if let validation = nameDraft.validationMessage {
-                Text(validation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if let feedback = nameDraft.sanitizationFeedback {
-                Label(feedback, systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            WorkspaceGroupNameFeedback(draft: nameDraft)
 
             HStack {
                 Spacer()
@@ -102,6 +94,7 @@ struct WorkspaceGroupRenameSheet: View {
             return
         }
 
+        adjustmentAnnouncementGate.announceIfNeeded(for: nameDraft)
         guard nameDraft.sanitizedName != groupName else {
             onCancel()
             return
