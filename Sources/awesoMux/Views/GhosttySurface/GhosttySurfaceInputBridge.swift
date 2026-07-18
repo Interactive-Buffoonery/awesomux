@@ -1206,18 +1206,29 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // libghostty's over_link hover state fresh through cursor drift —
         // see `GhosttyInputMapper.mouseModifiers` for why one-shot isn't
         // enough and why the motion-report trade-off is accepted.
+        //
+        // INT-453: the capture state is now read on EVERY motion event (it
+        // previously short-circuited behind a ⌘ test) because it also gates
+        // `armLinkHover` — plain-hover link detection, which the peek dwell
+        // needs, is safe only on an uncaptured surface. One mutex-guarded
+        // read per motion is the accepted cost. The read-then-push pair is
+        // not atomic against the IO thread flipping mouse mode, so one motion
+        // event can straddle the transition with a stale decision — the same
+        // window the ⌘-shift bypass below has always had. Worst case is a
+        // single report with a spurious modifier bit, corrected by the next
+        // motion event; an atomic probe would need a new libghostty API.
         let pos = mousePosition(for: event)
+        let captured = ghostty_surface_mouse_captured(surface)
         ghostty_surface_mouse_pos(
             surface,
             pos.x,
             pos.y,
             GhosttyInputMapper.mouseModifiers(
                 event.modifierFlags,
-                // ⌘ test first: mouse_captured takes libghostty's renderer
-                // mutex, and this runs per motion event — short-circuit past
-                // it on the vast majority of moves where ⌘ isn't held.
-                mouseCaptured: event.modifierFlags.contains(.command)
-                    && ghostty_surface_mouse_captured(surface)
+                mouseCaptured: event.modifierFlags.contains(.command) && captured,
+                // Button-free gate keeps drag motion byte-identical to today —
+                // selection/drag mods must never grow a fake Super bit.
+                armLinkHover: !captured && hasNoMouseButtonHeld
             )
         )
     }
