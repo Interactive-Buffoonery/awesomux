@@ -34,6 +34,16 @@ public final class SessionStore {
     @ObservationIgnored let acknowledgementCoordinator: SelectionAcknowledgementCoordinator
     @ObservationIgnored private var isReplacingState = false
     @ObservationIgnored private var storedSelectedSessionID: TerminalSession.ID?
+    @ObservationIgnored private weak var storedUndoManager: UndoManager?
+
+    @ObservationIgnored public var undoManager: UndoManager? {
+        get { storedUndoManager }
+        set {
+            guard storedUndoManager !== newValue else { return }
+            storedUndoManager?.removeAllActions(withTarget: self)
+            storedUndoManager = newValue
+        }
+    }
 
     /// Identifies an app-owned compact terminal store. Its surfaces receive a
     /// shared shell marker, while each compact surface may add a more specific
@@ -97,6 +107,17 @@ public final class SessionStore {
             recentlyClosed: components.recentlyClosed,
             pinnedSessionIDs: components.pinnedSessionIDs
         )
+    }
+
+    private func registerUndo(
+        actionName: String,
+        handler: @escaping (SessionStore) -> Void
+    ) {
+        guard let undoManager else { return }
+        undoManager.registerUndo(withTarget: self) { target in
+            handler(target)
+        }
+        undoManager.setActionName(actionName)
     }
 
     /// Atomically replaces store state with components restored from a sanitized `SessionSnapshot`.
@@ -483,9 +504,26 @@ public final class SessionStore {
 
     @discardableResult
     public func renameGroup(id groupID: SessionGroup.ID, to rawGroupName: String) -> Bool {
+        guard let previousName = _groups.first(where: { $0.id == groupID })?.name else {
+            return false
+        }
         // No-commit family (F30): name change doesn't affect positions, panes,
         // unread, risk, or pins — no derived-cache repair.
-        WorkspaceTreeReducer.renameGroup(in: &_groups, id: groupID, to: rawGroupName)
+        guard WorkspaceTreeReducer.renameGroup(in: &_groups, id: groupID, to: rawGroupName) else {
+            return false
+        }
+        guard _groups.first(where: { $0.id == groupID })?.name != previousName else {
+            return true
+        }
+        registerUndo(
+            actionName: String(
+                localized: "Rename Group",
+                comment: "Undo action for renaming a workspace group."
+            )
+        ) { target in
+            target.renameGroup(id: groupID, to: previousName)
+        }
+        return true
     }
 
     @discardableResult
@@ -493,8 +531,26 @@ public final class SessionStore {
         id groupID: SessionGroup.ID,
         color: WorkspaceGroupColor?
     ) -> Bool {
+        guard let group = _groups.first(where: { $0.id == groupID }) else {
+            return false
+        }
+        let previousColor = group.color
         // Non-structural: color change doesn't affect positions, panes, or unread.
-        WorkspaceTreeReducer.setGroupColor(in: &_groups, id: groupID, color: color)
+        guard WorkspaceTreeReducer.setGroupColor(in: &_groups, id: groupID, color: color) else {
+            return false
+        }
+        guard _groups.first(where: { $0.id == groupID })?.color != previousColor else {
+            return true
+        }
+        registerUndo(
+            actionName: String(
+                localized: "Set Group Color",
+                comment: "Undo action for changing a workspace group color."
+            )
+        ) { target in
+            target.setGroupColor(id: groupID, color: previousColor)
+        }
+        return true
     }
 
     /// Create a group whose default and seed pane use `target`.
@@ -794,6 +850,9 @@ public final class SessionStore {
         toGroupID destinationGroupID: SessionGroup.ID,
         atIndex targetIndex: Int
     ) {
+        guard let source = index.positionsBySessionID[sessionID] else { return }
+        let sourceGroupID = _groups[source.groupIndex].id
+        let sourceSessionIndex = source.sessionIndex
         guard
             WorkspaceTreeReducer.moveSession(
                 in: &_groups,
@@ -806,9 +865,23 @@ public final class SessionStore {
             return
         }
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
+        registerUndo(
+            actionName: String(
+                localized: "Move Workspace",
+                comment: "Undo action for moving a workspace within or between groups."
+            )
+        ) { target in
+            target.moveSession(
+                id: sessionID,
+                toGroupID: sourceGroupID,
+                atIndex: sourceSessionIndex
+            )
+        }
     }
 
     public func moveGroup(from sourceIndex: Int, to targetIndex: Int) {
+        guard _groups.indices.contains(sourceIndex) else { return }
+        let groupID = _groups[sourceIndex].id
         guard
             WorkspaceTreeReducer.moveGroup(
                 in: &_groups,
@@ -819,6 +892,17 @@ public final class SessionStore {
             return
         }
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
+        guard let destinationIndex = _groups.firstIndex(where: { $0.id == groupID }) else {
+            return
+        }
+        registerUndo(
+            actionName: String(
+                localized: "Move Group",
+                comment: "Undo action for reordering a workspace group."
+            )
+        ) { target in
+            target.moveGroup(from: destinationIndex, to: sourceIndex)
+        }
     }
 
     public func isPinned(_ id: TerminalSession.ID) -> Bool {
