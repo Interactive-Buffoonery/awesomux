@@ -83,6 +83,47 @@ struct SidebarGroupHeaderHitTargetTests {
         #expect(closeCounter.count == 0)
     }
 
+    @Test("hovered empty group among others renders a hittable close X")
+    func hoveredEmptyGroupAmongOthersRendersHittableCloseButton() {
+        let toggleCounter = ToggleCounter()
+        let closeCounter = ToggleCounter()
+        let window = Self.makeWindow(
+            isGroupEmpty: true,
+            totalGroupCount: 2,
+            headerHoverOverride: true,
+            onToggle: toggleCounter.increment,
+            onCloseGroup: closeCounter.increment
+        )
+        defer { window.close() }
+
+        Self.sendClick(to: window, at: Self.expandedCountBadgePoint)
+        #expect(Self.pumpMainRunLoop(until: { closeCounter.count >= 1 }))
+        Self.settleMainRunLoop()
+
+        #expect(closeCounter.count == 1)
+        #expect(toggleCounter.count == 0)
+    }
+
+    @Test("hovered sole empty group keeps the badge and close action gated")
+    func hoveredSoleEmptyGroupKeepsCloseButtonGated() {
+        let toggleCounter = ToggleCounter()
+        let closeCounter = ToggleCounter()
+        let window = Self.makeWindow(
+            isGroupEmpty: true,
+            headerHoverOverride: true,
+            onToggle: toggleCounter.increment,
+            onCloseGroup: closeCounter.increment
+        )
+        defer { window.close() }
+
+        Self.sendClick(to: window, at: Self.expandedCountBadgePoint)
+        #expect(Self.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        Self.settleMainRunLoop()
+
+        #expect(toggleCounter.count == 1)
+        #expect(closeCounter.count == 0)
+    }
+
     // AppKit window coordinates are bottom-up: y=68 in this 80pt window is
     // 12pt from the top, where the group header is laid out.
     // x=220 is in the trailing Spacer for the production 296pt header,
@@ -105,22 +146,28 @@ struct SidebarGroupHeaderHitTargetTests {
         isCollapsed: Bool = false,
         displayMode: SidebarWidthMode = .expanded,
         width: CGFloat = SidebarWidthPolicy.expandedWidth,
+        isGroupEmpty: Bool = false,
+        totalGroupCount: Int = 1,
+        headerHoverOverride: Bool? = nil,
         onToggle: @escaping () -> Void,
         onCloseGroup: @escaping () -> Void = {},
         onNewSessionInGroup: @escaping () -> Void = {}
     ) -> NSWindow {
-        let hostingView = NSHostingView(
+        let hostingView = HitTargetHostingView(
             rootView: SidebarGroupHitTargetHarness(
                 isCollapsed: isCollapsed,
                 displayMode: displayMode,
                 width: width,
+                isGroupEmpty: isGroupEmpty,
+                totalGroupCount: totalGroupCount,
+                headerHoverOverride: headerHoverOverride,
                 onToggle: onToggle,
                 onCloseGroup: onCloseGroup,
                 onNewSessionInGroup: onNewSessionInGroup
             ))
         hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 80)
 
-        let window = NSWindow(
+        let window = HitTargetTestWindow(
             contentRect: hostingView.frame,
             styleMask: [.borderless],
             backing: .buffered,
@@ -182,6 +229,14 @@ struct SidebarGroupHeaderHitTargetTests {
     }
 }
 
+private final class HitTargetTestWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+}
+
+private final class HitTargetHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 private final class ToggleCounter {
     private(set) var count = 0
 
@@ -194,6 +249,9 @@ private struct SidebarGroupHitTargetHarness: View {
     let isCollapsed: Bool
     let displayMode: SidebarWidthMode
     let width: CGFloat
+    let isGroupEmpty: Bool
+    let totalGroupCount: Int
+    let headerHoverOverride: Bool?
     let onToggle: () -> Void
     let onCloseGroup: () -> Void
     let onNewSessionInGroup: () -> Void
@@ -208,11 +266,25 @@ private struct SidebarGroupHitTargetHarness: View {
     // suppressor, so the test genuinely guards it. `entries` stays empty (the
     // count badge renders 0 and no tile rows mount, keeping the y=68 header
     // geometry stable); the gate reads the model's `group.sessions`, not entries.
-    private let group = SessionGroup(
-        id: UUID(uuidString: "8B10C4F3-3905-4C67-A6F6-C7EB11F03D5B")!,
-        name: "Workspace group",
-        sessions: [TerminalSession(title: "Workspace", workingDirectory: "~")]
-    )
+    private var group: SessionGroup {
+        SessionGroup(
+            id: UUID(uuidString: "8B10C4F3-3905-4C67-A6F6-C7EB11F03D5B")!,
+            name: "Workspace group",
+            sessions: isGroupEmpty ? [] : [TerminalSession(title: "Workspace", workingDirectory: "~")]
+        )
+    }
+
+    private var allGroups: [SessionGroup] {
+        guard totalGroupCount > 1 else { return [group] }
+        return [
+            group,
+            SessionGroup(
+                id: UUID(uuidString: "5068B8D9-5953-4A2F-A50D-D92BF400EA4A")!,
+                name: "Other group",
+                sessions: []
+            ),
+        ]
+    }
 
     var body: some View {
         SidebarGroupView(
@@ -227,7 +299,7 @@ private struct SidebarGroupHitTargetHarness: View {
             isFiltering: false,
             displayMode: displayMode,
             duplicateDisambiguationBySessionID: [:],
-            allGroups: [group],
+            allGroups: allGroups,
             jumpIndexBySessionID: [:],
             selectedSessionID: nil,
             onToggle: onToggle,
@@ -257,12 +329,7 @@ private struct SidebarGroupHitTargetHarness: View {
             onDragEnded: {},
             onDragExited: {},
             currentGroupIndex: 0,
-            // 1 matches the single-element `allGroups`. The close X reads
-            // `totalGroupCount` only for the sole-empty-group clause
-            // (SidebarGroupClosePolicy, INT-770); the harness group is
-            // non-empty, so the badge-slot test's honesty rests on that
-            // plus the hover gate, not on this count.
-            totalGroupCount: 1,
+            totalGroupCount: totalGroupCount,
             onUncollapse: {},
             onClose: { _ in },
             onClear: { _ in },
@@ -274,6 +341,7 @@ private struct SidebarGroupHitTargetHarness: View {
         )
         .frame(width: width, height: 80, alignment: .topLeading)
         .environment(\.dynamicTypeSize, .large)
+        .environment(\.sidebarGroupHeaderHoverOverride, headerHoverOverride)
         // The collapsed header now reads `SidebarPeekModel` for its group
         // roster peek trigger (Task 5) — an ancestor must supply it, same as
         // `ContentView` does in production, or the read is fatal.
