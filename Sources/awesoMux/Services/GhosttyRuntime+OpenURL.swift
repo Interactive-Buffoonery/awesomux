@@ -196,6 +196,8 @@ extension GhosttyRuntime {
                 presentRemoteMarkdownRoutingFailure(from: view)
                 return
             }
+            let progressIndicator = presentRemoteMarkdownFetchProgress(in: view)
+            defer { progressIndicator.removeFromSuperview() }
             if let snapshot = await RemoteMarkdownSnapshotFetcher().fetch(reference) {
                 view.sessionStore.openDocumentPane(
                     fileURL: snapshot.fileURL,
@@ -297,5 +299,25 @@ extension GhosttyRuntime {
             displayHost: displayHost,
             punycodeHost: punycodeHost
         )
+    }
+
+    @MainActor
+    private static func presentRemoteMarkdownFetchProgress(in view: NSView) -> NSProgressIndicator {
+        let progressIndicator = NSProgressIndicator()
+        progressIndicator.style = .spinning
+        progressIndicator.controlSize = .small
+        progressIndicator.translatesAutoresizingMaskIntoConstraints = false
+        progressIndicator.setAccessibilityLabel(
+            String(
+                localized: "Loading document",
+                comment: "Progress status while fetching a remote Markdown snapshot"
+            ))
+        view.addSubview(progressIndicator)
+        NSLayoutConstraint.activate([
+            progressIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            progressIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+        progressIndicator.startAnimation(nil)
+        return progressIndicator
     }
 }
