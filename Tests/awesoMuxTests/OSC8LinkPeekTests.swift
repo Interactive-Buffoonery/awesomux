@@ -58,6 +58,17 @@ import Testing
         #expect(OSC8LinkPeek.trigger(forLink: nil, commandHeld: true) == .none)
     }
 
+    // MARK: plain-click activation — string init parity
+
+    @Test func stringInitMatchesResolvePath() {
+        // Plain-click activation feeds the hovered link string back through
+        // OpenURLAction; its resolution must be identical to the C-struct path
+        // (both funnel into OpenURLAction.resolve).
+        #expect(OpenURLAction("https://example.com").url == OpenURLAction.resolve("https://example.com"))
+        #expect(OpenURLAction("https://xn--pypal-4ve.example/").url != nil)
+        #expect(OpenURLAction("javascript:alert(1)").url == nil)
+    }
+
     // MARK: anchorRect — geometry
 
     @Test func anchorRectIsCellTallAtThePoint() {
