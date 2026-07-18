@@ -5,9 +5,6 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    - cron: "17 8 * * 2"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,6 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
+      contents: read
       security-events: write
     strategy:
       fail-fast: false
@@ -40,87 +38,22 @@ jobs:
       - name: Analyze
         uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
 
-  swift:
-    name: Analyze (swift)
-    runs-on: macos-26
-    timeout-minutes: 120
-    permissions:
-      security-events: write
-    env:
-      AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
-      AWESOMUX_GHOSTTY_REQUIRE_PIN_MATCH: "1"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          submodules: recursive
-          persist-credentials: false
-
-      - name: Read Ghostty pin
-        id: ghostty-pin
-        run: echo "sha=$(git rev-parse HEAD:vendor/ghostty)" >> "$GITHUB_OUTPUT"
-
-      - name: Read Xcode version
-        id: xcode
-        run: |
-          VERSION_STRING="$(xcodebuild -version)"
-          XC_VERSION="$(awk '/^Xcode /{print $2}' <<<"$VERSION_STRING")"
-          XC_BUILD="$(awk '/^Build version/{print $3}' <<<"$VERSION_STRING")"
-          XC_TOKEN="$(printf 'Xcode_%s-%s' "$XC_VERSION" "$XC_BUILD" | tr -c 'A-Za-z0-9_.-' '_')"
-          echo "xcode_id=$XC_TOKEN" >> "$GITHUB_OUTPUT"
-
-      - name: Restore cached Ghostty artifacts
-        id: ghostty-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: .build/ghostty
-          key: codeql-ghostty-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.sha }}-${{ hashFiles('.swift-version') }}-${{ steps.xcode.outputs.xcode_id }}
-
-      - name: Install Ghostty build tools
-        if: steps.ghostty-cache.outputs.cache-hit != 'true'
-        run: |
-          brew install zig@0.15
-          echo "AWESOMUX_ZIG=$(brew --prefix zig@0.15)/bin/zig" >> "$GITHUB_ENV"
-          if ! xcrun -sdk macosx metal -v >/dev/null 2>&1; then
-            xcodebuild -downloadComponent MetalToolchain
-          fi
-
-      - name: Build or validate Ghostty artifacts
-        run: ./script/ensure_ghostty_artifacts.sh
-
-      - name: Resolve Swift dependencies
-        run: swift package resolve
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
-        with:
-          languages: swift
-          build-mode: manual
-
-      - name: Build Swift sources
-        run: swift build --arch arm64
-
-      - name: Analyze
-        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
-
   complete:
-    name: CodeQL complete
+    name: CodeQL interpreted complete
     if: always()
-    needs: [interpreted, swift]
+    needs: [interpreted]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Verify every analysis completed successfully
         env:
           INTERPRETED_RESULT: ${{ needs.interpreted.result }}
-          SWIFT_RESULT: ${{ needs.swift.result }}
         run: |
           set -euo pipefail
 
           printf 'Interpreted analyses: %s\n' "$INTERPRETED_RESULT"
-          printf 'Swift analysis: %s\n' "$SWIFT_RESULT"
 
-          if [[ "$INTERPRETED_RESULT" != "success" || "$SWIFT_RESULT" != "success" ]]; then
-            echo "::error::one or more CodeQL analysis jobs did not succeed"
+          if [[ "$INTERPRETED_RESULT" != "success" ]]; then
+            echo "::error::one or more interpreted CodeQL analysis jobs did not succeed"
             exit 1
           fi

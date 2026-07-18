@@ -606,7 +606,7 @@
 
     },
     "Close Group" : {
-      "comment" : "Destructive button on the close-group confirmation dialog."
+      "comment" : "Destructive button on the close-group confirmation dialog.\nLabel and help text for controls that close a workspace group."
     },
     "Close Pane" : {
       "comment" : "Destructive button on the close-pane confirmation dialog."
@@ -2128,9 +2128,6 @@
     "Remove %arg" : {
       "comment" : "Accessibility label for the remove button of a named custom command"
     },
-    "Remove Empty Group" : {
-
-    },
     "Remove Group" : {
       "comment" : "Destructive button on the empty-remote-group removal confirmation dialog."
     },
@@ -2212,6 +2209,9 @@
 
     },
     "Reply…" : {
+
+    },
+    "Report a Bug or Suggest a Feature…" : {
 
     },
     "Report a bug…" : {

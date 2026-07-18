@@ -3,6 +3,11 @@ import Testing
 @testable import awesoMux
 
 struct SidebarGroupClosePolicyTests {
+    @Test("group close controls share one action label")
+    func groupCloseControlsShareActionLabel() {
+        #expect(SidebarGroupClosePolicy.actionLabel == "Close Group")
+    }
+
     /// All gates open: hovered, expanded, unfiltered, resolved, non-empty.
     private static func shows(
         isHeaderHovered: Bool = true,

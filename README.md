@@ -91,18 +91,21 @@ git submodule update --init --recursive
 ```
 
 To create an isolated feature branch and worktree, initialize its submodules,
-and launch Pi from it:
+and launch an agent TUI from it:
 
 ```sh
 ./script/new-worktree.sh
 ```
 
-The script prompts for a branch name and creates the checkout under the sibling
-`awesomux-worktrees` directory. Pass the branch name directly for non-interactive
-use, or add `--no-launch` to prepare the worktree without starting Pi:
+The script prompts for a branch name and your choice of Pi, Claude Code, Codex,
+OpenCode, or Grok, then creates the checkout under the sibling
+`awesomux-worktrees` directory. Pass the branch and TUI directly for
+non-interactive use, or add `--no-launch` to prepare the worktree without
+starting an agent:
 
 ```sh
-./script/new-worktree.sh --no-launch feature/my-change
+./script/new-worktree.sh --tui codex feature/my-change
+./script/new-worktree.sh --no-launch feature/my-other-change
 ```
 
 **Host tools**: **`zig`** must be on PATH the first time (or anytime) Ghostty libraries need to be built; [`script/build_ghostty_xcframework.sh`](script/build_ghostty_xcframework.sh) drives that step. Xcode's **Metal Toolchain** must also be installed so Ghostty can compile its Metal shaders:

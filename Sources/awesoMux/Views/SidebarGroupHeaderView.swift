@@ -3,6 +3,19 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
+private struct SidebarGroupHeaderHoverOverrideKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+extension EnvironmentValues {
+    /// Overrides pointer hover for deterministic hosted-view rendering tests.
+    /// Production leaves this nil and continues to use live `onHover` state.
+    var sidebarGroupHeaderHoverOverride: Bool? {
+        get { self[SidebarGroupHeaderHoverOverrideKey.self] }
+        set { self[SidebarGroupHeaderHoverOverrideKey.self] = newValue }
+    }
+}
+
 /// Gate for the group header's hover-revealed close-group X (INT-739).
 ///
 /// Beyond hover, the X carries the same guards as the context menu's
@@ -23,6 +36,11 @@ import SwiftUI
 /// body row — distinct from the rail-collapsed `displayMode`, which
 /// suppresses the X entirely).
 enum SidebarGroupClosePolicy {
+    static let actionLabel = String(
+        localized: "Close Group",
+        comment: "Label and help text for controls that close a workspace group."
+    )
+
     /// - Parameters:
     ///   - isHeaderHovered: pointer is over the header row; the X is a
     ///     hover-only shortcut, never resting UI.
@@ -102,6 +120,7 @@ struct SidebarGroupHeaderRow: View {
     @Environment(SidebarPeekModel.self) private var peekModel
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.sidebarGroupHeaderHoverOverride) private var headerHoverOverride
     // Mirror the count badge's scaling: it renders with `.awFont(.Mono.meta)`,
     // whose point size is `@ScaledMetric(relativeTo: .subheadline)` off
     // `spec(.meta).baseSize` times the user `\.awTextScale` factor. Reproducing
@@ -171,7 +190,7 @@ struct SidebarGroupHeaderRow: View {
     /// unit-testable.
     private var showsGroupCloseButton: Bool {
         SidebarGroupClosePolicy.showsCloseButton(
-            isHeaderHovered: isHeaderHovered,
+            isHeaderHovered: headerHoverOverride ?? isHeaderHovered,
             displayMode: displayMode,
             isFiltering: isFiltering,
             hasResolvedGroupIndex: currentGroupIndex != nil,
@@ -602,7 +621,7 @@ struct SidebarGroupHeaderRow: View {
         if !isFiltering, currentGroupIndex != nil {
             Divider()
 
-            Button("Close Group", role: .destructive) {
+            Button(SidebarGroupClosePolicy.actionLabel, role: .destructive) {
                 onCloseGroup()
             }
             .disabled(
@@ -677,7 +696,7 @@ struct SidebarGroupHeaderRow: View {
                 totalGroupCount: totalGroupCount
             )
         {
-            Button("Close Group") {
+            Button(SidebarGroupClosePolicy.actionLabel) {
                 onCloseGroup()
             }
         }
@@ -798,7 +817,7 @@ struct SidebarGroupHeaderRow: View {
         // unresolved row, empty group) where the X never shows.
         // "Close Group" matches the context menu and VoiceOver action names
         // for the same operation (consistent identification).
-        .help(showsGroupCloseButton ? "Close Group" : "")
+        .help(showsGroupCloseButton ? SidebarGroupClosePolicy.actionLabel : "")
     }
 
     private var groupAccessibilityValue: String {
