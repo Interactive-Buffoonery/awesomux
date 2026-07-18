@@ -25,8 +25,9 @@ struct SidebarStatusFooter: View {
 
     /// Public feedback is filed through the repository's issue templates so
     /// users have a stable intake path without depending on a maintainer's
-    /// personal mailbox.
-    private static let feedbackURL = URL(string: "https://github.com/Interactive-Buffoonery/awesomux/issues/new/choose")!
+    /// personal mailbox. Internal (not private) so the Help menu command
+    /// (INT-324) opens the same URL instead of duplicating the literal.
+    static let feedbackURL = URL(string: "https://github.com/Interactive-Buffoonery/awesomux/issues/new/choose")!
 
     var body: some View {
         if displayMode == .collapsed {
