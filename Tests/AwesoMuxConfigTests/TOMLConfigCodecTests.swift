@@ -818,6 +818,64 @@ struct TOMLConfigCodecTests {
         #expect(reDecoded.unknownAppearanceTableLines.contains(#""beta""#))
     }
 
+    @Test("header-shaped line inside a preserved multiline extra does not corrupt a later section splice")
+    func headerShapedLineInsideMultilineExtraDoesNotCorruptLaterSectionSplice() throws {
+        // Terminal's splice runs before appearance's (see encodeString), so a
+        // header-shaped line embedded in a preserved terminal multiline value
+        // ends up in the text the appearance splice scans next. Today's fixed
+        // section ordering keeps this from actually misfiring (appearance's
+        // own boundary walk stops at [general] long before it), but the scan
+        // must still carry the same value-scan guard decode has for symmetry
+        // and to stay safe if that ordering ever changes (INT-727).
+        let toml = Self.defaultTOML
+            .replacing(
+                """
+                clipboard_write_policy = "ask"
+                confirm_clipboard_read = true
+                """,
+                with: """
+                    clipboard_write_policy = "ask"
+                    confirm_clipboard_read = true
+                    custom_multiline = \"\"\"
+                    first line
+                    [appearance]
+                    second line
+                    \"\"\"
+                    """
+            )
+            .replacing(
+                "glow_strength = 0.65",
+                with: """
+                    glow_strength = 0.65
+                    custom_note = "preserved appearance extra"
+                    """
+            )
+
+        let decoded = try codec.decode(toml)
+        let reEncoded = try codec.encodeString(decoded)
+        let reDecoded = try codec.decode(reEncoded)
+
+        #expect(
+            reEncoded.contains(
+                """
+                custom_multiline = \"\"\"
+                first line
+                [appearance]
+                second line
+                \"\"\"
+                """))
+        #expect(reEncoded.contains(#"custom_note = "preserved appearance extra""#))
+        // Exactly two occurrences: the real [appearance] header plus the
+        // header-shaped content line inside terminal's multiline value.
+        #expect(reEncoded.components(separatedBy: "[appearance]").count - 1 == 2)
+        #expect(reDecoded.unknownTerminalTableLines.contains("[appearance]"))
+        #expect(reDecoded.unknownAppearanceTableLines.contains(#"custom_note = "preserved appearance extra""#))
+        // Second encode/decode cycle must be byte-stable — the boundary scan
+        // is exercised again with terminal's spliced extras already present
+        // from the first cycle.
+        #expect(try codec.encodeString(reDecoded) == reEncoded)
+    }
+
     @Test("unknown appearance sub-table round-trips")
     func unknownAppearanceSubTableRoundTrips() throws {
         let toml = Self.defaultTOML + "\n[appearance.custom]\nweight = 3\n"
