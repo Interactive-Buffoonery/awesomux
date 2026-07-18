@@ -198,6 +198,33 @@ struct WorktreeManagerModelTests {
         }
     }
 
+    @Test("open fails closed when identity validation itself fails, not just when it detects drift")
+    func openFailsWhenIdentityValidationErrors() async {
+        var focusCalls = 0
+        var addCalls = 0
+        let service = StubWorktreeListing(
+            outcomes: [.failure(.spawnFailure)],
+            identityOutcomes: [.failed(.spawnFailure)]
+        )
+        let model = makeModel(
+            service: service,
+            currentGroupID: { UUID() },
+            focus: { _ in focusCalls += 1 },
+            add: { _, _, _ in
+                addCalls += 1
+                return UUID()
+            })
+
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
+
+        guard case .failed = outcome else {
+            Issue.record("Expected identity-validation failure, got \(outcome)")
+            return
+        }
+        #expect(focusCalls == 0)
+        #expect(addCalls == 0)
+    }
+
     private func makeModel(
         service: any GitWorktreeManaging = StubWorktreeListing(outcomes: []),
         groups: @escaping () -> [SessionGroup] = { [] },

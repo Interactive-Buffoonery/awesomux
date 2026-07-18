@@ -473,6 +473,16 @@ struct AwesoMuxApp: App {
             .task(id: worktreeRepositorySelectionID) {
                 await refreshWorktreeRepositoryContext()
             }
+            // The refresh above intentionally no-ops while the manager is
+            // visible (so it can't swap the hosted model out from under an
+            // open panel). Once it closes, catch up: the selection may have
+            // changed to a different repository while it was skipped, and
+            // nothing else re-triggers the `.task(id:)` above for the SAME
+            // selection ID the panel opened with.
+            .onChange(of: worktreeManagerController.isVisible) { _, isVisible in
+                guard !isVisible else { return }
+                Task { await refreshWorktreeRepositoryContext() }
+            }
             // Pins live outside the group array, so the groups onChange above
             // never fires for a pin/unpin — persist them on their own signal.
             .onChange(of: sessionStore.pinnedSessionIDs) { _, _ in
