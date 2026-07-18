@@ -1,5 +1,21 @@
 import Foundation
 
+/// The outcome of `TerminalPaneLayout.removingLeaf`.
+///
+/// It exists to disambiguate the two opposite `nil` meanings the underlying
+/// per-kind methods carry: `removingPane` returns `nil` for "the last terminal
+/// went, close the workspace", while `removingDocumentGroup` returns `nil` for
+/// "id not found, no-op". A shared remover returning a bare optional would let a
+/// consumer wrongly close a workspace on a stale document-group id.
+public enum LeafRemovalOutcome: Hashable, Sendable {
+    /// The leaf was removed; the workspace survives with this layout.
+    case removed(TerminalPaneLayout)
+    /// The last terminal was removed; the caller must close the workspace.
+    case closesWorkspace
+    /// No leaf with that id was present; a no-op.
+    case notFound
+}
+
 /// One shared set of layout operations over both leaf kinds, keyed on the tagged
 /// `WorkspaceLeafID`.
 ///
@@ -27,26 +43,44 @@ public extension TerminalPaneLayout {
     }
 
     /// Look up a document group by id (mirrors `pane(id:)` for the other kind).
+    /// Recurses the tree directly — allocation-free, like `pane(id:)` and
+    /// `firstDocumentGroup` — rather than materializing `leaves` per call.
     func documentGroup(id: DocumentGroup.ID) -> DocumentGroup? {
-        for leaf in leaves {
-            if case let .documentGroup(group) = leaf, group.id == id {
-                return group
-            }
+        switch self {
+        case .pane:
+            return nil
+        case let .documentGroup(group):
+            return group.id == id ? group : nil
+        case let .split(split):
+            return split.first.documentGroup(id: id) ?? split.second.documentGroup(id: id)
         }
-        return nil
     }
 
-    /// Remove a leaf by tagged id, applying the KIND-SPECIFIC policy:
+    /// Remove a leaf by tagged id, applying the KIND-SPECIFIC policy and
+    /// reporting the outcome unambiguously (see `LeafRemovalOutcome`):
     /// - `.terminal` enforces the root ≥1-terminal invariant (an auxiliary leaf
-    ///   can never be the sole survivor); returns `nil` when the last terminal
-    ///   would go, so the caller closes the session.
+    ///   can never be the sole survivor); removing the last terminal yields
+    ///   `.closesWorkspace`.
     /// - `.documentGroup` collapses the viewer split back to its sibling.
-    func removingLeaf(_ id: WorkspaceLeafID) -> TerminalPaneLayout? {
+    /// An absent id yields `.notFound`, never a spurious close.
+    func removingLeaf(_ id: WorkspaceLeafID) -> LeafRemovalOutcome {
         switch id {
         case let .terminal(paneID):
-            removingPane(id: paneID)
+            guard contains(paneID: paneID) else { return .notFound }
+            // Present terminal: `removingPane` returns nil ONLY when it was the
+            // last terminal (the root guard), which means close the workspace.
+            if let survived = removingPane(id: paneID) {
+                return .removed(survived)
+            }
+            return .closesWorkspace
         case let .documentGroup(groupID):
-            removingDocumentGroup(id: groupID)
+            guard documentGroup(id: groupID) != nil else { return .notFound }
+            // Present group: `removingDocumentGroup` returns nil only for
+            // not-found (ruled out above), so a present group always collapses.
+            if let survived = removingDocumentGroup(id: groupID) {
+                return .removed(survived)
+            }
+            return .notFound
         }
     }
 

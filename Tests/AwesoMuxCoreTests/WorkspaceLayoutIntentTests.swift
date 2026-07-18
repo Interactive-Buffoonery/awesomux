@@ -113,6 +113,32 @@ import Testing
         #expect(TerminalPaneLayout.pane(remotePane()).layoutIntent == nil)
     }
 
+    @Test func splitWithBothChildrenPrunedProjectsToNil() {
+        // A split whose BOTH children prune (document + remote terminal) leaves
+        // no preset-eligible terminal — the whole projection collapses to nil.
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .documentGroup(group()),
+                second: .pane(remotePane())
+            ))
+        #expect(layout.layoutIntent == nil)
+    }
+
+    @Test func canonicalFractionClampsLowAndNonFinite() {
+        func fraction(_ value: Double) -> Double {
+            WorkspaceLayoutIntent.SplitIntent(
+                orientation: .vertical,
+                firstFraction: value,
+                first: .terminal(.init(title: nil, color: nil)),
+                second: .terminal(.init(title: nil, color: nil))
+            ).firstFraction
+        }
+        #expect(fraction(-1) == 0.15)
+        #expect(fraction(.nan) == 0.5)
+        #expect(fraction(.infinity) == 0.5)
+    }
+
     // MARK: - Preset boundary (the load-bearing guarantee)
 
     @Test func encodedIntentContainsNoLiveOnlyIdentifiers() throws {
@@ -129,7 +155,24 @@ import Testing
         var keys: Set<String> = []
         collectKeys(json, into: &keys)
 
-        // No key may name live-only state a preset must never serialize.
+        // Strongest guarantee: the encoded key set is a SUBSET of the allowlist.
+        // Any future field added to the intent DTO introduces a new key and fails
+        // this — stronger than a substring blocklist (which misses renames) and
+        // without its false-positives (a benign "width"/"hidden"/"grid" would trip
+        // a substring scan). The allowlist is the two enum case tags, the single-
+        // associated-value wrapper key, the struct field names, and `color`
+        // (allowed though absent here since the fixture pins a nil color).
+        let allowedKeys: Set<String> = [
+            "root", "split", "terminal", "_0",
+            "orientation", "firstFraction", "first", "second",
+            "title", "color",
+        ]
+        #expect(
+            keys.isSubset(of: allowedKeys),
+            "unexpected intent key(s) — possible live-state leak: \(keys.subtracting(allowedKeys))"
+        )
+
+        // Explicit belt: none of the known live-only field names appear.
         let forbiddenExact: Set<String> = [
             "id", "terminalSessionID", "sessionID", "executionPlan",
             "workingDirectory", "fileURL", "url", "remoteResourceIdentity",
@@ -137,16 +180,6 @@ import Testing
             "associatedTerminalPaneID", "persistenceOwner", "host", "user", "path",
         ]
         #expect(keys.isDisjoint(with: forbiddenExact))
-
-        // Substring scan catches any FUTURE field added to the intent DTO that
-        // reintroduces identity/host/path/session/plan state.
-        let forbiddenSubstrings = ["id", "url", "host", "session", "execution", "remote", "agent", "plan", "path", "daemon"]
-        for key in keys {
-            let lower = key.lowercased()
-            for needle in forbiddenSubstrings {
-                #expect(!lower.contains(needle), "intent key \"\(key)\" leaks live-only state")
-            }
-        }
 
         // Structure is present (sanity).
         #expect(keys.isSuperset(of: ["orientation", "firstFraction", "first", "second", "title"]))

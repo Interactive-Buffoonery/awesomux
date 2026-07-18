@@ -43,14 +43,14 @@ import Testing
 
     // MARK: - removingLeaf preserves the distinct per-kind policies
 
-    @Test func removingSoleTerminalReturnsNilSoSessionCloses() {
+    @Test func removingSoleTerminalClosesWorkspace() {
         let t = pane()
         let layout = TerminalPaneLayout.split(
             TerminalSplit(
                 orientation: .vertical, first: .pane(t), second: .documentGroup(group())
             ))
-        // Auxiliary leaf can never be the sole survivor -> root guard returns nil.
-        #expect(layout.removingLeaf(.terminal(t.id)) == nil)
+        // Auxiliary leaf can never be the sole survivor -> close the workspace.
+        #expect(layout.removingLeaf(.terminal(t.id)) == .closesWorkspace)
     }
 
     @Test func removingOneOfTwoTerminalsKeepsTheOther() {
@@ -60,8 +60,11 @@ import Testing
             TerminalSplit(
                 orientation: .vertical, first: .pane(a), second: .pane(b)
             ))
-        let result = try? #require(layout.removingLeaf(.terminal(a.id)))
-        #expect(result?.paneIDs == [b.id])
+        guard case let .removed(result) = layout.removingLeaf(.terminal(a.id)) else {
+            Issue.record("expected .removed")
+            return
+        }
+        #expect(result.paneIDs == [b.id])
     }
 
     @Test func removingDocumentGroupCollapsesViewerBackToTerminal() {
@@ -71,8 +74,19 @@ import Testing
             TerminalSplit(
                 orientation: .vertical, first: .pane(t), second: .documentGroup(g)
             ))
-        let result = layout.removingLeaf(.documentGroup(g.id))
-        #expect(result == .pane(t))
+        #expect(layout.removingLeaf(.documentGroup(g.id)) == .removed(.pane(t)))
+    }
+
+    @Test func removingMissingIdIsNotFoundNeverAStrayClose() {
+        let t = pane()
+        let g = group()
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical, first: .pane(t), second: .documentGroup(g)
+            ))
+        // A stale document-group id must NOT be read as "close the workspace".
+        #expect(layout.removingLeaf(.documentGroup(DocumentGroup.ID())) == .notFound)
+        #expect(layout.removingLeaf(.terminal(TerminalPane.ID())) == .notFound)
     }
 
     // MARK: - replacingLeaf rejects cross-kind
@@ -103,6 +117,20 @@ import Testing
         let g = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
         #expect(WorkspaceLeaf.terminal(t).descriptor.label == "build")
         #expect(WorkspaceLeaf.documentGroup(g).descriptor.label == "readme.md")
+    }
+
+    @Test func labelFallsBackWhenSelectedTabOrphaned() {
+        let a = DocumentPane(
+            fileURL: URL(fileURLWithPath: NSTemporaryDirectory() + "a-\(UUID().uuidString).md"),
+            title: "a.md"
+        )
+        let b = DocumentPane(
+            fileURL: URL(fileURLWithPath: NSTemporaryDirectory() + "b-\(UUID().uuidString).md"),
+            title: "b.md"
+        )
+        var g = DocumentGroup(tabs: [a, b], selectedTabID: b.id)
+        g.tabs = [a]  // orphan selectedTabID (b removed); selectedTab is now nil
+        #expect(WorkspaceLeaf.documentGroup(g).label == "a.md")
     }
 
     @Test func restorationRequirementSeparatesReattachFromReopen() {

@@ -50,8 +50,11 @@ public extension PaneAvailability {
         }
     }
 
-    /// Pure terminal truth table. Order encodes precedence: a dead source and a
-    /// disconnected bridge outrank a stale hint, which outranks the un-mounted
+    /// Pure terminal truth table. Order encodes precedence: an explicit reconnect
+    /// state (disconnected → unavailable, in-flight → stale) outranks a bare
+    /// `.exited` liveness, because a reconnecting bridge's old child exits by
+    /// design — an in-flight reconnect must read as `.stale`, not `.unavailable`.
+    /// A dead source then outranks a stale hint, which outranks the un-mounted
     /// default.
     static func terminal(
         liveness: ForegroundProcessLiveness,
@@ -62,11 +65,11 @@ public extension PaneAvailability {
         if case .disconnected = reconnect {
             return .unavailable
         }
-        if liveness == .exited {
-            return .unavailable
-        }
         if case .reconnecting = reconnect {
             return .stale
+        }
+        if liveness == .exited {
+            return .unavailable
         }
         if connectionHealth == .possiblyStale {
             return .stale

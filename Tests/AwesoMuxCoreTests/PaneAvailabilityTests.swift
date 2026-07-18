@@ -62,6 +62,32 @@ import Testing
         )
     }
 
+    @Test func reconnectingBeatsExitedChild() {
+        // A reconnecting bridge's old child exits by design; the in-flight
+        // reconnect must read as stale, not unavailable.
+        let reconnect = RemoteReconnectState.reconnecting(.init(target: liveTarget))
+        #expect(
+            PaneAvailability.terminal(
+                liveness: .exited,
+                connectionHealth: .active,
+                reconnect: reconnect,
+                backendMetadata: .empty
+            ) == .stale
+        )
+    }
+
+    @Test func disconnectedBeatsExitedChild() {
+        let reconnect = RemoteReconnectState.disconnected(.init(target: liveTarget))
+        #expect(
+            PaneAvailability.terminal(
+                liveness: .exited,
+                connectionHealth: .active,
+                reconnect: reconnect,
+                backendMetadata: .empty
+            ) == .unavailable
+        )
+    }
+
     @Test func possiblyStaleConnectionIsStale() {
         #expect(
             PaneAvailability.terminal(

@@ -62,7 +62,11 @@ public extension WorkspacePaneCapabilities {
             remoteProvenance: pane.executionPlan.remoteTarget != nil,
             safeInputTarget: isLocal,
             duplicable: true,
-            presetEligible: isLocal
+            // Belt-and-suspenders on the preset leak boundary: require BOTH the
+            // local-filesystem capability AND no remote target. They agree today
+            // (closed two-case plan), but they are independent signals guarding a
+            // boundary where a leak means host identity in a shareable preset.
+            presetEligible: isLocal && pane.executionPlan.remoteTarget == nil
         )
     }
 
