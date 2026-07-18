@@ -682,5 +682,33 @@
             <key>other</key><string>%lld matching diagnostic events</string>
         </dict>
     </dict>
+    <key>diagnostics.showingMatchingEvents</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%2$#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>Showing %1$lld of %2$lld matching events</string>
+            <key>one</key><string>Showing %1$lld of %2$lld matching event</string>
+            <key>two</key><string>Showing %1$lld of %2$lld matching events</string>
+            <key>few</key><string>Showing %1$lld of %2$lld matching events</string>
+            <key>many</key><string>Showing %1$lld of %2$lld matching events</string>
+            <key>other</key><string>Showing %1$lld of %2$lld matching events</string>
+        </dict>
+    </dict>
+    <key>diagnostics.showingRecordedAnalyticsEvents</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%2$#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>Showing %1$lld of %2$lld recorded events</string>
+            <key>one</key><string>Showing %1$lld of %2$lld recorded event</string>
+            <key>two</key><string>Showing %1$lld of %2$lld recorded events</string>
+            <key>few</key><string>Showing %1$lld of %2$lld recorded events</string>
+            <key>many</key><string>Showing %1$lld of %2$lld recorded events</string>
+            <key>other</key><string>Showing %1$lld of %2$lld recorded events</string>
+        </dict>
+    </dict>
 </dict>
 </plist>

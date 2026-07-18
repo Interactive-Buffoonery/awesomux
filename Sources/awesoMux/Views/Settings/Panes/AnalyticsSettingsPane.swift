@@ -158,7 +158,11 @@ struct AnalyticsSettingsPane: View {
             isPresented: $isDisableDialogPresented,
             titleVisibility: .visible
         ) {
-            Button(String(localized: "Delete Data", comment: "Disable-analytics dialog: delete local analytics data"), role: .destructive) {
+            Button(
+                String(
+                    localized: "Delete Data (Recommended)",
+                    comment: "Disable-analytics dialog: recommended action to delete local analytics data"), role: .destructive
+            ) {
                 confirmDisable(deleteLocalState: true)
             }
             Button(String(localized: "Keep Data", comment: "Disable-analytics dialog: keep local analytics data")) {
@@ -169,7 +173,7 @@ struct AnalyticsSettingsPane: View {
             Text(
                 String(
                     localized:
-                        "Analytics capture stops immediately. Deleting also removes the local event log and the anonymous identifier (recommended).",
+                        "Analytics capture stops immediately. Deleting also removes the local event log and the anonymous identifier.",
                     comment: "Disable-analytics dialog message"
                 )
             )
