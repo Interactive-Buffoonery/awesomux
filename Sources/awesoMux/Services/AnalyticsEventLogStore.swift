@@ -19,6 +19,12 @@ import os
 @MainActor
 @Observable
 final class AnalyticsEventLogStore {
+    private struct LoadResult: Sendable {
+        let entries: [AnalyticsLogEntry]
+        let diskMatchesEntries: Bool
+        let retainedToDisk: Bool
+    }
+
     static let maximumEntries = 500
     static let retentionDays = 30
     static let trimBatch = 50
@@ -32,6 +38,9 @@ final class AnalyticsEventLogStore {
     @ObservationIgnored private let directoryURL: URL
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var hasLoaded = false
+    @ObservationIgnored private var isLoading = false
+    @ObservationIgnored private var loadGeneration = 0
+    @ObservationIgnored private var loadWaiters: [CheckedContinuation<Void, Never>] = []
     /// False whenever the on-disk log may disagree with `entries` (retain
     /// was off for a span, a load failed, or rejected lines were skipped):
     /// the next retained append then rewrites the whole file instead of
@@ -62,53 +71,11 @@ final class AnalyticsEventLogStore {
         self.now = now
     }
 
-    func loadIfNeeded() {
+    func loadIfNeeded() async {
         guard !hasLoaded else { return }
-        hasLoaded = true
-        Self.clampDirectoryToOwnerOnly(directoryURL)
-        Self.clampToOwnerOnly(eventsURL)
-        guard retainToDisk() else {
-            entries = []
-            diskMatchesEntries = Self.removeIfPresent(eventsURL)
-            if !diskMatchesEntries {
-                logger.error("failed to remove analytics event log while retention is disabled")
-            }
-            return
-        }
-        if let size = try? eventsURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-            size > Self.maximumFileBytes
-        {
-            logger.error("analytics event log exceeds size cap; discarding")
-            try? FileManager.default.removeItem(at: eventsURL)
-            return
-        }
-        let data: Data
-        do {
-            data = try Data(contentsOf: eventsURL)
-        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-            return
-        } catch {
-            // Unreadable is not absent: appending against unknown disk
-            // contents could resurrect history the user believes deleted,
-            // so the next retained append rewrites from memory instead.
-            logger.error("analytics event log unreadable: \(error)")
-            diskMatchesEntries = false
-            return
-        }
-        guard let text = String(data: data, encoding: .utf8) else {
-            diskMatchesEntries = false
-            return
-        }
-        let decoder = Self.makeDecoder()
-        let lines = text.split(separator: "\n")
-        entries = lines.compactMap { line in
-            try? decoder.decode(AnalyticsLogEntry.self, from: Data(line.utf8))
-        }
-        if entries.count != lines.count {
-            diskMatchesEntries = false
-        }
-        if prune() || !diskMatchesEntries {
-            scheduleRewrite()
+        await withCheckedContinuation { continuation in
+            loadWaiters.append(continuation)
+            startLoadingIfNeeded()
         }
     }
 
@@ -117,6 +84,7 @@ final class AnalyticsEventLogStore {
     /// retention back on cannot race a later full-ledger rewrite.
     func reconcileRetention() {
         guard !retainToDisk() else { return }
+        loadGeneration += 1
         hasLoaded = true
         diskMatchesEntries = false
         let eventsURL = eventsURL
@@ -140,7 +108,7 @@ final class AnalyticsEventLogStore {
             return
         }
 
-        loadIfNeeded()
+        startLoadingIfNeeded()
         entries.append(entry)
         let pruned = prune()
         guard retainToDisk() else {
@@ -160,6 +128,7 @@ final class AnalyticsEventLogStore {
     /// remain queued for removal.
     @discardableResult
     func deleteAll() -> Bool {
+        loadGeneration += 1
         let eventsURL = eventsURL
         let eventsDeleted = ioQueue.sync {
             Self.removeIfPresent(eventsURL)
@@ -171,6 +140,46 @@ final class AnalyticsEventLogStore {
         hasLoaded = true
         diskMatchesEntries = true
         return true
+    }
+
+    private func startLoadingIfNeeded() {
+        guard !hasLoaded, !isLoading else { return }
+        isLoading = true
+        let generation = loadGeneration
+        let eventsURL = eventsURL
+        let directoryURL = directoryURL
+        let retainToDisk = retainToDisk()
+        let maximumFileBytes = Self.maximumFileBytes
+        let logger = logger
+        ioQueue.async {
+            let result = Self.loadFromDisk(
+                eventsURL: eventsURL,
+                directoryURL: directoryURL,
+                retainToDisk: retainToDisk,
+                maximumFileBytes: maximumFileBytes,
+                logger: logger
+            )
+            Task { @MainActor [weak self] in
+                self?.finishLoading(result, generation: generation)
+            }
+        }
+    }
+
+    private func finishLoading(_ result: LoadResult, generation: Int) {
+        isLoading = false
+        if generation == loadGeneration, !hasLoaded {
+            entries = result.entries + entries
+            diskMatchesEntries =
+                result.diskMatchesEntries
+                && (result.retainedToDisk || entries.isEmpty)
+            hasLoaded = true
+            if prune() || !diskMatchesEntries {
+                scheduleRewrite()
+            }
+        }
+        let waiters = loadWaiters
+        loadWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 
     func distinctID() -> String {
@@ -299,6 +308,61 @@ final class AnalyticsEventLogStore {
         let body = lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")
         try Data(body.utf8).write(to: eventsURL, options: .atomic)
         clampToOwnerOnly(eventsURL)
+    }
+
+    private nonisolated static func loadFromDisk(
+        eventsURL: URL,
+        directoryURL: URL,
+        retainToDisk: Bool,
+        maximumFileBytes: Int,
+        logger: Logger
+    ) -> LoadResult {
+        clampDirectoryToOwnerOnly(directoryURL)
+        clampToOwnerOnly(eventsURL)
+        guard retainToDisk else {
+            let removed = removeIfPresent(eventsURL)
+            if !removed {
+                logger.error("failed to remove analytics event log while retention is disabled")
+            }
+            return LoadResult(
+                entries: [], diskMatchesEntries: removed, retainedToDisk: false
+            )
+        }
+        if let size = try? eventsURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+            size > maximumFileBytes
+        {
+            logger.error("analytics event log exceeds size cap; discarding")
+            return LoadResult(
+                entries: [],
+                diskMatchesEntries: removeIfPresent(eventsURL),
+                retainedToDisk: true
+            )
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: eventsURL)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return LoadResult(entries: [], diskMatchesEntries: true, retainedToDisk: true)
+        } catch {
+            // Unreadable is not absent: appending against unknown disk
+            // contents could resurrect history the user believes deleted,
+            // so the next retained append rewrites from memory instead.
+            logger.error("analytics event log unreadable: \(error)")
+            return LoadResult(entries: [], diskMatchesEntries: false, retainedToDisk: true)
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return LoadResult(entries: [], diskMatchesEntries: false, retainedToDisk: true)
+        }
+        let decoder = makeDecoder()
+        let lines = text.split(separator: "\n")
+        let entries = lines.compactMap { line in
+            try? decoder.decode(AnalyticsLogEntry.self, from: Data(line.utf8))
+        }
+        return LoadResult(
+            entries: entries,
+            diskMatchesEntries: entries.count == lines.count,
+            retainedToDisk: true
+        )
     }
 
     /// Owner-only permissions: the log is sanitized of content but still a

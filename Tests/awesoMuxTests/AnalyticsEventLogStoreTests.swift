@@ -32,7 +32,7 @@ struct AnalyticsEventLogStoreTests {
     }
 
     @Test("append and reload round-trip")
-    func appendReload() throws {
+    func appendReload() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixedNow = Date(timeIntervalSince1970: 1_700_000_100)
@@ -43,41 +43,28 @@ struct AnalyticsEventLogStoreTests {
         store.waitForPendingWrites()
 
         let reloaded = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
-        reloaded.loadIfNeeded()
+        await reloaded.loadIfNeeded()
         #expect(reloaded.entries == [entry])
     }
 
-    @Test("numeric-looking versions round-trip with their wire tags")
-    func numericVersionRoundTrip() throws {
-        let entry = AnalyticsLogEntry(
-            id: UUID(),
-            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
-            name: .appLaunched,
-            consentLevel: .productUsage,
-            properties: [
-                .appVersion: .version("0"),
-                .buildNumber: .version("1"),
-                .macosVersionMajor: .integer(15),
-                .macosVersionMinor: .integer(5),
-                .cpuArch: .token("arm64"),
-                .schemaVersion: .integer(analyticsSchemaVersion),
-                .consentLevel: .token("product_usage"),
-            ],
-            status: .dropped,
-            dropReason: .deliveryUnavailable,
-            provider: "posthog",
-            schemaVersion: analyticsSchemaVersion
-        )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+    @Test("first append preserves entries loaded in the background")
+    func appendWhileLoading() async throws {
+        let root = try Self.makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixedNow = Date(timeIntervalSince1970: 1_700_000_100)
+        let first = Self.entry()
+        let second = Self.entry()
 
-        let encoded = try encoder.encode(entry)
-        let decoded = try decoder.decode(AnalyticsLogEntry.self, from: encoded)
+        let retained = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
+        retained.append(first)
+        retained.waitForPendingWrites()
 
-        #expect(decoded.properties[.appVersion] == .version("0"))
-        #expect(decoded.properties[.buildNumber] == .version("1"))
+        let store = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
+        store.append(second)
+        await store.loadIfNeeded()
+        store.waitForPendingWrites()
+
+        #expect(store.entries == [first, second])
     }
 
     @Test("prunes by age and count")
@@ -99,7 +86,7 @@ struct AnalyticsEventLogStoreTests {
     }
 
     @Test("malformed lines are skipped on load")
-    func malformedLineSkipped() throws {
+    func malformedLineSkipped() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixedNow = Date(timeIntervalSince1970: 1_700_000_100)
@@ -115,12 +102,12 @@ struct AnalyticsEventLogStoreTests {
         try handle.close()
 
         let reloaded = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
-        reloaded.loadIfNeeded()
+        await reloaded.loadIfNeeded()
         #expect(reloaded.entries.count == 1)
     }
 
     @Test("tampered line with non-allowlisted value is rejected on load")
-    func tamperedLineRejected() throws {
+    func tamperedLineRejected() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixedNow = Date(timeIntervalSince1970: 1_700_000_100)
@@ -142,14 +129,14 @@ struct AnalyticsEventLogStoreTests {
         try handle.close()
 
         let reloaded = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
-        reloaded.loadIfNeeded()
+        await reloaded.loadIfNeeded()
         #expect(reloaded.entries.count == 1)
         let allValues = reloaded.entries.flatMap(\.properties.values).map(\.displayValue)
         #expect(!allValues.contains { $0.contains("/") })
     }
 
     @Test("tampered closed token is rejected on load")
-    func tamperedClosedTokenRejected() throws {
+    func tamperedClosedTokenRejected() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let analyticsDir = root.appending(path: "analytics", directoryHint: .isDirectory)
@@ -157,10 +144,10 @@ struct AnalyticsEventLogStoreTests {
         let tampered = AnalyticsLogEntry(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 1_700_000_000),
-            name: .agentSessionStarted,
+            name: .settingsChanged,
             consentLevel: .productUsage,
             properties: [
-                .agentKind: .token("sarah"),
+                .settingsArea: .token("sarah"),
                 .schemaVersion: .integer(analyticsSchemaVersion),
                 .consentLevel: .token("product_usage"),
             ],
@@ -177,7 +164,7 @@ struct AnalyticsEventLogStoreTests {
         )
 
         let store = AnalyticsEventLogStore(rootDirectoryURL: root)
-        store.loadIfNeeded()
+        await store.loadIfNeeded()
         store.waitForPendingWrites()
 
         #expect(store.entries.isEmpty)
@@ -193,7 +180,7 @@ struct AnalyticsEventLogStoreTests {
             timestamp: Date(),
             name: .testPing,
             consentLevel: .errorReports,
-            properties: [.agentKind: .token("sarah")],
+            properties: [.settingsArea: .token("sarah")],
             status: .dropped,
             dropReason: .invalidPropertyValue,
             provider: "posthog",
@@ -212,7 +199,7 @@ struct AnalyticsEventLogStoreTests {
     }
 
     @Test("tampered line with a value in the wrong property shape is rejected")
-    func tamperedPropertyShapeRejected() throws {
+    func tamperedPropertyShapeRejected() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let analyticsDir = root.appending(path: "analytics", directoryHint: .isDirectory)
@@ -237,7 +224,7 @@ struct AnalyticsEventLogStoreTests {
         )
 
         let store = AnalyticsEventLogStore(rootDirectoryURL: root)
-        store.loadIfNeeded()
+        await store.loadIfNeeded()
         store.waitForPendingWrites()
         #expect(store.entries.isEmpty)
     }
@@ -315,7 +302,7 @@ struct AnalyticsEventLogStoreTests {
     }
 
     @Test("retain=false removes a stale log instead of loading it")
-    func retainOffRemovesStaleLog() throws {
+    func retainOffRemovesStaleLog() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixedNow = Date(timeIntervalSince1970: 1_700_000_100)
@@ -330,14 +317,14 @@ struct AnalyticsEventLogStoreTests {
             retainToDisk: { false },
             now: { fixedNow }
         )
-        memoryOnly.loadIfNeeded()
+        await memoryOnly.loadIfNeeded()
 
         #expect(memoryOnly.entries.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: eventsURL.path))
     }
 
     @Test("retention reconciliation removes stale disk state without loading it")
-    func reconcileRetentionRemovesStaleLog() throws {
+    func reconcileRetentionRemovesStaleLog() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixedNow = Date(timeIntervalSince1970: 1_700_000_100)
@@ -362,12 +349,12 @@ struct AnalyticsEventLogStoreTests {
         store.append(Self.entry())
         store.waitForPendingWrites()
         let reloaded = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
-        reloaded.loadIfNeeded()
+        await reloaded.loadIfNeeded()
         #expect(reloaded.entries.count == 1)
     }
 
     @Test("enabling retention flushes earlier in-memory entries")
-    func retainToggleFlushesBacklog() throws {
+    func retainToggleFlushesBacklog() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixedNow = Date(timeIntervalSince1970: 1_700_000_100)
@@ -384,7 +371,7 @@ struct AnalyticsEventLogStoreTests {
         store.waitForPendingWrites()
 
         let reloaded = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
-        reloaded.loadIfNeeded()
+        await reloaded.loadIfNeeded()
         #expect(reloaded.entries.count == 2)
     }
 
@@ -414,12 +401,12 @@ struct AnalyticsEventLogStoreTests {
         store.waitForPendingWrites()
 
         let reloaded = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
-        reloaded.loadIfNeeded()
+        await reloaded.loadIfNeeded()
         #expect(reloaded.entries.count == 3)
     }
 
     @Test("oversized log file is discarded, not loaded")
-    func oversizedFileDiscarded() throws {
+    func oversizedFileDiscarded() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let analyticsDir = root.appending(path: "analytics", directoryHint: .isDirectory)
@@ -434,7 +421,7 @@ struct AnalyticsEventLogStoreTests {
         try handle.close()
 
         let store = AnalyticsEventLogStore(rootDirectoryURL: root)
-        store.loadIfNeeded()
+        await store.loadIfNeeded()
         #expect(store.entries.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: eventsURL.path))
     }

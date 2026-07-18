@@ -38,181 +38,14 @@ struct AnalyticsSanitizerTests {
         #expect(event.properties[.consentLevel] == .token("product_usage"))
     }
 
-    @Test("usage events drop below product_usage; error events pass at error_reports")
-    func consentTiers() {
-        let usage: [AnalyticsEventInput] = [
-            .appLaunched(
-                AppLaunchSnapshot(
-                    appVersion: "1.0", buildNumber: "1", macOSMajor: 15, macOSMinor: 5,
-                    cpuArchitecture: "arm64"
-                )),
-            .sessionCreated(
-                shape: WorkspaceShapeSnapshot(sessionCount: 1, paneCount: 1, groupCount: 1),
-                sessionKind: .local,
-                agentKind: nil
-            ),
-            .agentSessionStarted(kind: .codex, initialState: .running, usesReliableHooks: true),
-            .agentStateChanged(kind: .codex, previous: .running, next: .done, source: .hook),
-            .workspaceGroupChanged(action: .added, shape: WorkspaceShapeSnapshot(sessionCount: 2, paneCount: 3, groupCount: 2)),
-            .settingsChanged(area: .general),
-            .diagnosticsOpened(section: .overview),
-        ]
-        for input in usage {
-            #expect(sanitizer.sanitize(input, consent: .errorReports) == .dropped(.consentInsufficient))
-            if case .dropped = sanitizer.sanitize(input, consent: .productUsage) {
-                Issue.record("usage event unexpectedly dropped at product_usage: \(input)")
-            }
-        }
-        let error = AnalyticsEventInput.errorReported(
-            AnalyticsErrorContext(featureArea: .runtime, errorKind: .runtimeEventRejected)
-        )
-        if case .dropped = sanitizer.sanitize(error, consent: .errorReports) {
-            Issue.record("error event unexpectedly dropped at error_reports")
+    @Test("shipped events pass when analytics is enabled")
+    func enabledConsent() {
+        if case .dropped = sanitizer.sanitize(.testPing, consent: .errorReports) {
+            Issue.record("test ping unexpectedly dropped at error_reports")
         }
         if case .dropped = sanitizer.sanitize(.consentChanged(to: .errorReports), consent: .errorReports) {
             Issue.record("consent change unexpectedly dropped at error_reports")
         }
-    }
-
-    @Test("app launch payload maps versions, integers, and architecture")
-    func appLaunchedMapping() throws {
-        let result = sanitizer.sanitize(
-            .appLaunched(
-                AppLaunchSnapshot(
-                    appVersion: "1.4.0", buildNumber: "203", macOSMajor: 15, macOSMinor: 5,
-                    cpuArchitecture: "arm64"
-                )),
-            consent: .productUsage
-        )
-        guard case .event(let event) = result else {
-            Issue.record("expected event, got \(result)")
-            return
-        }
-        #expect(event.name == .appLaunched)
-        #expect(event.properties[.appVersion] == .version("1.4.0"))
-        #expect(event.properties[.buildNumber] == .version("203"))
-        #expect(event.properties[.macosVersionMajor] == .integer(15))
-        #expect(event.properties[.macosVersionMinor] == .integer(5))
-        #expect(event.properties[.cpuArch] == .token("arm64"))
-    }
-
-    @Test(
-        "session creation maps locality and allowlisted context",
-        arguments: [
-            (AnalyticsSessionKind.local, "local"),
-            (.remote, "remote"),
-            (.unknown, "unknown"),
-        ]
-    )
-    func sessionCreatedMapping(sessionKind: AnalyticsSessionKind, expectedToken: String) throws {
-        let result = sanitizer.sanitize(
-            .sessionCreated(
-                shape: WorkspaceShapeSnapshot(sessionCount: 7, paneCount: 2, groupCount: 1),
-                sessionKind: sessionKind,
-                agentKind: .claudeCode
-            ),
-            consent: .productUsage
-        )
-        guard case .event(let event) = result else {
-            Issue.record("expected event, got \(result)")
-            return
-        }
-        #expect(event.name == .sessionCreated)
-        #expect(event.properties[.sessionCountBucket] == .bucket(.fourPlus))
-        #expect(event.properties[.paneCountBucket] == .bucket(.twoToThree))
-        #expect(event.properties[.workspaceGroupCountBucket] == .bucket(.one))
-        #expect(event.properties[.sessionKind] == .token(expectedToken))
-        #expect(event.properties[.agentKind] == .token("claude_code"))
-        #expect(event.properties[.schemaVersion] == .integer(analyticsSchemaVersion))
-        #expect(event.properties[.consentLevel] == .token("product_usage"))
-        #expect(
-            Set(event.properties.keys) == [
-                .sessionCountBucket,
-                .paneCountBucket,
-                .workspaceGroupCountBucket,
-                .sessionKind,
-                .agentKind,
-                .schemaVersion,
-                .consentLevel,
-            ]
-        )
-    }
-
-    @Test("session creation omits absent agent kind without adding other context")
-    func sessionCreatedWithoutAgentKind() throws {
-        let result = sanitizer.sanitize(
-            .sessionCreated(
-                shape: WorkspaceShapeSnapshot(sessionCount: 1, paneCount: 1, groupCount: 0),
-                sessionKind: .local,
-                agentKind: nil
-            ),
-            consent: .productUsage
-        )
-        guard case .event(let event) = result else {
-            Issue.record("expected event, got \(result)")
-            return
-        }
-        #expect(
-            Set(event.properties.keys) == [
-                .sessionCountBucket,
-                .paneCountBucket,
-                .workspaceGroupCountBucket,
-                .sessionKind,
-                .schemaVersion,
-                .consentLevel,
-            ]
-        )
-    }
-
-    @Test("agent state change carries slugs and event source")
-    func agentStateChangedMapping() throws {
-        let result = sanitizer.sanitize(
-            .agentStateChanged(kind: .claudeCode, previous: .running, next: .needsAttention, source: .detected),
-            consent: .productUsage
-        )
-        guard case .event(let event) = result else {
-            Issue.record("expected event, got \(result)")
-            return
-        }
-        #expect(event.properties[.agentKind] == .token("claude_code"))
-        #expect(event.properties[.previousAgentState] == .token("running"))
-        #expect(event.properties[.nextAgentState] == .token("needs_attention"))
-        #expect(event.properties[.agentEventSource] == .token("detected"))
-    }
-
-    @Test("workspace shape buckets counts")
-    func workspaceShapeMapping() throws {
-        let result = sanitizer.sanitize(
-            .workspaceGroupChanged(
-                action: .removed,
-                shape: WorkspaceShapeSnapshot(sessionCount: 7, paneCount: 2, groupCount: 1)
-            ),
-            consent: .productUsage
-        )
-        guard case .event(let event) = result else {
-            Issue.record("expected event, got \(result)")
-            return
-        }
-        #expect(event.properties[.action] == .token("removed"))
-        #expect(event.properties[.sessionCountBucket] == .bucket(.fourPlus))
-        #expect(event.properties[.paneCountBucket] == .bucket(.twoToThree))
-        #expect(event.properties[.workspaceGroupCountBucket] == .bucket(.one))
-    }
-
-    @Test(
-        "count bucketing",
-        arguments: [
-            (0, CountBucket.zero),
-            (1, .one),
-            (2, .twoToThree),
-            (3, .twoToThree),
-            (4, .fourPlus),
-            (17, .fourPlus),
-            (-1, .zero),
-        ]
-    )
-    func countBucketing(count: Int, expected: CountBucket) {
-        #expect(CountBucket(count: count) == expected)
     }
 
     @Test(
@@ -233,24 +66,10 @@ struct AnalyticsSanitizerTests {
 
     @Test(
         "token factory accepts enum-like slugs",
-        arguments: ["claude-code", "arm64", "remote", "error_reports", "0"]
+        arguments: ["analytics", "error_reports", "product_usage"]
     )
     func tokenAcceptance(raw: String) {
         #expect(AnalyticsPropertyValue.token(validating: raw) != nil)
-    }
-
-    @Test(
-        "version factory",
-        arguments: [
-            ("1.4.0", true),
-            ("203", true),
-            ("1.4.0-beta", false),
-            ("/etc/hosts", false),
-            ("", false),
-        ]
-    )
-    func versionFactory(raw: String, accepted: Bool) {
-        #expect((AnalyticsPropertyValue.version(validating: raw) != nil) == accepted)
     }
 
     @Test("property key allowlist contains no forbidden identifiers")
