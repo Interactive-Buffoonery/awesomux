@@ -164,13 +164,17 @@ struct WorktreeCreateForm: View {
         panel.allowsMultipleSelection = false
         panel.prompt = String(localized: "Choose", comment: "Confirm button for the worktree target path picker.")
         panel.message = String(
-            localized: "Choose the folder that will contain the new worktree.",
+            localized: "Choose or create the folder for the new worktree.",
             comment: "Worktree target path picker guidance message.")
         panel.directoryURL = startingDirectoryForChoosePanel()
         guard panel.runModal() == .OK, let chosen = panel.url else { return }
-        let name = mode == .existing ? selectedBranch : newBranchName
-        let component = policy.sanitizedPathComponent(name)
-        targetPath = component.isEmpty ? chosen.path : chosen.appendingPathComponent(component, isDirectory: true).path
+        // Verbatim, not `chosen` + an auto-appended branch name: the panel's
+        // own "New Folder" button already lets the user create and name the
+        // exact target directory. Appending on top of a folder they just
+        // created there landed the worktree one level deeper than what the
+        // panel showed them — it "didn't show" where they'd been looking
+        // (round-5 smoke).
+        targetPath = chosen.path
     }
 
     // A bare NSOpenPanel opens wherever the user last browsed — not this

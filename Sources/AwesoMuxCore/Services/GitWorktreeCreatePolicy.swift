@@ -71,7 +71,14 @@ public struct GitWorktreeCreatePolicy: Sendable {
             issues.append(.targetAlreadyExists)
         }
         let candidate = canonicalPathComponents(request.targetPath)
-        for record in currentWorktrees {
+        // The main worktree (the repo's own checkout) is exempt: git allows
+        // linked worktrees nested under it, and `.worktrees/` — this app's
+        // own suggested convention, 20+ live examples in THIS repo — lives
+        // exactly there. Only a LINKED worktree's path can genuinely
+        // conflict; without this exemption every suggested `.worktrees/...`
+        // target "overlapped" the main entry and validation could never pass
+        // (round-5 smoke).
+        for record in currentWorktrees where !record.isMainWorktree {
             let existing = canonicalPathComponents(record.canonicalPath)
             if candidate.starts(with: existing) || existing.starts(with: candidate) {
                 issues.append(.targetOverlapsWorktree(record.canonicalPath))

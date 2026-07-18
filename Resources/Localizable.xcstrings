@@ -615,14 +615,14 @@
     "Choose an IDE for this project." : {
       "comment" : "IDE picker alert explanatory text."
     },
+    "Choose or create the folder for the new worktree." : {
+      "comment" : "Worktree target path picker guidance message."
+    },
     "Choose or enter a branch name." : {
       "comment" : "Blank branch validation."
     },
     "Choose the IDE or editor to open this project." : {
       "comment" : "Accessibility help for the IDE picker popup."
-    },
-    "Choose the folder that will contain the new worktree." : {
-      "comment" : "Worktree target path picker guidance message."
     },
     "Choose…" : {
       "comment" : "Open a folder picker for the worktree target path."

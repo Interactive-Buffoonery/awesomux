@@ -104,6 +104,63 @@ struct GitWorktreeCreatePolicyTests {
         #expect(issues.isEmpty)
     }
 
+    @Test("a fresh .worktrees/<new-name> target validates clean with linked worktrees present")
+    func freshWorktreesTargetValidatesCleanAlongsideLinkedWorktrees() throws {
+        let fixture = try mainPlusLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        // The suggestion's own convention — nested under the MAIN worktree —
+        // used to always "overlap" the main entry itself (round-5 smoke: the
+        // overlap check iterated every record, main included).
+        let fresh = fixture.worktreesDir.appendingPathComponent("brand-new-name", isDirectory: true)
+        let issues = policy.validate(
+            request(fixture.context, .newBranchFromHEAD("brand-new-name"), fresh), currentWorktrees: fixture.currentWorktrees)
+        #expect(issues.isEmpty)
+    }
+
+    @Test("a target inside a LINKED worktree still rejects")
+    func targetInsideLinkedWorktreeRejects() throws {
+        let fixture = try mainPlusLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let insideLinked = fixture.linked.appendingPathComponent("nested", isDirectory: true)
+        let issues = policy.validate(
+            request(fixture.context, .newBranchFromHEAD("x"), insideLinked), currentWorktrees: fixture.currentWorktrees)
+        #expect(issues.contains(.targetOverlapsWorktree(fixture.linked)))
+    }
+
+    @Test("a target containing a LINKED worktree still rejects")
+    func targetContainingLinkedWorktreeRejects() throws {
+        let fixture = try mainPlusLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        // `.worktrees/` itself is an ancestor of the linked worktree below it.
+        let issues = policy.validate(
+            request(fixture.context, .newBranchFromHEAD("x"), fixture.worktreesDir), currentWorktrees: fixture.currentWorktrees)
+        #expect(issues.contains(.targetOverlapsWorktree(fixture.linked)))
+    }
+
+    private func mainPlusLinkedFixture() throws -> (
+        root: URL, context: GitRepositoryContext, worktreesDir: URL, linked: URL, currentWorktrees: [GitWorktreeRecord]
+    ) {
+        let root = temporaryDirectory()
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        let worktreesDir = repo.appendingPathComponent(".worktrees", isDirectory: true)
+        try FileManager.default.createDirectory(at: worktreesDir, withIntermediateDirectories: true)
+        let linked = worktreesDir.appendingPathComponent("other-branch", isDirectory: true)
+        try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
+
+        let context = GitRepositoryContext(
+            invocationRoot: repo, canonicalCommonGitDirectory: repo.appendingPathComponent(".git"), displayName: "repo")
+        let main = GitWorktreeRecord(
+            canonicalPath: repo, headObjectID: nil, branchRef: "refs/heads/main", isDetached: false, displayBranch: "main",
+            isMainWorktree: true, isBare: false, lockReason: nil, prunableReason: nil)
+        let linkedRecord = GitWorktreeRecord(
+            canonicalPath: linked, headObjectID: nil, branchRef: "refs/heads/other-branch", isDetached: false,
+            displayBranch: "other-branch", isMainWorktree: false, isBare: false, lockReason: nil, prunableReason: nil)
+        return (root, context, worktreesDir, linked, [main, linkedRecord])
+    }
+
     private func request(_ context: GitRepositoryContext, _ mode: GitWorktreeCreateMode, _ target: URL) -> GitWorktreeCreateRequest {
         .init(repositoryContext: context, mode: mode, targetPath: target, destinationWorkspaceGroupID: UUID())
     }
