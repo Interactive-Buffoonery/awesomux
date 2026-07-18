@@ -66,12 +66,45 @@ enum CommandPaletteLayout {
     }
 }
 
+struct CommandPaletteClickToggleState {
+    private var pendingMouseUp: NSEvent.EventType?
+
+    mutating func recordResignDismiss(during eventType: NSEvent.EventType?) -> Bool {
+        switch eventType {
+        case .leftMouseDown:
+            pendingMouseUp = .leftMouseUp
+        case .rightMouseDown:
+            pendingMouseUp = .rightMouseUp
+        case .otherMouseDown:
+            pendingMouseUp = .otherMouseUp
+        default:
+            return false
+        }
+        return true
+    }
+
+    func isPendingMouseUp(_ eventType: NSEvent.EventType) -> Bool {
+        eventType == pendingMouseUp
+    }
+
+    mutating func consumeToggle(during eventType: NSEvent.EventType?) -> Bool {
+        defer { pendingMouseUp = nil }
+        return eventType == pendingMouseUp
+    }
+
+    mutating func finishMouseUpDispatch() {
+        pendingMouseUp = nil
+    }
+}
+
 @MainActor
 @Observable
 final class CommandPaletteController {
     @ObservationIgnored private var panel: FloatingSwiftUIPanelWindow?
     @ObservationIgnored private let focusState = CommandPaletteFocusState()
     @ObservationIgnored private var isDismissing = false
+    @ObservationIgnored private var clickToggleState = CommandPaletteClickToggleState()
+    @ObservationIgnored private var mouseUpMonitor: Any?
     @ObservationIgnored private let positionStore: PalettePositionStore
     @ObservationIgnored private weak var lastAnchorWindow: NSWindow?
     /// The origin we last set programmatically (center / remembered / reclamp).
@@ -91,6 +124,12 @@ final class CommandPaletteController {
     }
 
     func toggle(relativeTo parentWindow: NSWindow?, presenter: PalettePresenter) {
+        if clickToggleState.consumeToggle(during: NSApp.currentEvent?.type) {
+            removeMouseUpMonitor()
+            return
+        }
+        removeMouseUpMonitor()
+
         if isVisible {
             dismiss()
         } else {
@@ -219,7 +258,7 @@ final class CommandPaletteController {
         presenter: PalettePresenter
     ) {
         panel.onDismiss = { [weak self] in
-            self?.dismiss()
+            self?.handlePanelDismiss()
         }
         panel.onKeyStateChanged = { [weak self] isKeyWindow in
             self?.focusState.isKeyWindow = isKeyWindow
@@ -248,6 +287,41 @@ final class CommandPaletteController {
 
             return false
         }
+    }
+
+    private func handlePanelDismiss() {
+        guard !isDismissing else { return }
+        if clickToggleState.recordResignDismiss(during: NSApp.currentEvent?.type) {
+            installMouseUpMonitor()
+        }
+        dismiss()
+    }
+
+    private func installMouseUpMonitor() {
+        removeMouseUpMonitor()
+        mouseUpMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
+        ) { [weak self] event in
+            guard let self, clickToggleState.isPendingMouseUp(event.type) else {
+                return event
+            }
+            // SwiftUI runs the Button action later in this same mouse-up dispatch.
+            DispatchQueue.main.async { [weak self] in
+                self?.finishMouseUpDispatch()
+            }
+            return event
+        }
+    }
+
+    private func finishMouseUpDispatch() {
+        clickToggleState.finishMouseUpDispatch()
+        removeMouseUpMonitor()
+    }
+
+    private func removeMouseUpMonitor() {
+        guard let mouseUpMonitor else { return }
+        NSEvent.removeMonitor(mouseUpMonitor)
+        self.mouseUpMonitor = nil
     }
 
     private func performPaletteCommand(
