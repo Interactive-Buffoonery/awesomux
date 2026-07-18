@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -44,6 +45,9 @@ struct SidebarPinnedSectionView: View {
 
     @State private var rowFrames: [TerminalSession.ID: CGRect] = [:]
     @State private var dropIndex: Int?
+    // Read here (ungated) and passed into the tile as a compared snapshot —
+    // in-tile store reads stale behind the tile's `.equatable()` gate (PR #428).
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private var coordinateSpaceName: String { "sidebar-pinned-section" }
 
@@ -232,6 +236,7 @@ struct SidebarPinnedSectionView: View {
             nextNeighborGroup: nil,
             otherGroups: allGroups.filter { $0.id != item.originGroup.id },
             verticalPadding: density.sessionTileVerticalPadding,
+            tintedHighContrast: appSettingsStore.appearance.value.tintedHighContrast,
             onSelect: { onSelect(session) },
             onNewSessionHere: { onNewSessionHere(session) },
             onAcknowledge: { onAcknowledge(session) },

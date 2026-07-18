@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -76,6 +77,9 @@ struct SidebarGroupView: View {
     @State private var headerWorkspaceDropTargeted = false
     @State private var suppressedWorkspaceDragID: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Read here (ungated) and passed into the tile as a compared snapshot —
+    // in-tile store reads stale behind the tile's `.equatable()` gate (PR #428).
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private var sessions: [TerminalSession] {
         entries.map(\.session)
@@ -209,6 +213,7 @@ struct SidebarGroupView: View {
                             nextNeighborGroup: nextNeighborGroup,
                             otherGroups: otherGroups,
                             verticalPadding: density.sessionTileVerticalPadding,
+                            tintedHighContrast: appSettingsStore.appearance.value.tintedHighContrast,
                             onSelect: {
                                 onSelect(session)
                             },
