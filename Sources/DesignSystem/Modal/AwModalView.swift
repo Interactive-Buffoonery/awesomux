@@ -79,10 +79,12 @@ public struct AwModalView<Content: View>: View {
         // The borderless panel clips to its frame, and AwModal sizes it to
         // this view's fittingSize — inset by the overlay-shadow spread
         // (radius 16, y-offset 10: ~16 to the sides, ~6 up, ~26 down) plus a
-        // small safety margin so the shadow isn't truncated. This inset is
-        // pure shadow-reserve: under reduce-transparency / increased-contrast
-        // awShadow drops the shadow entirely, leaving inert transparent margin
-        // (the card sits a few points above the panel's center) — harmless.
+        // deliberately asymmetric safety margin (+6 sides/bottom, +10 top so
+        // the sheet-anchored variant keeps a visible gap under the title bar)
+        // so the shadow isn't truncated. This inset is pure shadow-reserve:
+        // under reduce-transparency / increased-contrast awShadow drops the
+        // shadow entirely, leaving inert transparent margin (the card sits a
+        // few points above the panel's center) — harmless.
         .padding(EdgeInsets(top: 16, leading: 22, bottom: 32, trailing: 22))
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
@@ -113,15 +115,19 @@ public struct AwModalView<Content: View>: View {
         .buttonStyle(.bordered)
         // No red .tint on the destructive branch: a red tint washes the
         // bordered bezel to near-invisible on the dark chrome, so Open reads
-        // as disabled. A neutral (default) bezel keeps it clearly an enabled,
-        // tappable control while the red label carries the danger cue; Cancel's
-        // filled accent keeps the emphasis. The non-destructive branch (no
-        // production caller today) keeps its accent tint.
+        // as disabled. A neutral bezel keeps it clearly an enabled, tappable
+        // control while the red label carries the danger cue; Cancel's filled
+        // accent keeps the emphasis. Pinned to the neutral text3 token rather
+        // than left unset — an unset tint falls back to the user's SYSTEM
+        // accent, and a Red system accent would reproduce the washed-red bezel
+        // this fixes (same .tint-token pattern as SidebarStatusFooter's help
+        // menu). The non-destructive branch (no production caller today) keeps
+        // the app accent tint.
         // ponytail: leans on the native macOS 15 bordered bezel reading as
         // enabled under a neutral tint; if a future min-OS renders the
         // destructive-role bezel too subtly, upgrade to a scoped bordered style
         // built from AwColor/AwRadius tokens (keep the Button role).
-        .tint(configuration.isConfirmDestructive ? nil : Color.aw.accent)
+        .tint(configuration.isConfirmDestructive ? Color.aw.text3 : Color.aw.accent)
         // No .keyboardShortcut here: the ⌘Return/keypad-Enter accept chord is
         // intercepted at the ModalPanel window level (AwModal.swift), which
         // covers keypad Enter and destructive-role buttons uniformly.
