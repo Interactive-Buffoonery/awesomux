@@ -32,9 +32,9 @@ enum LayoutPresetStore {
     static let maxNameLength = 64
     static let maxListedPresets = 50
     /// Byte-level `{`/`[` nesting cap applied before `JSONDecoder`. The preset
-    /// format spends a handful of braces per split level, so anything a valid
-    /// preset (split depth ≤ 16) produces sits far below this; anything above
-    /// it is a crafted file trying to overflow the JSON parser.
+    /// format spends a handful of braces per split level, so anything within
+    /// `WorkspaceLayoutPreset.maxSplitDepth` sits far below this; anything
+    /// above it is a crafted file trying to overflow the JSON parser.
     static let maxPresetNestingDepth = 128
 
     private static let fileExtension = "json"
