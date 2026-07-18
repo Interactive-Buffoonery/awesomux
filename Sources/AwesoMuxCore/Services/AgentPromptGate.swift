@@ -17,7 +17,7 @@ import Foundation
 public enum AgentPromptGate {
     /// The v1 provider scope modeled by INT-569. Grok is deliberately
     /// excluded until the issue's provider list grows.
-    public static let supportedProviders: Set<AgentKind> = [
+    static let supportedProviders: Set<AgentKind> = [
         .claudeCode, .codex, .pi, .openCode,
     ]
 
@@ -43,7 +43,7 @@ public enum AgentPromptGate {
     // comm and suffixed Codex launchers (`codex-aarch64-…`) won't match —
     // both decline (false negative, the safe direction). Extend the probe
     // seam to prefix matching if real installs surface these.
-    public static func expectedForegroundCommand(for kind: AgentKind) -> String? {
+    static func expectedForegroundCommand(for kind: AgentKind) -> String? {
         switch kind {
         case .claudeCode: "claude"
         case .codex: "codex"
