@@ -677,7 +677,7 @@ struct AwesoMuxApp: App {
                         comment: "Workspace menu action that opens Worktree Manager."
                     )
                 ) {
-                    toggleWorktreeManager()
+                    showWorktreeManager()
                 }
                 .disabled(worktreeManagerModel == nil || isAnySheetPresented)
 
@@ -2694,15 +2694,19 @@ struct AwesoMuxApp: App {
         )
     }
 
-    private func toggleWorktreeManager() {
+    // menu/palette entry points only ever show the panel, never dismiss it —
+    // there's no keyboard-shortcut toggle affordance for this yet, so there's
+    // nothing left that should call a dismiss-on-second-invocation `toggle`.
+    private func showWorktreeManager() {
         guard !isAnySheetPresented, let worktreeManagerModel else { return }
-        worktreeManagerController.toggle(
+        worktreeManagerController.show(
             model: worktreeManagerModel,
-            relativeTo: NSApp.mainWindow ?? NSApp.keyWindow
+            relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
+            presentingCreateForm: false
         )
     }
 
-    // Distinct from `toggleWorktreeManager`: the palette's "Create Worktree…"
+    // Distinct from `showWorktreeManager`: the palette's "Create Worktree…"
     // should always land in the create flow, even if the panel is already
     // open on something else — `show`, not `toggle`, so a second invocation
     // never dismisses it instead.
@@ -3228,9 +3232,9 @@ struct AwesoMuxApp: App {
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFilePanel,
             openSessionManager: toggleSessionManager,
-            openWorktreeManager: toggleWorktreeManager,
+            openWorktreeManager: showWorktreeManager,
             createWorktree: presentWorktreeCreateForm,
-            openWorktree: toggleWorktreeManager
+            openWorktree: showWorktreeManager
         )
     }
 

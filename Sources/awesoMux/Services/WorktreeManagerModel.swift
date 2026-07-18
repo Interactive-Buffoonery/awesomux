@@ -184,7 +184,10 @@ final class WorktreeManagerModel {
     var destinationWorkspaceGroupID: SessionGroup.ID? { currentGroupID() }
 
     func validateNewBranchName(_ name: String) async -> Bool {
-        await service.validateNewBranchName(name, in: repositoryContext)
+        if case .valid = await service.validateNewBranchName(name, in: repositoryContext) {
+            return true
+        }
+        return false
     }
 
     @discardableResult
@@ -206,11 +209,22 @@ final class WorktreeManagerModel {
             }
         case .branchCreatedWithoutWorktree(let branchName, _):
             result = .branchCreatedWithoutWorktree(branchName)
-        case .failure:
-            result = .failed(
-                String(
-                    localized: "Couldn’t create the worktree. Check the path and Git details, then try again.",
-                    comment: "Worktree creation failure message."))
+        case .failure(let diagnostic):
+            // `.invalidRequest([.invalidBranchName])` is the one failure the
+            // typed-outcome refactor exists to distinguish from a generic
+            // Git failure — collapsing it back to the catch-all message
+            // below would silently undo that (INT-857 review).
+            if case .invalidRequest(let issues) = diagnostic, issues.contains(.invalidBranchName) {
+                result = .failed(
+                    String(
+                        localized: "Enter a valid branch name.",
+                        comment: "Worktree creation failure message for an invalid branch name."))
+            } else {
+                result = .failed(
+                    String(
+                        localized: "Couldn’t create the worktree. Check the path and Git details, then try again.",
+                        comment: "Worktree creation failure message."))
+            }
         }
         createSubmissionState = .result(result)
         announce(announcement(for: result))

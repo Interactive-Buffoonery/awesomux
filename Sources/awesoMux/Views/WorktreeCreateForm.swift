@@ -177,32 +177,39 @@ struct WorktreeCreateForm: View {
             .appendingPathComponent(placeholderLeaf, isDirectory: true).path
     }
 
+    // NSOpenPanel can only return paths that already exist — even a folder
+    // created via its own "New Folder" button is created (and thus exists)
+    // by the time the panel returns it — which meant every accepted
+    // selection went straight into the "target already exists" validation
+    // rejection downstream. NSSavePanel's `.url` is `directoryURL` +
+    // `nameFieldStringValue` combined, a path that does NOT need to exist,
+    // which is the actual shape "pick a not-yet-created directory" needs.
     private func chooseTargetPath() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        let panel = NSSavePanel()
         panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
+        panel.nameFieldLabel = String(
+            localized: "Folder Name:", comment: "Name field label in the worktree target path picker.")
         panel.prompt = String(localized: "Choose", comment: "Confirm button for the worktree target path picker.")
         panel.message = String(
             localized: "Choose or create the folder for the new worktree.",
             comment: "Worktree target path picker guidance message.")
         panel.directoryURL = startingDirectoryForChoosePanel()
+        panel.nameFieldStringValue = suggestedLeafName()
         guard panel.runModal() == .OK, let chosen = panel.url else { return }
-        // Verbatim, not `chosen` + an auto-appended branch name: the panel's
-        // own "New Folder" button already lets the user create and name the
-        // exact target directory. Appending on top of a folder they just
-        // created there landed the worktree one level deeper than what the
-        // panel showed them — it "didn't show" where they'd been looking
-        // (round-5 smoke).
         targetPath = chosen.path
     }
 
-    // A bare NSOpenPanel opens wherever the user last browsed — not this
-    // repo — which is how round-4 smoke ended up with "/test" (picked the
-    // volume root, then appended the branch name). Prefer the already-typed
-    // path's parent (refining an existing choice); fall back to the repo
-    // root itself, which always exists, rather than the system default.
+    private func suggestedLeafName() -> String {
+        if !targetPath.isEmpty { return URL(fileURLWithPath: targetPath).lastPathComponent }
+        let name = mode == .existing ? selectedBranch : newBranchName
+        return policy.candidateTargetPath(repositoryContext: model.repositoryContext, branchName: name)?.lastPathComponent ?? ""
+    }
+
+    // A bare panel opens wherever the user last browsed — not this repo —
+    // which is how round-4 smoke ended up with "/test" (picked the volume
+    // root, then appended the branch name). Prefer the already-typed path's
+    // parent (refining an existing choice); fall back to the repo root
+    // itself, which always exists, rather than the system default.
     private func startingDirectoryForChoosePanel() -> URL {
         existingParentDirectoryURL() ?? model.repositoryContext.invocationRoot
     }
@@ -263,6 +270,8 @@ struct WorktreeCreateForm: View {
     private func validationText(for issue: GitWorktreeCreateValidationIssue) -> String {
         switch issue {
         case .blankBranchName: String(localized: "Choose or enter a branch name.", comment: "Blank branch validation.")
+        case .invalidBranchName:
+            String(localized: "Enter a valid branch name.", comment: "Invalid branch name syntax validation.")
         case .targetPathMustBeAbsolute: String(localized: "Target path must be absolute.", comment: "Absolute path validation.")
         case .parentDirectoryMissing:
             String(localized: "The target parent directory does not exist.", comment: "Missing target parent validation.")

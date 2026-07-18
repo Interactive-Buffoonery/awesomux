@@ -48,6 +48,12 @@ final class WorktreeManagerController {
     }
 
     func show(model: WorktreeManagerModel, relativeTo parentWindow: NSWindow?, presentingCreateForm: Bool = false) {
+        // A menu/palette re-invoke while already showing this SAME model is
+        // just "bring back to front" — not a fresh presentation — so it
+        // must not clobber a manually-repositioned panel out from under the
+        // user (INT-857 review: toggle→show fixed dismiss-on-reinvoke but
+        // regressed this).
+        let isReshowingSameModel = isVisible && activeModel === model
         activeModel = model
         if presentingCreateForm {
             model.pendingCreatePresentation = true
@@ -61,7 +67,9 @@ final class WorktreeManagerController {
         let panel = panel ?? makePanel(model: model)
         self.panel = panel
         panel.hostSwiftUIContent(makeRootView(model: model))
-        position(panel, relativeTo: parentWindow)
+        if !isReshowingSameModel {
+            position(panel, relativeTo: parentWindow)
+        }
         panel.presentAndFocus()
         isVisible = true
         refreshTask?.cancel()
