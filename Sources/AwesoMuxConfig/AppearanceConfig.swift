@@ -12,6 +12,9 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
     @TOMLDefault<DefaultCRTScanlines> public var crtScanlines: Bool
     @TOMLDefault<DefaultCursorGlow> public var cursorGlow: Bool
     @TOMLDefault<DefaultAlwaysShowJumpNumbers> public var alwaysShowJumpNumbers: Bool
+    /// Opt-in tinted workspace accents under macOS Increase Contrast (INT-645).
+    /// The neutral treatment stays default; see SidebarSessionTile.tileBorder.
+    @TOMLDefault<DefaultTintedHighContrast> public var tintedHighContrast: Bool
     @TOMLDefault<DefaultSidebarPosition> public var sidebarPosition: SidebarPosition
     @TOMLDefault<DefaultTerminalThemeID> public var terminalThemeID: String?
     @TOMLDefault<DefaultTerminalBackgroundMode> public var terminalBackgroundMode: TerminalBackgroundMode
@@ -30,6 +33,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         crtScanlines: Bool = DefaultCRTScanlines.defaultValue,
         cursorGlow: Bool = DefaultCursorGlow.defaultValue,
         alwaysShowJumpNumbers: Bool = DefaultAlwaysShowJumpNumbers.defaultValue,
+        tintedHighContrast: Bool = DefaultTintedHighContrast.defaultValue,
         sidebarPosition: SidebarPosition = DefaultSidebarPosition.defaultValue,
         terminalThemeID: String? = DefaultTerminalThemeID.defaultValue,
         terminalBackgroundMode: TerminalBackgroundMode = DefaultTerminalBackgroundMode.defaultValue,
@@ -45,6 +49,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         self.crtScanlines = crtScanlines
         self.cursorGlow = cursorGlow
         self.alwaysShowJumpNumbers = alwaysShowJumpNumbers
+        self.tintedHighContrast = tintedHighContrast
         self.sidebarPosition = sidebarPosition
         self.terminalThemeID = terminalThemeID
         self.terminalBackgroundMode = terminalBackgroundMode
@@ -62,6 +67,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         case crtScanlines = "crt_scanlines"
         case cursorGlow = "cursor_glow"
         case alwaysShowJumpNumbers = "always_show_jump_numbers"
+        case tintedHighContrast = "tinted_high_contrast"
         case sidebarPosition = "sidebar_position"
         case terminalThemeID = "terminal_theme_id"
         case terminalBackgroundMode = "terminal_background_mode"
@@ -79,6 +85,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         CodingKeys.crtScanlines.rawValue,
         CodingKeys.cursorGlow.rawValue,
         CodingKeys.alwaysShowJumpNumbers.rawValue,
+        CodingKeys.tintedHighContrast.rawValue,
         CodingKeys.sidebarPosition.rawValue,
         CodingKeys.terminalThemeID.rawValue,
         CodingKeys.terminalBackgroundMode.rawValue,
@@ -123,6 +130,10 @@ public struct DefaultCursorGlow: DefaultProvider {
 }
 
 public struct DefaultAlwaysShowJumpNumbers: DefaultProvider {
+    public static let defaultValue = false
+}
+
+public struct DefaultTintedHighContrast: DefaultProvider {
     public static let defaultValue = false
 }
 

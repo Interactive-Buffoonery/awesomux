@@ -90,6 +90,10 @@ SOURCE_CONTRACTS: list[tuple[str, list[str]]] = [
             "Color.aw.status.floatingWork",
             "Color.aw.railText",
             "isHovered ? Color.aw.dividerHoverHC : Color.aw.dividerRestHC",
+            # Active border keeps the neutral HC gray unless the user opts into
+            # tinted HC workspace colors (INT-645). Pinning the whole expression
+            # fails the gate if the opt-in flag is removed or inverted.
+            "isHighContrast && !tintedHighContrast ? Color.aw.dividerHoverHC : tint.borderHue",
         ],
     ),
     (
