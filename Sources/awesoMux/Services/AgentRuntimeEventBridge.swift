@@ -201,6 +201,12 @@ final class AgentRuntimeEventBridge {
         }
         watch.inode = generation.inode
 
+        // Accepted ceiling: if the first open failed and the helper appended
+        // events before a retry succeeds, this snapshot still reduces the file
+        // to at most a final sessionEnd and skips ahead of the rest. Records
+        // written inside that retry window (bounded by the retry backoff) are
+        // not replayed; the next live event re-establishes state. Replaying
+        // them would need arm-time size tracking the failed open cannot provide.
         if watch.needsInitialSnapshot {
             let bufferedEvent: AgentRuntimeEvent?
             if generation.size <= Self.maximumEventFileByteCount,

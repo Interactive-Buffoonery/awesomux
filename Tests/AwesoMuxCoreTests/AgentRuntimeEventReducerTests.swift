@@ -129,6 +129,43 @@ struct AgentRuntimeEventReducerTests {
         #expect(!reducer.suppressesHeuristicState(for: paneID))
     }
 
+    @Test("session start older than the end watermark cannot revive an ended lifecycle")
+    func olderTimestampSessionStartKeepsEndedLifecycle() throws {
+        let session = TerminalSession(title: "claude", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        let endTimestamp = Date(timeIntervalSince1970: 10)
+        var reducer = AgentRuntimeEventReducer()
+
+        #expect(
+            reducer.decision(
+                for: AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .idle,
+                    phase: .sessionEnd,
+                    timestamp: endTimestamp
+                ),
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: false,
+                now: endTimestamp
+            ) != nil)
+        #expect(
+            reducer.decision(
+                for: AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .idle,
+                    phase: .sessionStart,
+                    timestamp: Date(timeIntervalSince1970: 5)
+                ),
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: false,
+                now: endTimestamp
+            ) == nil)
+        #expect(reducer.stateByPaneID[paneID]?.lastAppliedTimestamp == endTimestamp)
+        #expect(reducer.suppressesHeuristicState(for: paneID))
+    }
+
     @Test("an attention-only event preserves the pane's prior execution state")
     func attentionOnlyEventPreservesExecutionState() throws {
         var (session, paneID) = singlePaneSession()

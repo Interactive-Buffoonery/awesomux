@@ -75,6 +75,60 @@ struct GhosttySurfaceAttentionTests {
         #expect(store.session(id: session.id)?.agentKind == .claudeCode)
     }
 
+    @Test("suppressed detector update still clears a stale error on an ended pane")
+    @MainActor
+    func suppressedDetectorUpdateStillClearsStaleError() throws {
+        let pane = TerminalPane(
+            title: "claude",
+            workingDirectory: "~",
+            agentKind: .claudeCode,
+            agentExecutionState: .thinking,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "agent",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(groups: [
+            SessionGroup(name: "awesoMux", sessions: [session])
+        ])
+        let runtime = GhosttyRuntime()
+        let view = runtime.surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+
+        // A crash-shaped end: the lifecycle latches suppression while the
+        // pane keeps the error execution state the end event carried.
+        view.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .error,
+                phase: .sessionEnd
+            ))
+        #expect(store.session(id: session.id)?.agentKind == .shell)
+        #expect(
+            store.session(id: session.id)?.layout.pane(id: pane.id)?.agentExecutionState
+                == .error)
+
+        // Later visible text moves past the error. The heuristic state change
+        // stays suppressed, but the stale-error cleanup must still run.
+        view.applyDetectedAgentOutput(
+            AgentOutputDetection(
+                state: .thinking,
+                agentKind: .claudeCode
+            ))
+        #expect(store.session(id: session.id)?.agentKind == .shell)
+        #expect(
+            store.session(id: session.id)?.layout.pane(id: pane.id)?.agentExecutionState
+                == .idle)
+    }
+
     @Test("hookless provider end retains later heuristic fallback")
     @MainActor
     func hooklessProviderEndRetainsFallback() {

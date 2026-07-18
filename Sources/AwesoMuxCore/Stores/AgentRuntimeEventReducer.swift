@@ -155,15 +155,23 @@ struct AgentRuntimeEventReducer: Sendable {
                 ))
         }
 
-        let startsNewLifecycle =
-            event.phase == .sessionStart
-            && (state.lifecycle.currentIsStopped || state.lifecycle.isEnded)
-        if !startsNewLifecycle,
-            let timestamp = event.timestamp,
-            let lastTimestamp = state.lastAppliedTimestamp,
-            timestamp <= lastTimestamp
+        let restartsStoppedLifecycle =
+            event.phase == .sessionStart && state.lifecycle.currentIsStopped
+        let restartsEndedLifecycle =
+            event.phase == .sessionStart && state.lifecycle.isEnded
+        if let timestamp = event.timestamp,
+            let lastTimestamp = state.lastAppliedTimestamp
         {
-            return nil
+            // An ended lifecycle accepts a restart at the watermark (end and
+            // restart can land in the same flush with equal timestamps), but a
+            // strictly older replayed SessionStart must not revive the pane.
+            if restartsEndedLifecycle {
+                if timestamp < lastTimestamp {
+                    return nil
+                }
+            } else if !restartsStoppedLifecycle, timestamp <= lastTimestamp {
+                return nil
+            }
         }
 
         // A rename event is title-only: it carries a pane title, never agent
