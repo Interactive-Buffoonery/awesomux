@@ -21,14 +21,15 @@ struct WorktreeCreateForm: View {
     @State private var targetPath = ""
     @State private var lastSuggestedPath: String?
     @State private var validationMessage: String?
-    // Bridges the gap between tapping Create and `model.createSubmissionState`
-    // actually flipping to `.submitting` (which only happens once `create()`
-    // is invoked): the new-branch-name check below awaits before that call,
-    // and without this flag Cancel/dismiss stay enabled during that await —
-    // letting a "cancelled" sheet still create a worktree behind the scenes.
-    @State private var isValidatingBeforeSubmit = false
 
-    private var isBusy: Bool { isValidatingBeforeSubmit || model.createSubmissionState.isSubmitting }
+    // `model.createSubmissionState` flips to `.submitting` as the first
+    // statement in `create(request:)`, before any `await` — so this is
+    // busy from the moment Create is tapped, with no separate pre-submit
+    // flag needed. (An earlier version re-validated the new branch name
+    // here first, which left a gap where dismissal wasn't blocked yet;
+    // `GitWorktreeService.create` already re-validates it internally, so
+    // that duplicate check was removed rather than patched.)
+    private var isBusy: Bool { model.createSubmissionState.isSubmitting }
 
     private let policy = GitWorktreeCreatePolicy()
 
@@ -147,13 +148,7 @@ struct WorktreeCreateForm: View {
             return
         }
         validationMessage = nil
-        isValidatingBeforeSubmit = true
         Task {
-            defer { isValidatingBeforeSubmit = false }
-            if mode == .new, !(await model.validateNewBranchName(newBranchName)) {
-                validationMessage = String(localized: "Enter a valid Git branch name.", comment: "Invalid new Git branch name validation.")
-                return
-            }
             _ = await model.create(request: request)
         }
     }

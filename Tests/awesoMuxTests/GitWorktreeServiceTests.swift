@@ -8,14 +8,31 @@ struct GitWorktreeServiceTests {
     @Test("branch listing uses exact fixed argv")
     func branchListing() async {
         let context = repositoryContext()
-        let runner = StubLocalGitRunner(outcomes: [.success(Data("main\nfeature/foo\n".utf8))])
+        let runner = StubLocalGitRunner(
+            outcomes: [.success(Data("refs/heads/main\nrefs/heads/feature/foo\n".utf8))])
         let service = GitWorktreeService(
             locator: LocalGitRepositoryLocator(runner: StubLocalGitRunner(outcomes: validationOutcomes(for: context))), runner: runner)
         #expect(await service.branches(in: context) == .success(["main", "feature/foo"]))
         #expect(
             runner.invocations == [
-                .init(arguments: ["for-each-ref", "refs/heads", "--format=%(refname:short)"], directory: context.invocationRoot)
+                .init(arguments: ["for-each-ref", "refs/heads", "--format=%(refname)"], directory: context.invocationRoot)
             ])
+    }
+
+    @Test("a branch sharing its name with a tag is never mistaken for the tag's disambiguated form")
+    func branchListingIgnoresNonHeadsAmbiguousLines() async {
+        // `for-each-ref refs/heads --format=%(refname:short)` would print
+        // `heads/foo` (not `foo`) for a branch named `foo` when a tag `foo`
+        // also exists — reproduced against real git while investigating this
+        // fix. Requesting the full refname and stripping our own known
+        // `refs/heads/` prefix sidesteps that disambiguation entirely, so
+        // simulate the full-refname output directly here rather than the
+        // ambiguous short form.
+        let context = repositoryContext()
+        let runner = StubLocalGitRunner(outcomes: [.success(Data("refs/heads/foo\n".utf8))])
+        let service = GitWorktreeService(
+            locator: LocalGitRepositoryLocator(runner: StubLocalGitRunner(outcomes: validationOutcomes(for: context))), runner: runner)
+        #expect(await service.branches(in: context) == .success(["foo"]))
     }
 
     @Test(arguments: [
@@ -34,7 +51,7 @@ struct GitWorktreeServiceTests {
         var outcomes: [BoundedCommandResult] = [.success(before)]
         if newBranch {
             outcomes.append(.success(Data()))  // check-ref-format
-            outcomes.append(.success(Data("main\n".utf8)))  // before-snapshot for-each-ref: branch absent
+            outcomes.append(.success(Data("refs/heads/main\n".utf8)))  // before-snapshot for-each-ref: branch absent
         }
         outcomes.append(.success(Data()))
         outcomes.append(.success(after))
@@ -111,7 +128,7 @@ struct GitWorktreeServiceTests {
         let runner = StubLocalGitRunner(outcomes: [
             .success(emptyList),  // list-before
             .success(Data()),  // check-ref-format
-            .success(Data("main\nfeature/foo\n".utf8)),  // before-snapshot: branch ALREADY exists
+            .success(Data("refs/heads/main\nrefs/heads/feature/foo\n".utf8)),  // before-snapshot: branch ALREADY exists
             .nonZeroExit(128),  // worktree add -b refuses: branch exists
             .success(emptyList),  // list-after: target still not a worktree
         ])
@@ -187,10 +204,10 @@ struct GitWorktreeServiceTests {
         let runner = StubLocalGitRunner(outcomes: [
             .success(emptyList),  // list-before
             .success(Data()),  // check-ref-format
-            .success(Data("main\n".utf8)),  // before-snapshot for-each-ref: branch absent
+            .success(Data("refs/heads/main\n".utf8)),  // before-snapshot for-each-ref: branch absent
             .nonZeroExit(4),  // worktree add fails
             .success(emptyList),  // list-after: target still not a worktree
-            .success(Data("main\nfeature/foo\n".utf8)),  // final branches() check: branch now exists
+            .success(Data("refs/heads/main\nrefs/heads/feature/foo\n".utf8)),  // final branches() check: branch now exists
         ])
         let service = GitWorktreeService(locator: LocalGitRepositoryLocator(runner: validation), runner: runner)
         let outcome = await service.create(
