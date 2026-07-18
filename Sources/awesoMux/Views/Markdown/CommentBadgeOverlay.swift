@@ -33,9 +33,9 @@ final class CommentBadgeOverlay: NSView {
     // MARK: - Model
 
     struct Pill {
-        let markID: String?     // the annotation id; nil for the "add" pill
-        let displayNumber: Int? // 1-based badge ordinal for accessibility; nil for "add"
-        let rect: NSRect        // in overlay's coordinate space
+        let markID: String?  // the annotation id; nil for the "add" pill
+        let displayNumber: Int?  // 1-based badge ordinal for accessibility; nil for "add"
+        let rect: NSRect  // in overlay's coordinate space
     }
 
     private var pills: [Pill] = []
@@ -167,40 +167,222 @@ final class CommentBadgeOverlay: NSView {
 
     override func accessibilityChildren() -> [Any]? {
         guard window != nil else { return [] }
-        return pillAccessibilityChildren() + tableCellAccessibilityChildren()
+        return pillAccessibilityChildren() + cachedTableElements
     }
 
-    /// Expose each table cell so VoiceOver announces it with its column header
-    /// ("Status: Active") instead of reading the whole table as a flat run of text.
-    /// This is the header-association slice — not full AXTable row/column navigation,
-    /// but it restores the cell→header relationship (WCAG 1.3.1) that the visual grid
-    /// otherwise conveys only in drawn pixels.
-    private func tableCellAccessibilityChildren() -> [NSAccessibilityElement] {
-        guard !tableCellInfos.isEmpty else { return [] }
-        // Header text per (table, column) from the header row.
-        var headers: [Int: [Int: String]] = [:]
-        for info in tableCellInfos where info.grid.isHeader {
-            headers[info.grid.table, default: [:]][info.grid.column] = info.text
+    // MARK: - AXTable tree (INT-687)
+
+    /// Identity of one node in a table's accessibility tree, used to look up its
+    /// CURRENT rect in `tableAXFrames` at query time. Elements are cached across
+    /// layout passes (VoiceOver holds references while the user navigates), so
+    /// their frames must be looked up live, never captured — a resize reflow
+    /// would otherwise leave every held element announcing stale geometry.
+    enum TableAXNode: Hashable {
+        case table(Int)
+        case row(table: Int, row: Int)
+        case column(table: Int, column: Int)
+        case cell(table: Int, row: Int, column: Int)
+    }
+
+    /// A logical table cell coalesced from its attributed runs — a cell with
+    /// inline styling ("**bold** text") spans several runs sharing one
+    /// (table, row, column). Rect is the union; text concatenates in document
+    /// order (the attribute enumeration walks the string front to back).
+    struct LogicalTableCell {
+        let grid: TableCellGrid
+        let rect: NSRect
+        let text: String
+    }
+
+    /// One table's rectangularized grid. `cells[row][column]` is nil where GFM
+    /// omitted the cell (empty cell, ragged row) — the exposed AXTable must stay
+    /// rectangular so VoiceOver's row/column position math never lands in a hole.
+    struct TableAXGrid {
+        let table: Int
+        let rowCount: Int
+        let columnCount: Int
+        let cells: [[LogicalTableCell?]]
+    }
+
+    private var cachedTableElements: [TableCellAccessibilityElement] = []
+    private var tableAXFrames: [TableAXNode: NSRect] = [:]
+    /// Structure fingerprint of the current grids (texts + shape, no geometry).
+    /// The element tree rebuilds — and `.layoutChanged` posts — only when this
+    /// changes; pure reflows just refresh `tableAXFrames`.
+    private var tableStructureSignature: [String] = []
+
+    /// Read-only view of the cached table elements for tests.
+    var tableAccessibilityElements: [NSAccessibilityElement] { cachedTableElements }
+
+    /// Coalesce per-run cell infos into rectangular logical grids, ordered by
+    /// table serial. Pure — unit-testable without a view tree.
+    static func tableAXGrids(from infos: [TableCellInfo]) -> [TableAXGrid] {
+        struct Key: Hashable {
+            let table: Int
+            let row: Int
+            let column: Int
         }
-        return tableCellInfos.map { info in
-            let element = TableCellAccessibilityElement()
-            element.setAccessibilityParent(self)
-            element.setAccessibilityRole(.cell)
-            let header = headers[info.grid.table]?[info.grid.column]
-            if info.grid.isHeader {
-                element.setAccessibilityLabel("\(info.text), column header")
-            } else if let header, !header.isEmpty {
-                element.setAccessibilityLabel("\(header): \(info.text)")
+        var merged: [Key: LogicalTableCell] = [:]
+        for info in infos {
+            let key = Key(table: info.grid.table, row: info.grid.row, column: info.grid.column)
+            if let existing = merged[key] {
+                merged[key] = LogicalTableCell(
+                    grid: existing.grid,
+                    rect: existing.rect.union(info.rect),
+                    text: existing.text + info.text
+                )
             } else {
-                element.setAccessibilityLabel(info.text)
+                merged[key] = LogicalTableCell(grid: info.grid, rect: info.rect, text: info.text)
             }
-            let cellRect = info.rect
-            element.frameProvider = { [weak self] in
-                guard let self, let window = self.window else { return .zero }
-                return window.convertToScreen(self.convert(cellRect, to: nil))
-            }
-            return element
         }
+        let byTable = Dictionary(grouping: merged.values, by: { $0.grid.table })
+        return byTable.keys.sorted().compactMap { table in
+            guard let cells = byTable[table], !cells.isEmpty else { return nil }
+            let rowCount = (cells.map { $0.grid.row }.max() ?? 0) + 1
+            let columnCount = (cells.map { $0.grid.column }.max() ?? 0) + 1
+            var grid = [[LogicalTableCell?]](
+                repeating: [LogicalTableCell?](repeating: nil, count: columnCount),
+                count: rowCount
+            )
+            for cell in cells {
+                grid[cell.grid.row][cell.grid.column] = cell
+            }
+            return TableAXGrid(
+                table: table, rowCount: rowCount, columnCount: columnCount, cells: grid)
+        }
+    }
+
+    /// Live-lookup frames for every AX node. Placeholder cells (grid holes) get
+    /// the intersection of their row's Y-extent and column's X-extent when both
+    /// are known from populated neighbors; otherwise no frame at all — inventing
+    /// geometry (e.g. the whole table rect) would give VoiceOver overlapping,
+    /// spatially incoherent cells.
+    static func tableAXFrames(for grids: [TableAXGrid]) -> [TableAXNode: NSRect] {
+        var frames: [TableAXNode: NSRect] = [:]
+        for grid in grids {
+            var rowRects = [NSRect?](repeating: nil, count: grid.rowCount)
+            var columnRects = [NSRect?](repeating: nil, count: grid.columnCount)
+            var tableRect: NSRect? = nil
+            for r in 0..<grid.rowCount {
+                for c in 0..<grid.columnCount {
+                    guard let cell = grid.cells[r][c] else { continue }
+                    rowRects[r] = rowRects[r].map { $0.union(cell.rect) } ?? cell.rect
+                    columnRects[c] = columnRects[c].map { $0.union(cell.rect) } ?? cell.rect
+                    tableRect = tableRect.map { $0.union(cell.rect) } ?? cell.rect
+                }
+            }
+            if let tableRect {
+                frames[.table(grid.table)] = tableRect
+            }
+            for r in 0..<grid.rowCount {
+                if let rect = rowRects[r] {
+                    frames[.row(table: grid.table, row: r)] = rect
+                }
+            }
+            for c in 0..<grid.columnCount {
+                if let rect = columnRects[c] {
+                    frames[.column(table: grid.table, column: c)] = rect
+                }
+            }
+            for r in 0..<grid.rowCount {
+                for c in 0..<grid.columnCount {
+                    let node = TableAXNode.cell(table: grid.table, row: r, column: c)
+                    if let cell = grid.cells[r][c] {
+                        frames[node] = cell.rect
+                    } else if let rowRect = rowRects[r], let columnRect = columnRects[c] {
+                        frames[node] = NSRect(
+                            x: columnRect.minX, y: rowRect.minY,
+                            width: columnRect.width, height: rowRect.height
+                        )
+                    }
+                }
+            }
+        }
+        return frames
+    }
+
+    /// Rebuild the cached table/row/column/cell element tree. Called only on a
+    /// structural change; frames stay live through `tableAXFrames` lookups.
+    private func rebuildTableAccessibilityElements(grids: [TableAXGrid]) {
+        cachedTableElements = grids.map { grid in
+            let tableElement = liveFrameElement(role: .table, node: .table(grid.table))
+            tableElement.setAccessibilityParent(self)
+
+            // Header text per column, for the header-association labels VoiceOver
+            // reads on body cells ("Status: Active") — kept from the shipped
+            // slice so a cell remains meaningful even outside table navigation.
+            var headerText: [Int: String] = [:]
+            for c in 0..<grid.columnCount {
+                for r in 0..<grid.rowCount where grid.cells[r][c]?.grid.isHeader == true {
+                    headerText[c] = grid.cells[r][c]?.text
+                    break
+                }
+            }
+
+            var rowElements: [TableCellAccessibilityElement] = []
+            var headerCellElements: [TableCellAccessibilityElement] = []
+            var cellsByColumn = [[TableCellAccessibilityElement]](
+                repeating: [], count: grid.columnCount)
+            for r in 0..<grid.rowCount {
+                let rowElement = liveFrameElement(
+                    role: .row, node: .row(table: grid.table, row: r))
+                rowElement.setAccessibilityParent(tableElement)
+                rowElement.setAccessibilityIndex(r)
+                var cellElements: [TableCellAccessibilityElement] = []
+                for c in 0..<grid.columnCount {
+                    let cellElement = liveFrameElement(
+                        role: .cell, node: .cell(table: grid.table, row: r, column: c))
+                    cellElement.setAccessibilityParent(rowElement)
+                    cellElement.setAccessibilityRowIndexRange(NSRange(location: r, length: 1))
+                    cellElement.setAccessibilityColumnIndexRange(NSRange(location: c, length: 1))
+                    let cell = grid.cells[r][c]
+                    let text = cell?.text ?? ""
+                    if cell?.grid.isHeader == true {
+                        cellElement.setAccessibilityLabel("\(text), column header")
+                        headerCellElements.append(cellElement)
+                    } else if let header = headerText[c], !header.isEmpty, !text.isEmpty {
+                        cellElement.setAccessibilityLabel("\(header): \(text)")
+                    } else {
+                        cellElement.setAccessibilityLabel(text)
+                    }
+                    cellElements.append(cellElement)
+                    cellsByColumn[c].append(cellElement)
+                }
+                rowElement.setAccessibilityChildren(cellElements)
+                rowElements.append(rowElement)
+            }
+
+            let columnElements = (0..<grid.columnCount).map { c -> TableCellAccessibilityElement in
+                let columnElement = liveFrameElement(
+                    role: .column, node: .column(table: grid.table, column: c))
+                columnElement.setAccessibilityParent(tableElement)
+                columnElement.setAccessibilityIndex(c)
+                columnElement.setAccessibilityChildren(cellsByColumn[c])
+                return columnElement
+            }
+
+            tableElement.setAccessibilityRows(rowElements)
+            tableElement.setAccessibilityColumns(columnElements)
+            tableElement.setAccessibilityRowCount(grid.rowCount)
+            tableElement.setAccessibilityColumnCount(grid.columnCount)
+            tableElement.setAccessibilityColumnHeaderUIElements(headerCellElements)
+            tableElement.setAccessibilityChildren(rowElements + columnElements)
+            return tableElement
+        }
+    }
+
+    private func liveFrameElement(
+        role: NSAccessibility.Role, node: TableAXNode
+    ) -> TableCellAccessibilityElement {
+        let element = TableCellAccessibilityElement()
+        element.setAccessibilityRole(role)
+        element.frameProvider = { [weak self] in
+            guard let self, let window = self.window,
+                let rect = self.tableAXFrames[node]
+            else { return .zero }
+            return window.convertToScreen(self.convert(rect, to: nil))
+        }
+        return element
     }
 
     private func pillAccessibilityChildren() -> [NSAccessibilityElement] {
@@ -263,8 +445,9 @@ final class CommentBadgeOverlay: NSView {
         hiddenIDs: Set<String> = []
     ) {
         guard textView.textLayoutManager != nil,
-              textView.textContentStorage != nil,
-              textView.textContainer != nil else {
+            textView.textContentStorage != nil,
+            textView.textContainer != nil
+        else {
             // Remove all non-add pills but keep any existing add pill.
             pills = pills.filter { $0.markID == nil }
             needsDisplay = true
@@ -298,15 +481,18 @@ final class CommentBadgeOverlay: NSView {
             // Glyph-level trailing edge of the mark's last character, in text-view
             // (== overlay) space. firstRect respects ligatures/RTL/composite glyphs;
             // for a wrapped mark it returns the final glyph's line fragment.
-            guard let tvRect = Self.glyphTrailingRectInTextView(
-                lastCharOf: fullRange, in: textView
-            ) else { continue }
+            guard
+                let tvRect = Self.glyphTrailingRectInTextView(
+                    lastCharOf: fullRange, in: textView
+                )
+            else { continue }
 
-            newPills.append(Pill(
-                markID: markID,
-                displayNumber: displayNumbers[markID],
-                rect: Self.pillRect(afterTrailingRect: tvRect)
-            ))
+            newPills.append(
+                Pill(
+                    markID: markID,
+                    displayNumber: displayNumbers[markID],
+                    rect: Self.pillRect(afterTrailingRect: tvRect)
+                ))
         }
 
         newPills.sort { $0.rect.minY < $1.rect.minY }
@@ -336,10 +522,11 @@ final class CommentBadgeOverlay: NSView {
     /// Recompute table cell border rects from the `.tableCellGrid` attribute ranges.
     /// Each cell's rect is the union of its per-line glyph rects (converted to
     /// text-view/overlay space), padded to sit just outside the text. A cell that
-    /// laid out across more than one line fragment means its row WRAPPED at the pane
-    /// edge (the container is width-tracking, so wide tables wrap rather than
-    /// overflow) — the tab-stop column model no longer matches the glyphs, so that
-    /// table's grid is suppressed instead of stroking rules through wrapped text.
+    /// laid out across more than one line fragment means its row wrapped — the
+    /// tab-stop column model no longer matches the glyphs, so that table's grid is
+    /// suppressed instead of stroking rules through wrapped text. Since INT-687
+    /// the container is infinite (wide tables overflow into a horizontal scroll,
+    /// they don't wrap), so this suppression is a safety net, not the norm.
     private func updateTableBorders(attr: NSAttributedString, textView: NSTextView) {
         // Collect each cell's text rect tagged with its grid position.
         var cells: [(grid: TableCellGrid, rect: NSRect)] = []
@@ -352,7 +539,8 @@ final class CommentBadgeOverlay: NSView {
             options: []
         ) { value, nsRange, _ in
             guard let grid = value as? TableCellGrid, nsRange.length > 0,
-                  let cell = Self.cellRectInTextView(range: nsRange, in: textView) else { return }
+                let cell = Self.cellRectInTextView(range: nsRange, in: textView)
+            else { return }
             if cell.segments > 1 {
                 wrappedTables.insert(grid.table)
             }
@@ -369,8 +557,33 @@ final class CommentBadgeOverlay: NSView {
             borderAttr = attr
             borderTextView = textView
         }
+        // segments > 1 suppression: since INT-687 the container is infinite and
+        // table rows cannot wrap, so this is a retained safety net (e.g. a
+        // TextKit fallback path), not the wide-table handler it was under the
+        // width-tracking container.
         tableBorderRects = Self.gridLines(for: cells.filter { !wrappedTables.contains($0.grid.table) })
         tableCellInfos = infos
+
+        // INT-687 AXTable upkeep: frames refresh on every pass (cached elements
+        // look their rects up live), but the element tree itself rebuilds only
+        // when the table STRUCTURE changes — VoiceOver holds element references
+        // while navigating, and churning identities per reflow would drop its
+        // cursor. Structural changes are announced so a running client re-reads.
+        let grids = Self.tableAXGrids(from: infos)
+        tableAXFrames = Self.tableAXFrames(for: grids)
+        let signature = grids.map { grid in
+            "\(grid.table)|\(grid.rowCount)x\(grid.columnCount)|"
+                + grid.cells.flatMap { row in
+                    row.map { $0.map { "\($0.grid.isHeader ? "h" : "c"):\($0.text)" } ?? "∅" }
+                }.joined(separator: "\u{1F}")
+        }
+        if signature != tableStructureSignature {
+            tableStructureSignature = signature
+            rebuildTableAccessibilityElements(grids: grids)
+            if window != nil {
+                NSAccessibility.post(element: self, notification: .layoutChanged)
+            }
+        }
     }
 
     /// Build a clean grid (outer frame + interior column/row rules) from the raw
@@ -428,7 +641,8 @@ final class CommentBadgeOverlay: NSView {
             }
 
             guard let left = xs.first, let right = xs.last,
-                  let top = ys.first, let bottom = ys.last else { continue }
+                let top = ys.first, let bottom = ys.last
+            else { continue }
             let line: CGFloat = 1
 
             // Vertical rules (including outer left/right).
@@ -458,25 +672,31 @@ final class CommentBadgeOverlay: NSView {
     /// text container inset). Per ADR 0018 the grid is drawn from fragment geometry.
     static func cellRectInTextView(range: NSRange, in textView: NSTextView) -> (rect: NSRect, segments: Int)? {
         guard range.length > 0,
-              let layoutManager = textView.textLayoutManager,
-              let contentStorage = textView.textContentStorage,
-              let start = contentStorage.location(
+            let layoutManager = textView.textLayoutManager,
+            let contentStorage = textView.textContentStorage,
+            let start = contentStorage.location(
                 contentStorage.documentRange.location, offsetBy: range.location),
-              let end = contentStorage.location(start, offsetBy: range.length),
-              let textRange = NSTextRange(location: start, end: end) else { return nil }
+            let end = contentStorage.location(start, offsetBy: range.length),
+            let textRange = NSTextRange(location: start, end: end)
+        else { return nil }
 
         let inset = textView.textContainerInset
         var union: NSRect? = nil
-        var segments = 0
+        // "Segments" = DISTINCT line-fragment Y origins, not raw callbacks:
+        // enumerateTextSegments can emit duplicate callbacks with identical
+        // frames for one visual segment (observed with tab-stop table rows
+        // under an unbounded container), and a raw count would falsely report
+        // a single-line cell as wrapped.
+        var lineYs: Set<CGFloat> = []
         layoutManager.enumerateTextSegments(
             in: textRange, type: .standard, options: []
         ) { _, segmentFrame, _, _ in
             let framed = segmentFrame.offsetBy(dx: inset.width, dy: inset.height)
             union = union.map { $0.union(framed) } ?? framed
-            segments += 1
+            lineYs.insert(framed.minY.rounded())
             return true
         }
-        return union.map { ($0, segments) }
+        return union.map { ($0, lineYs.count) }
     }
 
     /// Add or remove the "add" pill at the trailing edge of the current selection.
@@ -490,11 +710,12 @@ final class CommentBadgeOverlay: NSView {
             return
         }
 
-        pills.append(Pill(
-            markID: nil,
-            displayNumber: nil,
-            rect: Self.pillRect(afterTrailingRect: trailingRect)
-        ))
+        pills.append(
+            Pill(
+                markID: nil,
+                displayNumber: nil,
+                rect: Self.pillRect(afterTrailingRect: trailingRect)
+            ))
         needsDisplay = true
     }
 
@@ -576,7 +797,8 @@ final class CommentBadgeOverlay: NSView {
         // Use the public Color.aw design-system API; NSColor(Color) resolves the dynamic
         // SwiftUI color to the current appearance.
         let mauveColor = NSColor(Color.aw.mauve)
-        let bgColor = isAdd
+        let bgColor =
+            isAdd
             ? mauveColor.withAlphaComponent(0.55)
             : mauveColor.withAlphaComponent(0.96)
 
@@ -587,13 +809,14 @@ final class CommentBadgeOverlay: NSView {
         // Glyph color: on the opaque pill use the Catppuccin base (near-black dark bg /
         // near-white light bg) for maximum contrast; on the translucent add pill use the
         // fully-saturated mauve so the dots still read against variable document bgs.
-        let glyphColor: NSColor = isAdd
+        let glyphColor: NSColor =
+            isAdd
             ? mauveColor
             : NSColor(Color.aw.surface.window)
 
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: glyphColor
+            .foregroundColor: glyphColor,
         ]
 
         let labelSize = (pillLabel as NSString).size(withAttributes: attrs)
@@ -634,9 +857,10 @@ final class PillAccessibilityElement: NSAccessibilityElement {
 
 // MARK: - TableCellAccessibilityElement
 
-/// Accessibility proxy for a single table cell. VoiceOver reads it with its
-/// column header ("Status: Active"); the label is set by the overlay. Read-only —
-/// cells aren't pressable. Frame is computed live so it tracks scrolling, mirroring
+/// Accessibility proxy for one node of a table's AXTable tree — the table
+/// itself, a row, a column, or a cell (role set by the overlay). Read-only —
+/// none are pressable. Frame is computed live (a `tableAXFrames` lookup through
+/// the overlay) so it tracks both scrolling and reflow, mirroring
 /// `PillAccessibilityElement`.
 final class TableCellAccessibilityElement: NSAccessibilityElement {
     var frameProvider: (@MainActor () -> NSRect)?
