@@ -521,6 +521,20 @@ struct ComposeCommentPopover: View {
             .padding(10)
         }
         .frame(width: 300)
+        // Round-2 maintainer finding: the Comment/Replace/Delete segmented
+        // control read as a muted gray-purple with a stray divider instead of
+        // a crisp mauve pill — it looked nothing like the same component in
+        // Settings. Root cause: this view has no opaque background of its
+        // own, so it inherits NSPopover's default vibrant material; the
+        // segmented control's selected-fill (`accentSoft`, a 22%-opacity
+        // overlay per SettingsSegmented.swift) is exactly the kind of
+        // translucent content that vibrancy remaps, while Settings renders
+        // the identical component against a plain opaque window and looks
+        // correct. `AwModalView` (also hosted outside a normal window, see
+        // its own `panelBackground` comment) solves the identical class of
+        // problem the same way — give this popover its own opaque backdrop
+        // instead of trusting NSPopover's default material.
+        .background(Color.aw.surface.chrome)
         .disabled(submission.isInFlight)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "New annotation", comment: "Accessibility label for the new annotation popover"))
