@@ -103,28 +103,35 @@ struct AboutWindowInfoTests {
         let scriptURL = repositoryRoot.appendingPathComponent("script/build_and_run.sh")
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
 
-        // Extract the quoted entries between `required_license_files=(` and `)`.
-        guard let arrayStart = script.range(of: "required_license_files=("),
-            let arrayEnd = script.range(of: ")", range: arrayStart.upperBound..<script.endIndex)
-        else {
-            Issue.record("Could not locate required_license_files=( … ) in build_and_run.sh")
+        // Take the lines after `required_license_files=(` up to the closing
+        // line that is exactly `)` — anchoring on a whole-line terminator so a
+        // stray `)` inside a future comment or value can't truncate the block.
+        guard let arrayStart = script.range(of: "required_license_files=(") else {
+            Issue.record("Could not locate required_license_files=( in build_and_run.sh")
             return
         }
-        let body = script[arrayStart.upperBound..<arrayEnd.lowerBound]
+        let afterDeclaration = script[arrayStart.upperBound...]
+        let entryLines =
+            afterDeclaration
+            .split(whereSeparator: \.isNewline)
+            .prefix { $0.trimmingCharacters(in: .whitespaces) != ")" }
+        #expect(
+            entryLines.count < afterDeclaration.split(whereSeparator: \.isNewline).count,
+            "Never found the closing ) of required_license_files")
+
         let copied = Set(
-            body.split(whereSeparator: \.isNewline)
-                .compactMap { line -> String? in
-                    // Skip commented-out entries — a `# "Ghostty/LICENSE"` line
-                    // is NOT copied, so counting it would be the false green this
-                    // test exists to prevent.
-                    guard !line.trimmingCharacters(in: .whitespaces).hasPrefix("#") else {
-                        return nil
-                    }
-                    guard let open = line.firstIndex(of: "\""),
-                        let close = line.lastIndex(of: "\""), open < close
-                    else { return nil }
-                    return String(line[line.index(after: open)..<close])
-                })
+            entryLines.compactMap { line -> String? in
+                // Skip commented-out entries — a `# "Ghostty/LICENSE"` line is
+                // NOT copied, so counting it would be the false green this test
+                // exists to prevent.
+                guard !line.trimmingCharacters(in: .whitespaces).hasPrefix("#") else {
+                    return nil
+                }
+                guard let open = line.firstIndex(of: "\""),
+                    let close = line.lastIndex(of: "\""), open < close
+                else { return nil }
+                return String(line[line.index(after: open)..<close])
+            })
         #expect(!copied.isEmpty, "Parsed no entries from required_license_files")
 
         for credit in AboutCredit.all {
@@ -134,6 +141,22 @@ struct AboutWindowInfoTests {
                     "\(credit.name): \(path) is not in build_and_run.sh required_license_files")
             }
         }
+    }
+
+    // MARK: - Cmd-W auxiliary-window routing
+
+    @Test("Settings and About windows are auxiliary close targets")
+    func auxiliaryCloseTargets() {
+        #expect(AwesoMuxWindowRole.isAuxiliaryCloseTarget(.about))
+        #expect(AwesoMuxWindowRole.isAuxiliaryCloseTarget(.settings))
+    }
+
+    @Test("Primary and unclassified windows are not auxiliary close targets")
+    func nonAuxiliaryCloseTargets() {
+        // Fail-closed: the primary window (and a window whose role isn't yet
+        // assigned) must keep normal Cmd-W pane routing, not be force-closed.
+        #expect(!AwesoMuxWindowRole.isAuxiliaryCloseTarget(.primaryContent))
+        #expect(!AwesoMuxWindowRole.isAuxiliaryCloseTarget(nil))
     }
 
     /// `Licenses/`-relative paths a credit points at, matching the entries in
