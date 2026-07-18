@@ -89,12 +89,17 @@ final class AgentRuntimeEventBridge {
         let fileURL = eventFileURL(for: paneID)
         touchEventFile(at: fileURL)
 
+        let bufferedReadHandle = AgentRuntimeEventFile.openForReading(at: fileURL)
+
         let watch = Watch(
             fileURL: fileURL,
             applyEvent: applyEvent,
-            offset: AgentRuntimeEventFile.openForReading(at: fileURL)?.size ?? 0
+            offset: bufferedReadHandle?.size ?? 0
         )
         watches[paneID] = watch
+        if let bufferedSessionEnd = bufferedSessionEnd(from: bufferedReadHandle) {
+            applyEvent(bufferedSessionEnd)
+        }
         // If startSource fails the watch stays in `watches` with `source ==
         // nil` so the helper still writes to a real file at the advertised
         // path. A cancellable backoff retries source creation while activation
@@ -394,6 +399,30 @@ final class AgentRuntimeEventBridge {
     }
 
     // MARK: - Reading
+
+    private func bufferedSessionEnd(
+        from readHandle: AgentRuntimeEventFile.ValidatedReadHandle?
+    ) -> AgentRuntimeEvent? {
+        guard let readHandle,
+            readHandle.size <= Self.maximumEventFileByteCount,
+            let data = readHandle.readData(from: 0)
+        else {
+            return nil
+        }
+
+        let (lines, trailingFragment) = AgentRuntimeEventLineSplitter.extractCompleteLines(
+            from: data,
+            trailingFragment: Data()
+        )
+        guard trailingFragment.isEmpty else {
+            return nil
+        }
+        let lastValidEvent = lines.reversed()
+            .lazy
+            .compactMap { AgentRuntimeEvent.parse(data: $0) }
+            .first
+        return lastValidEvent?.phase == .sessionEnd ? lastValidEvent : nil
+    }
 
     private func poll(paneID: TerminalPane.ID) {
         guard let watch = watches[paneID] else {

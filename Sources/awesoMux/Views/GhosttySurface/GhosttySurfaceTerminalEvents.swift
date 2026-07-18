@@ -433,6 +433,10 @@ extension GhosttySurfaceNSView {
             }
         }
 
+        guard !runtimeSessionHasEnded else {
+            return
+        }
+
         hasObservedAgentActivity =
             hasObservedAgentActivity
             || agentOutputDetector.observesAgentContext(in: visibleText)
@@ -686,6 +690,9 @@ extension GhosttySurfaceNSView {
         // visible-text heuristic's own scope, not suppressed here.
         if event.phase == .sessionEnd {
             hasObservedAgentActivity = false
+            runtimeSessionHasEnded = true
+        } else if event.phase == .sessionStart {
+            runtimeSessionHasEnded = false
         }
 
         // Only state-bearing events suppress the visible-text detector,

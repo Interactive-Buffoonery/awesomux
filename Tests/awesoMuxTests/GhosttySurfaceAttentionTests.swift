@@ -4,6 +4,57 @@ import Testing
 
 @Suite("Ghostty surface attention decisions")
 struct GhosttySurfaceAttentionTests {
+    @Test("runtime session end blocks text state until the next session starts")
+    @MainActor
+    func runtimeSessionEndBlocksTextStateUntilRestart() throws {
+        let pane = TerminalPane(
+            title: "claude",
+            workingDirectory: "~",
+            agentKind: .claudeCode,
+            agentExecutionState: .thinking,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "agent",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(groups: [
+            SessionGroup(name: "awesoMux", sessions: [session])
+        ])
+        let runtime = GhosttyRuntime()
+        let view = runtime.surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+
+        view.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .idle,
+                phase: .sessionEnd
+            ))
+
+        #expect(view.runtimeSessionHasEnded)
+        #expect(store.session(id: session.id)?.agentKind == .shell)
+        #expect(store.session(id: session.id)?.agentExecutionState == .idle)
+
+        view.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                kind: .claudeCode,
+                executionState: .idle,
+                phase: .sessionStart
+            ))
+
+        #expect(!view.runtimeSessionHasEnded)
+        #expect(store.session(id: session.id)?.agentKind == .claudeCode)
+    }
+
     @Test("visible-text suppression reads this pane's state, not the loudest sibling")
     @MainActor
     func suppressionReadsOwnPaneState() {

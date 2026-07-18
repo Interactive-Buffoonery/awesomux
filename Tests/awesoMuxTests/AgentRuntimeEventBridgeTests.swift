@@ -7,8 +7,8 @@ import Testing
 @Suite("Agent runtime event bridge", .serialized)
 struct AgentRuntimeEventBridgeTests {
     @MainActor
-    @Test("a new watch does not replay lifecycle events buffered before pane reuse")
-    func newWatchStartsAfterExistingLifecycleEvents() throws {
+    @Test("a new watch consumes a buffered terminal session end")
+    func newWatchConsumesBufferedTerminalSessionEnd() throws {
         try Self.withTemporaryDirectory { directory in
             try SessionPersistence.withTemporarySupportDirectory(directory) {
                 let paneID = TerminalPane.ID()
@@ -35,7 +35,7 @@ struct AgentRuntimeEventBridgeTests {
                 }
 
                 bridge.drainRuntimeEventsForTesting(paneID: paneID)
-                #expect(appliedEvents.isEmpty)
+                #expect(appliedEvents.map(\.phase) == [.sessionEnd])
 
                 let newStart = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionStart"}"#
                 let handle = try FileHandle(forWritingTo: environment.eventFileURL)
@@ -44,7 +44,42 @@ struct AgentRuntimeEventBridgeTests {
                 try handle.close()
                 bridge.drainRuntimeEventsForTesting(paneID: paneID)
 
-                #expect(appliedEvents.map(\.phase) == [.sessionStart])
+                #expect(appliedEvents.map(\.phase) == [.sessionEnd, .sessionStart])
+                bridge.stopWatchingAll()
+            }
+        }
+    }
+
+    @MainActor
+    @Test("a newer buffered lifecycle prevents an old session end replay")
+    func newerBufferedLifecyclePreventsOldSessionEndReplay() throws {
+        try Self.withTemporaryDirectory { directory in
+            try SessionPersistence.withTemporarySupportDirectory(directory) {
+                let paneID = TerminalPane.ID()
+                let eventsDirectory = directory.appending(
+                    path: "runtime-events",
+                    directoryHint: .isDirectory
+                )
+                try FileManager.default.createDirectory(
+                    at: eventsDirectory,
+                    withIntermediateDirectories: true
+                )
+                let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
+                let bufferedEvents = """
+                    {"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}
+                    {"v":1,"source":"pi","execution":"idle","phase":"sessionStart"}
+                    """
+                try Data((bufferedEvents + "\n").utf8).write(to: eventFile)
+
+                let bridge = AgentRuntimeEventBridge()
+                var appliedEvents: [AgentRuntimeEvent] = []
+                bridge.environment(
+                    sessionID: TerminalSession.ID(),
+                    paneID: paneID,
+                    enabledFileDropSources: []
+                ) { appliedEvents.append($0) }
+
+                #expect(appliedEvents.isEmpty)
                 bridge.stopWatchingAll()
             }
         }

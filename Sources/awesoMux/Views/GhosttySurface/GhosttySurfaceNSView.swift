@@ -87,6 +87,7 @@ final class GhosttySurfaceNSView: NSView {
     var lastAccessibilityReportedVisibleText: String?
     private var accessibilityFocusRequested = false
     var hasObservedAgentActivity = false
+    var runtimeSessionHasEnded = false
     var lastRuntimeEventAppliedAt: TimeInterval?
     var lastRuntimeAttentionEventAppliedAt: TimeInterval?
     /// Owns command-bridge lifecycle state + sequencing; this view is the thin
