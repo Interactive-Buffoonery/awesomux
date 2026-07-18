@@ -275,6 +275,51 @@ struct RemoteMarkdownReferenceTests {
         #expect(RemoteMarkdownSnapshotFetcher.markdownInlineCode("dev:/tmp/a`b.md") == "dev:/tmp/ab.md")
     }
 
+    @Test func failedRefetchPreservesSuccessfulCachedSnapshot() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane()
+            ))
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let successful = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in Data("last successful snapshot".utf8) }
+        )
+        let failing = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in nil }
+        )
+
+        let first = try #require(await successful.fetch(reference))
+        let refetched = try #require(await failing.fetch(reference))
+
+        #expect(refetched == first)
+        #expect(try Data(contentsOf: refetched.fileURL) == Data("last successful snapshot".utf8))
+    }
+
+    @Test func initialFetchFailureStillCreatesFailureSnapshot() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane()
+            ))
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let fetcher = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in nil }
+        )
+
+        let snapshot = try #require(await fetcher.fetch(reference))
+        let content = try String(contentsOf: snapshot.fileURL, encoding: .utf8)
+
+        #expect(content.contains("# Couldn't fetch remote Markdown"))
+    }
+
     @Test func concurrentFetchesForSameIdentityAreCoalesced() async throws {
         let reference = try #require(
             RemoteMarkdownReference.make(

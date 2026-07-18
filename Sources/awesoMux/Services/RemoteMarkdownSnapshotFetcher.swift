@@ -181,13 +181,11 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         _ reference: RemoteMarkdownReference
     ) async -> RemoteMarkdownSnapshot? {
         let output = await fetchOutput(for: reference)
-        let content: Data
         if let output, output.count <= DocumentURLValidator.maxFileSizeBytes {
-            content = output
-        } else {
-            content = Data(failureMarkdown(for: reference).utf8)
+            return write(output, for: reference)
         }
-        return write(content, for: reference)
+        return cachedSnapshot(for: reference)
+            ?? write(Data(failureMarkdown(for: reference).utf8), for: reference)
     }
 
     func pruneUnreferencedSnapshots(keeping referencedFileURLs: Set<URL>) {
@@ -249,7 +247,7 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         do {
             try fileManager.createOwnerOnlyDirectory(at: cacheDirectoryURL)
             try fileManager.setOwnerOnlyPermissions(onDirectoryAt: cacheDirectoryURL)
-            let fileURL = cacheDirectoryURL.appending(path: cacheFileName(for: reference))
+            let fileURL = cacheFileURL(for: reference)
             try content.write(to: fileURL, options: .atomic)
             // The chmod follows symlinks; safe only because the atomic write
             // above just replaced any pre-planted link at this path.
@@ -258,6 +256,20 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         } catch {
             return nil
         }
+    }
+
+    private func cachedSnapshot(
+        for reference: RemoteMarkdownReference
+    ) -> RemoteMarkdownSnapshot? {
+        let fileURL = cacheFileURL(for: reference)
+        guard ((try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile) == true else {
+            return nil
+        }
+        return RemoteMarkdownSnapshot(fileURL: fileURL, identity: reference.identity)
+    }
+
+    private func cacheFileURL(for reference: RemoteMarkdownReference) -> URL {
+        cacheDirectoryURL.appending(path: cacheFileName(for: reference))
     }
 
     func cacheFileName(for reference: RemoteMarkdownReference) -> String {
