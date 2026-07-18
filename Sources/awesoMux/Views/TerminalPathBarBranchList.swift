@@ -16,6 +16,8 @@ struct BranchListCommandRunner: Sendable {
         // status runner: a background read must never contend with the user's
         // foreground git, and a hostile repo-local fsmonitor program must not
         // execute (see GitStatusCommandRunner).
+        // Prefix-safe: `BranchListMenuModel.parse` drops a mid-line fragment
+        // when the trailing newline is missing after a capped read.
         await Self.command.run(
             arguments: [
                 "--no-optional-locks",
@@ -25,7 +27,7 @@ struct BranchListCommandRunner: Sendable {
                 "--format=%(refname:short)",
             ],
             inDirectory: repoRoot
-        )
+        ).dataAllowingTruncation
     }
 }
 
@@ -37,7 +39,8 @@ struct BranchListCommandRunner: Sendable {
 enum BranchListMenuModel {
     static func parse(_ data: Data) -> [String] {
         let text = String(decoding: data, as: UTF8.self)
-        var lines = text
+        var lines =
+            text
             .split(whereSeparator: { $0 == "\n" || $0 == "\r" })
             .map(String.init)
             .filter { !$0.isEmpty }

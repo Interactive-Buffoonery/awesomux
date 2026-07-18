@@ -36,7 +36,8 @@ struct GitStatusInfo: Equatable, Sendable {
         var head: String?
 
         for rawLine in String(decoding: data, as: UTF8.self)
-            .split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+            .split(whereSeparator: { $0 == "\n" || $0 == "\r" })
+        {
             if rawLine.hasPrefix("#") {
                 let aheadBehindPrefix = "# branch.ab "
                 let headPrefix = "# branch.head "
@@ -89,6 +90,9 @@ struct GitStatusCommandRunner: Sendable {
         // - `--ahead-behind` / `--untracked-files=normal`: pin the output against
         //   user config that could otherwise suppress ahead/behind or untracked
         //   entries, so the chip counts are deterministic.
+        // Prefix-safe: porcelain headers lead the stream and the dirty chip
+        // saturates well before the stdout cap, so a truncated buffer is still
+        // useful. Authoritative list parsers must use `.completeData` instead.
         await Self.command.run(
             arguments: [
                 "--no-optional-locks",
@@ -97,7 +101,7 @@ struct GitStatusCommandRunner: Sendable {
                 "--ahead-behind", "--untracked-files=normal",
             ],
             inDirectory: repoRoot
-        )
+        ).dataAllowingTruncation
     }
 }
 
@@ -142,8 +146,9 @@ struct GitStatusResolver: Sendable {
                 // they aren't cached/painted under the wrong chip. The dirty count
                 // is working-tree-wide, so it stays valid.
                 if !key.branch.isEmpty,
-                   let head = info.branchHead,
-                   head != key.branch {
+                    let head = info.branchHead,
+                    head != key.branch
+                {
                     return GitStatusInfo(dirtyCount: info.dirtyCount, ahead: 0, behind: 0)
                 }
                 return info

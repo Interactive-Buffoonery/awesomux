@@ -914,7 +914,7 @@ enum AmxBackend {
         guard let data = await runner.run(
             arguments: ["cwd", sessionID.rawValue],
             inDirectory: FileManager.default.currentDirectoryPath
-        ), let output = String(data: data, encoding: .utf8) else {
+        ).completeData, let output = String(data: data, encoding: .utf8) else {
             return nil
         }
         return Self.parseCwdOutput(output)
@@ -970,10 +970,13 @@ enum AmxBackend {
             maxOutputBytes: 1024 * 1024,
             environment: bridgeProcessEnvironment()
         )
+        // Fail-closed on truncation: a capped short-list could omit a live
+        // session id and look like a dead daemon, triggering an unnecessary
+        // respawn in the legacy fallback.
         guard let data = await runner.run(
             arguments: ["list", "--short"],
             inDirectory: FileManager.default.currentDirectoryPath
-        ),
+        ).completeData,
               let output = String(data: data, encoding: .utf8) else {
             return false
         }
@@ -1002,7 +1005,7 @@ enum AmxBackend {
         guard let data = await runner.run(
             arguments: ["list"],
             inDirectory: FileManager.default.currentDirectoryPath
-        ), let output = String(data: data, encoding: .utf8) else { return nil }
+        ).completeData, let output = String(data: data, encoding: .utf8) else { return nil }
         return DaemonGCPlan.parseAmxList(output)
     }
 
@@ -1014,7 +1017,7 @@ enum AmxBackend {
         guard let data = await diagnosticsProcessRunner.run(
             arguments: ["-xo", "pid=,ppid=,%cpu=,rss=,comm="],
             inDirectory: "/"
-        ), let output = String(data: data, encoding: .utf8) else { return nil }
+        ).completeData, let output = String(data: data, encoding: .utf8) else { return nil }
         let snapshot = DiagnosticsProcessParser.parse(output)
         return snapshot.isEmpty ? nil : snapshot
     }
@@ -1036,7 +1039,7 @@ enum AmxBackend {
         guard let data = await runner.run(
             arguments: ["-axo", "pid=,ppid=,comm="],
             inDirectory: "/"
-        ), let output = String(data: data, encoding: .utf8) else { return nil }
+        ).completeData, let output = String(data: data, encoding: .utf8) else { return nil }
         let snapshot = DaemonGCPlan.parseProcessSnapshot(output)
         return snapshot.isEmpty ? nil : snapshot
     }
@@ -1078,10 +1081,15 @@ enum AmxBackend {
             maxOutputBytes: 64 * 1024,
             environment: bridgeProcessEnvironment()
         )
-        return await runner.run(
+        // Exit status alone matters for kill; ignore stdout, but still require a
+        // non-failed run (timeout / missing binary → false).
+        if case .failed = await runner.run(
             arguments: ["kill", id.rawValue, "--force"],
             inDirectory: FileManager.default.currentDirectoryPath
-        ) != nil
+        ) {
+            return false
+        }
+        return true
     }
 
     static var establishedSessionMetadata: TerminalBackendMetadata {

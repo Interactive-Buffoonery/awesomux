@@ -7,9 +7,35 @@ import Foundation
 /// shell out.
 typealias StatusCommandRunner = @Sendable (_ repoRoot: String, _ branch: String) async -> Data?
 
-/// Runs a bounded external command and returns its stdout on a clean exit
-/// (status 0), or nil on any failure (executable missing, non-zero exit,
-/// timeout). Shared by the Path Bar's `gh` (PR) and `git` (status) lookups.
+/// Outcome of a bounded subprocess run. Callers must choose whether truncated
+/// stdout is acceptable (prefix-safe chips) or must fail closed (authoritative
+/// lists / existence checks).
+enum BoundedCommandResult: Sendable, Equatable {
+    case complete(Data)
+    case truncated(prefix: Data)
+    case failed
+
+    /// Fail-closed: only fully collected successful stdout.
+    var completeData: Data? {
+        if case .complete(let data) = self { return data }
+        return nil
+    }
+
+    /// Prefix-safe: complete or truncated prefix after a clean exit + EOF.
+    var dataAllowingTruncation: Data? {
+        switch self {
+        case .complete(let data), .truncated(let data):
+            return data
+        case .failed:
+            return nil
+        }
+    }
+}
+
+/// Runs a bounded external command and returns an explicit stdout result on a
+/// clean exit (status 0), or `.failed` on any failure (executable missing,
+/// non-zero exit, timeout, undrained pipe). Shared by the Path Bar's `gh` (PR)
+/// and `git` (status) lookups.
 ///
 /// A launched `.app` bundle inherits launchd's minimal PATH, NOT the user's shell
 /// PATH, so the executable is resolved by absolute path up front. The call is
@@ -70,9 +96,9 @@ struct BoundedCommandRunner: Sendable {
         self.delay = delay
     }
 
-    func run(arguments: [String], inDirectory directory: String) async -> Data? {
+    func run(arguments: [String], inDirectory directory: String) async -> BoundedCommandResult {
         guard let executableURL else {
-            return nil
+            return .failed
         }
 
         let handle = ProcessHandle()
@@ -87,7 +113,7 @@ struct BoundedCommandRunner: Sendable {
         let maxOutputBytes = maxOutputBytes
         let delay = delay
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            await withCheckedContinuation { (continuation: CheckedContinuation<BoundedCommandResult, Never>) in
                 let state = RunState(
                     continuation: continuation,
                     readHandle: handle.stdout.fileHandleForReading,
@@ -110,7 +136,7 @@ struct BoundedCommandRunner: Sendable {
                     state.markExited(success: process.terminationStatus == 0)
                     // Bounded fallback: if EOF never arrives because a descendant
                     // inherited stdout and holds it open, resume after a short grace
-                    // rather than blocking forever. We resolve to nil (not the
+                    // rather than blocking forever. We resolve to `.failed` (not the
                     // partial buffer): without EOF we can't prove the output is
                     // complete, and a silently-undercounted dirty chip is worse than
                     // none. The normal path resumes immediately once EOF + exit
@@ -137,8 +163,11 @@ struct BoundedCommandRunner: Sendable {
         } onCancel: {
             // Own the escalation here too: if a cancelled child ignores SIGTERM,
             // SIGKILL it after a grace so cancellation can't leave it running.
+            // Detach so the grace Task does not inherit this cancelled context
+            // (an inherited-cancelled Task would skip the delay and may race
+            // the kill before the test/harness observes the grace path).
             handle.terminateIfRunning()
-            Task {
+            Task.detached {
                 try? await delay(.seconds(1))
                 handle.killIfRunning()
             }
@@ -151,17 +180,22 @@ struct BoundedCommandRunner: Sendable {
     /// grace fallback otherwise. Lock-guarded; the resume runs outside the lock.
     private final class RunState: @unchecked Sendable {
         private let lock = NSLock()
-        private let continuation: CheckedContinuation<Data?, Never>
+        private let continuation: CheckedContinuation<BoundedCommandResult, Never>
         private let readHandle: FileHandle
         private let maxBytes: Int
         private var buffer = Data()
+        private var truncated = false
         private var exited = false
         private var drained = false
         private var success = false
         private var resumed = false
         private var timeoutTask: Task<Void, Never>?
 
-        init(continuation: CheckedContinuation<Data?, Never>, readHandle: FileHandle, maxBytes: Int) {
+        init(
+            continuation: CheckedContinuation<BoundedCommandResult, Never>,
+            readHandle: FileHandle,
+            maxBytes: Int
+        ) {
             self.continuation = continuation
             self.readHandle = readHandle
             self.maxBytes = maxBytes
@@ -170,11 +204,18 @@ struct BoundedCommandRunner: Sendable {
         func append(_ chunk: Data) {
             lock.lock()
             // Cap accumulation: keep draining the pipe (so the child can't block)
-            // but stop growing the buffer. Porcelain headers come first, and the
-            // dirty count saturates the `+999+` display long before this, so a
-            // capped buffer still yields a correct-enough count.
-            if buffer.count < maxBytes {
-                buffer.append(chunk)
+            // but stop growing the buffer past `maxBytes`, and record truncation
+            // so callers never treat a prefix as complete output.
+            if buffer.count >= maxBytes {
+                truncated = true
+            } else {
+                let remaining = maxBytes - buffer.count
+                if chunk.count <= remaining {
+                    buffer.append(chunk)
+                } else {
+                    buffer.append(chunk.prefix(remaining))
+                    truncated = true
+                }
             }
             lock.unlock()
         }
@@ -204,30 +245,39 @@ struct BoundedCommandRunner: Sendable {
         }
 
         /// Grace fallback: the child exited but stdout never reached EOF (a
-        /// descendant holds the pipe). Resolve to nil — an unconfirmed-complete
-        /// buffer must not be painted as a real result.
+        /// descendant holds the pipe). Resolve to `.failed` — an unconfirmed-
+        /// complete buffer must not be painted as a real result.
         func resumeUndrainedAsFailureIfExited() {
-            lock.lock(); let resume = exited ? finishLocked(returning: nil) : nil; lock.unlock(); resume?()
+            lock.lock()
+            let resume = exited ? finishLocked(returning: .failed) : nil
+            lock.unlock()
+            resume?()
         }
 
         func fail() {
             lock.lock()
             let timeoutTask = timeoutTask
             self.timeoutTask = nil
-            let resume = finishLocked(returning: nil)
+            let resume = finishLocked(returning: .failed)
             lock.unlock()
             timeoutTask?.cancel()
             resume?()
         }
 
         /// Resume only when both the child has exited and stdout reached EOF — the
-        /// only state where the collected buffer is provably the complete output.
+        /// only state where the collected buffer's completeness is known.
         private func readyResumeLocked() -> (() -> Void)? {
             guard exited, drained else { return nil }
-            return finishLocked(returning: success ? buffer : nil)
+            guard success else {
+                return finishLocked(returning: .failed)
+            }
+            if truncated {
+                return finishLocked(returning: .truncated(prefix: buffer))
+            }
+            return finishLocked(returning: .complete(buffer))
         }
 
-        private func finishLocked(returning value: Data?) -> (() -> Void)? {
+        private func finishLocked(returning value: BoundedCommandResult) -> (() -> Void)? {
             guard !resumed else { return nil }
             resumed = true
             let continuation = continuation
