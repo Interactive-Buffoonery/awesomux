@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
 import os
@@ -354,7 +355,8 @@ enum SessionPersistence {
         isCancelled: () -> Bool = { false }
     ) {
         do {
-            try PrivateFilePermissions.createDirectory(at: supportDirectoryURL)
+            try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
+            try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
 
             let data = try encodeSnapshot(snapshot)
             let digest = StableDataDigest(data: data)
@@ -390,7 +392,7 @@ enum SessionPersistence {
             // future unchanged save behind the digest, so the bad permissions
             // would persist until content changes. Skipping recordWritten lets
             // the next save (or terminate-time flush) retry the write + chmod.
-            try PrivateFilePermissions.secureFile(at: snapshotURL)
+            try FileManager.default.setOwnerOnlyPermissions(onFileAt: snapshotURL)
             digestWriteGate.recordWritten(digest)
         } catch {
             logger.error("failed to save session snapshot: \(error.localizedDescription, privacy: .public)")
@@ -448,7 +450,8 @@ enum SessionPersistence {
         }
 
         do {
-            try PrivateFilePermissions.createDirectory(at: supportDirectoryURL)
+            try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
+            try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
             // Write the exact bytes we already decoded rather than re-reading
             // the file by path: a path copy can race a concurrent swap (TOCTOU)
             // and preserve the wrong snapshot, and `copyItem` would follow a
@@ -553,7 +556,7 @@ enum SessionPersistence {
 
     nonisolated private static func setPrivatePermissions(on url: URL) {
         do {
-            try PrivateFilePermissions.secureFile(at: url)
+            try FileManager.default.setOwnerOnlyPermissions(onFileAt: url)
         } catch {
             logger.error(
                 "failed to set private permissions on \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
