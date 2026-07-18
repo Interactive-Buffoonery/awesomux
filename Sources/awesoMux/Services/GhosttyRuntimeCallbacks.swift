@@ -57,7 +57,10 @@ extension GhosttyRuntime {
             }
 
             let title = String(cString: titlePointer)
-            Task { @MainActor in
+            // A `Task` here leaves a gap for `update(session:pane:)` to repoint
+            // this view at a different pane before the write lands — same race
+            // INT-587 fixed for GHOSTTY_ACTION_PROGRESS_REPORT below (INT-608).
+            onMainThreadSynchronously {
                 view.updateTerminalTitle(title)
             }
             return true
@@ -69,7 +72,8 @@ extension GhosttyRuntime {
             }
 
             let workingDirectory = String(cString: pwdPointer)
-            Task { @MainActor in
+            // Same pane-recycle race as GHOSTTY_ACTION_SET_TITLE above (INT-608).
+            onMainThreadSynchronously {
                 view.updateWorkingDirectory(workingDirectory)
             }
             return true
@@ -79,7 +83,9 @@ extension GhosttyRuntime {
                 return false
             }
 
-            Task { @MainActor in
+            // Same pane-recycle race as GHOSTTY_ACTION_SET_TITLE above (INT-608):
+            // `markNeedsAttention` reads `view.sessionID`/`view.paneID` live.
+            onMainThreadSynchronously {
                 // `workspaces.output_marks_needs_attention = false` means
                 // "don't mark sessions as needing attention from output."
                 // Honor the setting at the bell entry point so the
@@ -99,7 +105,8 @@ extension GhosttyRuntime {
             let title = notification.title.map(String.init(cString:)) ?? ""
             let body = notification.body.map(String.init(cString:)) ?? ""
 
-            Task { @MainActor in
+            // Same pane-recycle race as GHOSTTY_ACTION_SET_TITLE above (INT-608).
+            onMainThreadSynchronously {
                 switch Self.desktopNotificationEffect(
                     title: title,
                     body: body,
