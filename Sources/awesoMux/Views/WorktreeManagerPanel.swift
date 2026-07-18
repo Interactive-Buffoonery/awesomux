@@ -219,6 +219,11 @@ struct WorktreeManagerPanel: View {
         let outcome = await model.open(row: row)
         if case .failed(let message) = outcome {
             openError = message
+            // The button shows this visually; VoiceOver users invoking the
+            // same action (via the accessibility action above) need the
+            // equivalent spoken feedback — refresh/create already route
+            // through this same announce hook.
+            model.announce(message)
         } else {
             openError = nil
         }
