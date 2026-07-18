@@ -27,6 +27,16 @@ final class SettingsNavigator {
         return pendingAnalyticsDiagnosticsSection ?? .overview
     }
 
+    /// Drops every pending deep-link intent. Called when the settings window
+    /// closes: the navigator outlives the window, so an unconsumed intent
+    /// would otherwise misclassify (or scroll) the next ordinary opening.
+    func clearPendingDeepLink() {
+        pendingSection = nil
+        pendingScrollAnchor = nil
+        pendingAccessibilityFocusAnchor = nil
+        pendingAnalyticsDiagnosticsSection = nil
+    }
+
     func anchorDidMount(_ anchor: String) {
         mountedAnchors.insert(anchor)
     }

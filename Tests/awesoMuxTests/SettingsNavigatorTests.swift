@@ -16,6 +16,22 @@ struct SettingsNavigatorTests {
         #expect(navigator.consumeAnalyticsDiagnosticsIntent() == .overview)
     }
 
+    @Test("window close clears an abandoned deep-link intent")
+    func windowCloseClearsAbandonedIntent() {
+        let navigator = SettingsNavigator()
+        navigator.pendingSection = .diagnostics
+        navigator.pendingScrollAnchor = "analytics-events"
+        navigator.noteAnalyticsDiagnosticsIntent(.analytics)
+        navigator.scrollDidLand(on: "analytics-events")
+
+        navigator.clearPendingDeepLink()
+
+        #expect(navigator.pendingSection == nil)
+        #expect(navigator.pendingScrollAnchor == nil)
+        #expect(navigator.pendingAccessibilityFocusAnchor == nil)
+        #expect(navigator.consumeAnalyticsDiagnosticsIntent() == .overview)
+    }
+
     @Test("accessibility focus intent is consumed only by its destination")
     func accessibilityFocusIntentTargetsDestination() {
         let navigator = SettingsNavigator()

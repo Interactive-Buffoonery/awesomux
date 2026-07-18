@@ -39,6 +39,12 @@ struct SettingsShell<Selection: Hashable, Sidebar: View, Detail: View>: View {
             }
         }
         .background(Color.aw.surface.window)
+        // The navigator outlives this window. An intent noted but not yet
+        // consumed when the window closes must not classify or scroll the
+        // next ordinary opening.
+        .onDisappear {
+            navigator.clearPendingDeepLink()
+        }
         // Floor is small enough to fit a low-vision-zoom screen but large
         // enough that the sidebar + a single content row remain usable.
         // Going to 0/0 lets the user shrink the window into a strip
