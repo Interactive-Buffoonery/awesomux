@@ -134,5 +134,4 @@ enum PrimaryWindowSurfacer {
 enum AwesoMuxSceneID {
     static let primary = "primary"
     static let settings = "settings"
-    static let about = "about"
 }

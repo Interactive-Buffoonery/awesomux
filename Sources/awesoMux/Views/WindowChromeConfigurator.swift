@@ -5,28 +5,15 @@ import SwiftUI
 enum StandardWindowButtonVisibility {
     case visible
     case hidden
-    /// Close button only — miniaturize and zoom hidden. Used by the About
-    /// window, whose fixed size / non-restore are owned by the scene modifiers
-    /// (`.windowResizability(.contentSize)` / `.restorationBehavior(.disabled)`).
-    case closeOnly
 
     @MainActor
     func apply(to window: NSWindow) {
-        switch self {
-        case .visible:
+        if self == .visible {
             window.styleMask.formUnion([.closable, .miniaturizable, .resizable])
-        case .closeOnly:
-            // Truly close-only: drop the minimize capability too, so Cmd-M /
-            // Window ▸ Minimize can't park the fixed-size About window while its
-            // button is hidden. Resize stays owned by the scene modifier.
-            window.styleMask.remove(.miniaturizable)
-        case .hidden:
-            break
         }
 
-        window.standardWindowButton(.closeButton)?.isHidden = self == .hidden
-        for button in [NSWindow.ButtonType.miniaturizeButton, .zoomButton] {
-            window.standardWindowButton(button)?.isHidden = self != .visible
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            window.standardWindowButton(button)?.isHidden = self == .hidden
         }
     }
 }
@@ -37,22 +24,19 @@ struct WindowChromeConfigurator: NSViewRepresentable {
     private let forcesTitlebarRelayout: Bool
     private let assertsNonMainCapable: Bool
     private let standardWindowButtonVisibility: StandardWindowButtonVisibility
-    private let centersOnAttach: Bool
 
     init(
         windowRole: AwesoMuxWindowRole? = nil,
         reassertsOnBecomeKey: Bool = false,
         forcesTitlebarRelayout: Bool = false,
         assertsNonMainCapable: Bool = false,
-        standardWindowButtonVisibility: StandardWindowButtonVisibility = .visible,
-        centersOnAttach: Bool = false
+        standardWindowButtonVisibility: StandardWindowButtonVisibility = .visible
     ) {
         self.windowRole = windowRole
         self.reassertsOnBecomeKey = reassertsOnBecomeKey
         self.forcesTitlebarRelayout = forcesTitlebarRelayout
         self.assertsNonMainCapable = assertsNonMainCapable
         self.standardWindowButtonVisibility = standardWindowButtonVisibility
-        self.centersOnAttach = centersOnAttach
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -61,8 +45,7 @@ struct WindowChromeConfigurator: NSViewRepresentable {
             reassertsOnBecomeKey: reassertsOnBecomeKey,
             forcesTitlebarRelayout: forcesTitlebarRelayout,
             assertsNonMainCapable: assertsNonMainCapable,
-            standardWindowButtonVisibility: standardWindowButtonVisibility,
-            centersOnAttach: centersOnAttach
+            standardWindowButtonVisibility: standardWindowButtonVisibility
         )
     }
 
@@ -82,28 +65,22 @@ private final class WindowChromeConfigView: NSView {
     private let forcesTitlebarRelayout: Bool
     private let assertsNonMainCapable: Bool
     private let standardWindowButtonVisibility: StandardWindowButtonVisibility
-    private let centersOnAttach: Bool
     private let windowRole: AwesoMuxWindowRole?
     private var keyObserver: NSObjectProtocol?
     private weak var roleWindow: NSWindow?
-    /// Windows this view has already centered — attach-time only, so a user
-    /// who drags the window and clicks back in is never yanked to center.
-    private weak var centeredWindow: NSWindow?
 
     init(
         windowRole: AwesoMuxWindowRole?,
         reassertsOnBecomeKey: Bool,
         forcesTitlebarRelayout: Bool,
         assertsNonMainCapable: Bool,
-        standardWindowButtonVisibility: StandardWindowButtonVisibility,
-        centersOnAttach: Bool
+        standardWindowButtonVisibility: StandardWindowButtonVisibility
     ) {
         self.windowRole = windowRole
         self.reassertsOnBecomeKey = reassertsOnBecomeKey
         self.forcesTitlebarRelayout = forcesTitlebarRelayout
         self.assertsNonMainCapable = assertsNonMainCapable
         self.standardWindowButtonVisibility = standardWindowButtonVisibility
-        self.centersOnAttach = centersOnAttach
         super.init(frame: .zero)
     }
 
@@ -126,20 +103,6 @@ private final class WindowChromeConfigView: NSView {
         guard let window else { return }
 
         configureWindow(window)
-
-        // Programmatic centering: the scene-level `.defaultPosition(.center)`
-        // does not take effect for this hidden-title-bar auxiliary scene (the
-        // window opens at the AppKit cascade spot instead — verified on a
-        // fresh profile), so center via AppKit once per window. Deferred one
-        // main-queue hop so SwiftUI has applied the final content size first;
-        // `NSWindow.center()` is the macOS-conventional About placement
-        // (screen-centered horizontally, slightly above vertical center).
-        if centersOnAttach, centeredWindow !== window {
-            centeredWindow = window
-            DispatchQueue.main.async { [weak window] in
-                window?.center()
-            }
-        }
 
         guard reassertsOnBecomeKey else { return }
         keyObserver = NotificationCenter.default.addObserver(
