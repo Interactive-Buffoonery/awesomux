@@ -70,6 +70,7 @@ struct SidebarGroupHeaderHitTargetTests {
         let toggleCounter = ToggleCounter()
         let closeCounter = ToggleCounter()
         let window = Self.makeWindow(
+            headerHoverOverride: false,
             onToggle: toggleCounter.increment,
             onCloseGroup: closeCounter.increment
         )
@@ -96,6 +97,22 @@ struct SidebarGroupHeaderHitTargetTests {
         )
         defer { window.close() }
 
+        let closeRendering = Self.renderedPixels(in: window)
+        let badgeWindow = Self.makeWindow(
+            isGroupEmpty: true,
+            totalGroupCount: 2,
+            headerHoverOverride: false,
+            onToggle: {}
+        )
+        defer { badgeWindow.close() }
+        let badgeRendering = Self.renderedPixels(in: badgeWindow)
+
+        #expect(!closeRendering.isEmpty)
+        #expect(closeRendering != badgeRendering)
+
+        badgeWindow.close()
+        window.makeKeyAndOrderFront(nil)
+        Self.settleMainRunLoop()
         Self.sendClick(to: window, at: Self.expandedCountBadgePoint)
         #expect(Self.pumpMainRunLoop(until: { closeCounter.count >= 1 }))
         Self.settleMainRunLoop()
@@ -116,6 +133,21 @@ struct SidebarGroupHeaderHitTargetTests {
         )
         defer { window.close() }
 
+        let hoveredRendering = Self.renderedPixels(in: window)
+        let badgeWindow = Self.makeWindow(
+            isGroupEmpty: true,
+            headerHoverOverride: false,
+            onToggle: {}
+        )
+        defer { badgeWindow.close() }
+        let badgeRendering = Self.renderedPixels(in: badgeWindow)
+
+        #expect(!hoveredRendering.isEmpty)
+        #expect(hoveredRendering == badgeRendering)
+
+        badgeWindow.close()
+        window.makeKeyAndOrderFront(nil)
+        Self.settleMainRunLoop()
         Self.sendClick(to: window, at: Self.expandedCountBadgePoint)
         #expect(Self.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
         Self.settleMainRunLoop()
@@ -153,12 +185,35 @@ struct SidebarGroupHeaderHitTargetTests {
         onCloseGroup: @escaping () -> Void = {},
         onNewSessionInGroup: @escaping () -> Void = {}
     ) -> NSWindow {
+        let session = TerminalSession(
+            id: UUID(uuidString: "82F876DB-D5C8-4129-AE07-9F0571316E42")!,
+            title: "Workspace",
+            workingDirectory: "~"
+        )
+        let group = SessionGroup(
+            id: UUID(uuidString: "8B10C4F3-3905-4C67-A6F6-C7EB11F03D5B")!,
+            name: "Workspace group",
+            sessions: isGroupEmpty ? [] : [session]
+        )
+        let allGroups =
+            totalGroupCount > 1
+            ? [
+                group,
+                SessionGroup(
+                    id: UUID(uuidString: "5068B8D9-5953-4A2F-A50D-D92BF400EA4A")!,
+                    name: "Other group",
+                    sessions: []
+                ),
+            ]
+            : [group]
         let hostingView = HitTargetHostingView(
             rootView: SidebarGroupHitTargetHarness(
+                group: group,
+                allGroups: allGroups,
+                tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
                 isCollapsed: isCollapsed,
                 displayMode: displayMode,
                 width: width,
-                isGroupEmpty: isGroupEmpty,
                 totalGroupCount: totalGroupCount,
                 headerHoverOverride: headerHoverOverride,
                 onToggle: onToggle,
@@ -185,6 +240,16 @@ struct SidebarGroupHeaderHitTargetTests {
         hostingView.layoutSubtreeIfNeeded()
         settleMainRunLoop()
         return window
+    }
+
+    private static func renderedPixels(in window: NSWindow) -> Data {
+        guard let view = window.contentView,
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds),
+            let bytes = bitmap.bitmapData
+        else { return Data() }
+
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return Data(bytes: bytes, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
     }
 
     private static func sendClick(to window: NSWindow, at location: CGPoint) {
@@ -246,10 +311,12 @@ private final class ToggleCounter {
 }
 
 private struct SidebarGroupHitTargetHarness: View {
+    let group: SessionGroup
+    let allGroups: [SessionGroup]
+    let tint: ProjectTint
     let isCollapsed: Bool
     let displayMode: SidebarWidthMode
     let width: CGFloat
-    let isGroupEmpty: Bool
     let totalGroupCount: Int
     let headerHoverOverride: Bool?
     let onToggle: () -> Void
@@ -259,39 +326,12 @@ private struct SidebarGroupHitTargetHarness: View {
     @State private var isKeyboardNavigating = false
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
 
-    // A non-empty group: the close X gate (SidebarGroupClosePolicy) suppresses
-    // only the sole EMPTY group, so an empty single-group harness would gate the
-    // X off regardless of hover — the badge-slot test would pass even with the
-    // hover gate deleted. With one session, hover is the only remaining
-    // suppressor, so the test genuinely guards it. `entries` stays empty (the
-    // count badge renders 0 and no tile rows mount, keeping the y=68 header
-    // geometry stable); the gate reads the model's `group.sessions`, not entries.
-    private var group: SessionGroup {
-        SessionGroup(
-            id: UUID(uuidString: "8B10C4F3-3905-4C67-A6F6-C7EB11F03D5B")!,
-            name: "Workspace group",
-            sessions: isGroupEmpty ? [] : [TerminalSession(title: "Workspace", workingDirectory: "~")]
-        )
-    }
-
-    private var allGroups: [SessionGroup] {
-        guard totalGroupCount > 1 else { return [group] }
-        return [
-            group,
-            SessionGroup(
-                id: UUID(uuidString: "5068B8D9-5953-4A2F-A50D-D92BF400EA4A")!,
-                name: "Other group",
-                sessions: []
-            ),
-        ]
-    }
-
     var body: some View {
         SidebarGroupView(
             group: group,
             entries: [],
             density: SidebarDensity(compact: false),
-            tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
+            tint: tint,
             workspacesWithBackgroundedFloatingWork: [],
             promotedSessionID: nil,
             promotionPulseSessionID: nil,
