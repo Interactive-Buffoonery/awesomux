@@ -45,8 +45,12 @@ struct SidebarSearchField: NSViewRepresentable {
         guard isFocused, field.currentEditor() == nil else {
             return
         }
-        DispatchQueue.main.async { [weak field] in
-            guard let field, field.currentEditor() == nil else {
+        DispatchQueue.main.async { [weak field, isFocused = $isFocused] in
+            guard isFocused.wrappedValue,
+                let field,
+                field.currentEditor() == nil,
+                field.isEnabled
+            else {
                 return
             }
             field.window?.makeFirstResponder(field)
