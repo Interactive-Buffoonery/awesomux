@@ -3007,7 +3007,8 @@ struct AwesoMuxApp: App {
                 isAnySheetPresented: isAnySheetPresented,
                 isOpenInIDEEnabled: appSettingsStore.workspaces.value.openInIDEEnabled,
                 isSidebarHidden: isSidebarPersistentlyHidden,
-                isSidebarCommandTargetAvailable: sidebarCommandTargetAvailability.isAvailable
+                isSidebarCommandTargetAvailable: sidebarCommandTargetAvailability.isAvailable,
+                isWorktreeManagerAvailable: worktreeManagerModel != nil && !isAnySheetPresented
             ),
             actions: paletteActions,
             keyboard: keyboardConfig
@@ -3196,7 +3197,10 @@ struct AwesoMuxApp: App {
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFilePanel,
-            openSessionManager: toggleSessionManager
+            openSessionManager: toggleSessionManager,
+            openWorktreeManager: toggleWorktreeManager,
+            createWorktree: toggleWorktreeManager,
+            openWorktree: toggleWorktreeManager
         )
     }
 
