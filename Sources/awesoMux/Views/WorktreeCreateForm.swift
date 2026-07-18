@@ -215,11 +215,7 @@ struct WorktreeCreateForm: View {
     private func suggestPath() {
         guard targetPath.isEmpty || targetPath == lastSuggestedPath else { return }
         let name = mode == .existing ? selectedBranch : newBranchName
-        let suggestion =
-            policy.suggestedTargetPath(
-                repositoryContext: model.repositoryContext,
-                branchName: name
-            )?.path ?? ""
+        let suggestion = policy.formTargetPathPrefill(repositoryContext: model.repositoryContext, branchName: name)
         targetPath = suggestion
         lastSuggestedPath = suggestion
     }
