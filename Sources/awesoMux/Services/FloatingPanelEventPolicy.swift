@@ -56,8 +56,12 @@ enum FloatingPanelEventPolicy {
             && normalizedModifiers(modifiers) == [.command]
     }
 
-    static func canPromoteFloatingPanel(hasAttachedSheet: Bool) -> Bool {
-        !hasAttachedSheet
+    static func canPromoteTerminalPanel(
+        hasAttachedSheet: Bool,
+        parentHasAttachedSheet: Bool,
+        hasModalSession: Bool
+    ) -> Bool {
+        !hasAttachedSheet && !parentHasAttachedSheet && !hasModalSession
     }
 
     static func isGlobalWorkspaceJumpChord(_ event: NSEvent) -> Bool {
