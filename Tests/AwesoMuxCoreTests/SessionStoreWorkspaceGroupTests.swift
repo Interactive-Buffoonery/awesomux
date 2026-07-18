@@ -441,7 +441,7 @@ struct SessionStoreWorkspaceGroupTests {
         #expect(store.session(id: sessionID)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
         store.moveSession(id: sessionID, toGroupID: group.id, atIndex: 0)
         let data = try JSONEncoder().encode(store.snapshot())
-        let restored = SessionStore(restoring: try JSONDecoder().decode(SessionSnapshot.self, from: data))
+        let restored = SessionStore(restoring: try SessionSnapshot.decode(from: data))
         #expect(restored.session(id: sessionID)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
         #expect(restored.groups[0].remote == nil)
     }
@@ -540,7 +540,7 @@ struct SessionStoreWorkspaceGroupTests {
         // reducer: the INT-767 drop happened between an intact Codable layer
         // and the in-memory rebuild.
         let data = try JSONEncoder().encode(store.snapshot())
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
 
         let restored = SessionStore(restoring: decoded)
         #expect(restored.groups.first?.remote == target)
