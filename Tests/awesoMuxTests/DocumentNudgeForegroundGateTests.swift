@@ -11,24 +11,22 @@ struct DocumentNudgeForegroundGateTests {
     func rejectsForegroundSSH() {
         let fixture = makeFixture(executionPlan: .local)
 
-        #expect(resolve(fixture, returningSSH: .matching) == .unavailable(.foregroundSSH))
+        #expect(resolve(fixture, comm: "ssh") == .unavailable(.foregroundSSH))
     }
 
     @Test("declared local pane rejects unknown foreground evidence")
     func rejectsUnknownForeground() {
         let fixture = makeFixture(executionPlan: .local)
 
-        #expect(
-            resolve(fixture, returningSSH: .unknown) == .unavailable(.localTerminalUnverified)
-        )
+        #expect(resolve(fixture, comm: nil) == .unavailable(.localTerminalUnverified))
     }
 
     @Test("a plain shell pane declines even when SSH evidence clears")
     func shellPaneDeclines() {
         let fixture = makeFixture(executionPlan: .local)
 
-        #expect(resolve(fixture, returningSSH: .matching) == .unavailable(.foregroundSSH))
-        #expect(resolve(fixture, returningSSH: .notMatching) == .unavailable(.noVerifiedAgent))
+        #expect(resolve(fixture, comm: "ssh") == .unavailable(.foregroundSSH))
+        #expect(resolve(fixture, comm: "zsh") == .unavailable(.noVerifiedAgent))
     }
 
     @Test("a waiting agent with live foreground evidence is available")
@@ -39,8 +37,34 @@ struct DocumentNudgeForegroundGateTests {
             agentExecutionState: .waiting
         )
 
-        let resolution = resolve(fixture, returningSSH: .notMatching, returningAgent: .matching)
-        #expect(resolution == .available(fixture.terminal))
+        #expect(resolve(fixture, comm: "codex") == .available(fixture.terminal))
+    }
+
+    @Test("a native-install Claude Code with a version-named binary is available")
+    func nativeInstallClaudeIsAvailable() {
+        let fixture = makeFixture(
+            executionPlan: .local,
+            agentKind: .claudeCode,
+            agentExecutionState: .waiting
+        )
+
+        // The live maintainer repro: p_comm reads the resolved version-named
+        // executable, not the `claude` symlink it was launched through.
+        #expect(resolve(fixture, comm: "2.1.214") == .available(fixture.terminal))
+    }
+
+    @Test("a configured binary path verifies via its resolved basename")
+    func configuredBinaryPathVerifies() {
+        let fixture = makeFixture(
+            executionPlan: .local,
+            agentKind: .pi,
+            agentExecutionState: .waiting
+        )
+
+        #expect(
+            resolve(fixture, comm: "pi-custom", binaryPath: "/opt/agents/pi-custom")
+                == .available(fixture.terminal)
+        )
     }
 
     @Test("a waiting agent whose foreground process is not the provider declines")
@@ -51,24 +75,7 @@ struct DocumentNudgeForegroundGateTests {
             agentExecutionState: .waiting
         )
 
-        #expect(
-            resolve(fixture, returningSSH: .notMatching, returningAgent: .notMatching)
-                == .unavailable(.noVerifiedAgent)
-        )
-    }
-
-    @Test("a waiting agent with unknown foreground evidence at the agent probe declines")
-    func unknownAgentForegroundDeclines() {
-        let fixture = makeFixture(
-            executionPlan: .local,
-            agentKind: .codex,
-            agentExecutionState: .waiting
-        )
-
-        #expect(
-            resolve(fixture, returningSSH: .notMatching, returningAgent: .unknown)
-                == .unavailable(.noVerifiedAgent)
-        )
+        #expect(resolve(fixture, comm: "vim") == .unavailable(.noVerifiedAgent))
     }
 
     @Test("a running agent declines with its identity in the reason")
@@ -80,7 +87,7 @@ struct DocumentNudgeForegroundGateTests {
         )
 
         #expect(
-            resolve(fixture, returningSSH: .notMatching, returningAgent: .matching)
+            resolve(fixture, comm: "claude")
                 == .unavailable(.agentNotReceptive(.claudeCode))
         )
     }
@@ -97,7 +104,7 @@ struct DocumentNudgeForegroundGateTests {
             in: fixture.layout,
             for: fixture.document.id,
             isIntegrationEnabled: { _ in false }
-        ) { _, _ in .notMatching }
+        ) { _ in "pi" }
 
         #expect(resolution == .unavailable(.agentIntegrationDisabled(.pi)))
     }
@@ -114,9 +121,9 @@ struct DocumentNudgeForegroundGateTests {
                 Issue.record("declared remote panes must not consult integration settings")
                 return true
             }
-        ) { _, _ in
+        ) { _ in
             Issue.record("declared remote panes must not consult local process evidence")
-            return .notMatching
+            return "zsh"
         }
 
         #expect(resolution == .unavailable(.requiresLocalTerminal))
@@ -135,7 +142,7 @@ struct DocumentNudgeForegroundGateTests {
             in: layout,
             for: document.id,
             isIntegrationEnabled: { _ in true }
-        ) { _, _ in .matching }
+        ) { _ in "zsh" }
 
         #expect(resolution == .unavailable(.terminalUnavailable))
     }
@@ -171,7 +178,7 @@ struct DocumentNudgeForegroundGateTests {
             in: layout,
             for: document.id,
             isIntegrationEnabled: { _ in true }
-        ) { _, _ in .matching }
+        ) { _ in "zsh" }
 
         #expect(resolution == .unavailable(.terminalUnavailable))
     }
@@ -232,16 +239,17 @@ struct DocumentNudgeForegroundGateTests {
 
     private func resolve(
         _ fixture: Fixture,
-        returningSSH sshMatch: ProcessLivenessProbe.ForegroundExecutableMatch,
-        returningAgent agentMatch: ProcessLivenessProbe.ForegroundExecutableMatch = .notMatching
+        comm: String?,
+        binaryPath: String? = nil
     ) -> DocumentNudgeTargetResolution {
         DocumentPaneSendBar.resolveNudgeTarget(
             in: fixture.layout,
             for: fixture.document.id,
-            isIntegrationEnabled: { _ in true }
-        ) { executable, paneID in
+            isIntegrationEnabled: { _ in true },
+            agentBinaryPath: { _ in binaryPath }
+        ) { paneID in
             #expect(paneID == fixture.terminal.id)
-            return executable == "ssh" ? sshMatch : agentMatch
+            return comm
         }
     }
 

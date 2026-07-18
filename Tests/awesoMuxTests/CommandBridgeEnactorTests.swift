@@ -185,6 +185,31 @@ struct CommandBridgeEnactorTests {
         )
     }
 
+    @Test("foreground comm probe shares the executable probe's evidence guards")
+    func foregroundCommUsesCurrentDaemon() throws {
+        let fixture = try makeFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        #expect(enactor.foregroundComm() == nil)
+
+        enactor.sessionID = fixture.sessionID
+        enactor.respawnLedger.recordAttach(AmxDaemonIncarnation(pid: 42, createdAt: 1))
+        var probedDaemonPID: pid_t?
+        let observed = enactor.foregroundComm { daemonPID in
+            probedDaemonPID = daemonPID
+            return "2.1.214"
+        }
+        #expect(observed == "2.1.214")
+        #expect(probedDaemonPID == 42)
+
+        enactor.errorLatched = true
+        #expect(
+            enactor.foregroundComm { _ in
+                Issue.record("latched panes must not probe")
+                return "zsh"
+            } == nil
+        )
+    }
+
     @Test("status events for another session are ignored")
     func mismatchedSessionStatusIsIgnored() throws {
         let fixture = try makeFixture()
