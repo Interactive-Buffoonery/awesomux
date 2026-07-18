@@ -641,8 +641,15 @@ private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
         textView.isEditable = isEnabled
         textView.isSelectable = isEnabled
 
-        if isFocused, textView.window?.firstResponder !== textView {
-            DispatchQueue.main.async {
+        if isFocused, isEnabled, textView.window?.firstResponder !== textView {
+            // Cross-model review: re-check state inside the dispatched closure,
+            // not just at schedule time — isFocused can change before the next
+            // runloop tick (Binding reads live); isEditable reflects the AppKit
+            // side's own current truth, which any intervening updateNSView call
+            // already applied, so it's fresher than re-reading the environment
+            // value this closure captured by copy.
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView, self.isFocused, textView.isEditable else { return }
                 textView.window?.makeFirstResponder(textView)
             }
         }
