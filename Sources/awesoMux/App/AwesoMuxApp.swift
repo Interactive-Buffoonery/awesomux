@@ -2206,6 +2206,19 @@ struct AwesoMuxApp: App {
             return
         }
 
+        // Cmd-W is a global menu command — it fires regardless of which window
+        // holds key (the same reason the sheet guard below exists, INT-269).
+        // When an auxiliary window (Settings, About) is key, close THAT window
+        // instead of destroying a pane in the primary window behind it. The
+        // floating/companion panels were already handled above, so any non-
+        // primary key window here is an auxiliary scene window.
+        if let keyWindow = NSApp.keyWindow,
+            keyWindow !== NSApp.awesoMuxPrimaryContentWindow
+        {
+            keyWindow.performClose(nil)
+            return
+        }
+
         // No floating surface owns key. If a sheet is presented, Cmd-W is a
         // sheet-class action — swallow it rather than fall through to pane
         // destruction in a workspace behind the sheet the user can't see

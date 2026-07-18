@@ -114,6 +114,12 @@ struct AboutWindowInfoTests {
         let copied = Set(
             body.split(whereSeparator: \.isNewline)
                 .compactMap { line -> String? in
+                    // Skip commented-out entries — a `# "Ghostty/LICENSE"` line
+                    // is NOT copied, so counting it would be the false green this
+                    // test exists to prevent.
+                    guard !line.trimmingCharacters(in: .whitespaces).hasPrefix("#") else {
+                        return nil
+                    }
                     guard let open = line.firstIndex(of: "\""),
                         let close = line.lastIndex(of: "\""), open < close
                     else { return nil }
