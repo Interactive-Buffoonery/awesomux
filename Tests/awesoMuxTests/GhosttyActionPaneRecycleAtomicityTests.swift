@@ -3,8 +3,8 @@ import Foundation
 import Testing
 @testable import awesoMux
 
-/// Regression coverage for the INT-608 pane-recycle races in the title,
-/// working-directory, and attention cases of `GhosttyRuntime.action`.
+/// Regression coverage for the INT-608 pane-recycle races in the title and
+/// working-directory cases of `GhosttyRuntime.action`.
 ///
 /// This is the INT-608 mirror of INT-587's
 /// `ProgressReportPaneRecycleAtomicityTests`. The old dispatch shape queued a
@@ -22,8 +22,15 @@ import Testing
 /// reproduces the old `Task` shape inline to prove that shape misattributes
 /// deterministically.
 ///
-/// View-local sibling actions, `COMMAND_FINISHED`, and the other deliberately
-/// excluded cases are outside this test's scope; see the PR description.
+/// `markNeedsAttention` (the handler behind `GHOSTTY_ACTION_RING_BELL` /
+/// `GHOSTTY_ACTION_DESKTOP_NOTIFICATION`) is NOT covered here — a PR-review
+/// adversarial pass found that converting those two dispatch sites alone
+/// would invert their effective order relative to the still-`Task`-dispatched
+/// `GHOSTTY_ACTION_COMMAND_FINISHED`, which writes the same attention fields.
+/// Fixing that needs a combined change to both, tracked as a follow-up; see
+/// the comments on those three cases in `GhosttyRuntimeCallbacks.swift`.
+/// View-local sibling actions and the other deliberately excluded cases are
+/// also outside this test's scope; see the PR description.
 @MainActor
 @Suite("Ghostty actions survive a pane recycle")
 struct GhosttyActionPaneRecycleAtomicityTests {
@@ -113,51 +120,6 @@ struct GhosttyActionPaneRecycleAtomicityTests {
             harness.store.session(id: harness.sessionB.id)?
                 .layout.pane(id: harness.sharedPaneID)?.workingDirectory
                 == WorkingDirectoryValidator.canonicalizedPath("/var")
-        )
-    }
-
-    @Test("attention stays with the session targeted at handler time")
-    func attentionSurvivesRecycle() {
-        let harness = makeHarness()
-
-        // A surface without a window is not focused, so the generic-output
-        // attention gate permits both writes without a synthetic NSWindow.
-        harness.view.markNeedsAttention()
-        let recycledView = recycle(harness)
-        recycledView.markNeedsAttention()
-
-        #expect(recycledView === harness.view)
-        #expect(
-            harness.store.session(id: harness.sessionA.id)?
-                .layout.pane(id: harness.sharedPaneID)?.unreadNotificationCount == 1
-        )
-        #expect(
-            harness.store.session(id: harness.sessionB.id)?
-                .layout.pane(id: harness.sharedPaneID)?.unreadNotificationCount == 1
-        )
-    }
-
-    @Test("the old attention Task shape misattributes across a recycle")
-    func oldAttentionTaskShapeMisattributes() async {
-        let harness = makeHarness()
-
-        // Verbatim pre-fix dispatch shape. Cooperative scheduling guarantees
-        // the recycle below completes before this child task can run.
-        let oldShapeDispatch = Task { @MainActor in
-            harness.view.markNeedsAttention()
-        }
-        let recycledView = recycle(harness)
-
-        #expect(recycledView === harness.view)
-        await oldShapeDispatch.value
-
-        #expect(
-            harness.store.session(id: harness.sessionA.id)?
-                .layout.pane(id: harness.sharedPaneID)?.unreadNotificationCount == 0
-        )
-        #expect(
-            harness.store.session(id: harness.sessionB.id)?
-                .layout.pane(id: harness.sharedPaneID)?.unreadNotificationCount == 1
         )
     }
 

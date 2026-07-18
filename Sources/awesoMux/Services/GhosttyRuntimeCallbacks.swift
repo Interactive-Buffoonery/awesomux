@@ -83,9 +83,17 @@ extension GhosttyRuntime {
                 return false
             }
 
-            // Same pane-recycle race as GHOSTTY_ACTION_SET_TITLE above (INT-608):
-            // `markNeedsAttention` reads `view.sessionID`/`view.paneID` live.
-            onMainThreadSynchronously {
+            // `markNeedsAttention` shares INT-608's live-identity read, but
+            // stays on `Task` (not `onMainThreadSynchronously`) because it
+            // writes the same `unreadNotificationCount`/attention fields as
+            // GHOSTTY_ACTION_COMMAND_FINISHED's `applyDetectedAgentState`
+            // path, which is ALSO still `Task`-dispatched (see that case
+            // below for why). Converting only one of the two would let this
+            // one jump the queue ahead of an earlier-fired COMMAND_FINISHED,
+            // inverting their effective order and letting a stale
+            // command-finished clear a just-applied notification. Needs a
+            // combined fix, not a partial one — tracked as a follow-up.
+            Task { @MainActor in
                 // `workspaces.output_marks_needs_attention = false` means
                 // "don't mark sessions as needing attention from output."
                 // Honor the setting at the bell entry point so the
@@ -105,8 +113,9 @@ extension GhosttyRuntime {
             let title = notification.title.map(String.init(cString:)) ?? ""
             let body = notification.body.map(String.init(cString:)) ?? ""
 
-            // Same pane-recycle race as GHOSTTY_ACTION_SET_TITLE above (INT-608).
-            onMainThreadSynchronously {
+            // Same COMMAND_FINISHED ordering constraint as GHOSTTY_ACTION_RING_BELL
+            // above — stays on `Task` (see that case's comment).
+            Task { @MainActor in
                 switch Self.desktopNotificationEffect(
                     title: title,
                     body: body,
@@ -202,6 +211,19 @@ extension GhosttyRuntime {
             }
 
             let exitCode = action.action.command_finished.exit_code
+            // KNOWN remaining gap (INT-608 follow-up, not an oversight):
+            // `handleCommandFinished` reads live `sessionID`/`paneID` and can
+            // write the same attention fields GHOSTTY_ACTION_RING_BELL /
+            // GHOSTTY_ACTION_DESKTOP_NOTIFICATION do, so it shares this
+            // codebase's pane-recycle race in principle. Left on `Task`
+            // rather than `onMainThreadSynchronously` because its synchronous
+            // call graph (`refreshShellActivity` → `shellActivitySnapshot()`)
+            // reaches native libghostty calls on OTHER surfaces
+            // (`ghostty_surface_needs_confirm_quit`), which is unproven safe
+            // to invoke from inside this surface's own `action_cb` — that
+            // needs its own investigation, and the bell/notification cases
+            // above must move in lockstep with whatever this becomes, to
+            // keep queued-vs-synchronous ordering consistent between them.
             Task { @MainActor in
                 view.handleCommandFinished(exitCode: exitCode)
             }
