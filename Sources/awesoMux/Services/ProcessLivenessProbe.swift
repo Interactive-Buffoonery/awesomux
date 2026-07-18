@@ -1,6 +1,7 @@
 import AwesoMuxCore
 import Darwin
 import Foundation
+import OSLog
 
 /// Thin libproc wrapper for quit-risk sampling: the foreground process name and
 /// whether a pid has live children. No subprocess (`ps`) — these are direct
@@ -55,6 +56,15 @@ enum ProcessLivenessProbe {
         return tpgid > 0 ? tpgid : nil
     }
 
+    /// INT-569 field diagnostics: names which guard denied foreground evidence
+    /// so a real-machine "Couldn't verify a local terminal" report is
+    /// attributable from `log show` without a debugger. Pids/counts only —
+    /// never process names or command lines.
+    nonisolated private static let nudgeProbeLogger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "DocumentNudgeGate"
+    )
+
     static func terminalForegroundComm(
         daemonPID: pid_t,
         childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },
@@ -63,10 +73,28 @@ enum ProcessLivenessProbe {
         },
         comm: (pid_t) -> String? = { ProcessLivenessProbe.foregroundComm(pid: $0) }
     ) -> String? {
-        guard let roots = childPIDs(daemonPID), roots.count == 1,
-            let processGroup = foregroundGroup(roots[0])
-        else { return nil }
-        return comm(processGroup)
+        guard let roots = childPIDs(daemonPID) else {
+            nudgeProbeLogger.info(
+                "nudge probe: cannot list children of daemon \(daemonPID, privacy: .public)")
+            return nil
+        }
+        guard roots.count == 1 else {
+            nudgeProbeLogger.info(
+                "nudge probe: daemon \(daemonPID, privacy: .public) has \(roots.count, privacy: .public) children (expected 1)"
+            )
+            return nil
+        }
+        guard let processGroup = foregroundGroup(roots[0]) else {
+            nudgeProbeLogger.info(
+                "nudge probe: no foreground process group for root \(roots[0], privacy: .public)")
+            return nil
+        }
+        guard let observed = comm(processGroup) else {
+            nudgeProbeLogger.info(
+                "nudge probe: comm read failed for pgid \(processGroup, privacy: .public)")
+            return nil
+        }
+        return observed
     }
 
     static func terminalForegroundExecutableMatch(

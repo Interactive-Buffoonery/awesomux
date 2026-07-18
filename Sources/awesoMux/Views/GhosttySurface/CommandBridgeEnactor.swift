@@ -1,5 +1,6 @@
 import AppKit
 import AwesoMuxCore
+import OSLog
 
 /// Owns command-bridge lifecycle state and maps bridge observations to app
 /// effects: attach, local-shell fallback, remount, error latch, reconnect, and
@@ -228,17 +229,39 @@ final class CommandBridgeEnactor {
     /// against patterns rather than one exact executable (the document-nudge
     /// prompt gate). Same evidence guards as `foregroundExecutableMatch`;
     /// nil = no usable evidence, which every consumer must treat as deny.
+    /// Each deny names its guard in the log (INT-569 field diagnostics).
     func foregroundComm(
         probe: (pid_t) -> String? = {
             ProcessLivenessProbe.terminalForegroundComm(daemonPID: $0)
         }
     ) -> String? {
-        guard sessionID != nil, !errorLatched,
-            let rawPID = respawnLedger.lastIncarnation?.pid,
+        guard sessionID != nil else {
+            Self.nudgeGateLogger.info(
+                "nudge probe: pane \(self.paneID.uuidString, privacy: .public) has no bridge session (plain local shell or bridge disabled)"
+            )
+            return nil
+        }
+        guard !errorLatched else {
+            Self.nudgeGateLogger.info(
+                "nudge probe: pane \(self.paneID.uuidString, privacy: .public) is error-latched")
+            return nil
+        }
+        guard let rawPID = respawnLedger.lastIncarnation?.pid,
             let daemonPID = pid_t(exactly: rawPID)
-        else { return nil }
+        else {
+            Self.nudgeGateLogger.info(
+                "nudge probe: pane \(self.paneID.uuidString, privacy: .public) has no daemon incarnation (status channel silent - stale bundled amx?)"
+            )
+            return nil
+        }
         return probe(daemonPID)
     }
+
+    /// INT-569 field diagnostics for the document-nudge evidence chain.
+    nonisolated private static let nudgeGateLogger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "DocumentNudgeGate"
+    )
 
     /// Break this pane's live bridge generation (INT-698 D4 teardown parity):
     /// cancel the reverse forward, `rm` the remote socket by exact ledger path,

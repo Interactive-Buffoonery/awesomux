@@ -310,8 +310,19 @@ final class GhosttyRuntime {
     /// Observed foreground process name (`p_comm`) for a pane, or nil when no
     /// usable evidence exists (no live surface, latched error, no bridge pid).
     func foregroundComm(in paneID: TerminalPane.ID) -> String? {
-        surfaceViews[paneID]?.commandBridgeEnactor.foregroundComm()
+        guard let surfaceView = surfaceViews[paneID] else {
+            Self.nudgeGateLogger.info(
+                "nudge probe: no surface view for pane \(paneID.uuidString, privacy: .public)")
+            return nil
+        }
+        return surfaceView.commandBridgeEnactor.foregroundComm()
     }
+
+    /// INT-569 field diagnostics for the document-nudge evidence chain.
+    nonisolated private static let nudgeGateLogger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "DocumentNudgeGate"
+    )
 
     func applySecureInput(_ mode: SecureInputCoordinator.Mode, for paneID: TerminalPane.ID) {
         secureInputCoordinator.apply(mode, for: paneID)
