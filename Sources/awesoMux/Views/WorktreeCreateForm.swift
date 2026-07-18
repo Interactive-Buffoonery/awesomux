@@ -98,14 +98,25 @@ struct WorktreeCreateForm: View {
         .onChange(of: newBranchName) { _, _ in suggestPath() }
     }
 
+    // Pre-submit and branch-loading failures previously only set the visible
+    // `validationMessage` Text — a sighted user sees it, but nothing spoken
+    // reaches VoiceOver (unlike refresh/create results, which already
+    // announce through the model). Route every validation message through
+    // this so all of them do too.
+    private func reportValidation(_ message: String) {
+        validationMessage = message
+        model.announce(message)
+    }
+
     private func loadBranches() async {
         if case .success(let names) = await model.branches() {
             branches = names
             if selectedBranch.isEmpty { selectedBranch = names.first ?? "" }
             suggestPath()
         } else {
-            validationMessage = String(
-                localized: "Couldn’t load local branches.", comment: "Branch loading failure in worktree create form.")
+            reportValidation(
+                String(
+                    localized: "Couldn’t load local branches.", comment: "Branch loading failure in worktree create form."))
         }
     }
 
@@ -124,12 +135,15 @@ struct WorktreeCreateForm: View {
     private func submit() {
         guard !isBusy else { return }
         guard let groupID = model.destinationWorkspaceGroupID else {
-            validationMessage = String(
-                localized: "The current workspace group is no longer available.", comment: "Worktree creation target group failure.")
+            reportValidation(
+                String(
+                    localized: "The current workspace group is no longer available.",
+                    comment: "Worktree creation target group failure."))
             return
         }
         guard targetPath.hasPrefix("/") else {
-            validationMessage = String(localized: "Target path must be absolute.", comment: "Worktree target absolute path validation.")
+            reportValidation(
+                String(localized: "Target path must be absolute.", comment: "Worktree target absolute path validation."))
             return
         }
         let createMode: GitWorktreeCreateMode =
@@ -144,7 +158,7 @@ struct WorktreeCreateForm: View {
         )
         let issues = policy.validate(request, currentWorktrees: model.state.rows.map(\.record))
         guard issues.isEmpty else {
-            validationMessage = validationText(for: issues[0])
+            reportValidation(validationText(for: issues[0]))
             return
         }
         validationMessage = nil
