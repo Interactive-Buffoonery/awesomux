@@ -10,7 +10,7 @@ struct WorktreePathDisplayTests {
 
     @Test("long paths condense to the trailing components, leaf fully intact")
     func longPathKeepsLeaf() {
-        let path = "/Users/edequalsawesome/Development/awesomux/.worktrees/int-857-worktree-manager"
+        let path = "/Users/devuser/Development/awesomux/.worktrees/int-857-worktree-manager"
         #expect(WorktreePathDisplay.condensed(path) == "…/.worktrees/int-857-worktree-manager")
     }
 }
