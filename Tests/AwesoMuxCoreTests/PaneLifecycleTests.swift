@@ -31,6 +31,18 @@ import Testing
         #expect(lifecycle.closePhase == .closing)
     }
 
+    @Test func closedLeafIsNeverVisible() {
+        // The one cross-axis invariant: a closed leaf is gone, so `.closed`
+        // normalizes visibility to `.hidden` regardless of the requested value.
+        let direct = PaneLifecycle(availability: .unavailable, visibility: .visible, closePhase: .closed)
+        #expect(direct.visibility == .hidden)
+        let viaLeaf = leaf().lifecycle(isMounted: true, closePhase: .closed)
+        #expect(viaLeaf.visibility == .hidden)
+        // .closing may still be visible (animating out).
+        let closing = PaneLifecycle(availability: .attached, visibility: .visible, closePhase: .closing)
+        #expect(closing.visibility == .visible)
+    }
+
     @Test func everyAxisStateIsDeclared() {
         #expect(Set(PaneVisibility.allCases) == [.visible, .hidden])
         #expect(Set(PaneClosePhase.allCases) == [.active, .closing, .closed])
