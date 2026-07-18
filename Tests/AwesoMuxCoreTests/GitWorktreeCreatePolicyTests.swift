@@ -205,6 +205,53 @@ struct GitWorktreeCreatePolicyTests {
         #expect(issues.isEmpty)
     }
 
+    @Test("the exact maintainer repro: prefill through validate succeeds with NO .worktrees container yet")
+    func prefillThroughValidateSucceedsWithoutWorktreesContainer() throws {
+        let fixture = try mainPlusLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        // The reported repro, end to end: Worktree Manager opened from a
+        // JUST-CREATED linked worktree that has never had its own
+        // `.worktrees/` — unlike `freshWorktreesTargetValidatesCleanFromLinkedInvocationRoot`,
+        // this test does NOT pre-create it. `formTargetPathPrefill` closing
+        // the placeholder/bound-value split was necessary but not
+        // sufficient: the prefilled value it produces still has to clear
+        // `validate()`'s parent-directory check, and a naive relaxation of
+        // that check couldn't distinguish "the app's own convention, which
+        // git will happily create" from "a typo'd path nobody asked for"
+        // (round-7 smoke: the fix changed WHICH error appeared without
+        // changing whether Create ever worked).
+        let linkedContext = GitRepositoryContext(
+            invocationRoot: fixture.linked, canonicalCommonGitDirectory: fixture.linked.appendingPathComponent(".git"),
+            displayName: "other-branch")
+        #expect(!FileManager.default.fileExists(atPath: fixture.linked.appendingPathComponent(".worktrees").path))
+
+        let prefill = policy.formTargetPathPrefill(repositoryContext: linkedContext, branchName: "newest-branch")
+        #expect(prefill.hasPrefix("/"))
+
+        let issues = policy.validate(
+            request(linkedContext, .newBranchFromHEAD("newest-branch"), URL(fileURLWithPath: prefill)),
+            currentWorktrees: fixture.currentWorktrees)
+        #expect(issues.isEmpty)
+    }
+
+    @Test("a target outside the app's .worktrees/ convention still requires its parent to already exist")
+    func targetOutsideConventionStillRequiresExistingParent() throws {
+        let fixture = try mainPlusLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        // The relaxation is scoped to THIS app's own suggested container —
+        // an arbitrary missing nested path elsewhere is still a real error,
+        // not something git is expected to paper over silently.
+        let linkedContext = GitRepositoryContext(
+            invocationRoot: fixture.linked, canonicalCommonGitDirectory: fixture.linked.appendingPathComponent(".git"),
+            displayName: "other-branch")
+        let elsewhere = fixture.linked.appendingPathComponent("not-worktrees/leaf", isDirectory: true)
+        let issues = policy.validate(
+            request(linkedContext, .newBranchFromHEAD("x"), elsewhere), currentWorktrees: fixture.currentWorktrees)
+        #expect(issues.contains(.parentDirectoryMissing))
+    }
+
     @Test("a target inside a DIFFERENT linked worktree still rejects from a LINKED invocation root")
     func targetInsideOtherWorktreeStillRejectsFromLinkedInvocationRoot() throws {
         let fixture = try mainPlusLinkedFixture()
