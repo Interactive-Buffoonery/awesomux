@@ -8,6 +8,14 @@ struct WorktreeManagerPanel: View {
     let onDismiss: () -> Void
     @State private var openError: String?
     @State private var isShowingCreateForm = false
+    // The panel window is reused across `show()` calls (see
+    // `WorktreeManagerController`), so the `.sheet` content below keeps its
+    // SwiftUI identity across a dismiss-then-represent cycle and its `@State`
+    // (branch name, target path, validation message) survives with it. A
+    // fresh token per presentation forces `WorktreeCreateForm` to rebuild
+    // from scratch every time instead of reopening with the PREVIOUS
+    // presentation's leftover fields (INT-857 round-7 smoke).
+    @State private var createFormPresentationToken = UUID()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,6 +50,7 @@ struct WorktreeManagerPanel: View {
         )
         .sheet(isPresented: $isShowingCreateForm, onDismiss: model.resetCreateResult) {
             WorktreeCreateForm(model: model) { isShowingCreateForm = false }
+                .id(createFormPresentationToken)
         }
         // `.task(id:)`, not `.onChange` — the palette's "Create Worktree…"
         // route sets the flag before this view ever mounts, and `.onChange`
@@ -52,6 +61,7 @@ struct WorktreeManagerPanel: View {
             guard model.pendingCreatePresentation else { return }
             model.pendingCreatePresentation = false
             model.resetCreateResult()
+            createFormPresentationToken = UUID()
             isShowingCreateForm = true
         }
         // Round-6 smoke: "After the worktree is created and opened we should
@@ -101,6 +111,7 @@ struct WorktreeManagerPanel: View {
             Spacer(minLength: 0)
             Button {
                 model.resetCreateResult()
+                createFormPresentationToken = UUID()
                 isShowingCreateForm = true
             } label: {
                 Label(

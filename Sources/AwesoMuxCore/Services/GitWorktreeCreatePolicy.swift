@@ -54,6 +54,25 @@ public struct GitWorktreeCreatePolicy: Sendable {
         repositoryContext.invocationRoot.appendingPathComponent(".worktrees", isDirectory: true)
     }
 
+    /// The create form's live pre-fill for its Target path field: prefers the
+    /// filesystem-confirmed `suggestedTargetPath`, falling back to the
+    /// unconfirmed `candidateTargetPath` so the BOUND value is never emptier
+    /// than what the form displays. A freshly-created linked worktree has no
+    /// `.worktrees/` of its own yet — `suggestedTargetPath` correctly returns
+    /// nil there, but the form still SHOWED the candidate as if it were real
+    /// content, so `submit()` validated an empty bound string against a
+    /// visibly-absolute path and failed with "must be absolute" (INT-857
+    /// round-7 smoke).
+    public func formTargetPathPrefill(
+        repositoryContext: GitRepositoryContext,
+        branchName: String,
+        fileManager: FileManager = .default
+    ) -> String {
+        suggestedTargetPath(repositoryContext: repositoryContext, branchName: branchName, fileManager: fileManager)?.path
+            ?? candidateTargetPath(repositoryContext: repositoryContext, branchName: branchName)?.path
+            ?? ""
+    }
+
     public func validate(
         _ request: GitWorktreeCreateRequest,
         currentWorktrees: [GitWorktreeRecord],
@@ -78,15 +97,20 @@ public struct GitWorktreeCreatePolicy: Sendable {
             issues.append(.targetAlreadyExists)
         }
         let candidate = canonicalPathComponents(request.targetPath)
-        // The main worktree (the repo's own checkout) is exempt: git allows
-        // linked worktrees nested under it, and `.worktrees/` — this app's
-        // own suggested convention, 20+ live examples in THIS repo — lives
-        // exactly there. Only a LINKED worktree's path can genuinely
+        // Whichever worktree the request was INVOKED FROM is exempt, not just
+        // the main one: git allows linked worktrees nested under it, and
+        // `.worktrees/` — this app's own suggested convention — always lives
+        // under the invocation root, main or linked (round-5 smoke covered
+        // main; round-857 smoke found the same false overlap from a Worktree
+        // Manager opened inside a LINKED worktree, since only `isMainWorktree`
+        // was ever exempted). Only some OTHER worktree's path can genuinely
         // conflict; without this exemption every suggested `.worktrees/...`
-        // target "overlapped" the main entry and validation could never pass
-        // (round-5 smoke).
+        // target "overlapped" the entry you're standing in and validation
+        // could never pass.
+        let invocationRoot = canonicalPathComponents(request.repositoryContext.invocationRoot)
         for record in currentWorktrees where !record.isMainWorktree {
             let existing = canonicalPathComponents(record.canonicalPath)
+            guard existing != invocationRoot else { continue }
             if candidate.starts(with: existing) || existing.starts(with: candidate) {
                 issues.append(.targetOverlapsWorktree(record.canonicalPath))
                 break

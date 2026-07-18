@@ -40,6 +40,50 @@ struct GitWorktreeCreatePolicyTests {
         #expect(policy.candidateTargetPath(repositoryContext: context, branchName: "test-branch")?.path == expected.path)
     }
 
+    @Test("form pre-fill never diverges from the visible candidate, even before .worktrees exists")
+    func formPrefillNeverDivergesFromCandidate() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        let context = GitRepositoryContext(
+            invocationRoot: repo, canonicalCommonGitDirectory: repo.appendingPathComponent(".git"), displayName: "repo")
+
+        // No ".worktrees" container yet — the gated `suggestedTargetPath` is
+        // nil, but the form's bound value must still match what it DISPLAYS
+        // (the candidate), not fall back to "" — an empty bound value reads
+        // as absent to `submit()`'s `hasPrefix("/")` check even while a
+        // full, absolute-looking path sits in the field (INT-857 round-7
+        // smoke: "Target path must be absolute" despite a visibly absolute
+        // path).
+        let prefill = policy.formTargetPathPrefill(repositoryContext: context, branchName: "newest-branch")
+        let candidate = policy.candidateTargetPath(repositoryContext: context, branchName: "newest-branch")?.path
+        #expect(prefill == candidate)
+        #expect(prefill.hasPrefix("/"))
+
+        // Once the container exists, the gated suggestion and the candidate
+        // agree anyway — the prefill still matches both.
+        try FileManager.default.createDirectory(at: repo.appendingPathComponent(".worktrees"), withIntermediateDirectories: true)
+        let confirmedPrefill = policy.formTargetPathPrefill(repositoryContext: context, branchName: "newest-branch")
+        #expect(confirmedPrefill == candidate)
+    }
+
+    @Test("form pre-fill recomputes per branch name")
+    func formPrefillRecomputesOnBranchNameChange() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        let context = GitRepositoryContext(
+            invocationRoot: repo, canonicalCommonGitDirectory: repo.appendingPathComponent(".git"), displayName: "repo")
+
+        let first = policy.formTargetPathPrefill(repositoryContext: context, branchName: "new-branch")
+        let second = policy.formTargetPathPrefill(repositoryContext: context, branchName: "newest-branch")
+        #expect(first != second)
+        #expect(first.hasSuffix("new-branch"))
+        #expect(second.hasSuffix("newest-branch"))
+    }
+
     @Test("sanitized path component keeps internal and trailing hyphens from a branch name")
     func sanitizationKeepsHyphens() {
         // Regression for round-4 smoke: trimming "-" like ".", " " truncated
@@ -138,6 +182,50 @@ struct GitWorktreeCreatePolicyTests {
         let issues = policy.validate(
             request(fixture.context, .newBranchFromHEAD("x"), fixture.worktreesDir), currentWorktrees: fixture.currentWorktrees)
         #expect(issues.contains(.targetOverlapsWorktree(fixture.linked)))
+    }
+
+    @Test("a fresh .worktrees/<new-name> nested under a LINKED invocation root validates clean")
+    func freshWorktreesTargetValidatesCleanFromLinkedInvocationRoot() throws {
+        let fixture = try mainPlusLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        // Opening Worktree Manager FROM the linked worktree ("other-branch")
+        // and creating a new one nests `.worktrees/` under THAT worktree, not
+        // main. Only `isMainWorktree` was ever exempted from the overlap
+        // check, so this genuinely git-allowed nesting always "overlapped"
+        // the linked worktree it's standing in (INT-857 round-7 smoke).
+        let linkedContext = GitRepositoryContext(
+            invocationRoot: fixture.linked, canonicalCommonGitDirectory: fixture.linked.appendingPathComponent(".git"),
+            displayName: "other-branch")
+        let linkedWorktreesDir = fixture.linked.appendingPathComponent(".worktrees", isDirectory: true)
+        try FileManager.default.createDirectory(at: linkedWorktreesDir, withIntermediateDirectories: true)
+        let target = linkedWorktreesDir.appendingPathComponent("brand-new-name", isDirectory: true)
+        let issues = policy.validate(
+            request(linkedContext, .newBranchFromHEAD("brand-new-name"), target), currentWorktrees: fixture.currentWorktrees)
+        #expect(issues.isEmpty)
+    }
+
+    @Test("a target inside a DIFFERENT linked worktree still rejects from a LINKED invocation root")
+    func targetInsideOtherWorktreeStillRejectsFromLinkedInvocationRoot() throws {
+        let fixture = try mainPlusLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        // A second, unrelated linked worktree the request is NOT invoked
+        // from — the exemption is scoped to the current invocation root, not
+        // every non-main worktree.
+        let thirdWorktree = fixture.worktreesDir.appendingPathComponent("third-branch", isDirectory: true)
+        try FileManager.default.createDirectory(at: thirdWorktree, withIntermediateDirectories: true)
+        let thirdRecord = GitWorktreeRecord(
+            canonicalPath: thirdWorktree, headObjectID: nil, branchRef: "refs/heads/third-branch", isDetached: false,
+            displayBranch: "third-branch", isMainWorktree: false, isBare: false, lockReason: nil, prunableReason: nil)
+
+        let linkedContext = GitRepositoryContext(
+            invocationRoot: fixture.linked, canonicalCommonGitDirectory: fixture.linked.appendingPathComponent(".git"),
+            displayName: "other-branch")
+        let insideThird = thirdWorktree.appendingPathComponent("nested", isDirectory: true)
+        let issues = policy.validate(
+            request(linkedContext, .newBranchFromHEAD("x"), insideThird), currentWorktrees: fixture.currentWorktrees + [thirdRecord])
+        #expect(issues.contains(.targetOverlapsWorktree(thirdWorktree)))
     }
 
     private func mainPlusLinkedFixture() throws -> (
