@@ -97,6 +97,8 @@ struct AwesoMuxApp: App {
     @State private var keyboardCheatsheetController = KeyboardCheatsheetController()
     @State private var sessionManagerController = SessionManagerController()
     @State private var sessionManagerModel: SessionManagerModel
+    @State private var worktreeManagerController = WorktreeManagerController()
+    @State private var worktreeManagerModel: WorktreeManagerModel?
     @State private var diagnosticsModel: DiagnosticsModel
     /// The SwiftUI-native window action, captured from the window's environment
     /// so App-level wiring can open scenes without AppKit selectors.
@@ -432,6 +434,7 @@ struct AwesoMuxApp: App {
                 commandPaletteController.appSettingsStore = appSettingsStore
                 keyboardCheatsheetController.appSettingsStore = appSettingsStore
                 sessionManagerController.appSettingsStore = appSettingsStore
+                worktreeManagerController.appSettingsStore = appSettingsStore
                 appDelegate.bind(
                     sessionStore: sessionStore,
                     ghosttyRuntime: ghosttyRuntime,
@@ -466,6 +469,9 @@ struct AwesoMuxApp: App {
                 dismissPaneEditorIfTargetClosed()
                 appDelegate.evaluateAndPostNotifications()
                 appDelegate.syncMenuBarMiniStatusItem()
+            }
+            .task(id: worktreeRepositorySelectionID) {
+                await refreshWorktreeRepositoryContext()
             }
             // Pins live outside the group array, so the groups onChange above
             // never fires for a pin/unpin — persist them on their own signal.
@@ -654,6 +660,16 @@ struct AwesoMuxApp: App {
                     requestManagedSSHWorkspaceConversion()
                 }
                 .disabled(selectedManagedSSHConversionTarget == nil || isAnySheetPresented)
+
+                Button(
+                    String(
+                        localized: "Manage Worktrees…",
+                        comment: "Workspace menu action that opens Worktree Manager."
+                    )
+                ) {
+                    toggleWorktreeManager()
+                }
+                .disabled(worktreeManagerModel == nil || isAnySheetPresented)
 
                 Divider()
 
@@ -2621,6 +2637,51 @@ struct AwesoMuxApp: App {
             model: sessionManagerModel,
             relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
             onJump: jumpToDaemonOwner
+        )
+    }
+
+    private var worktreeRepositorySelectionID: String? {
+        guard let session = sessionStore.selectedSession,
+            let pane = session.activePane,
+            WorkspacePaneCapabilities.terminal(pane).localFileAccess
+        else {
+            return nil
+        }
+        return "\(session.id.uuidString)|\(pane.id.uuidString)|\(pane.workingDirectory)"
+    }
+
+    private func refreshWorktreeRepositoryContext() async {
+        guard let selectionID = worktreeRepositorySelectionID,
+            let pane = sessionStore.selectedSession?.activePane
+        else {
+            worktreeManagerModel = nil
+            worktreeManagerController.dismiss()
+            return
+        }
+
+        let outcome = await LocalGitRepositoryLocator().locate(
+            startingAt: URL(fileURLWithPath: pane.workingDirectory)
+        )
+        guard selectionID == worktreeRepositorySelectionID,
+            case .located(let context) = outcome
+        else {
+            if selectionID == worktreeRepositorySelectionID {
+                worktreeManagerModel = nil
+                worktreeManagerController.dismiss()
+            }
+            return
+        }
+        worktreeManagerModel = WorktreeManagerModel(
+            repositoryContext: context,
+            sessionStore: sessionStore
+        )
+    }
+
+    private func toggleWorktreeManager() {
+        guard !isAnySheetPresented, let worktreeManagerModel else { return }
+        worktreeManagerController.toggle(
+            model: worktreeManagerModel,
+            relativeTo: NSApp.mainWindow ?? NSApp.keyWindow
         )
     }
 

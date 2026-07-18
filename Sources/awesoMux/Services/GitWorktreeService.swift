@@ -17,7 +17,11 @@ enum GitWorktreeListOutcome: Equatable, Sendable {
     case failure(GitWorktreeListFailure)
 }
 
-struct GitWorktreeService: Sendable {
+protocol GitWorktreeListing: Sendable {
+    func list(in repositoryContext: GitRepositoryContext) async -> GitWorktreeListOutcome
+}
+
+struct GitWorktreeService: GitWorktreeListing, Sendable {
     private let locator: LocalGitRepositoryLocator
     private let runner: any LocalGitCommandRunning
     private let parser: GitWorktreePorcelainParser
