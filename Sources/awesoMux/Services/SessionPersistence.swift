@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
 import os
@@ -555,10 +556,7 @@ enum SessionPersistence {
 
     nonisolated private static func setPrivatePermissions(on url: URL) {
         do {
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: url.path
-            )
+            try FileManager.default.setOwnerOnlyPermissions(onFileAt: url)
         } catch {
             logger.error(
                 "failed to set private permissions on \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
