@@ -151,6 +151,12 @@ extension GhosttySurfaceNSView {
         // click on the link (outside the popover) still reaches libghostty and
         // opens through the existing OPEN_URL gate; a click elsewhere just closes.
         popover.behavior = .transient
+        // Delegate clears our state when the popover closes WITHOUT going through
+        // `dismissLinkPeek` (transient outside-click, Esc). Without it the stored
+        // popover + hosting graph linger and a stationary hover on the same link
+        // can never re-peek — `updateMouseOverLink` dedups the unchanged URL, so
+        // no event would replace the stale reference (review finding).
+        popover.delegate = self
         let hosting = NSHostingController(rootView: OSC8LinkPeekView(urlText: url.absoluteString))
         hosting.sizingOptions = [.preferredContentSize]
         popover.contentViewController = hosting
@@ -201,6 +207,25 @@ extension GhosttySurfaceNSView {
         }
         linkPeekPopover = nil
         popover.performClose(nil)
+    }
+}
+
+// MARK: - Peek popover delegate
+
+extension GhosttySurfaceNSView: NSPopoverDelegate {
+    /// Reached only by closes that bypass `dismissLinkPeek` (transient
+    /// outside-click, Esc): the dismiss path nils `linkPeekPopover` before
+    /// `performClose`, so its own close fails the identity check here.
+    func popoverDidClose(_ notification: Notification) {
+        guard let popover = notification.object as? NSPopover,
+            popover === linkPeekPopover
+        else {
+            return
+        }
+        linkPeekPopover = nil
+        peekedLink = nil
+        linkPeekDismissWorkItem?.cancel()
+        linkPeekDismissWorkItem = nil
     }
 }
 
