@@ -78,6 +78,17 @@ runner pins `--scope user` explicitly (global-only install per ADR 0010).
 | De-register catalog | `claude plugin marketplace remove awesomux --scope user` | `PATH` | Full uninstall = uninstall plugin, then remove marketplace. |
 | **Status (authoritative)** | `claude plugin list --json` | `PATH` | Machine-readable. Parse per §1.3. |
 
+**Clean reinstall (INT-651).** `claude plugin install` keys its cache on the plugin
+manifest `version`, which awesoMux never changes — installing over an existing install
+"succeeds" without re-pulling content, keeping the previously baked hook config
+(including a dead dev `dist/` helper path). When the recorded install's baked helper
+path or bundled source digest differs from the freshly rendered tree, the runner
+uninstalls the recorded plugin (recorded binary + config home + ref) after `plugin
+validate` succeeds and before `marketplace add`/`install`, forcing a fresh copy. A
+failed uninstall aborts the reinstall (needs repair, record untouched) rather than
+letting a no-op install masquerade as success. Codex/Grok deliberately do not get this
+step: their cache semantics have not been shown to share the version-keyed no-op.
+
 ### 1.3 Parsing success vs failure
 
 **Process level.** `claude` is a Node CLI: exit `0` = success, non-zero = failure;

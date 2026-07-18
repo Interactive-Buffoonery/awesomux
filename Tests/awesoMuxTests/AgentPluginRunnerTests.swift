@@ -1211,6 +1211,194 @@ struct AgentPluginRunnerTests {
         #expect(!FileManager.default.fileExists(atPath: runner.pluginManifestURL.path))
     }
 
+    // MARK: - Clean reinstall (INT-651)
+
+    static let staleHelperPath = "/stale/worktree/dist/awesoMuxAgentHook"
+    static let freshHelperPath = "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook"
+    static let claudeUninstallArgvExpected =
+        ["plugin", "uninstall", "awesomux-claude-status@awesomux-claude", "--scope", "user"]
+
+    @Test("Claude: a stale recorded helper path forces uninstall before reinstall")
+    func claudeStaleHelperPathCleanReinstall() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            try Self.rewriteInstallRecord(runner: runner, provider: .claudeCode) {
+                $0.helperPath = Self.staleHelperPath
+            }
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: Self.claudeList(enabled: true)))
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            #expect(outcome.status == .enabled)
+
+            let argvs = command.invocations.dropFirst(before).map(\.args)
+            #expect(argvs.count == 5)
+            // Read-only presence probe, then validate, then the destructive steps.
+            #expect(argvs[0] == ["plugin", "list", "--json"])
+            #expect(argvs[1].first == "plugin" && argvs[1][1] == "validate")
+            #expect(argvs[2] == Self.claudeUninstallArgvExpected)
+            #expect(Array(argvs[3].prefix(3)) == ["plugin", "marketplace", "add"])
+            #expect(argvs[4] == ["plugin", "install", "awesomux-claude-status@awesomux-claude", "--scope", "user"])
+            // Success rewrote the record with the fresh helper path, so the gate
+            // is satisfied afterwards.
+            #expect(runner.installRecord(provider: .claudeCode)?.helperPath == Self.freshHelperPath)
+        }
+    }
+
+    @Test("Claude: a stale or missing recorded digest forces uninstall before reinstall")
+    func claudeStaleDigestCleanReinstall() async throws {
+        for digest in ["deadbeef", nil] as [String?] {
+            try await Self.withRunner { runner, command, _ in
+                command.defaultOutcome = .result(.ok(stdout: ""))
+                _ = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+                try Self.rewriteInstallRecordDigest(runner: runner, provider: .claudeCode, digest: digest)
+                command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: Self.claudeList(enabled: true)))
+
+                let before = command.invocations.count
+                let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+                #expect(outcome.status == .enabled)
+                let argvs = command.invocations.dropFirst(before).map(\.args)
+                #expect(argvs.contains(Self.claudeUninstallArgvExpected))
+            }
+        }
+    }
+
+    @Test("Claude: a matching install record does not add an uninstall step")
+    func claudeMatchingRecordSkipsUninstall() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            #expect(outcome.status == .enabled)
+
+            // No probe, no uninstall — the original 3-step sequence.
+            let argvs = command.invocations.dropFirst(before).map(\.args)
+            #expect(argvs.count == 3)
+            #expect(!argvs.contains { $0.contains("uninstall") })
+        }
+    }
+
+    @Test("Claude: clean reinstall skips the uninstall when the plugin is already absent")
+    func claudeCleanReinstallSkipsUninstallWhenAbsent() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            try Self.rewriteInstallRecord(runner: runner, provider: .claudeCode) {
+                $0.helperPath = Self.staleHelperPath
+            }
+            // Removed out-of-band: nothing to uninstall; install proceeds.
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: "[]"))
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            #expect(outcome.status == .enabled)
+            let argvs = command.invocations.dropFirst(before).map(\.args)
+            #expect(argvs.count == 4)
+            #expect(!argvs.contains { $0.contains("uninstall") })
+        }
+    }
+
+    @Test("Claude: a failed uninstall aborts the reinstall and keeps the stale record")
+    func claudeCleanReinstallUninstallFailureAborts() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            try Self.rewriteInstallRecord(runner: runner, provider: .claudeCode) {
+                $0.helperPath = Self.staleHelperPath
+            }
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: Self.claudeList(enabled: true)))
+            command.stub(
+                args: Self.claudeUninstallArgvExpected,
+                result: CommandResult(exitCode: 1, stdout: "", stderr: "cache is locked")
+            )
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            guard case .needsRepair = outcome.status else {
+                Issue.record("expected needsRepair, got \(outcome.status)")
+                return
+            }
+            // Nothing installed after the failed uninstall, and the record still
+            // names the stale helper — the gate re-fires on the next attempt
+            // instead of being silenced by a "successful" no-op install.
+            let argvs = command.invocations.dropFirst(before).map(\.args)
+            #expect(!argvs.contains { Array($0.prefix(2)) == ["plugin", "install"] })
+            #expect(!argvs.contains { Array($0.prefix(3)) == ["plugin", "marketplace", "add"] })
+            #expect(runner.installRecord(provider: .claudeCode)?.helperPath == Self.staleHelperPath)
+        }
+    }
+
+    @Test("Claude: clean reinstall uninstalls in the recorded config home and installs in the live one")
+    func claudeCleanReinstallEnvSplit() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            let recordedHome = "/tmp/awesomux-claude-recorded-\(UUID().uuidString)"
+            let liveHome = "/tmp/awesomux-claude-live-\(UUID().uuidString)"
+            _ = await runner.enableOrInstall(
+                provider: .claudeCode,
+                setup: AgentIntegrationSetup(enabled: true, configHome: recordedHome)
+            )
+            try Self.rewriteInstallRecord(runner: runner, provider: .claudeCode) {
+                $0.helperPath = Self.staleHelperPath
+            }
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: Self.claudeList(enabled: true)))
+
+            let before = command.invocations.count
+            _ = await runner.enableOrInstall(
+                provider: .claudeCode,
+                setup: AgentIntegrationSetup(enabled: true, configHome: liveHome)
+            )
+            let invocations = Array(command.invocations.dropFirst(before))
+            #expect(invocations.count == 5)
+            // Probe + uninstall target the recorded install's home; validate,
+            // marketplace add, and install follow the live field.
+            #expect(invocations[0].env["CLAUDE_CONFIG_DIR"] == recordedHome)
+            #expect(invocations[2].env["CLAUDE_CONFIG_DIR"] == recordedHome)
+            #expect(invocations[1].env["CLAUDE_CONFIG_DIR"] == liveHome)
+            #expect(invocations[3].env["CLAUDE_CONFIG_DIR"] == liveHome)
+            #expect(invocations[4].env["CLAUDE_CONFIG_DIR"] == liveHome)
+        }
+    }
+
+    @Test("Claude: a failure after the uninstall reports a repairable partial install")
+    func claudeCleanReinstallPartialFailureIsRepairable() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            try Self.rewriteInstallRecord(runner: runner, provider: .claudeCode) {
+                $0.helperPath = Self.staleHelperPath
+            }
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: Self.claudeList(enabled: true)))
+            let root = runner.renderer.renderedTreeURL(provider: .claudeCode).path
+            command.stub(
+                args: ["plugin", "marketplace", "add", root],
+                result: CommandResult(exitCode: 1, stdout: "", stderr: "boom")
+            )
+
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            guard case .needsRepair(let message) = outcome.status else {
+                Issue.record("expected needsRepair, got \(outcome.status)")
+                return
+            }
+            #expect(message.contains("use Repair to reconcile"))
+        }
+    }
+
+    @Test("Claude install confirmation discloses the conditional stale-install uninstall")
+    func claudeConfirmationDisclosesConditionalUninstall() async throws {
+        try await Self.withRunner { runner, _, _ in
+            let confirmation = runner.confirmation(for: .repair, provider: .claudeCode, setup: Self.enabled)
+            #expect(
+                confirmation.commandLines.contains(
+                    "claude plugin uninstall awesomux-claude-status@awesomux-claude --scope user (only when replacing a stale install)"
+                )
+            )
+        }
+    }
+
     // MARK: - Diagnostics
 
     @Test("a failed op produces redacted, capped diagnostics with exit code and args")
@@ -1307,6 +1495,19 @@ struct AgentPluginRunnerTests {
         provider: AgentPluginProvider,
         digest: String?
     ) throws {
+        try rewriteInstallRecord(runner: runner, provider: provider) {
+            $0.sourceContentDigest = digest
+        }
+    }
+
+    /// Rewrites the persisted install record on disk — the seam for modeling a
+    /// record from a prior install (stale helper path, stale digest) that the
+    /// fixed test resolver could never produce.
+    static func rewriteInstallRecord(
+        runner: ProcessAgentPluginRunner,
+        provider: AgentPluginProvider,
+        mutate: (inout AgentPluginInstallRecord) -> Void
+    ) throws {
         let url = runner.pluginManifestURL
         var manifest = try JSONDecoder().decode(
             AgentPluginInstallManifest.self,
@@ -1316,7 +1517,7 @@ struct AgentPluginRunnerTests {
             Issue.record("missing install record for \(provider.rawValue)")
             return
         }
-        manifest.records[index].sourceContentDigest = digest
+        mutate(&manifest.records[index])
         try JSONEncoder().encode(manifest).write(to: url, options: .atomic)
     }
 
