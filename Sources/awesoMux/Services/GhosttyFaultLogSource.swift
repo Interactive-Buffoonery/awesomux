@@ -15,7 +15,8 @@ protocol GhosttyFaultLogSource: Sendable {
 ///
 /// `OSLogStore.getEntries` performs synchronous XPC and can stall indefinitely.
 /// The dedicated serial queue keeps that work off the main actor while also
-/// confining the cached, non-Sendable store to one executor.
+/// confining the cached, non-Sendable store to one executor. Admission remains
+/// held until queued work exits so cancelled watchdogs cannot stack replacements.
 final class OSLogGhosttyFaultSource: GhosttyFaultLogSource, @unchecked Sendable {
     typealias Query =
         @Sendable (
@@ -25,7 +26,9 @@ final class OSLogGhosttyFaultSource: GhosttyFaultLogSource, @unchecked Sendable 
         ) -> Int
 
     private let queue = DispatchQueue(label: "dev.awesomux.ghostty-fault-log")
+    private let admissionLock = NSLock()
     private let queryOverride: Query?
+    private var queryIsAdmitted = false
     private var store: OSLogStore?
 
     init(query: Query? = nil) {
@@ -33,17 +36,38 @@ final class OSLogGhosttyFaultSource: GhosttyFaultLogSource, @unchecked Sendable 
     }
 
     func recentFaultCount(subsystem: String, category: String, since: Date) async -> Int {
-        await withCheckedContinuation { continuation in
-            queue.async { [self] in
-                continuation.resume(
-                    returning: queryFaultCount(
-                        subsystem: subsystem,
-                        category: category,
-                        since: since
+        guard admitQuery() else { return 0 }
+        let completion = FaultQueryCompletion()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                completion.install(continuation)
+                queue.async { [self] in
+                    defer { releaseQuery() }
+                    guard !completion.isCancelled else { return }
+                    completion.resume(
+                        queryFaultCount(
+                            subsystem: subsystem,
+                            category: category,
+                            since: since
+                        )
                     )
-                )
+                }
             }
+        } onCancel: {
+            completion.cancel()
         }
+    }
+
+    private func admitQuery() -> Bool {
+        admissionLock.withLock {
+            guard !queryIsAdmitted else { return false }
+            queryIsAdmitted = true
+            return true
+        }
+    }
+
+    private func releaseQuery() {
+        admissionLock.withLock { queryIsAdmitted = false }
     }
 
     private func queryFaultCount(subsystem: String, category: String, since: Date) -> Int {
@@ -70,5 +94,50 @@ final class OSLogGhosttyFaultSource: GhosttyFaultLogSource, @unchecked Sendable 
             .compactMap { $0 as? OSLogEntryLog }
             .filter { $0.level == .fault || $0.level == .error }
             .count
+    }
+}
+
+private final class FaultQueryCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Int, Never>?
+    private var cancelled = false
+    private var resumed = false
+
+    var isCancelled: Bool {
+        lock.withLock { cancelled }
+    }
+
+    func install(_ continuation: CheckedContinuation<Int, Never>) {
+        let shouldResume = lock.withLock {
+            self.continuation = continuation
+            guard cancelled else { return false }
+            resumed = true
+            self.continuation = nil
+            return true
+        }
+        if shouldResume {
+            continuation.resume(returning: 0)
+        }
+    }
+
+    func cancel() {
+        let continuation: CheckedContinuation<Int, Never>? = lock.withLock {
+            cancelled = true
+            guard !resumed else { return nil }
+            resumed = true
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        continuation?.resume(returning: 0)
+    }
+
+    func resume(_ result: Int) {
+        let continuation: CheckedContinuation<Int, Never>? = lock.withLock {
+            guard !resumed else { return nil }
+            resumed = true
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        continuation?.resume(returning: result)
     }
 }
