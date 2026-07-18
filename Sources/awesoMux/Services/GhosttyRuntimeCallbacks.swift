@@ -88,11 +88,16 @@ extension GhosttyRuntime {
             // writes the same `unreadNotificationCount`/attention fields as
             // GHOSTTY_ACTION_COMMAND_FINISHED's `applyDetectedAgentState`
             // path, which is ALSO still `Task`-dispatched (see that case
-            // below for why). Converting only one of the two would let this
-            // one jump the queue ahead of an earlier-fired COMMAND_FINISHED,
-            // inverting their effective order and letting a stale
-            // command-finished clear a just-applied notification. Needs a
-            // combined fix, not a partial one — tracked as a follow-up.
+            // below for why). Converting only THIS case to a synchronous
+            // bridge would deterministically jump it ahead of an
+            // earlier-fired, still-queued COMMAND_FINISHED, letting a stale
+            // command-finished clear a just-applied notification. Matching
+            // dispatch styles removes that new, deterministic inversion, but
+            // does NOT itself guarantee FIFO order between separate `Task`s
+            // on the same actor — that ordering hazard predates this PR and
+            // isn't fixed here. A real fix needs explicit
+            // sequencing/serialization for these three cases together, not
+            // just matching Task-vs-sync — tracked as a follow-up.
             Task { @MainActor in
                 // `workspaces.output_marks_needs_attention = false` means
                 // "don't mark sessions as needing attention from output."
@@ -221,9 +226,13 @@ extension GhosttyRuntime {
             // reaches native libghostty calls on OTHER surfaces
             // (`ghostty_surface_needs_confirm_quit`), which is unproven safe
             // to invoke from inside this surface's own `action_cb` — that
-            // needs its own investigation, and the bell/notification cases
-            // above must move in lockstep with whatever this becomes, to
-            // keep queued-vs-synchronous ordering consistent between them.
+            // needs its own investigation. The bell/notification cases above
+            // stay Task-dispatched to match this one and avoid a NEW,
+            // deterministic ordering inversion — but matching dispatch
+            // styles alone doesn't guarantee FIFO order between separate
+            // `Task`s on the same actor, so the pre-existing race between
+            // all three isn't fixed either. A real fix needs explicit
+            // sequencing/serialization across all three together.
             Task { @MainActor in
                 view.handleCommandFinished(exitCode: exitCode)
             }
