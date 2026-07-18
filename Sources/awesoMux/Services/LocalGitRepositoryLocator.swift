@@ -1,10 +1,7 @@
+import AwesoMuxCore
 import Foundation
 
-struct GitRepositoryContext: Equatable, Sendable {
-    var invocationRoot: URL
-    var canonicalCommonGitDirectory: URL
-    var displayName: String
-}
+typealias GitRepositoryContext = AwesoMuxCore.GitRepositoryContext
 
 enum GitRepositoryLocationFailure: Equatable, Sendable {
     case executableNotFound

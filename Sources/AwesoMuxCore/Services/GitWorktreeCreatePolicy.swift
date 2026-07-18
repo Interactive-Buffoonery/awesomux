@@ -1,0 +1,75 @@
+import Foundation
+
+public enum GitWorktreeCreateValidationIssue: Equatable, Sendable {
+    case blankBranchName
+    case targetPathMustBeAbsolute
+    case parentDirectoryMissing
+    case parentDirectoryNotWritable
+    case targetAlreadyExists
+    case targetOverlapsWorktree(URL)
+}
+
+public struct GitWorktreeCreatePolicy: Sendable {
+    public init() {}
+
+    public func suggestedTargetPath(
+        repositoryContext: GitRepositoryContext,
+        branchName: String,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        let parent = repositoryContext.invocationRoot.deletingLastPathComponent()
+            .appendingPathComponent("\(repositoryContext.displayName)-worktrees", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        let component = sanitizedPathComponent(branchName)
+        guard !component.isEmpty else { return nil }
+        return parent.appendingPathComponent(component, isDirectory: true)
+    }
+
+    public func validate(
+        _ request: GitWorktreeCreateRequest,
+        currentWorktrees: [GitWorktreeRecord],
+        fileManager: FileManager = .default
+    ) -> [GitWorktreeCreateValidationIssue] {
+        var issues: [GitWorktreeCreateValidationIssue] = []
+        if request.mode.branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issues.append(.blankBranchName)
+        }
+        guard request.targetPath.path.hasPrefix("/") else {
+            issues.append(.targetPathMustBeAbsolute)
+            return issues
+        }
+        let parent = request.targetPath.deletingLastPathComponent()
+        var isDirectory: ObjCBool = false
+        if !fileManager.fileExists(atPath: parent.path, isDirectory: &isDirectory) || !isDirectory.boolValue {
+            issues.append(.parentDirectoryMissing)
+        } else if !fileManager.isWritableFile(atPath: parent.path) {
+            issues.append(.parentDirectoryNotWritable)
+        }
+        if fileManager.fileExists(atPath: request.targetPath.path) {
+            issues.append(.targetAlreadyExists)
+        }
+        let candidate = canonicalPathComponents(request.targetPath)
+        for record in currentWorktrees {
+            let existing = canonicalPathComponents(record.canonicalPath)
+            if candidate.starts(with: existing) || existing.starts(with: candidate) {
+                issues.append(.targetOverlapsWorktree(record.canonicalPath))
+                break
+            }
+        }
+        return issues
+    }
+
+    public func sanitizedPathComponent(_ branchName: String) -> String {
+        let invalid = CharacterSet(charactersIn: "/\\:").union(.controlCharacters)
+        return branchName.unicodeScalars.map { invalid.contains($0) ? "-" : String($0) }
+            .joined()
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".- "))
+    }
+}
+
+public func canonicalPathComponents(_ url: URL) -> [String] {
+    url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+}

@@ -9,6 +9,7 @@ final class WorktreeManagerController {
     @ObservationIgnored private var panel: FloatingSwiftUIPanelWindow?
     @ObservationIgnored private var isDismissing = false
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private weak var activeModel: WorktreeManagerModel?
     @ObservationIgnored var appSettingsStore: AppSettingsStore?
 
     private(set) var isVisible = false
@@ -35,6 +36,7 @@ final class WorktreeManagerController {
     }
 
     func show(model: WorktreeManagerModel, relativeTo parentWindow: NSWindow?) {
+        activeModel = model
         let panel = panel ?? makePanel(model: model)
         self.panel = panel
         panel.hostSwiftUIContent(makeRootView(model: model))
@@ -49,12 +51,14 @@ final class WorktreeManagerController {
     }
 
     func dismiss() {
+        guard activeModel?.createSubmissionState.isSubmitting != true else { return }
         guard !isDismissing else { return }
         isDismissing = true
         isVisible = false
         refreshTask?.cancel()
         refreshTask = nil
         panel?.orderOut(nil)
+        activeModel = nil
         isDismissing = false
     }
 

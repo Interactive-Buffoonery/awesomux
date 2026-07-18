@@ -6,6 +6,73 @@ import Testing
 @MainActor
 @Suite("Worktree Manager model")
 struct WorktreeManagerModelTests {
+    @Test("create success refreshes and opens the confirmed workspace")
+    func createSuccessOpensWorkspace() async {
+        let groupID = UUID()
+        var openedPath: String?
+        let service = StubWorktreeListing(
+            outcomes: [.success(.init(records: [record()], diagnostics: []))],
+            createOutcomes: [.success(record())]
+        )
+        let model = makeModel(
+            service: service, currentGroupID: { groupID },
+            add: { _, path, _ in
+                openedPath = path; return UUID()
+            })
+        let result = await model.create(request: request(groupID: groupID))
+        guard case .opened = result else { Issue.record("Expected opened result"); return }
+        #expect(openedPath == "/tmp/worktrees/int-857")
+    }
+
+    @Test("branch-only partial does not open a workspace")
+    func partialDoesNotOpen() async {
+        var addCalls = 0
+        let service = StubWorktreeListing(
+            outcomes: [.success(.init(records: [], diagnostics: []))],
+            createOutcomes: [.branchCreatedWithoutWorktree(branchName: "feature/int-857", diagnostic: .nonZeroExit(1))]
+        )
+        let model = makeModel(
+            service: service, currentGroupID: { UUID() },
+            add: { _, _, _ in
+                addCalls += 1; return UUID()
+            })
+        let result = await model.create(request: request(groupID: UUID()))
+        #expect(result == .branchCreatedWithoutWorktree("feature/int-857"))
+        #expect(addCalls == 0)
+    }
+
+    @Test("rejected create preserves the submitted form values")
+    func rejectedCreatePreservesRequest() async {
+        let service = StubWorktreeListing(
+            outcomes: [.success(.init(records: [], diagnostics: []))],
+            createOutcomes: [.failure(.invalidRequest([.targetAlreadyExists]))]
+        )
+        let model = makeModel(service: service)
+        let submitted = request(groupID: UUID())
+        _ = await model.create(request: submitted)
+        #expect(model.lastCreateRequest == submitted)
+        guard case .result(.failed) = model.createSubmissionState else {
+            Issue.record("Expected visible rejected result")
+            return
+        }
+    }
+
+    @Test("duplicate create submission is blocked while submitting")
+    func duplicateCreateBlocked() async {
+        let service = StubWorktreeListing(
+            outcomes: [.success(.init(records: [], diagnostics: []))],
+            createOutcomes: [.failure(.spawnFailure)],
+            createDelay: .milliseconds(100)
+        )
+        let model = makeModel(service: service)
+        let request = request(groupID: UUID())
+        let first = Task { await model.create(request: request) }
+        await Task.yield()
+        let duplicate = await model.create(request: request)
+        _ = await first.value
+        #expect(duplicate == nil)
+        #expect(service.createCallCount == 1)
+    }
     @Test("refresh transitions from loading to loaded")
     func refreshLoadsRows() async {
         let service = StubWorktreeListing(outcomes: [.success(.init(records: [record()], diagnostics: []))])
@@ -100,7 +167,7 @@ struct WorktreeManagerModelTests {
     }
 
     private func makeModel(
-        service: any GitWorktreeListing = StubWorktreeListing(outcomes: []),
+        service: any GitWorktreeManaging = StubWorktreeListing(outcomes: []),
         groups: @escaping () -> [SessionGroup] = { [] },
         currentGroupID: @escaping () -> SessionGroup.ID? = { nil },
         focus: @escaping (WorktreeWorkspaceMatch) -> Void = { _ in },
@@ -133,17 +200,54 @@ struct WorktreeManagerModelTests {
             prunableReason: nil
         )
     }
+
+    private func request(groupID: UUID) -> GitWorktreeCreateRequest {
+        .init(
+            repositoryContext: .init(
+                invocationRoot: URL(fileURLWithPath: "/tmp/repo"), canonicalCommonGitDirectory: URL(fileURLWithPath: "/tmp/repo/.git"),
+                displayName: "repo"),
+            mode: .existingBranch("feature/int-857"),
+            targetPath: URL(fileURLWithPath: "/tmp/worktrees/int-857"),
+            destinationWorkspaceGroupID: groupID
+        )
+    }
 }
 
-private final class StubWorktreeListing: GitWorktreeListing, @unchecked Sendable {
+private final class StubWorktreeListing: GitWorktreeManaging, @unchecked Sendable {
     private let lock = NSLock()
     private var outcomes: [GitWorktreeListOutcome]
+    private var createOutcomes: [GitWorktreeCreateOutcome]
+    private let createDelay: Duration?
+    private var recordedCreateCalls = 0
 
-    init(outcomes: [GitWorktreeListOutcome]) {
+    init(
+        outcomes: [GitWorktreeListOutcome],
+        createOutcomes: [GitWorktreeCreateOutcome] = [],
+        createDelay: Duration? = nil
+    ) {
         self.outcomes = outcomes
+        self.createOutcomes = createOutcomes
+        self.createDelay = createDelay
     }
+
+    var createCallCount: Int { lock.withLock { recordedCreateCalls } }
 
     func list(in repositoryContext: GitRepositoryContext) async -> GitWorktreeListOutcome {
         lock.withLock { outcomes.isEmpty ? .failure(.spawnFailure) : outcomes.removeFirst() }
+    }
+
+    func branches(in repositoryContext: GitRepositoryContext) async -> GitWorktreeBranchesOutcome {
+        .success(["main"])
+    }
+
+    func validateNewBranchName(_ name: String, in repositoryContext: GitRepositoryContext) async -> Bool { true }
+
+    func create(_ request: GitWorktreeCreateRequest) async -> GitWorktreeCreateOutcome {
+        let result = lock.withLock { () -> GitWorktreeCreateOutcome in
+            recordedCreateCalls += 1
+            return createOutcomes.isEmpty ? .failure(.spawnFailure) : createOutcomes.removeFirst()
+        }
+        if let createDelay { try? await Task.sleep(for: createDelay) }
+        return result
     }
 }
