@@ -21,13 +21,16 @@ extension ProcessAgentPluginRunner {
         let home = grokHome(setup: setup)
 
         if let configured = setup.configHome?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !configured.isEmpty,
-           !grokDirectoryExists(home) {
+            !configured.isEmpty,
+            !grokDirectoryExists(home)
+        {
             return AgentPluginStatusReport(status: .needsRepair(grokMissingHomeGuidance(home: home)))
         }
 
-        guard let ref = effectiveRefForRecordedInstall(provider: .grok)
-            ?? (try? marketplaceRef(provider: .grok)) else {
+        guard
+            let ref = effectiveRefForRecordedInstall(provider: .grok)
+                ?? (try? marketplaceRef(provider: .grok))
+        else {
             return AgentPluginStatusReport(status: .unsupported("Bundled Grok plugin manifest is missing"))
         }
 
@@ -144,8 +147,9 @@ extension ProcessAgentPluginRunner {
         let home = grokHome(setup: setup)
 
         if let configured = setup.configHome?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !configured.isEmpty,
-           !grokDirectoryExists(home) {
+            !configured.isEmpty,
+            !grokDirectoryExists(home)
+        {
             return AgentPluginActionOutcome(status: .needsRepair(grokMissingHomeGuidance(home: home)))
         }
 
@@ -164,14 +168,14 @@ extension ProcessAgentPluginRunner {
         let env = grokEnvironment(home: home)
         let steps: [MutationStep] = [
             MutationStep(["plugin", "validate", pluginDirectory.path], mutates: false),
-            MutationStep(["plugin", "install", pluginDirectory.path, "--trust"])
+            MutationStep(["plugin", "install", pluginDirectory.path, "--trust"]),
         ]
         if let failure = await runMutationSteps(
             executable: executable,
             steps: steps,
             env: env,
             repairGuidance: "Install failed partway through; use Repair to reconcile",
-            mapCommandError: { grokMutationFailure($0, executable: executable) }
+            mapCommandError: { grokMutationFailure($0, executable: $1) }
         ) {
             return failure
         }
@@ -191,8 +195,10 @@ extension ProcessAgentPluginRunner {
         let setup = effectiveSetupForRecordedInstall(provider: .grok, current: setup)
         let executable = resolvedExecutable(provider: .grok, setup: setup)
         let home = grokHome(setup: setup)
-        guard let ref = effectiveRefForRecordedInstall(provider: .grok)
-            ?? (try? marketplaceRef(provider: .grok)) else {
+        guard
+            let ref = effectiveRefForRecordedInstall(provider: .grok)
+                ?? (try? marketplaceRef(provider: .grok))
+        else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled Grok plugin manifest is missing"))
         }
 
@@ -200,7 +206,7 @@ extension ProcessAgentPluginRunner {
             executable: executable,
             args: ["plugin", "disable", ref.pluginName],
             env: grokEnvironment(home: home),
-            mapCommandError: { grokMutationFailure($0, executable: executable) }
+            mapCommandError: { grokMutationFailure($0, executable: $1) }
         ) {
         case .success:
             return AgentPluginActionOutcome(status: .disabled)
@@ -215,8 +221,10 @@ extension ProcessAgentPluginRunner {
         let setup = effectiveSetupForRecordedInstall(provider: .grok, current: setup)
         let executable = resolvedExecutable(provider: .grok, setup: setup)
         let home = grokHome(setup: setup)
-        guard let ref = effectiveRefForRecordedInstall(provider: .grok)
-            ?? (try? marketplaceRef(provider: .grok)) else {
+        guard
+            let ref = effectiveRefForRecordedInstall(provider: .grok)
+                ?? (try? marketplaceRef(provider: .grok))
+        else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled Grok plugin manifest is missing"))
         }
 
@@ -224,7 +232,7 @@ extension ProcessAgentPluginRunner {
             executable: executable,
             args: ["plugin", "uninstall", ref.pluginName, "--confirm"],
             env: grokEnvironment(home: home),
-            mapCommandError: { grokMutationFailure($0, executable: executable) }
+            mapCommandError: { grokMutationFailure($0, executable: $1) }
         ) {
         case .success:
             try? removeInstallRecord(provider: .grok)
@@ -250,7 +258,7 @@ extension ProcessAgentPluginRunner {
         case .enableOrInstall, .repair:
             [
                 "grok plugin validate [generated awesoMux plugin path]",
-                "grok plugin install [generated awesoMux plugin path] --trust"
+                "grok plugin install [generated awesoMux plugin path] --trust",
             ]
         case .disable:
             ["grok plugin disable \(ref.pluginName)"]
@@ -273,7 +281,8 @@ extension ProcessAgentPluginRunner {
         let recordedHome = record.configHome
         let liveHome = grokHome(setup: liveSetup).path
         guard recordedHome != liveHome else { return nil }
-        return "Actions target the recorded Grok home \(recordedHome); the Config home field now points at \(liveHome). Repair to move the install, or restore the field to keep using the recorded home."
+        return
+            "Actions target the recorded Grok home \(recordedHome); the Config home field now points at \(liveHome). Repair to move the install, or restore the field to keep using the recorded home."
     }
 
     private func grokMissingHomeGuidance(home: URL) -> String {
@@ -283,7 +292,7 @@ extension ProcessAgentPluginRunner {
     private func grokEnvironment(home: URL) -> [String: String] {
         [
             "GROK_HOME": home.path,
-            "PATH": mergedToolPath()
+            "PATH": mergedToolPath(),
         ]
     }
 
@@ -384,7 +393,8 @@ enum GrokInstalledHooksInspector {
         if let allowedHome {
             let homePath = allowedHome.standardizedFileURL.path
             let pluginPath = pluginDirectory.path
-            let underHome = pluginPath == homePath
+            let underHome =
+                pluginPath == homePath
                 || pluginPath.hasPrefix(homePath.hasSuffix("/") ? homePath : homePath + "/")
             // Also allow the common install root ~/.grok/installed-plugins when
             // GROK_HOME is the parent of that tree (default layout).
@@ -395,12 +405,13 @@ enum GrokInstalledHooksInspector {
 
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: pluginDirectory.path, isDirectory: &isDirectory),
-              isDirectory.boolValue
+            isDirectory.boolValue
         else {
             return "The Grok status plugin directory is missing; Repair to reinstall the current plugin"
         }
 
-        let hooksURL = pluginDirectory
+        let hooksURL =
+            pluginDirectory
             .appending(path: "hooks", directoryHint: .isDirectory)
             .appending(path: "hooks.json", directoryHint: .notDirectory)
 
@@ -415,9 +426,9 @@ enum GrokInstalledHooksInspector {
         }
 
         guard let data = try? Data(contentsOf: hooksURL),
-              data.count <= maximumHooksJSONByteCount,
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hooks = root["hooks"] as? [String: Any]
+            data.count <= maximumHooksJSONByteCount,
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let hooks = root["hooks"] as? [String: Any]
         else {
             return "The Grok status plugin hooks file is unreadable; Repair to reinstall the current plugin"
         }
@@ -429,7 +440,8 @@ enum GrokInstalledHooksInspector {
 
         let hasLegacySnakeCase = eventNames.contains { $0.contains("_") }
         if hasLegacySnakeCase {
-            return "The installed Grok status plugin still uses legacy snake_case hook names; Repair to reinstall the current CamelCase hooks so the sidebar reflects agent activity"
+            return
+                "The installed Grok status plugin still uses legacy snake_case hook names; Repair to reinstall the current CamelCase hooks so the sidebar reflects agent activity"
         }
         return "The installed Grok status plugin is missing required lifecycle hooks; Repair to reinstall the current plugin"
     }
