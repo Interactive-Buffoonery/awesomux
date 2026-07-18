@@ -917,6 +917,14 @@ struct PaletteCommandRegistryTests {
     }
 
     @Test @MainActor
+    func allQueryPreviewUsesGenericFallback() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("?token=secret")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        #expect(row.subtitle == "Detected terminal link")
+    }
+
+    @Test @MainActor
     func schemelessPreviewShowsOnlyFinalPathComponent() throws {
         var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
         pane.recentLinks.record("private-project/readme.md")

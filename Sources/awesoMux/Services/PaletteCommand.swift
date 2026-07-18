@@ -864,7 +864,8 @@ enum PaletteCommandRegistry {
             let redactedValue = value.prefix { $0 != "?" && $0 != "#" }
             let pathComponents = redactedValue.split(separator: "/", omittingEmptySubsequences: true)
             let trailingPath = pathComponents.suffix(1).joined(separator: "/")
-            return (boundedSafePreview(trailingPath.isEmpty ? String(redactedValue) : trailingPath), [])
+            let preview = boundedSafePreview(trailingPath.isEmpty ? String(redactedValue) : trailingPath)
+            return (preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : preview, [])
         default:
             return (boundedSafePreview(fallback), [])
         }
