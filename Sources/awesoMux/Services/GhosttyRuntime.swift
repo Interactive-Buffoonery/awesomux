@@ -315,7 +315,7 @@ final class GhosttyRuntime {
                 "nudge probe: no surface view for pane \(paneID.uuidString, privacy: .public)")
             return nil
         }
-        return surfaceView.commandBridgeEnactor.foregroundComm()
+        return surfaceView.documentNudgeForegroundComm()
     }
 
     /// INT-569 field diagnostics for the document-nudge evidence chain.
