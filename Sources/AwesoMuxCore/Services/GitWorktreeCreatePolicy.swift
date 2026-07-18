@@ -50,8 +50,27 @@ public struct GitWorktreeCreatePolicy: Sendable {
     /// where a worktree WILL land before a branch name exists to complete
     /// `candidateTargetPath` (round-6 smoke: an empty branch name left the
     /// create form's Target path hint completely blank).
+    ///
+    /// Anchored to `mainRepositoryRoot`, NOT `repositoryContext.invocationRoot`:
+    /// worktrees created from inside an already-linked worktree used to nest
+    /// under THAT worktree's own root (`invocationRoot` is genuinely that
+    /// worktree's own `git rev-parse --show-toplevel`, confirmed against real
+    /// git), producing an ever-deepening `.worktrees/a/.worktrees/b/...`
+    /// instead of flat siblings under the repo's actual checkout (INT-857
+    /// round-8 smoke).
     public func targetContainerPath(repositoryContext: GitRepositoryContext) -> URL {
-        repositoryContext.invocationRoot.appendingPathComponent(".worktrees", isDirectory: true)
+        mainRepositoryRoot(repositoryContext: repositoryContext).appendingPathComponent(".worktrees", isDirectory: true)
+    }
+
+    /// The repo's actual checkout root, resolved the same way regardless of
+    /// which worktree you invoke from: a linked worktree's own `.git` is a
+    /// FILE pointing back at `<main>/.git/worktrees/<name>`, so
+    /// `--git-common-dir` always resolves to `<main>/.git` no matter where
+    /// it's run — its parent is the one root every worktree of this repo
+    /// agrees on. `invocationRoot`, by contrast, is `--show-toplevel`, which
+    /// deliberately reports wherever you're STANDING, not the shared root.
+    private func mainRepositoryRoot(repositoryContext: GitRepositoryContext) -> URL {
+        repositoryContext.canonicalCommonGitDirectory.deletingLastPathComponent()
     }
 
     /// The create form's live pre-fill for its Target path field: always the
@@ -104,11 +123,11 @@ public struct GitWorktreeCreatePolicy: Sendable {
             // closed the placeholder/bound-value split (INT-857 round-7
             // smoke: the error changed from "must be absolute" to "parent
             // directory does not exist", but Create still never succeeded).
-            // Only require the invocation root itself — which definitely
-            // exists — to be writable; git materializes everything under
-            // `.worktrees/` on its own. A target OUTSIDE this convention
-            // still needs its immediate parent to already exist.
-            if !fileManager.isWritableFile(atPath: request.repositoryContext.invocationRoot.path) {
+            // Only require the repo's actual checkout root itself — which
+            // definitely exists — to be writable; git materializes
+            // everything under `.worktrees/` on its own. A target OUTSIDE
+            // this convention still needs its immediate parent to exist.
+            if !fileManager.isWritableFile(atPath: mainRepositoryRoot(repositoryContext: request.repositoryContext).path) {
                 issues.append(.parentDirectoryNotWritable)
             }
         } else {
@@ -117,20 +136,20 @@ public struct GitWorktreeCreatePolicy: Sendable {
         if fileManager.fileExists(atPath: request.targetPath.path) {
             issues.append(.targetAlreadyExists)
         }
-        // Whichever worktree the request was INVOKED FROM is exempt from the
-        // "target NESTED UNDER an existing worktree" half of this check, not
-        // just the main one: git allows linked worktrees nested under it, and
-        // `.worktrees/` — this app's own suggested convention — always lives
-        // under the invocation root, main or linked (round-5 smoke covered
-        // main; round-857 smoke found the same false overlap from a Worktree
-        // Manager opened inside a LINKED worktree, since only `isMainWorktree`
-        // was ever exempted). The OTHER half — an existing worktree nested
-        // under the new TARGET, i.e. the target is some ancestor of the
-        // worktree you're standing in — stays unconditional: an ancestor of
-        // a worktree that already exists on disk always already exists
-        // itself, so it's normally caught by `targetAlreadyExists` above
-        // regardless, but exempting it here too would be a silent gap if
-        // that assumption ever stops holding.
+        // The exemption set for the "target NESTED UNDER an existing
+        // worktree" half of this check is {main} ∪ {whichever worktree the
+        // request was INVOKED FROM}, unconditionally — not just main (round-5
+        // smoke) and not ONLY the invocation root (round-857 smoke: the
+        // default suggestion nests under main via `targetContainerPath`, but
+        // a hand-typed or "Choose…"-picked path nested under the CURRENT
+        // worktree is equally git-allowed and must validate clean too).
+        // A target nested under any OTHER worktree still rejects. The OTHER
+        // half — an existing worktree nested under the new TARGET, i.e. the
+        // target is some ancestor of the worktree you're standing in — stays
+        // unconditional: an ancestor of a worktree that already exists on
+        // disk always already exists itself, so it's normally caught by
+        // `targetAlreadyExists` above regardless, but exempting it here too
+        // would be a silent gap if that assumption ever stops holding.
         let invocationRoot = canonicalPathComponents(request.repositoryContext.invocationRoot)
         for record in currentWorktrees where !record.isMainWorktree {
             let existing = canonicalPathComponents(record.canonicalPath)
