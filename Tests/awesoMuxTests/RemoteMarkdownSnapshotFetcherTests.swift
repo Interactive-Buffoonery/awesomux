@@ -231,6 +231,32 @@ struct RemoteMarkdownReferenceTests {
         #expect(fetcher.cacheFileName(for: hostA) != fetcher.cacheFileName(for: userA))
     }
 
+    @Test func fetchedSnapshotsUsePrivateFilesystemPermissions() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane()
+            ))
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let fetcher = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in Data("private plan".utf8) }
+        )
+
+        let snapshot = try #require(await fetcher.fetch(reference))
+        let directoryAttributes = try FileManager.default.attributesOfItem(
+            atPath: cacheDirectory.path
+        )
+        let fileAttributes = try FileManager.default.attributesOfItem(
+            atPath: snapshot.fileURL.path
+        )
+
+        #expect((directoryAttributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
+        #expect((fileAttributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    }
+
     @Test func shellSingleQuoteEscapesQuotes() {
         #expect(RemoteMarkdownSnapshotFetcher.shellSingleQuoted("a'b.md") == "'a'\\''b.md'")
     }

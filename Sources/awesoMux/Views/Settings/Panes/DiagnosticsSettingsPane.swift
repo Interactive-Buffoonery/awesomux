@@ -221,6 +221,16 @@ struct DiagnosticsSettingsPane: View {
                     metricCard(label: "awesoMux PID", value: "\(snapshot.appPID)")
                 }
 
+                Text(
+                    String(
+                        localized: "CPU is measured per core: 100% = one fully used core, 200% = two.",
+                        comment: "Explanation of CPU percentages in Diagnostics"
+                    )
+                )
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text2)
+                .fixedSize(horizontal: false, vertical: true)
+
                 if !snapshot.appProcesses.isEmpty {
                     let cpuPercent = snapshot.appProcesses.reduce(0) { $0 + $1.cpuPercent }
                     let residentBytes = snapshot.appProcesses.reduce(0) { $0 + $1.residentBytes }

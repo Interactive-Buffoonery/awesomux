@@ -21,6 +21,28 @@ public struct TerminalSplit: Identifiable, Codable, Hashable, Sendable {
         self.firstFraction = firstFraction.clampedSplitFraction
     }
 }
+public extension TerminalSplit {
+    /// Rebuild this split preserving `id`/`orientation`/`firstFraction`, swapping
+    /// one or both children (or the fraction). Every structural mutation used to
+    /// re-spell the full `TerminalSplit(id:orientation:first:second:firstFraction:)`
+    /// initializer by hand (13+ sites); centralizing it here means the preserved
+    /// fields can never silently drift between call sites, and a new leaf kind
+    /// reuses this rebuild instead of adding another copy.
+    func rebuilding(
+        first: TerminalPaneLayout? = nil,
+        second: TerminalPaneLayout? = nil,
+        firstFraction: Double? = nil
+    ) -> TerminalSplit {
+        TerminalSplit(
+            id: id,
+            orientation: orientation,
+            first: first ?? self.first,
+            second: second ?? self.second,
+            firstFraction: firstFraction ?? self.firstFraction
+        )
+    }
+}
+
 extension TerminalSplit {
     private enum CodingKeys: String, CodingKey {
         case id

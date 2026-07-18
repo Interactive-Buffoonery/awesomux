@@ -587,9 +587,23 @@ public struct TOMLConfigCodec: Sendable {
             structured
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
+
+        // A prior splice call (e.g. terminal, before appearance) may have
+        // inserted a header-shaped line as part of a preserved multiline
+        // value. Guard every header candidate against value-scan state —
+        // mirrors the decode-side guard in `extractSectionPreservation` — so
+        // that line is read as content, not a real table boundary.
+        var scan = TOMLValueScanState()
+        let isRealHeaderCandidate: [Bool] = lines.map { line in
+            let wasMidValue = scan.isMidValue
+            advanceValueScan(&scan, over: line)
+            return !wasMidValue
+        }
+
         guard
-            let sectionHeaderIndex = lines.firstIndex(where: {
-                parseTableHeader($0.trimmingCharacters(in: .whitespacesAndNewlines)) == sectionName
+            let sectionHeaderIndex = lines.indices.first(where: { index in
+                isRealHeaderCandidate[index]
+                    && parseTableHeader(lines[index].trimmingCharacters(in: .whitespacesAndNewlines)) == sectionName
             })
         else {
             return structured.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -599,7 +613,7 @@ public struct TOMLConfigCodec: Sendable {
         var insertIndex = lines.index(after: sectionHeaderIndex)
         while insertIndex < lines.endIndex {
             let trimmed = lines[insertIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-            if parseTableHeader(trimmed) != nil {
+            if isRealHeaderCandidate[insertIndex], parseTableHeader(trimmed) != nil {
                 break
             }
             insertIndex = lines.index(after: insertIndex)
