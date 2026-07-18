@@ -94,6 +94,30 @@ struct URLClassifierTests {
         #expect(reason == .nonAsciiHost)
     }
 
+    @Test(
+        "malformed punycode that fails to decode blocks, not opens direct",
+        arguments: [
+            "https://xn--a.com/",
+            "https://good.xn--a.com/",
+        ]
+    )
+    func malformedPunycodeDecodeFailureBlocks(rawURL: String) throws {
+        // `xn--a` isn't valid punycode — Foundation's `URLComponents.host`
+        // returns nil rather than the raw `xn--a.com` text (verified
+        // empirically), while `url.host(percentEncoded:false)` still
+        // returns the punycode form. A naive "check displayHost only" gate
+        // would see nil and wave this through as openDirect — including
+        // for a multi-label host where just one label fails to decode,
+        // which blanks displayHost for the WHOLE host.
+        let url = try #require(URL(string: rawURL))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm for \(rawURL), got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
     @Test("punycode-encoded pure-script host opens direct")
     func punycodeEncodedPureScriptHostOpensDirect() throws {
         // xn--80adxhks.com decodes to москва.com — pure Cyrillic, encoded.

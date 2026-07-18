@@ -203,12 +203,22 @@ public enum URLClassifier {
             displayHost.map(hostContainsUnsafeAuthorityScalar) ?? false
             || punycodeHost.map(hostContainsUnsafeAuthorityScalar) ?? false
 
-        // `URLComponents.host` decodes `xn--` labels to Unicode even when
-        // the source URL gave the host in punycode form directly — verified
-        // empirically, not just per the API contract. If a label still
-        // shows a literal `xn--` prefix here, decoding didn't happen and we
-        // can't inspect the real content behind it. Block rather than guess.
-        let hostFailedPunycodeDecode = displayHost.map(hostContainsPunycodeLabel) ?? false
+        // An IDN host must decode fully to Unicode before we trust script
+        // analysis on it. `punycodeHost` carries the `xn--` form for ANY
+        // IDN host regardless of decode success, so it's the right signal
+        // for "this is an IDN host at all." If that's true but `displayHost`
+        // is nil (Foundation failed to decode invalid/malformed punycode —
+        // `URLComponents.host` returns nil, not the raw `xn--` text, e.g.
+        // `xn--a.com`) or still literally shows `xn--` (partial decode
+        // failure), we can't inspect the real content. Block rather than
+        // guess — this also covers a multi-label host where just one label
+        // fails to decode (`good.xn--a.com`), which blanks `displayHost`
+        // for the WHOLE host, not just that label.
+        let hostFailedPunycodeDecode: Bool = {
+            guard let punycodeHost, hostContainsPunycodeLabel(punycodeHost) else { return false }
+            guard let displayHost else { return true }
+            return hostContainsPunycodeLabel(displayHost)
+        }()
 
         // TR39 mixed-script detection (INT-454): block a label only when it
         // mixes scripts that could be confused for one another — the same
