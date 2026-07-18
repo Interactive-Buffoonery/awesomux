@@ -366,7 +366,7 @@ struct SessionStoreReorderTests {
 
         let snapshot = store.snapshot()
         let encoded = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: encoded)
+        let decoded = try SessionSnapshot.decode(from: encoded)
         let restored = SessionStore(restoring: decoded)
 
         #expect(restored.groups.map(\.name) == ["h", "g"])
