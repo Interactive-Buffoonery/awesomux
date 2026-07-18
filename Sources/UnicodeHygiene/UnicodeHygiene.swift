@@ -218,6 +218,14 @@ public enum UnicodeHygiene {
             return nil
         }
 
+        // ponytail: this range table is maintained by report, not generated
+        // from Unicode's Script=Latin property (no public Foundation/ICU
+        // accessor exists — see URLClassifier.swift's file header for the
+        // `swift -e` proof). Every Latin block found reachable through a
+        // real IDN host so far is listed below; an as-yet-unlisted block
+        // (there are dozens in total, most vanishingly obscure) would read
+        // as single-script when paired with Cyrillic/Greek. Extend this
+        // switch, don't redesign the algorithm, when the next one surfaces.
         switch scalar.value {
         case 0x0041 ... 0x005A,
              0x0061 ... 0x007A,
@@ -228,16 +236,19 @@ public enum UnicodeHygiene {
              // letters (U+1E01) beside Cyrillic.
              0x0250 ... 0x02AF,
              0x1E00 ... 0x1EFF,
-             // Latin Extended-C/D/E: without these, a Latin-lookalike letter
-             // from one of these blocks (e.g. U+A7CA LATIN CAPITAL LETTER S
-             // WITH SHORT STROKE) returns nil from this switch — contributing
-             // NO family — so pairing it with a real Cyrillic/Greek letter
-             // reads as single-script and slips past the mixing check.
-             // Confirmed reachable through a real IDN host: Foundation
-             // accepts and punycode-encodes "\u{A7CA}\u{0430}.com".
+             // Latin Extended-C/D/E/F/G: without these, a Latin-lookalike
+             // letter from one of these blocks (e.g. U+A7CA LATIN CAPITAL
+             // LETTER S WITH SHORT STROKE) returns nil from this switch —
+             // contributing NO family — so pairing it with a real
+             // Cyrillic/Greek letter reads as single-script and slips past
+             // the mixing check. Confirmed reachable through a real IDN
+             // host: Foundation accepts and punycode-encodes
+             // "\u{A7CA}\u{0430}.com".
              0x2C60 ... 0x2C7F,
              0xA720 ... 0xA7FF,
-             0xAB30 ... 0xAB6F:
+             0xAB30 ... 0xAB6F,
+             0x10780 ... 0x107BF,
+             0x1DF00 ... 0x1DFFF:
             return .latin
         case 0x0370 ... 0x03FF,
              0x1F00 ... 0x1FFF:

@@ -99,6 +99,14 @@ struct UnicodeHygieneScriptMixingTests {
         #expect(UnicodeHygiene.hasSuspiciousScriptMixing("\u{A7CA}\u{0430}"))
     }
 
+    @Test("flags Latin Extended-F mixed with Cyrillic")
+    func flagsLatinExtendedFMixedWithCyrillic() {
+        // U+10780 (Latin Extended-F, supplementary plane) beside Cyrillic а
+        // — Foundation accepts and punycode-encodes "\u{10780}\u{0430}.com"
+        // as a valid host.
+        #expect(UnicodeHygiene.hasSuspiciousScriptMixing("\u{10780}\u{0430}"))
+    }
+
     @Test("allows pure Latin names")
     func allowsPureLatinNames() {
         #expect(!UnicodeHygiene.hasSuspiciousScriptMixing("Claude"))
