@@ -585,6 +585,12 @@ private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
     @Binding var isFocused: Bool
     let accessibilityLabel: String
     let onSave: () -> Void
+    // The ancestor VStack carries `.disabled(submission.isInFlight)`; SwiftUI's
+    // native TextField picks that up for free, but an NSViewRepresentable
+    // doesn't unless it reads the environment explicitly (review finding:
+    // without this, the field stayed editable while Cancel/Save/segmented
+    // control correctly grayed out during an in-flight save).
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, isFocused: $isFocused, onSave: onSave)
@@ -632,6 +638,8 @@ private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
             textView.string = text
         }
         textView.setAccessibilityLabel(accessibilityLabel)
+        textView.isEditable = isEnabled
+        textView.isSelectable = isEnabled
 
         if isFocused, textView.window?.firstResponder !== textView {
             DispatchQueue.main.async {
