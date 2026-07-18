@@ -234,8 +234,14 @@ struct AboutWindowView: View {
                     }
                 }
                 .padding(.trailing, 4)
+                // Fill the proposed width — unlike the metadata rows (whose
+                // Spacers expand them), nothing here is naturally full-width,
+                // so without this the card hugs its content and renders
+                // narrower than the info rows above it.
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(height: 168)
+            .frame(maxWidth: .infinity)
             .padding(10)
             .background(
                 RoundedRectangle(cornerRadius: AwRadius.panel)
