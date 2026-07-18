@@ -1,6 +1,7 @@
 import AppKit
 import AwesoMuxCore
 import GhosttyKit
+import OSLog
 
 private struct ForegroundProcessSample: Sendable {
     var hasLiveSurface: Bool
@@ -51,6 +52,33 @@ extension GhosttySurfaceNSView {
             sample
         )
     }
+
+    /// Foreground evidence for the document-nudge prompt gate (INT-569).
+    /// Bridged panes read the daemon's foreground process group via the
+    /// command bridge; non-bridged local panes reuse the quit-gate sampler —
+    /// libghostty tracks the surface's foreground pid directly, so the same
+    /// p_comm evidence exists without a bridge session. Nil = no usable
+    /// evidence; every consumer treats it as deny (fail closed).
+    @MainActor
+    func documentNudgeForegroundComm() -> String? {
+        if commandBridgeSessionID != nil {
+            return commandBridgeEnactor.foregroundComm()
+        }
+        let sample = foregroundProcessSample()
+        guard sample.hasLiveSurface, !sample.processExited, let comm = sample.comm else {
+            Self.nudgeGateLogger.info(
+                "nudge probe: pane \(self.paneID.uuidString, privacy: .public) non-bridged sample denied (liveSurface=\(sample.hasLiveSurface, privacy: .public) exited=\(sample.processExited, privacy: .public) commResolved=\(sample.comm != nil, privacy: .public))"
+            )
+            return nil
+        }
+        return comm
+    }
+
+    /// INT-569 field diagnostics for the document-nudge evidence chain.
+    private nonisolated static let nudgeGateLogger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "DocumentNudgeGate"
+    )
 
     @MainActor
     private func foregroundProcessSample() -> ForegroundProcessSample {
