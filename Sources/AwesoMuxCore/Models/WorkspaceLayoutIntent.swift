@@ -25,7 +25,11 @@ import Foundation
 ///
 /// Wire-format VERSIONING and decode-rejection of unsupported preset files are
 /// INT-757's responsibility; this type is the in-memory intent value plus a
-/// stable Codable shape, not the persisted preset format.
+/// stable Codable shape, not the persisted preset format. `Node` is a recursive
+/// `indirect enum`, so when INT-757 decodes preset files from an untrusted
+/// source it MUST bound nesting depth (mirroring `TerminalSplit`'s
+/// `maxDecodedSplitDepth` guard) — a deeply nested preset would otherwise
+/// stack-overflow the recursive decoder. No untrusted decode path exists yet.
 public struct WorkspaceLayoutIntent: Hashable, Sendable, Codable {
     public let root: Node
 
