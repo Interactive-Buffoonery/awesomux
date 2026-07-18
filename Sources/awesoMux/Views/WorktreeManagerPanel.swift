@@ -233,6 +233,15 @@ struct WorktreeManagerPanel: View {
             row.liveMatch == nil
             ? String(localized: "not open", comment: "Accessibility state for a worktree without a live workspace.")
             : String(localized: "open", comment: "Accessibility state for a worktree with a live workspace.")
-        return "\(branchState), \(row.record.displayBranch), \(row.record.canonicalPath.path), \(currentState), \(openState)"
+        let action =
+            row.liveMatch == nil
+            ? String(localized: "Open", comment: "Accessibility action for opening a worktree workspace.")
+            : String(localized: "Focus", comment: "Accessibility action for focusing an open worktree workspace.")
+        return String(
+            localized:
+                "\(action), \(branchState), \(row.record.displayBranch), \(row.record.canonicalPath.path), \(currentState), \(openState)",
+            comment:
+                "Accessibility label for a worktree row. Includes its action, branch state, branch name, path, current or linked state, and open state."
+        )
     }
 }
