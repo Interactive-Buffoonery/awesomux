@@ -588,6 +588,7 @@ struct AwesoMuxApp: App {
         }
         .windowResizability(.contentMinSize)
         .commands {
+            AboutCommands()
             SettingsCommands()
             NewWorkspaceCommands(
                 sessionStore: sessionStore,
@@ -1015,6 +1016,20 @@ struct AwesoMuxApp: App {
         .defaultSize(AwSettings.preferredWindowSize)
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
+
+        Window("About awesoMux", id: AwesoMuxSceneID.about) {
+            AboutWindowView()
+                .preferredColorScheme(preferredScheme)
+                .environment(appSettingsStore)
+                .appearanceBridge(appSettingsStore)
+        }
+        // Fixed-size close-only auxiliary window: `.contentSize` owns the
+        // non-resizable behaviour (the chrome configurator only hides the
+        // miniaturize/zoom buttons); `.restorationBehavior(.disabled)` keeps a
+        // captured openWindow action from resurrecting a stale scene.
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+        .windowStyle(.hiddenTitleBar)
     }
 
     private func closeSelectedSession() {
@@ -3368,6 +3383,22 @@ struct AwesoMuxApp: App {
 
         func body(content: Content) -> some View {
             content.onAppear { action = openWindow }
+        }
+    }
+
+    private struct AboutCommands: Commands {
+        @Environment(\.openWindow) private var openWindow
+
+        var body: some Commands {
+            // Replaces SwiftUI's default About item in the app menu. Reads
+            // openWindow from the Commands environment directly (like
+            // SettingsCommands) so it stays live after every window closes —
+            // unlike a view-captured OpenWindowAction.
+            CommandGroup(replacing: .appInfo) {
+                Button("About awesoMux") {
+                    openWindow(id: AwesoMuxSceneID.about)
+                }
+            }
         }
     }
 
