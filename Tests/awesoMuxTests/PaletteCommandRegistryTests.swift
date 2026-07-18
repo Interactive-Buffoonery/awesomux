@@ -908,6 +908,33 @@ struct PaletteCommandRegistryTests {
     }
 
     @Test @MainActor
+    func schemelessPreviewRedactsQuery() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("example.com/api/login?token=abc123")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        let subtitle = try #require(row.subtitle)
+        #expect(!subtitle.contains("token=abc123"))
+    }
+
+    @Test @MainActor
+    func schemelessPreviewShowsOnlyFinalPathComponent() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("private-project/readme.md")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        #expect(row.subtitle == "readme.md")
+        let subtitle = try #require(row.subtitle)
+        #expect(!subtitle.contains("private-project"))
+    }
+
+    @Test @MainActor
+    func topLevelMarkdownLineReferencePreviewShowsFilename() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("README.md:12")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        #expect(row.subtitle == "README.md")
+    }
+
+    @Test @MainActor
     func mailtoPreviewDoesNotExposeRecipientOrParameters() throws {
         var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
         pane.recentLinks.record("mailto:person@example.com?subject=private")
