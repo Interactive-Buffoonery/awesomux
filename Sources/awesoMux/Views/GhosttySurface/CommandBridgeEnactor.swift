@@ -224,6 +224,22 @@ final class CommandBridgeEnactor {
         return probe(executable, daemonPID)
     }
 
+    /// The observed foreground process name itself, for callers that match
+    /// against patterns rather than one exact executable (the document-nudge
+    /// prompt gate). Same evidence guards as `foregroundExecutableMatch`;
+    /// nil = no usable evidence, which every consumer must treat as deny.
+    func foregroundComm(
+        probe: (pid_t) -> String? = {
+            ProcessLivenessProbe.terminalForegroundComm(daemonPID: $0)
+        }
+    ) -> String? {
+        guard sessionID != nil, !errorLatched,
+            let rawPID = respawnLedger.lastIncarnation?.pid,
+            let daemonPID = pid_t(exactly: rawPID)
+        else { return nil }
+        return probe(daemonPID)
+    }
+
     /// Break this pane's live bridge generation (INT-698 D4 teardown parity):
     /// cancel the reverse forward, `rm` the remote socket by exact ledger path,
     /// shut the listener/supervisor/coordinator, and drop the per-session

@@ -42,7 +42,17 @@ struct DocumentPaneSendBar: View {
                 case .shell: false
                 }
             },
-            foregroundExecutableMatch: runtime.foregroundExecutableMatch
+            agentBinaryPath: { kind in
+                switch kind {
+                case .claudeCode: integrations.claudeCode.binaryPath
+                case .codex: integrations.codex.binaryPath
+                case .openCode: integrations.openCode.binaryPath
+                case .pi: integrations.pi.binaryPath
+                case .grok: integrations.grok.binaryPath
+                case .shell: nil
+                }
+            },
+            foregroundComm: { runtime.foregroundComm(in: $0) }
         )
     }
 
@@ -50,26 +60,35 @@ struct DocumentPaneSendBar: View {
         in layout: TerminalPaneLayout,
         for documentID: DocumentPane.ID,
         isIntegrationEnabled: (AgentKind) -> Bool,
-        foregroundExecutableMatch: (String, TerminalPane.ID) -> ProcessLivenessProbe.ForegroundExecutableMatch
+        agentBinaryPath: (AgentKind) -> String? = { _ in nil },
+        foregroundComm: (TerminalPane.ID) -> String?
     ) -> DocumentNudgeTargetResolution {
         let resolution = layout.documentNudgeTarget(for: documentID)
         guard case .available(let target) = resolution else { return resolution }
-        switch foregroundExecutableMatch("ssh", target.id) {
-        case .matching:
-            return .unavailable(.foregroundSSH)
-        case .unknown:
+        // One live probe per resolution: the SSH safety check and the prompt
+        // gate both read the same observed foreground process name. Absent
+        // evidence fails closed before either check.
+        guard let observedComm = foregroundComm(target.id) else {
             return .unavailable(.localTerminalUnverified)
-        case .notMatching:
-            break
         }
-        // Verified-agent-prompt gate (INT-569): only `.matching` counts as
-        // live evidence, so unknown probe results fail closed here too (the
-        // SSH check above already declined the shared probe's `.unknown`).
+        if observedComm == "ssh" {
+            return .unavailable(.foregroundSSH)
+        }
+        // Verified-agent-prompt gate (INT-569).
         switch AgentPromptGate.verdict(
             agentKind: target.agentKind,
             agentState: target.agentState,
             isIntegrationEnabled: isIntegrationEnabled,
-            matchesForegroundExecutable: { foregroundExecutableMatch($0, target.id) == .matching }
+            observedForegroundCommand: observedComm,
+            configuredBinaryCandidate: {
+                guard let path = agentBinaryPath(target.agentKind), !path.isEmpty else {
+                    return nil
+                }
+                // `p_comm` names the RESOLVED file: a `claude` symlink to
+                // `versions/2.1.214` observes as "2.1.214", so resolve the
+                // configured path before taking its basename.
+                return URL(fileURLWithPath: path).resolvingSymlinksInPath().lastPathComponent
+            }
         ) {
         case .verified:
             return resolution
@@ -156,19 +175,33 @@ struct DocumentPaneSendBar: View {
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .accessibilityLabel(Text("Read-only remote Markdown snapshot from \(origin)"))
             } else {
-                // Resolve once per render: the resolution issues live foreground
-                // probes, and both the title and the unavailable description
-                // derive from the same verdict anyway (one-verdict invariant).
+                // Resolve once per render: the resolution issues a live foreground
+                // probe, and the title, the unavailable description, and the
+                // caption all derive from the same verdict (one-verdict invariant).
                 let resolution = nudgeResolution
-                Spacer(minLength: 0)
-                SendToAgentButton(
-                    title: sendButtonTitle(for: resolution),
-                    failed: nudgeFailed,
-                    unavailableDescription: sendUnavailableDescription(for: resolution),
-                    action: performNudge
-                )
-                .frame(height: 28)
-                Spacer(minLength: 0)
+                let unavailableDescription = sendUnavailableDescription(for: resolution)
+                VStack(spacing: 3) {
+                    SendToAgentButton(
+                        title: sendButtonTitle(for: resolution),
+                        failed: nudgeFailed,
+                        unavailableDescription: unavailableDescription,
+                        action: performNudge
+                    )
+                    .frame(height: 28)
+                    if let unavailableDescription {
+                        // Visible "why" for the disabled state. The button's
+                        // accessibility label already speaks the same string,
+                        // so the caption hides from VoiceOver to avoid a
+                        // double announcement.
+                        Text(unavailableDescription)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.aw.text2)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(.vertical, 6)

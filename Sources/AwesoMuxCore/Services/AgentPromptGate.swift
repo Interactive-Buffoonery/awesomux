@@ -36,41 +36,26 @@ public enum AgentPromptGate {
         kind == .pi || kind == .openCode
     }
 
-    /// Expected foreground `p_comm` for a live provider process; nil for
-    /// kinds this gate never verifies. Exact-match only, on the same probe
-    /// seam the document nudge's SSH check uses.
-    // ponytail: exact names. An npm-installed Claude Code runs under a `node`
-    // comm and suffixed Codex launchers (`codex-aarch64-…`) won't match —
-    // both decline (false negative, the safe direction). Extend the probe
-    // seam to prefix matching if real installs surface these.
-    static func expectedForegroundCommand(for kind: AgentKind) -> String? {
-        switch kind {
-        case .claudeCode: "claude"
-        case .codex: "codex"
-        case .pi: "pi"
-        case .openCode: "opencode"
-        case .grok, .shell: nil
-        }
-    }
-
     /// - Parameters:
     ///   - agentKind: the target pane's tracked provider identity.
     ///   - agentState: the target pane's combined display state
     ///     (`TerminalPane.agentState`).
     ///   - isIntegrationEnabled: policy-free settings lookup; consulted only
     ///     for consent-gated providers.
-    ///   - matchesForegroundExecutable: live foreground probe. Must return
-    ///     true ONLY for a positive `.matching` observation so unknown
-    ///     evidence fails closed.
+    ///   - observedForegroundCommand: the live foreground process name
+    ///     (`p_comm`) of the target terminal, or nil when no evidence is
+    ///     available. Nil fails closed.
+    ///   - configuredBinaryCandidate: symlink-resolved basename of the
+    ///     provider's configured `binary_path`, when set; consulted only
+    ///     after the earlier checks pass.
     public static func verdict(
         agentKind: AgentKind,
         agentState: AgentState,
         isIntegrationEnabled: (AgentKind) -> Bool,
-        matchesForegroundExecutable: (String) -> Bool
+        observedForegroundCommand: String?,
+        configuredBinaryCandidate: () -> String? = { nil }
     ) -> Verdict {
-        guard supportedProviders.contains(agentKind),
-            let expectedCommand = expectedForegroundCommand(for: agentKind)
-        else {
+        guard supportedProviders.contains(agentKind) else {
             return .unavailable(.noVerifiedAgent)
         }
         if requiresIntegrationConsent(agentKind), !isIntegrationEnabled(agentKind) {
@@ -85,16 +70,101 @@ public enum AgentPromptGate {
         }
         // Durable pane state can outlive the process that reported it (Codex
         // and OpenCode emit no trusted quit signal), so also require the live
-        // foreground process to be the provider binary. A bare shell or a
-        // raw-mode TUI in the foreground fails this and declines.
+        // foreground process to look like the provider binary. A bare shell
+        // or a raw-mode TUI in the foreground fails this and declines.
         // ponytail: `.waiting` and the comm match are independent snapshots —
         // a same-provider relaunch can pass during its seconds-wide startup
         // window until its first hook event lands. The receiver is still the
         // provider binary, never a shell; generation-tagged prompt evidence
         // is the upgrade path if that window ever bites (INT-582 candidate).
-        guard matchesForegroundExecutable(expectedCommand) else {
+        guard
+            let observedForegroundCommand,
+            foregroundCommandMatches(
+                agentKind,
+                observedCommand: observedForegroundCommand,
+                configuredBinaryCandidate: configuredBinaryCandidate
+            )
+        else {
             return .unavailable(.noVerifiedAgent)
         }
         return .verified(agentKind)
+    }
+
+    /// Whether a live foreground `p_comm` is positive evidence for the
+    /// provider binary. `p_comm` names the RESOLVED executable file, not the
+    /// invoked symlink — a native-installed Claude Code (`claude` ->
+    /// `~/.local/share/claude/versions/2.1.214`) reads as the bare version
+    /// string, measured live on a real session.
+    ///
+    /// Matching stays deny-by-default: exact provider names, the provider's
+    /// suffixed-launcher prefixes, the bare-version pattern for Claude Code
+    /// only, and the operator-configured binary basename. Wrapper
+    /// interpreters are deliberately NOT accepted — an npm-installed Claude
+    /// Code foregrounds as `node`, and `node` alone is indistinguishable
+    /// from a raw-mode node REPL, exactly what this gate must never inject
+    /// into. That install flavor stays a false negative until the probe can
+    /// read argv; `binary_path` config is the operator escape hatch.
+    static func foregroundCommandMatches(
+        _ kind: AgentKind,
+        observedCommand: String,
+        configuredBinaryCandidate: () -> String? = { nil }
+    ) -> Bool {
+        let name = ShellRecognition.basename(observedCommand).lowercased()
+        guard !name.isEmpty else { return false }
+
+        switch kind {
+        case .claudeCode:
+            if name == "claude" || name.hasPrefix("claude-") || isBareVersionName(name) {
+                return true
+            }
+        case .codex:
+            if name == "codex" || name.hasPrefix("codex-") {
+                return true
+            }
+        case .openCode:
+            if name == "opencode" || name.hasPrefix("opencode-") {
+                return true
+            }
+        case .pi:
+            if name == "pi" {
+                return true
+            }
+        case .grok, .shell:
+            return false
+        }
+
+        // Operator-configured basenames extend matching, but never to names
+        // positively known to be shells, interpreters, or common raw-mode
+        // TUIs — a misconfigured binary_path must not open the gate to
+        // exactly the processes it exists to protect.
+        guard !ShellRecognition.recognizedShells.contains(name),
+            !knownNonAgentForegrounds.contains(name),
+            let candidate = configuredBinaryCandidate()?.lowercased(), !candidate.isEmpty
+        else {
+            return false
+        }
+        // The kernel's process name buffer truncates long names, so a long
+        // configured basename may only be observable as its prefix.
+        return name == candidate || (name.count >= 15 && candidate.hasPrefix(name))
+    }
+
+    /// Interpreters and raw-mode TUIs that must never satisfy the
+    /// configured-binary escape hatch, on top of `ShellRecognition`'s shell
+    /// set. Deny-only list: absence here never grants a match.
+    private static let knownNonAgentForegrounds: Set<String> = [
+        "node", "bun", "deno", "python", "python3", "ruby", "perl",
+        "vim", "nvim", "vi", "emacs", "nano", "less", "more",
+        "htop", "top", "tmux", "screen", "ssh",
+    ]
+
+    /// `2.1.214`-shaped: non-empty dot-separated runs of ASCII digits, with
+    /// at least one dot. Only Claude Code's native installer is known to
+    /// execute version-named files; scoped to that kind at the call site.
+    private static func isBareVersionName(_ name: String) -> Bool {
+        let components = name.split(separator: ".", omittingEmptySubsequences: false)
+        guard components.count >= 2 else { return false }
+        return components.allSatisfy { component in
+            !component.isEmpty && component.allSatisfy { $0.isASCII && $0.isNumber }
+        }
     }
 }

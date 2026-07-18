@@ -307,12 +307,10 @@ final class GhosttyRuntime {
         surfaceViews[paneID]
     }
 
-    func foregroundExecutableMatch(
-        _ executable: String,
-        in paneID: TerminalPane.ID
-    ) -> ProcessLivenessProbe.ForegroundExecutableMatch {
-        surfaceViews[paneID]?.commandBridgeEnactor.foregroundExecutableMatch(executable)
-            ?? .unknown
+    /// Observed foreground process name (`p_comm`) for a pane, or nil when no
+    /// usable evidence exists (no live surface, latched error, no bridge pid).
+    func foregroundComm(in paneID: TerminalPane.ID) -> String? {
+        surfaceViews[paneID]?.commandBridgeEnactor.foregroundComm()
     }
 
     func applySecureInput(_ mode: SecureInputCoordinator.Mode, for paneID: TerminalPane.ID) {
