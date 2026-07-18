@@ -75,7 +75,7 @@ enum FloatingPanelEventPolicy {
         return characters.count == 1 && ("1"..."9").contains(characters)
     }
 
-    private static func normalizedModifiers(
+    static func normalizedModifiers(
         _ modifiers: NSEvent.ModifierFlags
     ) -> NSEvent.ModifierFlags {
         modifiers
