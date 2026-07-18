@@ -351,10 +351,7 @@ enum SessionPersistence {
 
     nonisolated private static func writeSnapshot(_ snapshot: SessionSnapshot) {
         do {
-            try FileManager.default.createDirectory(
-                at: supportDirectoryURL,
-                withIntermediateDirectories: true
-            )
+            try PrivateFilePermissions.createDirectory(at: supportDirectoryURL)
 
             let data = try encodeSnapshot(snapshot)
             let digest = StableDataDigest(data: data)
@@ -377,7 +374,12 @@ enum SessionPersistence {
             }
 
             try data.write(to: snapshotURL, options: [.atomic])
-            setPrivatePermissions(on: snapshotURL)
+            // Only record the digest once the file is secured. A swallowed chmod
+            // failure would leave the snapshot world-readable AND gate every
+            // future unchanged save behind the digest, so the bad permissions
+            // would persist until content changes. Skipping recordWritten lets
+            // the next save (or terminate-time flush) retry the write + chmod.
+            try PrivateFilePermissions.secureFile(at: snapshotURL)
             digestWriteGate.recordWritten(digest)
         } catch {
             logger.error("failed to save session snapshot: \(error.localizedDescription, privacy: .public)")
@@ -435,10 +437,7 @@ enum SessionPersistence {
         }
 
         do {
-            try FileManager.default.createDirectory(
-                at: supportDirectoryURL,
-                withIntermediateDirectories: true
-            )
+            try PrivateFilePermissions.createDirectory(at: supportDirectoryURL)
             // Write the exact bytes we already decoded rather than re-reading
             // the file by path: a path copy can race a concurrent swap (TOCTOU)
             // and preserve the wrong snapshot, and `copyItem` would follow a
@@ -543,10 +542,7 @@ enum SessionPersistence {
 
     nonisolated private static func setPrivatePermissions(on url: URL) {
         do {
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: url.path
-            )
+            try PrivateFilePermissions.secureFile(at: url)
         } catch {
             logger.error(
                 "failed to set private permissions on \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
