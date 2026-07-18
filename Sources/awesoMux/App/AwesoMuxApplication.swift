@@ -152,16 +152,17 @@ final class AwesoMuxApplication: NSApplication {
             isARepeat: event.isARepeat,
             modifiers: event.modifierFlags
         ), let terminalPanel = Self.promotionTarget(for: event) {
-            // Panel-scoped rather than the app-wide canHandleAppShortcut the
-            // sibling branches use: only a sheet on THIS panel contends for
-            // the ⌘Return chord; a sheet on some other window shouldn't
-            // disable promote on the event's terminal panel.
+            // Scope sheet checks to the terminal panel and its Companion
+            // parent. A sheet on an unrelated window does not own this chord,
+            // while an app-modal session always does.
             guard
-                FloatingPanelEventPolicy.canPromoteFloatingPanel(
-                    hasAttachedSheet: terminalPanel.attachedSheet != nil
+                FloatingPanelEventPolicy.canPromoteTerminalPanel(
+                    hasAttachedSheet: terminalPanel.attachedSheet != nil,
+                    parentHasAttachedSheet: terminalPanel.parent?.attachedSheet != nil,
+                    hasModalSession: modalWindow != nil
                 )
             else {
-                ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true blocked=attachedSheet")
+                ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true blocked=modalInputOwner")
                 super.sendEvent(event)
                 return
             }
