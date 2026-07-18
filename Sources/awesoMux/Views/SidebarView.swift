@@ -74,6 +74,8 @@ struct SidebarView: View {
     @State private var groupFrames: [SessionGroup.ID: CGRect] = [:]
     @State private var groupDropIndex: Int?
     @FocusState private var isSearchFocused: Bool
+    @State private var focusedSearchSessionID: TerminalSession.ID?
+    @State private var searchScrollTarget: TerminalSession.ID?
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
     @FocusState private var isCollapsedEmptyActionFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -131,16 +133,20 @@ struct SidebarView: View {
         let visibleGroupIDs = snapshot.entries.map { $0.group.id }
         // Pinned tiles render above every group, so ⌘1-9 must count them first
         // to keep the on-tile jump digits truthful (INT-737).
-        let jumpOrderedSessions =
+        let orderedVisibleSessions =
             snapshot.pinned.isEmpty
             ? snapshot.entries.flatMap(\.sessions)
             : snapshot.pinned.map(\.entry) + snapshot.entries.flatMap(\.sessions)
         let jumpIndexBySessionID = Dictionary(
-            jumpOrderedSessions
+            orderedVisibleSessions
                 .enumerated()
                 .map { ($0.element.session.id, $0.offset + 1) },
             uniquingKeysWith: { first, _ in first }
         )
+        let searchResultIDs =
+            isFiltering
+            ? orderedVisibleSessions.map(\.session.id)
+            : []
         let visibleRows = SidebarVisibleRows.rows(
             pinned: snapshot.pinned,
             for: snapshot.entries,
@@ -174,7 +180,10 @@ struct SidebarView: View {
         )
 
         return VStack(spacing: 0) {
-            searchHeader(topMatchID: snapshot.topMatchID)
+            searchHeader(
+                topMatchID: snapshot.topMatchID,
+                searchResultIDs: searchResultIDs
+            )
 
             GeometryReader { scrollViewport in
                 ScrollView {
@@ -298,6 +307,7 @@ struct SidebarView: View {
                                     sessionStore.togglePin(sessionID: session.id)
                                 },
                                 focusedRowTarget: $focusedRowTarget,
+                                focusedSearchSessionID: focusedSearchSessionID,
                                 isKeyboardNavigating: $isKeyboardNavigating
                             )
                             .background(
@@ -333,6 +343,7 @@ struct SidebarView: View {
                             )
                         }
                     }
+                    .scrollTargetLayout()
                     .coordinateSpace(name: groupCoordinateSpaceName)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 12)
@@ -395,6 +406,7 @@ struct SidebarView: View {
                         )
                     )
                 }
+                .scrollPosition(id: $searchScrollTarget, anchor: .center)
                 .scrollClipDisabled(displayMode == .collapsed)
             }
             // Per-keystroke score-driven reorders inside an active filter would
@@ -497,7 +509,24 @@ struct SidebarView: View {
         .onChange(of: isFiltering) { _, filtering in
             if filtering {
                 clearSidebarDragState()
+            } else {
+                focusedSearchSessionID = nil
             }
+        }
+        .onChange(of: searchResultIDs) { previousIDs, ids in
+            focusedSearchSessionID = SidebarSearchFocus.reconcile(
+                focusedSearchSessionID,
+                from: previousIDs,
+                to: ids
+            )
+        }
+        .onChange(of: isSearchFocused) { _, focused in
+            if !focused {
+                focusedSearchSessionID = nil
+            }
+        }
+        .onChange(of: focusedSearchSessionID) { _, sessionID in
+            searchScrollTarget = sessionID
         }
         .onChange(of: displayMode) { _, mode in
             WindowOrderDiagnostics.logRoster(
@@ -625,11 +654,17 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func searchHeader(topMatchID: TerminalSession.ID?) -> some View {
+    private func searchHeader(
+        topMatchID: TerminalSession.ID?,
+        searchResultIDs: [TerminalSession.ID]
+    ) -> some View {
         if displayMode == .collapsed {
             collapsedSearchHeader
         } else {
-            expandedSearchHeader(topMatchID: topMatchID)
+            expandedSearchHeader(
+                topMatchID: topMatchID,
+                searchResultIDs: searchResultIDs
+            )
         }
     }
 
@@ -677,7 +712,10 @@ struct SidebarView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func expandedSearchHeader(topMatchID: TerminalSession.ID?) -> some View {
+    private func expandedSearchHeader(
+        topMatchID: TerminalSession.ID?,
+        searchResultIDs: [TerminalSession.ID]
+    ) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -691,15 +729,21 @@ struct SidebarView: View {
                     .foregroundStyle(Color.aw.text)
                     .focused($isSearchFocused)
                     .accessibilityLabel("Sidebar search")
-                    .accessibilityHint("Filters workspaces. Press Return to open the top match. Press Escape to clear.")
-                    // ⏎ commits the highest-ranked filtered session and
-                    // collapses the search query. Full ↑↓ navigation is
-                    // deferred to INT-320.
+                    .accessibilityHint(
+                        "Filters workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear."
+                    )
                     .onSubmit {
-                        if let topMatchID {
-                            sessionStore.selectedSessionID = topMatchID
+                        if let targetID = focusedSearchSessionID ?? topMatchID {
+                            sessionStore.selectedSessionID = targetID
+                            focusedSearchSessionID = nil
                             searchText = ""
                         }
+                    }
+                    .onKeyPress(.downArrow) {
+                        moveSearchFocus(offset: 1, searchResultIDs: searchResultIDs)
+                    }
+                    .onKeyPress(.upArrow) {
+                        moveSearchFocus(offset: -1, searchResultIDs: searchResultIDs)
                     }
                     // Esc clears the query without affecting the active
                     // selection. `.onKeyPress` on a TextField sees macOS field-
@@ -790,6 +834,21 @@ struct SidebarView: View {
             ),
             viaKeyboardNavigation: true
         )
+    }
+
+    private func moveSearchFocus(
+        offset: Int,
+        searchResultIDs: [TerminalSession.ID]
+    ) -> KeyPress.Result {
+        guard !searchResultIDs.isEmpty else {
+            return .ignored
+        }
+        focusedSearchSessionID = SidebarSearchFocus.target(
+            after: focusedSearchSessionID,
+            in: searchResultIDs,
+            offset: offset
+        )
+        return .handled
     }
 
     private func focusKeyboardTarget(
@@ -1001,6 +1060,7 @@ struct SidebarView: View {
             onDragEnded: clearSidebarDragState,
             onDragExited: scheduleSidebarDragStateClear,
             focusedRowTarget: $focusedRowTarget,
+            focusedSearchSessionID: focusedSearchSessionID,
             isKeyboardNavigating: $isKeyboardNavigating
         )
     }

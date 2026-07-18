@@ -377,6 +377,7 @@ private struct SidebarGroupHitTargetHarness: View {
             onToggleNotificationsMute: { _ in },
             onTogglePin: { _ in },
             focusedRowTarget: $focusedRowTarget,
+            focusedSearchSessionID: nil,
             isKeyboardNavigating: $isKeyboardNavigating
         )
         .frame(width: width, height: 80, alignment: .topLeading)
