@@ -237,6 +237,41 @@ struct DocumentNudgeForegroundGateTests {
         )
     }
 
+    @Test("agent-specific denials still name the detected agent in the button title")
+    func agentSpecificDenialsNameTheAgent() {
+        #expect(
+            DocumentPaneSendBar.sendButtonTitle(
+                for: .unavailable(.agentNotReceptive(.claudeCode))
+            ) == "Send to Claude"
+        )
+        #expect(
+            DocumentPaneSendBar.sendButtonTitle(
+                for: .unavailable(.agentIntegrationDisabled(.pi))
+            ) == "Send to Pi"
+        )
+    }
+
+    @Test("anonymous denials and verified targets title as before")
+    func titleBaseline() {
+        let fixture = makeFixture(
+            executionPlan: .local,
+            agentKind: .codex,
+            agentExecutionState: .waiting
+        )
+        #expect(
+            DocumentPaneSendBar.sendButtonTitle(for: .available(fixture.terminal))
+                == "Send to Codex"
+        )
+        #expect(
+            DocumentPaneSendBar.sendButtonTitle(for: .unavailable(.noVerifiedAgent))
+                == "Send to Agent"
+        )
+        #expect(
+            DocumentPaneSendBar.sendButtonTitle(for: .unavailable(.terminalUnavailable))
+                == "Send to Agent"
+        )
+    }
+
     private func resolve(
         _ fixture: Fixture,
         comm: String?,

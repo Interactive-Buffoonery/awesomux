@@ -145,22 +145,35 @@ struct DocumentPaneSendBar: View {
         }
     }
 
-    /// "Send to Claude" / "Send to Codex" / … only when the prompt gate verified
-    /// the target agent (`AgentPromptGate` drives label, enabled state, and
-    /// action from ONE verdict); generic "Send to Agent" otherwise, so the
-    /// wording can never claim a verified agent while the action is unsafe.
-    private func sendButtonTitle(
+    /// Names the agent whenever one was identified — the verified target AND
+    /// the agent-specific denials (not receptive, integration disabled): a
+    /// disabled "Send to Claude" with the caption explaining why beats an
+    /// anonymous button when the gate knows who is there. Generic "Send to
+    /// Agent" only when no agent was identified, so the wording still never
+    /// claims an agent that wasn't detected. Enabled state and caption come
+    /// from the same resolution (one-verdict invariant).
+    static func sendButtonTitle(
         for resolution: DocumentNudgeTargetResolution
     ) -> String {
-        guard case .available(let target) = resolution else {
+        let namedKind: AgentKind?
+        switch resolution {
+        case .available(let target):
+            namedKind = target.agentKind
+        case .unavailable(.agentNotReceptive(let kind)),
+            .unavailable(.agentIntegrationDisabled(let kind)):
+            namedKind = kind
+        case .unavailable:
+            namedKind = nil
+        }
+        guard let namedKind else {
             return String(
                 localized: "Send to Agent",
-                comment: "Generic send-bar button title when no verified agent target exists"
+                comment: "Generic send-bar button title when no agent was identified in the target terminal"
             )
         }
         return String(
-            localized: "Send to \(target.agentKind.shortName)",
-            comment: "Send-bar button title naming the verified agent in the target terminal"
+            localized: "Send to \(namedKind.shortName)",
+            comment: "Send-bar button title naming the agent identified in the target terminal"
         )
     }
 
@@ -182,7 +195,7 @@ struct DocumentPaneSendBar: View {
                 let unavailableDescription = sendUnavailableDescription(for: resolution)
                 VStack(spacing: 3) {
                     SendToAgentButton(
-                        title: sendButtonTitle(for: resolution),
+                        title: Self.sendButtonTitle(for: resolution),
                         failed: nudgeFailed,
                         unavailableDescription: unavailableDescription,
                         action: performNudge
