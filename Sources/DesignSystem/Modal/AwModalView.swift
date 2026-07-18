@@ -69,23 +69,24 @@ public struct AwModalView<Content: View>: View {
         .background {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(Color.aw.surface.chrome)
-                // .overlay, not .sheet: over the transparent borderless panel a
-                // heavy sheet shadow (r28 / y22 / 0.30) painted onto the dark
-                // terminal reads as a second "outer card" around the real one.
-                // The lighter overlay drop (r16 / y10 / 0.24) reads as one
-                // floating panel.
-                .awShadow(.overlay)
+                // .handle (contact shadow, r8 / y4 / 0.16), not .sheet or
+                // .overlay: the shadow color token is full-opacity black, and
+                // over the transparent borderless panel any medium-radius blur
+                // saturates the shadow-reserve inset into a dark halo band
+                // that reads as a second "outer card" (live-smoke finding,
+                // twice — .sheet and .overlay both failed this way). The
+                // dimmed scrim already separates the card; only a soft
+                // contact edge is wanted.
+                .awShadow(.handle)
         }
         // The borderless panel clips to its frame, and AwModal sizes it to
-        // this view's fittingSize — inset by the overlay-shadow spread
-        // (radius 16, y-offset 10: ~16 to the sides, ~6 up, ~26 down) plus a
-        // deliberately asymmetric safety margin (+6 sides/bottom, +10 top so
-        // the sheet-anchored variant keeps a visible gap under the title bar)
-        // so the shadow isn't truncated. This inset is pure shadow-reserve:
-        // under reduce-transparency / increased-contrast awShadow drops the
-        // shadow entirely, leaving inert transparent margin (the card sits a
-        // few points above the panel's center) — harmless.
-        .padding(EdgeInsets(top: 16, leading: 22, bottom: 32, trailing: 22))
+        // this view's fittingSize — inset just enough for the handle-shadow
+        // spread (radius 8, y-offset 4: ~8 to the sides, ~4 up, ~12 down) so
+        // the soft edge isn't truncated and the panel hugs the card. This
+        // inset is pure shadow-reserve: under reduce-transparency /
+        // increased-contrast awShadow drops the shadow entirely, leaving a
+        // sliver of inert transparent margin — harmless.
+        .padding(EdgeInsets(top: 8, leading: 12, bottom: 16, trailing: 12))
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .onAppear(perform: announceAndFocusCancelButton)
