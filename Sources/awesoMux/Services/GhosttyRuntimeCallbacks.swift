@@ -566,10 +566,11 @@ extension GhosttyRuntime {
                 // Unreachable from URLClassifier (both-nil hosts return
                 // .missingHost before .nonAsciiHost) — defensive copy for
                 // direct callers only.
-                lines.append(String(
-                    localized: "This URL's host could not be verified.",
-                    comment: "Fallback body line when host accessors are unavailable but the URL's host was flagged as suspicious."
-                ))
+                lines.append(
+                    String(
+                        localized: "This URL's host could not be verified.",
+                        comment: "Fallback body line when host accessors are unavailable but the URL's host was flagged as suspicious."
+                    ))
             }
         case .embeddedUserInfo:
             // Surface BOTH the deceptive prefix (userinfo) AND the
