@@ -112,6 +112,22 @@ final class AnalyticsEventLogStore {
         }
     }
 
+    /// Applies a disabled-retention setting without decoding the ledger on the
+    /// main actor. Removal is ordered on the same queue as writes, so toggling
+    /// retention back on cannot race a later full-ledger rewrite.
+    func reconcileRetention() {
+        guard !retainToDisk() else { return }
+        hasLoaded = true
+        diskMatchesEntries = false
+        let eventsURL = eventsURL
+        let logger = logger
+        ioQueue.async {
+            if !Self.removeIfPresent(eventsURL) {
+                logger.error("failed to remove analytics event log while retention is disabled")
+            }
+        }
+    }
+
     func append(_ entry: AnalyticsLogEntry) {
         guard entry.provider == "posthog",
             entry.schemaVersion == analyticsSchemaVersion,

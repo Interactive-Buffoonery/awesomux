@@ -336,6 +336,36 @@ struct AnalyticsEventLogStoreTests {
         #expect(!FileManager.default.fileExists(atPath: eventsURL.path))
     }
 
+    @Test("retention reconciliation removes stale disk state without loading it")
+    func reconcileRetentionRemovesStaleLog() throws {
+        let root = try Self.makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixedNow = Date(timeIntervalSince1970: 1_700_000_100)
+        let retained = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
+        retained.append(Self.entry())
+        retained.waitForPendingWrites()
+
+        var retain = false
+        let store = AnalyticsEventLogStore(
+            rootDirectoryURL: root,
+            retainToDisk: { retain },
+            now: { fixedNow }
+        )
+        store.reconcileRetention()
+        store.waitForPendingWrites()
+
+        let eventsURL = root.appending(path: "analytics/events.jsonl")
+        #expect(store.entries.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: eventsURL.path))
+
+        retain = true
+        store.append(Self.entry())
+        store.waitForPendingWrites()
+        let reloaded = AnalyticsEventLogStore(rootDirectoryURL: root, now: { fixedNow })
+        reloaded.loadIfNeeded()
+        #expect(reloaded.entries.count == 1)
+    }
+
     @Test("enabling retention flushes earlier in-memory entries")
     func retainToggleFlushesBacklog() throws {
         let root = try Self.makeRoot()

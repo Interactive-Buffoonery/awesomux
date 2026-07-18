@@ -10,6 +10,7 @@ import Observation
 final class SettingsNavigator {
     var pendingSection: SettingsSectionID?
     var pendingScrollAnchor: String?
+    private(set) var pendingAccessibilityFocusAnchor: String?
 
     /// Anchors whose target views are currently in the view tree. A pending
     /// scroll anchor is only consumed once its target is mounted; consuming
@@ -22,5 +23,18 @@ final class SettingsNavigator {
 
     func anchorDidUnmount(_ anchor: String) {
         mountedAnchors.remove(anchor)
+    }
+
+    /// Carries explicit deep-link intent from the shell's successful scroll to
+    /// the mounted destination. The destination consumes this separately so a
+    /// visual scroll cannot leave VoiceOver at the source control.
+    func scrollDidLand(on anchor: String) {
+        pendingAccessibilityFocusAnchor = anchor
+    }
+
+    func consumeAccessibilityFocus(for anchor: String) -> Bool {
+        guard pendingAccessibilityFocusAnchor == anchor else { return false }
+        pendingAccessibilityFocusAnchor = nil
+        return true
     }
 }
