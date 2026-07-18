@@ -23,6 +23,9 @@ private func makeWideTableHarness(
     attr: NSMutableAttributedString
 ) {
     let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: paneWidth, height: 400))
+    // Deterministic wrap basis: the machine-dependent default (legacy when a
+    // mouse is attached) reserves scroller width and would shift expectations.
+    scrollView.scrollerStyle = .overlay
     let textView = NSTextView(usingTextLayoutManager: true)
     textView.frame = NSRect(origin: .zero, size: scrollView.contentSize)
     textView.isEditable = false
@@ -108,6 +111,37 @@ struct WideTableOverflowTests {
             source: "Just a short paragraph.\n\n- and\n- a list"
         )
         #expect(textView.frame.width == 300)
+    }
+
+    @Test("replacing a wide document with an empty one shrinks the frame back")
+    func emptyReplacementShrinksFrame() {
+        let (_, textView, coordinator, _) = makeWideTableHarness(source: wideTableSource)
+        #expect(textView.frame.width > 300, "premise: the wide table widened the document")
+
+        textView.textStorage?.setAttributedString(NSAttributedString())
+        coordinator.currentAttr = NSMutableAttributedString()
+        coordinator.noteStorageReplaced()
+
+        #expect(textView.frame.width == 300)
+    }
+
+    @Test("source-anchor restore preserves the horizontal scroll position")
+    func anchorRestorePreservesHorizontalScroll() {
+        let prose = "Intro paragraph before the table."
+        let (scrollView, textView, coordinator, _) = makeWideTableHarness(
+            source: prose + "\n\n" + wideTableSource
+        )
+        #expect(textView.frame.width > 300, "premise: horizontal range exists")
+
+        textView.scroll(NSPoint(x: 120, y: 0))
+        #expect(scrollView.contentView.bounds.origin.x == 120)
+
+        coordinator.scrollToSourceOffset(prose.utf8.count / 2)
+
+        #expect(
+            scrollView.contentView.bounds.origin.x == 120,
+            "a vertical anchor restore must not snap the user back to column one"
+        )
     }
 
     @Test("storage paragraphs carry tailIndent on prose/code, none on table rows")

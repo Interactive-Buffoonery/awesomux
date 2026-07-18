@@ -353,7 +353,10 @@ struct MarkdownTextView: NSViewRepresentable {
                         attr: currentAttr,
                         textView: textView,
                         displayNumbers: Self.spanDisplayNumbers(in: coordinator.lastDoc),
-                        hiddenIDs: hiddenAnnotationIDs
+                        // From the coordinator, like attr/doc — a schedule-time
+                        // capture could pair the newest document with an older
+                        // visibility filter when updates land back-to-back.
+                        hiddenIDs: coordinator.lastHiddenAnnotationIDs
                     )
                 }
             }
@@ -481,15 +484,28 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     /// repeated clip resizes converge in a single pass.
     func updateDocumentGeometry() {
         guard let textView,
-            let clip = textView.enclosingScrollView?.contentView,
+            let scrollView = textView.enclosingScrollView,
             let layoutManager = textView.textLayoutManager,
             let storage = textView.textStorage
         else { return }
+        let clip = scrollView.contentView
+        // The wrap width derives from the SCROLL VIEW frame, not the clip:
+        // clip width shrinks when a legacy vertical scroller appears, and the
+        // rewrap itself changes document height (and therefore scroller
+        // visibility) — deriving from the clip would make wrap width a
+        // function of its own output and oscillate at the threshold. With a
+        // stable basis the pass is a converging function of pane size; the
+        // legacy allowance is reserved unconditionally so short documents
+        // wrap a scroller's-width narrow rather than flicker.
+        let scrollerAllowance: CGFloat =
+            scrollView.scrollerStyle == .legacy
+            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        let wrapBasis = scrollView.frame.width - scrollerAllowance
         // A pass that changed no paragraph style cannot move any glyph, so
         // skip the full-document layout + measurement (a height-only resize
         // lands here every frame; forcing whole-doc layout would defeat
         // TextKit 2's incremental laziness on large documents).
-        guard applyProseWrapWidth(to: storage, in: textView, clipWidth: clip.bounds.width) else {
+        guard applyProseWrapWidth(to: storage, in: textView, clipWidth: wrapBasis) else {
             return
         }
         layoutManager.ensureLayout(for: layoutManager.documentRange)
@@ -518,8 +534,13 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         // non-positive, and a tailIndent ≤ 0 means "distance from the trailing
         // margin" — the infinite container edge, i.e. no wrapping at all.
         let width = max(clipWidth - textView.textContainerInset.width * 2, 80)
-        guard width != lastProseWrapWidth, storage.length > 0 else { return false }
+        guard width != lastProseWrapWidth else { return false }
         lastProseWrapWidth = width
+        // Empty storage has no paragraphs to stamp but still needs measuring:
+        // a wide document replaced by an empty one must shrink the frame back,
+        // and `lastProseWrapWidth == nil` (fresh storage) reaches here even
+        // when the width itself didn't move.
+        guard storage.length > 0 else { return true }
 
         let ns = storage.string as NSString
         storage.beginEditing()
@@ -755,7 +776,13 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
 
         let inset = textView.textContainerInset
         let scrollY = max(0, y + inset.height - 4)
-        textView.scroll(NSPoint(x: 0, y: scrollY))
+        // Preserve the horizontal position: the source anchor is a vertical
+        // concept, and since INT-687 wide tables give the document a real
+        // horizontal range — snapping x to 0 on every reload would yank a
+        // user off the column they were inspecting. The clip view clamps the
+        // carried-over x if the new content is narrower.
+        let currentX = textView.enclosingScrollView?.contentView.bounds.origin.x ?? 0
+        textView.scroll(NSPoint(x: currentX, y: scrollY))
     }
 
 }
