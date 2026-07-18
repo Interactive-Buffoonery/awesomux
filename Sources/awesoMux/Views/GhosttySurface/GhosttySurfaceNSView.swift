@@ -41,6 +41,14 @@ final class GhosttySurfaceNSView: NSView {
     /// Refreshed from settings on every `update(…)`, like the sources set above.
     var grokIconEnabled: Bool
     var mouseOverLink: String?
+    /// OSC 8 hyperlink peek-preview state (INT-453). See `GhosttySurfaceLinkPeek`.
+    /// `peekedLink` is the link the popover is currently presenting (distinct from
+    /// `mouseOverLink`, which is only the hovered link — they differ during the
+    /// dwell window before a preview appears).
+    var linkPeekPopover: NSPopover?
+    var linkPeekShowWorkItem: DispatchWorkItem?
+    var linkPeekDismissWorkItem: DispatchWorkItem?
+    var peekedLink: String?
     /// INT-632: computed once at left mouseDown, reused unchanged for the
     /// paired mouseUp. Never recompute at release time — ⌘ can be released
     /// mid-gesture, and a press/release pair that disagreed on the injected
@@ -487,6 +495,9 @@ final class GhosttySurfaceNSView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             accessibilityFocusRequested = false
+            // Detaching (workspace switch, pane close) must not leave a peek
+            // popover orphaned against a windowless view.
+            dismissLinkPeek()
         }
 
         // Fires on both attach (window != nil) and detach (window == nil).
