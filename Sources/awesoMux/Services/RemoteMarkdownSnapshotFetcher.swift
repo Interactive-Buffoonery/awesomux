@@ -246,9 +246,13 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         for reference: RemoteMarkdownReference
     ) -> RemoteMarkdownSnapshot? {
         do {
-            try fileManager.createDirectory(at: cacheDirectoryURL, withIntermediateDirectories: true)
+            try PrivateFilePermissions.createDirectory(
+                at: cacheDirectoryURL,
+                fileManager: fileManager
+            )
             let fileURL = cacheDirectoryURL.appending(path: cacheFileName(for: reference))
             try content.write(to: fileURL, options: .atomic)
+            try PrivateFilePermissions.secureFile(at: fileURL, fileManager: fileManager)
             return RemoteMarkdownSnapshot(fileURL: fileURL, identity: reference.identity)
         } catch {
             return nil
