@@ -450,12 +450,34 @@ extension GhosttyRuntime {
             return (sanitizedForAlertBody(display), sanitizedForAlertBody(puny))
         }()
 
-        // Title keeps the "Security warning:" prefix so VoiceOver gets an
-        // audible cue this is a security gate even when the punycode
-        // hostname is pronounced fluently by TTS. Cancel stays the default
-        // (Return); Esc also cancels — both wired by AwModal. See INT-22's
-        // confirmCloseIfNeeded for the button-order rationale.
-        let configuration = AwModalConfiguration(
+        // The comparison rides as the alert's accessory view so it spans the
+        // dialog's content width below the body copy. NSAlert sizes itself
+        // to the accessory frame; the width cap keeps a 120-char sanitized
+        // host wrapping instead of stretching the alert across the screen.
+        let accessoryView: NSView? = hostComparison.map { pair in
+            let hosting = NSHostingView(
+                rootView: BlockedURLHostComparisonView(
+                    displayHost: pair.display,
+                    punycodeHost: pair.punycode
+                )
+                .frame(maxWidth: 400)
+                .awUIFont(AwUIFontRuntime.current)
+            )
+            hosting.setFrameSize(hosting.fittingSize)
+            return hosting
+        }
+
+        // Presented through NSAlert.confirmDestructive — the same dialog as
+        // every other destructive confirm in the app (live-smoke direction:
+        // no bespoke chrome for this surface). That path already wires
+        // Cancel as the default button (Return and Esc both cancel), marks
+        // Open destructive, and installs the scoped ⌘Return accept monitor
+        // (NSAlert.layout() strips Return-family keyEquivalents from
+        // destructive buttons, so the monitor stays load-bearing). Title
+        // keeps the "Security warning:" prefix so VoiceOver gets an audible
+        // cue this is a security gate even when the punycode hostname is
+        // pronounced fluently by TTS.
+        return NSAlert.confirmDestructive(
             title: String(
                 localized: "Security warning: \(blockConfirmTitle(for: reason))",
                 comment: "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
@@ -467,7 +489,11 @@ extension GhosttyRuntime {
                 punycodeHost: punycodeHost,
                 includeHostLines: hostComparison == nil
             ),
-            confirmTitle: String(
+            keyboardHint: String(
+                localized: "Press ⌘Return to open. Return or Esc cancels.",
+                comment: "Keyboard hint line on the OSC 8 hyperlink confirmation dialog."
+            ),
+            destructiveTitle: String(
                 localized: "Open",
                 comment: "Destructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler."
             ),
@@ -475,7 +501,7 @@ extension GhosttyRuntime {
                 localized: "Cancel",
                 comment: "Default button on the OSC 8 hyperlink confirmation dialog. Cancels the open."
             ),
-            confirmAccessibilityLabel: String(
+            destructiveAccessibilityLabel: String(
                 localized: "Open URL anyway",
                 comment: "VoiceOver label for the destructive Open button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Open' so a user who tabs to the button still has context."
             ),
@@ -483,21 +509,8 @@ extension GhosttyRuntime {
                 localized: "Cancel and do not open URL",
                 comment: "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
             ),
-            keyboardHint: String(
-                localized: "Press ⌘Return to open. Return or Esc cancels.",
-                comment: "Keyboard hint line on the OSC 8 hyperlink confirmation dialog."
-            )
+            accessoryView: accessoryView
         )
-
-        if let hostComparison {
-            return await AwModal(configuration: configuration) {
-                BlockedURLHostComparisonView(
-                    displayHost: hostComparison.display,
-                    punycodeHost: hostComparison.punycode
-                )
-            }.run() == .confirm
-        }
-        return await AwModal(configuration: configuration).run() == .confirm
     }
 
     private static func blockConfirmTitle(for reason: URLClassifier.BlockReason) -> String {
