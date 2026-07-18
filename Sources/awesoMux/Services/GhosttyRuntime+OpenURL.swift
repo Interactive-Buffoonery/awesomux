@@ -97,6 +97,18 @@ extension GhosttyRuntime {
     }
 
     @MainActor
+    static var remoteMarkdownRoutingFailurePresenter: @MainActor (NSView?) -> Void = {
+        presentRemoteMarkdownRoutingFailure(from: $0)
+    }
+
+    @MainActor
+    static func resetRemoteMarkdownRoutingFailurePresenterForTesting() {
+        remoteMarkdownRoutingFailurePresenter = {
+            presentRemoteMarkdownRoutingFailure(from: $0)
+        }
+    }
+
+    @MainActor
     static func openRecentLink(
         _ value: String,
         in sessionID: TerminalSession.ID,
@@ -111,6 +123,7 @@ extension GhosttyRuntime {
             RemoteMarkdownReference.isPotentialPayload(value)
         {
             guard let reference = RemoteMarkdownReference.make(payload: value, pane: pane) else {
+                remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
             if let snapshot = await recentLinkRemoteSnapshotProvider(reference) {
@@ -307,7 +320,7 @@ extension GhosttyRuntime {
     }
 
     @MainActor
-    private static func presentRemoteMarkdownRoutingFailure(from view: NSView) {
+    private static func presentRemoteMarkdownRoutingFailure(from view: NSView?) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
@@ -318,7 +331,7 @@ extension GhosttyRuntime {
             localized: "awesoMux could not establish a trusted remote path for this link.",
             comment: "Explanation for rejecting an unsafe or unresolved remote Markdown path"
         )
-        if let window = view.window {
+        if let window = view?.window {
             alert.beginSheetModal(for: window)
         } else {
             alert.runModal()

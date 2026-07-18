@@ -111,6 +111,34 @@ struct GhosttyRuntimeRecentLinkTests {
         #expect(captured?.identity.path.rawValue == "/srv/project/docs/readme.md")
     }
 
+    @Test func unresolvedRemoteMarkdownPresentsRoutingFailure() async throws {
+        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        defer { GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting() }
+        let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
+        let pane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/local",
+            remoteWorkingDirectory: nil,
+            executionPlan: .ssh(.init(target: target))
+        )
+        let session = makeSession(pane)
+        let store = makeStore(session)
+        var didPresent = false
+        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { view in
+            #expect(view == nil)
+            didPresent = true
+        }
+
+        await GhosttyRuntime.openRecentLink(
+            "docs/readme.md",
+            in: session.id,
+            associatedWith: pane.id,
+            sessionStore: store
+        )
+
+        #expect(didPresent)
+    }
+
     private func makeStore(
         workingDirectory: String
     ) -> (SessionStore, TerminalSession, TerminalPane) {

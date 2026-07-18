@@ -831,6 +831,12 @@ enum PaletteCommandRegistry {
             localized: "Detected terminal link",
             comment: "Privacy-preserving preview for an unrecognized terminal link"
         )
+        if let documentPath = MarkdownLinkIntercept.relativeDocumentCandidatePath(value) {
+            let trailingPath = documentPath.split(separator: "/", omittingEmptySubsequences: true)
+                .suffix(1)
+                .joined(separator: "/")
+            return (boundedSafePreview(trailingPath), [])
+        }
         guard let components = URLComponents(string: value) else {
             return (boundedSafePreview(fallback), [])
         }
@@ -855,9 +861,10 @@ enum PaletteCommandRegistry {
                 []
             )
         case nil:
-            let pathComponents = value.split(separator: "/", omittingEmptySubsequences: true)
-            let trailingPath = pathComponents.suffix(2).joined(separator: "/")
-            return (boundedSafePreview(trailingPath.isEmpty ? value : trailingPath), [])
+            let redactedValue = value.prefix { $0 != "?" && $0 != "#" }
+            let pathComponents = redactedValue.split(separator: "/", omittingEmptySubsequences: true)
+            let trailingPath = pathComponents.suffix(1).joined(separator: "/")
+            return (boundedSafePreview(trailingPath.isEmpty ? String(redactedValue) : trailingPath), [])
         default:
             return (boundedSafePreview(fallback), [])
         }
