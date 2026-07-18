@@ -1,6 +1,5 @@
 import AwesoMuxCore
 import SwiftUI
-import UnicodeHygiene
 
 struct WorkspaceGroupCreateSheet: View {
     let existingGroupNames: [String]
@@ -11,18 +10,10 @@ struct WorkspaceGroupCreateSheet: View {
     @FocusState private var isNameFocused: Bool
 
     var body: some View {
-        let sanitized = SessionStore.sanitizedGroupName(draftName)
-        let isMixedScript = UnicodeHygiene.hasSuspiciousScriptMixing(draftName)
-        let isDuplicate = existingGroupNames.contains { existing in
-            SessionStore.sanitizedGroupName(existing)
-                .caseInsensitiveCompare(sanitized) == .orderedSame
-        }
-        let validation = validationMessage(
-            sanitized: sanitized,
-            isDuplicate: isDuplicate,
-            isMixedScript: isMixedScript
+        let nameDraft = WorkspaceGroupNameDraft(
+            typedName: draftName,
+            existingGroupNames: existingGroupNames
         )
-        let canCreate = !sanitized.isEmpty && !isDuplicate && !isMixedScript
 
         return VStack(alignment: .leading, spacing: 16) {
             Text("New Workspace Group")
@@ -38,10 +29,17 @@ struct WorkspaceGroupCreateSheet: View {
                 .autocorrectionDisabled(true)
                 .focused($isNameFocused)
                 .accessibilityLabel("Workspace group name")
-                .onSubmit { submit(sanitized: sanitized, canCreate: canCreate) }
+                .onSubmit { submit(nameDraft) }
 
-            if let validation {
+            if let validation = nameDraft.validationMessage {
                 Text(validation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let feedback = nameDraft.sanitizationFeedback {
+                Label(feedback, systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -56,15 +54,15 @@ struct WorkspaceGroupCreateSheet: View {
                 .keyboardShortcut(.cancelAction)
 
                 Button("Create") {
-                    submit(sanitized: sanitized, canCreate: canCreate)
+                    submit(nameDraft)
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!canCreate)
+                .disabled(!nameDraft.canSubmit)
                 // Conditional hint on one stable button identity — an if/else
                 // over two button copies resets focus mid-edit.
                 .accessibilityHint(
-                    validation ?? "Enter a workspace group name to enable Create",
-                    isEnabled: !canCreate
+                    nameDraft.validationMessage ?? "Enter a workspace group name to enable Create",
+                    isEnabled: !nameDraft.canSubmit
                 )
             }
         }
@@ -77,36 +75,11 @@ struct WorkspaceGroupCreateSheet: View {
         }
     }
 
-    private func validationMessage(
-        sanitized: String,
-        isDuplicate: Bool,
-        isMixedScript: Bool
-    ) -> String? {
-        if sanitized.isEmpty {
-            return draftName.isEmpty
-                ? "Enter a group name."
-                : "Enter a visible group name."
-        }
-
-        if isMixedScript {
-            return String(
-                localized: "Mixing Latin with Cyrillic or Greek letters isn't allowed here — use one alphabet.",
-                comment: "Validation message when a workspace group name mixes visually confusable alphabets"
-            )
-        }
-
-        if isDuplicate {
-            return "\"\(sanitized)\" already exists."
-        }
-
-        return nil
-    }
-
-    private func submit(sanitized: String, canCreate: Bool) {
-        guard canCreate else {
+    private func submit(_ nameDraft: WorkspaceGroupNameDraft) {
+        guard nameDraft.canSubmit else {
             return
         }
 
-        onCreate(sanitized)
+        onCreate(nameDraft.sanitizedName)
     }
 }

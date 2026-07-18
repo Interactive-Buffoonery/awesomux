@@ -2532,6 +2532,9 @@
         }
       }
     },
+    "Some characters or spacing will be adjusted. This name will be saved as “%arg”." : {
+      "comment" : "Inline feedback in workspace group create and rename sheets. Argument is the exact saved group name, wrapped in bidi isolates."
+    },
     "Sound" : {
 
     },
