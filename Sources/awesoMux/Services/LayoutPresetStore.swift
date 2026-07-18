@@ -183,11 +183,14 @@ enum LayoutPresetStore {
             }
         }
 
+        // Throws the cap errors BEFORE any bytes exist — save must never write
+        // a preset this same build would refuse to load.
+        let preset = try WorkspaceLayoutPreset(layout: intent)
         let encoder = JSONEncoder()
         // Pretty + sorted: the file is meant to be checked in, so diffs must be
         // stable and human-reviewable.
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(WorkspaceLayoutPreset(layout: intent))
+        let data = try encoder.encode(preset)
         try data.write(to: fileURL, options: .atomic)
         return fileURL
     }

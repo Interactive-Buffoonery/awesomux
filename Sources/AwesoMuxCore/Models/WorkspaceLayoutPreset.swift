@@ -33,11 +33,13 @@ public struct WorkspaceLayoutPreset: Hashable, Sendable, Codable {
     public let version: Int
     public let layout: WorkspaceLayoutIntent
 
-    /// Save-side construction: always stamps the current version. Callers save
-    /// only intents projected from live layouts, which are structurally within
-    /// the caps by construction (a live layout deep enough to exceed them
-    /// cannot exist under the restore contract).
-    public init(layout: WorkspaceLayoutIntent) {
+    /// Save-side construction: stamps the current version and enforces the SAME
+    /// semantic caps as decode. The live/restore contract permits far larger
+    /// trees (depth 64, unbounded pane count), so an over-cap live layout is
+    /// reachable — save must refuse it loudly here rather than write a file
+    /// this same build would refuse to load.
+    public init(layout: WorkspaceLayoutIntent) throws {
+        try Self.validateCaps(of: layout)
         self.version = Self.currentVersion
         self.layout = layout
     }
@@ -56,21 +58,29 @@ public struct WorkspaceLayoutPreset: Hashable, Sendable, Codable {
         }
 
         let layout = try container.decode(WorkspaceLayoutIntent.self, forKey: .layout)
-        guard layout.splitDepth <= Self.maxSplitDepth else {
-            throw WorkspaceLayoutPresetError.layoutTooDeep(
-                depth: layout.splitDepth,
-                limit: Self.maxSplitDepth
-            )
-        }
-        guard layout.terminalCount <= Self.maxTerminalCount else {
-            throw WorkspaceLayoutPresetError.tooManyTerminals(
-                count: layout.terminalCount,
-                limit: Self.maxTerminalCount
-            )
-        }
+        try Self.validateCaps(of: layout)
 
         self.version = version
         self.layout = layout
+    }
+
+    /// One validation for both directions: decode (untrusted file) and
+    /// save-side construction (live layout). A cap change or a new cap that
+    /// touched only one side would silently reopen the save-then-unloadable
+    /// gap this shared path closes.
+    private static func validateCaps(of layout: WorkspaceLayoutIntent) throws {
+        guard layout.splitDepth <= maxSplitDepth else {
+            throw WorkspaceLayoutPresetError.layoutTooDeep(
+                depth: layout.splitDepth,
+                limit: maxSplitDepth
+            )
+        }
+        guard layout.terminalCount <= maxTerminalCount else {
+            throw WorkspaceLayoutPresetError.tooManyTerminals(
+                count: layout.terminalCount,
+                limit: maxTerminalCount
+            )
+        }
     }
 }
 
