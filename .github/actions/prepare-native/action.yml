@@ -1,0 +1,100 @@
+name: Prepare native build
+description: Restore or build exact-pin Ghostty artifacts for native validation.
+
+inputs:
+  save-cache:
+    description: Save newly built Ghostty artifacts when true.
+    required: false
+    default: "false"
+  cache-namespace:
+    description: Namespace used to invalidate native Ghostty caches.
+    required: false
+    default: native-ghostty-v1
+
+outputs:
+  ghostty-sha:
+    description: Committed Ghostty gitlink SHA.
+    value: ${{ steps.context.outputs.ghostty-sha }}
+  xcode-id:
+    description: Sanitized current Xcode version and build identity.
+    value: ${{ steps.context.outputs.xcode-id }}
+  cache-hit:
+    description: Whether an exact Ghostty artifact cache was restored.
+    value: ${{ steps.ghostty-cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read native build context
+      id: context
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+
+        case "${{ inputs.save-cache }}" in
+          true|false) ;;
+          *)
+            echo "save-cache must be true or false" >&2
+            exit 2
+            ;;
+        esac
+
+        ghostty_sha="$(git rev-parse HEAD:vendor/ghostty)"
+        if [[ ! "$ghostty_sha" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "HEAD:vendor/ghostty did not resolve to a 40-character SHA" >&2
+          exit 1
+        fi
+
+        swift_pin="$(tr -d '[:space:]' < .swift-version)"
+        if [[ -z "$swift_pin" ]]; then
+          echo ".swift-version is empty" >&2
+          exit 1
+        fi
+
+        version_string="$(xcodebuild -version)"
+        xcode_version="$(awk '/^Xcode /{print $2}' <<<"$version_string")"
+        xcode_build="$(awk '/^Build version/{print $3}' <<<"$version_string")"
+        xcode_id="$(printf 'Xcode_%s-%s' "$xcode_version" "$xcode_build" | tr -c 'A-Za-z0-9_.-' '_')"
+
+        optimize_mode="${AWESOMUX_GHOSTTY_OPTIMIZE:-ReleaseFast}"
+        echo "AWESOMUX_GHOSTTY_OPTIMIZE=$optimize_mode" >> "$GITHUB_ENV"
+        {
+          echo "ghostty-sha=$ghostty_sha"
+          echo "swift-pin=$swift_pin"
+          echo "xcode-id=$xcode_id"
+          echo "optimize-mode=$optimize_mode"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore cached Ghostty artifacts
+      id: ghostty-cache
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .build/ghostty
+        key: ${{ inputs.cache-namespace }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.context.outputs.ghostty-sha }}-${{ steps.context.outputs.optimize-mode }}-${{ steps.context.outputs.swift-pin }}-${{ steps.context.outputs.xcode-id }}
+
+    - name: Install Ghostty build tools
+      if: steps.ghostty-cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+        brew install zig@0.15
+        echo "AWESOMUX_ZIG=$(brew --prefix zig@0.15)/bin/zig" >> "$GITHUB_ENV"
+        if ! xcrun -sdk macosx metal -v >/dev/null 2>&1; then
+          xcodebuild -downloadComponent MetalToolchain
+        fi
+
+    - name: Build or validate Ghostty artifacts
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        AWESOMUX_GHOSTTY_REQUIRE_PIN_MATCH: "1"
+      run: ./script/ensure_ghostty_artifacts.sh
+
+    - name: Save cached Ghostty artifacts
+      if: inputs.save-cache == 'true' && steps.ghostty-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .build/ghostty
+        key: ${{ steps.ghostty-cache.outputs.cache-primary-key }}

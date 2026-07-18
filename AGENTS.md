@@ -19,7 +19,7 @@ Read the docs for the area you are changing before editing.
 - Ghostty sourcing, build, link, runtime resources, and terminal identity: [`docs/ghostty-integration.md`](docs/ghostty-integration.md), [`.gitmodules`](.gitmodules), and the scripts under [`script/`](script/)
 - Build, run, test, and local preflight: [`README.md`](README.md), [`script/preflight.sh`](script/preflight.sh), [`script/swift-test.sh`](script/swift-test.sh), [`script/build_and_run.sh`](script/build_and_run.sh)
 - macOS distribution / signing / notarization / sandbox posture: [ADR-0019](docs/adr/0019-macos-distribution-signing-and-sandbox-posture.md) (not GitHub issues or PR bodies)
-- CI: [`.github/workflows/cheap-guards.yml`](.github/workflows/cheap-guards.yml), [`.github/workflows/tint-contrast.yml`](.github/workflows/tint-contrast.yml), OpenCode review in [`docs/code-review.md`](docs/code-review.md)
+- CI policy and commands: [`docs/ci.md`](docs/ci.md); workflows live under [`.github/workflows/`](.github/workflows/), with OpenCode review details in [`docs/code-review.md`](docs/code-review.md)
 - Scripted pane automation (`amx` send/history, `AWESOMUX_AMX`, `$ZMX_SESSION`): [`docs/amx-automation.md`](docs/amx-automation.md)
 - UI tokens and SwiftUI/AppKit patterns: [`Sources/DesignSystem/`](Sources/DesignSystem/)
 - Bundled fonts, icons, templates, and third-party licenses: [`Resources/`](Resources/) (tracked in-repo; no Git LFS or private asset fetch)
