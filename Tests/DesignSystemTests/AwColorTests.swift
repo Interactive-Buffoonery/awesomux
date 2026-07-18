@@ -25,38 +25,34 @@ struct AwColorTests {
             latteHC: "#000004"
         )
 
-        #expect(
-            NSColor.awDynamicHex(
-                for: .accessibilityHighContrastAqua,
-                mocha: values.mocha,
-                latte: values.latte,
-                mochaHC: values.mochaHC,
-                latteHC: values.latteHC
-            ) == values.latteHC)
-        #expect(
-            NSColor.awDynamicHex(
-                for: .accessibilityHighContrastDarkAqua,
-                mocha: values.mocha,
-                latte: values.latte,
-                mochaHC: values.mochaHC,
-                latteHC: values.latteHC
-            ) == values.mochaHC)
-        #expect(
-            NSColor.awDynamicHex(
-                for: .aqua,
-                mocha: values.mocha,
-                latte: values.latte,
-                mochaHC: values.mochaHC,
-                latteHC: values.latteHC
-            ) == values.latte)
-        #expect(
-            NSColor.awDynamicHex(
-                for: .darkAqua,
-                mocha: values.mocha,
-                latte: values.latte,
-                mochaHC: values.mochaHC,
-                latteHC: values.latteHC
-            ) == values.mocha)
+        #expect(NSColor.awDynamicHex(
+            for: .accessibilityHighContrastAqua,
+            mocha: values.mocha,
+            latte: values.latte,
+            mochaHC: values.mochaHC,
+            latteHC: values.latteHC
+        ) == values.latteHC)
+        #expect(NSColor.awDynamicHex(
+            for: .accessibilityHighContrastDarkAqua,
+            mocha: values.mocha,
+            latte: values.latte,
+            mochaHC: values.mochaHC,
+            latteHC: values.latteHC
+        ) == values.mochaHC)
+        #expect(NSColor.awDynamicHex(
+            for: .aqua,
+            mocha: values.mocha,
+            latte: values.latte,
+            mochaHC: values.mochaHC,
+            latteHC: values.latteHC
+        ) == values.latte)
+        #expect(NSColor.awDynamicHex(
+            for: .darkAqua,
+            mocha: values.mocha,
+            latte: values.latte,
+            mochaHC: values.mochaHC,
+            latteHC: values.latteHC
+        ) == values.mocha)
     }
 
     // Constructed appearances are not a reliable fixed oracle on macOS:
@@ -357,14 +353,13 @@ struct AwColorTests {
                 latte: restInline.latte,
                 mochaHC: restInline.mochaHC,
                 latteHC: restInline.latteHC
-            )
-                == NSColor.awDynamicHex(
-                    for: .accessibilityHighContrastDarkAqua,
-                    mocha: restStandalone.mocha,
-                    latte: restStandalone.latte,
-                    mochaHC: restStandalone.mochaHC,
-                    latteHC: restStandalone.latteHC
-                ),
+            ) == NSColor.awDynamicHex(
+                for: .accessibilityHighContrastDarkAqua,
+                mocha: restStandalone.mocha,
+                latte: restStandalone.latte,
+                mochaHC: restStandalone.mochaHC,
+                latteHC: restStandalone.latteHC
+            ),
             "dividerRest mochaHC drifted from dividerRestHC mochaHC"
         )
         #expect(
@@ -374,14 +369,13 @@ struct AwColorTests {
                 latte: restInline.latte,
                 mochaHC: restInline.mochaHC,
                 latteHC: restInline.latteHC
-            )
-                == NSColor.awDynamicHex(
-                    for: .accessibilityHighContrastAqua,
-                    mocha: restStandalone.mocha,
-                    latte: restStandalone.latte,
-                    mochaHC: restStandalone.mochaHC,
-                    latteHC: restStandalone.latteHC
-                ),
+            ) == NSColor.awDynamicHex(
+                for: .accessibilityHighContrastAqua,
+                mocha: restStandalone.mocha,
+                latte: restStandalone.latte,
+                mochaHC: restStandalone.mochaHC,
+                latteHC: restStandalone.latteHC
+            ),
             "dividerRest latteHC drifted from dividerRestHC latteHC"
         )
 
@@ -396,14 +390,13 @@ struct AwColorTests {
                 latte: hoverInline.latte,
                 mochaHC: hoverInline.mochaHC,
                 latteHC: hoverInline.latteHC
-            )
-                == NSColor.awDynamicHex(
-                    for: .accessibilityHighContrastDarkAqua,
-                    mocha: hoverStandalone.mocha,
-                    latte: hoverStandalone.latte,
-                    mochaHC: hoverStandalone.mochaHC,
-                    latteHC: hoverStandalone.latteHC
-                ),
+            ) == NSColor.awDynamicHex(
+                for: .accessibilityHighContrastDarkAqua,
+                mocha: hoverStandalone.mocha,
+                latte: hoverStandalone.latte,
+                mochaHC: hoverStandalone.mochaHC,
+                latteHC: hoverStandalone.latteHC
+            ),
             "dividerHover mochaHC drifted from dividerHoverHC mochaHC"
         )
         #expect(
@@ -413,14 +406,13 @@ struct AwColorTests {
                 latte: hoverInline.latte,
                 mochaHC: hoverInline.mochaHC,
                 latteHC: hoverInline.latteHC
-            )
-                == NSColor.awDynamicHex(
-                    for: .accessibilityHighContrastAqua,
-                    mocha: hoverStandalone.mocha,
-                    latte: hoverStandalone.latte,
-                    mochaHC: hoverStandalone.mochaHC,
-                    latteHC: hoverStandalone.latteHC
-                ),
+            ) == NSColor.awDynamicHex(
+                for: .accessibilityHighContrastAqua,
+                mocha: hoverStandalone.mocha,
+                latte: hoverStandalone.latte,
+                mochaHC: hoverStandalone.mochaHC,
+                latteHC: hoverStandalone.latteHC
+            ),
             "dividerHover latteHC drifted from dividerHoverHC latteHC"
         )
     }
@@ -463,8 +455,7 @@ struct AwColorTests {
                 (.darkAqua, mochaFloor),
             ] {
                 guard let dividerResolved = divider.withAppearance(appearance),
-                    let backgroundResolved = background.withAppearance(appearance)
-                else {
+                      let backgroundResolved = background.withAppearance(appearance) else {
                     Issue.record("\(label): could not resolve color for \(appearance.rawValue)")
                     continue
                 }
@@ -504,8 +495,7 @@ struct AwColorTests {
 
                 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                     guard let borderResolved = border.withAppearance(appearance),
-                        let backgroundResolved = background.withAppearance(appearance)
-                    else {
+                          let backgroundResolved = background.withAppearance(appearance) else {
                         Issue.record("\(accent) on \(backgroundLabel): could not resolve color for \(appearance.rawValue)")
                         continue
                     }
@@ -530,15 +520,13 @@ struct AwColorTests {
         for backgroundLabel in ["elevated", "elevated+hover"] {
             for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                 guard let foregroundResolved = foreground.withAppearance(appearance),
-                    let elevatedResolved = elevated.withAppearance(appearance),
-                    let hoverResolved = hoverOverlay.withAppearance(appearance)
-                else {
+                      let elevatedResolved = elevated.withAppearance(appearance),
+                      let hoverResolved = hoverOverlay.withAppearance(appearance) else {
                     Issue.record("primary text on \(backgroundLabel): could not resolve color for \(appearance.rawValue)")
                     continue
                 }
 
-                let backgroundResolved =
-                    backgroundLabel == "elevated"
+                let backgroundResolved = backgroundLabel == "elevated"
                     ? elevatedResolved
                     : hoverResolved.composited(over: elevatedResolved)
 
@@ -663,8 +651,7 @@ struct AwColorTests {
 
                 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                     guard let dividerResolved = divider.withAppearance(appearance),
-                        let backgroundResolved = background.withAppearance(appearance)
-                    else {
+                          let backgroundResolved = background.withAppearance(appearance) else {
                         Issue.record("\(label): could not resolve color for \(appearance.rawValue)")
                         continue
                     }
@@ -703,11 +690,9 @@ struct AwColorTests {
 
         for accent in AwAccent.allCases {
             for (background, backgroundLabel, floor) in sweep {
-                guard
-                    let stripe = NSColor(Color.aw.focusAccent(accent, terminalBackground: background))
-                        .usingColorSpace(.sRGB),
-                    let backgroundResolved = NSColor(background).usingColorSpace(.sRGB)
-                else {
+                guard let stripe = NSColor(Color.aw.focusAccent(accent, terminalBackground: background))
+                    .usingColorSpace(.sRGB),
+                      let backgroundResolved = NSColor(background).usingColorSpace(.sRGB) else {
                     Issue.record("\(accent.rawValue): could not resolve color for \(backgroundLabel)")
                     continue
                 }
@@ -823,10 +808,8 @@ struct AwColorTests {
             (Color.aw.status.waiting, "waiting"),
             (Color.aw.status.running, "running"),
         ]
-        guard
-            let foreground = NSColor(Color.aw.status.onLoud)
-                .withAppearance(.accessibilityHighContrastAqua)
-        else {
+        guard let foreground = NSColor(Color.aw.status.onLoud)
+            .withAppearance(.accessibilityHighContrastAqua) else {
             Issue.record("could not resolve onLoud for latteHC")
             return
         }
@@ -904,9 +887,8 @@ struct AwColorTests {
 
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             guard let fill = badgeFill.withAppearance(appearance),
-                let fg = foreground.withAppearance(appearance),
-                let base = backdrop.withAppearance(appearance)
-            else {
+                  let fg = foreground.withAppearance(appearance),
+                  let base = backdrop.withAppearance(appearance) else {
                 Issue.record("queue badge: could not resolve \(appearance.rawValue)")
                 continue
             }
@@ -930,9 +912,8 @@ struct AwColorTests {
 
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             guard let fg = foreground.withAppearance(appearance),
-                let tintResolved = tint.withAppearance(appearance),
-                let base = backdrop.withAppearance(appearance)
-            else {
+                  let tintResolved = tint.withAppearance(appearance),
+                  let base = backdrop.withAppearance(appearance) else {
                 Issue.record("kicker: could not resolve \(appearance.rawValue)")
                 continue
             }
@@ -980,8 +961,7 @@ struct AwColorTests {
 
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             guard let fg = foreground.withAppearance(appearance),
-                let bg = background.withAppearance(appearance)
-            else {
+                  let bg = background.withAppearance(appearance) else {
                 Issue.record("railText: could not resolve color for \(appearance.rawValue)")
                 continue
             }
@@ -1005,24 +985,20 @@ struct AwColorTests {
         let mochaHC = colors.mochaHC.subtext0
         let latteHC = colors.latteHC.subtext0
 
-        #expect(
-            NSColor.awDynamicHex(
-                for: .darkAqua, mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
-            ) == mocha)
-        #expect(
-            NSColor.awDynamicHex(
-                for: .aqua, mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
-            ) == latte)
-        #expect(
-            NSColor.awDynamicHex(
-                for: .accessibilityHighContrastDarkAqua,
-                mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
-            ) == mochaHC)
-        #expect(
-            NSColor.awDynamicHex(
-                for: .accessibilityHighContrastAqua,
-                mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
-            ) == latteHC)
+        #expect(NSColor.awDynamicHex(
+            for: .darkAqua, mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
+        ) == mocha)
+        #expect(NSColor.awDynamicHex(
+            for: .aqua, mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
+        ) == latte)
+        #expect(NSColor.awDynamicHex(
+            for: .accessibilityHighContrastDarkAqua,
+            mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
+        ) == mochaHC)
+        #expect(NSColor.awDynamicHex(
+            for: .accessibilityHighContrastAqua,
+            mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
+        ) == latteHC)
 
         // Latte must step off stock subtext0 (text2) — that's the whole point.
         #expect(latte != colors.latte.subtext0)
@@ -1039,8 +1015,7 @@ struct AwColorTests {
 
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             guard let fg = foreground.withAppearance(appearance),
-                let bg = background.withAppearance(appearance)
-            else {
+                  let bg = background.withAppearance(appearance) else {
                 Issue.record("floatingWork: could not resolve color for \(appearance.rawValue)")
                 continue
             }
@@ -1066,22 +1041,20 @@ struct AwColorTests {
         #expect(floatingWork.colorNameComponent == done.colorNameComponent)
 
         let floatingWorkLatte = "#116e74"
-        #expect(
-            NSColor.awDynamicHex(
-                for: .aqua,
-                mocha: colors.mocha.teal,
-                latte: floatingWorkLatte,
-                mochaHC: colors.mochaHC.teal,
-                latteHC: colors.latteHC.teal
-            ) == floatingWorkLatte)
-        #expect(
-            NSColor.awDynamicHex(
-                for: .accessibilityHighContrastAqua,
-                mocha: colors.mocha.teal,
-                latte: floatingWorkLatte,
-                mochaHC: colors.mochaHC.teal,
-                latteHC: colors.latteHC.teal
-            ) == colors.latteHC.teal)
+        #expect(NSColor.awDynamicHex(
+            for: .aqua,
+            mocha: colors.mocha.teal,
+            latte: floatingWorkLatte,
+            mochaHC: colors.mochaHC.teal,
+            latteHC: colors.latteHC.teal
+        ) == floatingWorkLatte)
+        #expect(NSColor.awDynamicHex(
+            for: .accessibilityHighContrastAqua,
+            mocha: colors.mocha.teal,
+            latte: floatingWorkLatte,
+            mochaHC: colors.mochaHC.teal,
+            latteHC: colors.latteHC.teal
+        ) == colors.latteHC.teal)
     }
 }
 
@@ -1175,8 +1148,7 @@ private extension NSColor {
         appearance.performAsCurrentDrawingAppearance {
             resolvedCGColor = self.cgColor
         }
-        return
-            resolvedCGColor
+        return resolvedCGColor
             .flatMap(NSColor.init(cgColor:))?
             .usingColorSpace(.sRGB)
     }
