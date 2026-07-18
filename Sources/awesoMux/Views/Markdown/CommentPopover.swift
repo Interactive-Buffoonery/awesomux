@@ -455,8 +455,10 @@ struct ComposeCommentPopover: View {
                             )
                         ),
                     ],
-                    selection: $intent
+                    selection: $intent,
+                    expandsToFill: true
                 )
+                .frame(maxWidth: .infinity)
                 .awAccent(.mauve)
 
                 AnnotationNoteTextView(
