@@ -83,8 +83,8 @@ struct DiagnosticsSettingsPane: View {
         }
         .onAppear {
             model.startSampling()
-            analyticsLog.loadIfNeeded()
         }
+        .task { await analyticsLog.loadIfNeeded() }
         .onDisappear { model.stopSampling() }
         .onChange(of: presentation.revision) {
             initializeDisclosuresIfNeeded()
@@ -881,8 +881,6 @@ struct DiagnosticsSettingsPane: View {
             String(localized: "Not sent — this build records analytics locally only", comment: "Analytics event delivery status")
         case (_, .analyticsDisabled):
             String(localized: "Not recorded — analytics is off", comment: "Analytics event delivery status")
-        case (_, .consentInsufficient):
-            String(localized: "Not sent — a higher consent level is required", comment: "Analytics event delivery status")
         case (_, .invalidPropertyValue):
             String(localized: "Dropped — failed privacy checks", comment: "Analytics event delivery status")
         case (.dropped, nil), (.failed, nil):
