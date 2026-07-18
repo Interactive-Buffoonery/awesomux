@@ -206,7 +206,7 @@ struct SidebarGroupHeaderHitTargetTests {
                 ),
             ]
             : [group]
-        let hostingView = HitTargetHostingView(
+        let hosted = SidebarHostedTestHarness.makeWindow(
             rootView: SidebarGroupHitTargetHarness(
                 group: group,
                 allGroups: allGroups,
@@ -219,27 +219,10 @@ struct SidebarGroupHeaderHitTargetTests {
                 onToggle: onToggle,
                 onCloseGroup: onCloseGroup,
                 onNewSessionInGroup: onNewSessionInGroup
-            ))
-        hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 80)
-
-        let window = HitTargetTestWindow(
-            contentRect: hostingView.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+            ),
+            frame: NSRect(x: 0, y: 0, width: width, height: 80)
         )
-        window.contentView = hostingView
-        window.isReleasedWhenClosed = false
-        // SwiftUI gestures are not delivered to the hosted view while the
-        // AppKit test window is hidden. Keep it ordered but fully transparent
-        // so the harness never flashes over the user's desktop during tests.
-        window.alphaValue = 0
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-        window.layoutIfNeeded()
-        hostingView.layoutSubtreeIfNeeded()
-        settleMainRunLoop()
-        return window
+        return hosted.window
     }
 
     private static func renderedPixels(in window: NSWindow) -> Data {
@@ -253,44 +236,18 @@ struct SidebarGroupHeaderHitTargetTests {
     }
 
     private static func sendClick(to window: NSWindow, at location: CGPoint) {
-        for (type, eventNumber) in [(NSEvent.EventType.leftMouseDown, 1), (.leftMouseUp, 2)] {
-            guard
-                let event = NSEvent.mouseEvent(
-                    with: type,
-                    location: location,
-                    modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: window.windowNumber,
-                    context: nil,
-                    eventNumber: eventNumber,
-                    clickCount: 1,
-                    pressure: type == .leftMouseDown ? 1 : 0
-                )
-            else { continue }
-            window.sendEvent(event)
-        }
+        SidebarHostedTestHarness.sendClick(to: window, at: location)
     }
 
     private static func pumpMainRunLoop(
         until condition: () -> Bool = { true },
         timeout: TimeInterval = 1.0
     ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline {
-            runMainRunLoopSlice()
-        }
-        return condition()
+        SidebarHostedTestHarness.pumpMainRunLoop(until: condition, timeout: timeout)
     }
 
     private static func settleMainRunLoop(duration: TimeInterval = 0.05) {
-        let deadline = Date().addingTimeInterval(duration)
-        while Date() < deadline {
-            runMainRunLoopSlice(maxDuration: deadline.timeIntervalSinceNow)
-        }
-    }
-
-    private static func runMainRunLoopSlice(maxDuration: TimeInterval = 0.01) {
-        RunLoop.main.run(until: Date().addingTimeInterval(min(0.01, max(0, maxDuration))))
+        SidebarHostedTestHarness.settleMainRunLoop(duration: duration)
     }
 }
 
