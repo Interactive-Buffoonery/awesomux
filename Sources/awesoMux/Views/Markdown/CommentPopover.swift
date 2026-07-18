@@ -377,7 +377,7 @@ struct ComposeCommentPopover: View {
     @State private var submission = AnnotationSubmissionGate()
     @State private var recovery: AnnotationSaveOutcome?
     @State private var presentationID: UUID?
-    @FocusState private var isDraftFocused: Bool
+    @State private var isDraftFocused = false
 
     private var placeholder: String {
         switch intent {
@@ -389,7 +389,7 @@ struct ComposeCommentPopover: View {
 
     /// Delete may carry an empty rationale; comment/replace need a payload.
     private var canSave: Bool {
-        intent == .delete || !draft.trimmingCharacters(in: .whitespaces).isEmpty
+        intent == .delete || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var canSubmit: Bool {
@@ -404,7 +404,7 @@ struct ComposeCommentPopover: View {
         guard canSubmit, submission.begin() else { return }
         let activePresentation = presentationID
         onSubmissionChanged(true)
-        let value = draft.trimmingCharacters(in: .whitespaces)
+        let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             let outcome = await onSave(value, intent)
             guard let activePresentation, presentationID == activePresentation else { return }
@@ -428,31 +428,58 @@ struct ComposeCommentPopover: View {
                 .padding(.horizontal, 12)
 
             VStack(alignment: .trailing, spacing: 6) {
-                Picker(String(localized: "Intent", comment: "Label for the annotation intent picker"), selection: $intent) {
-                    Text(String(localized: "Comment", comment: "Annotation intent option")).tag(PlanAnnotationIntent.comment)
-                    Text(String(localized: "Replace", comment: "Annotation intent option")).tag(PlanAnnotationIntent.replace)
-                    Text(String(localized: "Delete", comment: "Annotation intent option")).tag(PlanAnnotationIntent.delete)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accessibilityLabel(String(localized: "Annotation intent", comment: "Accessibility label for the annotation intent picker"))
+                SettingsSegmented<PlanAnnotationIntent>(
+                    options: [
+                        .init(
+                            value: .comment,
+                            label: String(localized: "Comment", comment: "Annotation intent option"),
+                            accessibilityLabel: String(
+                                localized: "Comment annotation intent",
+                                comment: "Accessibility label for the comment annotation intent option"
+                            )
+                        ),
+                        .init(
+                            value: .replace,
+                            label: String(localized: "Replace", comment: "Annotation intent option"),
+                            accessibilityLabel: String(
+                                localized: "Replace annotation intent",
+                                comment: "Accessibility label for the replace annotation intent option"
+                            )
+                        ),
+                        .init(
+                            value: .delete,
+                            label: String(localized: "Delete", comment: "Annotation intent option"),
+                            accessibilityLabel: String(
+                                localized: "Delete annotation intent",
+                                comment: "Accessibility label for the delete annotation intent option"
+                            )
+                        ),
+                    ],
+                    selection: $intent
+                )
+                .awAccent(.mauve)
 
-                TextField(placeholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .lineLimit(4, reservesSpace: true)
-                    .padding(6)
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.aw.mauve.opacity(0.4), lineWidth: 1)
-                    )
-                    .onSubmit(save)
-                    .focused($isDraftFocused)
-                    // Auto-presented on selection: "now type your note" is the
-                    // expected next action, so put the caret there.
-                    .onAppear { isDraftFocused = true }
+                AnnotationNoteTextView(
+                    text: $draft,
+                    isFocused: $isDraftFocused,
+                    placeholder: placeholder,
+                    accessibilityLabel: String(
+                        localized: "Annotation note",
+                        comment: "Accessibility label for the new annotation note field"
+                    ),
+                    onSave: save
+                )
+                // Approximately matches TextField's four reserved 13-point lines.
+                .frame(height: 76)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.aw.mauve.opacity(0.4), lineWidth: 1)
+                )
+                // Auto-presented on selection: "now type your note" is the
+                // expected next action, so put the caret there.
+                .onAppear { isDraftFocused = true }
 
                 if let recovery, recovery != .saved {
                     VStack(alignment: .leading, spacing: 6) {
@@ -472,19 +499,23 @@ struct ComposeCommentPopover: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button(String(localized: "Cancel", comment: "Button to cancel composing an annotation"), action: onCancel)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .font(.system(size: 12))
-                        .disabled(submission.isInFlight)
+                    Button(
+                        String(localized: "Cancel", comment: "Button to cancel composing an annotation"),
+                        role: .cancel,
+                        action: onCancel
+                    )
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(submission.isInFlight)
 
-                    Button(String(localized: "Save", comment: "Button to save a new annotation"), action: save)
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color.aw.mauve)
-                        .font(.system(size: 12, weight: .medium))
-                        .disabled(
-                            !canSubmit
-                        )
+                    Button(action: save) {
+                        Text(String(localized: "Save", comment: "Button to save a new annotation"))
+                            .foregroundStyle(Color.aw.status.onLoud)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.aw.mauve)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canSubmit)
                 }
             }
             .padding(10)
@@ -513,6 +544,140 @@ struct ComposeCommentPopover: View {
             String(localized: "The draft was not saved.", comment: "New annotation save failure message")
         case .saved:
             ""
+        }
+    }
+}
+
+// MARK: - AnnotationNoteTextView
+
+/// The new-annotation popover's narrowly scoped multiline AppKit editor.
+private struct AnnotationNoteTextView: View {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let placeholder: String
+    let accessibilityLabel: String
+    let onSave: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            AnnotationNoteTextViewRepresentable(
+                text: $text,
+                isFocused: $isFocused,
+                accessibilityLabel: accessibilityLabel,
+                onSave: onSave
+            )
+
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let accessibilityLabel: String
+    let onSave: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, isFocused: $isFocused, onSave: onSave)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.font = .systemFont(ofSize: 13)
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 6, height: 5)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.string = text
+        textView.setAccessibilityLabel(accessibilityLabel)
+
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        context.coordinator.text = $text
+        context.coordinator.isFocused = $isFocused
+        context.coordinator.onSave = onSave
+
+        if textView.string != text {
+            textView.string = text
+        }
+        textView.setAccessibilityLabel(accessibilityLabel)
+
+        if isFocused, textView.window?.firstResponder !== textView {
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        var isFocused: Binding<Bool>
+        var onSave: () -> Void
+
+        init(text: Binding<String>, isFocused: Binding<Bool>, onSave: @escaping () -> Void) {
+            self.text = text
+            self.isFocused = isFocused
+            self.onSave = onSave
+        }
+
+        func textDidBeginEditing(_ notification: Notification) {
+            isFocused.wrappedValue = true
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            isFocused.wrappedValue = false
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text.wrappedValue = textView.string
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
+                return false
+            }
+            guard !textView.hasMarkedText() else { return false }
+
+            switch AnnotationReturnKeyPolicy.outcome(for: NSApp.currentEvent?.modifierFlags ?? []) {
+            case .save:
+                onSave()
+            case .insertNewline:
+                textView.insertNewlineIgnoringFieldEditor(self)
+            }
+            return true
         }
     }
 }
