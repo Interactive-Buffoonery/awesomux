@@ -54,14 +54,18 @@ other arguments are rejected. The workflow reacts with eyes only after the
 request is authorized.
 
 Each accepted comment captures the pull request's current 40-character head
-SHA. The native job checks out that SHA recursively, verifies `HEAD` still
-matches it, and reports a `Native CI` check on that exact commit. A later commit
-does not inherit the result; request a fresh run with a new comment. A newer
-accepted request for the same pull request cancels the older native job.
+SHA. The request dispatcher creates a unique execution ref at the captured
+trusted default-branch commit, then starts the native executor from that ref.
+The executor confirms that the pull request is still eligible and still points
+to the captured SHA before running. The native job checks out that SHA
+recursively, verifies `HEAD` still matches it, and reports a `Native CI` check
+on that exact commit. A later commit does not inherit the result; request a
+fresh run with a new comment. A newer accepted request for the same pull request
+cancels the older native job.
 
 Maintainers may also dispatch the workflow manually and select `all`, `unit`,
-`adapter`, or `system`. Manual native dispatches are restore-only and do not
-populate caches.
+`adapter`, or `system`. Manual dispatches validate the selected default-branch
+SHA. They are restore-only and do not populate caches.
 
 The `all` scope runs the existing interfaces rather than introducing another
 build system:
@@ -78,20 +82,30 @@ workflow.
 
 ## Trust boundaries
 
-Native CI splits request handling, code execution, and reporting into separate
-jobs:
+Native CI splits request handling, code execution, reporting, and cleanup across
+trusted and untrusted workflow contexts:
 
-1. The resolver checks out trusted default-branch workflow code, validates the
-   command and actor, reads pull-request metadata, captures the immutable SHA,
-   and adds the eyes reaction. It may read contents and pull requests and write
-   the reaction.
-2. The native job executes the captured pull-request code with only
+1. The request workflow checks out trusted default-branch code, validates the
+   command and actor, reads pull-request metadata, and captures the immutable
+   SHA. It creates a unique execution ref pointing at that trusted commit,
+   dispatches the executor, and only then adds the eyes reaction. Its write
+   permissions are confined to dispatching the executor, managing that ref, and
+   writing the reaction; it never checks out or executes pull-request code.
+2. The executor starts in the unique execution-ref context and verifies the ref,
+   trusted commit, current pull-request eligibility, and unchanged head SHA.
+   The disposable ref is the cache security boundary: even pull-request code
+   that directly abuses the Actions cache service token cannot write into the
+   default-branch cache scope.
+3. The native job executes the captured pull-request code with only
    `contents: read`. Checkout credentials are not persisted, and the job has no
    secrets or write-capable token. Native preparation is loaded from the exact
    trusted helper SHA captured by the resolver, not from the pull-request tree.
-3. The reporter does not check out or execute pull-request code. It receives
+4. The reporter does not check out or execute pull-request code. It receives
    only the captured metadata and native result and uses `checks: write` to
    publish the completed `Native CI` check.
+5. A trusted `workflow_run` cleanup deletes only completed refs in the
+   `native-ci-runs/run-...` namespace. It never downloads artifacts or executes
+   pull-request code.
 
 OpenCode review uses a different passive-data boundary and never executes pull
 request code. See [`code-review.md`](code-review.md).
@@ -113,10 +127,13 @@ On a miss, the action installs pinned Zig and the Metal toolchain as needed,
 then runs `script/ensure_ghostty_artifacts.sh` with exact-pin enforcement. There
 is no general `.build` cache.
 
-Slash-command and native `workflow_dispatch` runs are restore-only. The trusted
-weekly/manual Swift CodeQL workflow may save a newly built Ghostty artifact
-cache. The signed release workflow keeps its existing provisioning and cache
-behavior.
+Slash-command and native `workflow_dispatch` runs are restore-only at the
+action level and execute in a unique disposable branch cache scope. This second
+boundary matters because a process running in an Actions job can access the
+cache service token even when the workflow never invokes a save action. The
+trusted weekly/manual Swift CodeQL workflow may save a newly built Ghostty
+artifact cache. The signed release workflow keeps its existing provisioning
+and cache behavior.
 
 ## Results and artifacts
 
@@ -163,6 +180,9 @@ merge check requires a separate reliability review.
 - A result belongs to an older SHA: post a fresh command after the latest commit.
 - Preparation is slow: inspect the action log for the cache key and cache-hit
   output. A miss intentionally rebuilds exact-pin Ghostty artifacts.
+- An execution ref remains after a run: inspect `Native CI execution-ref
+  cleanup`. The ref name must be under `native-ci-runs/run-`; do not delete
+  unrelated branches.
 - Tests fail: download the short-lived xUnit and log artifact before rerunning.
   Do not add blanket retries or increase the timeout to hide a failure.
 - The staged build fails: reproduce with `./script/build_and_run.sh

@@ -11,6 +11,7 @@ const workflows = {
   cheapGuards: read(".github/workflows/cheap-guards.yml"),
   codeql: read(".github/workflows/codeql.yml"),
   native: read(".github/workflows/native-ci.yml"),
+  nativeExecutor: read(".github/workflows/native-ci-executor.yml"),
   size: read(".github/workflows/pr-size.yml"),
   swiftCodeql: read(".github/workflows/swift-codeql.yml"),
   template: read(".github/workflows/pr-template.yml"),
@@ -66,6 +67,11 @@ test("hosted native CI stays advisory and maintainer-triggered", () => {
   assert.match(workflows.native, /issue_comment:\n\s+types: \[created\]/);
   assert.match(workflows.native, /workflow_dispatch:/);
   assert.doesNotMatch(workflows.native, /^\s{2}(?:push|pull_request|schedule):/m);
+  assert.match(workflows.nativeExecutor, /workflow_dispatch:/);
+  assert.doesNotMatch(
+    workflows.nativeExecutor,
+    /^\s{2}(?:issue_comment|push|pull_request|pull_request_target|schedule):/m,
+  );
 });
 
 test("fast required checks have stable names", () => {
