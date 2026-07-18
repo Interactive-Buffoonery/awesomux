@@ -62,6 +62,19 @@ struct WorktreeManagerControllerTests {
         #expect(!controller.hasPendingRefresh)
     }
 
+    @Test("show with presentingCreateForm marks the model for the create sheet")
+    func presentingCreateFormSetsPendingFlag() async {
+        _ = NSApplication.shared
+        let model = makeModel(service: CountingWorktreeListing())
+        let controller = WorktreeManagerController()
+
+        #expect(!model.pendingCreatePresentation)
+        controller.show(model: model, relativeTo: nil, presentingCreateForm: true)
+        #expect(model.pendingCreatePresentation)
+
+        controller.dismiss()
+    }
+
     private func makeModel(service: any GitWorktreeManaging) -> WorktreeManagerModel {
         WorktreeManagerModel(
             repositoryContext: .init(

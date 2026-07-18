@@ -13,6 +13,7 @@ struct WorktreeManagerPanel: View {
         VStack(spacing: 0) {
             header
             content
+            footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.aw.surface.window)
@@ -42,20 +43,43 @@ struct WorktreeManagerPanel: View {
         .sheet(isPresented: $isShowingCreateForm, onDismiss: model.resetCreateResult) {
             WorktreeCreateForm(model: model) { isShowingCreateForm = false }
         }
+        // `.task(id:)`, not `.onChange` — the palette's "Create Worktree…"
+        // route sets the flag before this view ever mounts, and `.onChange`
+        // only fires on a later flip, not on the value a fresh mount starts
+        // with. Self-resets `pendingCreatePresentation`, so this also
+        // re-fires (harmlessly, guarded) on the id's return trip to `false`.
+        .task(id: model.pendingCreatePresentation) {
+            guard model.pendingCreatePresentation else { return }
+            model.pendingCreatePresentation = false
+            model.resetCreateResult()
+            isShowingCreateForm = true
+        }
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(String(localized: "WORKTREE MANAGER", comment: "Worktree Manager kicker."))
-                    .awFont(AwFont.Mono.kicker)
-                    .tracking(2)
-                    .foregroundStyle(Color.aw.text3)
-                Text(model.repositoryContext.displayName)
-                    .awFont(AwFont.UI.title)
-                    .foregroundStyle(Color.aw.text)
-            }
-            Spacer()
+        VStack(alignment: .leading, spacing: 5) {
+            Text(String(localized: "WORKTREE MANAGER", comment: "Worktree Manager kicker."))
+                .awFont(AwFont.Mono.kicker)
+                .tracking(2)
+                .foregroundStyle(Color.aw.text3)
+            Text(model.repositoryContext.displayName)
+                .awFont(AwFont.UI.title)
+                .foregroundStyle(Color.aw.text)
+        }
+        .padding(.horizontal, AwSpacing.panelPadding)
+        .padding(.trailing, 52)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.aw.border).frame(height: 0.5)
+        }
+    }
+
+    // Moved off the title row (INT-857 round 3): "+ New Worktree / Refresh"
+    // crowded the title next to the close button. Bottom toolbar mirrors
+    // SessionManagerPanel's header/list/footer layout precedent.
+    private var footer: some View {
+        HStack(spacing: 10) {
             Button {
                 model.resetCreateResult()
                 isShowingCreateForm = true
@@ -75,11 +99,12 @@ struct WorktreeManagerPanel: View {
                 )
             }
             .buttonStyle(.borderless)
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, AwSpacing.panelPadding)
-        .padding(.trailing, 52)
-        .padding(.vertical, 16)
-        .overlay(alignment: .bottom) {
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.aw.surface.chrome)
+        .overlay(alignment: .top) {
             Rectangle().fill(Color.aw.border).frame(height: 0.5)
         }
     }

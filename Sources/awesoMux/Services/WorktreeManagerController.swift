@@ -47,8 +47,11 @@ final class WorktreeManagerController {
         }
     }
 
-    func show(model: WorktreeManagerModel, relativeTo parentWindow: NSWindow?) {
+    func show(model: WorktreeManagerModel, relativeTo parentWindow: NSWindow?, presentingCreateForm: Bool = false) {
         activeModel = model
+        if presentingCreateForm {
+            model.pendingCreatePresentation = true
+        }
         // Refresh/create errors and results are otherwise visual-only —
         // announcements on a non-key window are dropped, so route them
         // through the panel element (same pattern as SessionManagerController).
