@@ -54,10 +54,7 @@ let package = Package(
         ),
         .target(
             name: "AwesoMuxBridgeHelperSupport",
-            // UnicodeHygiene is unused by this target's current files; the
-            // bridge helper executable (INT-698 task B1) lands here next and
-            // consumes it for frame free-text scalar fences.
-            dependencies: ["AwesoMuxCore", "UnicodeHygiene"]
+            dependencies: ["AwesoMuxCore"]
         ),
         .executableTarget(
             name: "awesoMuxAgentHook",

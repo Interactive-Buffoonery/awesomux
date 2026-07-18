@@ -86,14 +86,12 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         case let (.some(transient), .some(persisted)):
             entry = transient.closedAt >= persisted.closedAt ? transient : persisted
         }
-        // Consume the chosen entry from both tiers so a second Cmd-Shift-T
-        // cannot resurrect a stale twin, then rebuild it.
-        _ = drain(
+        return commitReopen(
             entry: entry,
+            into: &groups,
             recentlyClosed: &recentlyClosed,
             lastClosedTransient: &lastClosedTransient
         )
-        return insertReopened(entry: entry, into: &groups)
     }
 
     /// Reopen a specific recently-closed workspace chosen by the user (e.g. the
@@ -101,7 +99,8 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
     /// snapshot used to rebuild the workspace; the row it drains is located by
     /// identity fields `(sessionID, closedAt)` (see `drain`). Returns nil when
     /// the entry is no longer present — already reopened, or TTL-pruned between
-    /// menu build and selection.
+    /// menu build and selection — or when reconstruction fails (the row stays
+    /// so the user can retry after fixing the tree).
     @discardableResult
     static func reopen(
         entry: RecentlyClosedWorkspace,
@@ -115,6 +114,34 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             lastClosedTransient: &lastClosedTransient,
             now: now
         )
+        guard contains(
+            entry: entry,
+            recentlyClosed: recentlyClosed,
+            lastClosedTransient: lastClosedTransient
+        ) else {
+            return nil
+        }
+        return commitReopen(
+            entry: entry,
+            into: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &lastClosedTransient
+        )
+    }
+
+    /// Reconstruct into a candidate tree first; only drain the recovery row
+    /// after a successful insert. A rejected deep/document-only entry must stay
+    /// available rather than vanishing from both reopen tiers.
+    private static func commitReopen(
+        entry: RecentlyClosedWorkspace,
+        into groups: inout [SessionGroup],
+        recentlyClosed: inout [RecentlyClosedWorkspace],
+        lastClosedTransient: inout RecentlyClosedWorkspace?
+    ) -> TerminalSession.ID? {
+        var candidateGroups = groups
+        guard let reopenedID = insertReopened(entry: entry, into: &candidateGroups) else {
+            return nil
+        }
         guard drain(
             entry: entry,
             recentlyClosed: &recentlyClosed,
@@ -122,7 +149,19 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         ) else {
             return nil
         }
-        return insertReopened(entry: entry, into: &groups)
+        groups = candidateGroups
+        return reopenedID
+    }
+
+    private static func contains(
+        entry: RecentlyClosedWorkspace,
+        recentlyClosed: [RecentlyClosedWorkspace],
+        lastClosedTransient: RecentlyClosedWorkspace?
+    ) -> Bool {
+        if let transient = lastClosedTransient, isSameEntry(transient, entry) {
+            return true
+        }
+        return recentlyClosed.contains { isSameEntry($0, entry) }
     }
 
     /// Remove `entry` from both reopen tiers by exact equality. Returns whether
@@ -168,9 +207,10 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
 
     /// Rebuild a closed workspace from its snapshot and insert it, minting fresh
     /// identities only where a stored id collides with a live pane/daemon.
-    /// Shared by head reopen and targeted reopen; callers drain the entry from
-    /// the reopen tiers first. A layout deeper than the restore cap is dropped
-    /// (returns nil); the caller has already consumed the entry.
+    /// Shared by head reopen and targeted reopen. Callers must only drain the
+    /// recovery row after this returns a session id — a layout deeper than the
+    /// restore cap, or a document-only entry with no terminal pane, returns nil
+    /// without mutating `groups`.
     private static func insertReopened(
         entry: RecentlyClosedWorkspace,
         into groups: inout [SessionGroup]
