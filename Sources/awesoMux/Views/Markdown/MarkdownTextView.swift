@@ -454,10 +454,21 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         // live-resize burst of frame changes into one geometry pass.
         guard !geometryPassScheduled else { return }
         geometryPassScheduled = true
-        DispatchQueue.main.async { [weak self] in
+        // RunLoop.perform, not DispatchQueue.main.async: identical next-turn
+        // main-thread semantics, but runloop blocks also drain inside nested
+        // runloop spins (live window-resize tracking via .common, and the
+        // headless test harness), where queued main-queue blocks would starve
+        // behind the block that is currently running.
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
             guard let self else { return }
-            self.geometryPassScheduled = false
+            // Reset AFTER the pass: setFrameSize inside it can synchronously
+            // re-post frameDidChange (legacy scroller show/hide reclaims clip
+            // width), and re-arming on that self-induced notification would
+            // ping-pong between two wrap widths forever at the scroller
+            // threshold. Swallowing it is safe — the pass just ran against the
+            // final clip geometry of this runloop turn.
             self.updateDocumentGeometry()
+            self.geometryPassScheduled = false
         }
     }
 
@@ -474,7 +485,13 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             let layoutManager = textView.textLayoutManager,
             let storage = textView.textStorage
         else { return }
-        applyProseWrapWidth(to: storage, in: textView, clipWidth: clip.bounds.width)
+        // A pass that changed no paragraph style cannot move any glyph, so
+        // skip the full-document layout + measurement (a height-only resize
+        // lands here every frame; forcing whole-doc layout would defeat
+        // TextKit 2's incremental laziness on large documents).
+        guard applyProseWrapWidth(to: storage, in: textView, clipWidth: clip.bounds.width) else {
+            return
+        }
         layoutManager.ensureLayout(for: layoutManager.documentRange)
         let usage = layoutManager.usageBoundsForTextContainer
         let inset = textView.textContainerInset
@@ -491,14 +508,17 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     /// code blocks — their wrap behavior is unchanged from the width-tracking
     /// era) breaks at the pane edge inside the infinite container. Table-row
     /// paragraphs are left alone: their natural width IS the overflow.
+    /// Returns whether anything could have changed (wrap width moved or the
+    /// storage is fresh); false means no glyph moved and callers can skip
+    /// re-measuring.
     private func applyProseWrapWidth(
         to storage: NSTextStorage, in textView: NSTextView, clipWidth: CGFloat
-    ) {
+    ) -> Bool {
         // Floor of 80pt: at sliver pane widths the computed value would go
         // non-positive, and a tailIndent ≤ 0 means "distance from the trailing
         // margin" — the infinite container edge, i.e. no wrapping at all.
         let width = max(clipWidth - textView.textContainerInset.width * 2, 80)
-        guard width != lastProseWrapWidth, storage.length > 0 else { return }
+        guard width != lastProseWrapWidth, storage.length > 0 else { return false }
         lastProseWrapWidth = width
 
         let ns = storage.string as NSString
@@ -530,6 +550,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
         }
         storage.endEditing()
+        return true
     }
 
     /// Called by `SelectionAwareTextView.mouseDown(with:)` after `super.mouseDown`'s

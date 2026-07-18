@@ -66,7 +66,17 @@ anchor and the badge overlay outright.
   AXTable tree — table → rows/columns → cells with row/column counts, index
   ranges, and header association — built by `CommentBadgeOverlay` from the same
   cell geometry as the drawn grid. Cell labels keep the header-association text
-  ("Status: Active") from the original slice.
+  ("Status: Active") from the original slice. Row/column counts derive from
+  populated cells, so trailing all-empty rows/columns don't count — matching the
+  drawn grid (parity with the visual, not the raw markdown source).
+- Known ceilings of the INT-687 overflow model:
+  - The prose wrap width clamps at an 80pt floor, so panes narrower than
+    ~120pt horizontally scroll even for pure prose — a readability floor,
+    deliberate.
+  - The doc pane's wrap model is LTR-only: positive `tailIndent` measures from
+    the leading margin, so RTL paragraphs would overflow instead of wrapping.
+    The tab-stop table model was already LTR-oriented; revisit both together if
+    RTL documents become a target.
 - Any future need for true `NSTextTable` boxed layout would require re-opening
   this decision and rewriting the scroll-anchor + badge code against
   `NSLayoutManager` — a deliberate, tracked change, not a silent downgrade.

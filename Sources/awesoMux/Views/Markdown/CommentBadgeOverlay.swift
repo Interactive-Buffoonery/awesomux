@@ -206,10 +206,21 @@ final class CommentBadgeOverlay: NSView {
 
     private var cachedTableElements: [TableCellAccessibilityElement] = []
     private var tableAXFrames: [TableAXNode: NSRect] = [:]
-    /// Structure fingerprint of the current grids (texts + shape, no geometry).
-    /// The element tree rebuilds — and `.layoutChanged` posts — only when this
-    /// changes; pure reflows just refresh `tableAXFrames`.
-    private var tableStructureSignature: [String] = []
+    /// Structure fingerprint of the current grids (texts + shape, no geometry),
+    /// one hash per table. The element tree rebuilds — and `.layoutChanged`
+    /// posts — only when this changes; pure reflows just refresh
+    /// `tableAXFrames`. Hash-based rather than delimiter-joined strings so
+    /// pathological cell text can't alias token boundaries into a collision.
+    private var tableStructureSignature: [Int] = []
+
+    /// Hard ceiling on rows × columns per table for AXTable exposure. The grid
+    /// is a DENSE allocation sized by MAX indices, and this pass runs on every
+    /// overlay layout — a crafted document could otherwise claim enormous
+    /// indices from tiny input and hang the main thread during resize. Past
+    /// the cap a table keeps its drawn borders but exposes no AXTable.
+    // ponytail: 5000 cells is far beyond usable VoiceOver navigation; raise if
+    // a real document ever hits it.
+    static let axTableCellCap = 5_000
 
     /// Read-only view of the cached table elements for tests.
     var tableAccessibilityElements: [NSAccessibilityElement] { cachedTableElements }
@@ -240,6 +251,7 @@ final class CommentBadgeOverlay: NSView {
             guard let cells = byTable[table], !cells.isEmpty else { return nil }
             let rowCount = (cells.map { $0.grid.row }.max() ?? 0) + 1
             let columnCount = (cells.map { $0.grid.column }.max() ?? 0) + 1
+            guard rowCount * columnCount <= Self.axTableCellCap else { return nil }
             var grid = [[LogicalTableCell?]](
                 repeating: [LogicalTableCell?](repeating: nil, count: columnCount),
                 count: rowCount
@@ -271,9 +283,42 @@ final class CommentBadgeOverlay: NSView {
                     tableRect = tableRect.map { $0.union(cell.rect) } ?? cell.rect
                 }
             }
-            if let tableRect {
-                frames[.table(grid.table)] = tableRect
+            // tableAXGrids only emits tables with ≥1 populated cell, so the
+            // table rect always resolves.
+            guard let tableRect else { continue }
+            frames[.table(grid.table)] = tableRect
+
+            // Interpolate rows/columns with no populated cell (a valid GFM
+            // all-empty row like `|  |  |` emits no runs): the row still
+            // occupies the gap between its populated neighbors, and leaving it
+            // frameless would make VoiceOver render its cells at the screen
+            // origin. Edges clamp to the table rect; adjacent empty rows share
+            // the same gap rect (they genuinely occupy the same visual band).
+            for r in 0..<grid.rowCount where rowRects[r] == nil {
+                let prevMaxY =
+                    (0..<r).reversed()
+                    .compactMap { rowRects[$0]?.maxY }.first ?? tableRect.minY
+                let nextMinY =
+                    ((r + 1)..<grid.rowCount)
+                    .compactMap { rowRects[$0]?.minY }.first ?? tableRect.maxY
+                rowRects[r] = NSRect(
+                    x: tableRect.minX, y: prevMaxY,
+                    width: tableRect.width, height: max(nextMinY - prevMaxY, 0)
+                )
             }
+            for c in 0..<grid.columnCount where columnRects[c] == nil {
+                let prevMaxX =
+                    (0..<c).reversed()
+                    .compactMap { columnRects[$0]?.maxX }.first ?? tableRect.minX
+                let nextMinX =
+                    ((c + 1)..<grid.columnCount)
+                    .compactMap { columnRects[$0]?.minX }.first ?? tableRect.maxX
+                columnRects[c] = NSRect(
+                    x: prevMaxX, y: tableRect.minY,
+                    width: max(nextMinX - prevMaxX, 0), height: tableRect.height
+                )
+            }
+
             for r in 0..<grid.rowCount {
                 if let rect = rowRects[r] {
                     frames[.row(table: grid.table, row: r)] = rect
@@ -338,10 +383,25 @@ final class CommentBadgeOverlay: NSView {
                     let cell = grid.cells[r][c]
                     let text = cell?.text ?? ""
                     if cell?.grid.isHeader == true {
-                        cellElement.setAccessibilityLabel("\(text), column header")
+                        cellElement.setAccessibilityLabel(
+                            text.isEmpty
+                                ? String(
+                                    localized: "column header",
+                                    comment:
+                                        "VoiceOver label for an empty table header cell")
+                                : String(
+                                    localized: "\(text), column header",
+                                    comment:
+                                        "VoiceOver label for a table header cell; the variable is the header text"
+                                ))
                         headerCellElements.append(cellElement)
                     } else if let header = headerText[c], !header.isEmpty, !text.isEmpty {
-                        cellElement.setAccessibilityLabel("\(header): \(text)")
+                        cellElement.setAccessibilityLabel(
+                            String(
+                                localized: "\(header): \(text)",
+                                comment:
+                                    "VoiceOver label for a table body cell: column header, then cell text"
+                            ))
                     } else {
                         cellElement.setAccessibilityLabel(text)
                     }
@@ -366,7 +426,10 @@ final class CommentBadgeOverlay: NSView {
             tableElement.setAccessibilityRowCount(grid.rowCount)
             tableElement.setAccessibilityColumnCount(grid.columnCount)
             tableElement.setAccessibilityColumnHeaderUIElements(headerCellElements)
-            tableElement.setAccessibilityChildren(rowElements + columnElements)
+            // Generic children are rows only — columns are reachable through the
+            // typed accessibilityColumns attribute, and listing cells under both
+            // parents makes non-table-aware AX clients traverse everything twice.
+            tableElement.setAccessibilityChildren(rowElements)
             return tableElement
         }
     }
@@ -450,6 +513,14 @@ final class CommentBadgeOverlay: NSView {
         else {
             // Remove all non-add pills but keep any existing add pill.
             pills = pills.filter { $0.markID == nil }
+            // This is the only path that skips updateTableBorders — clear the
+            // table state too, or the cached AX elements keep announcing the
+            // previous layout's cells.
+            tableBorderRects = []
+            tableCellInfos = []
+            tableAXFrames = [:]
+            cachedTableElements = []
+            tableStructureSignature = []
             needsDisplay = true
             return
         }
@@ -571,11 +642,18 @@ final class CommentBadgeOverlay: NSView {
         // cursor. Structural changes are announced so a running client re-reads.
         let grids = Self.tableAXGrids(from: infos)
         tableAXFrames = Self.tableAXFrames(for: grids)
-        let signature = grids.map { grid in
-            "\(grid.table)|\(grid.rowCount)x\(grid.columnCount)|"
-                + grid.cells.flatMap { row in
-                    row.map { $0.map { "\($0.grid.isHeader ? "h" : "c"):\($0.text)" } ?? "∅" }
-                }.joined(separator: "\u{1F}")
+        let signature = grids.map { grid -> Int in
+            var hasher = Hasher()
+            hasher.combine(grid.table)
+            hasher.combine(grid.rowCount)
+            hasher.combine(grid.columnCount)
+            for row in grid.cells {
+                for cell in row {
+                    hasher.combine(cell?.text)
+                    hasher.combine(cell?.grid.isHeader)
+                }
+            }
+            return hasher.finalize()
         }
         if signature != tableStructureSignature {
             tableStructureSignature = signature

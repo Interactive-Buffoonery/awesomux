@@ -9,9 +9,10 @@ import Testing
 
 /// TextKit 2 text view inside a scroll view, configured like `makeNSView` after
 /// INT-687: infinite container in both axes, no self-sizing. Headless TextKit 2
-/// needs explicit geometry (INT-567), which here is exactly the production path —
-/// `updateDocumentGeometry()` pins the wrap width via tailIndent and sizes the
-/// frame from layout usage.
+/// needs explicit geometry (INT-567); `updateDocumentGeometry()` pins the wrap
+/// width via tailIndent and sizes the frame from layout usage. NOTE: the harness
+/// does NOT register the clip-view frame observer — tests that exercise the
+/// notification path register it themselves.
 @MainActor
 private func makeWideTableHarness(
     source: String, paneWidth: CGFloat = 300
@@ -151,6 +152,40 @@ struct WideTableOverflowTests {
         #expect(textView.frame.width == 500)
     }
 
+    @Test("a clip-view frame notification drives the coalesced geometry pass")
+    func notificationDrivenResize() throws {
+        let prose = "A body paragraph that is fine."
+        let (scrollView, textView, coordinator, _) = makeWideTableHarness(source: prose)
+
+        // Mirror makeNSView's observer wiring — the production resize pipeline.
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(MarkdownTextViewCoordinator.clipViewFrameDidChange(_:)),
+            name: NSView.frameDidChangeNotification,
+            object: scrollView.contentView
+        )
+        defer { NotificationCenter.default.removeObserver(coordinator) }
+
+        scrollView.setFrameSize(NSSize(width: 500, height: 400))
+        // The observer coalesces through one runloop hop; spin the runloop
+        // until the pass lands (bounded, so a regression fails fast). The
+        // frame is no witness — NSClipView stretches a narrower documentView
+        // to the clip on its own — so watch the wrap width itself.
+        let storage = try #require(textView.textStorage)
+        func tailIndent() -> CGFloat? {
+            (storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil)
+                as? NSParagraphStyle)?.tailIndent
+        }
+        let deadline = Date().addingTimeInterval(2)
+        while tailIndent() != 460, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        #expect(tailIndent() == CGFloat(460))
+        #expect(textView.frame.width == 500)
+    }
+
     @Test("a sliver pane clamps the wrap width instead of unwrapping prose")
     func sliverPaneClampsWrapWidth() throws {
         let (_, textView, _, _) = makeWideTableHarness(
@@ -242,6 +277,48 @@ struct TableAXGridTests {
         let tableFrame = try #require(frames[.table(0)])
         #expect(tableFrame == NSRect(x: 0, y: 0, width: 90, height: 36))
     }
+
+    @Test("an all-empty interior row still gets an interpolated frame band")
+    func allEmptyRowInterpolatedFrames() throws {
+        // Row 1 is entirely unpopulated (a GFM `|  |  |` row emits no runs).
+        let infos = [
+            Info(
+                grid: grid(row: 0, column: 0),
+                rect: NSRect(x: 0, y: 0, width: 40, height: 16), text: "a"),
+            Info(
+                grid: grid(row: 0, column: 1),
+                rect: NSRect(x: 50, y: 0, width: 40, height: 16), text: "b"),
+            Info(
+                grid: grid(row: 2, column: 0),
+                rect: NSRect(x: 0, y: 40, width: 40, height: 16), text: "c"),
+            Info(
+                grid: grid(row: 2, column: 1),
+                rect: NSRect(x: 50, y: 40, width: 40, height: 16), text: "d"),
+        ]
+        let grids = CommentBadgeOverlay.tableAXGrids(from: infos)
+        let table = try #require(grids.first)
+        #expect(table.rowCount == 3)
+        let frames = CommentBadgeOverlay.tableAXFrames(for: grids)
+
+        // The empty row's band spans the gap between its populated neighbors,
+        // full table width — never a .zero frame at the screen origin.
+        let rowFrame = try #require(frames[.row(table: 0, row: 1)])
+        #expect(rowFrame == NSRect(x: 0, y: 16, width: 90, height: 24))
+        let cellFrame = try #require(frames[.cell(table: 0, row: 1, column: 1)])
+        #expect(cellFrame == NSRect(x: 50, y: 16, width: 40, height: 24))
+    }
+
+    @Test("tables past the cell cap expose no AXTable")
+    func cellCapDropsHugeTables() {
+        // One cell claiming huge grid indices would demand a dense
+        // rows×columns allocation; the cap drops the table instead.
+        let infos = [
+            Info(
+                grid: grid(row: 99_999, column: 99),
+                rect: NSRect(x: 0, y: 0, width: 10, height: 10), text: "x")
+        ]
+        #expect(CommentBadgeOverlay.tableAXGrids(from: infos).isEmpty)
+    }
 }
 
 // MARK: - AXTable element tree (INT-687)
@@ -291,6 +368,43 @@ struct TableAXElementTreeTests {
             table.accessibilityColumnHeaderUIElements() as? [NSAccessibilityElement]
         )
         #expect(headerElements.count == 2)
+    }
+
+    @Test("every grid position resolves a frame through the production path")
+    func productionAllEmptyRowFramesResolve() throws {
+        // The middle row is entirely empty — the strongest hole case real
+        // markdown can produce. Whatever row numbering the parser assigns,
+        // the invariant is: every (row, column) the AXTable exposes has a
+        // non-zero-origin-safe frame (no VoiceOver stops at the screen corner).
+        let source = "| A | B |\n| - | - |\n| x | y |\n|  |  |\n| z | w |"
+        let (_, textView, _, attr) = makeWideTableHarness(source: source)
+
+        var infos: [CommentBadgeOverlay.TableCellInfo] = []
+        let full = attr.string as NSString
+        attr.enumerateAttribute(
+            .tableCellGrid, in: NSRange(location: 0, length: attr.length), options: []
+        ) { value, range, _ in
+            guard let grid = value as? TableCellGrid, range.length > 0,
+                let cell = CommentBadgeOverlay.cellRectInTextView(range: range, in: textView)
+            else { return }
+            infos.append(
+                CommentBadgeOverlay.TableCellInfo(
+                    grid: grid, rect: cell.rect, text: full.substring(with: range)))
+        }
+
+        let grids = CommentBadgeOverlay.tableAXGrids(from: infos)
+        #expect(!grids.isEmpty)
+        let frames = CommentBadgeOverlay.tableAXFrames(for: grids)
+        for grid in grids {
+            for r in 0..<grid.rowCount {
+                for c in 0..<grid.columnCount {
+                    #expect(
+                        frames[.cell(table: grid.table, row: r, column: c)] != nil,
+                        "cell (\(r),\(c)) must have a frame"
+                    )
+                }
+            }
+        }
     }
 
     @Test("mixed documents build one tree per table")
