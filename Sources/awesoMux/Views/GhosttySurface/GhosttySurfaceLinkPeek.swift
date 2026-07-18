@@ -186,10 +186,33 @@ extension GhosttySurfaceNSView {
             peekedLink = nil
             return
         }
+        // A popover flipped below a top-edge anchor sits under the pointer: the
+        // resulting mouseExited AND the (-1,-1)-induced nil hover callback both
+        // land here, and a grace alone would still close the peek 0.15s after it
+        // opened. Pointer resting on the preview keeps it open (standard tooltip
+        // semantics); click, scroll, and detach still dismiss unconditionally via
+        // `dismissLinkPeek`. Checked again at fire time below for a pointer that
+        // moved onto the popover mid-grace.
+        guard !pointerIsOverLinkPeekPopover else {
+            return
+        }
         linkPeekDismissWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.dismissLinkPeek() }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.pointerIsOverLinkPeekPopover else { return }
+            self.dismissLinkPeek()
+        }
         linkPeekDismissWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.linkPeekDismissGrace, execute: work)
+    }
+
+    private var pointerIsOverLinkPeekPopover: Bool {
+        guard let popover = linkPeekPopover, popover.isShown,
+            let popoverWindow = popover.contentViewController?.view.window
+        else {
+            return false
+        }
+        // Both in screen coordinates.
+        return popoverWindow.frame.contains(NSEvent.mouseLocation)
     }
 
     /// Cancel any pending work and close the popover. Safe to call when nothing is
