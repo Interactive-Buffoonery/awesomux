@@ -35,6 +35,9 @@ final class GhosttySurfaceNSView: NSView {
     var sessionID: TerminalSession.ID
     var pane: TerminalPane
     var paneID: TerminalPane.ID
+    var remoteMarkdownFetchProgressIndicator: NSProgressIndicator?
+    var remoteMarkdownFetchProgressIdentity: (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)?
+    var remoteMarkdownFetchProgressCount = 0
     var enabledAgentRuntimeFileDropSources: Set<AgentRuntimeSource>
     /// Whether a text-detected `grok` session may adopt the Grok agent kind (and
     /// thus its sidebar icon). The same setting gates Grok runtime events.
@@ -453,6 +456,9 @@ final class GhosttySurfaceNSView: NSView {
         enabledAgentRuntimeFileDropSources: Set<AgentRuntimeSource>,
         grokIconEnabled: Bool
     ) {
+        if sessionID != session.id || paneID != pane.id {
+            clearRemoteMarkdownFetchProgress()
+        }
         self.sessionStore = sessionStore
         self.session = session
         self.sessionID = session.id
@@ -481,6 +487,13 @@ final class GhosttySurfaceNSView: NSView {
             setAccessibilityElement(shouldBeAccessibilityElement)
         }
         sizeDidChange(contentSize)
+    }
+
+    func clearRemoteMarkdownFetchProgress() {
+        remoteMarkdownFetchProgressIndicator?.removeFromSuperview()
+        remoteMarkdownFetchProgressIndicator = nil
+        remoteMarkdownFetchProgressIdentity = nil
+        remoteMarkdownFetchProgressCount = 0
     }
 
     override func viewDidMoveToWindow() {

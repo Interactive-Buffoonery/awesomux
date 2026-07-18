@@ -245,12 +245,12 @@ struct RemoteMarkdownReferenceTests {
             fetchOverride: { _ in Data("private plan".utf8) }
         )
 
-        let snapshot = try #require(await fetcher.fetch(reference))
+        let outcome = try #require(await fetcher.fetch(reference))
         let directoryAttributes = try FileManager.default.attributesOfItem(
             atPath: cacheDirectory.path
         )
         let fileAttributes = try FileManager.default.attributesOfItem(
-            atPath: snapshot.fileURL.path
+            atPath: outcome.snapshot.fileURL.path
         )
 
         #expect((directoryAttributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
@@ -296,8 +296,8 @@ struct RemoteMarkdownReferenceTests {
         let first = try #require(await successful.fetch(reference))
         let refetched = try #require(await failing.fetch(reference))
 
-        #expect(refetched == first)
-        #expect(try Data(contentsOf: refetched.fileURL) == Data("last successful snapshot".utf8))
+        #expect(refetched == .cached(first.snapshot))
+        #expect(try Data(contentsOf: refetched.snapshot.fileURL) == Data("last successful snapshot".utf8))
     }
 
     @Test func initialFetchFailureStillCreatesFailureSnapshot() async throws {
@@ -314,10 +314,43 @@ struct RemoteMarkdownReferenceTests {
             fetchOverride: { _ in nil }
         )
 
-        let snapshot = try #require(await fetcher.fetch(reference))
-        let content = try String(contentsOf: snapshot.fileURL, encoding: .utf8)
+        let outcome = try #require(await fetcher.fetch(reference))
+        let content = try String(contentsOf: outcome.snapshot.fileURL, encoding: .utf8)
 
+        #expect(outcome == .failureDocument(outcome.snapshot))
         #expect(content.contains("# Couldn't fetch remote Markdown"))
+    }
+
+    @Test func symlinkedCacheRootRejectsCachedReuseAndWrites() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())
+        )
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let destination = root.appending(path: "destination", directoryHint: .isDirectory)
+        let cacheDirectory = root.appending(path: "remote-markdown", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: cacheDirectory, withDestinationURL: destination)
+        let seededFetcher = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: destination,
+            fetchOverride: { _ in Data("seeded".utf8) }
+        )
+        let seeded = try #require(await seededFetcher.fetch(reference))
+        let seededURL = seeded.snapshot.fileURL
+        #expect(FileManager.default.fileExists(atPath: seededURL.path))
+
+        let failed = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in nil }
+        )
+        let successful = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in Data("replacement".utf8) }
+        )
+
+        #expect(await failed.fetch(reference) == nil)
+        #expect(await successful.fetch(reference) == nil)
+        #expect(try Data(contentsOf: seededURL) != Data("replacement".utf8))
     }
 
     @Test func concurrentFetchesForSameIdentityAreCoalesced() async throws {
@@ -350,8 +383,8 @@ struct RemoteMarkdownReferenceTests {
         let results = await [first.value, second.value]
 
         #expect(await counter.count == 1)
-        #expect(results[0]?.fileURL == results[1]?.fileURL)
-        #expect(try Data(contentsOf: #require(results[0]?.fileURL)) == Data("current".utf8))
+        #expect(results[0]?.snapshot.fileURL == results[1]?.snapshot.fileURL)
+        #expect(try Data(contentsOf: #require(results[0]?.snapshot.fileURL)) == Data("current".utf8))
     }
 
     @Test func differentCacheDirectoriesDoNotShareInFlightResults() async throws {
@@ -389,7 +422,7 @@ struct RemoteMarkdownReferenceTests {
         let results = await [firstResult.value, secondResult.value]
 
         #expect(await counter.count == 2)
-        #expect(results[0]?.fileURL.deletingLastPathComponent().lastPathComponent == "first")
-        #expect(results[1]?.fileURL.deletingLastPathComponent().lastPathComponent == "second")
+        #expect(results[0]?.snapshot.fileURL.deletingLastPathComponent().lastPathComponent == "first")
+        #expect(results[1]?.snapshot.fileURL.deletingLastPathComponent().lastPathComponent == "second")
     }
 }

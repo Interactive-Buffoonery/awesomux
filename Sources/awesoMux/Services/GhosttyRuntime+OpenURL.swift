@@ -196,15 +196,34 @@ extension GhosttyRuntime {
                 presentRemoteMarkdownRoutingFailure(from: view)
                 return
             }
-            let progressIndicator = presentRemoteMarkdownFetchProgress(in: view)
-            defer { progressIndicator.removeFromSuperview() }
-            if let snapshot = await RemoteMarkdownSnapshotFetcher().fetch(reference) {
-                view.sessionStore.openDocumentPane(
-                    fileURL: snapshot.fileURL,
-                    in: workspaceID,
-                    associatedWith: paneID,
-                    remoteResourceIdentity: snapshot.identity
+            let announcesOutcome = presentRemoteMarkdownFetchProgress(
+                in: view,
+                sessionID: workspaceID,
+                paneID: paneID
+            )
+            if announcesOutcome {
+                TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+            }
+            defer { finishRemoteMarkdownFetchProgress(in: view, sessionID: workspaceID, paneID: paneID) }
+            guard let outcome = await RemoteMarkdownSnapshotFetcher().fetch(reference),
+                ProgressReportDispatchGuard.shouldApply(
+                    capturedSessionID: workspaceID,
+                    capturedPaneID: paneID,
+                    currentSessionID: view.sessionID,
+                    currentPaneID: view.paneID
                 )
+            else {
+                return
+            }
+            let snapshot = outcome.snapshot
+            view.sessionStore.openDocumentPane(
+                fileURL: snapshot.fileURL,
+                in: workspaceID,
+                associatedWith: paneID,
+                remoteResourceIdentity: snapshot.identity
+            )
+            if announcesOutcome {
+                TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
             }
             return
         }
@@ -302,7 +321,20 @@ extension GhosttyRuntime {
     }
 
     @MainActor
-    private static func presentRemoteMarkdownFetchProgress(in view: NSView) -> NSProgressIndicator {
+    private static func presentRemoteMarkdownFetchProgress(
+        in view: GhosttySurfaceNSView,
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> Bool {
+        if let identity = view.remoteMarkdownFetchProgressIdentity,
+            identity.sessionID == sessionID,
+            identity.paneID == paneID,
+            view.remoteMarkdownFetchProgressIndicator != nil
+        {
+            view.remoteMarkdownFetchProgressCount += 1
+            return false
+        }
+        view.clearRemoteMarkdownFetchProgress()
         let progressIndicator = NSProgressIndicator()
         progressIndicator.style = .spinning
         progressIndicator.controlSize = .small
@@ -318,6 +350,24 @@ extension GhosttyRuntime {
             progressIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
         progressIndicator.startAnimation(nil)
-        return progressIndicator
+        view.remoteMarkdownFetchProgressIndicator = progressIndicator
+        view.remoteMarkdownFetchProgressIdentity = (sessionID, paneID)
+        view.remoteMarkdownFetchProgressCount = 1
+        return true
+    }
+
+    private static func finishRemoteMarkdownFetchProgress(
+        in view: GhosttySurfaceNSView,
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) {
+        guard let identity = view.remoteMarkdownFetchProgressIdentity,
+            identity.sessionID == sessionID,
+            identity.paneID == paneID
+        else { return }
+        view.remoteMarkdownFetchProgressCount -= 1
+        if view.remoteMarkdownFetchProgressCount == 0 {
+            view.clearRemoteMarkdownFetchProgress()
+        }
     }
 }
