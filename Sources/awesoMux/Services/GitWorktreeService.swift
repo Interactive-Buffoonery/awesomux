@@ -23,11 +23,18 @@ enum GitWorktreeBranchesOutcome: Equatable, Sendable {
     case failure(GitWorktreeListFailure)
 }
 
+enum GitRepositoryIdentityValidation: Equatable, Sendable {
+    case valid
+    case changed
+    case failed(GitRepositoryLocationFailure)
+}
+
 protocol GitWorktreeListing: Sendable {
     func list(in repositoryContext: GitRepositoryContext) async -> GitWorktreeListOutcome
 }
 
 protocol GitWorktreeManaging: GitWorktreeListing {
+    func validateRepositoryIdentity(_ repositoryContext: GitRepositoryContext) async -> GitRepositoryIdentityValidation
     func branches(in repositoryContext: GitRepositoryContext) async -> GitWorktreeBranchesOutcome
     func validateNewBranchName(_ name: String, in repositoryContext: GitRepositoryContext) async -> Bool
     func create(_ request: GitWorktreeCreateRequest) async -> GitWorktreeCreateOutcome
@@ -52,14 +59,12 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
     }
 
     func list(in repositoryContext: GitRepositoryContext) async -> GitWorktreeListOutcome {
-        switch await locator.locate(startingAt: repositoryContext.invocationRoot) {
-        case .located(let current):
-            guard current.canonicalCommonGitDirectory == repositoryContext.canonicalCommonGitDirectory else {
-                return .repositoryChanged
-            }
-        case .notRepository, .bareRepository:
+        switch await validateIdentity(repositoryContext) {
+        case .valid:
+            break
+        case .changed:
             return .repositoryChanged
-        case .failure(let failure):
+        case .failed(let failure):
             return .failure(.repositoryValidationFailed(failure))
         }
 
@@ -83,6 +88,10 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
         case .outputNotDrained:
             return .failure(.outputNotDrained)
         }
+    }
+
+    func validateRepositoryIdentity(_ repositoryContext: GitRepositoryContext) async -> GitRepositoryIdentityValidation {
+        await validateIdentity(repositoryContext)
     }
 
     func branches(in repositoryContext: GitRepositoryContext) async -> GitWorktreeBranchesOutcome {
@@ -126,16 +135,28 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
         }
         let issues = policy.validate(request, currentWorktrees: before)
         guard issues.isEmpty else { return .failure(.invalidRequest(issues)) }
-        if case .newBranchFromHEAD(let name) = request.mode,
-            !(await validateNewBranchName(name, in: request.repositoryContext))
-        {
-            return .failure(.invalidRequest([.blankBranchName]))
+        let targetExistedBefore = before.contains {
+            canonicalPathComponents($0.canonicalPath) == canonicalPathComponents(request.targetPath)
+        }
+        var branchesBefore: Set<String> = []
+        if case .newBranchFromHEAD(let name) = request.mode {
+            guard await validateNewBranchName(name, in: request.repositoryContext) else {
+                return .failure(.invalidRequest([.blankBranchName]))
+            }
+            switch await branches(in: request.repositoryContext) {
+            case .success(let names):
+                branchesBefore = Set(names)
+            case .repositoryChanged:
+                return .failure(.repositoryChanged)
+            case .failure:
+                return .failure(.reconciliationFailed)
+            }
         }
 
         let arguments: [String]
         switch request.mode {
         case .existingBranch(let branch):
-            arguments = ["worktree", "add", request.targetPath.path, branch]
+            arguments = ["worktree", "add", request.targetPath.path, "refs/heads/\(branch)"]
         case .newBranchFromHEAD(let branch):
             arguments = ["worktree", "add", "-b", branch, request.targetPath.path, "HEAD"]
         }
@@ -144,12 +165,16 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
             inDirectory: request.repositoryContext.invocationRoot
         )
         let diagnostic = createDiagnostic(commandResult)
+        let expectedBranchRef = "refs/heads/\(request.mode.branchName)"
 
         switch await list(in: request.repositoryContext) {
         case .success(let parsed):
-            if let record = parsed.records.first(where: {
-                canonicalPathComponents($0.canonicalPath) == canonicalPathComponents(request.targetPath)
-            }) {
+            if !targetExistedBefore,
+                let record = parsed.records.first(where: {
+                    canonicalPathComponents($0.canonicalPath) == canonicalPathComponents(request.targetPath)
+                        && $0.branchRef == expectedBranchRef
+                })
+            {
                 return .success(record)
             }
         case .repositoryChanged:
@@ -158,7 +183,7 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
             return .failure(.reconciliationFailed)
         }
 
-        if case .newBranchFromHEAD(let branch) = request.mode,
+        if case .newBranchFromHEAD(let branch) = request.mode, !branchesBefore.contains(branch),
             case .success(let names) = await branches(in: request.repositoryContext),
             names.contains(branch)
         {
@@ -167,14 +192,12 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
         return .failure(diagnostic)
     }
 
-    private enum IdentityValidation { case valid, changed, failed }
-
-    private func validateIdentity(_ context: GitRepositoryContext) async -> IdentityValidation {
+    private func validateIdentity(_ context: GitRepositoryContext) async -> GitRepositoryIdentityValidation {
         switch await locator.locate(startingAt: context.invocationRoot) {
         case .located(let current):
             return current.canonicalCommonGitDirectory == context.canonicalCommonGitDirectory ? .valid : .changed
         case .notRepository, .bareRepository: return .changed
-        case .failure: return .failed
+        case .failure(let failure): return .failed(failure)
         }
     }
 

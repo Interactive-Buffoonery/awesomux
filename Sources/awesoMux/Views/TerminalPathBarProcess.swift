@@ -7,7 +7,12 @@ enum BoundedCommandResult: Equatable, Sendable {
     case spawnFailure
     case nonZeroExit(Int32)
     case timedOut
-    case outputTruncated
+    /// Carries the capped buffer: a clean exit whose output hit the cap is
+    /// still the Path Bar's pre-existing "truncated but usable" contract
+    /// (see `run(arguments:inDirectory:)`), while callers that must not trust
+    /// a truncated parse (e.g. `git worktree list --porcelain`) can still
+    /// treat this case as a failure without the payload.
+    case outputTruncated(Data)
     case outputNotDrained
 }
 
@@ -84,15 +89,17 @@ struct BoundedCommandRunner: Sendable {
     }
 
     func run(arguments: [String], inDirectory directory: String) async -> Data? {
-        guard
-            case .success(let data) = await runDetailed(
-                arguments: arguments,
-                inDirectory: directory
-            )
-        else {
+        // Pre-existing Path Bar contract: a clean exit whose output hit the
+        // cap still yields the capped buffer (a git-status dirty count
+        // saturates the `+999+` display long before 512 KB), not a hard
+        // failure — only `runDetailed` callers that need to distinguish
+        // truncation from a complete parse see it as a distinct outcome.
+        switch await runDetailed(arguments: arguments, inDirectory: directory) {
+        case .success(let data), .outputTruncated(let data):
+            return data
+        default:
             return nil
         }
-        return data
     }
 
     func runDetailed(arguments: [String], inDirectory directory: String) async -> BoundedCommandResult {
@@ -273,11 +280,15 @@ struct BoundedCommandRunner: Sendable {
             if timedOut {
                 return finishLocked(returning: .timedOut)
             }
-            if truncated {
-                return finishLocked(returning: .outputTruncated)
-            }
+            // Exit status takes priority over truncation: a non-zero exit is
+            // `nonZeroExit` regardless of how much output it produced first —
+            // truncation only recolors an otherwise-CLEAN exit as "capped but
+            // usable" rather than "fully parsed."
             guard exitStatus == 0 else {
                 return finishLocked(returning: .nonZeroExit(exitStatus ?? -1))
+            }
+            if truncated {
+                return finishLocked(returning: .outputTruncated(buffer))
             }
             return finishLocked(returning: .success(buffer))
         }

@@ -120,7 +120,7 @@ struct WorktreeManagerModelTests {
     }
 
     @Test("open focuses a fresh live match without creating a session")
-    func openIsIdempotentForLivePane() throws {
+    func openIsIdempotentForLivePane() async throws {
         let session = TerminalSession(
             title: "existing",
             workingDirectory: "/tmp/worktrees/int-857/Sources"
@@ -138,7 +138,7 @@ struct WorktreeManagerModelTests {
         )
         let row = WorktreeManagerRow(record: record(), liveMatch: nil)
 
-        let outcome = model.open(row: row)
+        let outcome = await model.open(row: row)
 
         let match = try #require(focused)
         #expect(outcome == .focused(match))
@@ -147,7 +147,7 @@ struct WorktreeManagerModelTests {
     }
 
     @Test("open fails closed when the captured group vanished")
-    func openFailsWhenGroupVanishes() {
+    func openFailsWhenGroupVanishes() async {
         let groupID = UUID()
         var capturedAddGroupID: UUID?
         let model = makeModel(
@@ -157,13 +157,45 @@ struct WorktreeManagerModelTests {
             }
         )
 
-        let outcome = model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
 
         guard case .failed = outcome else {
             Issue.record("Expected failed open")
             return
         }
         #expect(capturedAddGroupID == groupID)
+    }
+
+    @Test("open revalidates repository identity before focusing or creating")
+    func openFailsWhenRepositoryChanged() async {
+        var focusCalls = 0
+        var addCalls = 0
+        let service = StubWorktreeListing(
+            outcomes: [.repositoryChanged],
+            identityOutcomes: [.changed]
+        )
+        let model = makeModel(
+            service: service,
+            currentGroupID: { UUID() },
+            focus: { _ in focusCalls += 1 },
+            add: { _, _, _ in
+                addCalls += 1
+                return UUID()
+            })
+
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
+
+        guard case .failed(let message) = outcome else {
+            Issue.record("Expected repository-change failure, got \(outcome)")
+            return
+        }
+        #expect(message.contains("repository changed"))
+        #expect(focusCalls == 0)
+        #expect(addCalls == 0)
+        guard case .error = model.state else {
+            Issue.record("Expected repository-change refresh to update model state")
+            return
+        }
     }
 
     private func makeModel(
@@ -180,6 +212,9 @@ struct WorktreeManagerModelTests {
                 displayName: "repo"
             ),
             service: service,
+            // Fixture working directories are fictional paths — stub existence
+            // so live-match tests don't depend on the real filesystem.
+            projection: WorktreeWorkspaceProjection(directoryExists: { _ in true }),
             groups: groups,
             currentGroupID: currentGroupID,
             focus: focus,
@@ -216,21 +251,28 @@ struct WorktreeManagerModelTests {
 private final class StubWorktreeListing: GitWorktreeManaging, @unchecked Sendable {
     private let lock = NSLock()
     private var outcomes: [GitWorktreeListOutcome]
+    private var identityOutcomes: [GitRepositoryIdentityValidation]
     private var createOutcomes: [GitWorktreeCreateOutcome]
     private let createDelay: Duration?
     private var recordedCreateCalls = 0
 
     init(
         outcomes: [GitWorktreeListOutcome],
+        identityOutcomes: [GitRepositoryIdentityValidation] = [],
         createOutcomes: [GitWorktreeCreateOutcome] = [],
         createDelay: Duration? = nil
     ) {
         self.outcomes = outcomes
+        self.identityOutcomes = identityOutcomes
         self.createOutcomes = createOutcomes
         self.createDelay = createDelay
     }
 
     var createCallCount: Int { lock.withLock { recordedCreateCalls } }
+
+    func validateRepositoryIdentity(_ repositoryContext: GitRepositoryContext) async -> GitRepositoryIdentityValidation {
+        lock.withLock { identityOutcomes.isEmpty ? .valid : identityOutcomes.removeFirst() }
+    }
 
     func list(in repositoryContext: GitRepositoryContext) async -> GitWorktreeListOutcome {
         lock.withLock { outcomes.isEmpty ? .failure(.spawnFailure) : outcomes.removeFirst() }
