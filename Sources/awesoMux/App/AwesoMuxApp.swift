@@ -999,6 +999,13 @@ struct AwesoMuxApp: App {
                 }
                 // Interceptor-only by design; see Command Palette above.
                 .disabled(isAnySheetPresented)
+
+                // Same URL and picker as the sidebar footer's feedback menu
+                // (SidebarStatusFooter) — the Help menu just makes it
+                // keyboard-reachable and discoverable outside the sidebar (INT-324).
+                Button("Report a Bug or Suggest a Feature…") {
+                    NSWorkspace.shared.open(SidebarStatusFooter.feedbackURL)
+                }
             }
         }
 
