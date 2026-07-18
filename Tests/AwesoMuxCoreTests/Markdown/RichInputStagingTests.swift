@@ -43,6 +43,19 @@ struct RichInputStagingTests {
         #expect(RichInputStaging.stagedPayload("\u{1B}\u{00}\u{07}").isEmpty)
     }
 
+    @Test("ZWJ emoji sequences survive (format chars other than bidi overrides are kept)")
+    func preservesZWJEmoji() {
+        let developer = "\u{1F9D1}\u{200D}\u{1F4BB}"  // 🧑‍💻
+        #expect(RichInputStaging.stagedPayload("hi \(developer)") == "hi \(developer)")
+    }
+
+    @Test("bidi override/isolate formatting is stripped (terminal line-spoofing)")
+    func stripsBidiOverrides() {
+        // U+202E RIGHT-TO-LEFT OVERRIDE would visually reverse the rest of the line.
+        #expect(RichInputStaging.stagedPayload("run\u{202E}elif.txt") == "runelif.txt")
+        #expect(RichInputStaging.stagedPayload("a\u{2066}b\u{2069}c") == "abc")
+    }
+
     // MARK: - returnKeyOutcome
 
     @Test("plain Return sends")

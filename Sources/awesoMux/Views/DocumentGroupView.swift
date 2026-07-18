@@ -17,6 +17,10 @@ struct DocumentGroupView: View {
     let runtime: GhosttyRuntime
 
     @State private var mode: DocumentPaneMode = .document
+    // INT-754: composer presentation is owned here, ABOVE DocumentPaneSendBar's
+    // shell-activity-keyed `.id`, so a target-pane activity flip that rebuilds the
+    // send bar can't tear the open composer down and lose the in-flight draft.
+    @State private var composerPresented = false
     // INT-683: tracks the document's comment count across reloads to detect the
     // "all comments resolved" (> 0 -> 0) transition, and whether the resulting
     // inline notice is currently shown in the send bar.
@@ -240,7 +244,8 @@ struct DocumentGroupView: View {
                     pane: document,
                     session: session,
                     runtime: runtime,
-                    showAllResolvedNotice: $showAllResolvedNotice
+                    showAllResolvedNotice: $showAllResolvedNotice,
+                    onCompose: { composerPresented = true }
                 )
                 // Fresh identity per tab so a failure state (Peach button) from
                 // one tab never bleeds into the next tab's healthy send bar. A
@@ -271,6 +276,14 @@ struct DocumentGroupView: View {
                     }
                 )
             }
+        }
+        .sheet(isPresented: $composerPresented, onDismiss: restoreFocusAfterComposer) {
+            RichInputComposerSheet(
+                seed: composerSeed,
+                title: String(localized: "Send to Agent", comment: "Title of the multiline prompt composer"),
+                onSend: stageComposerText,
+                onClose: { composerPresented = false }
+            )
         }
         // One handler for both selection changes and tab-set changes so the
         // capture-then-prune order is deterministic (two separate onChange
@@ -441,6 +454,85 @@ struct DocumentGroupView: View {
             localized: "Show Markdown files in \(rootURL.path)",
             comment: "Help text for the Files toggle naming the folder it will browse"
         )
+    }
+
+    // MARK: - Composer
+
+    /// Restores first responder to the target terminal when the composer closes
+    /// (Cancel, Esc, close button, or a successful send) so keyboard/VoiceOver
+    /// focus isn't stranded — the same restore the document-note sheet does.
+    private func restoreFocusAfterComposer() {
+        if case .available(let target) = documentSendTarget {
+            runtime.focusSurface(toPane: target.id)
+        }
+    }
+
+    /// Deterministic send target for the composer — the same resolver the send bar
+    /// uses, so nil associations recover to a direct sibling and stale explicit
+    /// ones fail closed.
+    private var documentSendTarget: DocumentNudgeTargetResolution {
+        DocumentPaneSendBar.resolveNudgeTarget(
+            in: session.layout,
+            for: document.id,
+            foregroundExecutableMatch: runtime.foregroundExecutableMatch
+        )
+    }
+
+    /// Text the composer opens with: the review nudge, path made relative to the
+    /// TARGET terminal's cwd. An unavailable target yields an empty seed (the
+    /// button gates opening on availability, so this is only the teardown race).
+    private var composerSeed: String {
+        guard case .available(let target) = documentSendTarget else { return "" }
+        let displayPath = DocumentPaneSendBar.resolveDisplayPath(
+            for: document.fileURL,
+            relativeTo: target.workingDirectory
+        )
+        return NudgeComposer.text(displayPath: displayPath)
+    }
+
+    /// Stages the composed draft into the target terminal. The target is
+    /// re-resolved at submit time (it may have died while the composer was open),
+    /// and the payload is control-char sanitized before it reaches the live PTY.
+    /// `.failed` keeps the composer open with the draft intact.
+    private func stageComposerText(_ draft: String) -> RichInputSendResult {
+        let resolution = documentSendTarget
+        guard case .available(let target) = resolution else {
+            let reason: String
+            if case .unavailable(let why) = resolution {
+                reason = DocumentPaneSendBar.unavailableDescription(for: why)
+            } else {
+                reason = String(
+                    localized: "Couldn't send — this document's terminal isn't available",
+                    comment: "Composer failure when a document has no eligible send target"
+                )
+            }
+            TerminalAccessibilityAnnouncer.announce(reason)
+            return .failed(reason)
+        }
+        let payload = RichInputStaging.stagedPayload(draft)
+        guard !payload.isEmpty else {
+            let reason = String(
+                localized: "Nothing to send",
+                comment: "Composer failure when the draft is empty after sanitizing"
+            )
+            TerminalAccessibilityAnnouncer.announce(reason)
+            return .failed(reason)
+        }
+        if runtime.sendText(payload, toPane: target.id) {
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "Pasted into this document's terminal — press Return there to send",
+                    comment: "VoiceOver announcement after staging composed text into the associated terminal prompt"
+                )
+            )
+            return .sent
+        }
+        let reason = String(
+            localized: "Couldn't send — this document's terminal isn't running",
+            comment: "Composer failure when the target terminal's process has exited"
+        )
+        TerminalAccessibilityAnnouncer.announce(reason)
+        return .failed(reason)
     }
 }
 
