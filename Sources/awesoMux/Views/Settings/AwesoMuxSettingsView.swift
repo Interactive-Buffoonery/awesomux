@@ -5,6 +5,7 @@ import SwiftUI
 
 struct AwesoMuxSettingsView: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(SettingsNavigator.self) private var navigator
     @State private var selection: SettingsSectionID = .general
     @State private var escapeMonitor = SettingsEscapeMonitor()
 
@@ -21,8 +22,18 @@ struct AwesoMuxSettingsView: View {
         // the system beep. A scoped local key-down monitor catches it instead,
         // acting only on the window captured by the accessor below.
         .background(WindowAccessor { escapeMonitor.window = $0 })
-        .onAppear { escapeMonitor.start() }
+        .onAppear {
+            escapeMonitor.start()
+            consumePendingSection()
+        }
         .onDisappear { escapeMonitor.stop() }
+        .onChange(of: navigator.pendingSection) { consumePendingSection() }
+    }
+
+    private func consumePendingSection() {
+        guard let pending = navigator.pendingSection else { return }
+        selection = pending
+        navigator.pendingSection = nil
     }
 
     @ViewBuilder
@@ -96,6 +107,8 @@ struct AwesoMuxSettingsView: View {
             AdvancedSettingsPane()
         case .diagnostics:
             DiagnosticsSettingsPane()
+        case .analytics:
+            AnalyticsSettingsPane()
         }
     }
 }
@@ -110,6 +123,7 @@ enum SettingsSectionID: String, CaseIterable, Identifiable, Hashable {
     case keys
     case advanced
     case diagnostics
+    case analytics
 
     var id: Self { self }
 
@@ -124,6 +138,7 @@ enum SettingsSectionID: String, CaseIterable, Identifiable, Hashable {
         case .keys: "Keys"
         case .advanced: "Advanced"
         case .diagnostics: "Diagnostics"
+        case .analytics: "Analytics"
         }
     }
 
@@ -138,6 +153,7 @@ enum SettingsSectionID: String, CaseIterable, Identifiable, Hashable {
         case .keys: "keyboard"
         case .advanced: "wrench.and.screwdriver"
         case .diagnostics: "waveform.path.ecg"
+        case .analytics: "chart.bar.xaxis"
         }
     }
 }
