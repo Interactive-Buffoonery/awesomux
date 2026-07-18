@@ -515,6 +515,7 @@ required_license_files=(
   "zmx/LICENSE"
   "HackNerdFontMono/LICENSE.md"
   "Geist/OFL.txt"
+  "Selenized/LICENSE"
   "swift-toml/LICENSE.md"
   "swift-markdown/LICENSE.txt"
   "swift-markdown/NOTICE.txt"

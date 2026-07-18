@@ -16,7 +16,8 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
         "font-family-italic",
         "font-family-bold-italic",
     ]
-    private static let catppuccinLatteFaintOpacity = "0.95"
+    // General dim-text legibility floor for any app-owned light background, including bundled themes and light custom colors.
+    private static let lightThemeFaintOpacity = "0.95"
 
     public static let inheritedTerminalContextKeys = [
         // awesoMux owns this identity string; never inherit a parent's value.
@@ -288,7 +289,7 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
             return nil
         }
 
-        return Self.catppuccinLatteFaintOpacity
+        return Self.lightThemeFaintOpacity
     }
 
     public var diagnosticSummary: TerminalAppearanceDiagnosticSummary {
