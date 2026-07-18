@@ -75,12 +75,14 @@ public extension TerminalPaneLayout {
             return .closesWorkspace
         case let .documentGroup(groupID):
             guard documentGroup(id: groupID) != nil else { return .notFound }
-            // Present group: `removingDocumentGroup` returns nil only for
-            // not-found (ruled out above), so a present group always collapses.
             if let survived = removingDocumentGroup(id: groupID) {
                 return .removed(survived)
             }
-            return .notFound
+            // Present but nothing survives: the group was the whole root (a
+            // terminal-free layout, structurally invalid as a session but a
+            // constructible `TerminalPaneLayout`). Removing it leaves nothing —
+            // `.closesWorkspace`, never a spurious `.notFound` for a present id.
+            return .closesWorkspace
         }
     }
 

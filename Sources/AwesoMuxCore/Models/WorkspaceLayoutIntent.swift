@@ -17,7 +17,12 @@ import Foundation
 ///   — local terminals). Document groups and remote terminals are pruned so no
 ///   file or host identity can reach a shareable preset.
 /// - Collapse a split with one pruned child to the surviving child; the pruned
-///   split's fraction is dropped with it.
+///   split's fraction is dropped with it. Consequence: the intent preserves
+///   SURVIVING SPLIT BOUNDARIES, not pruned-sibling pane geometry — if a nested
+///   sibling is pruned, the surviving child inherits its parent's slot, not its
+///   own former fraction. A preset therefore reproduces the surviving split
+///   structure; INT-757 may later normalize applied geometry if approximate
+///   visible proportions are wanted.
 /// - A layout with no surviving preset-eligible leaf projects to `nil` (a preset
 ///   needs at least one terminal).
 ///
