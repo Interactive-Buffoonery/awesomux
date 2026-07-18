@@ -21,6 +21,8 @@ Required gates (exit 1 on failure):
     fill (surface0) AND the sidebar (mantle) — the stroke is centered on the
     tile edge, so it straddles both backdrops
   - active-tile border under Increase Contrast: dividerHoverHC vs surface0/mantle
+    by default; the tinted_high_contrast opt-in (INT-645) keeps tintBorder
+    instead, covered by the per-tint tintBorder rows above
   - group tint-marker HC ring: dividerRestHC vs mantle
   - needs-attention tile border under Increase Contrast: Status.needs HC hex at
     0.95 alpha over surface0/mantle
