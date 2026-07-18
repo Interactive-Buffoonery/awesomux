@@ -88,12 +88,107 @@ struct CommandPaletteClickToggleState {
     }
 
     mutating func consumeToggle(during eventType: NSEvent.EventType?) -> Bool {
-        defer { pendingMouseUp = nil }
-        return eventType == pendingMouseUp
+        guard eventType == pendingMouseUp else { return false }
+        pendingMouseUp = nil
+        return true
     }
 
-    mutating func finishMouseUpDispatch() {
+    mutating func cancel() {
         pendingMouseUp = nil
+    }
+}
+
+@MainActor
+final class CommandPaletteClickToggleTracker {
+    typealias AddEventMonitor = (
+        NSEvent.EventTypeMask,
+        @escaping (NSEvent) -> NSEvent?
+    ) -> Any?
+    typealias RemoveEventMonitor = (Any) -> Void
+
+    private var state = CommandPaletteClickToggleState()
+    private var eventMonitor: Any?
+    private var applicationResignObserver: NSObjectProtocol?
+    private let notificationCenter: NotificationCenter
+    private let addEventMonitor: AddEventMonitor
+    private let removeEventMonitor: RemoveEventMonitor
+
+    init(
+        notificationCenter: NotificationCenter = .default,
+        addEventMonitor: @escaping AddEventMonitor = { mask, handler in
+            NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
+        },
+        removeEventMonitor: @escaping RemoveEventMonitor = NSEvent.removeMonitor
+    ) {
+        self.notificationCenter = notificationCenter
+        self.addEventMonitor = addEventMonitor
+        self.removeEventMonitor = removeEventMonitor
+    }
+
+    func recordResignDismiss(during eventType: NSEvent.EventType?) {
+        guard state.recordResignDismiss(during: eventType) else { return }
+        removeObservation()
+        installObservation()
+    }
+
+    func consumeToggle(during eventType: NSEvent.EventType?) -> Bool {
+        guard state.consumeToggle(during: eventType) else { return false }
+        removeObservation()
+        return true
+    }
+
+    func handleMonitoredEvent(_ eventType: NSEvent.EventType) {
+        switch eventType {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            cancel()
+        default:
+            guard state.isPendingMouseUp(eventType) else { return }
+            // SwiftUI runs the Button action later in this same mouse-up dispatch.
+            DispatchQueue.main.async { [weak self] in
+                self?.cancel()
+            }
+        }
+    }
+
+    func cancel() {
+        state.cancel()
+        removeObservation()
+    }
+
+    isolated deinit {
+        cancel()
+    }
+
+    private func installObservation() {
+        eventMonitor = addEventMonitor(
+            [
+                .leftMouseDown, .rightMouseDown, .otherMouseDown,
+                .leftMouseUp, .rightMouseUp, .otherMouseUp,
+            ]
+        ) { [weak self] event in
+            self?.handleMonitoredEvent(event.type)
+            return event
+        }
+        applicationResignObserver = notificationCenter.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cancel()
+            }
+        }
+    }
+
+    private func removeObservation() {
+        if let eventMonitor {
+            removeEventMonitor(eventMonitor)
+            self.eventMonitor = nil
+        }
+        if let applicationResignObserver {
+            notificationCenter.removeObserver(applicationResignObserver)
+            self.applicationResignObserver = nil
+        }
     }
 }
 
@@ -103,8 +198,7 @@ final class CommandPaletteController {
     @ObservationIgnored private var panel: FloatingSwiftUIPanelWindow?
     @ObservationIgnored private let focusState = CommandPaletteFocusState()
     @ObservationIgnored private var isDismissing = false
-    @ObservationIgnored private var clickToggleState = CommandPaletteClickToggleState()
-    @ObservationIgnored private var mouseUpMonitor: Any?
+    @ObservationIgnored private let clickToggleTracker = CommandPaletteClickToggleTracker()
     @ObservationIgnored private let positionStore: PalettePositionStore
     @ObservationIgnored private weak var lastAnchorWindow: NSWindow?
     /// The origin we last set programmatically (center / remembered / reclamp).
@@ -124,11 +218,9 @@ final class CommandPaletteController {
     }
 
     func toggle(relativeTo parentWindow: NSWindow?, presenter: PalettePresenter) {
-        if clickToggleState.consumeToggle(during: NSApp.currentEvent?.type) {
-            removeMouseUpMonitor()
+        if clickToggleTracker.consumeToggle(during: NSApp.currentEvent?.type) {
             return
         }
-        removeMouseUpMonitor()
 
         if isVisible {
             dismiss()
@@ -291,37 +383,8 @@ final class CommandPaletteController {
 
     private func handlePanelDismiss() {
         guard !isDismissing else { return }
-        if clickToggleState.recordResignDismiss(during: NSApp.currentEvent?.type) {
-            installMouseUpMonitor()
-        }
+        clickToggleTracker.recordResignDismiss(during: NSApp.currentEvent?.type)
         dismiss()
-    }
-
-    private func installMouseUpMonitor() {
-        removeMouseUpMonitor()
-        mouseUpMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
-        ) { [weak self] event in
-            guard let self, clickToggleState.isPendingMouseUp(event.type) else {
-                return event
-            }
-            // SwiftUI runs the Button action later in this same mouse-up dispatch.
-            DispatchQueue.main.async { [weak self] in
-                self?.finishMouseUpDispatch()
-            }
-            return event
-        }
-    }
-
-    private func finishMouseUpDispatch() {
-        clickToggleState.finishMouseUpDispatch()
-        removeMouseUpMonitor()
-    }
-
-    private func removeMouseUpMonitor() {
-        guard let mouseUpMonitor else { return }
-        NSEvent.removeMonitor(mouseUpMonitor)
-        self.mouseUpMonitor = nil
     }
 
     private func performPaletteCommand(
