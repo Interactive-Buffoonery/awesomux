@@ -228,6 +228,15 @@ public enum URLClassifier {
         // "日本語" — reads clean. Runs per DNS label, not the whole host, so
         // "日本語.jp" (a pure-Han label plus a pure-ASCII TLD label) stays
         // open-direct.
+        //
+        // `UnicodeHygiene.hasSuspiciousScriptMixing`'s contract asks for raw
+        // pre-NFKC input elsewhere in the app (workspace titles), but
+        // `displayHost` here has already been through Foundation's IDNA
+        // processing, which folds some compatibility characters (`µ` →
+        // Greek `μ`). That's fine for this call site specifically: a folded
+        // host that now "mixes" is either genuinely non-ASCII (already
+        // blocked pre-INT-454 too — no new false positive) or a punycode
+        // round-trip Foundation already normalized before we ever see it.
         let hostIsMixedScript = displayHost.map(hostHasMixedScriptLabel) ?? false
 
         if hostHasUnsafeScalar || hostFailedPunycodeDecode || hostIsMixedScript {

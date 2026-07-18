@@ -89,6 +89,16 @@ struct UnicodeHygieneScriptMixingTests {
         #expect(UnicodeHygiene.hasSuspiciousScriptMixing("\u{0430}\u{1E01}"))
     }
 
+    @Test("flags Latin Extended-D mixed with Cyrillic")
+    func flagsLatinExtendedDMixedWithCyrillic() {
+        // U+A7CA LATIN CAPITAL LETTER S WITH SHORT STROKE beside Cyrillic а —
+        // a real, IDN-registrable homograph pair (Foundation accepts and
+        // punycode-encodes "\u{A7CA}\u{0430}.com" as a valid host). Without
+        // Latin Extended-C/D/E in the table, the Extended-D letter falls
+        // through to no family and the mix goes undetected.
+        #expect(UnicodeHygiene.hasSuspiciousScriptMixing("\u{A7CA}\u{0430}"))
+    }
+
     @Test("allows pure Latin names")
     func allowsPureLatinNames() {
         #expect(!UnicodeHygiene.hasSuspiciousScriptMixing("Claude"))

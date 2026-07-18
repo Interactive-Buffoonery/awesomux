@@ -94,6 +94,20 @@ struct URLClassifierTests {
         #expect(reason == .nonAsciiHost)
     }
 
+    @Test("Latin Extended-D lookalike mixed with Cyrillic blocks")
+    func latinExtendedDMixedWithCyrillicBlocks() throws {
+        // U+A7CA LATIN CAPITAL LETTER S WITH SHORT STROKE + Cyrillic а —
+        // a valid, punycode-encodable IDN host that exercises
+        // UnicodeHygiene's Latin Extended-C/D/E coverage end to end.
+        let url = try #require(URL(string: "https://\u{A7CA}\u{0430}.com/"))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm, got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
     @Test(
         "malformed punycode that fails to decode blocks, not opens direct",
         arguments: [

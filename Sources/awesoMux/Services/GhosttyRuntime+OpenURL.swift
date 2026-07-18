@@ -86,9 +86,11 @@ struct OpenURLAction {
 extension GhosttyRuntime {
     /// Opens an externally-sourced URL through `URLClassifier` — used by OSC 8
     /// hyperlink click-through and by chrome (the Path Bar PR chip). Direct open
-    /// for plain ASCII http/https and bare `mailto:`; block-confirm modal for
-    /// non-ASCII hosts, embedded userinfo (the classic `user@host` phishing
-    /// trick), `mailto:` with attacker-controllable prefill parameters
+    /// for plain ASCII http/https, pure-single-script IDN hosts, and bare
+    /// `mailto:`; block-confirm modal for mixed-script hosts (TR39 homograph
+    /// risk) or undecodable punycode, embedded userinfo (the classic
+    /// `user@host` phishing trick), `mailto:` with attacker-controllable
+    /// prefill parameters
     /// (`to`/`body`/`cc`/`bcc`/`subject` per RFC 6068), malformed http(s) URLs
     /// missing a host, URL paths containing invisible/bidi/RTL-override
     /// codepoints, and any scheme outside the allowlist (defense-in-depth;
