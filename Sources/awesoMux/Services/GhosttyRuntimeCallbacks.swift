@@ -563,9 +563,12 @@ extension GhosttyRuntime {
             } else if let display = displayHost ?? punycodeHost {
                 lines.append("\u{2068}\(Self.sanitizedForAlertBody(display))\u{2069}")
             } else {
+                // Unreachable from URLClassifier (both-nil hosts return
+                // .missingHost before .nonAsciiHost) — defensive copy for
+                // direct callers only.
                 lines.append(String(
-                    localized: "This URL's host contains non-Latin characters.",
-                    comment: "Fallback body line when host accessors are unavailable but the URL was flagged as non-ASCII."
+                    localized: "This URL's host could not be verified.",
+                    comment: "Fallback body line when host accessors are unavailable but the URL's host was flagged as suspicious."
                 ))
             }
         case .embeddedUserInfo:
