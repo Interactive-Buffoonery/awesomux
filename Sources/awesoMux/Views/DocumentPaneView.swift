@@ -78,8 +78,10 @@ struct DocumentPaneSendBar: View {
         }
     }
 
-    private var sendUnavailableDescription: String? {
-        guard case .unavailable(let reason) = nudgeResolution else { return nil }
+    private func sendUnavailableDescription(
+        for resolution: DocumentNudgeTargetResolution
+    ) -> String? {
+        guard case .unavailable(let reason) = resolution else { return nil }
         switch reason {
         case .foregroundSSH:
             return String(
@@ -128,8 +130,10 @@ struct DocumentPaneSendBar: View {
     /// the target agent (`AgentPromptGate` drives label, enabled state, and
     /// action from ONE verdict); generic "Send to Agent" otherwise, so the
     /// wording can never claim a verified agent while the action is unsafe.
-    private var sendButtonTitle: String {
-        guard case .available(let target) = nudgeResolution else {
+    private func sendButtonTitle(
+        for resolution: DocumentNudgeTargetResolution
+    ) -> String {
+        guard case .available(let target) = resolution else {
             return String(
                 localized: "Send to Agent",
                 comment: "Generic send-bar button title when no verified agent target exists"
@@ -152,11 +156,15 @@ struct DocumentPaneSendBar: View {
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .accessibilityLabel(Text("Read-only remote Markdown snapshot from \(origin)"))
             } else {
+                // Resolve once per render: the resolution issues live foreground
+                // probes, and both the title and the unavailable description
+                // derive from the same verdict anyway (one-verdict invariant).
+                let resolution = nudgeResolution
                 Spacer(minLength: 0)
                 SendToAgentButton(
-                    title: sendButtonTitle,
+                    title: sendButtonTitle(for: resolution),
                     failed: nudgeFailed,
-                    unavailableDescription: sendUnavailableDescription,
+                    unavailableDescription: sendUnavailableDescription(for: resolution),
                     action: performNudge
                 )
                 .frame(height: 28)
@@ -204,8 +212,9 @@ struct DocumentPaneSendBar: View {
         // in one synchronous MainActor hop with no suspension between them —
         // the same atomicity standard the bridge consent path documents. Do
         // not introduce an `await` between the gate and the write.
-        guard case .available(let targetPane) = nudgeResolution else {
-            reportNudgeUnavailable()
+        let resolution = nudgeResolution
+        guard case .available(let targetPane) = resolution else {
+            reportNudgeUnavailable(resolution)
             return
         }
         let targetID = targetPane.id
@@ -233,10 +242,10 @@ struct DocumentPaneSendBar: View {
         }
     }
 
-    private func reportNudgeUnavailable() {
+    private func reportNudgeUnavailable(_ resolution: DocumentNudgeTargetResolution) {
         nudgeFailed = true
         TerminalAccessibilityAnnouncer.announce(
-            sendUnavailableDescription
+            sendUnavailableDescription(for: resolution)
                 ?? String(
                     localized: "Couldn't send — this document's terminal isn't available",
                     comment: "VoiceOver announcement when a document has no eligible send target"
