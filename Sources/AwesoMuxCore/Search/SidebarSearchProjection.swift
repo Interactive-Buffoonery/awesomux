@@ -28,6 +28,8 @@ public enum SidebarAgentStateSearchToken: String, CaseIterable, Equatable, Senda
     case running
     case idle
 
+    public static let canonicalList = allCases.map(\.rawValue).joined(separator: ", ")
+
     public init(agentState: AgentDisplayState) {
         switch agentState {
         case .needsAttention:
@@ -47,6 +49,19 @@ public enum SidebarAgentStateSearchToken: String, CaseIterable, Equatable, Senda
         case .idle:
             self = .idle
         }
+    }
+
+    public static func localizedSearchHelp(
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String {
+        String(
+            localized:
+                "Filters workspaces by title or location. Agent state tokens: \(canonicalList). Use needs for Needs input workspaces. Press Return to open the top match. Press Escape to clear.",
+            bundle: bundle,
+            locale: locale,
+            comment: "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."
+        )
     }
 }
 
@@ -105,6 +120,21 @@ public struct SidebarSearchHaystacks: Equatable, Sendable {
 /// non-trivial filter/sort/top-result logic is directly unit-testable without
 /// a SwiftUI host.
 public enum SidebarSearchProjection {
+    private enum ParsedQuery {
+        case agentState(SidebarAgentStateSearchToken)
+        case fuzzy(String)
+
+        init?(_ query: String) {
+            guard !query.isEmpty, query.count <= FuzzyMatcher.maxQueryLength else { return nil }
+
+            if let stateToken = SidebarAgentStateSearchToken(rawValue: query.lowercased()) {
+                self = .agentState(stateToken)
+            } else {
+                self = .fuzzy(query)
+            }
+        }
+    }
+
     public struct Output: Equatable, Sendable {
         public let entries: [SidebarGroupEntry]
         /// Identity of the **first visible** matched session when a query is
@@ -132,6 +162,16 @@ public enum SidebarSearchProjection {
         haystacks: (TerminalSession) -> SidebarSearchHaystacks
     ) -> Output {
         let isFiltering = !query.isEmpty
+        let parsedQuery: ParsedQuery?
+        if isFiltering {
+            guard let query = ParsedQuery(query) else {
+                return Output(entries: [], topMatch: nil)
+            }
+            parsedQuery = query
+        } else {
+            parsedQuery = nil
+        }
+
         var entries: [SidebarGroupEntry] = []
         entries.reserveCapacity(groups.count)
 
@@ -148,7 +188,9 @@ public enum SidebarSearchProjection {
             matched.reserveCapacity(group.sessions.count)
 
             for (sessionIndex, session) in group.sessions.enumerated() {
-                guard let match = Self.bestMatch(for: session, query: query, haystacks: haystacks(session)) else {
+                guard let parsedQuery,
+                    let match = Self.bestMatch(query: parsedQuery, haystacks: haystacks(session))
+                else {
                     continue
                 }
                 matched.append(
@@ -188,15 +230,22 @@ public enum SidebarSearchProjection {
     /// break by declared field precedence (title > location) so the
     /// highlighted field doesn't depend on iteration order.
     private static func bestMatch(
-        for session: TerminalSession,
+        query: ParsedQuery,
+        haystacks: SidebarSearchHaystacks
+    ) -> SessionMatch? {
+        switch query {
+        case .agentState(let stateToken):
+            guard stateToken == haystacks.agentState else { return nil }
+            return SessionMatch(field: .agentState, score: 0, ranges: [])
+        case .fuzzy(let query):
+            return Self.bestFuzzyMatch(query: query, haystacks: haystacks)
+        }
+    }
+
+    private static func bestFuzzyMatch(
         query: String,
         haystacks: SidebarSearchHaystacks
     ) -> SessionMatch? {
-        if let stateToken = SidebarAgentStateSearchToken(rawValue: query.lowercased()) {
-            guard stateToken == haystacks.agentState else { return nil }
-            return SessionMatch(field: .agentState, score: 0, ranges: [])
-        }
-
         let candidates: [(field: SessionMatch.Field, haystack: String)] = [
             (.title, haystacks.title),
             (.location, haystacks.location),

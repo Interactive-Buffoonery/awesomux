@@ -678,7 +678,9 @@ struct SidebarView: View {
     }
 
     private func expandedSearchHeader(topMatchID: TerminalSession.ID?) -> some View {
-        HStack(spacing: 8) {
+        let searchHelp = SidebarAgentStateSearchToken.localizedSearchHelp()
+
+        return HStack(spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12.5, weight: .medium))
@@ -691,7 +693,8 @@ struct SidebarView: View {
                     .foregroundStyle(Color.aw.text)
                     .focused($isSearchFocused)
                     .accessibilityLabel("Sidebar search")
-                    .accessibilityHint("Filters workspaces. Press Return to open the top match. Press Escape to clear.")
+                    .accessibilityHint(searchHelp)
+                    .help(searchHelp)
                     // ⏎ commits the highest-ranked filtered session and
                     // collapses the search query. Full ↑↓ navigation is
                     // deferred to INT-320.

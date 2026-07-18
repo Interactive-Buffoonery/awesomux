@@ -47,6 +47,29 @@ struct SidebarSearchProjectionTests {
         #expect(SidebarAgentStateSearchToken(agentState: state) == expectedToken)
     }
 
+    @Test("Canonical token list pins the language-independent query vocabulary")
+    func canonicalTokenList() {
+        #expect(
+            SidebarAgentStateSearchToken.canonicalList
+                == "needs, error, thinking, done, output, waiting, running, idle"
+        )
+    }
+
+    @Test("Localized search help preserves the canonical English tokens")
+    func localizedSearchHelp() throws {
+        let bundle = try #require(INT612LocalizationTestSupport.bundle)
+
+        let help = SidebarAgentStateSearchToken.localizedSearchHelp(
+            bundle: bundle,
+            locale: INT612LocalizationTestSupport.pseudoLocale
+        )
+
+        #expect(
+            help
+                == "⟦search:needs, error, thinking, done, output, waiting, running, idle:needs⟧"
+        )
+    }
+
     @Test("Canonical state token returns whole-row matches without highlight ranges")
     func stateTokenMatchesWholeRow() throws {
         let needs = makeSession(title: "Alpha", agentState: .needsAttention)
@@ -84,6 +107,27 @@ struct SidebarSearchProjectionTests {
 
         #expect(exact.entries.first?.sessions.first?.session.id == thinking.id)
         #expect(partial.entries.isEmpty)
+    }
+
+    @Test("Oversized Unicode query is rejected before building row haystacks")
+    func oversizedUnicodeQueryIsRejectedBeforeRowWork() {
+        let group = SessionGroup(name: "Work", sessions: [makeSession(title: "Alpha")])
+        let query = String(repeating: "🧑🏽‍💻", count: FuzzyMatcher.maxQueryLength + 1)
+        var haystackCallCount = 0
+
+        let output = SidebarSearchProjection.project(
+            groups: [group],
+            query: query,
+            haystacks: { session in
+                haystackCallCount += 1
+                return self.haystacks(for: session)
+            }
+        )
+
+        #expect(query.count == FuzzyMatcher.maxQueryLength + 1)
+        #expect(haystackCallCount == 0)
+        #expect(output.entries.isEmpty)
+        #expect(output.topMatch == nil)
     }
 
     @Test("Reserved state token does not fuzzy-match title or location")

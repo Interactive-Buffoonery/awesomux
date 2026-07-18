@@ -8,6 +8,7 @@
 "a workspace" = "⟦workspace⟧";
 "Done" = "⟦done⟧";
 "Error" = "⟦error⟧";
+"Filters workspaces by title or location. Agent state tokens: %@. Use needs for Needs input workspaces. Press Return to open the top match. Press Escape to clear." = "⟦search:%@:needs⟧";
 "Idle" = "⟦idle⟧";
 "Needs input" = "⟦needs-input⟧";
 "Output" = "⟦output⟧";
