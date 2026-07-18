@@ -544,8 +544,8 @@ struct EmptyGroupDropTarget: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.aw.text3)
                     .padding(.trailing, 8)
-                    .accessibilityLabel("Remove Empty Group")
-                    .help("Remove Empty Group")
+                    .accessibilityLabel(SidebarGroupClosePolicy.actionLabel)
+                    .help(SidebarGroupClosePolicy.actionLabel)
                 }
             }
         }
