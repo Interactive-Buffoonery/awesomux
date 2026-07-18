@@ -36,7 +36,6 @@ enum SessionPersistence {
         return encoder
     }()
     nonisolated private static let jsonEncoderLock = NSLock()
-    nonisolated private static let jsonDecoder = JSONDecoder()
     nonisolated private static let lastWrittenDigestLock = NSLock()
     // Guards `environment`: the `supportDirectoryURL` getter is `nonisolated`
     // and read from the detached write Task, while `withTemporarySupportDirectory`
@@ -187,18 +186,7 @@ enum SessionPersistence {
         }
 
         do {
-            // Peek the schema version first, then decode with it threaded into
-            // `userInfo` so nested `TerminalSession.init(from:)` can gate the v1
-            // legacy agent-state fold on the version (INT-504 M3). A fresh
-            // decoder avoids mutating the shared static across the write task.
-            let peekedVersion =
-                (try? jsonDecoder.decode(SchemaVersionPeek.self, from: data))?
-                .schemaVersion ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
-            let versionedDecoder = JSONDecoder()
-            versionedDecoder.userInfo[.snapshotSchemaVersion] = peekedVersion
-            versionedDecoder.userInfo[.snapshotDecodeRecoveryRecorder] =
-                SessionSnapshotDecodeRecoveryRecorder()
-            let snapshot = try versionedDecoder.decode(SessionSnapshot.self, from: data)
+            let snapshot = try SessionSnapshot.decode(from: data)
             let restored = SessionStore.restore(from: snapshot)
             scheduleRemoteMarkdownSnapshotPrune(keeping: restored.store)
             guard !restored.sanitizationSummary.isEmpty else {
@@ -572,25 +560,5 @@ enum SessionPersistence {
 
     nonisolated static var supportDirectoryURL: URL {
         readEnvironment().supportDirectoryURL
-    }
-}
-
-/// Minimal decode of just the snapshot schema version, used to thread the
-/// version into `userInfo` ahead of the full decode (INT-504 M3). Tolerant to
-/// absence — a truly pre-versioned snapshot peeks as the assumed-legacy version
-/// (v1, fold enabled), the same default `TerminalSession.init(from:)` uses when
-/// `userInfo` is unset, so the two ends of the pipeline agree.
-private struct SchemaVersionPeek: Decodable {
-    let schemaVersion: Int
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion =
-            try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
-            ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case schemaVersion
     }
 }
