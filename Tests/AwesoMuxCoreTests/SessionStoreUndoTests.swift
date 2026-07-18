@@ -157,6 +157,47 @@ struct SessionStoreUndoTests {
         #expect(store.groups.map(\.id) == [survivor.id])
     }
 
+    @Test("group move undo tracks the moved group by ID across structure changes")
+    func groupMoveUndoTracksGroupByID() {
+        let groups = ["One", "Two", "Three"].map { SessionGroup(name: $0, sessions: []) }
+        let (store, undoManager) = makeStore(groups: groups)
+
+        performGesture(using: undoManager) {
+            store.moveGroup(from: 0, to: 2)
+        }
+        #expect(store.groups.map(\.name) == ["Two", "Three", "One"])
+
+        // Removing a group shifts every index below it. Undo must still
+        // restore "One" (tracked by ID), not whatever group now sits at the
+        // captured post-move index.
+        #expect(store.removeGroup(id: store.groups[0].id))
+        #expect(store.groups.map(\.name) == ["Three", "One"])
+
+        undoManager.undo()
+        #expect(store.groups.map(\.name) == ["One", "Three"])
+    }
+
+    @Test("replaceState clears registered undo history")
+    func replaceStateClearsUndoHistory() {
+        let group = SessionGroup(name: "Original", sessions: [makeSession("Session")])
+        let (store, undoManager) = makeStore(groups: [group])
+
+        performGesture(using: undoManager) {
+            store.renameGroup(id: group.id, to: "Renamed")
+        }
+        #expect(undoManager.canUndo)
+
+        // Same group ID, different values — surviving registrations would
+        // "revert" restored state to pre-restore values.
+        let restored = SessionGroup(id: group.id, name: "Restored", sessions: group.sessions)
+        store.replaceState(
+            restoring: SessionSnapshot(groups: [restored], selectedSessionID: nil)
+        )
+
+        #expect(!undoManager.canUndo)
+        #expect(!undoManager.canRedo)
+    }
+
     @Test("rebinding clears the old manager's actions")
     func rebindingClearsOldManager() {
         let group = SessionGroup(name: "Group", sessions: [])

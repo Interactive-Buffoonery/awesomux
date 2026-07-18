@@ -134,6 +134,11 @@ public final class SessionStore {
     ) -> SessionRestoreSanitizationSummary {
         let components = SessionRestoreReducer.restoredComponents(from: snapshot)
 
+        // A bulk restore can reuse group/session IDs with different values, so
+        // surviving undo registrations would "revert" the restored state to
+        // pre-restore values. Registered history is only valid for the state
+        // identity it was recorded against — drop it at this boundary.
+        storedUndoManager?.removeAllActions(withTarget: self)
         acknowledgementCoordinator.cancel()
         isReplacingState = true
         defer { isReplacingState = false }
@@ -892,16 +897,18 @@ public final class SessionStore {
             return
         }
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
-        guard let destinationIndex = _groups.firstIndex(where: { $0.id == groupID }) else {
-            return
-        }
         registerUndo(
             actionName: String(
                 localized: "Move Group",
                 comment: "Undo action for reordering a workspace group."
             )
         ) { target in
-            target.moveGroup(from: destinationIndex, to: sourceIndex)
+            // Resolve the moved group's index by ID at undo time: groups can be
+            // added/removed between registration and undo, so a captured index
+            // could reorder an unrelated group.
+            guard let currentIndex = target._groups.firstIndex(where: { $0.id == groupID })
+            else { return }
+            target.moveGroup(from: currentIndex, to: sourceIndex)
         }
     }
 
