@@ -107,6 +107,15 @@ struct UnicodeHygieneScriptMixingTests {
         #expect(UnicodeHygiene.hasSuspiciousScriptMixing("\u{10780}\u{0430}"))
     }
 
+    @Test("flags Latin mixed with Cyrillic Extended-B")
+    func flagsLatinMixedWithCyrillicExtendedB() {
+        // U+A641 CYRILLIC SMALL LETTER ROUND OMEGA (Extended-B) beside Latin
+        // "a" — Foundation accepts and punycode-encodes "a\u{A641}.com" as a
+        // valid host. Same false-open class as the Latin Extended gaps,
+        // mirrored on the Cyrillic side of the table.
+        #expect(UnicodeHygiene.hasSuspiciousScriptMixing("a\u{A641}"))
+    }
+
     @Test("allows pure Latin names")
     func allowsPureLatinNames() {
         #expect(!UnicodeHygiene.hasSuspiciousScriptMixing("Claude"))

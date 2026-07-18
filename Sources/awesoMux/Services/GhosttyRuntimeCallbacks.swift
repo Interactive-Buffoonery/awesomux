@@ -504,7 +504,7 @@ extension GhosttyRuntime {
         switch reason {
         case .nonAsciiHost:
             String(
-                localized: "Open URL with non-Latin host?",
+                localized: "Open URL with an unverified host?",
                 comment: "OSC 8 dialog title segment when the URL's host mixes confusable scripts or has undecodable punycode."
             )
         case .embeddedUserInfo:
