@@ -1399,6 +1399,60 @@ struct AgentPluginRunnerTests {
         }
     }
 
+    @Test("Claude: a missing recorded binary falls back to the live binary for the clean reinstall")
+    func claudeCleanReinstallDeadRecordedBinaryFallsBack() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(
+                provider: .claudeCode,
+                setup: AgentIntegrationSetup(enabled: true, binaryPath: "/gone/claude")
+            )
+            try Self.rewriteInstallRecord(runner: runner, provider: .claudeCode) {
+                $0.helperPath = Self.staleHelperPath
+            }
+            // The recorded binary vanished; the live default binary still works.
+            command.stub(executable: "/gone/claude", failure: .executableNotFound("/gone/claude"))
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: Self.claudeList(enabled: true)))
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            #expect(outcome.status == .enabled)
+
+            // The uninstall still ran — via the live binary, not the dead one.
+            let invocations = Array(command.invocations.dropFirst(before))
+            let uninstall = try #require(invocations.first { $0.args == Self.claudeUninstallArgvExpected })
+            #expect(uninstall.executable == "claude")
+        }
+    }
+
+    @Test("Claude: an uninstall failure names the step's executable, not the live one")
+    func claudeCleanReinstallErrorNamesStepExecutable() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(
+                provider: .claudeCode,
+                setup: AgentIntegrationSetup(enabled: true, binaryPath: "/recorded/claude")
+            )
+            try Self.rewriteInstallRecord(runner: runner, provider: .claudeCode) {
+                $0.helperPath = Self.staleHelperPath
+            }
+            // The probe still answers (default outcome), but the uninstall step
+            // itself cannot spawn the recorded binary.
+            command.stub(
+                executable: "/recorded/claude",
+                args: Self.claudeUninstallArgvExpected,
+                failure: .executableNotFound("/recorded/claude")
+            )
+
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            guard case .unsupported(let message) = outcome.status else {
+                Issue.record("expected unsupported, got \(outcome.status)")
+                return
+            }
+            #expect(message.contains("/recorded/claude"))
+        }
+    }
+
     // MARK: - Diagnostics
 
     @Test("a failed op produces redacted, capped diagnostics with exit code and args")

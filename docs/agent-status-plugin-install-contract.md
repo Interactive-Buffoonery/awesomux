@@ -85,9 +85,14 @@ manifest `version`, which awesoMux never changes — installing over an existing
 path or bundled source digest differs from the freshly rendered tree, the runner
 uninstalls the recorded plugin (recorded binary + config home + ref) after `plugin
 validate` succeeds and before `marketplace add`/`install`, forcing a fresh copy. A
-failed uninstall aborts the reinstall (needs repair, record untouched) rather than
-letting a no-op install masquerade as success. Codex/Grok deliberately do not get this
-step: their cache semantics have not been shown to share the version-keyed no-op.
+read-only `plugin list --json` presence probe (recorded env) runs first and skips the
+uninstall only when the plugin is definitively absent — an unreadable or unparseable
+list counts as installed, because skipping on doubt would let the stale copy survive a
+"successful" reinstall. A recorded binary that no longer exists falls back to the live
+binary against the recorded home rather than bricking the repair path. A failed
+uninstall aborts the reinstall (needs repair, record untouched) rather than letting a
+no-op install masquerade as success. Codex/Grok deliberately do not get this step:
+their cache semantics have not been shown to share the version-keyed no-op.
 
 ### 1.3 Parsing success vs failure
 

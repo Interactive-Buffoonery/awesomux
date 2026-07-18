@@ -496,19 +496,21 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
     /// Runs one CLI mutation and maps its outcome. The `mapCommandError` closure is
     /// the only provider-specific piece: it turns a `CommandRunnerError` into a
     /// status, so Codex keeps timeout→Unsupported and Claude keeps
-    /// timeout→needsRepair. A present-but-nonzero exit is shared: needsRepair with
-    /// diagnostics attached.
+    /// timeout→needsRepair. The closure receives the executable the failed call
+    /// actually ran — a step-level override may differ from the sequence-wide
+    /// executable, and "not found at …" must name the right binary. A
+    /// present-but-nonzero exit is shared: needsRepair with diagnostics attached.
     func runMutation(
         executable: String,
         args: [String],
         env: [String: String],
-        mapCommandError: (CommandRunnerError) -> AgentPluginStatus
+        mapCommandError: (CommandRunnerError, String) -> AgentPluginStatus
     ) async -> MutationResult {
         let result: CommandResult
         do {
             result = try await commandRunner.run(executable: executable, args: args, env: env, cwd: nil)
         } catch let error as CommandRunnerError {
-            return .failure(AgentPluginActionOutcome(status: mapCommandError(error)))
+            return .failure(AgentPluginActionOutcome(status: mapCommandError(error, executable)))
         } catch {
             return .failure(AgentPluginActionOutcome(status: .unsupported(error.localizedDescription)))
         }
@@ -535,7 +537,7 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         steps: [MutationStep],
         env: [String: String],
         repairGuidance: String,
-        mapCommandError: (CommandRunnerError) -> AgentPluginStatus
+        mapCommandError: (CommandRunnerError, String) -> AgentPluginStatus
     ) async -> AgentPluginActionOutcome? {
         var didMutate = false
         for step in steps {
