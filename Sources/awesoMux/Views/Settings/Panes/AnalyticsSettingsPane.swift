@@ -275,13 +275,7 @@ struct AnalyticsSettingsPane: View {
 
     private static var privacySummary: String {
         String(
-            localized: """
-                Analytics are off by default. This foundation build records only final post-redaction \
-                events on your Mac and does not connect to PostHog yet. Opting in creates a random local \
-                analytics identifier that is not tied to your name or account. Future delivery may include \
-                app version, macOS version, CPU architecture, error categories, and coarse usage counts, \
-                but never terminal content, commands, prompts, paths, hostnames, or direct identifiers.
-                """,
+            localized: "Analytics are off by default. Currently, no analytics go to the developers in any form.",
             comment: "Analytics consent section privacy summary"
         )
     }
