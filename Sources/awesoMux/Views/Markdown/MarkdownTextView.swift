@@ -121,7 +121,10 @@ struct MarkdownTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        // INT-687: wide tables overflow horizontally instead of wrapping at the
+        // pane edge. autohidesScrollers keeps the horizontal bar invisible for
+        // documents whose content fits the pane (prose always does — it wraps).
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
@@ -142,13 +145,22 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.isSelectable = true
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 20, height: 20)
-        // Wrap to the scroll view width — no horizontal scroll for body text.
-        textView.textContainer?.widthTracksTextView = true
+        // INT-687: the container is effectively infinite in BOTH axes. Prose
+        // still wraps to the pane, but via per-paragraph tailIndent (see
+        // MarkdownTextViewCoordinator.updateDocumentGeometry) instead of the
+        // container width — that decoupling is what lets a wide table row run
+        // past the pane edge into a horizontal scroll while body text keeps
+        // wrapping. The text view does NOT self-size (no resizable flags, no
+        // autoresizing): its frame is computed deterministically from layout
+        // usage in updateDocumentGeometry, so there is no sizing feedback loop.
+        textView.textContainer?.widthTracksTextView = false
         textView.textContainer?.containerSize = NSSize(
-            width: 0,
+            width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
-        textView.autoresizingMask = [.width]
+        textView.isVerticallyResizable = false
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = []
         textView.delegate = context.coordinator
 
         // Wire the mouseDown-tracking-loop callback into the coordinator.
@@ -179,6 +191,17 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.addSubview(overlay)
 
         context.coordinator.textView = textView
+
+        // INT-687: pane resizes reach the coordinator through the clip view's
+        // frame, which is the one geometry the prose wrap width depends on.
+        // Selector-based observation self-unregisters on coordinator dealloc.
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(MarkdownTextViewCoordinator.clipViewFrameDidChange(_:)),
+            name: NSView.frameDidChangeNotification,
+            object: scrollView.contentView
+        )
 
         // Surface the NSTextView reference to the parent for popover anchoring.
         onTextViewAvailable?(textView)
@@ -240,6 +263,8 @@ struct MarkdownTextView: NSViewRepresentable {
             MarkdownAttributedStringBuilder.applyHighlights(
                 mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
             textView.textStorage?.setAttributedString(mutableAttr)
+            // INT-687: a fresh storage carries no tailIndent — rewrap + resize now.
+            context.coordinator.noteStorageReplaced()
             context.coordinator.lastSource = doc.source
             context.coordinator.lastTextColor = textColor
             context.coordinator.lastRelativeLinkBaseURL = relativeLinkBaseURL
@@ -261,6 +286,10 @@ struct MarkdownTextView: NSViewRepresentable {
                 MarkdownAttributedStringBuilder.applyHighlights(
                     mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
                 textView.textStorage?.setAttributedString(mutableAttr)
+                // INT-687: this branch replaces the storage too (currentAttr has
+                // no tailIndent baked in), so the prose would silently unwrap on
+                // a highlight/filter toggle without a fresh rewrap pass here.
+                context.coordinator.noteStorageReplaced()
             }
         }
         context.coordinator.lastHighlightColor = highlightColor
@@ -401,6 +430,106 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
 
     init(selectedSourceSpan: Binding<Range<Int>?>) {
         self._selectedSourceSpan = selectedSourceSpan
+    }
+
+    // MARK: - Wide-table overflow (INT-687)
+
+    /// Wrap width last applied to prose paragraphs. Nil forces a full pass —
+    /// set whenever the text storage is replaced, because a fresh storage's
+    /// paragraph styles carry no `tailIndent`.
+    private var lastProseWrapWidth: CGFloat? = nil
+    private var geometryPassScheduled = false
+
+    /// Call after every `textStorage.setAttributedString`: rewraps prose and
+    /// resizes the text view for the new content.
+    func noteStorageReplaced() {
+        lastProseWrapWidth = nil
+        updateDocumentGeometry()
+    }
+
+    @objc func clipViewFrameDidChange(_ notification: Notification) {
+        // Coalesce to the next runloop turn: clip frames also change as a
+        // layout side-effect (scroller show/hide), and mutating textStorage
+        // inside a layout pass would be reentrant. The hop also batches a
+        // live-resize burst of frame changes into one geometry pass.
+        guard !geometryPassScheduled else { return }
+        geometryPassScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.geometryPassScheduled = false
+            self.updateDocumentGeometry()
+        }
+    }
+
+    /// INT-687 wide-table overflow. The text container is infinite in both
+    /// axes; prose wraps to the pane via per-paragraph `tailIndent` while
+    /// table rows run to their natural tab-stop width. The text view's frame
+    /// is then computed from actual layout usage — `max(clip width, widest
+    /// line)` — so a wide table widens the document (horizontal scroller
+    /// appears) and its removal shrinks it back. Nothing self-sizes, so
+    /// repeated clip resizes converge in a single pass.
+    func updateDocumentGeometry() {
+        guard let textView,
+            let clip = textView.enclosingScrollView?.contentView,
+            let layoutManager = textView.textLayoutManager,
+            let storage = textView.textStorage
+        else { return }
+        applyProseWrapWidth(to: storage, in: textView, clipWidth: clip.bounds.width)
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+        let usage = layoutManager.usageBoundsForTextContainer
+        let inset = textView.textContainerInset
+        let size = NSSize(
+            width: max(clip.bounds.width, usage.maxX + inset.width * 2),
+            height: usage.maxY + inset.height * 2
+        )
+        if textView.frame.size != size {
+            textView.setFrameSize(size)
+        }
+    }
+
+    /// Stamps `tailIndent` on every non-table paragraph so prose (including
+    /// code blocks — their wrap behavior is unchanged from the width-tracking
+    /// era) breaks at the pane edge inside the infinite container. Table-row
+    /// paragraphs are left alone: their natural width IS the overflow.
+    private func applyProseWrapWidth(
+        to storage: NSTextStorage, in textView: NSTextView, clipWidth: CGFloat
+    ) {
+        // Floor of 80pt: at sliver pane widths the computed value would go
+        // non-positive, and a tailIndent ≤ 0 means "distance from the trailing
+        // margin" — the infinite container edge, i.e. no wrapping at all.
+        let width = max(clipWidth - textView.textContainerInset.width * 2, 80)
+        guard width != lastProseWrapWidth, storage.length > 0 else { return }
+        lastProseWrapWidth = width
+
+        let ns = storage.string as NSString
+        storage.beginEditing()
+        var location = 0
+        while location < ns.length {
+            let paragraph = ns.paragraphRange(for: NSRange(location: location, length: 0))
+            location = NSMaxRange(paragraph)
+            guard paragraph.length > 0 else { break }
+            // Check the whole paragraph for grid membership: a row can open
+            // with a synthetic separator run that carries no grid attribute.
+            var isTableRow = false
+            storage.enumerateAttribute(.tableCellGrid, in: paragraph, options: []) { value, _, stop in
+                if value != nil {
+                    isTableRow = true
+                    stop.pointee = true
+                }
+            }
+            if isTableRow { continue }
+            let existing =
+                storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil)
+                as? NSParagraphStyle
+            if existing?.tailIndent == width { continue }
+            // Copy-on-write: preserve whatever styling the paragraph already
+            // carries and change only the wrap width.
+            let style =
+                (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            style.tailIndent = width
+            storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
+        }
+        storage.endEditing()
     }
 
     /// Called by `SelectionAwareTextView.mouseDown(with:)` after `super.mouseDown`'s

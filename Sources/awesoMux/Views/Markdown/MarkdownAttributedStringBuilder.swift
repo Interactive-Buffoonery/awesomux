@@ -13,7 +13,10 @@ extension NSAttributedString.Key {
 }
 
 /// Identifies which table cell a character range belongs to, for the border pass.
-struct TableCellGrid: Equatable {
+/// Hashable because it rides NSAttributedString as an attribute value — the
+/// storage's run coalescing calls ObjC `-hash` on it, and an Equatable-only
+/// Swift box degrades that to a constant hash (severe-performance warning).
+struct TableCellGrid: Hashable {
     let table: Int
     let row: Int
     let column: Int
