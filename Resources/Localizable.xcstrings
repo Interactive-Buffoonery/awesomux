@@ -3552,6 +3552,9 @@
     "●  " : {
 
     },
+    "⟨branch name⟩" : {
+      "comment" : "Placeholder leaf directory in the worktree target path hint before a branch name is chosen or typed."
+    },
     "ツ" : {
 
     }

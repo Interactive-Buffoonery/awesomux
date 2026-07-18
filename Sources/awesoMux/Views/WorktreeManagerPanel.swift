@@ -54,6 +54,21 @@ struct WorktreeManagerPanel: View {
             model.resetCreateResult()
             isShowingCreateForm = true
         }
+        // Round-6 smoke: "After the worktree is created and opened we should
+        // close this window." Focus already moved to the new workspace
+        // behind the sheet — leaving it (and the panel) open just to show a
+        // banner nobody's looking at is dead weight. The failure path is
+        // untouched: only `.opened` closes anything, the sheet stays put
+        // with the error otherwise. Brief delay so the success text is
+        // actually readable before both windows go away.
+        .onChange(of: model.createSubmissionState) { _, newValue in
+            guard case .result(.opened) = newValue else { return }
+            Task {
+                try? await Task.sleep(for: .milliseconds(700))
+                isShowingCreateForm = false
+                onDismiss()
+            }
+        }
     }
 
     private var header: some View {
@@ -77,9 +92,13 @@ struct WorktreeManagerPanel: View {
 
     // Moved off the title row (INT-857 round 3): "+ New Worktree / Refresh"
     // crowded the title next to the close button. Bottom toolbar mirrors
-    // SessionManagerPanel's header/list/footer layout precedent.
+    // SessionManagerPanel's header/list/footer layout precedent — including
+    // the spacer-before-actions placement, which right-aligns them the same
+    // way SessionManagerPanel's own footer right-aligns its trailing content
+    // (round-6 smoke: these read as left-aligned stragglers otherwise).
     private var footer: some View {
         HStack(spacing: 10) {
+            Spacer(minLength: 0)
             Button {
                 model.resetCreateResult()
                 isShowingCreateForm = true
@@ -99,7 +118,6 @@ struct WorktreeManagerPanel: View {
                 )
             }
             .buttonStyle(.borderless)
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

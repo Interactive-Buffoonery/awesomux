@@ -41,10 +41,17 @@ public struct GitWorktreeCreatePolicy: Sendable {
         repositoryContext: GitRepositoryContext,
         branchName: String
     ) -> URL? {
-        let parent = repositoryContext.invocationRoot.appendingPathComponent(".worktrees", isDirectory: true)
         let component = sanitizedPathComponent(branchName)
         guard !component.isEmpty else { return nil }
-        return parent.appendingPathComponent(component, isDirectory: true)
+        return targetContainerPath(repositoryContext: repositoryContext).appendingPathComponent(component, isDirectory: true)
+    }
+
+    /// Just the `.worktrees/` container, no branch leaf — lets a caller show
+    /// where a worktree WILL land before a branch name exists to complete
+    /// `candidateTargetPath` (round-6 smoke: an empty branch name left the
+    /// create form's Target path hint completely blank).
+    public func targetContainerPath(repositoryContext: GitRepositoryContext) -> URL {
+        repositoryContext.invocationRoot.appendingPathComponent(".worktrees", isDirectory: true)
     }
 
     public func validate(

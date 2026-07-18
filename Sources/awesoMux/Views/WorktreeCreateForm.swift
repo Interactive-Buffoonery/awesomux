@@ -61,6 +61,12 @@ struct WorktreeCreateForm: View {
                     text: $targetPath,
                     prompt: Text(targetPathPlaceholder)
                 )
+                .lineLimit(1)
+                .truncationMode(.middle)
+                // Button claims its natural width first; the field yields —
+                // without this a long path rendered UNDER "Choose…" instead
+                // of shrinking for it (round-6 smoke).
+                .layoutPriority(-1)
                 Button(String(localized: "Choose…", comment: "Open a folder picker for the worktree target path.")) {
                     chooseTargetPath()
                 }
@@ -150,10 +156,20 @@ struct WorktreeCreateForm: View {
     // Shown as the field's grayed prompt even when `suggestPath()` can't
     // pre-fill for real (the repo's `.worktrees` container doesn't exist
     // yet) — otherwise a first-time create has a bare empty field with no
-    // hint at all about where the worktree will land.
+    // hint at all about where the worktree will land. With no branch name
+    // typed yet either, `candidateTargetPath` has no leaf to build — fall
+    // back to the container root plus a placeholder leaf token so the field
+    // is never simply blank (round-6 smoke).
     private var targetPathPlaceholder: String {
         let name = mode == .existing ? selectedBranch : newBranchName
-        return policy.candidateTargetPath(repositoryContext: model.repositoryContext, branchName: name)?.path ?? ""
+        if let candidate = policy.candidateTargetPath(repositoryContext: model.repositoryContext, branchName: name) {
+            return candidate.path
+        }
+        let placeholderLeaf = String(
+            localized: "⟨branch name⟩",
+            comment: "Placeholder leaf directory in the worktree target path hint before a branch name is chosen or typed.")
+        return policy.targetContainerPath(repositoryContext: model.repositoryContext)
+            .appendingPathComponent(placeholderLeaf, isDirectory: true).path
     }
 
     private func chooseTargetPath() {
