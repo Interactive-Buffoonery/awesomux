@@ -42,8 +42,13 @@ import Testing
         )
     }
 
+    /// Builds preset WIRE BYTES by wrapping the encoded intent manually, so
+    /// over-cap fixtures can exist as files even though the save-side init
+    /// refuses to construct them in memory.
     private func encodePreset(_ node: WorkspaceLayoutIntent.Node) throws -> Data {
-        try JSONEncoder().encode(WorkspaceLayoutPreset(layout: WorkspaceLayoutIntent(root: node)))
+        let layoutData = try JSONEncoder().encode(WorkspaceLayoutIntent(root: node))
+        let text = "{\"version\":1,\"layout\":" + String(decoding: layoutData, as: UTF8.self) + "}"
+        return Data(text.utf8)
     }
 
     private func decodePreset(_ data: Data) throws -> WorkspaceLayoutPreset {
@@ -156,6 +161,35 @@ import Testing
             )
         ) {
             try decodePreset(data)
+        }
+    }
+
+    @Test func saveSideConstructionEnforcesTheSameCaps() {
+        // The live/restore contract allows layouts past the preset caps, so the
+        // save-side init must throw the same errors decode does — never write a
+        // file this build would refuse to load.
+        let overCount = WorkspaceLayoutPreset.maxTerminalCount + 1
+        #expect(
+            throws: WorkspaceLayoutPresetError.tooManyTerminals(
+                count: overCount,
+                limit: WorkspaceLayoutPreset.maxTerminalCount
+            )
+        ) {
+            try WorkspaceLayoutPreset(
+                layout: WorkspaceLayoutIntent(root: balancedTerminals(count: overCount))
+            )
+        }
+
+        let overDepth = WorkspaceLayoutPreset.maxSplitDepth + 1
+        #expect(
+            throws: WorkspaceLayoutPresetError.layoutTooDeep(
+                depth: overDepth,
+                limit: WorkspaceLayoutPreset.maxSplitDepth
+            )
+        ) {
+            try WorkspaceLayoutPreset(
+                layout: WorkspaceLayoutIntent(root: chainedSplits(depth: overDepth))
+            )
         }
     }
 

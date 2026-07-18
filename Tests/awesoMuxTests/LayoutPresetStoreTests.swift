@@ -93,6 +93,35 @@ import Testing
         #expect(LayoutPresetStore.listPresetNames(forWorkingDirectory: nested.path) == ["dev"])
     }
 
+    @Test func saveRefusesOverCapLayoutAndWritesNothing() throws {
+        // 17 terminals as a chain — over both caps; the terminal-count error
+        // surfaces first from the shared validation only when depth is within
+        // range, so build a wide-but-shallow over-count tree explicitly.
+        func wide(_ count: Int) -> WorkspaceLayoutIntent.Node {
+            count == 1
+                ? .terminal(.init(title: nil, color: nil))
+                : .split(
+                    .init(
+                        orientation: .vertical,
+                        firstFraction: 0.5,
+                        first: wide(count / 2),
+                        second: wide(count - count / 2)
+                    ))
+        }
+        let root = try makeProjectRoot()
+        let overCount = WorkspaceLayoutPreset.maxTerminalCount + 1
+        #expect(throws: WorkspaceLayoutPresetError.self) {
+            try LayoutPresetStore.save(
+                WorkspaceLayoutIntent(root: wide(overCount)),
+                named: "huge",
+                forWorkingDirectory: root.path
+            )
+        }
+        #expect(
+            !LayoutPresetStore.presetFileExists(named: "huge", forWorkingDirectory: root.path)
+        )
+    }
+
     @Test func saveRejectsInvalidName() throws {
         let root = try makeProjectRoot()
         #expect(throws: LayoutPresetStore.PresetError.invalidName) {
