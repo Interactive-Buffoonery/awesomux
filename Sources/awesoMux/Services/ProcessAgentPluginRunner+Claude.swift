@@ -162,17 +162,33 @@ extension ProcessAgentPluginRunner {
         // instead of being silenced by a "successful" no-op install.
         if let staleRecord = staleCachedInstallRecord(provider: .claudeCode, tree: tree) {
             let recordedSetup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
-            let recordedExecutable = resolvedExecutable(provider: .claudeCode, setup: recordedSetup)
+            var uninstallExecutable = resolvedExecutable(provider: .claudeCode, setup: recordedSetup)
             let recordedEnv = claudeEnvironment(setup: recordedSetup)
-            if await claudePluginInstalled(
-                ref: staleRecord.pluginRef,
-                executable: recordedExecutable,
-                env: recordedEnv
-            ) {
+            var installed: Bool
+            do {
+                installed = try await claudePluginInstalled(
+                    ref: staleRecord.pluginRef,
+                    executable: uninstallExecutable,
+                    env: recordedEnv
+                )
+            } catch {
+                // The recorded binary no longer exists. Blocking here would gate
+                // off the one operation that rewrites the record and heals the
+                // card, so fall back to the live binary — still against the
+                // recorded config home, where the stale copy actually lives.
+                uninstallExecutable = executable
+                installed =
+                    (try? await claudePluginInstalled(
+                        ref: staleRecord.pluginRef,
+                        executable: executable,
+                        env: recordedEnv
+                    )) ?? true
+            }
+            if installed {
                 steps.append(
                     MutationStep(
                         ["plugin", "uninstall", staleRecord.pluginRef.pluginRef, "--scope", "user"],
-                        executable: recordedExecutable,
+                        executable: uninstallExecutable,
                         env: recordedEnv
                     )
                 )
@@ -185,7 +201,7 @@ extension ProcessAgentPluginRunner {
             steps: steps,
             env: env,
             repairGuidance: "Install failed partway through; use Repair to reconcile",
-            mapCommandError: { claudeMutationFailure($0, executable: executable) }
+            mapCommandError: { claudeMutationFailure($0, executable: $1) }
         ) {
             return failure
         }
@@ -215,7 +231,7 @@ extension ProcessAgentPluginRunner {
             executable: executable,
             args: ["plugin", "disable", ref.pluginRef],
             env: claudeEnvironment(setup: setup),
-            mapCommandError: { claudeMutationFailure($0, executable: executable) }
+            mapCommandError: { claudeMutationFailure($0, executable: $1) }
         ) {
         case .success:
             return AgentPluginActionOutcome(status: .disabled)
@@ -249,7 +265,7 @@ extension ProcessAgentPluginRunner {
             steps: steps,
             env: env,
             repairGuidance: "Uninstall failed partway through; use Repair to reconcile",
-            mapCommandError: { claudeMutationFailure($0, executable: executable) }
+            mapCommandError: { claudeMutationFailure($0, executable: $1) }
         ) {
             return failure
         }
@@ -296,21 +312,30 @@ extension ProcessAgentPluginRunner {
     /// skipping it and letting a stale cached copy survive a "successful"
     /// reinstall — the exact silent failure INT-651 exists to prevent. Only a
     /// definitive "not listed" (out-of-band manual uninstall) skips the step.
+    /// Throws only `executableNotFound`, so the caller can retry with the live
+    /// binary instead of pinning the reinstall to a binary that is gone.
     private func claudePluginInstalled(
         ref: AgentPluginMarketplaceRef,
         executable: String,
         env: [String: String]
-    ) async -> Bool {
-        guard
-            let result = try? await commandRunner.run(
+    ) async throws -> Bool {
+        let result: CommandResult
+        do {
+            result = try await commandRunner.run(
                 executable: executable,
                 args: ["plugin", "list", "--json"],
                 env: env,
                 cwd: nil
-            ),
-            result.isSuccess,
-            let entries = try? ClaudePluginList.parse(result.stdout)
-        else {
+            )
+        } catch CommandRunnerError.executableNotFound(let path) {
+            // The one probe failure the caller can meaningfully react to: a
+            // recorded binary that is gone entirely warrants a live-binary
+            // retry rather than "installed".
+            throw CommandRunnerError.executableNotFound(path)
+        } catch {
+            return true
+        }
+        guard result.isSuccess, let entries = try? ClaudePluginList.parse(result.stdout) else {
             return true
         }
         return entries.contains { $0.matches(ref) }
