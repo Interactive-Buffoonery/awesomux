@@ -98,14 +98,23 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
         guard case .valid = await validateIdentity(repositoryContext) else {
             return .repositoryChanged
         }
+        // Full refname, not `:short` — when a tag shares a branch's name,
+        // `:short` returns the disambiguated `heads/<name>` for that ONE
+        // entry instead of `<name>`, which then fails to resolve as a branch
+        // when passed back to `worktree add`. Stripping our own known
+        // `refs/heads/` prefix sidesteps that ambiguity entirely.
         let result = await runner.run(
-            arguments: ["for-each-ref", "refs/heads", "--format=%(refname:short)"],
+            arguments: ["for-each-ref", "refs/heads", "--format=%(refname)"],
             inDirectory: repositoryContext.invocationRoot
         )
         switch result {
         case .success(let data):
             guard let output = String(data: data, encoding: .utf8) else { return .failure(.outputTruncated) }
-            return .success(output.split(separator: "\n").map(String.init))
+            let names = output.split(separator: "\n").compactMap { line -> String? in
+                guard line.hasPrefix("refs/heads/") else { return nil }
+                return String(line.dropFirst("refs/heads/".count))
+            }
+            return .success(names)
         default:
             return .failure(mapFailure(result))
         }
