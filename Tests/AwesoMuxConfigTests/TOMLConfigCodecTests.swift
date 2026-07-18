@@ -823,10 +823,11 @@ struct TOMLConfigCodecTests {
         // Terminal's splice runs before appearance's (see encodeString), so a
         // header-shaped line embedded in a preserved terminal multiline value
         // ends up in the text the appearance splice scans next. Today's fixed
-        // section ordering keeps this from actually misfiring (appearance's
-        // own boundary walk stops at [general] long before it), but the scan
-        // must still carry the same value-scan guard decode has for symmetry
-        // and to stay safe if that ordering ever changes (INT-727).
+        // alphabetical section order ([appearance] is immediately followed by
+        // [general], long before [terminal]) means this assertion does not
+        // fail without the guard — verified by reverting it locally. It
+        // documents the symmetry with decode's guard and pins correct
+        // behavior if that ordering ever changes (INT-727).
         let toml = Self.defaultTOML
             .replacing(
                 """
