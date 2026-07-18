@@ -1,17 +1,16 @@
 # Group header close badge — design
 
-- **Issue:** [INT-739](https://linear.app/interactive-buffoonery/issue/INT-739/group-header-count-badge-morphs-into-close-group-x-on-hover)
 - **Status:** Approved
 - **Date:** 2026-07-06
 
 ## Summary
 
-Hovering a sidebar group header swaps the workspace-count badge for an X button that closes every workspace in the group. Clicking it routes through the existing group-close path, so the existing confirmation policy applies unchanged: groups whose live sessions are all amx-bridged (restorable) close silently; groups with live non-restorable work get the existing "Close group?" alert.
+Hovering a sidebar group header swaps the workspace-count badge for an X button that closes every workspace in the group. Clicking it routes through the existing group-close path, so the existing confirmation policy applies unchanged. That path evaluates destructive-close risk with `isCloseRisk(at:)`: a bridged pane that is idle at an observed prompt can close without a running-work confirmation, while a bridged pane that is busy, away from its prompt, running fresh agent work, or has not established prompt state is close-risky. Closing destroys the workspace session; daemon backing that makes app quit recoverable does not make group close recoverable.
 
 ## What already exists (and is reused unchanged)
 
 - **Close path:** context-menu "Close Group" (`SidebarGroupHeaderView.swift`) → `onCloseGroup()` → `closeWorkspaceGroup(_:)` → `SessionStore.closeGroup(id:limitedTo:now:)` (`AwesoMuxApp.swift`).
-- **Confirmation policy:** `confirmCloseGroupIfNeeded(_:)` prompts only when the group has risky sessions per `QuitRiskPolicy`, which classifies amx-bridged panes as `.safe(.daemonBacked)`. This is exactly the desired behavior; no new logic.
+- **Confirmation policy:** `confirmCloseGroupIfNeeded(_:)` counts workspaces whose panes are risky under `isCloseRisk(at:)`, subject to the existing running-work confirmation preference. Close-scoped risk deliberately differs from quit-scoped `isQuitRisk`: bridged panes are not unconditionally safe when the action destroys the workspace. Remote pane or SSH-default loss can independently require confirmation. This is exactly the existing behavior; no new logic.
 - **Close-button styling:** `SidebarCloseButton` in `SidebarSessionTile.swift` is the visual reference for the X glyph.
 
 ## View change
@@ -38,13 +37,13 @@ Per the INT-8 precedent, close affordances must not be discoverable only via poi
 
 ## Error handling
 
-None new. Misclick recovery relies on the existing safety net: bridged sessions are restorable via amx, and closed sessions land in `recentlyClosed`. The confirmation alert continues to guard the genuinely lossy case (live non-restorable sessions). INT-770 added one more lossy case to that list: an empty **remote** group's declared SSH target is not restorable after removal, so removing an empty remote group confirms even though it has no sessions — empty local groups still remove instantly.
+None new. Closed workspaces land in `recentlyClosed`, but reopening rebuilds the workspace with a fresh pane identity; it does not reattach a daemon session orphaned by the close. The confirmation alert therefore uses close-scoped risk for destructive group close rather than treating daemon backing as recovery. INT-770 added one more lossy case to that list: an empty **remote** group's declared SSH target is not restorable after removal, so removing an empty remote group confirms even though it has no sessions — empty local groups still remove instantly.
 
 ## Testing
 
 - The confirmation policy is already covered by existing tests; it is not modified.
 - `SidebarGroupClosePolicyTests` pins the shared action label used by the empty-group body X, context menu, header VoiceOver action, and hover help.
-- Primary verification is a live smoke: build, hover a group header, confirm the morph, click, confirm silent close for an all-bridged group and the alert for a risky one.
+- Primary verification is a live smoke: build, hover a group header, and confirm the morph. Verify that a bridged workspace idle at an observed prompt does not show the running-work confirmation, while close-risky bridged work (for example busy or away from an observed prompt) does. After close and reopen, verify that the workspace does not reattach the orphaned daemon session.
 
 ## Out of scope
 
