@@ -60,6 +60,12 @@ extension GhosttyRuntime {
             // A `Task` here leaves a gap for `update(session:pane:)` to repoint
             // this view at a different pane before the write lands — same race
             // INT-587 fixed for GHOSTTY_ACTION_PROGRESS_REPORT below (INT-608).
+            // OSC 0/2 (title) is parsed from PTY output like OSC 9;4 (progress),
+            // so it shares that case's ghostty_app_tick-only assumption too.
+            assert(
+                Thread.isMainThread,
+                "GHOSTTY_ACTION_SET_TITLE fired off-main — the ghostty_app_tick-only assumption no longer holds"
+            )
             onMainThreadSynchronously {
                 view.updateTerminalTitle(title)
             }
@@ -73,6 +79,12 @@ extension GhosttyRuntime {
 
             let workingDirectory = String(cString: pwdPointer)
             // Same pane-recycle race as GHOSTTY_ACTION_SET_TITLE above (INT-608).
+            // OSC 7 (pwd) is parsed from PTY output like OSC 9;4 (progress), so
+            // it shares that case's ghostty_app_tick-only assumption too.
+            assert(
+                Thread.isMainThread,
+                "GHOSTTY_ACTION_PWD fired off-main — the ghostty_app_tick-only assumption no longer holds"
+            )
             onMainThreadSynchronously {
                 view.updateWorkingDirectory(workingDirectory)
             }
