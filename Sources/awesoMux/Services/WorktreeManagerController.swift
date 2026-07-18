@@ -9,6 +9,13 @@ final class WorktreeManagerController {
     @ObservationIgnored private var panel: FloatingSwiftUIPanelWindow?
     @ObservationIgnored private var isDismissing = false
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    // Cancellation is cooperative: a cancelled task's `await model?.refresh()`
+    // keeps running until IT checks cancellation, which `refresh()` never
+    // does. Without this token, a stale task from a rapid dismiss-then-show
+    // could finish after a newer one starts, clear `refreshTask` out from
+    // under it (breaking `hasPendingRefresh`/`waitForPendingRefresh`), and
+    // announce ITS result against the panel now showing a different model.
+    @ObservationIgnored private var refreshGeneration = 0
     @ObservationIgnored private weak var activeModel: WorktreeManagerModel?
     @ObservationIgnored var appSettingsStore: AppSettingsStore?
 
@@ -50,9 +57,12 @@ final class WorktreeManagerController {
         panel.presentAndFocus()
         isVisible = true
         refreshTask?.cancel()
+        refreshGeneration += 1
+        let generation = refreshGeneration
         refreshTask = Task { [weak self, weak model] in
             await model?.refresh()
-            self?.refreshTask = nil
+            guard let self, self.refreshGeneration == generation else { return }
+            self.refreshTask = nil
         }
     }
 

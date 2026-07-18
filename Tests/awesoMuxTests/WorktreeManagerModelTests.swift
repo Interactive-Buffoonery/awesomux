@@ -119,6 +119,34 @@ struct WorktreeManagerModelTests {
         #expect(rows.map(\.record.canonicalPath.path) == ["/tmp/worktrees/int-857"])
     }
 
+    @Test("a cancelled refresh does not mutate state or announce")
+    func cancelledRefreshDoesNotMutateOrAnnounce() async {
+        // Cancellation is cooperative: `refresh()`'s own `await service.list()`
+        // doesn't stop just because the enclosing Task was cancelled. This
+        // proves the explicit `Task.isCancelled` guard actually blocks the
+        // mutation/announcement a stale, cancelled refresh would otherwise
+        // still perform (e.g. a controller reusing one panel across a rapid
+        // dismiss-then-show for a different repository).
+        // A failure outcome so an unguarded cancellation would provably
+        // announce (a success never announces, so that outcome wouldn't
+        // exercise the guard this test is proving).
+        let service = StubWorktreeListing(
+            outcomes: [.failure(.spawnFailure)],
+            listDelay: .milliseconds(50)
+        )
+        let model = makeModel(service: service)
+        var announced: [String] = []
+        model.announce = { announced.append($0) }
+
+        let task = Task { await model.refresh() }
+        await Task.yield()
+        task.cancel()
+        await task.value
+
+        #expect(model.state == .loading)
+        #expect(announced.isEmpty)
+    }
+
     @Test("open focuses a fresh live match without creating a session")
     func openIsIdempotentForLivePane() async throws {
         let session = TerminalSession(
@@ -281,18 +309,21 @@ private final class StubWorktreeListing: GitWorktreeManaging, @unchecked Sendabl
     private var identityOutcomes: [GitRepositoryIdentityValidation]
     private var createOutcomes: [GitWorktreeCreateOutcome]
     private let createDelay: Duration?
+    private let listDelay: Duration?
     private var recordedCreateCalls = 0
 
     init(
         outcomes: [GitWorktreeListOutcome],
         identityOutcomes: [GitRepositoryIdentityValidation] = [],
         createOutcomes: [GitWorktreeCreateOutcome] = [],
-        createDelay: Duration? = nil
+        createDelay: Duration? = nil,
+        listDelay: Duration? = nil
     ) {
         self.outcomes = outcomes
         self.identityOutcomes = identityOutcomes
         self.createOutcomes = createOutcomes
         self.createDelay = createDelay
+        self.listDelay = listDelay
     }
 
     var createCallCount: Int { lock.withLock { recordedCreateCalls } }
@@ -302,7 +333,8 @@ private final class StubWorktreeListing: GitWorktreeManaging, @unchecked Sendabl
     }
 
     func list(in repositoryContext: GitRepositoryContext) async -> GitWorktreeListOutcome {
-        lock.withLock { outcomes.isEmpty ? .failure(.spawnFailure) : outcomes.removeFirst() }
+        if let listDelay { try? await Task.sleep(for: listDelay) }
+        return lock.withLock { outcomes.isEmpty ? .failure(.spawnFailure) : outcomes.removeFirst() }
     }
 
     func branches(in repositoryContext: GitRepositoryContext) async -> GitWorktreeBranchesOutcome {

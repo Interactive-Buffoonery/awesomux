@@ -43,6 +43,25 @@ struct WorktreeManagerControllerTests {
         controller.dismiss()
     }
 
+    @Test("a rapid dismiss-then-show cancels the prior refresh task and starts a fresh one")
+    func rapidReShowReplacesRefreshTask() async {
+        _ = NSApplication.shared
+        let serviceA = CountingWorktreeListing()
+        let modelA = makeModel(service: serviceA)
+        let serviceB = CountingWorktreeListing()
+        let modelB = makeModel(service: serviceB)
+        let controller = WorktreeManagerController()
+
+        controller.show(model: modelA, relativeTo: nil)
+        // Re-show with a DIFFERENT model before A's refresh is awaited —
+        // this cancels A's task and starts B's on the same controller/panel.
+        controller.show(model: modelB, relativeTo: nil)
+        await controller.waitForPendingRefresh()
+
+        #expect(serviceB.callCount == 1)
+        #expect(!controller.hasPendingRefresh)
+    }
+
     private func makeModel(service: any GitWorktreeManaging) -> WorktreeManagerModel {
         WorktreeManagerModel(
             repositoryContext: .init(

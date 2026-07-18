@@ -128,8 +128,13 @@ final class WorktreeManagerModel {
         let outcome = await service.list(in: repositoryContext)
         // A newer refresh (manual, post-create, or another `.task(id:)` fire)
         // started and possibly already finished while this one awaited —
-        // never let a stale response overwrite a fresher one.
-        guard generation == refreshGeneration else { return }
+        // never let a stale response overwrite a fresher one. Cancellation is
+        // cooperative, so a controller-level `refreshTask?.cancel()` (e.g. a
+        // rapid dismiss-then-show reusing the same panel for a different
+        // model) doesn't stop this `await` on its own — check it explicitly
+        // so a cancelled call never mutates state or announces against
+        // whatever the panel is showing now.
+        guard generation == refreshGeneration, !Task.isCancelled else { return }
 
         switch outcome {
         case .success(let result):
