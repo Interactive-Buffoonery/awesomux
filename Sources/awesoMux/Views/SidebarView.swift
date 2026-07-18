@@ -23,26 +23,6 @@ enum SidebarDragPointerPolicy {
     }
 }
 
-enum SidebarSearchKeyPressPolicy {
-    static func acceptsNavigation(modifiers: EventModifiers) -> Bool {
-        modifiers.isEmpty
-    }
-}
-
-@MainActor
-enum SidebarSearchSelectionResolver {
-    static func liveSession(
-        focusedID: TerminalSession.ID?,
-        topMatchID: TerminalSession.ID?,
-        in sessionStore: SessionStore
-    ) -> TerminalSession? {
-        guard let targetID = focusedID ?? topMatchID else {
-            return nil
-        }
-        return sessionStore.session(id: targetID)
-    }
-}
-
 struct SidebarView: View {
     @Bindable var sessionStore: SessionStore
     let ghosttyRuntime: GhosttyRuntime
@@ -93,7 +73,7 @@ struct SidebarView: View {
     @State private var sidebarDragClearDeadline: Date?
     @State private var groupFrames: [SessionGroup.ID: CGRect] = [:]
     @State private var groupDropIndex: Int?
-    @FocusState private var isSearchFocused: Bool
+    @State private var isSearchFocused = false
     @State private var focusedSearchSessionID: TerminalSession.ID?
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
     @FocusState private var isCollapsedEmptyActionFocused: Bool
@@ -745,57 +725,27 @@ struct SidebarView: View {
                     .foregroundStyle(Color.aw.text3)
                     .accessibilityHidden(true)
 
-                TextField("Search sessions", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .awFont(AwFont.UI.label)
-                    .foregroundStyle(Color.aw.text)
-                    .focused($isSearchFocused)
-                    .accessibilityLabel("Sidebar search")
-                    .accessibilityHint(
-                        "Filters workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear."
-                    )
-                    .onSubmit {
+                SidebarSearchField(
+                    text: $searchText,
+                    isFocused: $isSearchFocused,
+                    isEnabled: activeDragID == nil,
+                    onMoveFocus: { offset in
+                        moveSearchFocus(
+                            offset: offset,
+                            searchResultIDs: searchResultIDs
+                        )
+                    },
+                    onSubmit: {
                         commitSearchSelection(topMatchID: topMatchID)
-                    }
-                    .onKeyPress(.downArrow, phases: [.down, .repeat]) { keyPress in
-                        guard
-                            SidebarSearchKeyPressPolicy.acceptsNavigation(
-                                modifiers: keyPress.modifiers
-                            )
-                        else {
-                            return .ignored
-                        }
-                        return moveSearchFocus(offset: 1, searchResultIDs: searchResultIDs)
-                    }
-                    .onKeyPress(.upArrow, phases: [.down, .repeat]) { keyPress in
-                        guard
-                            SidebarSearchKeyPressPolicy.acceptsNavigation(
-                                modifiers: keyPress.modifiers
-                            )
-                        else {
-                            return .ignored
-                        }
-                        return moveSearchFocus(offset: -1, searchResultIDs: searchResultIDs)
-                    }
-                    // Esc clears the query without affecting the active
-                    // selection. `.onKeyPress` on a TextField sees macOS field-
-                    // editor keys before SwiftUI's default cancel routing in
-                    // macOS 15, which is what we want here. If a future macOS
-                    // changes this, fall back to a focused-command binding.
-                    .onKeyPress(.escape) {
+                    },
+                    onEscape: {
                         if !searchText.isEmpty {
                             searchText = ""
-                            return .handled
+                            return true
                         }
-                        return .ignored
+                        return false
                     }
-                    // Freeze search input during an active sidebar drag.
-                    // Typing here would flip `isFiltering`, whose onChange
-                    // tears down all drop targets mid-drag — leaving the
-                    // user's drag image chasing the cursor with nowhere to
-                    // land. A reorder drag is brief and mouse-bound, so the
-                    // field is never actively in use during one.
-                    .disabled(activeDragID != nil)
+                )
 
                 if !searchText.isEmpty {
                     Button {
@@ -871,9 +821,9 @@ struct SidebarView: View {
     private func moveSearchFocus(
         offset: Int,
         searchResultIDs: [TerminalSession.ID]
-    ) -> KeyPress.Result {
+    ) -> Bool {
         guard !searchResultIDs.isEmpty else {
-            return .ignored
+            return false
         }
         guard
             let targetID = SidebarSearchFocus.target(
@@ -882,7 +832,7 @@ struct SidebarView: View {
                 offset: offset
             )
         else {
-            return .ignored
+            return false
         }
         focusedSearchSessionID = targetID
         if let session = sessionStore.session(id: targetID),
@@ -896,16 +846,12 @@ struct SidebarView: View {
                 )
             )
         }
-        return .handled
+        return true
     }
 
     private func commitSearchSelection(topMatchID: TerminalSession.ID?) {
-        guard
-            let session = SidebarSearchSelectionResolver.liveSession(
-                focusedID: focusedSearchSessionID,
-                topMatchID: topMatchID,
-                in: sessionStore
-            )
+        guard let targetID = focusedSearchSessionID ?? topMatchID,
+            let session = sessionStore.session(id: targetID)
         else {
             return
         }
