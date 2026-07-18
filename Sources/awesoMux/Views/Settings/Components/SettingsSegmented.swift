@@ -8,6 +8,11 @@ import SwiftUI
 struct SettingsSegmented<Value: Hashable>: View {
     let options: [Option]
     @Binding var selection: Value
+    // Off by default: Settings' three existing call sites size to content and
+    // sit beside a label, so stretching them would be a visual regression.
+    // Callers that need the control to span its container (equal-width
+    // segments, no dead space) opt in explicitly.
+    var expandsToFill: Bool = false
     @Environment(\.awAccent) private var accentResolver
 
     struct Option: Identifiable {
@@ -27,6 +32,7 @@ struct SettingsSegmented<Value: Hashable>: View {
         HStack(spacing: 4) {
             ForEach(options) { option in
                 segmentButton(option)
+                    .frame(maxWidth: expandsToFill ? .infinity : nil)
             }
         }
         .padding(2)
