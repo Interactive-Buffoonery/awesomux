@@ -564,6 +564,7 @@ private struct AnnotationNoteTextView: View {
                 text: $text,
                 isFocused: $isFocused,
                 accessibilityLabel: accessibilityLabel,
+                accessibilityHint: placeholder,
                 onSave: onSave
             )
 
@@ -584,6 +585,11 @@ private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let accessibilityLabel: String
+    // OpenCode review: the old TextField's placeholder doubled as its
+    // accessibility label; this bridge's label is fixed ("Annotation note"),
+    // so the intent-specific guidance ("Add a note…" vs "Replacement text…"
+    // vs "Why remove? (optional)") needs to reach VoiceOver as a hint instead.
+    let accessibilityHint: String
     let onSave: () -> Void
     // The ancestor VStack carries `.disabled(submission.isInFlight)`; SwiftUI's
     // native TextField picks that up for free, but an NSViewRepresentable
@@ -617,6 +623,7 @@ private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
         )
         textView.string = text
         textView.setAccessibilityLabel(accessibilityLabel)
+        textView.setAccessibilityHelp(accessibilityHint)
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -638,6 +645,7 @@ private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
             textView.string = text
         }
         textView.setAccessibilityLabel(accessibilityLabel)
+        textView.setAccessibilityHelp(accessibilityHint)
         textView.isEditable = isEnabled
         textView.isSelectable = isEnabled
 
