@@ -207,7 +207,6 @@ struct AwesoMuxApp: App {
             rootDirectoryURL: runtimeProfile.supportDirectoryURL,
             retainToDisk: { appSettingsStore.analytics.value.retainLocalEventLog }
         )
-        analyticsEventLog.loadIfNeeded()
         _analyticsEventLog = State(initialValue: analyticsEventLog)
         _analyticsClient = State(
             initialValue: LocalAnalyticsClient(
@@ -507,6 +506,9 @@ struct AwesoMuxApp: App {
             }
             .onChange(of: appSettingsStore.analytics.value.consentLevel, initial: true) { _, level in
                 analyticsClient.reconcileConsent(level: level)
+            }
+            .onChange(of: appSettingsStore.analytics.value.retainLocalEventLog, initial: true) {
+                analyticsEventLog.reconcileRetention()
             }
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
                 appDelegate.evaluateAndPostNotifications()

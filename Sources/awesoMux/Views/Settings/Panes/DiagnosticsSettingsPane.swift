@@ -20,6 +20,7 @@ struct DiagnosticsSettingsPane: View {
     @State private var eventCategory: LocalDiagnosticCategory?
     @State private var openGroups = Set<String>()
     @State private var initializedDisclosureState = false
+    @AccessibilityFocusState private var isAnalyticsEventsHeadingFocused: Bool
 
     private var presentation: DiagnosticsPresentation { model.presentation }
 
@@ -65,13 +66,20 @@ struct DiagnosticsSettingsPane: View {
                 title: String(localized: "Analytics events", comment: "Diagnostics settings section title"),
                 subtitle: String(
                     localized: "Final post-redaction payloads and delivery status. Nothing is sent while analytics is off.",
-                    comment: "Diagnostics settings section subtitle")
+                    comment: "Diagnostics settings section subtitle"),
+                accessibilityFocus: $isAnalyticsEventsHeadingFocused
             ) {
                 analyticsEvents
             }
             .id(Self.analyticsEventsAnchor)
-            .onAppear { navigator.anchorDidMount(Self.analyticsEventsAnchor) }
+            .onAppear {
+                navigator.anchorDidMount(Self.analyticsEventsAnchor)
+                focusAnalyticsEventsIfRequested()
+            }
             .onDisappear { navigator.anchorDidUnmount(Self.analyticsEventsAnchor) }
+            .onChange(of: navigator.pendingAccessibilityFocusAnchor) {
+                focusAnalyticsEventsIfRequested()
+            }
         }
         .onAppear {
             model.startSampling()
@@ -90,6 +98,11 @@ struct DiagnosticsSettingsPane: View {
         .onChange(of: eventCategory) {
             announceMatchingEventCount()
         }
+    }
+
+    private func focusAnalyticsEventsIfRequested() {
+        guard navigator.consumeAccessibilityFocus(for: Self.analyticsEventsAnchor) else { return }
+        isAnalyticsEventsHeadingFocused = true
     }
 
     // MARK: - Header and refresh
@@ -558,6 +571,10 @@ struct DiagnosticsSettingsPane: View {
             matching,
             limit: LocalDiagnosticEventSnapshot.maxVisibleEvents
         )
+        let truncationNotice = LocalizedPluralStrings.diagnosticsShowingMatchingEvents(
+            visible: visible.count,
+            total: matching.count
+        )
         return VStack(alignment: .leading, spacing: 0) {
             eventFilters
                 .padding(12)
@@ -583,23 +600,13 @@ struct DiagnosticsSettingsPane: View {
                 cardDivider
             } else {
                 if matching.count > visible.count {
-                    Text(
-                        String(
-                            localized: "Showing \(visible.count) of \(matching.count) matching events",
-                            comment: "Diagnostics event list truncation notice"
-                        )
-                    )
-                    .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.text)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, 4)
-                    .accessibilityLabel(
-                        String(
-                            localized: "Showing \(visible.count) of \(matching.count) matching events",
-                            comment: "VoiceOver: Diagnostics event list truncation notice"
-                        )
-                    )
+                    Text(truncationNotice)
+                        .awFont(AwFont.UI.meta)
+                        .foregroundStyle(Color.aw.text)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 4)
+                        .accessibilityLabel(truncationNotice)
                 }
                 // Plain VStack: this list sits inside SettingsShell's outer ScrollView,
                 // so LazyVStack cannot virtualize (unbounded height). Cap is 100 rows.
@@ -747,6 +754,10 @@ struct DiagnosticsSettingsPane: View {
         let visible = analyticsLog.entries
             .suffix(LocalDiagnosticEventSnapshot.maxVisibleEvents)
             .reversed()
+        let truncationNotice = LocalizedPluralStrings.diagnosticsShowingRecordedAnalyticsEvents(
+            visible: visible.count,
+            total: total
+        )
         return VStack(alignment: .leading, spacing: 0) {
             if visible.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
@@ -763,23 +774,13 @@ struct DiagnosticsSettingsPane: View {
                 .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             } else {
                 if total > visible.count {
-                    Text(
-                        String(
-                            localized: "Showing \(visible.count) of \(total) recorded events",
-                            comment: "Analytics event list truncation notice"
-                        )
-                    )
-                    .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.text)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, 4)
-                    .accessibilityLabel(
-                        String(
-                            localized: "Showing \(visible.count) of \(total) recorded events",
-                            comment: "VoiceOver: Analytics event list truncation notice"
-                        )
-                    )
+                    Text(truncationNotice)
+                        .awFont(AwFont.UI.meta)
+                        .foregroundStyle(Color.aw.text)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 4)
+                        .accessibilityLabel(truncationNotice)
                 }
                 VStack(spacing: 0) {
                     ForEach(Array(visible)) { entry in
@@ -877,7 +878,7 @@ struct DiagnosticsSettingsPane: View {
         case (.queued, _):
             String(localized: "Queued", comment: "Analytics event delivery status")
         case (_, .deliveryUnavailable):
-            String(localized: "Not sent — delivery is not available in this build", comment: "Analytics event delivery status")
+            String(localized: "Not sent — this build records analytics locally only", comment: "Analytics event delivery status")
         case (_, .analyticsDisabled):
             String(localized: "Not recorded — analytics is off", comment: "Analytics event delivery status")
         case (_, .consentInsufficient):
@@ -1081,9 +1082,9 @@ struct DiagnosticsSettingsPane: View {
         let visibleCount = min(matching.count, LocalDiagnosticEventSnapshot.maxVisibleEvents)
         if matching.count > visibleCount {
             TerminalAccessibilityAnnouncer.announce(
-                String(
-                    localized: "Showing \(visibleCount) of \(matching.count) matching events",
-                    comment: "VoiceOver: truncated Diagnostics event list after filter change"
+                LocalizedPluralStrings.diagnosticsShowingMatchingEvents(
+                    visible: visibleCount,
+                    total: matching.count
                 )
             )
         } else {
