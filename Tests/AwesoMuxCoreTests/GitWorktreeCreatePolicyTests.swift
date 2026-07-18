@@ -72,6 +72,26 @@ struct GitWorktreeCreatePolicyTests {
                 .targetOverlapsWorktree(existing)))
     }
 
+    @Test("a typed absolute path with a real, empty, writable target validates clean")
+    func typedAbsolutePathValidatesClean() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let context = GitRepositoryContext(
+            invocationRoot: root, canonicalCommonGitDirectory: root.appendingPathComponent(".git"), displayName: "repo")
+
+        // Mirrors the form's own construction: `URL(fileURLWithPath:)` on a
+        // user-typed absolute string, same as `WorktreeCreateForm.submit()`.
+        let typed = root.appendingPathComponent("new-worktree").path
+        let request = GitWorktreeCreateRequest(
+            repositoryContext: context, mode: .newBranchFromHEAD("test-branch"),
+            targetPath: URL(fileURLWithPath: typed), destinationWorkspaceGroupID: UUID())
+
+        let issues = policy.validate(request, currentWorktrees: [])
+        #expect(!issues.contains(.targetPathMustBeAbsolute))
+        #expect(issues.isEmpty)
+    }
+
     private func request(_ context: GitRepositoryContext, _ mode: GitWorktreeCreateMode, _ target: URL) -> GitWorktreeCreateRequest {
         .init(repositoryContext: context, mode: mode, targetPath: target, destinationWorkspaceGroupID: UUID())
     }

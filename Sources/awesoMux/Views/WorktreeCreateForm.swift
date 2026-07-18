@@ -101,9 +101,23 @@ struct WorktreeCreateForm: View {
         .fixedSize(horizontal: false, vertical: true)
         .interactiveDismissDisabled(isBusy)
         .task { await loadBranches() }
-        .onChange(of: mode) { _, _ in suggestPath() }
-        .onChange(of: selectedBranch) { _, _ in suggestPath() }
-        .onChange(of: newBranchName) { _, _ in suggestPath() }
+        .onChange(of: mode) { _, _ in
+            suggestPath(); validationMessage = nil
+        }
+        .onChange(of: selectedBranch) { _, _ in
+            suggestPath(); validationMessage = nil
+        }
+        .onChange(of: newBranchName) { _, _ in
+            suggestPath(); validationMessage = nil
+        }
+        // Round-3 smoke bug: a failed submit's error stuck around after the
+        // user fixed the field it complained about — e.g. Create pressed on
+        // an empty Target path shows "must be absolute", then as the user
+        // types a real absolute path the stale message just sits there,
+        // reading as if the freshly-typed value were still rejected. The
+        // message belongs to a submit attempt, not the field's live value —
+        // clear it the moment any field the next submit reads changes.
+        .onChange(of: targetPath) { _, _ in validationMessage = nil }
     }
 
     // Pre-submit and branch-loading failures previously only set the visible
