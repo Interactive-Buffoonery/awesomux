@@ -23,9 +23,9 @@ struct SidebarGroupHeaderHitTargetTests {
         let window = Self.makeWindow(onToggle: toggleCounter.increment)
         defer { window.close() }
 
-        Self.sendClick(to: window, at: Self.expandedTrailingWhitespacePoint)
-        #expect(Self.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedTrailingWhitespacePoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(toggleCounter.count == 1)
     }
@@ -41,9 +41,9 @@ struct SidebarGroupHeaderHitTargetTests {
         )
         defer { window.close() }
 
-        Self.sendClick(to: window, at: Self.collapsedRailGutterPoint)
-        #expect(Self.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.collapsedRailGutterPoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(toggleCounter.count == 1)
     }
@@ -59,8 +59,8 @@ struct SidebarGroupHeaderHitTargetTests {
         )
         defer { window.close() }
 
-        Self.sendClick(to: window, at: Self.collapsedEmptyGroupActionPoint)
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.collapsedEmptyGroupActionPoint)
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(newWorkspaceCounter.count == 0)
     }
@@ -76,9 +76,9 @@ struct SidebarGroupHeaderHitTargetTests {
         )
         defer { window.close() }
 
-        Self.sendClick(to: window, at: Self.expandedCountBadgePoint)
-        #expect(Self.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedCountBadgePoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(toggleCounter.count == 1)
         #expect(closeCounter.count == 0)
@@ -112,10 +112,10 @@ struct SidebarGroupHeaderHitTargetTests {
 
         badgeWindow.close()
         window.makeKeyAndOrderFront(nil)
-        Self.settleMainRunLoop()
-        Self.sendClick(to: window, at: Self.expandedCountBadgePoint)
-        #expect(Self.pumpMainRunLoop(until: { closeCounter.count >= 1 }))
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedCountBadgePoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { closeCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(closeCounter.count == 1)
         #expect(toggleCounter.count == 0)
@@ -147,10 +147,10 @@ struct SidebarGroupHeaderHitTargetTests {
 
         badgeWindow.close()
         window.makeKeyAndOrderFront(nil)
-        Self.settleMainRunLoop()
-        Self.sendClick(to: window, at: Self.expandedCountBadgePoint)
-        #expect(Self.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedCountBadgePoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(toggleCounter.count == 1)
         #expect(closeCounter.count == 0)
@@ -206,7 +206,7 @@ struct SidebarGroupHeaderHitTargetTests {
                 ),
             ]
             : [group]
-        let hostingView = HitTargetHostingView(
+        let hosted = SidebarHostedTestHarness.makeWindow(
             rootView: SidebarGroupHitTargetHarness(
                 group: group,
                 allGroups: allGroups,
@@ -219,27 +219,10 @@ struct SidebarGroupHeaderHitTargetTests {
                 onToggle: onToggle,
                 onCloseGroup: onCloseGroup,
                 onNewSessionInGroup: onNewSessionInGroup
-            ))
-        hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 80)
-
-        let window = HitTargetTestWindow(
-            contentRect: hostingView.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+            ),
+            frame: NSRect(x: 0, y: 0, width: width, height: 80)
         )
-        window.contentView = hostingView
-        window.isReleasedWhenClosed = false
-        // SwiftUI gestures are not delivered to the hosted view while the
-        // AppKit test window is hidden. Keep it ordered but fully transparent
-        // so the harness never flashes over the user's desktop during tests.
-        window.alphaValue = 0
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-        window.layoutIfNeeded()
-        hostingView.layoutSubtreeIfNeeded()
-        settleMainRunLoop()
-        return window
+        return hosted.window
     }
 
     private static func renderedPixels(in window: NSWindow) -> Data {
@@ -252,54 +235,6 @@ struct SidebarGroupHeaderHitTargetTests {
         return Data(bytes: bytes, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
     }
 
-    private static func sendClick(to window: NSWindow, at location: CGPoint) {
-        for (type, eventNumber) in [(NSEvent.EventType.leftMouseDown, 1), (.leftMouseUp, 2)] {
-            guard
-                let event = NSEvent.mouseEvent(
-                    with: type,
-                    location: location,
-                    modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: window.windowNumber,
-                    context: nil,
-                    eventNumber: eventNumber,
-                    clickCount: 1,
-                    pressure: type == .leftMouseDown ? 1 : 0
-                )
-            else { continue }
-            window.sendEvent(event)
-        }
-    }
-
-    private static func pumpMainRunLoop(
-        until condition: () -> Bool = { true },
-        timeout: TimeInterval = 1.0
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline {
-            runMainRunLoopSlice()
-        }
-        return condition()
-    }
-
-    private static func settleMainRunLoop(duration: TimeInterval = 0.05) {
-        let deadline = Date().addingTimeInterval(duration)
-        while Date() < deadline {
-            runMainRunLoopSlice(maxDuration: deadline.timeIntervalSinceNow)
-        }
-    }
-
-    private static func runMainRunLoopSlice(maxDuration: TimeInterval = 0.01) {
-        RunLoop.main.run(until: Date().addingTimeInterval(min(0.01, max(0, maxDuration))))
-    }
-}
-
-private final class HitTargetTestWindow: NSWindow {
-    override var canBecomeKey: Bool { true }
-}
-
-private final class HitTargetHostingView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 private final class ToggleCounter {
@@ -377,6 +312,7 @@ private struct SidebarGroupHitTargetHarness: View {
             onToggleNotificationsMute: { _ in },
             onTogglePin: { _ in },
             focusedRowTarget: $focusedRowTarget,
+            focusedSearchSessionID: nil,
             isKeyboardNavigating: $isKeyboardNavigating
         )
         .frame(width: width, height: 80, alignment: .topLeading)
