@@ -214,6 +214,7 @@ struct SidebarGroupView: View {
                             otherGroups: otherGroups,
                             verticalPadding: density.sessionTileVerticalPadding,
                             tintedHighContrast: appSettingsStore.appearance.value.tintedHighContrast,
+                            alwaysShowJumpNumbers: appSettingsStore.appearance.value.alwaysShowJumpNumbers,
                             onSelect: {
                                 onSelect(session)
                             },

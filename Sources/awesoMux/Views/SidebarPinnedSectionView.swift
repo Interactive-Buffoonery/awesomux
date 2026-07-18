@@ -237,6 +237,7 @@ struct SidebarPinnedSectionView: View {
             otherGroups: allGroups.filter { $0.id != item.originGroup.id },
             verticalPadding: density.sessionTileVerticalPadding,
             tintedHighContrast: appSettingsStore.appearance.value.tintedHighContrast,
+            alwaysShowJumpNumbers: appSettingsStore.appearance.value.alwaysShowJumpNumbers,
             onSelect: { onSelect(session) },
             onNewSessionHere: { onNewSessionHere(session) },
             onAcknowledge: { onAcknowledge(session) },

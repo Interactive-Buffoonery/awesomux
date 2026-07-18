@@ -35,6 +35,9 @@ struct SidebarSessionTile: View {
     /// `.equatable()` gate — the same trap `isKeyboardNavigatingValue`
     /// documents, proven live on macOS 15 (PR #428).
     let tintedHighContrast: Bool
+    /// Same snapshot treatment for the jump-number setting: `jumpNumberDisplay`
+    /// is a render-path read, so an in-tile store read stales behind the gate.
+    let alwaysShowJumpNumbers: Bool
     let onSelect: () -> Void
     let onNewSessionHere: () -> Void
     let onAcknowledge: () -> Void
@@ -725,7 +728,7 @@ struct SidebarSessionTile: View {
     private var jumpNumberDisplay: JumpNumberDisplay {
         JumpNumberDisplay.resolve(
             collapsed: displayMode == .collapsed,
-            alwaysOn: appSettingsStore.appearance.value.alwaysShowJumpNumbers,
+            alwaysOn: alwaysShowJumpNumbers,
             commandHeld: isCommandKeyHeld
         )
     }
@@ -1079,6 +1082,7 @@ extension SidebarSessionTile: Equatable {
         let otherGroups: [NeighborKey]
         let verticalPadding: CGFloat
         let tintedHighContrast: Bool
+        let alwaysShowJumpNumbers: Bool
         let canMakeWorkspaceManaged: Bool
         let isPinned: Bool
         let pinnedOriginGroupName: String?
@@ -1158,6 +1162,7 @@ extension SidebarSessionTile: Equatable {
             otherGroups: otherGroups.map { NeighborKey(id: $0.id, name: $0.name) },
             verticalPadding: verticalPadding,
             tintedHighContrast: tintedHighContrast,
+            alwaysShowJumpNumbers: alwaysShowJumpNumbers,
             canMakeWorkspaceManaged: canMakeWorkspaceManaged,
             isPinned: isPinned,
             pinnedOriginGroupName: pinnedOriginGroupName,

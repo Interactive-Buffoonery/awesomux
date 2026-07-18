@@ -13,7 +13,7 @@ import Testing
 //   isPromotionPulseActive, isFiltering, duplicateDisambiguation,
 //   indexInGroup, sessionCountInGroup, ownerGroupIndex,
 //   previousNeighborGroup, nextNeighborGroup, otherGroups, verticalPadding,
-//   tintedHighContrast,
+//   tintedHighContrast, alwaysShowJumpNumbers,
 //   onSelect (closure), onNewSessionHere (closure), onAcknowledge (closure),
 //   onMoveWithinGroup (closure), onMoveToGroup (closure), onClose (closure),
 //   onClear (closure), onRename (closure), canMakeWorkspaceManaged,
@@ -122,7 +122,8 @@ struct SidebarSessionTileEquatableTests {
         nextNeighborGroup: SessionGroup? = nil,
         otherGroups: [SessionGroup] = [],
         canMakeWorkspaceManaged: Bool = false,
-        tintedHighContrast: Bool = false
+        tintedHighContrast: Bool = false,
+        alwaysShowJumpNumbers: Bool = false
     ) -> SidebarSessionTile {
         let focusState = FocusState<SidebarVisibleRowTarget?>()
         return SidebarSessionTile(
@@ -146,6 +147,7 @@ struct SidebarSessionTileEquatableTests {
             otherGroups: otherGroups,
             verticalPadding: 9,
             tintedHighContrast: tintedHighContrast,
+            alwaysShowJumpNumbers: alwaysShowJumpNumbers,
             onSelect: {},
             onNewSessionHere: {},
             onAcknowledge: {},
@@ -404,6 +406,20 @@ struct SidebarSessionTileEquatableTests {
 
         let tileA = tile(session: sessionValue, isActive: true, tintedHighContrast: false)
         let tileB = tile(session: sessionValue, isActive: true, tintedHighContrast: true)
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("alwaysShowJumpNumbers difference compares NOT equal")
+    func alwaysShowJumpNumbersChangeRerenders() {
+        // Same PR #428 staling class as tintedHighContrast above: the setting
+        // drives `jumpNumberDisplay`, a render-path read, so it must be a
+        // compared constructor snapshot rather than an in-tile store read.
+        let onePane = pane()
+        let sessionValue = session(panes: [onePane])
+
+        let tileA = tile(session: sessionValue, alwaysShowJumpNumbers: false)
+        let tileB = tile(session: sessionValue, alwaysShowJumpNumbers: true)
 
         #expect(tileA != tileB)
     }
