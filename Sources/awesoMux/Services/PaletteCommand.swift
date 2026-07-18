@@ -102,6 +102,8 @@ struct PaletteAppActions {
     let showKeyboardCheatsheet: @MainActor () -> Void
     let openMarkdownFile: @MainActor () -> Void
     let openSessionManager: @MainActor () -> Void
+    let saveLayoutPreset: @MainActor () -> Void
+    let applyLayoutPreset: @MainActor () -> Void
 
     static var noop: PaletteAppActions {
         let action: @MainActor () -> Void = {}
@@ -158,7 +160,9 @@ struct PaletteAppActions {
             openInIDE: action,
             showKeyboardCheatsheet: action,
             openMarkdownFile: action,
-            openSessionManager: action
+            openSessionManager: action,
+            saveLayoutPreset: action,
+            applyLayoutPreset: action
         )
     }
 }
@@ -740,6 +744,24 @@ enum PaletteCommandRegistry {
                 shortcut: KeyboardShortcutCatalog.sessionManager,
                 isEnabled: !availability.isAnySheetPresented,
                 run: actions.openSessionManager
+            ),
+            PaletteCommand(
+                id: "saveLayoutPreset",
+                title: "Save Layout as Preset…",
+                subtitle: nil,
+                keywords: ["layout", "preset", "split", "save", "template"],
+                shortcut: nil,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                run: actions.saveLayoutPreset
+            ),
+            PaletteCommand(
+                id: "applyLayoutPreset",
+                title: "Apply Layout Preset…",
+                subtitle: nil,
+                keywords: ["layout", "preset", "split", "apply", "template"],
+                shortcut: nil,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                run: actions.applyLayoutPreset
             ),
         ])
 
