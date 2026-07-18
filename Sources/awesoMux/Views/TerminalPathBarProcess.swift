@@ -255,10 +255,19 @@ struct BoundedCommandRunner: Sendable {
 
         /// Grace fallback: the child exited but stdout never reached EOF (a
         /// descendant holds the pipe). Resolve to nil — an unconfirmed-complete
-        /// buffer must not be painted as a real result.
+        /// buffer must not be painted as a real result. Mirrors
+        /// `readyResumeLocked`'s timeout-first priority: a process SIGTERM'd by
+        /// the timeout that also never drained is a timeout, not merely undrained.
         func resumeUndrainedAsFailureIfExited() {
             lock.lock()
-            let resume = exited ? finishLocked(returning: .outputNotDrained) : nil
+            let resume: (() -> Void)?
+            if !exited {
+                resume = nil
+            } else if timedOut {
+                resume = finishLocked(returning: .timedOut)
+            } else {
+                resume = finishLocked(returning: .outputNotDrained)
+            }
             lock.unlock()
             resume?()
         }
