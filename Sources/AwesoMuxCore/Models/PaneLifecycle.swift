@@ -42,7 +42,10 @@ public struct PaneLifecycle: Hashable, Sendable {
         closePhase: PaneClosePhase = .active
     ) {
         self.availability = availability
-        self.visibility = visibility
+        // The one real cross-axis invariant: a `.closed` leaf is gone and cannot
+        // remain visible/mounted, so it normalizes to `.hidden`. `.closing` may
+        // still be visible (animating out), so it is left free.
+        self.visibility = closePhase == .closed ? .hidden : visibility
         self.closePhase = closePhase
     }
 }
