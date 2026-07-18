@@ -196,10 +196,11 @@ guess from raw payloads:
 - **Lifecycle, three axes** — `PaneAvailability`
   (`awaitingHydration`/`attached`/`unavailable`/`stale`) is the derivable
   classifier over a leaf plus its runtime signals and never lets a
-  remote/degraded/dead pane read as a healthy local attach; **visibility** is a
-  separate `isMounted: Bool` the mounting layer owns (an unmounted leaf is
-  "hidden"); **close phase** (`closing`/`closed`) is transient state the close
-  pipeline drives and has no stored representation.
+  remote/degraded/dead pane read as a healthy local attach; `PaneVisibility`
+  (`visible`/`hidden`) is supplied by the mounting layer; `PaneClosePhase`
+  (`active`/`closing`/`closed`) is supplied by the close pipeline. `PaneLifecycle`
+  composes all three so every lifecycle term is representable while each axis is
+  produced only by the authority that can observe it.
 - **Live state vs reusable layout intent** — `WorkspaceLayoutIntent` is the
   preset seam (INT-757). The `TerminalPaneLayout.layoutIntent` projection prunes
   everything not preset-eligible (documents, remote terminals), collapses the

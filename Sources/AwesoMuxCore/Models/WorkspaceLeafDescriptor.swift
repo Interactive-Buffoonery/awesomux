@@ -15,7 +15,12 @@ public struct WorkspaceLeafDescriptor: Hashable, Sendable {
     public let capabilities: WorkspacePaneCapabilities
     public let availability: PaneAvailability
 
-    public init(
+    // Internal init: a descriptor is only ever DERIVED from a `WorkspaceLeaf`
+    // (via `WorkspaceLeaf.descriptor`), never hand-built. A public memberwise
+    // init would let a caller pair `.terminal(id)` with `kind: .documentGroup`
+    // and inconsistent capabilities/availability — leaking the very invariants
+    // this joined read model exists to centralize.
+    init(
         id: WorkspaceLeafID,
         kind: WorkspacePaneKind,
         label: String,

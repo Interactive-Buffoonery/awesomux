@@ -89,6 +89,15 @@ import Testing
         #expect(layout.removingLeaf(.terminal(TerminalPane.ID())) == .notFound)
     }
 
+    @Test func removingPresentRootDocumentGroupClosesWorkspaceNotNotFound() {
+        // A terminal-free root is structurally invalid as a session but a
+        // constructible TerminalPaneLayout; removing the present-and-only group
+        // must report .closesWorkspace, never .notFound for a present id.
+        let g = group()
+        let layout = TerminalPaneLayout.documentGroup(g)
+        #expect(layout.removingLeaf(.documentGroup(g.id)) == .closesWorkspace)
+    }
+
     // MARK: - replacingLeaf rejects cross-kind
 
     @Test func replacingSameKindSucceeds() {

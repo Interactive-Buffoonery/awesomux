@@ -52,12 +52,17 @@ not third-party injection).
     `.stale`) — the DERIVABLE axis, a pure classifier over a leaf plus its
     runtime signals. Remote/degraded/dead panes never classify as a healthy
     local attach.
-  - **Visibility** — an `isMounted: Bool` the mounting layer owns; a
-    valid-but-unmounted leaf is "hidden". Not a leaf property, and a `Bool`
-    needs no enum.
-  - **Close phase** — `closing`/`closed` are transient states the close pipeline
-    drives (`PaneCloseConsequence`); they have no stored representation, so no
-    classifier fabricates them.
+  - `PaneVisibility` (`.visible`/`.hidden`) — supplied by the mounting layer
+    (`PaneVisibility(isMounted:)`); a valid-but-unmounted leaf is "hidden". Not a
+    leaf property, so it is supplied, not derived.
+  - `PaneClosePhase` (`.active`/`.closing`/`.closed`) — supplied by the close
+    pipeline; transient, with no derivable representation, so no classifier
+    fabricates it.
+  - `PaneLifecycle` composes the three so the issue's whole vocabulary
+    (restored/awaiting-hydration, attached, hidden, disconnected/unavailable,
+    stale, closing, closed) is representable and pattern-matchable, each axis
+    produced only by the authority that can observe it. Close *consequence*
+    (`PaneCloseConsequence`, risk) is a separate concern from close *phase*.
 - **Live state vs reusable layout intent.** `WorkspaceLayoutIntent` is the
   preset seam. It is produced only by the prune-and-normalize projection
   `TerminalPaneLayout.layoutIntent` (retain preset-eligible terminal leaves,
