@@ -106,6 +106,7 @@ struct AwesoMuxApp: App {
     @State private var analyticsEventLog: AnalyticsEventLogStore
     @State private var analyticsClient: AnalyticsPipelineClient
     @State private var analyticsConsentObserver: AnalyticsConsentObserver
+    @State private var analyticsCaptureCoordinator: AnalyticsCaptureCoordinator
     @State private var settingsNavigator = SettingsNavigator()
     @State private var customCommandStore = CustomCommandStore()
     @State private var isCloseConfirmAlertPresented = false
@@ -223,7 +224,25 @@ struct AwesoMuxApp: App {
         )
         _analyticsConsentObserver = State(initialValue: analyticsConsentObserver)
         analyticsConsentObserver.start()
+        let analyticsCaptureCoordinator = AnalyticsCaptureCoordinator(
+            client: analyticsClient,
+            remoteContextProvider: {
+                AnalyticsCaptureCoordinator.remoteContext(in: loadResult.store)
+            },
+            analyticsEnabled: {
+                AnalyticsConsentObserver.effectiveConsent(for: appSettingsStore) != .off
+            }
+        )
+        _analyticsCaptureCoordinator = State(initialValue: analyticsCaptureCoordinator)
+        // Install before restore warnings and runtime producers below. Config
+        // bootstrap failures occur earlier, but invalid config makes effective
+        // consent off, so retaining those inputs locally is fail-closed.
+        diagnosticEvents.setInputObserver { [weak analyticsCaptureCoordinator] input in
+            analyticsCaptureCoordinator?.captureDiagnostic(input)
+        }
         appSettingsStore.startWatching()
+        appSettingsStore.synchronizeFromDisk()
+        analyticsCaptureCoordinator.captureAppLaunch()
         _sessionStore = State(initialValue: loadResult.store)
         if let warning = loadResult.recoveryWarning {
             switch warning.kind {
@@ -1044,6 +1063,7 @@ struct AwesoMuxApp: App {
                 .environment(diagnosticsModel)
                 .environment(analyticsEventLog)
                 .environment(analyticsClient)
+                .environment(analyticsCaptureCoordinator)
                 .environment(settingsNavigator)
                 .appearanceBridge(appSettingsStore)
         }

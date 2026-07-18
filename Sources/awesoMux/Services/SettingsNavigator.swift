@@ -11,11 +11,21 @@ final class SettingsNavigator {
     var pendingSection: SettingsSectionID?
     var pendingScrollAnchor: String?
     private(set) var pendingAccessibilityFocusAnchor: String?
+    private var pendingAnalyticsDiagnosticsSection: AnalyticsDiagnosticsSection?
 
     /// Anchors whose target views are currently in the view tree. A pending
     /// scroll anchor is only consumed once its target is mounted; consuming
     /// earlier would no-op the scroll and silently lose the deep link.
     private(set) var mountedAnchors: Set<String> = []
+
+    func noteAnalyticsDiagnosticsIntent(_ section: AnalyticsDiagnosticsSection) {
+        pendingAnalyticsDiagnosticsSection = section
+    }
+
+    func consumeAnalyticsDiagnosticsIntent() -> AnalyticsDiagnosticsSection {
+        defer { pendingAnalyticsDiagnosticsSection = nil }
+        return pendingAnalyticsDiagnosticsSection ?? .overview
+    }
 
     func anchorDidMount(_ anchor: String) {
         mountedAnchors.insert(anchor)

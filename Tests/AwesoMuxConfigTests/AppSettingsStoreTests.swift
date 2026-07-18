@@ -412,7 +412,47 @@ struct AppSettingsDiagnosticEventTests {
         #expect(events.last == .reloadSucceeded(trigger: .watcher))
     }
 
-    @Test("failed reset after deletion emits a rejected outcome")
+    @Test("silent synchronization closes startup reload gap without a diagnostic")
+    func silentSynchronization() throws {
+        let fixture = try TemporaryAppSettingsFixture()
+        defer { fixture.cleanUp() }
+        var events: [AppSettingsDiagnosticEvent] = []
+        let store = AppSettingsStore(
+            fileStore: fixture.store,
+            diagnosticEventHandler: { events.append($0) },
+            legacySnapshotProvider: { nil }
+        )
+        store.bootstrap()
+        store.analytics.update { $0.consentLevel = .productUsage }
+        try fixture.writeConfig("[analytics]\nconsent_level = \"off\"\n")
+
+        store.synchronizeFromDisk()
+
+        #expect(store.analytics.value.consentLevel == .off)
+        #expect(events.isEmpty)
+    }
+
+    @Test("unreadable config fails effective consent closed")
+    func unreadableConfigFailsClosed() throws {
+        let fixture = try TemporaryAppSettingsFixture()
+        defer { fixture.cleanUp() }
+        let store = AppSettingsStore(
+            fileStore: fixture.store,
+            legacySnapshotProvider: { nil }
+        )
+        store.bootstrap()
+        store.analytics.update { $0.consentLevel = .productUsage }
+        try FileManager.default.removeItem(at: fixture.configURL)
+        try FileManager.default.createDirectory(at: fixture.configURL, withIntermediateDirectories: false)
+
+        store.synchronizeFromDisk()
+
+        #expect(store.loadSource == .unreadableExistingFile)
+        #expect(store.isDiskConfigInvalid)
+        #expect(store.analytics.value.consentLevel == .productUsage)
+    }
+
+    @Test("failed reset after deletion emits a rejected outcome and fails closed")
     func failedResetOutcome() throws {
         let fixture = try TemporaryAppSettingsFixture()
         defer { fixture.cleanUp() }
@@ -423,6 +463,8 @@ struct AppSettingsDiagnosticEventTests {
             legacySnapshotProvider: { nil }
         )
         store.bootstrap()
+        store.analytics.update { $0.consentLevel = .productUsage }
+        #expect(store.analytics.value.consentLevel == .productUsage)
         try FileManager.default.removeItem(at: fixture.configURL)
         store.saveToDisk = { _ throws(ConfigFileStoreError) in
             throw .cannotWrite(fixture.configURL, message: "denied")
@@ -432,5 +474,6 @@ struct AppSettingsDiagnosticEventTests {
 
         #expect(events.last == .resetAfterDeletionRejected)
         #expect(store.latestError != nil)
+        #expect(store.analytics.value.consentLevel == .off)
     }
 }

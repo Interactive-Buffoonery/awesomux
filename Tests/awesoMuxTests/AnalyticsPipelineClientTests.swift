@@ -132,14 +132,20 @@ struct AnalyticsPipelineClientTests {
     func downgradeCancelsRequests() throws {
         let fixture = try Self.makeFixture(consent: .productUsage)
         defer { fixture.cleanUp() }
-        fixture.client.capture(.testPing)
+        let launch = AppLaunchSnapshot(
+            appVersion: "1.0", buildNumber: "1", macOSMajor: 15, macOSMinor: 0, cpuArchitecture: "arm64")
+        fixture.client.capture(.appLaunched(launch))
 
         fixture.consent.level = .errorReports
         fixture.client.reconcileConsent(level: .errorReports)
-        fixture.client.capture(.testPing)
+        fixture.client.capture(.appLaunched(launch))
+        fixture.client.capture(
+            .errorReported(
+                AnalyticsErrorContext(featureArea: .runtime, errorKind: .runtimeEventRejected)))
 
         #expect(fixture.provider.cancelCount == 1)
         #expect(fixture.provider.captures.count == 2)
+        #expect(fixture.store.entries.contains { $0.dropReason == .consentInsufficient })
         #expect(fixture.store.entries.last?.properties[.consentLevel] == .token("error_reports"))
     }
 

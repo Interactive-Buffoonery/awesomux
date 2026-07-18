@@ -136,7 +136,10 @@ final class PostHogCaptureProvider: AnalyticsDeliveryProvider {
         event.properties.reduce(into: [:]) { result, property in
             let (key, value) = property
             switch value {
+            case .bool(let raw): result[key.rawValue] = raw
             case .integer(let raw): result[key.rawValue] = raw
+            case .bucket(let raw): result[key.rawValue] = raw.rawValue
+            case .version(let raw): result[key.rawValue] = raw
             case .token(let raw): result[key.rawValue] = raw
             }
         }

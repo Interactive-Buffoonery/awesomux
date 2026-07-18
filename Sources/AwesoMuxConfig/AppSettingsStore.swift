@@ -197,6 +197,18 @@ public final class AppSettingsStore {
         reloadFromDisk(trigger: .manual)
     }
 
+    /// Re-reads the file without creating a user-facing diagnostic event.
+    /// Runtime composition calls this after installing the directory watcher
+    /// and immediately before privacy-sensitive startup work, closing the gap
+    /// between bootstrap's read and watcher registration.
+    public func synchronizeFromDisk() {
+        guard FileManager.default.fileExists(atPath: configURL.path) else {
+            _ = resetToDefaultsAndWriteFile()
+            return
+        }
+        applyLoadResult(fileStore.load())
+    }
+
     private func reloadFromDisk(trigger: AppSettingsDiagnosticTrigger) {
         guard FileManager.default.fileExists(atPath: configURL.path) else {
             // Manual deletion of the config file is an unambiguous
@@ -274,7 +286,9 @@ public final class AppSettingsStore {
             return
         }
 
-        isDiskConfigInvalid = result.source == .invalidExistingFile
+        // Any present config that could not be loaded is invalid effective
+        // settings input, whether malformed, unreadable, or a special file.
+        isDiskConfigInvalid = result.config == nil
         latestError = result.error.map(AppSettingsStoreError.load)
     }
 
@@ -324,9 +338,11 @@ public final class AppSettingsStore {
     /// intent.
     private func resetToDefaultsAndWriteFile() -> Bool {
         let defaults: AwesoMuxConfig = .defaultValue
+        // Deleting config.toml is reset intent even if recreating the file
+        // fails. Apply defaults first so stale opt-ins cannot remain active.
+        apply(defaults)
         do {
             try saveToDisk(defaults)
-            apply(defaults)
             latestError = nil
             isDiskConfigInvalid = false
             loadSource = .createdDefault

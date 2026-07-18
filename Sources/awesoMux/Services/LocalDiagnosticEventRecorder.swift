@@ -6,10 +6,18 @@ final class LocalDiagnosticEventRecorder {
     private var firstRetainedIndex = 0
     private let retention: TimeInterval
     private let maximumEntries: Int
+    private var inputObserver: ((LocalDiagnosticEventInput) -> Void)?
 
     init(retention: TimeInterval = 3_600, maximumEntries: Int = 500) {
         self.retention = retention
         self.maximumEntries = maximumEntries
+    }
+
+    /// Installs the one app-lifetime observer after runtime composition has
+    /// created all consumers. Earlier startup inputs remain local-only.
+    func setInputObserver(_ observer: @escaping (LocalDiagnosticEventInput) -> Void) {
+        precondition(inputObserver == nil, "diagnostic input observer may only be installed once")
+        inputObserver = observer
     }
 
     func record(_ input: LocalDiagnosticEventInput, at timestamp: Date = Date()) {
@@ -23,6 +31,7 @@ final class LocalDiagnosticEventRecorder {
             isMalformedOrDropped: presentation.isMalformedOrDropped
         ))
         prune(now: timestamp)
+        inputObserver?(input)
     }
 
     func snapshot(now: Date = Date()) -> LocalDiagnosticEventSnapshot {

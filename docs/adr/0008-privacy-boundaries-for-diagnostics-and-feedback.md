@@ -177,7 +177,14 @@ provider-side deletion request.
 
 Instrumentation work must introduce explicit event/error shapes rather than
 shipping generic metadata dictionaries. Any new field that leaves the machine
-needs an allowlist decision.
+needs an allowlist decision. The initial production producers are limited to
+app launch metadata, named handled diagnostic failure categories with coarse
+remote presence, and Diagnostics section openings. Repeating handled failures
+are capped to one event per error kind per app launch. A configuration rejection
+that makes the disk config invalid remains local because effective consent fails
+closed to `off` before analytics capture. Session/group and agent transitions
+remain deferred until they have authoritative, non-duplicated domain seams;
+SwiftUI count inference is not an analytics source.
 
 The PostHog project token is necessarily a public client-side ingestion key,
 not a secret or authentication control. Ingestion can therefore be spoofed;

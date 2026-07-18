@@ -18,6 +18,9 @@ let analyticsSchemaVersion = 1
 enum AnalyticsEventInput: Equatable, Sendable {
     case testPing
     case consentChanged(to: AnalyticsConfig.ConsentLevel)
+    case appLaunched(AppLaunchSnapshot)
+    case errorReported(AnalyticsErrorContext)
+    case diagnosticsOpened(section: AnalyticsDiagnosticsSection)
 }
 
 extension AnalyticsEventInput {
@@ -28,6 +31,9 @@ extension AnalyticsEventInput {
         switch self {
         case .testPing: .testPing
         case .consentChanged: .settingsChanged
+        case .appLaunched: .appLaunched
+        case .errorReported: .errorReported
+        case .diagnosticsOpened: .diagnosticsOpened
         }
     }
 }
@@ -37,22 +43,119 @@ enum AnalyticsEventName: String, Codable, Sendable {
     // Consent changes ride amx_settings_changed per INT-768: setting area
     // only, with the analytics consent level as the sole allowed raw value.
     case settingsChanged = "amx_settings_changed"
+    case appLaunched = "amx_app_launched"
+    case errorReported = "amx_error_reported"
+    case diagnosticsOpened = "amx_diagnostics_opened"
+}
+
+// MARK: - Typed payload vocabulary (closed enums, INT-768 slugs)
+
+struct AppLaunchSnapshot: Equatable, Sendable {
+    let appVersion: String
+    let buildNumber: String
+    let macOSMajor: Int
+    let macOSMinor: Int
+    let cpuArchitecture: String
+}
+
+struct AnalyticsErrorContext: Equatable, Sendable {
+    let featureArea: AnalyticsFeatureArea
+    let errorKind: AnalyticsErrorKind
+    var remote: AnalyticsRemoteContext?
+}
+
+enum AnalyticsFeatureArea: String, CaseIterable, Equatable, Sendable {
+    case runtime
+    case configuration
+    case restore
+    case terminal
+    case diagnostics
+}
+
+enum AnalyticsErrorKind: String, CaseIterable, Equatable, Sendable {
+    case runtimeEventRejected = "runtime_event_rejected"
+    case runtimeEventsDropped = "runtime_events_dropped"
+    case runtimeEventFileUnavailable = "runtime_event_file_unavailable"
+    case configurationRejected = "configuration_rejected"
+    case configurationResetRejected = "configuration_reset_rejected"
+    case restoreArchived = "restore_archived"
+    case restoreSanitized = "restore_sanitized"
+    case terminalFailed = "terminal_failed"
+    case processSamplingFailed = "process_sampling_failed"
+}
+
+/// Derived remote context per INT-768's SSH error handling: never the
+/// detector input, title, user, host, or IP — only presence enums and a
+/// count bucket.
+struct AnalyticsRemoteContext: Equatable, Sendable {
+    enum Presence: String, CaseIterable, Equatable, Sendable {
+        case remote
+        case local
+        case unknown
+    }
+
+    let presence: Presence
+    let activePaneRemote: Bool?
+    let remotePaneCount: Int
+}
+
+enum AnalyticsDiagnosticsSection: String, CaseIterable, Equatable, Sendable {
+    case overview
+    case analytics
 }
 
 /// The INT-768 allowed-context-property allowlist. A key that is not a
 /// case here cannot appear in any payload.
 enum AnalyticsPropertyKey: String, CaseIterable, Codable, CodingKeyRepresentable, Sendable {
+    case appVersion = "app_version"
+    case buildNumber = "build_number"
+    case macosVersionMajor = "macos_version_major"
+    case macosVersionMinor = "macos_version_minor"
+    case cpuArch = "cpu_arch"
+    case featureArea = "feature_area"
+    case errorKind = "error_kind"
     case schemaVersion = "schema_version"
     case consentLevel = "consent_level"
+    case remoteContext = "remote_context"
+    case activePaneRemote = "active_pane_remote"
+    case remotePaneCountBucket = "remote_pane_count_bucket"
     case settingsArea = "settings_area"
+    case diagnosticsSection = "diagnostics_section"
+}
+
+/// Low-cardinality count bucket per INT-768 (`0 | 1 | 2-3 | 4+`).
+enum CountBucket: String, Codable, Equatable, Sendable {
+    case zero = "0"
+    case one = "1"
+    case twoToThree = "2-3"
+    case fourPlus = "4+"
+
+    init(count: Int) {
+        switch count {
+        case ..<1: self = .zero
+        case 1: self = .one
+        case 2...3: self = .twoToThree
+        default: self = .fourPlus
+        }
+    }
 }
 
 /// Payload values. The pipeline constructs `token` through a validating
 /// factory, which rejects path-like, spaced, uppercase, and oversized strings;
 /// the final log gate repeats that validation.
 enum AnalyticsPropertyValue: Equatable, Sendable {
+    case bool(Bool)
     case integer(Int)
+    case bucket(CountBucket)
+    case version(String)
     case token(String)
+
+    /// Dotted numeric version, e.g. "1.4.0" or a build number "203".
+    static func version(validating raw: String) -> AnalyticsPropertyValue? {
+        guard !raw.isEmpty, raw.count <= 32 else { return nil }
+        guard raw.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ".") }) else { return nil }
+        return .version(raw)
+    }
 
     /// Lowercase enum-like slug, e.g. "analytics" or "error_reports".
     static func token(validating raw: String) -> AnalyticsPropertyValue? {
@@ -68,7 +171,10 @@ enum AnalyticsPropertyValue: Equatable, Sendable {
 
     var displayValue: String {
         switch self {
+        case .bool(let value): String(value)
         case .integer(let value): String(value)
+        case .bucket(let bucket): bucket.rawValue
+        case .version(let value): value
         case .token(let value): value
         }
     }
@@ -76,7 +182,10 @@ enum AnalyticsPropertyValue: Equatable, Sendable {
 
 extension AnalyticsPropertyValue: Codable {
     private enum CodingKeys: String, CodingKey {
+        case bool
         case integer
+        case bucket
+        case version
         case token
     }
 
@@ -91,8 +200,22 @@ extension AnalyticsPropertyValue: Codable {
             )
         }
         switch key {
+        case .bool:
+            self = .bool(try container.decode(Bool.self, forKey: key))
         case .integer:
             self = .integer(try container.decode(Int.self, forKey: key))
+        case .bucket:
+            self = .bucket(try container.decode(CountBucket.self, forKey: key))
+        case .version:
+            let raw = try container.decode(String.self, forKey: key)
+            guard let value = AnalyticsPropertyValue.version(validating: raw) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key,
+                    in: container,
+                    debugDescription: "analytics version fails allowlist validation"
+                )
+            }
+            self = value
         case .token:
             let raw = try container.decode(String.self, forKey: key)
             guard let value = AnalyticsPropertyValue.token(validating: raw) else {
@@ -109,7 +232,10 @@ extension AnalyticsPropertyValue: Codable {
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .bool(let value): try container.encode(value, forKey: .bool)
         case .integer(let value): try container.encode(value, forKey: .integer)
+        case .bucket(let bucket): try container.encode(bucket, forKey: .bucket)
+        case .version(let value): try container.encode(value, forKey: .version)
         case .token(let value): try container.encode(value, forKey: .token)
         }
     }
@@ -132,6 +258,7 @@ enum AnalyticsDeliveryStatus: String, Codable, Sendable {
 
 enum AnalyticsDropReason: String, Codable, Sendable {
     case analyticsDisabled = "analytics_disabled"
+    case consentInsufficient = "consent_insufficient"
     case invalidPropertyValue = "invalid_property_value"
     case deliveryUnavailable = "delivery_unavailable"
     case rateLimited = "rate_limited"

@@ -23,6 +23,23 @@ struct LocalDiagnosticEventRecorderTests {
         #expect(snapshot.filtered(scope: .all, category: .configuration).count == 1)
     }
 
+    @Test("installed observer receives later inputs exactly once")
+    func inputObserver() {
+        let recorder = LocalDiagnosticEventRecorder()
+        recorder.record(.terminalReady)
+        var observed: [LocalDiagnosticEventInput] = []
+        recorder.setInputObserver { observed.append($0) }
+
+        recorder.record(.runtimeEventRejected)
+        recorder.record(.configurationReloaded(trigger: .manual))
+
+        #expect(
+            observed == [
+                .runtimeEventRejected,
+                .configurationReloaded(trigger: .manual),
+            ])
+    }
+
     @Test("prunes expired events before applying severity and category filters")
     func timePruningAndFilterCrossProduct() {
         let recorder = LocalDiagnosticEventRecorder(retention: 30, maximumEntries: 10)

@@ -92,6 +92,7 @@ struct AnalyticsSettingsPane: View {
                 ) {
                     Button(String(localized: "View Analytics Events", comment: "Button opening diagnostics analytics log")) {
                         navigator.pendingScrollAnchor = DiagnosticsSettingsPane.analyticsEventsAnchor
+                        navigator.noteAnalyticsDiagnosticsIntent(.analytics)
                         navigator.pendingSection = .diagnostics
                     }
                 }
@@ -295,9 +296,10 @@ struct AnalyticsSettingsPane: View {
                 Analytics are off by default, with no PostHog connection until you opt in. When enabled, \
                 awesoMux submits only final post-redaction events under a random analytics identifier that is \
                 not tied to your name or account. PostHog receives ordinary request metadata, but awesoMux \
-                disables GeoIP enrichment. Current delivery is limited to consent changes and user-triggered \
-                test events, and never includes terminal content, commands, prompts, paths, hostnames, or \
-                direct identifiers.
+                disables GeoIP enrichment. Current delivery is limited to consent changes, user-triggered test \
+                events, app and operating-system versions, CPU architecture, named handled-error categories \
+                with coarse remote context, and the Diagnostics section opened. It never includes terminal \
+                content, commands, prompts, paths, hostnames, or direct identifiers.
                 """,
             comment: "Analytics consent section privacy summary"
         )
@@ -306,7 +308,7 @@ struct AnalyticsSettingsPane: View {
     private static var consentHint: String {
         String(
             localized:
-                "Choose which explicitly allowlisted events future instrumentation may submit. This provider slice submits only consent changes and user-triggered test events.",
+                "Choose whether to submit only allowlisted handled-error events, or those events plus allowlisted app launch and Diagnostics usage events.",
             comment: "Analytics consent field hint"
         )
     }

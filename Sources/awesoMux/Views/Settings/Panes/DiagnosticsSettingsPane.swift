@@ -15,6 +15,7 @@ struct DiagnosticsSettingsPane: View {
     @Environment(DiagnosticsModel.self) private var model
     @Environment(AnalyticsEventLogStore.self) private var analyticsLog
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(AnalyticsCaptureCoordinator.self) private var analyticsCaptureCoordinator
     @Environment(SettingsNavigator.self) private var navigator
     @State private var historyWindow: DiagnosticsHistoryWindow = .fifteenMinutes
     @State private var metric: DiagnosticsMetric = .cpu
@@ -86,6 +87,9 @@ struct DiagnosticsSettingsPane: View {
         }
         .onAppear {
             model.startSampling()
+            analyticsCaptureCoordinator.captureDiagnosticsOpened(
+                section: navigator.consumeAnalyticsDiagnosticsIntent()
+            )
         }
         .task { await analyticsLog.loadIfNeeded() }
         .onDisappear { model.stopSampling() }
@@ -918,6 +922,8 @@ struct DiagnosticsSettingsPane: View {
             String(localized: "Not sent — delivery unavailable", comment: "Analytics event delivery status")
         case (_, .analyticsDisabled):
             String(localized: "Not recorded — analytics is off", comment: "Analytics event delivery status")
+        case (_, .consentInsufficient):
+            String(localized: "Not recorded — additional analytics consent is required", comment: "Analytics event delivery status")
         case (_, .rateLimited):
             String(localized: "Dropped — too many analytics requests in progress", comment: "Analytics event delivery status")
         case (_, .invalidPropertyValue):

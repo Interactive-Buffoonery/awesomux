@@ -46,6 +46,60 @@ struct AnalyticsSanitizerTests {
         if case .dropped = sanitizer.sanitize(.consentChanged(to: .errorReports), consent: .errorReports) {
             Issue.record("consent change unexpectedly dropped at error_reports")
         }
+        let launch = AppLaunchSnapshot(
+            appVersion: "1.2.3", buildNumber: "45", macOSMajor: 15, macOSMinor: 5, cpuArchitecture: "arm64")
+        if case .dropped = sanitizer.sanitize(.appLaunched(launch), consent: .productUsage) {
+            Issue.record("app launch unexpectedly dropped at product_usage")
+        }
+        let error = AnalyticsErrorContext(
+            featureArea: .terminal,
+            errorKind: .terminalFailed,
+            remote: AnalyticsRemoteContext(presence: .remote, activePaneRemote: true, remotePaneCount: 4)
+        )
+        if case .dropped = sanitizer.sanitize(.errorReported(error), consent: .errorReports) {
+            Issue.record("handled error unexpectedly dropped at error_reports")
+        }
+        if case .dropped = sanitizer.sanitize(.diagnosticsOpened(section: .analytics), consent: .productUsage) {
+            Issue.record("Diagnostics opening unexpectedly dropped at product_usage")
+        }
+    }
+
+    @Test("product events require product usage consent")
+    func productConsentGate() {
+        let launch = AppLaunchSnapshot(
+            appVersion: "1.2.3", buildNumber: "45", macOSMajor: 15, macOSMinor: 5, cpuArchitecture: "arm64")
+
+        #expect(
+            sanitizer.sanitize(.appLaunched(launch), consent: .errorReports)
+                == .dropped(.consentInsufficient))
+        #expect(
+            sanitizer.sanitize(.diagnosticsOpened(section: .overview), consent: .errorReports)
+                == .dropped(.consentInsufficient))
+    }
+
+    @Test("handled error carries only coarse remote context")
+    func handledErrorMapping() throws {
+        let input = AnalyticsEventInput.errorReported(
+            AnalyticsErrorContext(
+                featureArea: .terminal,
+                errorKind: .terminalFailed,
+                remote: AnalyticsRemoteContext(
+                    presence: .remote,
+                    activePaneRemote: true,
+                    remotePaneCount: 4
+                )))
+        guard case .event(let event) = sanitizer.sanitize(input, consent: .errorReports) else {
+            Issue.record("expected sanitized handled-error event")
+            return
+        }
+
+        #expect(event.name == .errorReported)
+        #expect(event.properties[.featureArea] == .token("terminal"))
+        #expect(event.properties[.errorKind] == .token("terminal_failed"))
+        #expect(event.properties[.remoteContext] == .token("remote"))
+        #expect(event.properties[.activePaneRemote] == .bool(true))
+        #expect(event.properties[.remotePaneCountBucket] == .bucket(.fourPlus))
+        #expect(AnalyticsSanitizer.isEventValid(event))
     }
 
     @Test(
