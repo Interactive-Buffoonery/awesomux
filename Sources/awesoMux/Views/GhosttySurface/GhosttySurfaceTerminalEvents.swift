@@ -433,10 +433,6 @@ extension GhosttySurfaceNSView {
             }
         }
 
-        guard !runtimeSessionHasEnded else {
-            return
-        }
-
         hasObservedAgentActivity =
             hasObservedAgentActivity
             || agentOutputDetector.observesAgentContext(in: visibleText)
@@ -590,14 +586,7 @@ extension GhosttySurfaceNSView {
             }
         }
 
-        if decision.shouldClearStaleError {
-            clearStaleErrorState()
-        }
-        if applyState != nil || decision.agentKind != nil {
-            announce(decision.announcementIntent)
-        }
-
-        sessionStore.applyDetectedAgentState(
+        let applied = sessionStore.applyDetectedAgentState(
             id: sessionID,
             paneID: paneID,
             detectedState: applyState,
@@ -606,6 +595,14 @@ extension GhosttySurfaceNSView {
             clearsUnreadNotifications: applyState != nil ? decision.clearsUnreadNotifications : false,
             unreadNotificationDelta: applyState != nil ? decision.unreadNotificationDelta : 0
         )
+        guard applied else { return }
+
+        if decision.shouldClearStaleError {
+            clearStaleErrorState()
+        }
+        if applyState != nil || decision.agentKind != nil {
+            announce(decision.announcementIntent)
+        }
     }
 
     func announce(_ intent: AgentStateAnnouncementIntent) {
@@ -690,9 +687,6 @@ extension GhosttySurfaceNSView {
         // visible-text heuristic's own scope, not suppressed here.
         if event.phase == .sessionEnd {
             hasObservedAgentActivity = false
-            runtimeSessionHasEnded = true
-        } else if event.phase == .sessionStart {
-            runtimeSessionHasEnded = false
         }
 
         // Only state-bearing events suppress the visible-text detector,

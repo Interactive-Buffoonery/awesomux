@@ -4,9 +4,9 @@ import Testing
 
 @Suite("Ghostty surface attention decisions")
 struct GhosttySurfaceAttentionTests {
-    @Test("runtime session end blocks text state until the next session starts")
+    @Test("runtime session end survives remount and blocks text and process inference")
     @MainActor
-    func runtimeSessionEndBlocksTextStateUntilRestart() throws {
+    func runtimeSessionEndSurvivesRemount() throws {
         let pane = TerminalPane(
             title: "claude",
             workingDirectory: "~",
@@ -24,7 +24,7 @@ struct GhosttySurfaceAttentionTests {
             SessionGroup(name: "awesoMux", sessions: [session])
         ])
         let runtime = GhosttyRuntime()
-        let view = runtime.surfaceView(
+        let firstView = runtime.surfaceView(
             sessionStore: store,
             session: session,
             pane: pane,
@@ -32,18 +32,39 @@ struct GhosttySurfaceAttentionTests {
             grokIconEnabled: false
         )
 
-        view.applyAgentRuntimeEvent(
+        firstView.applyAgentRuntimeEvent(
             AgentRuntimeEvent(
                 source: .claudeCode,
                 executionState: .idle,
                 phase: .sessionEnd
             ))
 
-        #expect(view.runtimeSessionHasEnded)
         #expect(store.session(id: session.id)?.agentKind == .shell)
         #expect(store.session(id: session.id)?.agentExecutionState == .idle)
 
-        view.applyAgentRuntimeEvent(
+        let remountedView = runtime.surfaceView(
+            sessionStore: store,
+            session: try #require(store.session(id: session.id)),
+            pane: try #require(store.session(id: session.id)?.layout.pane(id: pane.id)),
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+        remountedView.applyDetectedAgentOutput(
+            AgentOutputDetection(
+                state: .thinking,
+                agentKind: .claudeCode
+            ))
+        remountedView.applyDetectedAgentOutput(
+            AgentOutputDetection(
+                state: .waiting,
+                agentKind: .claudeCode,
+                agentKindIsAuthoritative: true
+            ))
+
+        #expect(store.session(id: session.id)?.agentKind == .shell)
+        #expect(store.session(id: session.id)?.agentExecutionState == .idle)
+
+        remountedView.applyAgentRuntimeEvent(
             AgentRuntimeEvent(
                 source: .claudeCode,
                 kind: .claudeCode,
@@ -51,8 +72,37 @@ struct GhosttySurfaceAttentionTests {
                 phase: .sessionStart
             ))
 
-        #expect(!view.runtimeSessionHasEnded)
         #expect(store.session(id: session.id)?.agentKind == .claudeCode)
+    }
+
+    @Test("hookless provider end retains later heuristic fallback")
+    @MainActor
+    func hooklessProviderEndRetainsFallback() {
+        let session = TerminalSession(
+            title: "grok",
+            workingDirectory: "~",
+            agentKind: .grok,
+            agentState: .running
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "awesoMux", sessions: [session])])
+
+        #expect(
+            store.applyAgentRuntimeEvent(
+                AgentRuntimeEvent(source: .grok, executionState: .idle, phase: .sessionEnd),
+                to: session.id,
+                paneID: session.activePaneID,
+                terminalIsFocused: false
+            ))
+        #expect(
+            store.applyDetectedAgentState(
+                id: session.id,
+                paneID: session.activePaneID,
+                detectedState: .thinking,
+                agentKind: .grok,
+                clearsAttention: false
+            ))
+        #expect(store.session(id: session.id)?.agentKind == .grok)
+        #expect(store.session(id: session.id)?.agentExecutionState == .thinking)
     }
 
     @Test("visible-text suppression reads this pane's state, not the loudest sibling")
@@ -79,11 +129,12 @@ struct GhosttySurfaceAttentionTests {
         let session = TerminalSession(
             title: "split",
             workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(thisPane),
-                second: .pane(sibling)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(thisPane),
+                    second: .pane(sibling)
+                )),
             activePaneID: thisPane.id
         )
 
@@ -100,21 +151,24 @@ struct GhosttySurfaceAttentionTests {
 
     @Test("selected key workspace suppresses generic output attention")
     func selectedKeyWorkspaceSuppressesGenericOutputAttention() {
-        #expect(!GhosttySurfaceNSView.shouldMarkGenericOutputNeedsAttention(
-            isKeyWindow: true,
-            isSelectedWorkspace: true
-        ))
+        #expect(
+            !GhosttySurfaceNSView.shouldMarkGenericOutputNeedsAttention(
+                isKeyWindow: true,
+                isSelectedWorkspace: true
+            ))
     }
 
     @Test("generic output attention still marks background workspaces")
     func genericOutputAttentionStillMarksBackgroundWorkspaces() {
-        #expect(GhosttySurfaceNSView.shouldMarkGenericOutputNeedsAttention(
-            isKeyWindow: true,
-            isSelectedWorkspace: false
-        ))
-        #expect(GhosttySurfaceNSView.shouldMarkGenericOutputNeedsAttention(
-            isKeyWindow: false,
-            isSelectedWorkspace: true
-        ))
+        #expect(
+            GhosttySurfaceNSView.shouldMarkGenericOutputNeedsAttention(
+                isKeyWindow: true,
+                isSelectedWorkspace: false
+            ))
+        #expect(
+            GhosttySurfaceNSView.shouldMarkGenericOutputNeedsAttention(
+                isKeyWindow: false,
+                isSelectedWorkspace: true
+            ))
     }
 }

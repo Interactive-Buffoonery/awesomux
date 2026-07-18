@@ -49,6 +49,7 @@ struct AgentRuntimeEventReducer: Sendable {
         // both post-exit Stop events and an old SessionEnd delivered after a
         // stopped lifecycle has been superseded in the same pane.
         var lifecycle = Lifecycle.active
+        var suppressesHeuristicState = false
         // Grok emits hooks for child agents too. Latch the parent session id so
         // child lifecycle events do not flip the parent tile.
         var providerSessionID: String?
@@ -89,6 +90,10 @@ struct AgentRuntimeEventReducer: Sendable {
 
     var stateByPaneID: [TerminalPane.ID: RuntimeEventState] = [:]
 
+    func suppressesHeuristicState(for paneID: TerminalPane.ID) -> Bool {
+        stateByPaneID[paneID]?.suppressesHeuristicState == true
+    }
+
     mutating func decision(
         for event: AgentRuntimeEvent,
         currentSession: TerminalSession?,
@@ -97,7 +102,8 @@ struct AgentRuntimeEventReducer: Sendable {
         now: Date
     ) -> Decision? {
         guard let currentSession,
-              let currentPane = currentSession.layout.pane(id: paneID) else {
+            let currentPane = currentSession.layout.pane(id: paneID)
+        else {
             stateByPaneID[paneID] = nil
             return nil
         }
@@ -125,31 +131,38 @@ struct AgentRuntimeEventReducer: Sendable {
         // resurrect the agent glyph.
         if event.phase == .sessionEnd {
             if state.lifecycle.hasSupersededStoppedLifecycle,
-               !state.lifecycle.currentIsStopped,
-               (normalizedProviderSessionID(state.providerSessionID) == nil
-                   || normalizedProviderSessionID(event.providerSessionID) == nil) {
+                !state.lifecycle.currentIsStopped,
+                (normalizedProviderSessionID(state.providerSessionID) == nil
+                    || normalizedProviderSessionID(event.providerSessionID) == nil)
+            {
                 return nil
             }
             state.lifecycle = .ended
+            state.suppressesHeuristicState =
+                state.suppressesHeuristicState
+                || event.source.hasTrustworthySessionRestartBoundary
             if event.source == .grok {
                 state.providerSessionID = nil
             }
             advanceTimestampWatermark(event.timestamp, now: now, into: &state)
             stateByPaneID[paneID] = state
-            return Decision(update: WorkspaceAttentionReducer.SessionUpdate(
-                agentKind: .shell,
-                agentExecutionState: event.executionState ?? .idle,
-                clearsAttention: true,
-                clearsUnreadNotifications: true
-            ))
+            return Decision(
+                update: WorkspaceAttentionReducer.SessionUpdate(
+                    agentKind: .shell,
+                    agentExecutionState: event.executionState ?? .idle,
+                    clearsAttention: true,
+                    clearsUnreadNotifications: true
+                ))
         }
 
-        let startsNewLifecycleAfterStop = event.phase == .sessionStart
-            && state.lifecycle.currentIsStopped
-        if !startsNewLifecycleAfterStop,
-           let timestamp = event.timestamp,
-           let lastTimestamp = state.lastAppliedTimestamp,
-           timestamp <= lastTimestamp {
+        let startsNewLifecycle =
+            event.phase == .sessionStart
+            && (state.lifecycle.currentIsStopped || state.lifecycle.isEnded)
+        if !startsNewLifecycle,
+            let timestamp = event.timestamp,
+            let lastTimestamp = state.lastAppliedTimestamp,
+            timestamp <= lastTimestamp
+        {
             return nil
         }
 
@@ -159,16 +172,18 @@ struct AgentRuntimeEventReducer: Sendable {
         // an absent title is malformed and dropped, an empty title resets.
         if event.phase == .rename {
             guard event.executionState == nil,
-                  event.attentionReason == nil,
-                  event.state == nil,
-                  let rawTitle = event.title else {
+                event.attentionReason == nil,
+                event.state == nil,
+                let rawTitle = event.title
+            else {
                 return nil
             }
             recordApplied(
                 dedupeKey: dedupeKey, timestamp: event.timestamp, now: now, into: &state
             )
             stateByPaneID[paneID] = state
-            let action: PaneTitleAction = SessionStoreText.sanitizedTitle(rawTitle).isEmpty
+            let action: PaneTitleAction =
+                SessionStoreText.sanitizedTitle(rawTitle).isEmpty
                 ? .reset
                 : .rename(rawTitle)
             return Decision(
@@ -179,12 +194,13 @@ struct AgentRuntimeEventReducer: Sendable {
 
         if event.phase == .openDocument {
             guard !state.lifecycle.isEnded,
-                  event.executionState == nil,
-                  event.attentionReason == nil,
-                  event.state == nil,
-                  event.title == nil,
-                  let rawPath = event.documentPath,
-                  let documentPath = AgentRuntimeEvent.validatedDocumentPath(rawPath) else {
+                event.executionState == nil,
+                event.attentionReason == nil,
+                event.state == nil,
+                event.title == nil,
+                let rawPath = event.documentPath,
+                let documentPath = AgentRuntimeEvent.validatedDocumentPath(rawPath)
+            else {
                 return nil
             }
             recordApplied(
@@ -203,21 +219,25 @@ struct AgentRuntimeEventReducer: Sendable {
             let wasSessionEnded = state.lifecycle.isEnded
             let wasLifecycleStopped = state.lifecycle.currentIsStopped
             state.lifecycle.start()
+            state.suppressesHeuristicState = false
             if event.source == .grok,
-               (state.providerSessionID == nil || wasSessionEnded || wasLifecycleStopped),
-               let providerSessionID = normalizedProviderSessionID(event.providerSessionID) {
+                (state.providerSessionID == nil || wasSessionEnded || wasLifecycleStopped),
+                let providerSessionID = normalizedProviderSessionID(event.providerSessionID)
+            {
                 state.providerSessionID = providerSessionID
             }
         } else if event.phase == .stop {
             state.lifecycle.stop()
         } else if event.source == .grok,
-                  event.phase == .promptSubmit,
-                  state.providerSessionID == nil,
-                  let providerSessionID = normalizedProviderSessionID(event.providerSessionID) {
+            event.phase == .promptSubmit,
+            state.providerSessionID == nil,
+            let providerSessionID = normalizedProviderSessionID(event.providerSessionID)
+        {
             state.providerSessionID = providerSessionID
         }
 
-        let eventExecutionState = state.lifecycle.isEnded
+        let eventExecutionState =
+            state.lifecycle.isEnded
             ? nil
             : event.executionState ?? event.state?.executionState
         // Once the pane has seen a session-exit reset, suppress any straggling
@@ -229,16 +249,19 @@ struct AgentRuntimeEventReducer: Sendable {
         // then dedups against (INT-642). An event-file writer claiming it would
         // get its only announcement silently suppressed, so normalize it to
         // `.unknown` — behaviorally identical everywhere else (badge, restore).
-        let rawAttentionReason = state.lifecycle.isEnded
+        let rawAttentionReason =
+            state.lifecycle.isEnded
             ? nil
             : event.attentionReason ?? event.state?.attentionReason
-        let eventAttentionReason = rawAttentionReason == .processError
+        let eventAttentionReason =
+            rawAttentionReason == .processError
             ? .unknown
             : rawAttentionReason
         // Legacy `state` was a full display-state replacement, so an execution
         // update clears prior attention. Modern `executionState` is independent
         // and must not erase an explicit attention reason.
-        let clearsAttention = event.attentionReason == nil
+        let clearsAttention =
+            event.attentionReason == nil
             && event.state?.executionState != nil
         // A fresh attention episode is either entering attention from none, or
         // a priority UPGRADE of a pending reason (.bell → .permissionPrompt):
@@ -260,11 +283,13 @@ struct AgentRuntimeEventReducer: Sendable {
         // It is still an unread-worthy event when it happens outside the focused
         // terminal, so background completions keep producing badges/banners
         // without borrowing the peach `!` reserved for blocking decisions.
-        let enteringUnseenTurnCompletion = event.phase == .stop
+        let enteringUnseenTurnCompletion =
+            event.phase == .stop
             && eventExecutionState == .waiting
             && eventAttentionReason == nil
-        let unreadDelta = !terminalIsFocused
-            && (enteringNeedsAttention || enteringUnseenTurnCompletion) ? 1 : 0
+        let unreadDelta =
+            !terminalIsFocused
+                && (enteringNeedsAttention || enteringUnseenTurnCompletion) ? 1 : 0
 
         let resolvedKind: AgentKind?
         if state.lifecycle.isEnded {
@@ -282,13 +307,14 @@ struct AgentRuntimeEventReducer: Sendable {
         recordApplied(dedupeKey: dedupeKey, timestamp: event.timestamp, now: now, into: &state)
         stateByPaneID[paneID] = state
 
-        return Decision(update: WorkspaceAttentionReducer.SessionUpdate(
-            agentKind: resolvedKind,
-            agentExecutionState: eventExecutionState,
-            attentionReason: eventAttentionReason,
-            clearsAttention: clearsAttention,
-            unreadNotificationDelta: unreadDelta
-        ))
+        return Decision(
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                agentKind: resolvedKind,
+                agentExecutionState: eventExecutionState,
+                attentionReason: eventAttentionReason,
+                clearsAttention: clearsAttention,
+                unreadNotificationDelta: unreadDelta
+            ))
     }
 
     /// Records an applied event into the per-pane state: appends its dedupe key
@@ -333,8 +359,9 @@ struct AgentRuntimeEventReducer: Sendable {
         state: RuntimeEventState
     ) -> Bool {
         guard event.source == .grok,
-              let parentSessionID = state.providerSessionID,
-              let eventSessionID = normalizedProviderSessionID(event.providerSessionID) else {
+            let parentSessionID = state.providerSessionID,
+            let eventSessionID = normalizedProviderSessionID(event.providerSessionID)
+        else {
             return false
         }
 

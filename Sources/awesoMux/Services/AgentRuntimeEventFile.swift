@@ -2,15 +2,25 @@ import Darwin
 import Foundation
 
 enum AgentRuntimeEventFile {
+    struct Generation: Equatable, Sendable {
+        let inode: ino_t
+        let size: UInt64
+        let modificationSeconds: Int
+        let modificationNanoseconds: Int
+        let changeSeconds: Int
+        let changeNanoseconds: Int
+    }
+
     final class ValidatedReadHandle: Sendable {
         let fileDescriptor: Int32
-        let size: UInt64
-        let inode: ino_t
+        let generation: Generation
 
-        init(fileDescriptor: Int32, size: UInt64, inode: ino_t) {
+        var size: UInt64 { generation.size }
+        var inode: ino_t { generation.inode }
+
+        init(fileDescriptor: Int32, generation: Generation) {
             self.fileDescriptor = fileDescriptor
-            self.size = size
-            self.inode = inode
+            self.generation = generation
         }
 
         deinit {
@@ -54,6 +64,80 @@ enum AgentRuntimeEventFile {
         }
     }
 
+    static func validatedGeneration(
+        fileDescriptor: Int32,
+        effectiveUID: uid_t = geteuid()
+    ) -> Generation? {
+        var st = stat()
+        guard fstat(fileDescriptor, &st) == 0,
+            (st.st_mode & S_IFMT) == S_IFREG,
+            st.st_uid == effectiveUID,
+            st.st_size >= 0
+        else {
+            return nil
+        }
+        return Generation(
+            inode: st.st_ino,
+            size: UInt64(st.st_size),
+            modificationSeconds: st.st_mtimespec.tv_sec,
+            modificationNanoseconds: st.st_mtimespec.tv_nsec,
+            changeSeconds: st.st_ctimespec.tv_sec,
+            changeNanoseconds: st.st_ctimespec.tv_nsec
+        )
+    }
+
+    static func readFinalCompleteNonemptyLine(
+        fileDescriptor: Int32,
+        size: UInt64,
+        maximumByteCount: Int
+    ) -> Data? {
+        guard size > 0 else { return nil }
+
+        var cursor = size
+        var foundTerminator = false
+        var reversedLine: [UInt8] = []
+        reversedLine.reserveCapacity(min(maximumByteCount, 4 * 1024))
+
+        while cursor > 0 {
+            let chunkSize = Int(min(cursor, UInt64(4 * 1024)))
+            let chunkOffset = cursor - UInt64(chunkSize)
+            var chunk = [UInt8](repeating: 0, count: chunkSize)
+            let bytesRead = chunk.withUnsafeMutableBytes { buffer in
+                pread(fileDescriptor, buffer.baseAddress, chunkSize, off_t(chunkOffset))
+            }
+            guard bytesRead == chunkSize else { return nil }
+
+            for byte in chunk.prefix(bytesRead).reversed() {
+                if !foundTerminator {
+                    guard byte == 0x0A else { return nil }
+                    foundTerminator = true
+                    continue
+                }
+                if byte == 0x0A {
+                    if reversedLine.isEmpty || reversedLine == [0x0D] {
+                        reversedLine.removeAll(keepingCapacity: true)
+                        continue
+                    }
+                    return normalizedLine(from: reversedLine)
+                }
+                reversedLine.append(byte)
+                guard reversedLine.count <= maximumByteCount + 1 else { return nil }
+            }
+            cursor = chunkOffset
+        }
+
+        guard !reversedLine.isEmpty, reversedLine != [0x0D] else { return nil }
+        return normalizedLine(from: reversedLine)
+    }
+
+    private static func normalizedLine(from reversedLine: [UInt8]) -> Data? {
+        var bytes = Array(reversedLine.reversed())
+        if bytes.last == 0x0D {
+            bytes.removeLast()
+        }
+        return bytes.isEmpty ? nil : Data(bytes)
+    }
+
     static func prepare(
         at url: URL,
         effectiveUID: uid_t = geteuid()
@@ -93,9 +177,10 @@ enum AgentRuntimeEventFile {
 
         var st = stat()
         guard fstat(fd, &st) == 0,
-              (st.st_mode & S_IFMT) == S_IFREG,
-              st.st_uid == effectiveUID,
-              ftruncate(fd, 0) == 0 else {
+            (st.st_mode & S_IFMT) == S_IFREG,
+            st.st_uid == effectiveUID,
+            ftruncate(fd, 0) == 0
+        else {
             return .rotationRequired
         }
 
@@ -111,18 +196,19 @@ enum AgentRuntimeEventFile {
             return nil
         }
 
-        var st = stat()
-        guard fstat(fd, &st) == 0,
-              (st.st_mode & S_IFMT) == S_IFREG,
-              st.st_uid == effectiveUID else {
+        guard
+            let generation = validatedGeneration(
+                fileDescriptor: fd,
+                effectiveUID: effectiveUID
+            )
+        else {
             close(fd)
             return nil
         }
 
         return ValidatedReadHandle(
             fileDescriptor: fd,
-            size: UInt64(st.st_size),
-            inode: st.st_ino
+            generation: generation
         )
     }
 
@@ -144,8 +230,9 @@ enum AgentRuntimeEventFile {
 
         var st = stat()
         guard fstat(fd, &st) == 0,
-              (st.st_mode & S_IFMT) == S_IFDIR,
-              st.st_uid == effectiveUID else {
+            (st.st_mode & S_IFMT) == S_IFDIR,
+            st.st_uid == effectiveUID
+        else {
             return false
         }
 
@@ -183,8 +270,9 @@ enum AgentRuntimeEventFile {
     ) -> Bool {
         var st = stat()
         guard fstat(fileDescriptor, &st) == 0,
-              (st.st_mode & S_IFMT) == S_IFREG,
-              st.st_uid == effectiveUID else {
+            (st.st_mode & S_IFMT) == S_IFREG,
+            st.st_uid == effectiveUID
+        else {
             return false
         }
 

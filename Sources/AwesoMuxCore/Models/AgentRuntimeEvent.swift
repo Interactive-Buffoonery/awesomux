@@ -73,7 +73,8 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
             let documentPath: String?
             if payload.phase == .openDocument {
                 guard let rawPath = payload.documentPath,
-                      let validatedPath = validatedDocumentPath(rawPath) else {
+                    let validatedPath = validatedDocumentPath(rawPath)
+                else {
                     return nil
                 }
                 documentPath = validatedPath
@@ -97,7 +98,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
             )
         } catch {
             #if DEBUG
-            logger.debug("agent runtime event parse failed: \(error.localizedDescription, privacy: .public)")
+                logger.debug("agent runtime event parse failed: \(error.localizedDescription, privacy: .public)")
             #endif
             return nil
         }
@@ -105,8 +106,9 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
 
     public static func validatedDocumentPath(_ path: String) -> String? {
         guard !path.isEmpty,
-              !path.contains("\0"),
-              (path as NSString).isAbsolutePath else {
+            !path.contains("\0"),
+            (path as NSString).isAbsolutePath
+        else {
             return nil
         }
 
@@ -215,6 +217,15 @@ public enum AgentRuntimeSource: String, Codable, Sendable {
             .grok
         case .unknown:
             nil
+        }
+    }
+
+    var hasTrustworthySessionRestartBoundary: Bool {
+        switch self {
+        case .claudeCode, .pi:
+            true
+        case .codex, .openCode, .grok, .unknown:
+            false
         }
     }
 }

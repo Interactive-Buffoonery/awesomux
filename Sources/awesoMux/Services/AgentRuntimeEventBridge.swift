@@ -12,6 +12,7 @@ final class AgentRuntimeEventBridge {
     private static let sourceRetryMaximumDelay = Duration.seconds(30)
     private static let logger = Logger(subsystem: "awesomux.agent", category: "runtime-event-bridge")
     private let diagnosticEventHandler: (LocalDiagnosticEventInput) -> Void
+    private let initialSnapshotInterposer: ((URL) -> Void)?
 
     private final class Watch {
         let fileURL: URL
@@ -22,6 +23,9 @@ final class AgentRuntimeEventBridge {
         var hasLoggedSourceFailure: Bool
         var needsDrainRetry: Bool
         var inode: ino_t
+        var needsInitialSnapshot: Bool
+        var initialGeneration: AgentRuntimeEventFile.Generation?
+        var bufferedEvent: AgentRuntimeEvent?
 
         init(fileURL: URL, applyEvent: @escaping (AgentRuntimeEvent) -> Void, offset: UInt64) {
             self.fileURL = fileURL
@@ -32,6 +36,9 @@ final class AgentRuntimeEventBridge {
             self.hasLoggedSourceFailure = false
             self.needsDrainRetry = false
             self.inode = 0
+            self.needsInitialSnapshot = true
+            self.initialGeneration = nil
+            self.bufferedEvent = nil
         }
     }
 
@@ -47,10 +54,12 @@ final class AgentRuntimeEventBridge {
         notificationCenter: NotificationCenter = .default,
         initialIsAppActive: Bool? = nil,
         runtimeEventsDirectoryURL: URL? = nil,
+        initialSnapshotInterposer: ((URL) -> Void)? = nil,
         diagnosticEventHandler: @escaping (LocalDiagnosticEventInput) -> Void = { _ in }
     ) {
         self.notificationCenter = notificationCenter
         self.runtimeEventsDirectoryURLOverride = runtimeEventsDirectoryURL
+        self.initialSnapshotInterposer = initialSnapshotInterposer
         self.diagnosticEventHandler = diagnosticEventHandler
         sweepStaleEventFiles()
         observeActivationState(initialIsAppActive: initialIsAppActive)
@@ -89,17 +98,12 @@ final class AgentRuntimeEventBridge {
         let fileURL = eventFileURL(for: paneID)
         touchEventFile(at: fileURL)
 
-        let bufferedReadHandle = AgentRuntimeEventFile.openForReading(at: fileURL)
-
         let watch = Watch(
             fileURL: fileURL,
             applyEvent: applyEvent,
-            offset: bufferedReadHandle?.size ?? 0
+            offset: 0
         )
         watches[paneID] = watch
-        if let bufferedSessionEnd = bufferedSessionEnd(from: bufferedReadHandle) {
-            applyEvent(bufferedSessionEnd)
-        }
         // If startSource fails the watch stays in `watches` with `source ==
         // nil` so the helper still writes to a real file at the advertised
         // path. A cancellable backoff retries source creation while activation
@@ -140,12 +144,15 @@ final class AgentRuntimeEventBridge {
         poll(paneID: paneID)
     }
 
+    func retrySourceForTesting(paneID: TerminalPane.ID) {
+        startSource(for: paneID)
+    }
+
     // MARK: - Dispatch source lifecycle
 
-    /// Open the event file with `O_EVTONLY | O_NOFOLLOW | O_CLOEXEC` and arm
-    /// a kqueue-backed dispatch source on it. `O_EVTONLY` requests
-    /// notifications without granting read or write access; actual reads use
-    /// a separate `O_NOFOLLOW`-validated descriptor in `poll(paneID:)`.
+    /// Open the event file with `O_RDONLY | O_NOFOLLOW | O_CLOEXEC` and arm
+    /// a kqueue-backed dispatch source on the descriptor used for the initial
+    /// snapshot.
     /// `O_NOFOLLOW` closes a same-UID symlink-attack window between
     /// `touchEventFile` and `open` — defense-in-depth even though the parent
     /// dir is 0700.
@@ -164,7 +171,7 @@ final class AgentRuntimeEventBridge {
             tearDownSource(for: watch)
         }
 
-        let fd = open(watch.fileURL.path, O_EVTONLY | O_NOFOLLOW | O_CLOEXEC)
+        let fd = open(watch.fileURL.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else {
             if shouldLogSourceFailure(for: watch) {
                 Self.logger.error(
@@ -178,10 +185,11 @@ final class AgentRuntimeEventBridge {
         // Verify what we opened is actually a regular file at the expected
         // path, then capture its inode so resume / re-arm paths can detect
         // out-of-band rotation.
-        var st = stat()
-        guard fstat(fd, &st) == 0,
-              (st.st_mode & S_IFMT) == S_IFREG,
-              st.st_uid == geteuid() else {
+        guard
+            let generation = AgentRuntimeEventFile.validatedGeneration(
+                fileDescriptor: fd
+            )
+        else {
             if shouldLogSourceFailure(for: watch) {
                 Self.logger.error(
                     "event file is not a regular file or fstat failed: \(watch.fileURL.path, privacy: .public)"
@@ -191,7 +199,37 @@ final class AgentRuntimeEventBridge {
             scheduleSourceRetry(for: paneID)
             return false
         }
-        watch.inode = st.st_ino
+        watch.inode = generation.inode
+
+        if watch.needsInitialSnapshot {
+            let bufferedEvent: AgentRuntimeEvent?
+            if generation.size <= Self.maximumEventFileByteCount,
+                let line = AgentRuntimeEventFile.readFinalCompleteNonemptyLine(
+                    fileDescriptor: fd,
+                    size: generation.size,
+                    maximumByteCount: AgentRuntimeEvent.maximumLineByteCount
+                ),
+                let event = AgentRuntimeEvent.parse(data: line),
+                event.source != .unknown,
+                event.phase == .sessionEnd
+            {
+                bufferedEvent = event
+            } else {
+                bufferedEvent = nil
+            }
+
+            initialSnapshotInterposer?(watch.fileURL)
+            guard AgentRuntimeEventFile.validatedGeneration(fileDescriptor: fd) == generation,
+                AgentRuntimeEventFile.openForReading(at: watch.fileURL)?.generation == generation
+            else {
+                close(fd)
+                scheduleSourceRetry(for: paneID)
+                return false
+            }
+            watch.offset = generation.size
+            watch.initialGeneration = generation
+            watch.bufferedEvent = bufferedEvent
+        }
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
@@ -275,8 +313,9 @@ final class AgentRuntimeEventBridge {
 
     private func scheduleSourceRetry(for paneID: TerminalPane.ID) {
         guard let watch = watches[paneID],
-              (watch.source == nil || watch.needsDrainRetry),
-              sourceRetryTask == nil else {
+            (watch.source == nil || watch.needsDrainRetry),
+            sourceRetryTask == nil
+        else {
             return
         }
 
@@ -400,30 +439,6 @@ final class AgentRuntimeEventBridge {
 
     // MARK: - Reading
 
-    private func bufferedSessionEnd(
-        from readHandle: AgentRuntimeEventFile.ValidatedReadHandle?
-    ) -> AgentRuntimeEvent? {
-        guard let readHandle,
-            readHandle.size <= Self.maximumEventFileByteCount,
-            let data = readHandle.readData(from: 0)
-        else {
-            return nil
-        }
-
-        let (lines, trailingFragment) = AgentRuntimeEventLineSplitter.extractCompleteLines(
-            from: data,
-            trailingFragment: Data()
-        )
-        guard trailingFragment.isEmpty else {
-            return nil
-        }
-        let lastValidEvent = lines.reversed()
-            .lazy
-            .compactMap { AgentRuntimeEvent.parse(data: $0) }
-            .first
-        return lastValidEvent?.phase == .sessionEnd ? lastValidEvent : nil
-    }
-
     private func poll(paneID: TerminalPane.ID) {
         guard let watch = watches[paneID] else {
             return
@@ -437,6 +452,27 @@ final class AgentRuntimeEventBridge {
         }
         watch.needsDrainRetry = false
         cancelSourceRetryIfUnneeded()
+
+        guard readHandle.inode == watch.inode else {
+            rebuildSource(for: paneID, resetOffset: true)
+            return
+        }
+
+        if let initialGeneration = watch.initialGeneration {
+            guard readHandle.generation == initialGeneration else {
+                watch.needsInitialSnapshot = true
+                watch.initialGeneration = nil
+                watch.bufferedEvent = nil
+                rebuildSource(for: paneID, resetOffset: true)
+                return
+            }
+            watch.initialGeneration = nil
+            watch.needsInitialSnapshot = false
+            if let bufferedEvent = watch.bufferedEvent {
+                watch.applyEvent(bufferedEvent)
+            }
+            watch.bufferedEvent = nil
+        }
 
         let currentSize = readHandle.size
         if currentSize > Self.maximumEventFileByteCount {
@@ -461,7 +497,8 @@ final class AgentRuntimeEventBridge {
         }
 
         guard currentSize > watch.offset,
-              let data = readHandle.readData(from: watch.offset) else {
+            let data = readHandle.readData(from: watch.offset)
+        else {
             return
         }
 
@@ -495,7 +532,7 @@ final class AgentRuntimeEventBridge {
     private var runtimeEventsDirectoryURL: URL {
         runtimeEventsDirectoryURLOverride
             ?? SessionPersistence.supportDirectoryURL
-                .appending(path: "runtime-events", directoryHint: .isDirectory)
+            .appending(path: "runtime-events", directoryHint: .isDirectory)
     }
 
     private func touchEventFile(at url: URL, logFailure: Bool = true) {
@@ -550,10 +587,12 @@ final class AgentRuntimeEventBridge {
         guard FileManager.default.fileExists(atPath: directoryURL.path) else {
             return
         }
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isSymbolicLinkKey, .isRegularFileKey]
-        ) else {
+        guard
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: [.contentModificationDateKey, .isSymbolicLinkKey, .isRegularFileKey]
+            )
+        else {
             return
         }
 
@@ -563,9 +602,10 @@ final class AgentRuntimeEventBridge {
                 forKeys: [.contentModificationDateKey, .isSymbolicLinkKey, .isRegularFileKey]
             )
             guard values?.isSymbolicLink != true,
-                  values?.isRegularFile == true,
-                  let mtime = values?.contentModificationDate,
-                  mtime < cutoff else {
+                values?.isRegularFile == true,
+                let mtime = values?.contentModificationDate,
+                mtime < cutoff
+            else {
                 continue
             }
             deleteEventFile(at: fileURL)
