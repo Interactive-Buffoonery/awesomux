@@ -2702,6 +2702,19 @@ struct AwesoMuxApp: App {
         )
     }
 
+    // Distinct from `toggleWorktreeManager`: the palette's "Create Worktree…"
+    // should always land in the create flow, even if the panel is already
+    // open on something else — `show`, not `toggle`, so a second invocation
+    // never dismisses it instead.
+    private func presentWorktreeCreateForm() {
+        guard !isAnySheetPresented, let worktreeManagerModel else { return }
+        worktreeManagerController.show(
+            model: worktreeManagerModel,
+            relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
+            presentingCreateForm: true
+        )
+    }
+
     private func presentFindInActivePane() {
         guard !isAnySheetPresented,
             let session = sessionStore.selectedSession
@@ -3216,7 +3229,7 @@ struct AwesoMuxApp: App {
             openMarkdownFile: openMarkdownFilePanel,
             openSessionManager: toggleSessionManager,
             openWorktreeManager: toggleWorktreeManager,
-            createWorktree: toggleWorktreeManager,
+            createWorktree: presentWorktreeCreateForm,
             openWorktree: toggleWorktreeManager
         )
     }

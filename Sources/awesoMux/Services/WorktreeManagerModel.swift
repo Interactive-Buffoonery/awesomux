@@ -55,6 +55,13 @@ final class WorktreeManagerModel {
     private(set) var state: WorktreeManagerState = .loading
     private(set) var createSubmissionState: WorktreeManagerCreateSubmissionState = .idle
     private(set) var lastCreateRequest: GitWorktreeCreateRequest?
+    /// Set by the controller to jump straight into the create flow (the
+    /// palette's "Create Worktree…" command) instead of just opening the
+    /// panel. The panel's `.task(id:)` observes this, presents the sheet, and
+    /// clears it back to `false` — a `.task(id:)` (not `.onChange`) so it
+    /// still fires when the flag is already `true` on first mount, not only
+    /// on a later flip.
+    var pendingCreatePresentation = false
     /// Injected by the controller so refresh/create state changes are spoken
     /// against the hosting panel — announcements on a non-key window are
     /// otherwise silently dropped (see `SessionManagerController`, same shape).
