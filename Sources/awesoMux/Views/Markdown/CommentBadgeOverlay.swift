@@ -702,7 +702,9 @@ final class CommentBadgeOverlay: NSView {
             // x-boundaries: left frame, then each column's right edge (padded). An empty
             // column (never populated → still sentinel) inherits the previous boundary so
             // the grid stays monotonic and draws no zero-width column.
-            let vpad: CGFloat = 3
+            // Matches the rows' paragraph spacing so each rule sits centered
+            // between the row texts instead of hugging the glyphs.
+            let vpad = MarkdownAttributedStringBuilder.tableRowVerticalPadding
             var xs: [CGFloat] = [tableMinX - pad]
             for c in 0..<columns {
                 let edge = columnMaxX[c].isFinite ? columnMaxX[c] + pad : xs.last!

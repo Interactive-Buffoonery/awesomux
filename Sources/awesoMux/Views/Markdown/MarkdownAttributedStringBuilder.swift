@@ -229,6 +229,13 @@ enum MarkdownAttributedStringBuilder {
     /// column widths / tab stops. Also the inset the border pass strokes to.
     static let tableCellPadding: CGFloat = 10
 
+    /// Vertical breathing room above and below each table row's text, applied
+    /// as symmetric paragraph spacing. The border pass draws each horizontal
+    /// rule this same distance past the row's glyphs, so the rule lands
+    /// centered in the gap between rows (GUI smoke: text was nearly touching
+    /// the rules).
+    static let tableRowVerticalPadding: CGFloat = 5
+
     /// Lays out Markdown tables with TextKit 2-compatible tab stops and stamps
     /// `.tableCellGrid` for the border/accessibility pass.
     private static func applyTableLayout(_ result: NSMutableAttributedString, doc: RenderedDocument) {
@@ -303,6 +310,10 @@ enum MarkdownAttributedStringBuilder {
             }
             paragraph.firstLineHeadIndent = starts.first ?? tableCellPadding
             paragraph.headIndent = starts.first ?? tableCellPadding
+            // Symmetric row padding; the grid pass mirrors this as its rule
+            // offset so rules bisect the row gaps.
+            paragraph.paragraphSpacingBefore = tableRowVerticalPadding
+            paragraph.paragraphSpacing = tableRowVerticalPadding
             // Column 0 has no leading tab, so it stays left-aligned.
             tableStyle[table] = paragraph
         }

@@ -220,6 +220,34 @@ struct WideTableOverflowTests {
         #expect(textView.frame.width == 500)
     }
 
+    @Test("table rows get symmetric vertical breathing room")
+    func tableRowVerticalSpacing() throws {
+        let source = "| A | B |\n| - | - |\n| one | two |\n| three | four |"
+        let (_, textView, _, attr) = makeWideTableHarness(source: source)
+        let ns = attr.string as NSString
+        let pad = MarkdownAttributedStringBuilder.tableRowVerticalPadding
+
+        let row1 = try #require(
+            CommentBadgeOverlay.cellRectInTextView(range: ns.range(of: "one"), in: textView))
+        let row2 = try #require(
+            CommentBadgeOverlay.cellRectInTextView(range: ns.range(of: "three"), in: textView))
+        #expect(
+            row2.rect.minY - row1.rect.maxY >= pad * 2 - 0.5,
+            "adjacent rows must be separated by both rows' spacing"
+        )
+        // Spacing shifts whole rows; it must not read as wrapping.
+        #expect(row1.segments == 1)
+        #expect(row2.segments == 1)
+
+        let style = try #require(
+            attr.attribute(
+                .paragraphStyle, at: ns.range(of: "one").location, effectiveRange: nil)
+                as? NSParagraphStyle
+        )
+        #expect(style.paragraphSpacingBefore == pad)
+        #expect(style.paragraphSpacing == pad)
+    }
+
     @Test("a sliver pane clamps the wrap width instead of unwrapping prose")
     func sliverPaneClampsWrapWidth() throws {
         let (_, textView, _, _) = makeWideTableHarness(
