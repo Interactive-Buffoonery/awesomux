@@ -73,14 +73,21 @@ struct SidebarSearchFocusTests {
 
     @Test("accessibility announcement includes the workspace label and position")
     func accessibilityAnnouncementIncludesPosition() {
+        let resourcesURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Tests/Fixtures/INT612Localization.bundle/zz.lproj", directoryHint: .isDirectory)
+
         #expect(
             SidebarSearchFocus.accessibilityAnnouncement(
                 label: "Linear, Claude, Running",
                 position: 2,
                 count: 4,
-                bundle: .main,
-                locale: Locale(identifier: "en_US")
-            ) == "Linear, Claude, Running, 2 of 4"
+                bundle: Bundle(url: resourcesURL) ?? .main,
+                locale: Locale(identifier: "zz")
+            ) == "Linear, Claude, Running, 2 of ⟦4 results⟧"
         )
     }
 }
