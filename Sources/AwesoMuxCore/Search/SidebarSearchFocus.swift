@@ -1,6 +1,8 @@
 import Foundation
 
 public enum SidebarSearchFocus {
+    private static let accessibilityAnnouncementKey = "accessibility.sidebar.searchResultPosition"
+
     public static func accessibilityAnnouncement(
         label: String,
         position: Int,
@@ -9,7 +11,7 @@ public enum SidebarSearchFocus {
         locale: Locale = .current
     ) -> String {
         let format = String(
-            localized: "%1$@, %2$lld of %3$lld",
+            localized: String.LocalizationValue(accessibilityAnnouncementKey),
             bundle: bundle,
             locale: locale,
             comment: "VoiceOver sidebar search result. Arguments are the workspace label, position, and result count."
