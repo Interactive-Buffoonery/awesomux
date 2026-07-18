@@ -7,14 +7,21 @@ enum StandardWindowButtonVisibility {
     case hidden
     /// Close button only — miniaturize and zoom hidden. Used by the About
     /// window, whose fixed size / non-restore are owned by the scene modifiers
-    /// (`.windowResizability(.contentSize)` / `.restorationBehavior(.disabled)`),
-    /// so this case deliberately does NOT touch the style mask.
+    /// (`.windowResizability(.contentSize)` / `.restorationBehavior(.disabled)`).
     case closeOnly
 
     @MainActor
     func apply(to window: NSWindow) {
-        if self == .visible {
+        switch self {
+        case .visible:
             window.styleMask.formUnion([.closable, .miniaturizable, .resizable])
+        case .closeOnly:
+            // Truly close-only: drop the minimize capability too, so Cmd-M /
+            // Window ▸ Minimize can't park the fixed-size About window while its
+            // button is hidden. Resize stays owned by the scene modifier.
+            window.styleMask.remove(.miniaturizable)
+        case .hidden:
+            break
         }
 
         window.standardWindowButton(.closeButton)?.isHidden = self == .hidden
