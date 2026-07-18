@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import Darwin
 import Foundation
 
@@ -20,11 +21,7 @@ final class AgentIntegrationInstallStateLock: @unchecked Sendable {
         in directoryURL: URL,
         fileManager: FileManager = .default
     ) throws -> AgentIntegrationInstallStateLock {
-        try fileManager.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        try fileManager.createOwnerOnlyDirectory(at: directoryURL)
         let lockURL = directoryURL.appending(path: ".install-state.lock")
         let descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, mode_t(0o600))
         guard descriptor >= 0 else {
