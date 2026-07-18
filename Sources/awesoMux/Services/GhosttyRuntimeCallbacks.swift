@@ -505,7 +505,7 @@ extension GhosttyRuntime {
         case .nonAsciiHost:
             String(
                 localized: "Open URL with non-Latin host?",
-                comment: "OSC 8 confirmation dialog title segment when the URL's host contains non-ASCII characters."
+                comment: "OSC 8 confirmation dialog title segment when the URL's host mixes scripts that could be confused for one another (TR39 homograph risk) or contains a punycode label that failed to decode. Title text unchanged from the prior any-non-ASCII-host policy since the block case still always involves non-Latin content."
             )
         case .embeddedUserInfo:
             String(

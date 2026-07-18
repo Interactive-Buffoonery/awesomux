@@ -227,7 +227,17 @@ public enum UnicodeHygiene {
              // spoofer readmits the mixed-script class via e.g. Vietnamese
              // letters (U+1E01) beside Cyrillic.
              0x0250 ... 0x02AF,
-             0x1E00 ... 0x1EFF:
+             0x1E00 ... 0x1EFF,
+             // Latin Extended-C/D/E: without these, a Latin-lookalike letter
+             // from one of these blocks (e.g. U+A7CA LATIN CAPITAL LETTER S
+             // WITH SHORT STROKE) returns nil from this switch — contributing
+             // NO family — so pairing it with a real Cyrillic/Greek letter
+             // reads as single-script and slips past the mixing check.
+             // Confirmed reachable through a real IDN host: Foundation
+             // accepts and punycode-encodes "\u{A7CA}\u{0430}.com".
+             0x2C60 ... 0x2C7F,
+             0xA720 ... 0xA7FF,
+             0xAB30 ... 0xAB6F:
             return .latin
         case 0x0370 ... 0x03FF,
              0x1F00 ... 0x1FFF:
