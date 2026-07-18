@@ -4,6 +4,7 @@ public struct SessionMatch: Equatable, Sendable {
     public enum Field: Int, Equatable, Sendable {
         case title = 0
         case location = 1
+        case agentState = 2
     }
 
     public let field: Field
@@ -14,6 +15,38 @@ public struct SessionMatch: Equatable, Sendable {
         self.field = field
         self.score = score
         self.ranges = ranges
+    }
+}
+
+public enum SidebarAgentStateSearchToken: String, CaseIterable, Equatable, Sendable {
+    case needs
+    case error
+    case thinking
+    case done
+    case output
+    case waiting
+    case running
+    case idle
+
+    public init(agentState: AgentDisplayState) {
+        switch agentState {
+        case .needsAttention:
+            self = .needs
+        case .error:
+            self = .error
+        case .thinking:
+            self = .thinking
+        case .done:
+            self = .done
+        case .output:
+            self = .output
+        case .waiting:
+            self = .waiting
+        case .running:
+            self = .running
+        case .idle:
+            self = .idle
+        }
     }
 }
 
@@ -47,6 +80,10 @@ public struct SidebarGroupEntry: Equatable, Sendable {
 /// supplies these so the sidebar's displayed location (abbreviated local cwd
 /// or remote host) is what the user types against and what gets highlighted.
 ///
+/// Agent state is a canonical exact-match token rather than a fuzzy haystack.
+/// A state-token match selects the whole row and carries no visible-text
+/// highlight ranges.
+///
 /// Agent kind is intentionally NOT a haystack: the sidebar row renders the
 /// agent as an icon, not text, so matches there would show up with no visible
 /// highlight explaining the result (a short query like `c` would otherwise
@@ -54,10 +91,12 @@ public struct SidebarGroupEntry: Equatable, Sendable {
 public struct SidebarSearchHaystacks: Equatable, Sendable {
     public let title: String
     public let location: String
+    public let agentState: SidebarAgentStateSearchToken
 
-    public init(title: String, location: String) {
+    public init(title: String, location: String, agentState: SidebarAgentStateSearchToken) {
         self.title = title
         self.location = location
+        self.agentState = agentState
     }
 }
 
@@ -153,9 +192,14 @@ public enum SidebarSearchProjection {
         query: String,
         haystacks: SidebarSearchHaystacks
     ) -> SessionMatch? {
+        if let stateToken = SidebarAgentStateSearchToken(rawValue: query.lowercased()) {
+            guard stateToken == haystacks.agentState else { return nil }
+            return SessionMatch(field: .agentState, score: 0, ranges: [])
+        }
+
         let candidates: [(field: SessionMatch.Field, haystack: String)] = [
             (.title, haystacks.title),
-            (.location, haystacks.location)
+            (.location, haystacks.location),
         ]
 
         var best: SessionMatch?

@@ -921,7 +921,8 @@ struct SidebarView: View {
             haystacks: { session in
                 SidebarSearchHaystacks(
                     title: session.title,
-                    location: session.sidebarLocation.searchText
+                    location: session.sidebarLocation.searchText,
+                    agentState: SidebarAgentStateSearchToken(agentState: session.effectiveChromeState)
                 )
             }
         )

@@ -8,30 +8,113 @@ struct SidebarSearchProjectionTests {
     private func haystacks(for session: TerminalSession) -> SidebarSearchHaystacks {
         SidebarSearchHaystacks(
             title: session.title,
-            location: session.workingDirectory
+            location: session.workingDirectory,
+            agentState: SidebarAgentStateSearchToken(agentState: session.agentState)
         )
     }
 
     private func makeSession(
         title: String,
         cwd: String = "~/code",
-        agentKind: AgentKind = .claudeCode
+        agentKind: AgentKind = .claudeCode,
+        agentState: AgentState = .idle
     ) -> TerminalSession {
         TerminalSession(
             title: title,
             workingDirectory: cwd,
             agentKind: agentKind,
-            agentState: .idle
+            agentState: agentState
         )
+    }
+
+    @Test(
+        "Every display state maps to one canonical search token",
+        arguments: [
+            (AgentDisplayState.needsAttention, SidebarAgentStateSearchToken.needs),
+            (.error, .error),
+            (.thinking, .thinking),
+            (.done, .done),
+            (.output, .output),
+            (.waiting, .waiting),
+            (.running, .running),
+            (.idle, .idle),
+        ]
+    )
+    func canonicalStateTokens(
+        state: AgentDisplayState,
+        expectedToken: SidebarAgentStateSearchToken
+    ) {
+        #expect(SidebarAgentStateSearchToken(agentState: state) == expectedToken)
+    }
+
+    @Test("Canonical state token returns whole-row matches without highlight ranges")
+    func stateTokenMatchesWholeRow() throws {
+        let needs = makeSession(title: "Alpha", agentState: .needsAttention)
+        let thinking = makeSession(title: "Beta", agentState: .thinking)
+
+        let output = SidebarSearchProjection.project(
+            groups: [SessionGroup(name: "Work", sessions: [needs, thinking])],
+            query: "needs",
+            haystacks: haystacks(for:)
+        )
+
+        let entry = try #require(output.entries.first?.sessions.first)
+        let match = try #require(entry.match)
+        #expect(output.entries[0].sessions.count == 1)
+        #expect(entry.session.id == needs.id)
+        #expect(match.field == .agentState)
+        #expect(match.ranges.isEmpty)
+    }
+
+    @Test("Canonical state tokens are exact and case-insensitive")
+    func stateTokensAreExactAndCaseInsensitive() {
+        let thinking = makeSession(title: "Alpha", agentState: .thinking)
+        let group = SessionGroup(name: "Work", sessions: [thinking])
+
+        let exact = SidebarSearchProjection.project(
+            groups: [group],
+            query: "THINKING",
+            haystacks: haystacks(for:)
+        )
+        let partial = SidebarSearchProjection.project(
+            groups: [group],
+            query: "think",
+            haystacks: haystacks(for:)
+        )
+
+        #expect(exact.entries.first?.sessions.first?.session.id == thinking.id)
+        #expect(partial.entries.isEmpty)
+    }
+
+    @Test("Reserved state token does not fuzzy-match title or location")
+    func stateTokenExcludesVisibleTextFalsePositives() {
+        let titleFalsePositive = makeSession(title: "Needs migration", agentState: .idle)
+        let locationFalsePositive = makeSession(title: "Alpha", cwd: "~/needs-work", agentState: .idle)
+        let needs = makeSession(title: "Beta", agentState: .needsAttention)
+
+        let output = SidebarSearchProjection.project(
+            groups: [
+                SessionGroup(
+                    name: "Work",
+                    sessions: [titleFalsePositive, locationFalsePositive, needs]
+                )
+            ],
+            query: "needs",
+            haystacks: haystacks(for:)
+        )
+
+        #expect(output.entries[0].sessions.map(\.session.id) == [needs.id])
     }
 
     @Test("Empty query returns every session in original order with no matches")
     func emptyQueryPassthrough() {
-        let group = SessionGroup(name: "Work", sessions: [
-            makeSession(title: "Alpha"),
-            makeSession(title: "Beta"),
-            makeSession(title: "Gamma")
-        ])
+        let group = SessionGroup(
+            name: "Work",
+            sessions: [
+                makeSession(title: "Alpha"),
+                makeSession(title: "Beta"),
+                makeSession(title: "Gamma"),
+            ])
 
         let output = SidebarSearchProjection.project(
             groups: [group],
@@ -47,11 +130,13 @@ struct SidebarSearchProjectionTests {
 
     @Test("Filtered group drops sessions that don't match")
     func filtersUnmatched() {
-        let group = SessionGroup(name: "Work", sessions: [
-            makeSession(title: "Claude Code"),
-            makeSession(title: "Random", cwd: "~/elsewhere"),
-            makeSession(title: "Codex")
-        ])
+        let group = SessionGroup(
+            name: "Work",
+            sessions: [
+                makeSession(title: "Claude Code"),
+                makeSession(title: "Random", cwd: "~/elsewhere"),
+                makeSession(title: "Codex"),
+            ])
 
         let output = SidebarSearchProjection.project(
             groups: [group],
@@ -69,7 +154,7 @@ struct SidebarSearchProjectionTests {
     func dropsEmptyGroup() {
         let groups = [
             SessionGroup(name: "Work", sessions: [makeSession(title: "Alpha")]),
-            SessionGroup(name: "Personal", sessions: [makeSession(title: "Beta")])
+            SessionGroup(name: "Personal", sessions: [makeSession(title: "Beta")]),
         ]
 
         let output = SidebarSearchProjection.project(
@@ -86,12 +171,14 @@ struct SidebarSearchProjectionTests {
     func sortByScoreStableTiebreak() throws {
         // Two sessions tie on score (both single-char word-boundary matches);
         // original order must win.
-        let group = SessionGroup(name: "Work", sessions: [
-            makeSession(title: "Apple"),
-            makeSession(title: "Apricot"),
-            makeSession(title: "Avocado"),
-            makeSession(title: "Banana")  // no 'a' at boundary
-        ])
+        let group = SessionGroup(
+            name: "Work",
+            sessions: [
+                makeSession(title: "Apple"),
+                makeSession(title: "Apricot"),
+                makeSession(title: "Avocado"),
+                makeSession(title: "Banana"),  // no 'a' at boundary
+            ])
 
         let output = SidebarSearchProjection.project(
             groups: [group],
@@ -127,7 +214,8 @@ struct SidebarSearchProjectionTests {
             haystacks: { _ in
                 SidebarSearchHaystacks(
                     title: "noisy",
-                    location: abbreviated
+                    location: abbreviated,
+                    agentState: .idle
                 )
             }
         )
@@ -146,12 +234,16 @@ struct SidebarSearchProjectionTests {
         // semantics so the keyboard target always matches what the user
         // sees as the top result.
         let groups = [
-            SessionGroup(name: "First", sessions: [
-                makeSession(title: "axxxxclaude")  // mid-word, weaker match
-            ]),
-            SessionGroup(name: "Second", sessions: [
-                makeSession(title: "Claude Code")  // higher score in isolation
-            ])
+            SessionGroup(
+                name: "First",
+                sessions: [
+                    makeSession(title: "axxxxclaude")  // mid-word, weaker match
+                ]),
+            SessionGroup(
+                name: "Second",
+                sessions: [
+                    makeSession(title: "Claude Code")  // higher score in isolation
+                ]),
         ]
 
         let output = SidebarSearchProjection.project(
@@ -175,7 +267,8 @@ struct SidebarSearchProjectionTests {
             haystacks: { _ in
                 SidebarSearchHaystacks(
                     title: "a-thing",
-                    location: "a-dir"
+                    location: "a-dir",
+                    agentState: .idle
                 )
             }
         )
@@ -189,7 +282,7 @@ struct SidebarSearchProjectionTests {
         let groups = [
             SessionGroup(name: "Zero", sessions: [makeSession(title: "match-here")]),
             SessionGroup(name: "One", sessions: [makeSession(title: "no")]),
-            SessionGroup(name: "Two", sessions: [makeSession(title: "match-too")])
+            SessionGroup(name: "Two", sessions: [makeSession(title: "match-too")]),
         ]
 
         let output = SidebarSearchProjection.project(
