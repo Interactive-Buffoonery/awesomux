@@ -3135,7 +3135,17 @@ struct AwesoMuxApp: App {
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFilePanel,
-            openSessionManager: toggleSessionManager
+            openSessionManager: toggleSessionManager,
+            openRecentLink: { value, sessionID, paneID in
+                Task { @MainActor in
+                    await GhosttyRuntime.openRecentLink(
+                        value,
+                        in: sessionID,
+                        associatedWith: paneID,
+                        sessionStore: sessionStore
+                    )
+                }
+            }
         )
     }
 

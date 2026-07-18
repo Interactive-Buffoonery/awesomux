@@ -102,8 +102,17 @@ struct PaletteAppActions {
     let showKeyboardCheatsheet: @MainActor () -> Void
     let openMarkdownFile: @MainActor () -> Void
     let openSessionManager: @MainActor () -> Void
+    let openRecentLink: @MainActor (String, TerminalSession.ID, TerminalPane.ID) -> Void
 
     static var noop: PaletteAppActions {
+        noop()
+    }
+
+    static func noop(
+        openRecentLink: @escaping @MainActor (String, TerminalSession.ID, TerminalPane.ID) -> Void = {
+            _, _, _ in
+        }
+    ) -> PaletteAppActions {
         let action: @MainActor () -> Void = {}
         let indexedAction: @MainActor (Int) -> Void = { _ in }
         return PaletteAppActions(
@@ -158,7 +167,8 @@ struct PaletteAppActions {
             openInIDE: action,
             showKeyboardCheatsheet: action,
             openMarkdownFile: action,
-            openSessionManager: action
+            openSessionManager: action,
+            openRecentLink: openRecentLink
         )
     }
 }
@@ -173,6 +183,7 @@ struct PaletteCommandAvailability {
 @MainActor
 enum PaletteCommandRegistry {
     static let reopenRecentIDPrefix = "reopenRecent."
+    static let openRecentLinkIDPrefix = "openRecentLink."
 
     static func commands(
         sessionStore: SessionStore,
@@ -764,6 +775,27 @@ enum PaletteCommandRegistry {
                 )
             })
 
+        if let selected, let activePane = selected.activePane {
+            let sessionID = selected.id
+            let paneID = activePane.id
+            commands.append(
+                contentsOf: activePane.recentLinks.values.map { value in
+                    let presentation = recentLinkPresentation(for: value)
+                    return PaletteCommand(
+                        id: "\(openRecentLinkIDPrefix)\(stableDigest(of: value, paneID: paneID))",
+                        title: String(
+                            localized: "Open Recent Link",
+                            comment: "Command palette action for opening a link detected in a terminal pane"
+                        ),
+                        subtitle: presentation.preview,
+                        keywords: ["link", "url", "open", "recent"] + presentation.keywords,
+                        shortcut: nil,
+                        isEnabled: true,
+                        run: { actions.openRecentLink(value, sessionID, paneID) }
+                    )
+                })
+        }
+
         return commands.map { command in
             guard let shortcut = command.shortcut else { return command }
             return PaletteCommand(
@@ -780,6 +812,62 @@ enum PaletteCommandRegistry {
 
     static func command(id: PaletteCommand.ID, in commands: [PaletteCommand]) -> PaletteCommand? {
         commands.first { $0.id == id }
+    }
+
+    private static func stableDigest(of value: String, paneID: TerminalPane.ID) -> String {
+        var digest: UInt64 = 14_695_981_039_346_656_037
+        for byte in paneID.uuidString.utf8 {
+            digest = (digest ^ UInt64(byte)) &* 1_099_511_628_211
+        }
+        digest = (digest ^ 0xFF) &* 1_099_511_628_211
+        for byte in value.utf8 {
+            digest = (digest ^ UInt64(byte)) &* 1_099_511_628_211
+        }
+        return String(digest, radix: 16)
+    }
+
+    private static func recentLinkPresentation(for value: String) -> (preview: String, keywords: [String]) {
+        let fallback = String(
+            localized: "Detected terminal link",
+            comment: "Privacy-preserving preview for an unrecognized terminal link"
+        )
+        guard let components = URLComponents(string: value) else {
+            return (boundedSafePreview(fallback), [])
+        }
+
+        switch components.scheme?.lowercased() {
+        case "http", "https":
+            guard let host = components.host, !host.isEmpty else {
+                return (boundedSafePreview(fallback), [])
+            }
+            let safeHost = boundedSafePreview(host)
+            return (
+                boundedSafePreview(host + components.percentEncodedPath),
+                safeHost.isEmpty ? [] : [safeHost]
+            )
+        case "mailto":
+            return (
+                boundedSafePreview(
+                    String(
+                        localized: "Email link",
+                        comment: "Privacy-preserving preview for a detected email link"
+                    )),
+                []
+            )
+        case nil:
+            let pathComponents = value.split(separator: "/", omittingEmptySubsequences: true)
+            let trailingPath = pathComponents.suffix(2).joined(separator: "/")
+            return (boundedSafePreview(trailingPath.isEmpty ? value : trailingPath), [])
+        default:
+            return (boundedSafePreview(fallback), [])
+        }
+    }
+
+    private static func boundedSafePreview(_ value: String) -> String {
+        let safeScalars = value.unicodeScalars.filter {
+            !GhosttyRuntime.isUnsafeAlertBodyScalar($0)
+        }
+        return String(String.UnicodeScalarView(safeScalars).prefix(72))
     }
 
     private static func canMoveActivePane(

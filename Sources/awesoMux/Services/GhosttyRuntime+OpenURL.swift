@@ -84,6 +84,75 @@ struct OpenURLAction {
 }
 
 extension GhosttyRuntime {
+    @MainActor
+    static var recentLinkRemoteSnapshotProvider: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownSnapshot? = {
+        await RemoteMarkdownSnapshotFetcher().fetch($0)
+    }
+
+    @MainActor
+    static func resetRecentLinkRemoteSnapshotProviderForTesting() {
+        recentLinkRemoteSnapshotProvider = {
+            await RemoteMarkdownSnapshotFetcher().fetch($0)
+        }
+    }
+
+    @MainActor
+    static func openRecentLink(
+        _ value: String,
+        in sessionID: TerminalSession.ID,
+        associatedWith paneID: TerminalPane.ID,
+        sessionStore: SessionStore
+    ) async {
+        guard let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID) else {
+            return
+        }
+
+        if case .ssh = pane.executionPlan,
+            RemoteMarkdownReference.isPotentialPayload(value)
+        {
+            guard let reference = RemoteMarkdownReference.make(payload: value, pane: pane) else {
+                return
+            }
+            if let snapshot = await recentLinkRemoteSnapshotProvider(reference) {
+                sessionStore.openDocumentPane(
+                    fileURL: snapshot.fileURL,
+                    in: sessionID,
+                    associatedWith: paneID,
+                    remoteResourceIdentity: snapshot.identity
+                )
+            }
+            return
+        }
+
+        if let url = OpenURLAction.resolve(value) {
+            openURL(url)
+            return
+        }
+
+        guard MarkdownLinkIntercept.isRelativeDocumentCandidate(value) else {
+            return
+        }
+        var workingDirectory = pane.workingDirectory
+        if pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata,
+            let fresh = await AmxBackend.queryCwd(pane.terminalSessionID)
+        {
+            workingDirectory = fresh
+        }
+        guard
+            let url = MarkdownLinkIntercept.documentURL(
+                forSchemelessPath: value,
+                relativeTo: workingDirectory
+            )
+        else {
+            return
+        }
+        sessionStore.openDocumentPane(
+            fileURL: url,
+            in: sessionID,
+            associatedWith: paneID
+        )
+    }
+
     /// Opens an externally-sourced URL through `URLClassifier` — used by OSC 8
     /// hyperlink click-through and by chrome (the Path Bar PR chip). Direct open
     /// for plain ASCII http/https and bare `mailto:`; block-confirm modal for
