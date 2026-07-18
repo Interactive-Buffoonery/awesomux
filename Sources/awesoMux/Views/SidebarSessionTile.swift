@@ -744,17 +744,21 @@ struct SidebarSessionTile: View {
         //
         // The active border carries the workspace tint via `tintBorder`, which
         // is contrast-tuned per theme. Increased-contrast keeps the measured
-        // gray `dividerHoverHC`: that path deliberately strips decoration (glow
-        // is already dropped) to maximize legibility, and the gray is the value
-        // verified for the 2pt HC stroke. See INT-490.
+        // gray `dividerHoverHC` by default: that path deliberately strips
+        // decoration (glow is already dropped) to maximize legibility, and the
+        // gray is the value verified for the 2pt HC stroke. See INT-490.
+        // `tintedHighContrast` (INT-645) opts back into the tinted border under
+        // HC — safe because `tintBorder` tokens are floor-tested to clear the
+        // same 3:1 non-text cue (AwColorTests.workspaceTintBorderTokensClearContrastFloor).
         let isHighContrast = contrast == .increased
+        let tintedHighContrast = appSettingsStore.appearance.value.tintedHighContrast
         let needsAttention = rollup.state.awState == .needs
         let strokeColor: Color = {
             if needsAttention && !isActive {
                 return Color.aw.status.needs.opacity(isHighContrast ? 0.95 : 0.50)
             }
             if isActive {
-                return isHighContrast ? Color.aw.dividerHoverHC : tint.borderHue
+                return isHighContrast && !tintedHighContrast ? Color.aw.dividerHoverHC : tint.borderHue
             }
             if isHighContrast {
                 // Resting HC border clears 3:1 on the resting tile, but Latte
