@@ -31,16 +31,17 @@ struct NewWorkspaceSplitButton: View {
     private let primarySize: CGFloat = AwSpacing.searchFieldHeight
     private let cornerRadius: CGFloat = 7
     /// The 296pt-wide expanded row has room for a comfortable hit target —
-    /// this doesn't also need to fit the 60pt collapsed rail.
-    private let chevronWidth: CGFloat = 22
+    /// this doesn't also need to fit the 60pt collapsed rail. 24pt is the
+    /// WCAG 2.5.8 minimum pointer target size; 22pt fell 2pt short.
+    private let chevronWidth: CGFloat = 24
     /// Rapid double-clicks used to be impossible: the old `Menu`-gated
     /// control consumed the first click opening the menu. A plain `Button`
     /// doesn't have that natural debounce, so this guards it explicitly.
-    private let doubleClickGuardInterval: TimeInterval = 0.4
+    private let doubleClickGuardInterval: Duration = .milliseconds(400)
 
     @State private var isPrimaryHovering = false
     @State private var isChevronHovering = false
-    @State private var lastCreateAt: Date?
+    @State private var lastCreateAt: ContinuousClock.Instant?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -110,6 +111,11 @@ struct NewWorkspaceSplitButton: View {
         // rebuild over the old frame doesn't keep a stale hover fill. Same
         // reasoning applies to the chevron segment below.
         .onDisappear { isPrimaryHovering = false }
+        // Without this, the decorative hover-fill shape can surface as its
+        // own unlabeled VoiceOver element alongside the Button — same class
+        // of bug already found and fixed for the divider between segments,
+        // and the established codebase fix (SidebarStatusFooter.swift).
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("New Workspace")
         .accessibilityHint("Creates a new workspace in the current group.")
         .help("New Workspace")
@@ -163,14 +169,22 @@ struct NewWorkspaceSplitButton: View {
         .frame(width: chevronWidth, height: primarySize)
         .onHover { isChevronHovering = $0 }
         .onDisappear { isChevronHovering = false }
+        // Same reasoning as primaryButton above.
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("New Workspace Options")
         .accessibilityHint("Opens a menu to create a new workspace group or a workspace in a specific group.")
         .help("New Workspace Options")
     }
 
     private func guardedNewWorkspace() {
-        let now = Date()
-        if let lastCreateAt, now.timeIntervalSince(lastCreateAt) < doubleClickGuardInterval {
+        let now = ContinuousClock.now
+        // ContinuousClock, not Date/wall-clock: a wall-clock step backward
+        // (NTP correction, wake-from-sleep RTC resync, manual clock change)
+        // would make timeIntervalSince negative — always < the guard
+        // interval — silently blocking every future click. Same reasoning
+        // as ColdStartSurfaceCreationPolicy.swift and
+        // WindowFrameSettlePolicy.swift, which hit this exact class of bug.
+        if let lastCreateAt, now - lastCreateAt < doubleClickGuardInterval {
             return
         }
         lastCreateAt = now
