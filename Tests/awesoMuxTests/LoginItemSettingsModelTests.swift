@@ -10,18 +10,38 @@ struct LoginItemSettingsModelTests {
         #expect(LoginItemSettingsModel.displayStatus(for: .enabled) == .on)
         #expect(LoginItemSettingsModel.displayStatus(for: .requiresApproval) == .needsApproval)
         #expect(LoginItemSettingsModel.displayStatus(for: .notRegistered) == .off)
-        #expect(LoginItemSettingsModel.displayStatus(for: .notFound) == .unavailable)
+        #expect(LoginItemSettingsModel.displayStatus(for: .notFound) == .off)
+    }
+
+    @MainActor
+    @Test("A missing initial record can be registered")
+    func missingInitialRecordCanRegister() {
+        var currentStatus = SMAppService.Status.notFound
+        let model = LoginItemSettingsModel(
+            service: LoginItemService(
+                status: { currentStatus },
+                register: { currentStatus = .enabled },
+                unregister: {}
+            ))
+
+        model.refresh()
+        #expect(model.status == .off)
+
+        model.setRequested(true)
+        #expect(model.status == .on)
+        #expect(model.errorMessage == nil)
     }
 
     @MainActor
     @Test("refresh mirrors the current login item state")
     func refreshMirrorsStatus() {
         var currentStatus = SMAppService.Status.notRegistered
-        let model = LoginItemSettingsModel(service: LoginItemService(
-            status: { currentStatus },
-            register: {},
-            unregister: {}
-        ))
+        let model = LoginItemSettingsModel(
+            service: LoginItemService(
+                status: { currentStatus },
+                register: {},
+                unregister: {}
+            ))
 
         model.refresh()
         #expect(model.status == .off)
@@ -38,14 +58,15 @@ struct LoginItemSettingsModelTests {
     func enablingRegisters() {
         var didRegister = false
         var currentStatus = SMAppService.Status.notRegistered
-        let model = LoginItemSettingsModel(service: LoginItemService(
-            status: { currentStatus },
-            register: {
-                didRegister = true
-                currentStatus = .enabled
-            },
-            unregister: {}
-        ))
+        let model = LoginItemSettingsModel(
+            service: LoginItemService(
+                status: { currentStatus },
+                register: {
+                    didRegister = true
+                    currentStatus = .enabled
+                },
+                unregister: {}
+            ))
 
         model.setRequested(true)
 
@@ -59,14 +80,15 @@ struct LoginItemSettingsModelTests {
     func disablingUnregisters() {
         var didUnregister = false
         var currentStatus = SMAppService.Status.enabled
-        let model = LoginItemSettingsModel(service: LoginItemService(
-            status: { currentStatus },
-            register: {},
-            unregister: {
-                didUnregister = true
-                currentStatus = .notRegistered
-            }
-        ))
+        let model = LoginItemSettingsModel(
+            service: LoginItemService(
+                status: { currentStatus },
+                register: {},
+                unregister: {
+                    didUnregister = true
+                    currentStatus = .notRegistered
+                }
+            ))
 
         model.setRequested(false)
 
@@ -79,11 +101,12 @@ struct LoginItemSettingsModelTests {
     @Test("mutation failures keep live status and surface remediation")
     func mutationFailureSurfacesRemediation() {
         var currentStatus = SMAppService.Status.notRegistered
-        let model = LoginItemSettingsModel(service: LoginItemService(
-            status: { currentStatus },
-            register: { throw LoginItemTestError() },
-            unregister: {}
-        ))
+        let model = LoginItemSettingsModel(
+            service: LoginItemService(
+                status: { currentStatus },
+                register: { throw LoginItemTestError() },
+                unregister: {}
+            ))
 
         model.setRequested(true)
 
@@ -101,9 +124,9 @@ struct LoginItemSettingsModelTests {
     @Test("General settings wires the login item model to the UI")
     func generalSettingsWiresLoginItemModel() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // awesoMuxTests
-            .deletingLastPathComponent() // Tests
-            .deletingLastPathComponent() // repo root
+            .deletingLastPathComponent()  // awesoMuxTests
+            .deletingLastPathComponent()  // Tests
+            .deletingLastPathComponent()  // repo root
             .appendingPathComponent("Sources/awesoMux/Views/Settings/Panes/GeneralSettingsPane.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
@@ -111,6 +134,7 @@ struct LoginItemSettingsModelTests {
         #expect(source.contains("get: { loginItemModel.isRequested }"))
         #expect(source.contains("set: { loginItemModel.setRequested($0) }"))
         #expect(source.contains("loginItemModel.refresh()"))
+        #expect(source.contains(".disabled(loginItemModel.status == .unknown)"))
     }
 }
 
