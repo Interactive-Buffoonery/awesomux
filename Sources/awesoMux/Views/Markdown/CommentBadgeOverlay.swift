@@ -83,6 +83,10 @@ final class CommentBadgeOverlay: NSView {
     /// Called when the "add" pill is clicked.
     var onAddPillClicked: ((NSRect, NSView) -> Void)? = nil
 
+    /// Whether snapshot-backed annotation actions can run. Existing pills stay
+    /// visible while disabled because they still identify commented text.
+    var annotationsInteractive = true
+
     // MARK: - Init
 
     override init(frame: NSRect) {
@@ -131,6 +135,7 @@ final class CommentBadgeOverlay: NSView {
     /// convert into our bounds space (the overlay shares the text view's flipped
     /// origin, but convert explicitly so this stays correct if the frame ever offsets).
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard annotationsInteractive else { return nil }
         let local = convert(point, from: superview)
         for pill in pills {
             if pill.rect.contains(local) { return self }
@@ -141,6 +146,7 @@ final class CommentBadgeOverlay: NSView {
     // MARK: - Mouse handling
 
     override func mouseDown(with event: NSEvent) {
+        guard annotationsInteractive else { return }
         let point = convert(event.locationInWindow, from: nil)
         for pill in pills {
             if pill.rect.contains(point) {
@@ -453,6 +459,7 @@ final class CommentBadgeOverlay: NSView {
             let element = PillAccessibilityElement()
             element.setAccessibilityParent(self)
             element.setAccessibilityRole(.button)
+            element.setAccessibilityEnabled(annotationsInteractive)
             element.setAccessibilityLabel(
                 Self.pillAccessibilityLabel(
                     displayNumber: pill.displayNumber,
@@ -929,7 +936,7 @@ final class PillAccessibilityElement: NSAccessibilityElement {
     }
 
     override func accessibilityPerformPress() -> Bool {
-        guard let onPress else { return false }
+        guard isAccessibilityEnabled(), let onPress else { return false }
         MainActor.assumeIsolated { onPress() }
         return true
     }

@@ -804,6 +804,7 @@ struct DocumentPaneView: View {
     ) -> some View {
         if let doc = renderedDoc {
             let isReadOnly = pane.isReadOnlySnapshot
+            let annotationsInteractive = snapshot != nil
             let spanTouchesMark =
                 selectedSourceSpan.map {
                     SelectionSourceMapping.spanTouchesExistingMark($0, in: doc)
@@ -833,6 +834,7 @@ struct DocumentPaneView: View {
                             textColor: markdownTextColor,
                             relativeLinkBaseURL: pane.fileURL.deletingLastPathComponent(),
                             allowsDocumentLinks: !isReadOnly,
+                            annotationsInteractive: annotationsInteractive,
                             onPillClicked: { markID, pillRect, anchorView in
                                 guard let snapshot else { return }
                                 showCommentPopover(
@@ -856,7 +858,7 @@ struct DocumentPaneView: View {
                                     snapshot: snapshot
                                 )
                             },
-                            selectionTouchesMark: spanTouchesMark || isReadOnly || snapshot == nil,
+                            selectionTouchesMark: spanTouchesMark || isReadOnly || !annotationsInteractive,
                             onTextViewAvailable: { tv in markdownNSTextView = tv },
                             // Fix 3 (INT-562): auto-present compose popover when the user
                             // finalizes a selection (mouseUp with a non-empty, non-mark-touching
