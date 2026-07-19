@@ -1,5 +1,4 @@
 import Charts
-import AwesoMuxConfig
 import DesignSystem
 import SwiftUI
 
@@ -10,19 +9,13 @@ struct DiagnosticsSettingsPane: View {
         return formatter
     }()
 
-    static let analyticsEventsAnchor = "analytics-events"
-
     @Environment(DiagnosticsModel.self) private var model
-    @Environment(AnalyticsEventLogStore.self) private var analyticsLog
-    @Environment(AppSettingsStore.self) private var appSettingsStore
-    @Environment(SettingsNavigator.self) private var navigator
     @State private var historyWindow: DiagnosticsHistoryWindow = .fifteenMinutes
     @State private var metric: DiagnosticsMetric = .cpu
     @State private var issueScope: LocalDiagnosticIssueScope = .all
     @State private var eventCategory: LocalDiagnosticCategory?
     @State private var openGroups = Set<String>()
     @State private var initializedDisclosureState = false
-    @AccessibilityFocusState private var isAnalyticsEventsHeadingFocused: Bool
 
     private var presentation: DiagnosticsPresentation { model.presentation }
 
@@ -63,27 +56,10 @@ struct DiagnosticsSettingsPane: View {
                 diagnosticEvents
             }
 
-            SettingsSection(
-                index: 4,
-                title: String(localized: "Analytics events", comment: "Diagnostics settings section title"),
-                accessibilityFocus: $isAnalyticsEventsHeadingFocused
-            ) {
-                analyticsEvents
-            }
-            .id(Self.analyticsEventsAnchor)
-            .onAppear {
-                navigator.anchorDidMount(Self.analyticsEventsAnchor)
-                focusAnalyticsEventsIfRequested()
-            }
-            .onDisappear { navigator.anchorDidUnmount(Self.analyticsEventsAnchor) }
-            .onChange(of: navigator.pendingAccessibilityFocusAnchor) {
-                focusAnalyticsEventsIfRequested()
-            }
         }
         .onAppear {
             model.startSampling()
         }
-        .task { await analyticsLog.loadIfNeeded() }
         .onDisappear { model.stopSampling() }
         .onChange(of: presentation.revision) {
             initializeDisclosuresIfNeeded()
@@ -97,11 +73,6 @@ struct DiagnosticsSettingsPane: View {
         .onChange(of: eventCategory) {
             announceMatchingEventCount()
         }
-    }
-
-    private func focusAnalyticsEventsIfRequested() {
-        guard navigator.consumeAccessibilityFocus(for: Self.analyticsEventsAnchor) else { return }
-        isAnalyticsEventsHeadingFocused = true
     }
 
     // MARK: - Header and refresh
@@ -754,171 +725,6 @@ struct DiagnosticsSettingsPane: View {
         .awFont(AwFont.UI.meta)
         .foregroundStyle(Color.aw.text)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Analytics events
-
-    private var analyticsEvents: some View {
-        let total = analyticsLog.entries.count
-        let visible = analyticsLog.entries
-            .suffix(LocalDiagnosticEventSnapshot.maxVisibleEvents)
-            .reversed()
-        let truncationNotice = LocalizedPluralStrings.diagnosticsShowingRecordedAnalyticsEvents(
-            visible: visible.count,
-            total: total
-        )
-        return VStack(alignment: .leading, spacing: 0) {
-            analyticsConsentStatus
-                .padding(.bottom, 12)
-
-            VStack(alignment: .leading, spacing: 0) {
-                if visible.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("No analytics events recorded")
-                            .awFont(AwFont.UI.label)
-                            .foregroundStyle(Color.aw.text)
-                        Text(
-                            "Events appear here after analytics is enabled and an event occurs. Try Send Test Diagnostic Event in Analytics settings."
-                        )
-                        .awFont(AwFont.UI.meta)
-                        .foregroundStyle(Color.aw.text)
-                    }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                } else {
-                    if total > visible.count {
-                        Text(truncationNotice)
-                            .awFont(AwFont.UI.meta)
-                            .foregroundStyle(Color.aw.text)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 10)
-                            .padding(.bottom, 4)
-                            .accessibilityLabel(truncationNotice)
-                    }
-                    VStack(spacing: 0) {
-                        ForEach(Array(visible)) { entry in
-                            analyticsEventRow(entry)
-                        }
-                    }
-                }
-            }
-            .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
-            .overlay {
-                RoundedRectangle(cornerRadius: AwRadius.button)
-                    .stroke(Color.aw.border2, lineWidth: 0.5)
-            }
-        }
-        .padding(.top, 18)
-    }
-
-    @ViewBuilder
-    private var analyticsConsentStatus: some View {
-        if appSettingsStore.analytics.value.consentLevel == .off {
-            HStack(spacing: 4) {
-                Text("Your analytics are currently disabled.")
-                Button("Enable them here") {
-                    navigator.pendingSection = .analytics
-                }
-                .buttonStyle(.link)
-            }
-            .awFont(AwFont.UI.meta)
-            .foregroundStyle(Color.aw.text2)
-        } else {
-            Text("Analytics are currently enabled. See a record of analytics events below.")
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text2)
-        }
-    }
-
-    private func analyticsEventRow(_ entry: AnalyticsLogEntry) -> some View {
-        DisclosureGroup {
-            analyticsPayload(entry)
-                .padding(.leading, 23)
-                .padding(.bottom, 10)
-        } label: {
-            HStack(alignment: .top, spacing: 9) {
-                Image(
-                    systemName: entry.status == .dropped || entry.status == .failed
-                        ? "arrow.down.circle" : "arrow.up.circle"
-                )
-                .foregroundStyle(Color.aw.text)
-                .frame(width: 14)
-                .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(entry.name.rawValue)
-                        .awFont(AwFont.Mono.meta)
-                        .foregroundStyle(Color.aw.text)
-                        .textSelection(.enabled)
-                    Text("\(analyticsStatusText(entry)) · \(entry.timestamp.formatted(date: .omitted, time: .standard))")
-                        .awFont(AwFont.Mono.meta)
-                        .foregroundStyle(Color.aw.text)
-                }
-                Spacer(minLength: 0)
-            }
-            .accessibilityElement(children: .combine)
-        }
-        .padding(10)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.aw.border).frame(height: 0.5)
-        }
-    }
-
-    private func analyticsPayload(_ entry: AnalyticsLogEntry) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(analyticsPayloadRows(entry), id: \.0) { row in
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 8) {
-                        analyticsPayloadKey(row.0)
-                            .frame(width: 200, alignment: .leading)
-                        analyticsPayloadValue(row.1)
-                    }
-                    VStack(alignment: .leading, spacing: 1) {
-                        analyticsPayloadKey(row.0)
-                        analyticsPayloadValue(row.1)
-                    }
-                }
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private func analyticsPayloadKey(_ text: String) -> some View {
-        Text(text)
-            .awFont(AwFont.Mono.meta)
-            .foregroundStyle(Color.aw.text)
-    }
-
-    private func analyticsPayloadValue(_ text: String) -> some View {
-        Text(text)
-            .awFont(AwFont.Mono.meta)
-            .foregroundStyle(Color.aw.text)
-            .textSelection(.enabled)
-    }
-
-    private func analyticsPayloadRows(_ entry: AnalyticsLogEntry) -> [(String, String)] {
-        var rows = entry.properties
-            .map { ($0.key.rawValue, $0.value.displayValue) }
-            .sorted { $0.0 < $1.0 }
-        rows.append((String(localized: "consent level", comment: "Analytics payload meta row"), entry.consentLevel.rawValue))
-        rows.append((String(localized: "delivery status", comment: "Analytics payload meta row"), analyticsStatusText(entry)))
-        rows.append((String(localized: "provider", comment: "Analytics payload meta row"), entry.provider))
-        rows.append((String(localized: "schema version", comment: "Analytics payload meta row"), String(entry.schemaVersion)))
-        return rows
-    }
-
-    private func analyticsStatusText(_ entry: AnalyticsLogEntry) -> String {
-        switch (entry.status, entry.dropReason) {
-        case (.queued, _):
-            String(localized: "Queued", comment: "Analytics event delivery status")
-        case (_, .deliveryUnavailable):
-            String(localized: "Not sent. This build records analytics locally only", comment: "Analytics event delivery status")
-        case (_, .analyticsDisabled):
-            String(localized: "Not recorded. Analytics is off", comment: "Analytics event delivery status")
-        case (_, .invalidPropertyValue):
-            String(localized: "Dropped. Failed privacy checks", comment: "Analytics event delivery status")
-        case (.dropped, nil), (.failed, nil):
-            String(localized: "Not sent", comment: "Analytics event delivery status")
-        }
     }
 
     private var cardDivider: some View {

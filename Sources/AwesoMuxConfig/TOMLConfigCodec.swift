@@ -39,7 +39,6 @@ public struct TOMLConfigCodec: Sendable {
         "agents": Set(AgentConfig.CodingKeys.allCases.map(\.rawValue)),
         "workspaces": Set(WorkspaceConfig.CodingKeys.allCases.map(\.rawValue)),
         "advanced": Set(AdvancedConfig.CodingKeys.allCases.map(\.rawValue)),
-        "analytics": Set(AnalyticsConfig.CodingKeys.allCases.map(\.rawValue)),
     ]
 
     public init() {}
@@ -689,7 +688,6 @@ public struct TOMLConfigCodec: Sendable {
     private func validate(_ config: AwesoMuxConfig) throws(ConfigLoadError) {
         try config.appearance.validate()
         try config.workspaces.validate()
-        try config.analytics.validate()
 
         let version = config.advanced.configSchemaVersion
         guard version >= AdvancedConfig.minimumConfigSchemaVersion else {
