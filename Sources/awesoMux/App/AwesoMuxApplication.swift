@@ -1,7 +1,21 @@
 import AppKit
+import ObjectiveC
 
 @objc(AwesoMuxApplication)
 final class AwesoMuxApplication: NSApplication {
+    static func installAsSharedApplicationIfNeeded() -> AwesoMuxApplication {
+        let application = NSApplication.shared
+        if let application = application as? AwesoMuxApplication {
+            return application
+        }
+
+        // SwiftUI creates the shared NSApplication before the staged bundle's
+        // NSPrincipalClass is consulted. This subclass has no stored state, so
+        // installing its event-routing behavior preserves the singleton's layout.
+        object_setClass(application, AwesoMuxApplication.self)
+        return unsafeDowncast(application, to: AwesoMuxApplication.self)
+    }
+
     override func sendEvent(_ event: NSEvent) {
         guard event.type == .keyDown else {
             super.sendEvent(event)
@@ -139,38 +153,50 @@ final class AwesoMuxApplication: NSApplication {
             return
         }
 
-        // Promote the floating panel's slot into the workspace (Cmd-Return).
-        // Only fires when the floating panel is key, so Cmd-Return in a normal
-        // workspace pane still falls through to the terminal. Handled here
-        // rather than in the panel's own `sendEvent` because command-key
-        // equivalents are consumed by menu/key-equivalent routing before they
-        // reach a window-level override.
+        // Promote a terminal panel into the workspace (Cmd-Return). Routing
+        // from the event's window keeps child-window Companion events attached
+        // to their source even when AppKit reports the primary window as key.
+        // Cmd-Return in a normal workspace pane still falls through to the
+        // terminal. Intercept here rather than in the panel's own `sendEvent`
+        // because menu/key-equivalent routing consumes command-key equivalents
+        // before they reach a window-level override.
         if FloatingPanelEventPolicy.isPromoteChord(
             type: event.type,
             keyCode: event.keyCode,
             isARepeat: event.isARepeat,
             modifiers: event.modifierFlags
-        ), let floatingPanel = keyWindow as? TerminalPanelWindow {
-            // Panel-scoped rather than the app-wide canHandleAppShortcut the
-            // sibling branches use: only a sheet on THIS panel contends for
-            // the ⌘Return chord; a sheet on some other window shouldn't
-            // disable promote on the key floating panel.
+        ) {
+            guard let terminalPanel = Self.promotionTarget(for: event) else {
+                ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true blocked=noTerminalPanelTarget")
+                super.sendEvent(event)
+                return
+            }
+
+            // Scope sheet checks to the terminal panel and its Companion
+            // parent. A sheet on an unrelated window does not own this chord,
+            // while an app-modal session always does.
             guard
-                FloatingPanelEventPolicy.canPromoteFloatingPanel(
-                    hasAttachedSheet: floatingPanel.attachedSheet != nil
+                FloatingPanelEventPolicy.canPromoteTerminalPanel(
+                    hasAttachedSheet: terminalPanel.attachedSheet != nil,
+                    parentHasAttachedSheet: terminalPanel.parent?.attachedSheet != nil,
+                    hasModalSession: modalWindow != nil
                 )
             else {
-                ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true blocked=attachedSheet")
+                ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true blocked=modalInputOwner")
                 super.sendEvent(event)
                 return
             }
 
             ShortcutDiagnostics.log("stage=sendEvent promoteFloating=true action=promote")
-            floatingPanel.onPromote?()
+            terminalPanel.onPromote?()
             return
         }
 
         super.sendEvent(event)
+    }
+
+    static func promotionTarget(for event: NSEvent) -> TerminalPanelWindow? {
+        event.window as? TerminalPanelWindow
     }
 
     private var canHandleAppShortcut: Bool {
