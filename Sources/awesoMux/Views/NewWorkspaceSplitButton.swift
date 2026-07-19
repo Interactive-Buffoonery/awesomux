@@ -131,15 +131,18 @@ struct NewWorkspaceSplitButton: View {
                     // segment's comment above for why weight (not color)
                     // was the actual mismatch.
                     .font(.system(size: 9, weight: .medium))
-                    // Explicit, not inherited — a Menu's label doesn't
-                    // reliably pick up an ancestor .foregroundStyle (it was
-                    // rendering the system default instead of text3).
-                    .foregroundStyle(Color.aw.text3)
                     .frame(width: chevronWidth, height: primarySize)
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+            // .borderlessButton menu labels render their glyph in the
+            // control's accent tint and ignore foregroundStyle entirely —
+            // .tint is what actually reaches the label's Image. Same fix
+            // already established for the "?" help menu (SidebarStatusFooter
+            // .swift's feedbackMenu) — this hit the identical bug before.
+            .tint(Color.aw.text3)
+            .foregroundStyle(Color.aw.text3)
         }
         .frame(width: chevronWidth, height: primarySize)
         .onHover { isChevronHovering = $0 }
