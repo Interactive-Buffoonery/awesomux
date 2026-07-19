@@ -7,12 +7,12 @@ final class AgentOutputDetectorTests: XCTestCase {
 
     func testDetectsClaudePermissionPromptAsNeedsAttention() {
         let text = """
-        claude code v1.7.2
-        user › run the build
-        ▌ permission needed
-          run xcodebuild -scheme awesoMux build ?
-          [y] yes  [n] no  [a] always for this session
-        """
+            claude code v1.7.2
+            user › run the build
+            ▌ permission needed
+              run xcodebuild -scheme awesoMux build ?
+              [y] yes  [n] no  [a] always for this session
+            """
 
         XCTAssertEqual(detector.detectedState(in: text), .needsAttention)
     }
@@ -22,30 +22,30 @@ final class AgentOutputDetectorTests: XCTestCase {
         // folding must keep lowercasing (no separate .lowercased() pass) and
         // diacritics must keep stripping.
         let text = """
-        CLAUDE CODE v1.7.2
-        CLAUDE · THINKING ▰▰▰▱▱
-          ÉSC TO INTERRUPT
-        """
+            CLAUDE CODE v1.7.2
+            CLAUDE · THINKING ▰▰▰▱▱
+              ÉSC TO INTERRUPT
+            """
 
         XCTAssertEqual(detector.detectedState(in: text), .thinking)
     }
 
     func testDetectsClaudeThinkingCue() {
         let text = """
-        claude code v1.7.2
-        claude · thinking ▰▰▰▱▱
-          checking that GhosttySurfaceDelegate matches the upstream protocol...
-        """
+            claude code v1.7.2
+            claude · thinking ▰▰▰▱▱
+              checking that GhosttySurfaceDelegate matches the upstream protocol...
+            """
 
         XCTAssertEqual(detector.detectedState(in: text), .thinking)
     }
 
     func testInfersClaudeIdentityFromConfidentVisibleCue() {
         let text = """
-        claude code v1.7.2
-        claude · thinking ▰▰▰▱▱
-          reading the tree...
-        """
+            claude code v1.7.2
+            claude · thinking ▰▰▰▱▱
+              reading the tree...
+            """
 
         XCTAssertEqual(
             detector.detectedOutput(in: text),
@@ -66,11 +66,11 @@ final class AgentOutputDetectorTests: XCTestCase {
 
     func testDoesNotInferIdentityFromBareClaudeLaunchCommand() {
         let text = """
-        $ claude
-        ▌ permission needed
-          run swift test ?
-          [y] yes  [n] no
-        """
+            $ claude
+            ▌ permission needed
+              run swift test ?
+              [y] yes  [n] no
+            """
 
         XCTAssertEqual(
             detector.detectedOutput(in: text),
@@ -80,15 +80,15 @@ final class AgentOutputDetectorTests: XCTestCase {
 
     func testDetectsCodexLaunchCardAsWaitingIdentityCarrier() {
         let text = """
-        ✨ ❯ codex
+            ✨ ❯ codex
 
-        >_ OpenAI Codex (v0.142.5)
+            >_ OpenAI Codex (v0.142.5)
 
-        model:     gpt-5.5 xhigh    /model to change
-        directory: ~/Development
+            model:     gpt-5.5 xhigh    /model to change
+            directory: ~/Development
 
-        Tip: [tui.keymap] in ~/.codex/config.toml lets you rebind supported shortcuts
-        """
+            Tip: [tui.keymap] in ~/.codex/config.toml lets you rebind supported shortcuts
+            """
 
         XCTAssertTrue(detector.observesAgentContext(in: text))
         XCTAssertEqual(
@@ -99,11 +99,11 @@ final class AgentOutputDetectorTests: XCTestCase {
 
     func testDoesNotInferIdentityFromBareCodexLaunchCommand() {
         let text = """
-        $ codex
-        ▌ permission needed
-          run swift test ?
-          [y] yes  [n] no
-        """
+            $ codex
+            ▌ permission needed
+              run swift test ?
+              [y] yes  [n] no
+            """
 
         XCTAssertEqual(
             detector.detectedOutput(in: text),
@@ -113,10 +113,10 @@ final class AgentOutputDetectorTests: XCTestCase {
 
     func testDetectsPromptAfterAgentContextWasObserved() {
         let text = """
-        ▌ permission needed
-          run swift test ?
-          [y] yes  [n] no
-        """
+            ▌ permission needed
+              run swift test ?
+              [y] yes  [n] no
+            """
 
         XCTAssertNil(detector.detectedState(in: text))
         XCTAssertEqual(
@@ -127,19 +127,19 @@ final class AgentOutputDetectorTests: XCTestCase {
 
     func testDetectsClaudeDoneCue() {
         let text = """
-        claude code v1.7.2
-          ✓ build succeeded · 4.2s
-          ⎿ awaiting your review
-        """
+            claude code v1.7.2
+              ✓ build succeeded · 4.2s
+              ⎿ awaiting your review
+            """
 
         XCTAssertEqual(detector.detectedState(in: text), .done)
     }
 
     func testIgnoresShellTextWithoutAgentContext() {
         let text = """
-        $ rg "permission needed"
-        docs/state-machine-contract.jsx: permission needed
-        """
+            $ rg "permission needed"
+            docs/state-machine-contract.jsx: permission needed
+            """
 
         XCTAssertNil(detector.detectedState(in: text))
     }
@@ -193,9 +193,9 @@ struct AgentOutputDetectorGrokIdentityTests {
     @Test("infers Grok identity but ignores generic done cues")
     func infersGrokIdentityButIgnoresGenericDoneCues() {
         let text = """
-        ❯ grok
-          task complete · 3 files changed
-        """
+            ❯ grok
+              task complete · 3 files changed
+            """
 
         #expect(
             detector.detectedOutput(in: text)
@@ -247,11 +247,11 @@ struct AgentOutputDetectorGrokIdentityTests {
     @Test("Grok permission prompts still surface as attention")
     func grokPermissionPromptsStillSurfaceAsAttention() {
         let text = """
-        grok ›
-        permission needed
-        run swift test?
-        [y] yes  [n] no
-        """
+            grok ›
+            permission needed
+            run swift test?
+            [y] yes  [n] no
+            """
 
         #expect(
             detector.detectedOutput(in: text)
@@ -314,10 +314,10 @@ struct AgentOutputDetectorCodexIdentityTests {
         // precedence function and is not (re)ordered to fake recency — the
         // arbitration lives in the reducer's source gate, not here.
         let text = """
-        ❯ grok
-          grok --resume 019f37ce-277c-73f0
-        OpenAI Codex (v0.142.5)
-        """
+            ❯ grok
+              grok --resume 019f37ce-277c-73f0
+            OpenAI Codex (v0.142.5)
+            """
         #expect(detector.detectedOutput(in: text)?.agentKind == .grok)
     }
 }

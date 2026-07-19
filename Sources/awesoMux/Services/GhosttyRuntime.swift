@@ -329,7 +329,8 @@ final class GhosttyRuntime {
 
     private func startVisibleSurfaceSamplingIfNeeded() {
         guard visibleSurfaceSamplingTask == nil,
-              !visibleSurfaceSamplingPaneIDs.isEmpty else {
+            !visibleSurfaceSamplingPaneIDs.isEmpty
+        else {
             return
         }
         let clock = visibleSurfaceSamplingClock
