@@ -222,6 +222,22 @@ struct AppearanceSettingsPane: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
+
+                SettingsField(
+                    label: String(
+                        localized: "Tinted workspace colors",
+                        comment: "Settings field label for the tinted high-contrast workspace colors toggle"),
+                    hint: String(
+                        localized:
+                            "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default.",
+                        comment: "Settings field hint for the tinted high-contrast workspace colors toggle"),
+                    // Bare .labelsHidden() Toggle — let the field supply its name.
+                    forwardsAccessibilityToControl: true
+                ) {
+                    Toggle("Tinted workspace colors", isOn: appSettingsStore.appearance.binding(\.tintedHighContrast))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
             }
 
             SettingsSection(index: 7, title: String(localized: "Reset", comment: "Appearance settings section title")) {
@@ -324,6 +340,7 @@ struct AppearanceSettingsPane: View {
             appearance.terminalBackgroundMode = defaults.terminalBackgroundMode
             appearance.terminalBackgroundColor = defaults.terminalBackgroundColor
             appearance.alwaysShowJumpNumbers = defaults.alwaysShowJumpNumbers
+            appearance.tintedHighContrast = defaults.tintedHighContrast
             appearance.sidebarPosition = defaults.sidebarPosition
             appearance.crtScanlines = defaults.crtScanlines
         }
@@ -367,6 +384,7 @@ struct AppearanceSettingsPane: View {
             && appearance.terminalBackgroundMode == defaults.terminalBackgroundMode
             && appearance.terminalBackgroundColor == defaults.terminalBackgroundColor
             && appearance.alwaysShowJumpNumbers == defaults.alwaysShowJumpNumbers
+            && appearance.tintedHighContrast == defaults.tintedHighContrast
             && appearance.sidebarPosition == defaults.sidebarPosition
             && appearance.crtScanlines == defaults.crtScanlines
             && appSettingsStore.general.value.sidebarCompactMode

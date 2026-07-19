@@ -29,6 +29,16 @@ struct SidebarSessionTile: View {
     /// All other groups (excluding the owner) for the context-menu picker.
     let otherGroups: [SessionGroup]
     let verticalPadding: CGFloat
+    /// Snapshot of `appearance.tinted_high_contrast` (INT-645), passed by the
+    /// caller instead of read from `@Environment(AppSettingsStore.self)` here:
+    /// the OLD/NEW instances compared by `==` share the same store reference,
+    /// so a live store read is permanently self-equal inside the
+    /// `.equatable()` gate — the same trap `isKeyboardNavigatingValue`
+    /// documents, proven live on macOS 15 (PR #428).
+    let tintedHighContrast: Bool
+    /// Same snapshot treatment for the jump-number setting: `jumpNumberDisplay`
+    /// is a render-path read, so an in-tile store read stales behind the gate.
+    let alwaysShowJumpNumbers: Bool
     let onSelect: () -> Void
     let onNewSessionHere: () -> Void
     let onAcknowledge: () -> Void
@@ -722,7 +732,7 @@ struct SidebarSessionTile: View {
     private var jumpNumberDisplay: JumpNumberDisplay {
         JumpNumberDisplay.resolve(
             collapsed: displayMode == .collapsed,
-            alwaysOn: appSettingsStore.appearance.value.alwaysShowJumpNumbers,
+            alwaysOn: alwaysShowJumpNumbers,
             commandHeld: isCommandKeyHeld
         )
     }
@@ -748,9 +758,12 @@ struct SidebarSessionTile: View {
         //
         // The active border carries the workspace tint via `tintBorder`, which
         // is contrast-tuned per theme. Increased-contrast keeps the measured
-        // gray `dividerHoverHC`: that path deliberately strips decoration (glow
-        // is already dropped) to maximize legibility, and the gray is the value
-        // verified for the 2pt HC stroke. See INT-490.
+        // gray `dividerHoverHC` by default: that path deliberately strips
+        // decoration (glow is already dropped) to maximize legibility, and the
+        // gray is the value verified for the 2pt HC stroke. See INT-490.
+        // `tintedHighContrast` (INT-645) opts back into the tinted border under
+        // HC — safe because `tintBorder` tokens are floor-tested to clear the
+        // same 3:1 non-text cue (AwColorTests.workspaceTintBorderTokensClearContrastFloor).
         let isHighContrast = contrast == .increased
         let needsAttention = rollup.state.awState == .needs
         let strokeColor: Color = {
@@ -758,7 +771,7 @@ struct SidebarSessionTile: View {
                 return Color.aw.status.needs.opacity(isHighContrast ? 0.95 : 0.50)
             }
             if isActive {
-                return isHighContrast ? Color.aw.dividerHoverHC : tint.borderHue
+                return isHighContrast && !tintedHighContrast ? Color.aw.dividerHoverHC : tint.borderHue
             }
             if isHighContrast {
                 // Resting HC border clears 3:1 on the resting tile, but Latte
@@ -1006,8 +1019,11 @@ extension SidebarSessionTile: Equatable {
     ///   ordinary `@State` path, independent of this Equatable gate.
     /// - `peekModel`, `contrast`, `reduceMotion`, `appSettingsStore`,
     ///   `isCommandKeyHeld` — `@Environment`, ambient/Observation-tracked
-    ///   reads, not a constructor input. A change to any of these invalidates
-    ///   this row's body directly and is not gated by `.equatable()`.
+    ///   reads, not a constructor input. In principle a change to any of
+    ///   these invalidates this row's body directly, but PR #428's live smoke
+    ///   showed env/observation invalidation across an `EquatableView` gate
+    ///   staling on macOS 15 — settings a render path depends on must ALSO be
+    ///   passed as compared constructor snapshots (see `tintedHighContrast`).
     ///
     /// `isKeyboardNavigatingValue` is included as a plain field for the same
     /// reason `isKeyboardFocused` is: `interactiveTile` gates
@@ -1071,6 +1087,8 @@ extension SidebarSessionTile: Equatable {
         let nextNeighborGroup: NeighborKey?
         let otherGroups: [NeighborKey]
         let verticalPadding: CGFloat
+        let tintedHighContrast: Bool
+        let alwaysShowJumpNumbers: Bool
         let canMakeWorkspaceManaged: Bool
         let isPinned: Bool
         let pinnedOriginGroupName: String?
@@ -1150,6 +1168,8 @@ extension SidebarSessionTile: Equatable {
             nextNeighborGroup: nextNeighborGroup.map { NeighborKey(id: $0.id, name: $0.name) },
             otherGroups: otherGroups.map { NeighborKey(id: $0.id, name: $0.name) },
             verticalPadding: verticalPadding,
+            tintedHighContrast: tintedHighContrast,
+            alwaysShowJumpNumbers: alwaysShowJumpNumbers,
             canMakeWorkspaceManaged: canMakeWorkspaceManaged,
             isPinned: isPinned,
             pinnedOriginGroupName: pinnedOriginGroupName,

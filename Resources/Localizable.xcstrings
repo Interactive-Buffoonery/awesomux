@@ -1883,6 +1883,9 @@
     "On" : {
       "comment" : "Settings label when Open at Login is enabled."
     },
+    "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default." : {
+      "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
+    },
     "Open" : {
       "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
     },
@@ -3143,6 +3146,9 @@
     },
     "Tighter row spacing for users with many sessions in a single workspace." : {
       "comment" : "Settings field hint for the sidebar compact mode toggle"
+    },
+    "Tinted workspace colors" : {
+      "comment" : "Settings field label for the tinted high-contrast workspace colors toggle"
     },
     "Tints active sidebar rows, focus outlines, and progress affordances." : {
       "comment" : "Settings field hint for the accent color swatches"
