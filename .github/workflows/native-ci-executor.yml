@@ -1,0 +1,333 @@
+name: Native CI executor
+
+on:
+  workflow_dispatch:
+    inputs:
+      target-sha:
+        description: Exact target commit to validate.
+        required: true
+        type: string
+      pr-number:
+        description: Pull request number for comment-triggered validation.
+        required: false
+        type: string
+      scope:
+        description: Native validation scope.
+        required: true
+        type: string
+      trusted-sha:
+        description: Trusted default-branch commit that created the execution ref.
+        required: true
+        type: string
+      execution-ref:
+        description: Unique branch-scoped cache boundary for this request.
+        required: true
+        type: string
+      trigger:
+        description: Original request trigger.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  resolve:
+    name: Validate native target
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      target-sha: ${{ steps.target.outputs.target-sha }}
+      pr-number: ${{ steps.target.outputs.pr-number }}
+      scope: ${{ steps.target.outputs.scope }}
+      trusted-sha: ${{ steps.target.outputs.trusted-sha }}
+      trigger: ${{ steps.target.outputs.trigger }}
+    steps:
+      - name: Validate dispatched target
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TARGET_SHA: ${{ inputs.target-sha }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          SCOPE: ${{ inputs.scope }}
+          TRUSTED_SHA: ${{ inputs.trusted-sha }}
+          EXECUTION_REF: ${{ inputs.execution-ref }}
+          ORIGINAL_TRIGGER: ${{ inputs.trigger }}
+          ACTUAL_REF: ${{ github.ref }}
+          ACTUAL_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$EXECUTION_REF" =~ ^native-ci-runs/run-[0-9]+-[0-9]+$ ]] || \
+            [[ "$ACTUAL_REF" != "refs/heads/$EXECUTION_REF" ]]; then
+            echo "native execution requires its unique trusted execution ref" >&2
+            exit 1
+          fi
+          if [[ ! "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$ACTUAL_SHA" != "$TRUSTED_SHA" ]]; then
+            echo "native execution ref does not point to the captured trusted SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "native target must be a 40-character lowercase SHA" >&2
+            exit 1
+          fi
+          case "$SCOPE" in
+            all|unit|adapter|system) ;;
+            *)
+              echo "unsupported native CI scope: $SCOPE" >&2
+              exit 2
+              ;;
+          esac
+          case "$ORIGINAL_TRIGGER" in
+            issue_comment|workflow_dispatch) ;;
+            *)
+              echo "unsupported native CI trigger: $ORIGINAL_TRIGGER" >&2
+              exit 2
+              ;;
+          esac
+
+          if [[ "$ORIGINAL_TRIGGER" == "issue_comment" ]]; then
+            if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+              echo "comment-triggered native CI requires a pull request number" >&2
+              exit 1
+            fi
+            pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+            jq -e \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --arg targetSHA "$TARGET_SHA" \
+              '.state == "open" and
+               .draft == false and
+               .head.repo.full_name == $repository and
+               .head.sha == $targetSHA' \
+              <<< "$pr_json" >/dev/null || {
+                echo "pull request eligibility or head SHA changed after the command" >&2
+                exit 1
+              }
+          elif [[ -n "$PR_NUMBER" ]] || [[ "$TARGET_SHA" != "$TRUSTED_SHA" ]]; then
+            echo "manual native CI validates only the captured default-branch SHA" >&2
+            exit 1
+          fi
+
+          {
+            echo "target-sha=$TARGET_SHA"
+            echo "pr-number=$PR_NUMBER"
+            echo "scope=$SCOPE"
+            echo "trusted-sha=$TRUSTED_SHA"
+            echo "trigger=$ORIGINAL_TRIGGER"
+          } >> "$GITHUB_OUTPUT"
+
+  native:
+    name: Native ${{ needs.resolve.outputs.scope }}
+    needs: resolve
+    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
+    timeout-minutes: 120
+    concurrency:
+      group: native-pr-${{ needs.resolve.outputs.pr-number || github.run_id }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    env:
+      AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
+    outputs:
+      result: ${{ steps.execute.outputs.result }}
+      duration-seconds: ${{ steps.execute.outputs.duration-seconds }}
+      artifact-url: ${{ steps.artifact.outputs.artifact-url }}
+    steps:
+      - name: Check out captured SHA
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.target-sha }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Check out trusted native helper
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.trusted-sha }}
+          path: _trusted
+          persist-credentials: false
+
+      - name: Initialize native results
+        id: timing
+        run: |
+          set -euo pipefail
+          mkdir -p .build/test-results
+          echo "Native CI started for ${{ needs.resolve.outputs.target-sha }}" > .build/test-results/native-ci.log
+          echo "started-at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify captured SHA
+        id: verify
+        continue-on-error: true
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.resolve.outputs.target-sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_sha" != "$EXPECTED_HEAD_SHA" ]]; then
+            printf 'Checked-out HEAD mismatch: expected %s, got %s\n' \
+              "$EXPECTED_HEAD_SHA" "$actual_sha" | tee -a .build/test-results/native-ci.log >&2
+            exit 1
+          fi
+          printf 'Verified checked-out HEAD: %s\n' "$actual_sha" | tee -a .build/test-results/native-ci.log
+
+      - name: Prepare native build
+        id: prepare
+        if: steps.verify.outcome == 'success'
+        continue-on-error: true
+        uses: ./_trusted/.github/actions/prepare-native
+        with:
+          save-cache: "false"
+
+      - name: Run native validation
+        id: execute
+        if: always()
+        env:
+          SCOPE: ${{ needs.resolve.outputs.scope }}
+          START_EPOCH: ${{ steps.timing.outputs.started-at }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          XUNIT_PATH: .build/test-results/native-ci.xml
+          LOG_PATH: .build/test-results/native-ci.log
+        run: |
+          set -euo pipefail
+          result=success
+
+          if [[ "$VERIFY_OUTCOME" != "success" ]]; then
+            echo "Captured SHA verification failed; native code was not executed." | tee -a "$LOG_PATH"
+            result=failure
+          elif [[ "$PREPARE_OUTCOME" != "success" ]]; then
+            echo "Native preparation failed; tests were not executed." | tee -a "$LOG_PATH"
+            result=failure
+          else
+            set +e
+            ./script/test.sh "$SCOPE" --xunit-output "$XUNIT_PATH" 2>&1 | tee -a "$LOG_PATH"
+            test_status=${PIPESTATUS[0]}
+            set -e
+            if [[ "$test_status" -ne 0 ]]; then
+              result=failure
+            fi
+
+            if [[ "$SCOPE" == "all" && "$result" == "success" ]]; then
+              set +e
+              ./script/build_and_run.sh --stage-release 2>&1 | tee -a "$LOG_PATH"
+              build_status=${PIPESTATUS[0]}
+              set -e
+              if [[ "$build_status" -ne 0 ]]; then
+                result=failure
+              else
+                set +e
+                codesign --verify --deep --strict --verbose=2 dist/awesoMux.app 2>&1 | tee -a "$LOG_PATH"
+                signature_status=${PIPESTATUS[0]}
+                set -e
+                signature_info="$(codesign -dv --verbose=4 dist/awesoMux.app 2>&1)"
+                printf '%s\n' "$signature_info" | tee -a "$LOG_PATH"
+                if [[ "$signature_status" -ne 0 ]] || ! grep -qx 'Signature=adhoc' <<< "$signature_info"; then
+                  echo "Staged app is not validly ad-hoc signed." | tee -a "$LOG_PATH" >&2
+                  result=failure
+                fi
+              fi
+            fi
+          fi
+
+          if [[ ! -s "$XUNIT_PATH" ]]; then
+            echo "Native validation did not produce an xUnit report." | tee -a "$LOG_PATH" >&2
+            result=failure
+            cat > "$XUNIT_PATH" <<'XML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <testsuites tests="1" failures="1">
+            <testsuite name="NativeCI" tests="1" failures="1">
+              <testcase name="nativeValidationProducesXUnit">
+                <failure message="Native validation did not produce an xUnit report." />
+              </testcase>
+            </testsuite>
+          </testsuites>
+          XML
+          fi
+
+          end_epoch="$(date +%s)"
+          duration_seconds="$((end_epoch - START_EPOCH))"
+          {
+            echo "result=$result"
+            echo "duration-seconds=$duration_seconds"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload native results
+        id: artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-ci-${{ needs.resolve.outputs.scope }}-${{ needs.resolve.outputs.target-sha }}
+          path: .build/test-results/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Summarize native validation
+        if: always()
+        env:
+          SCOPE: ${{ needs.resolve.outputs.scope }}
+          EXACT_SHA: ${{ needs.resolve.outputs.target-sha }}
+          TRIGGER: ${{ needs.resolve.outputs.trigger }}
+          DURATION_SECONDS: ${{ steps.execute.outputs.duration-seconds }}
+          RESULT: ${{ steps.execute.outputs.result }}
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          {
+            echo "## Native CI"
+            echo
+            echo "- **Scope:** $SCOPE"
+            echo "- **Exact SHA:** $EXACT_SHA"
+            echo "- **Trigger:** $TRIGGER"
+            echo "- **Duration:** ${DURATION_SECONDS:-unknown}s"
+            echo "- **Result:** ${RESULT:-failure}"
+            echo "- **Artifact:** ${ARTIFACT_URL:-unavailable}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce native result
+        if: always() && steps.execute.outputs.result != 'success'
+        run: exit 1
+
+  report:
+    name: Report native result
+    needs: [resolve, native]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+    steps:
+      - name: Publish Native CI check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EXACT_SHA: ${{ inputs.target-sha }}
+          SCOPE: ${{ inputs.scope }}
+          TRIGGER: ${{ inputs.trigger }}
+          RESOLVE_JOB_RESULT: ${{ needs.resolve.result }}
+          NATIVE_JOB_RESULT: ${{ needs.native.result }}
+          NATIVE_RESULT: ${{ needs.native.outputs.result }}
+          DURATION_SECONDS: ${{ needs.native.outputs.duration-seconds }}
+          ARTIFACT_URL: ${{ needs.native.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          name="Native CI"
+          conclusion=failure
+          if [[ "$RESOLVE_JOB_RESULT" == "success" && "$NATIVE_JOB_RESULT" == "success" && "$NATIVE_RESULT" == "success" ]]; then
+            conclusion=success
+          elif [[ "$NATIVE_JOB_RESULT" == "cancelled" ]]; then
+            conclusion=cancelled
+          fi
+          details_url="${ARTIFACT_URL:-https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}}"
+          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          summary="Scope: ${SCOPE}; trigger: ${TRIGGER}; duration: ${DURATION_SECONDS:-unknown}s; result: ${conclusion}; artifact: ${details_url}"
+
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/check-runs" \
+            -f name="$name" \
+            -f head_sha="$EXACT_SHA" \
+            -f status=completed \
+            -f conclusion="$conclusion" \
+            -f completed_at="$completed_at" \
+            -f details_url="$details_url" \
+            -f "output[title]=Native CI (${SCOPE}) ${conclusion}" \
+            -f "output[summary]=$summary" >/dev/null
