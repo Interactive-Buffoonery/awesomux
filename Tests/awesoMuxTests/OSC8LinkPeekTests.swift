@@ -15,15 +15,23 @@ import Testing
         #expect(OSC8LinkPeek.previewURL(forLink: "http://example.com/path")?.absoluteString == "http://example.com/path")
         // Bare mailto with no attacker-controllable params is a direct open.
         #expect(OSC8LinkPeek.previewURL(forLink: "mailto:someone@example.com") != nil)
+        // TR39 pure-script host (`xn--e1afmkfd` decodes to "пример", pure
+        // Cyrillic) — INT-454 opens these direct; see URLClassifier's
+        // docstring. Asserted here (not just in URLClassifierTests) because
+        // `previewURL` is its own call site through OpenURLAction.resolve.
+        #expect(OSC8LinkPeek.previewURL(forLink: "https://xn--e1afmkfd.example/") != nil)
     }
 
     @Test func doesNotPreviewBlockConfirmURLs() {
         // embedded userinfo — classic host-disguise phishing.
         #expect(OSC8LinkPeek.previewURL(forLink: "https://github.com@evil.example/") == nil)
-        // non-ASCII / punycode host — block-confirm handles these; peek would be
-        // redundant (and this is why the "punycode warning in popover" line is
-        // unreachable under openDirect-only gating).
-        #expect(OSC8LinkPeek.previewURL(forLink: "https://xn--e1afmkfd.example/") == nil)
+        // TR39 mixed-script host (`xn--pypal-4ve` decodes to "pаypal" with a
+        // Cyrillic а) — block-confirm handles these; peek would be redundant
+        // (and this is why the "punycode warning in popover" line is
+        // unreachable under openDirect-only gating). A PURE non-Latin script
+        // host like `xn--e1afmkfd.example` ("пример.example") is intentionally
+        // NOT here — INT-454 opens those direct; see URLClassifier's docstring.
+        #expect(OSC8LinkPeek.previewURL(forLink: "https://xn--pypal-4ve.example/") == nil)
         // mailto with prefill params.
         #expect(OSC8LinkPeek.previewURL(forLink: "mailto:a@b.com?subject=hi&body=x") == nil)
     }
