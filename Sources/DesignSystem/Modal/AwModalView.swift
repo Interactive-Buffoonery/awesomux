@@ -69,12 +69,24 @@ public struct AwModalView<Content: View>: View {
         .background {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(Color.aw.surface.chrome)
-                .awShadow(.sheet)
+                // .handle (contact shadow, r8 / y4 / 0.16), not .sheet or
+                // .overlay: the shadow color token is full-opacity black, and
+                // over the transparent borderless panel any medium-radius blur
+                // saturates the shadow-reserve inset into a dark halo band
+                // that reads as a second "outer card" (live-smoke finding,
+                // twice — .sheet and .overlay both failed this way). The
+                // dimmed scrim already separates the card; only a soft
+                // contact edge is wanted.
+                .awShadow(.handle)
         }
         // The borderless panel clips to its frame, and AwModal sizes it to
-        // this view's fittingSize — inset by the sheet-shadow spread
-        // (radius 28, y-offset 22) so the shadow isn't truncated.
-        .padding(EdgeInsets(top: 6, leading: 28, bottom: 50, trailing: 28))
+        // this view's fittingSize — inset just enough for the handle-shadow
+        // spread (radius 8, y-offset 4: ~8 to the sides, ~4 up, ~12 down) so
+        // the soft edge isn't truncated and the panel hugs the card. This
+        // inset is pure shadow-reserve: under reduce-transparency /
+        // increased-contrast awShadow drops the shadow entirely, leaving a
+        // sliver of inert transparent margin — harmless.
+        .padding(EdgeInsets(top: 8, leading: 12, bottom: 16, trailing: 12))
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .onAppear(perform: announceAndFocusCancelButton)
@@ -102,7 +114,21 @@ public struct AwModalView<Content: View>: View {
                 .foregroundStyle(configuration.isConfirmDestructive ? Color.aw.red : Color.aw.text2)
         }
         .buttonStyle(.bordered)
-        .tint(configuration.isConfirmDestructive ? Color.aw.red : Color.aw.accent)
+        // No red .tint on the destructive branch: a red tint washes the
+        // bordered bezel to near-invisible on the dark chrome, so Open reads
+        // as disabled. A neutral bezel keeps it clearly an enabled, tappable
+        // control while the red label carries the danger cue; Cancel's filled
+        // accent keeps the emphasis. Pinned to the neutral text3 token rather
+        // than left unset — an unset tint falls back to the user's SYSTEM
+        // accent, and a Red system accent would reproduce the washed-red bezel
+        // this fixes (same .tint-token pattern as SidebarStatusFooter's help
+        // menu). The non-destructive branch (no production caller today) keeps
+        // the app accent tint.
+        // ponytail: leans on the native macOS 15 bordered bezel reading as
+        // enabled under a neutral tint; if a future min-OS renders the
+        // destructive-role bezel too subtly, upgrade to a scoped bordered style
+        // built from AwColor/AwRadius tokens (keep the Button role).
+        .tint(configuration.isConfirmDestructive ? Color.aw.text3 : Color.aw.accent)
         // No .keyboardShortcut here: the ⌘Return/keypad-Enter accept chord is
         // intercepted at the ModalPanel window level (AwModal.swift), which
         // covers keypad Enter and destructive-role buttons uniformly.
@@ -139,17 +165,20 @@ public struct AwModalView<Content: View>: View {
     }
 
     private var keyboardHintText: String {
-        configuration.keyboardHint ?? String(
-            localized: "Press ⌘Return to confirm. Return or Esc cancels.",
-            comment: "Generic keyboard hint line on an awModal confirmation dialog."
-        )
+        configuration.keyboardHint
+            ?? String(
+                localized: "Press ⌘Return to confirm. Return or Esc cancels.",
+                comment: "Generic keyboard hint line on an awModal confirmation dialog."
+            )
     }
 
     private var spokenKeyboardHintText: String {
-        keyboardHintText.replacingOccurrences(of: "⌘Return", with: String(
-            localized: "Command-Return",
-            comment: "Spelled-out form of the Command-Return chord for VoiceOver, substituted into keyboard hint lines."
-        ))
+        keyboardHintText.replacingOccurrences(
+            of: "⌘Return",
+            with: String(
+                localized: "Command-Return",
+                comment: "Spelled-out form of the Command-Return chord for VoiceOver, substituted into keyboard hint lines."
+            ))
     }
 }
 

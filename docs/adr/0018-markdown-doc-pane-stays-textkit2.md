@@ -55,16 +55,28 @@ anchor and the badge overlay outright.
     columns 1+ honor alignment. Upgrade path: emit a leading tab per row and shift
     the stops by one.
   - A row is one paragraph, and `NSParagraphStyle` wrapping is per-paragraph, so
-    cells cannot wrap at their column edge. Because the container is width-tracking
-    (kept so prose still wraps), a table wider than the pane WRAPS at the pane edge —
-    cells after the break restart on the next visual line in wrong columns. The
-    border pass detects wrapped cells (multi-segment layout) and suppresses that
-    table's grid rather than stroking rules through wrapped text. Fixing the layout
-    itself needs a per-cell layout primitive; tracked as a follow-up.
-- Accessibility: cells are exposed to VoiceOver with their column header
-  ("Status: Active") via `TableCellAccessibilityElement`. This is the
-  header-association slice, not full AXTable row/column navigation — the latter is
-  a tracked follow-up.
+    cells cannot wrap at their column edge. **Amended (INT-687):** a table wider
+    than the pane no longer wraps — the text container is effectively infinite in
+    both axes, prose wraps via per-paragraph `tailIndent` (managed by
+    `MarkdownTextViewCoordinator.updateDocumentGeometry()`), and wide tables
+    overflow into a horizontal scroll. In-cell wrapping remains out of reach under
+    this decision (it needs a per-cell layout primitive). The wrapped-cell border
+    suppression (multi-segment detection) is retained as a safety net.
+- Accessibility **(amended, INT-687)**: tables are exposed to VoiceOver as a full
+  AXTable tree — table → rows/columns → cells with row/column counts, index
+  ranges, and header association — built by `CommentBadgeOverlay` from the same
+  cell geometry as the drawn grid. Cell labels keep the header-association text
+  ("Status: Active") from the original slice. Row/column counts derive from
+  populated cells, so trailing all-empty rows/columns don't count — matching the
+  drawn grid (parity with the visual, not the raw markdown source).
+- Known ceilings of the INT-687 overflow model:
+  - The prose wrap width clamps at an 80pt floor, so panes narrower than
+    ~120pt horizontally scroll even for pure prose — a readability floor,
+    deliberate.
+  - The doc pane's wrap model is LTR-only: positive `tailIndent` measures from
+    the leading margin, so RTL paragraphs would overflow instead of wrapping.
+    The tab-stop table model was already LTR-oriented; revisit both together if
+    RTL documents become a target.
 - Any future need for true `NSTextTable` boxed layout would require re-opening
   this decision and rewriting the scroll-anchor + badge code against
   `NSLayoutManager` — a deliberate, tracked change, not a silent downgrade.

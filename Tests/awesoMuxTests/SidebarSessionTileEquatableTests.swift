@@ -9,6 +9,7 @@ import Testing
 // so a reviewer can diff key fields against stored properties without
 // jumping files):
 //   session, match, tint, isActive, displayMode, isKeyboardFocused,
+//   showsSearchFocusCue,
 //   jumpIndex, hasBackgroundedFloatingWork, isPromotedInsertion,
 //   isPromotionPulseActive, isFiltering, duplicateDisambiguation,
 //   indexInGroup, sessionCountInGroup, ownerGroupIndex,
@@ -108,6 +109,7 @@ struct SidebarSessionTileEquatableTests {
         session: TerminalSession,
         isActive: Bool = false,
         isKeyboardFocused: Bool = false,
+        showsSearchFocusCue: Bool = false,
         isKeyboardNavigating: Bool = false,
         // Defaults to an independent `.constant` per call, matching every
         // existing test's intent (fixed navigation state per tile). The
@@ -133,6 +135,7 @@ struct SidebarSessionTileEquatableTests {
             isActive: isActive,
             displayMode: .expanded,
             isKeyboardFocused: isKeyboardFocused,
+            showsSearchFocusCue: showsSearchFocusCue,
             jumpIndex: nil,
             hasBackgroundedFloatingWork: false,
             isPromotedInsertion: false,
@@ -340,6 +343,16 @@ struct SidebarSessionTileEquatableTests {
         )
 
         #expect(tileA != tileB)
+    }
+
+    @Test("search focus cue difference compares NOT equal")
+    func searchFocusCueChangeRerenders() {
+        let session = session(panes: [pane()])
+
+        #expect(
+            tile(session: session, showsSearchFocusCue: false)
+                != tile(session: session, showsSearchFocusCue: true)
+        )
     }
 
     @Test("per-pane agentKind difference compares NOT equal (rollup icon on priority ties)")

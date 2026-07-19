@@ -20,14 +20,14 @@ import Testing
             pinnedSessionIDs: [session.id]
         )
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         #expect(decoded.pinnedSessionIDs == [session.id])
     }
 
     @Test func missingKeyDecodesToEmpty() throws {
         let snapshot = makeSnapshot(pinned: [])
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         #expect(decoded.pinnedSessionIDs.isEmpty)
     }
 
@@ -42,7 +42,7 @@ import Testing
         var json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         json["pinnedSessionIDs"] = ["not-a-uuid", 42]
         data = try JSONSerialization.data(withJSONObject: json)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         #expect(decoded.pinnedSessionIDs.isEmpty)
     }
 

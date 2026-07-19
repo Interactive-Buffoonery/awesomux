@@ -18,7 +18,7 @@ public struct TOMLConfigCodec: Sendable {
         "copy_on_select",
         "command_bridge_enabled",
         "daemon_idle_cap_enabled",
-        "daemon_idle_cap_minutes"
+        "daemon_idle_cap_minutes",
     ]
     /// Owned sections whose unknown body lines are preserved via
     /// `extractSectionPreservation`. Unknown sub-tables under these roots
@@ -38,7 +38,8 @@ public struct TOMLConfigCodec: Sendable {
         "notifications": Set(NotificationConfig.CodingKeys.allCases.map(\.rawValue)),
         "agents": Set(AgentConfig.CodingKeys.allCases.map(\.rawValue)),
         "workspaces": Set(WorkspaceConfig.CodingKeys.allCases.map(\.rawValue)),
-        "advanced": Set(AdvancedConfig.CodingKeys.allCases.map(\.rawValue))
+        "advanced": Set(AdvancedConfig.CodingKeys.allCases.map(\.rawValue)),
+        "analytics": Set(AnalyticsConfig.CodingKeys.allCases.map(\.rawValue)),
     ]
 
     public init() {}
@@ -220,7 +221,8 @@ public struct TOMLConfigCodec: Sendable {
             preserveMidValueLines = scan.isMidValue && shouldPreserve
         }
 
-        let unknownLines = preserved
+        let unknownLines =
+            preserved
             .joined(separator: "\n")
             .trimmingCharacters(in: .newlines)
         return (unknownLines, unknownLines.isEmpty ? [] : layout)
@@ -252,9 +254,10 @@ public struct TOMLConfigCodec: Sendable {
                 continue
             }
             guard let section = currentSection,
-                  let ownedKeys = Self.diagnosedSectionKeys[section],
-                  !trimmed.isEmpty, !trimmed.hasPrefix("#"),
-                  let equalsIndex = trimmed.firstIndex(of: "=") else {
+                let ownedKeys = Self.diagnosedSectionKeys[section],
+                !trimmed.isEmpty, !trimmed.hasPrefix("#"),
+                let equalsIndex = trimmed.firstIndex(of: "=")
+            else {
                 continue
             }
             let key = normalizedTOMLDottedKey(
@@ -270,7 +273,8 @@ public struct TOMLConfigCodec: Sendable {
 
     private func normalizedSectionLineKey(_ trimmed: String) -> String? {
         guard !trimmed.isEmpty, !trimmed.hasPrefix("#"),
-              let equalsIndex = trimmed.firstIndex(of: "=") else {
+            let equalsIndex = trimmed.firstIndex(of: "=")
+        else {
             return nil
         }
         return normalizedTOMLDottedKey(
@@ -301,7 +305,7 @@ public struct TOMLConfigCodec: Sendable {
         func matches(_ delimiter: String) -> Bool {
             let delimiterChars = Array(delimiter)
             guard index + delimiterChars.count <= chars.count else { return false }
-            return Array(chars[index ..< index + delimiterChars.count]) == delimiterChars
+            return Array(chars[index..<index + delimiterChars.count]) == delimiterChars
         }
 
         while index < chars.count {
@@ -473,8 +477,9 @@ public struct TOMLConfigCodec: Sendable {
             case "u", "U":
                 let width = escape == "u" ? 4 : 8
                 guard index + width <= chars.count,
-                      let scalarValue = UInt32(String(chars[index ..< index + width]), radix: 16),
-                      let unicode = Unicode.Scalar(scalarValue) else {
+                    let scalarValue = UInt32(String(chars[index..<index + width]), radix: 16),
+                    let unicode = Unicode.Scalar(scalarValue)
+                else {
                     result.append("\\")
                     result.append(escape)
                     continue
@@ -578,12 +583,29 @@ public struct TOMLConfigCodec: Sendable {
         let trimmedExtras = extras.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedExtras.isEmpty else { return structured }
 
-        var lines = structured
+        var lines =
+            structured
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
-        guard let sectionHeaderIndex = lines.firstIndex(where: {
-            parseTableHeader($0.trimmingCharacters(in: .whitespacesAndNewlines)) == sectionName
-        }) else {
+
+        // A prior splice call (e.g. terminal, before appearance) may have
+        // inserted a header-shaped line as part of a preserved multiline
+        // value. Guard every header candidate against value-scan state —
+        // mirrors the decode-side guard in `extractSectionPreservation` — so
+        // that line is read as content, not a real table boundary.
+        var scan = TOMLValueScanState()
+        let isRealHeaderCandidate: [Bool] = lines.map { line in
+            let wasMidValue = scan.isMidValue
+            advanceValueScan(&scan, over: line)
+            return !wasMidValue
+        }
+
+        guard
+            let sectionHeaderIndex = lines.indices.first(where: { index in
+                isRealHeaderCandidate[index]
+                    && parseTableHeader(lines[index].trimmingCharacters(in: .whitespacesAndNewlines)) == sectionName
+            })
+        else {
             return structured.trimmingCharacters(in: .whitespacesAndNewlines)
                 + "\n\n[\(sectionName)]\n\(trimmedExtras)\n"
         }
@@ -591,13 +613,14 @@ public struct TOMLConfigCodec: Sendable {
         var insertIndex = lines.index(after: sectionHeaderIndex)
         while insertIndex < lines.endIndex {
             let trimmed = lines[insertIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-            if parseTableHeader(trimmed) != nil {
+            if isRealHeaderCandidate[insertIndex], parseTableHeader(trimmed) != nil {
                 break
             }
             insertIndex = lines.index(after: insertIndex)
         }
 
-        let extraLines = trimmedExtras
+        let extraLines =
+            trimmedExtras
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
         guard !layout.isEmpty else {
@@ -635,14 +658,16 @@ public struct TOMLConfigCodec: Sendable {
             }
         }
 
-        rebuiltBody.append(contentsOf: generatedLines.filter { line in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let key = normalizedSectionLineKey(trimmed) else { return true }
-            return !usedGeneratedKeys.contains(key)
-        })
-        rebuiltBody.append(contentsOf: extraLines.enumerated().compactMap { index, line in
-            usedUnknownLineIndexes.contains(index) ? nil : line
-        })
+        rebuiltBody.append(
+            contentsOf: generatedLines.filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let key = normalizedSectionLineKey(trimmed) else { return true }
+                return !usedGeneratedKeys.contains(key)
+            })
+        rebuiltBody.append(
+            contentsOf: extraLines.enumerated().compactMap { index, line in
+                usedUnknownLineIndexes.contains(index) ? nil : line
+            })
 
         lines.replaceSubrange(lines.index(after: sectionHeaderIndex)..<insertIndex, with: rebuiltBody)
         return lines.joined(separator: "\n")
@@ -664,6 +689,7 @@ public struct TOMLConfigCodec: Sendable {
     private func validate(_ config: AwesoMuxConfig) throws(ConfigLoadError) {
         try config.appearance.validate()
         try config.workspaces.validate()
+        try config.analytics.validate()
 
         let version = config.advanced.configSchemaVersion
         guard version >= AdvancedConfig.minimumConfigSchemaVersion else {
