@@ -58,6 +58,11 @@ struct NewWorkspaceMenuButton: View {
                 // family.
                 Image(systemName: "plus")
                     .font(.system(size: 13, weight: .semibold))
+                    // Applied directly on the glyph, not inherited from an
+                    // ancestor .foregroundStyle — a Menu's label doesn't
+                    // reliably pick up one applied on the Menu itself (it
+                    // was rendering the system default instead of text3).
+                    .foregroundStyle(Color.aw.text3)
                     .frame(width: size, height: size)
                     .contentShape(Rectangle())
             }
@@ -68,10 +73,6 @@ struct NewWorkspaceMenuButton: View {
             // "+". Hiding it now matches the search button beside it, which
             // has no indicator at all.
             .menuIndicator(.hidden)
-            // Neutral, matching the search icon button above it on the
-            // rail — not the accent color, which reads as too prominent
-            // for a chrome control at this size.
-            .foregroundStyle(Color.aw.text3)
         }
         .frame(width: size, height: size)
         .accessibilityLabel("New Workspace menu")

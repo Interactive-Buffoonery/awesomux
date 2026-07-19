@@ -54,10 +54,6 @@ struct NewWorkspaceSplitButton: View {
                 .accessibilityHidden(true)
             chevronButton
         }
-        // Neutral, matching the search icon beside it (SidebarView.swift) —
-        // not the accent color, which reads as too prominent for a chrome
-        // control at this size.
-        .foregroundStyle(Color.aw.text3)
         // Filled pill + hairline border, matching the search field's own
         // treatment right beside it (SidebarView.swift's expandedSearchHeader)
         // rather than a flat, borderless box — reads as more "button-y".
@@ -83,6 +79,11 @@ struct NewWorkspaceSplitButton: View {
             Button(action: guardedNewWorkspace) {
                 Image(systemName: "plus")
                     .font(.system(size: 14, weight: .semibold))
+                    // Applied directly on the glyph, not inherited from an
+                    // ancestor .foregroundStyle — Menu (below) doesn't
+                    // reliably pass that down to its label, so both glyphs
+                    // set their own color explicitly to actually match.
+                    .foregroundStyle(Color.aw.text3)
                     .frame(width: primarySize, height: primarySize)
                     .contentShape(Rectangle())
             }
@@ -121,6 +122,10 @@ struct NewWorkspaceSplitButton: View {
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
+                    // Explicit, not inherited — a Menu's label doesn't
+                    // reliably pick up an ancestor .foregroundStyle (it was
+                    // rendering the system default instead of text3).
+                    .foregroundStyle(Color.aw.text3)
                     .frame(width: chevronWidth, height: primarySize)
                     .contentShape(Rectangle())
             }
