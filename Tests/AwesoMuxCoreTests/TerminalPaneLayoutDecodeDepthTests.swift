@@ -70,7 +70,7 @@ import Testing
     private func decodeSnapshot(_ json: String) -> Result<SessionSnapshot, Error> {
         let data = Data(json.utf8)
         let box = ResultBox<SessionSnapshot>()
-        runOnLargeStack { box.result = Result { try JSONDecoder().decode(SessionSnapshot.self, from: data) } }
+        runOnLargeStack { box.result = Result { try SessionSnapshot.decode(from: data) } }
         return box.result!
     }
 

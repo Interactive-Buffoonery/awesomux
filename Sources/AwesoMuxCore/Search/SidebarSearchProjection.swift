@@ -57,7 +57,7 @@ public enum SidebarAgentStateSearchToken: String, CaseIterable, Equatable, Senda
     ) -> String {
         String(
             localized:
-                "Filters workspaces by title or location. Agent state tokens: \(canonicalList). Use needs for Needs input workspaces. Press Return to open the top match. Press Escape to clear.",
+                "Filters workspaces by title or location. Agent state tokens: \(canonicalList). Use needs for Needs input workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear.",
             bundle: bundle,
             locale: locale,
             comment: "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."

@@ -377,6 +377,37 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         return AgentPluginSourceFingerprint.outdatedInstallGuidance
     }
 
+    /// The prior install record when the provider CLI's installed copy of the
+    /// plugin is known-stale relative to a freshly rendered tree: the baked
+    /// helper path moved (dev `dist/` → release app, or the app was relocated),
+    /// or the bundled hook source changed since that install (a recorded digest
+    /// that is `nil` or differs from the current bundled digest). The provider
+    /// CLIs key their plugin caches on the manifest version, which awesoMux
+    /// never changes, so a plain re-install "succeeds" without re-pulling the
+    /// rendered content (INT-651) — the caller must uninstall the recorded
+    /// plugin first to force a fresh copy. A current digest that cannot be
+    /// computed never counts as drift: a fingerprint failure must not trigger a
+    /// destructive uninstall.
+    func staleCachedInstallRecord(
+        provider: AgentPluginProvider,
+        tree: AgentPluginRenderedTree
+    ) -> AgentPluginInstallRecord? {
+        guard let record = installRecord(provider: provider) else {
+            return nil
+        }
+        if record.helperPath != tree.helperPath {
+            return record
+        }
+        if let current = AgentPluginSourceFingerprint.digest(
+            provider: provider,
+            resourcesDirectoryURL: renderer.resourcesDirectoryURL,
+            fileManager: renderer.fileManager
+        ), record.sourceContentDigest != current {
+            return record
+        }
+        return nil
+    }
+
     /// Renders the tree (read-only into awesoMux's own support dir — not a
     /// provider mutation) and reads the marketplace ref out of it. Used by both
     /// status and the action ops.
@@ -437,10 +468,23 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
     struct MutationStep {
         var args: [String]
         var mutates: Bool
+        /// Per-step overrides for a step that must target a different binary or
+        /// environment than the rest of the sequence — the clean-reinstall
+        /// uninstall (INT-651) runs against the *recorded* install, not the
+        /// live settings. `nil` uses the sequence-wide values.
+        var executable: String?
+        var env: [String: String]?
 
-        init(_ args: [String], mutates: Bool = true) {
+        init(
+            _ args: [String],
+            mutates: Bool = true,
+            executable: String? = nil,
+            env: [String: String]? = nil
+        ) {
             self.args = args
             self.mutates = mutates
+            self.executable = executable
+            self.env = env
         }
     }
 
@@ -452,19 +496,21 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
     /// Runs one CLI mutation and maps its outcome. The `mapCommandError` closure is
     /// the only provider-specific piece: it turns a `CommandRunnerError` into a
     /// status, so Codex keeps timeout→Unsupported and Claude keeps
-    /// timeout→needsRepair. A present-but-nonzero exit is shared: needsRepair with
-    /// diagnostics attached.
+    /// timeout→needsRepair. The closure receives the executable the failed call
+    /// actually ran — a step-level override may differ from the sequence-wide
+    /// executable, and "not found at …" must name the right binary. A
+    /// present-but-nonzero exit is shared: needsRepair with diagnostics attached.
     func runMutation(
         executable: String,
         args: [String],
         env: [String: String],
-        mapCommandError: (CommandRunnerError) -> AgentPluginStatus
+        mapCommandError: (CommandRunnerError, String) -> AgentPluginStatus
     ) async -> MutationResult {
         let result: CommandResult
         do {
             result = try await commandRunner.run(executable: executable, args: args, env: env, cwd: nil)
         } catch let error as CommandRunnerError {
-            return .failure(AgentPluginActionOutcome(status: mapCommandError(error)))
+            return .failure(AgentPluginActionOutcome(status: mapCommandError(error, executable)))
         } catch {
             return .failure(AgentPluginActionOutcome(status: .unsupported(error.localizedDescription)))
         }
@@ -491,11 +537,16 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         steps: [MutationStep],
         env: [String: String],
         repairGuidance: String,
-        mapCommandError: (CommandRunnerError) -> AgentPluginStatus
+        mapCommandError: (CommandRunnerError, String) -> AgentPluginStatus
     ) async -> AgentPluginActionOutcome? {
         var didMutate = false
         for step in steps {
-            switch await runMutation(executable: executable, args: step.args, env: env, mapCommandError: mapCommandError) {
+            switch await runMutation(
+                executable: step.executable ?? executable,
+                args: step.args,
+                env: step.env ?? env,
+                mapCommandError: mapCommandError
+            ) {
             case .success:
                 if step.mutates {
                     didMutate = true

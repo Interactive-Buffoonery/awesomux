@@ -23,9 +23,9 @@ struct SidebarGroupHeaderHitTargetTests {
         let window = Self.makeWindow(onToggle: toggleCounter.increment)
         defer { window.close() }
 
-        Self.sendClick(to: window, at: Self.expandedTrailingWhitespacePoint)
-        #expect(Self.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedTrailingWhitespacePoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(toggleCounter.count == 1)
     }
@@ -41,9 +41,9 @@ struct SidebarGroupHeaderHitTargetTests {
         )
         defer { window.close() }
 
-        Self.sendClick(to: window, at: Self.collapsedRailGutterPoint)
-        #expect(Self.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.collapsedRailGutterPoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(toggleCounter.count == 1)
     }
@@ -59,8 +59,8 @@ struct SidebarGroupHeaderHitTargetTests {
         )
         defer { window.close() }
 
-        Self.sendClick(to: window, at: Self.collapsedEmptyGroupActionPoint)
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.collapsedEmptyGroupActionPoint)
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(newWorkspaceCounter.count == 0)
     }
@@ -70,14 +70,87 @@ struct SidebarGroupHeaderHitTargetTests {
         let toggleCounter = ToggleCounter()
         let closeCounter = ToggleCounter()
         let window = Self.makeWindow(
+            headerHoverOverride: false,
             onToggle: toggleCounter.increment,
             onCloseGroup: closeCounter.increment
         )
         defer { window.close() }
 
-        Self.sendClick(to: window, at: Self.expandedCountBadgePoint)
-        #expect(Self.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
-        Self.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedCountBadgePoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
+
+        #expect(toggleCounter.count == 1)
+        #expect(closeCounter.count == 0)
+    }
+
+    @Test("hovered empty group among others renders a hittable close X")
+    func hoveredEmptyGroupAmongOthersRendersHittableCloseButton() {
+        let toggleCounter = ToggleCounter()
+        let closeCounter = ToggleCounter()
+        let window = Self.makeWindow(
+            isGroupEmpty: true,
+            totalGroupCount: 2,
+            headerHoverOverride: true,
+            onToggle: toggleCounter.increment,
+            onCloseGroup: closeCounter.increment
+        )
+        defer { window.close() }
+
+        let closeRendering = Self.renderedPixels(in: window)
+        let badgeWindow = Self.makeWindow(
+            isGroupEmpty: true,
+            totalGroupCount: 2,
+            headerHoverOverride: false,
+            onToggle: {}
+        )
+        defer { badgeWindow.close() }
+        let badgeRendering = Self.renderedPixels(in: badgeWindow)
+
+        #expect(!closeRendering.isEmpty)
+        #expect(closeRendering != badgeRendering)
+
+        badgeWindow.close()
+        window.makeKeyAndOrderFront(nil)
+        SidebarHostedTestHarness.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedCountBadgePoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { closeCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
+
+        #expect(closeCounter.count == 1)
+        #expect(toggleCounter.count == 0)
+    }
+
+    @Test("hovered sole empty group keeps the badge and close action gated")
+    func hoveredSoleEmptyGroupKeepsCloseButtonGated() {
+        let toggleCounter = ToggleCounter()
+        let closeCounter = ToggleCounter()
+        let window = Self.makeWindow(
+            isGroupEmpty: true,
+            headerHoverOverride: true,
+            onToggle: toggleCounter.increment,
+            onCloseGroup: closeCounter.increment
+        )
+        defer { window.close() }
+
+        let hoveredRendering = Self.renderedPixels(in: window)
+        let badgeWindow = Self.makeWindow(
+            isGroupEmpty: true,
+            headerHoverOverride: false,
+            onToggle: {}
+        )
+        defer { badgeWindow.close() }
+        let badgeRendering = Self.renderedPixels(in: badgeWindow)
+
+        #expect(!hoveredRendering.isEmpty)
+        #expect(hoveredRendering == badgeRendering)
+
+        badgeWindow.close()
+        window.makeKeyAndOrderFront(nil)
+        SidebarHostedTestHarness.settleMainRunLoop()
+        SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedCountBadgePoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        SidebarHostedTestHarness.settleMainRunLoop()
 
         #expect(toggleCounter.count == 1)
         #expect(closeCounter.count == 0)
@@ -105,81 +178,63 @@ struct SidebarGroupHeaderHitTargetTests {
         isCollapsed: Bool = false,
         displayMode: SidebarWidthMode = .expanded,
         width: CGFloat = SidebarWidthPolicy.expandedWidth,
+        isGroupEmpty: Bool = false,
+        totalGroupCount: Int = 1,
+        headerHoverOverride: Bool? = nil,
         onToggle: @escaping () -> Void,
         onCloseGroup: @escaping () -> Void = {},
         onNewSessionInGroup: @escaping () -> Void = {}
     ) -> NSWindow {
-        let hostingView = NSHostingView(
+        let session = TerminalSession(
+            id: UUID(uuidString: "82F876DB-D5C8-4129-AE07-9F0571316E42")!,
+            title: "Workspace",
+            workingDirectory: "~"
+        )
+        let group = SessionGroup(
+            id: UUID(uuidString: "8B10C4F3-3905-4C67-A6F6-C7EB11F03D5B")!,
+            name: "Workspace group",
+            sessions: isGroupEmpty ? [] : [session]
+        )
+        let allGroups =
+            totalGroupCount > 1
+            ? [
+                group,
+                SessionGroup(
+                    id: UUID(uuidString: "5068B8D9-5953-4A2F-A50D-D92BF400EA4A")!,
+                    name: "Other group",
+                    sessions: []
+                ),
+            ]
+            : [group]
+        let hosted = SidebarHostedTestHarness.makeWindow(
             rootView: SidebarGroupHitTargetHarness(
+                group: group,
+                allGroups: allGroups,
+                tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
                 isCollapsed: isCollapsed,
                 displayMode: displayMode,
                 width: width,
+                totalGroupCount: totalGroupCount,
+                headerHoverOverride: headerHoverOverride,
                 onToggle: onToggle,
                 onCloseGroup: onCloseGroup,
                 onNewSessionInGroup: onNewSessionInGroup
-            ))
-        hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 80)
-
-        let window = NSWindow(
-            contentRect: hostingView.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+            ),
+            frame: NSRect(x: 0, y: 0, width: width, height: 80)
         )
-        window.contentView = hostingView
-        window.isReleasedWhenClosed = false
-        // SwiftUI gestures are not delivered to the hosted view while the
-        // AppKit test window is hidden. Keep it ordered but fully transparent
-        // so the harness never flashes over the user's desktop during tests.
-        window.alphaValue = 0
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-        window.layoutIfNeeded()
-        hostingView.layoutSubtreeIfNeeded()
-        settleMainRunLoop()
-        return window
+        return hosted.window
     }
 
-    private static func sendClick(to window: NSWindow, at location: CGPoint) {
-        for (type, eventNumber) in [(NSEvent.EventType.leftMouseDown, 1), (.leftMouseUp, 2)] {
-            guard
-                let event = NSEvent.mouseEvent(
-                    with: type,
-                    location: location,
-                    modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: window.windowNumber,
-                    context: nil,
-                    eventNumber: eventNumber,
-                    clickCount: 1,
-                    pressure: type == .leftMouseDown ? 1 : 0
-                )
-            else { continue }
-            window.sendEvent(event)
-        }
+    private static func renderedPixels(in window: NSWindow) -> Data {
+        guard let view = window.contentView,
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds),
+            let bytes = bitmap.bitmapData
+        else { return Data() }
+
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return Data(bytes: bytes, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
     }
 
-    private static func pumpMainRunLoop(
-        until condition: () -> Bool = { true },
-        timeout: TimeInterval = 1.0
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline {
-            runMainRunLoopSlice()
-        }
-        return condition()
-    }
-
-    private static func settleMainRunLoop(duration: TimeInterval = 0.05) {
-        let deadline = Date().addingTimeInterval(duration)
-        while Date() < deadline {
-            runMainRunLoopSlice(maxDuration: deadline.timeIntervalSinceNow)
-        }
-    }
-
-    private static func runMainRunLoopSlice(maxDuration: TimeInterval = 0.01) {
-        RunLoop.main.run(until: Date().addingTimeInterval(min(0.01, max(0, maxDuration))))
-    }
 }
 
 private final class ToggleCounter {
@@ -191,9 +246,14 @@ private final class ToggleCounter {
 }
 
 private struct SidebarGroupHitTargetHarness: View {
+    let group: SessionGroup
+    let allGroups: [SessionGroup]
+    let tint: ProjectTint
     let isCollapsed: Bool
     let displayMode: SidebarWidthMode
     let width: CGFloat
+    let totalGroupCount: Int
+    let headerHoverOverride: Bool?
     let onToggle: () -> Void
     let onCloseGroup: () -> Void
     let onNewSessionInGroup: () -> Void
@@ -201,25 +261,12 @@ private struct SidebarGroupHitTargetHarness: View {
     @State private var isKeyboardNavigating = false
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
 
-    // A non-empty group: the close X gate (SidebarGroupClosePolicy) suppresses
-    // only the sole EMPTY group, so an empty single-group harness would gate the
-    // X off regardless of hover — the badge-slot test would pass even with the
-    // hover gate deleted. With one session, hover is the only remaining
-    // suppressor, so the test genuinely guards it. `entries` stays empty (the
-    // count badge renders 0 and no tile rows mount, keeping the y=68 header
-    // geometry stable); the gate reads the model's `group.sessions`, not entries.
-    private let group = SessionGroup(
-        id: UUID(uuidString: "8B10C4F3-3905-4C67-A6F6-C7EB11F03D5B")!,
-        name: "Workspace group",
-        sessions: [TerminalSession(title: "Workspace", workingDirectory: "~")]
-    )
-
     var body: some View {
         SidebarGroupView(
             group: group,
             entries: [],
             density: SidebarDensity(compact: false),
-            tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
+            tint: tint,
             workspacesWithBackgroundedFloatingWork: [],
             promotedSessionID: nil,
             promotionPulseSessionID: nil,
@@ -227,7 +274,7 @@ private struct SidebarGroupHitTargetHarness: View {
             isFiltering: false,
             displayMode: displayMode,
             duplicateDisambiguationBySessionID: [:],
-            allGroups: [group],
+            allGroups: allGroups,
             jumpIndexBySessionID: [:],
             selectedSessionID: nil,
             onToggle: onToggle,
@@ -257,12 +304,7 @@ private struct SidebarGroupHitTargetHarness: View {
             onDragEnded: {},
             onDragExited: {},
             currentGroupIndex: 0,
-            // 1 matches the single-element `allGroups`. The close X reads
-            // `totalGroupCount` only for the sole-empty-group clause
-            // (SidebarGroupClosePolicy, INT-770); the harness group is
-            // non-empty, so the badge-slot test's honesty rests on that
-            // plus the hover gate, not on this count.
-            totalGroupCount: 1,
+            totalGroupCount: totalGroupCount,
             onUncollapse: {},
             onClose: { _ in },
             onClear: { _ in },
@@ -270,10 +312,12 @@ private struct SidebarGroupHitTargetHarness: View {
             onToggleNotificationsMute: { _ in },
             onTogglePin: { _ in },
             focusedRowTarget: $focusedRowTarget,
+            focusedSearchSessionID: nil,
             isKeyboardNavigating: $isKeyboardNavigating
         )
         .frame(width: width, height: 80, alignment: .topLeading)
         .environment(\.dynamicTypeSize, .large)
+        .environment(\.sidebarGroupHeaderHoverOverride, headerHoverOverride)
         // The collapsed header now reads `SidebarPeekModel` for its group
         // roster peek trigger (Task 5) — an ancestor must supply it, same as
         // `ContentView` does in production, or the read is fatal.

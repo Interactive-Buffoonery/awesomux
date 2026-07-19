@@ -25,6 +25,27 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
     public var documentPath: String?
     public var timestamp: Date?
 
+    /// Whether this event itself asserts the fully receptive `.waiting`
+    /// execution state — a narrower check than `AgentRuntimeEventReducer`'s
+    /// own `eventExecutionState` derivation, which also gates on
+    /// `!state.lifecycle.isEnded`; this property omits that gate and reads
+    /// only `executionState ?? state?.executionState`. Callers that need the
+    /// reducer's exact effective value must additionally check ground-truth
+    /// pane state, the way the trust-stamping call site below already does
+    /// (`newState == .waiting`) — that second check is what keeps the
+    /// omitted `isEnded` gate from mattering there specifically; don't reuse
+    /// this property elsewhere assuming full parity with the reducer.
+    /// Distinguishes "this event told us waiting" from "the pane merely
+    /// already reads waiting from an earlier event" (a title-only `.rename`,
+    /// a tool-lifecycle event, a same-state repeat with neither field set).
+    /// Load-bearing for `AgentPromptGate` trust-stamping (INT-569 follow-up):
+    /// only an event that ASSERTS waiting may mint new prompt-verified trust
+    /// — an accepted event that merely left a stale `.waiting` untouched must
+    /// never re-stamp trust for whatever process happens to be foreground now.
+    public var assertsWaitingExecutionState: Bool {
+        (executionState ?? state?.executionState) == .waiting
+    }
+
     public init(
         version: Int = AgentRuntimeEvent.supportedVersion,
         source: AgentRuntimeSource,
@@ -73,7 +94,8 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
             let documentPath: String?
             if payload.phase == .openDocument {
                 guard let rawPath = payload.documentPath,
-                      let validatedPath = validatedDocumentPath(rawPath) else {
+                    let validatedPath = validatedDocumentPath(rawPath)
+                else {
                     return nil
                 }
                 documentPath = validatedPath
@@ -97,7 +119,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
             )
         } catch {
             #if DEBUG
-            logger.debug("agent runtime event parse failed: \(error.localizedDescription, privacy: .public)")
+                logger.debug("agent runtime event parse failed: \(error.localizedDescription, privacy: .public)")
             #endif
             return nil
         }
@@ -105,8 +127,9 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
 
     public static func validatedDocumentPath(_ path: String) -> String? {
         guard !path.isEmpty,
-              !path.contains("\0"),
-              (path as NSString).isAbsolutePath else {
+            !path.contains("\0"),
+            (path as NSString).isAbsolutePath
+        else {
             return nil
         }
 
@@ -215,6 +238,15 @@ public enum AgentRuntimeSource: String, Codable, Sendable {
             .grok
         case .unknown:
             nil
+        }
+    }
+
+    var hasTrustworthySessionRestartBoundary: Bool {
+        switch self {
+        case .claudeCode, .pi:
+            true
+        case .codex, .openCode, .grok, .unknown:
+            false
         }
     }
 }

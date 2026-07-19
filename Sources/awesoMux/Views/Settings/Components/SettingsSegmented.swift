@@ -8,6 +8,11 @@ import SwiftUI
 struct SettingsSegmented<Value: Hashable>: View {
     let options: [Option]
     @Binding var selection: Value
+    // Off by default: Settings' three existing call sites size to content and
+    // sit beside a label, so stretching them would be a visual regression.
+    // Callers that need the control to span its container (equal-width
+    // segments, no dead space) opt in explicitly.
+    var expandsToFill: Bool = false
     @Environment(\.awAccent) private var accentResolver
 
     struct Option: Identifiable {
@@ -58,6 +63,10 @@ struct SettingsSegmented<Value: Hashable>: View {
             .foregroundStyle(isSelected ? Color.aw.text : Color.aw.text2)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
+            // Expand BEFORE the background fill, not around the finished
+            // button, so the selection highlight spans the whole segment
+            // cell instead of hugging the label (round-4 finding).
+            .frame(maxWidth: expandsToFill ? .infinity : nil)
             .background(
                 RoundedRectangle(cornerRadius: AwRadius.button - 1)
                     .fill(isSelected ? accentSoftColor : Color.clear)

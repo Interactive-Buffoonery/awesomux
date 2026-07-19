@@ -25,6 +25,23 @@ extension SessionStore {
         commit(WorkspaceMutationEffect(unreadChange: outcome.unreadChange), now: now)
     }
 
+    public func recordRecentTerminalLink(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        value: String
+    ) {
+        guard let position = position(for: sessionID),
+            let session = PaneLayoutReducer.recordRecentTerminalLink(
+                in: _groups[position.groupIndex].sessions[position.sessionIndex],
+                paneID: paneID,
+                value: value
+            )
+        else {
+            return
+        }
+        _groups[position.groupIndex].sessions[position.sessionIndex] = session
+    }
+
     /// Sets or clears a workspace's per-workspace notification mute (INT-598).
     /// Muting gates only the interruptive channels (macOS banner + sound);
     /// sidebar indicators, unread badges, and the dock badge are unaffected.
@@ -152,6 +169,7 @@ extension SessionStore {
 
     /// Applies visible-text detector state to a pane. Public unread deltas only
     /// add badges. `paneID` defaults to the session's active pane.
+    @discardableResult
     public func applyDetectedAgentState(
         id: TerminalSession.ID,
         paneID: TerminalPane.ID? = nil,
@@ -160,10 +178,15 @@ extension SessionStore {
         clearsAttention: Bool,
         clearsUnreadNotifications: Bool = false,
         unreadNotificationDelta: Int = 0
-    ) {
-        applyPaneUpdate(
+    ) -> Bool {
+        guard let targetPaneID = resolvedPaneID(sessionID: id, paneID: paneID),
+            !runtimeEventReducer.suppressesHeuristicState(for: targetPaneID)
+        else {
+            return false
+        }
+        return applyPaneUpdate(
             sessionID: id,
-            paneID: paneID,
+            paneID: targetPaneID,
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentKind: agentKind,
                 agentState: detectedState,

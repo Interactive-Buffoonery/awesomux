@@ -45,12 +45,12 @@ struct AppearanceSettingsPane: View {
                         localized: "Terminal background", comment: "Settings field label for the terminal background source picker"),
                     hint: String(
                         localized:
-                            "Use Ghostty config to keep imported/user terminal themes, or choose an awesoMux color from Catppuccin presets and adjust it if needed.",
+                            "Use Ghostty config to keep imported/user terminal themes, choose a bundled Catppuccin or Selenized theme, or choose an awesoMux color and adjust it if needed.",
                         comment: "Settings field hint for the terminal background source picker")
                 ) {
                     TerminalBackgroundSettings(
                         theme: appearance.theme,
-                        terminalThemeID: appearance.terminalThemeID,
+                        terminalThemeID: appSettingsStore.binding(\.appearance.terminalThemeID),
                         mode: appSettingsStore.binding(\.appearance.terminalBackgroundMode),
                         colorHex: appSettingsStore.binding(\.appearance.terminalBackgroundColor),
                         draftColorHex: $draftColorHex,
@@ -222,6 +222,22 @@ struct AppearanceSettingsPane: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
+
+                SettingsField(
+                    label: String(
+                        localized: "Tinted workspace colors",
+                        comment: "Settings field label for the tinted high-contrast workspace colors toggle"),
+                    hint: String(
+                        localized:
+                            "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default.",
+                        comment: "Settings field hint for the tinted high-contrast workspace colors toggle"),
+                    // Bare .labelsHidden() Toggle — let the field supply its name.
+                    forwardsAccessibilityToControl: true
+                ) {
+                    Toggle("Tinted workspace colors", isOn: appSettingsStore.appearance.binding(\.tintedHighContrast))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
             }
 
             SettingsSection(index: 7, title: String(localized: "Reset", comment: "Appearance settings section title")) {
@@ -324,6 +340,7 @@ struct AppearanceSettingsPane: View {
             appearance.terminalBackgroundMode = defaults.terminalBackgroundMode
             appearance.terminalBackgroundColor = defaults.terminalBackgroundColor
             appearance.alwaysShowJumpNumbers = defaults.alwaysShowJumpNumbers
+            appearance.tintedHighContrast = defaults.tintedHighContrast
             appearance.sidebarPosition = defaults.sidebarPosition
             appearance.crtScanlines = defaults.crtScanlines
         }
@@ -367,6 +384,7 @@ struct AppearanceSettingsPane: View {
             && appearance.terminalBackgroundMode == defaults.terminalBackgroundMode
             && appearance.terminalBackgroundColor == defaults.terminalBackgroundColor
             && appearance.alwaysShowJumpNumbers == defaults.alwaysShowJumpNumbers
+            && appearance.tintedHighContrast == defaults.tintedHighContrast
             && appearance.sidebarPosition == defaults.sidebarPosition
             && appearance.crtScanlines == defaults.crtScanlines
             && appSettingsStore.general.value.sidebarCompactMode
@@ -467,7 +485,7 @@ private struct TerminalBackgroundSettings: View {
     private static let persistDebounceMilliseconds: UInt64 = 75
 
     let theme: AppearanceConfig.Theme
-    let terminalThemeID: String?
+    @Binding var terminalThemeID: String?
     @Binding var mode: AppearanceConfig.TerminalBackgroundMode
     @Binding var colorHex: String
     // Draft + debounce Task are owned by AppearanceSettingsPane (not local @State
@@ -508,11 +526,35 @@ private struct TerminalBackgroundSettings: View {
         }
     }
 
+    private var namedThemeSelection: Binding<String> {
+        Binding(
+            get: {
+                // Match the catalog's own trim/lowercase normalization (see
+                // `TerminalThemeCatalog.normalizedID`) so a hand-edited TOML
+                // value like " SELENIZED " — which the catalog already
+                // resolves to Selenized at runtime — shows as Selenized here
+                // too, instead of silently displaying Catppuccin.
+                let normalized = terminalThemeID?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                return normalized == TerminalThemeCatalog.selenizedID
+                    ? TerminalThemeCatalog.selenizedID
+                    : TerminalThemeCatalog.catppuccinID
+            },
+            set: { selectedID in
+                terminalThemeID =
+                    selectedID == TerminalThemeCatalog.catppuccinID
+                    ? nil
+                    : selectedID
+            }
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Picker("Terminal background", selection: $mode) {
                 Text("Ghostty").tag(AppearanceConfig.TerminalBackgroundMode.ghostty)
-                Text("Catppuccin").tag(AppearanceConfig.TerminalBackgroundMode.catppuccinTheme)
+                Text("Theme").tag(AppearanceConfig.TerminalBackgroundMode.catppuccinTheme)
                 Text("awesoMux").tag(AppearanceConfig.TerminalBackgroundMode.custom)
             }
             .pickerStyle(.segmented)
@@ -523,6 +565,16 @@ private struct TerminalBackgroundSettings: View {
             // distinct control above the preview/preset content, not crowded
             // against it. The VStack's 10pt is too tight for this break.
             .padding(.bottom, 4)
+
+            if mode == .catppuccinTheme {
+                Picker("Terminal theme", selection: namedThemeSelection) {
+                    Text("Catppuccin").tag(TerminalThemeCatalog.catppuccinID)
+                    Text("Selenized").tag(TerminalThemeCatalog.selenizedID)
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 280, alignment: .leading)
+                .accessibilityLabel("Terminal theme")
+            }
 
             if mode == .custom {
                 Text("Start with a Catppuccin preset, then adjust the color if needed.")

@@ -100,6 +100,12 @@ final class GhosttyRuntime {
     @ObservationIgnored
     private var eventLoopWatchdog: GhosttyEventLoopWatchdog?
 
+    /// Reused across watchdog replacements so a stuck OSLog XPC query cannot
+    /// accumulate one blocked worker and queue per terminal reload.
+    @ObservationIgnored
+    private lazy var eventLoopFaultSource: any GhosttyFaultLogSource =
+        OSLogGhosttyFaultSource()
+
     /// Testing seam only - exposes the watchdog's last-tick timestamp so
     /// wiring can be asserted without reaching into OSLogStore or timers.
     var lastEventLoopTickAtForTesting: Date {
@@ -301,13 +307,36 @@ final class GhosttyRuntime {
         surfaceViews[paneID]
     }
 
-    func foregroundExecutableMatch(
-        _ executable: String,
-        in paneID: TerminalPane.ID
-    ) -> ProcessLivenessProbe.ForegroundExecutableMatch {
-        surfaceViews[paneID]?.commandBridgeEnactor.foregroundExecutableMatch(executable)
-            ?? .unknown
+    /// Observed foreground process name (`p_comm`) for a pane, or nil when no
+    /// usable evidence exists (no live surface, latched error, no bridge pid).
+    func foregroundComm(in paneID: TerminalPane.ID) -> String? {
+        guard let surfaceView = surfaceViews[paneID] else {
+            Self.nudgeGateLogger.info(
+                "nudge probe: no surface view for pane \(paneID.uuidString, privacy: .public)")
+            return nil
+        }
+        return surfaceView.documentNudgeForegroundComm()
     }
+
+    /// CURRENT foreground-process incarnation for a pane, sampled fresh —
+    /// pairs with `foregroundComm(in:)` as the other half of the document-nudge
+    /// gate's generation check (INT-569 follow-up).
+    func foregroundGeneration(in paneID: TerminalPane.ID) -> AgentForegroundIncarnation? {
+        surfaceViews[paneID]?.documentNudgeForegroundGeneration()
+    }
+
+    /// The foreground-process incarnation observed the last time a genuine
+    /// provider hook confirmed `.waiting` on this pane, or nil if none has.
+    /// See `verifiedWaitingForegroundIncarnation` on `GhosttySurfaceNSView`.
+    func verifiedWaitingForegroundGeneration(in paneID: TerminalPane.ID) -> AgentForegroundIncarnation? {
+        surfaceViews[paneID]?.verifiedWaitingForegroundIncarnation
+    }
+
+    /// INT-569 field diagnostics for the document-nudge evidence chain.
+    nonisolated private static let nudgeGateLogger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "DocumentNudgeGate"
+    )
 
     func applySecureInput(_ mode: SecureInputCoordinator.Mode, for paneID: TerminalPane.ID) {
         secureInputCoordinator.apply(mode, for: paneID)
@@ -414,6 +443,15 @@ final class GhosttyRuntime {
             surface.sendText(text)
         }
         return true
+    }
+
+    /// Restores first responder to a pane's live surface. Used when a chrome
+    /// sheet (the rich-input composer) dismisses, so keyboard/VoiceOver focus
+    /// lands on the terminal the composed text targets rather than being
+    /// stranded. No-ops when the surface is gone.
+    func focusSurface(toPane paneID: TerminalPane.ID) {
+        guard let surface = surfaceViews[paneID] else { return }
+        surface.window?.makeFirstResponder(surface)
     }
 
     func discardSurface(for paneID: TerminalPane.ID) {
@@ -1230,7 +1268,9 @@ final class GhosttyRuntime {
         // first surface spawns.
         applyTerminalColorScheme(terminalAppearance.terminalColorScheme)
         readiness = .ready
-        eventLoopWatchdog = GhosttyEventLoopWatchdog { [weak self] in
+        eventLoopWatchdog = GhosttyEventLoopWatchdog(
+            faultSource: eventLoopFaultSource
+        ) { [weak self] in
             self?.presentEventLoopWedgeAlert()
         }
         eventLoopWatchdog?.start()

@@ -64,6 +64,10 @@ events without stable session ids use the Stop/Start boundary. The newer
 lifecycle's own `SessionEnd` still applies after its `Stop`, including when
 timestamps are equal or absent.
 
+The same arrival-order boundary protects a `SessionStart` that revives a pane
+after a buffered `SessionEnd`: a delayed end from the prior lifecycle is ignored
+until the restarted lifecycle emits its own `Stop`.
+
 For Grok, a different-session `SessionStart` is still treated as a child and
 dropped while the parent lifecycle is active. Once the parent has emitted
 `Stop`, arrival order is authoritative: a different-session `SessionStart`
@@ -72,9 +76,13 @@ or behind the prior watermark. The watermark itself never moves backward.
 
 This lifecycle ordering state is runtime-only, like the rest of
 `AgentRuntimeEventReducer`: closing, recycling, or restoring a pane clears it.
-That does not reopen a replay window. A new bridge watch begins at the current
-event-file size, so bytes buffered before a same-ID pane is reopened or the app
-is restored are not delivered into the fresh reducer; only later appends are.
+When a new bridge watch starts, it skips buffered activity but inspects the
+bounded existing file for one terminal lifecycle truth: if the last valid event
+is `SessionEnd`, that idempotent reset is applied before later appends are
+drained. Once accepted, visible-text agent-state detection stays disabled until
+a real `SessionStart`, so an initial zmx scrollback replay cannot recreate the
+agent from stale TUI cues. A newer buffered lifecycle event prevents an older
+`SessionEnd` from being applied.
 
 ### Pane rename (`phase=rename`)
 

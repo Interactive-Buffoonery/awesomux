@@ -627,8 +627,8 @@ struct RecentlyClosedWorkspaceReducerTests {
         #expect(reopenedPane.terminalBackendMetadata == .empty)
     }
 
-    @Test("over-depth entries are consumed without mutating groups")
-    func overDepthEntryIsConsumedWithoutReopen() throws {
+    @Test("over-depth entries stay available without mutating groups")
+    func overDepthEntryIsPreservedWithoutReopen() throws {
         let groupID = UUID()
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
@@ -656,8 +656,10 @@ struct RecentlyClosedWorkspaceReducerTests {
 
         #expect(reopenedID == nil)
         #expect(groups[0].sessions.isEmpty)
-        #expect(recentlyClosed.isEmpty)
-        #expect(transient == nil)
+        // Reconstruction failed: keep the exact row and LIFO order so reopen
+        // remains retryable instead of silently eating the recovery entry.
+        #expect(recentlyClosed == [entry])
+        #expect(transient == entry)
     }
 
     @Test("reopen recreates a deleted remote group with its SSH target (INT-773)")

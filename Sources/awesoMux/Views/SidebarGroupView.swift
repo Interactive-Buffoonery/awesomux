@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -69,6 +70,7 @@ struct SidebarGroupView: View {
     let onToggleNotificationsMute: (TerminalSession) -> Void
     let onTogglePin: (TerminalSession) -> Void
     let focusedRowTarget: FocusState<SidebarVisibleRowTarget?>.Binding
+    let focusedSearchSessionID: TerminalSession.ID?
     @Binding var isKeyboardNavigating: Bool
 
     @State private var rowFrames: [TerminalSession.ID: CGRect] = [:]
@@ -76,6 +78,9 @@ struct SidebarGroupView: View {
     @State private var headerWorkspaceDropTargeted = false
     @State private var suppressedWorkspaceDragID: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Read here (ungated) and passed into the tile as a compared snapshot —
+    // in-tile store reads stale behind the tile's `.equatable()` gate (PR #428).
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private var sessions: [TerminalSession] {
         entries.map(\.session)
@@ -194,6 +199,7 @@ struct SidebarGroupView: View {
                             isActive: selectedSessionID == session.id,
                             displayMode: displayMode,
                             isKeyboardFocused: focusedRowTarget.wrappedValue == .session(session.id),
+                            showsSearchFocusCue: focusedSearchSessionID == session.id,
                             jumpIndex: jumpIndexBySessionID[session.id],
                             hasBackgroundedFloatingWork:
                                 workspacesWithBackgroundedFloatingWork.contains(session.id),
@@ -209,6 +215,8 @@ struct SidebarGroupView: View {
                             nextNeighborGroup: nextNeighborGroup,
                             otherGroups: otherGroups,
                             verticalPadding: density.sessionTileVerticalPadding,
+                            tintedHighContrast: appSettingsStore.appearance.value.tintedHighContrast,
+                            alwaysShowJumpNumbers: appSettingsStore.appearance.value.alwaysShowJumpNumbers,
                             onSelect: {
                                 onSelect(session)
                             },
@@ -257,6 +265,7 @@ struct SidebarGroupView: View {
                         // this tile with identical rendered inputs — see
                         // `SidebarSessionTile.RenderKey`.
                         .equatable()
+                        .id(session.id)
                         // Per-tile frame cache for y-hit-test. One coordinate
                         // space scoped to the group avoids cross-group
                         // ambiguity when rows are lazy-evicted.

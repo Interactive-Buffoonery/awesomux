@@ -2,13 +2,15 @@ import Foundation
 
 public struct TerminalThemeCatalog: Sendable {
     public static let catppuccinID = "catppuccin"
+    public static let selenizedID = "selenized"
     public static let builtIn = TerminalThemeCatalog()
 
     private let providers: [String: any TerminalThemeProvider]
 
     public init(providers customProviders: [String: any TerminalThemeProvider] = [:]) {
         var providers: [String: any TerminalThemeProvider] = [
-            Self.catppuccinID: CatppuccinThemeProvider()
+            Self.catppuccinID: CatppuccinThemeProvider(),
+            Self.selenizedID: SelenizedThemeProvider(),
         ]
         for (id, provider) in customProviders {
             providers[Self.normalizedID(id)] = provider
@@ -22,7 +24,7 @@ public struct TerminalThemeCatalog: Sendable {
 
     public func provider(for id: String?) -> any TerminalThemeProvider {
         guard let id,
-              let provider = provider(matching: id)
+            let provider = provider(matching: id)
         else {
             return providers[Self.catppuccinID] ?? CatppuccinThemeProvider()
         }

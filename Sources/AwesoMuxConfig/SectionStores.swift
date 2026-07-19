@@ -65,3 +65,4 @@ public typealias KeyboardStore = SectionSlice<KeyboardConfig>
 public typealias TerminalStore = SectionSlice<TerminalConfig>
 public typealias WorkspaceStore = SectionSlice<WorkspaceConfig>
 public typealias AdvancedStore = SectionSlice<AdvancedConfig>
+public typealias AnalyticsStore = SectionSlice<AnalyticsConfig>

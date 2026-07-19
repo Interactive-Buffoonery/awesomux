@@ -34,6 +34,16 @@ public final class SessionStore {
     @ObservationIgnored let acknowledgementCoordinator: SelectionAcknowledgementCoordinator
     @ObservationIgnored private var isReplacingState = false
     @ObservationIgnored private var storedSelectedSessionID: TerminalSession.ID?
+    @ObservationIgnored private weak var storedUndoManager: UndoManager?
+
+    @ObservationIgnored public var undoManager: UndoManager? {
+        get { storedUndoManager }
+        set {
+            guard storedUndoManager !== newValue else { return }
+            storedUndoManager?.removeAllActions(withTarget: self)
+            storedUndoManager = newValue
+        }
+    }
 
     /// Identifies an app-owned compact terminal store. Its surfaces receive a
     /// shared shell marker, while each compact surface may add a more specific
@@ -99,6 +109,17 @@ public final class SessionStore {
         )
     }
 
+    private func registerUndo(
+        actionName: String,
+        handler: @escaping (SessionStore) -> Void
+    ) {
+        guard let undoManager else { return }
+        undoManager.registerUndo(withTarget: self) { target in
+            handler(target)
+        }
+        undoManager.setActionName(actionName)
+    }
+
     /// Atomically replaces store state with components restored from a sanitized `SessionSnapshot`.
     ///
     /// Pending selection acknowledgements are cancelled before replacement. The replacement swaps in
@@ -113,6 +134,11 @@ public final class SessionStore {
     ) -> SessionRestoreSanitizationSummary {
         let components = SessionRestoreReducer.restoredComponents(from: snapshot)
 
+        // A bulk restore can reuse group/session IDs with different values, so
+        // surviving undo registrations would "revert" the restored state to
+        // pre-restore values. Registered history is only valid for the state
+        // identity it was recorded against — drop it at this boundary.
+        storedUndoManager?.removeAllActions(withTarget: self)
         acknowledgementCoordinator.cancel()
         isReplacingState = true
         defer { isReplacingState = false }
@@ -443,8 +469,30 @@ public final class SessionStore {
             let sessionID = WorkspaceTreeReducer.addSession(
                 to: &_groups,
                 selectedSession: selectedSession,
+                title: nil,
+                workingDirectory: nil,
                 groupID: groupID,
                 executionPlan: .ssh(SSHExecution(target: target))
+            )
+        else { return nil }
+        commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
+        return sessionID
+    }
+
+    @discardableResult
+    public func addLocalSession(
+        title: String?,
+        workingDirectory: String,
+        toGroupID groupID: SessionGroup.ID
+    ) -> TerminalSession.ID? {
+        guard
+            let sessionID = WorkspaceTreeReducer.addSession(
+                to: &_groups,
+                selectedSession: selectedSession,
+                title: title,
+                workingDirectory: workingDirectory,
+                groupID: groupID,
+                executionPlan: .local
             )
         else { return nil }
         commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
@@ -483,9 +531,26 @@ public final class SessionStore {
 
     @discardableResult
     public func renameGroup(id groupID: SessionGroup.ID, to rawGroupName: String) -> Bool {
+        guard let previousName = _groups.first(where: { $0.id == groupID })?.name else {
+            return false
+        }
         // No-commit family (F30): name change doesn't affect positions, panes,
         // unread, risk, or pins — no derived-cache repair.
-        WorkspaceTreeReducer.renameGroup(in: &_groups, id: groupID, to: rawGroupName)
+        guard WorkspaceTreeReducer.renameGroup(in: &_groups, id: groupID, to: rawGroupName) else {
+            return false
+        }
+        guard _groups.first(where: { $0.id == groupID })?.name != previousName else {
+            return true
+        }
+        registerUndo(
+            actionName: String(
+                localized: "Rename Group",
+                comment: "Undo action for renaming a workspace group."
+            )
+        ) { target in
+            target.renameGroup(id: groupID, to: previousName)
+        }
+        return true
     }
 
     @discardableResult
@@ -493,8 +558,26 @@ public final class SessionStore {
         id groupID: SessionGroup.ID,
         color: WorkspaceGroupColor?
     ) -> Bool {
+        guard let group = _groups.first(where: { $0.id == groupID }) else {
+            return false
+        }
+        let previousColor = group.color
         // Non-structural: color change doesn't affect positions, panes, or unread.
-        WorkspaceTreeReducer.setGroupColor(in: &_groups, id: groupID, color: color)
+        guard WorkspaceTreeReducer.setGroupColor(in: &_groups, id: groupID, color: color) else {
+            return false
+        }
+        guard _groups.first(where: { $0.id == groupID })?.color != previousColor else {
+            return true
+        }
+        registerUndo(
+            actionName: String(
+                localized: "Set Group Color",
+                comment: "Undo action for changing a workspace group color."
+            )
+        ) { target in
+            target.setGroupColor(id: groupID, color: previousColor)
+        }
+        return true
     }
 
     /// Create a group whose default and seed pane use `target`.
@@ -794,6 +877,9 @@ public final class SessionStore {
         toGroupID destinationGroupID: SessionGroup.ID,
         atIndex targetIndex: Int
     ) {
+        guard let source = index.positionsBySessionID[sessionID] else { return }
+        let sourceGroupID = _groups[source.groupIndex].id
+        let sourceSessionIndex = source.sessionIndex
         guard
             WorkspaceTreeReducer.moveSession(
                 in: &_groups,
@@ -806,9 +892,28 @@ public final class SessionStore {
             return
         }
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
+        registerUndo(
+            actionName: String(
+                localized: "Move Workspace",
+                comment: "Undo action for moving a workspace within or between groups."
+            )
+        ) { target in
+            // ponytail: the restore index is the captured source index, clamped
+            // by the reducer. If a non-undoable close shifts positions before
+            // undo, the workspace lands near — not exactly at — its old slot.
+            // ID-anchored ordering would fix that at the cost of a bespoke
+            // ordering model; revisit only if drift shows up in practice.
+            target.moveSession(
+                id: sessionID,
+                toGroupID: sourceGroupID,
+                atIndex: sourceSessionIndex
+            )
+        }
     }
 
     public func moveGroup(from sourceIndex: Int, to targetIndex: Int) {
+        guard _groups.indices.contains(sourceIndex) else { return }
+        let groupID = _groups[sourceIndex].id
         guard
             WorkspaceTreeReducer.moveGroup(
                 in: &_groups,
@@ -819,6 +924,22 @@ public final class SessionStore {
             return
         }
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
+        registerUndo(
+            actionName: String(
+                localized: "Move Group",
+                comment: "Undo action for reordering a workspace group."
+            )
+        ) { target in
+            // Resolve the moved group's index by ID at undo time: groups can be
+            // added/removed between registration and undo, so a captured index
+            // could reorder an unrelated group.
+            guard let currentIndex = target._groups.firstIndex(where: { $0.id == groupID })
+            else { return }
+            // ponytail: sourceIndex is the captured original index, clamped by
+            // the reducer — same near-not-exact ceiling as the moveSession
+            // inverse when a non-undoable close shifted positions in between.
+            target.moveGroup(from: currentIndex, to: sourceIndex)
+        }
     }
 
     public func isPinned(_ id: TerminalSession.ID) -> Bool {

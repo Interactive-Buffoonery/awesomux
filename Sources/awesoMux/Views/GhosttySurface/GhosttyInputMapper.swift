@@ -48,15 +48,30 @@ enum GhosttyInputMapper {
     /// ⌘⇧ (the previous documented workaround), so no new behavior is exposed
     /// to terminal programs. Never inject into KEY events; that would corrupt
     /// kitty-keyboard-protocol modifier reports.
+    /// INT-453: `armLinkHover` injects a synthetic Super bit into hover-motion
+    /// mods. libghostty's `linkAtPos` detects an OSC 8 hyperlink only when the
+    /// mouse mods equal ctrl-or-super exactly (`Surface.zig` `linkAtPos`), so a
+    /// plain hover never emits `MOUSE_OVER_LINK` and the peek dwell could never
+    /// arm. Callers gate it to button-free motion on an UNCAPTURED surface:
+    /// uncaptured motion is never reported to the terminal program, so the
+    /// fake bit reaches only libghostty's own link/shape logic — and click-time
+    /// link activation is unaffected because `mouseButtonCallback` re-stores
+    /// the click's real mods before its link check. Ceiling: plain-hover peek
+    /// stays unavailable while a TUI has mouse capture (injecting there would
+    /// corrupt motion reports); ⌘-hover still works via the INT-632 path.
     static func mouseModifiers(
         _ flags: NSEvent.ModifierFlags,
-        mouseCaptured: Bool
+        mouseCaptured: Bool,
+        armLinkHover: Bool = false
     ) -> ghostty_input_mods_e {
         let base = modifiers(flags)
-        guard mouseCaptured, flags.contains(.command) else {
-            return base
+        if mouseCaptured, flags.contains(.command) {
+            return ghostty_input_mods_e(base.rawValue | GHOSTTY_MODS_SHIFT.rawValue)
         }
-        return ghostty_input_mods_e(base.rawValue | GHOSTTY_MODS_SHIFT.rawValue)
+        if armLinkHover {
+            return ghostty_input_mods_e(base.rawValue | GHOSTTY_MODS_SUPER.rawValue)
+        }
+        return base
     }
 
     /// INT-632: identifies a `flagsChanged` event as the Cmd (Super) key

@@ -239,10 +239,28 @@ struct FloatingPanelEventPolicyTests {
         )
     }
 
-    @Test("floating panel promote is blocked while its panel has an attached sheet")
-    func floatingPanelPromoteBlocksAttachedSheet() {
-        #expect(FloatingPanelEventPolicy.canPromoteFloatingPanel(hasAttachedSheet: false))
-        #expect(!FloatingPanelEventPolicy.canPromoteFloatingPanel(hasAttachedSheet: true))
+    @Test(
+        "terminal panel promote rejects modal input owners",
+        arguments: [
+            (false, false, false, true),
+            (true, false, false, false),
+            (false, true, false, false),
+            (false, false, true, false),
+        ] as [(Bool, Bool, Bool, Bool)]
+    )
+    func terminalPanelPromoteRejectsModalInputOwners(
+        hasAttachedSheet: Bool,
+        parentHasAttachedSheet: Bool,
+        hasModalSession: Bool,
+        expected: Bool
+    ) {
+        #expect(
+            FloatingPanelEventPolicy.canPromoteTerminalPanel(
+                hasAttachedSheet: hasAttachedSheet,
+                parentHasAttachedSheet: parentHasAttachedSheet,
+                hasModalSession: hasModalSession
+            ) == expected
+        )
     }
 
     @Test(

@@ -35,12 +35,43 @@ final class GhosttySurfaceNSView: NSView {
     var sessionID: TerminalSession.ID
     var pane: TerminalPane
     var paneID: TerminalPane.ID
+    var remoteMarkdownFetchProgressIndicator: NSProgressIndicator?
+    var remoteMarkdownFetchProgressIdentity: (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)?
+    var remoteMarkdownFetchProgressCount = 0
     var enabledAgentRuntimeFileDropSources: Set<AgentRuntimeSource>
     /// Whether a text-detected `grok` session may adopt the Grok agent kind (and
     /// thus its sidebar icon). The same setting gates Grok runtime events.
     /// Refreshed from settings on every `update(…)`, like the sources set above.
     var grokIconEnabled: Bool
     var mouseOverLink: String?
+    /// OSC 8 hyperlink peek-preview state (INT-453). See `GhosttySurfaceLinkPeek`.
+    /// `peekedLink` is the link the popover is currently presenting (distinct from
+    /// `mouseOverLink`, which is only the hovered link — they differ during the
+    /// dwell window before a preview appears).
+    var linkPeekPopover: NSPopover?
+    var linkPeekShowWorkItem: DispatchWorkItem?
+    var linkPeekDismissWorkItem: DispatchWorkItem?
+    var peekedLink: String?
+    /// INT-453: link armed by a PLAIN left press while hovered, opened app-side
+    /// on the matching non-dragged release (libghostty's own release-time
+    /// activation requires exactly ⌘, so plain clicks must be app-driven).
+    /// Snapshotted at press because libghostty can clear `over_link` — and thus
+    /// `mouseOverLink` — asynchronously between press and release. ⌘-clicks are
+    /// never armed; libghostty handles those, so each click has exactly one
+    /// opener.
+    ///
+    /// ponytail: the snapshot can go stale if terminal output rewrites the cell
+    /// under a stationary pointer between hover and click — libghostty re-derives
+    /// at release for ⌘-clicks, but exposes no link-at-position query API for the
+    /// app to do the same. Every open still routes through the resolve/classify
+    /// gates (blocked classes always confirm). Upgrade path: a narrow query API
+    /// in the ghostty fork, then re-derive here instead of snapshotting.
+    var armedLinkClickValue: String?
+    /// Plain-click opens are deferred by `NSEvent.doubleClickInterval` so the
+    /// second press of a double-click (word-select inside a hyperlink) cancels
+    /// the open instead of racing it — the first press of the pair still has
+    /// `clickCount == 1`, so a press-time gate alone can't tell them apart.
+    var pendingLinkOpenWorkItem: DispatchWorkItem?
     /// INT-632: computed once at left mouseDown, reused unchanged for the
     /// paired mouseUp. Never recompute at release time — ⌘ can be released
     /// mid-gesture, and a press/release pair that disagreed on the injected
@@ -89,6 +120,16 @@ final class GhosttySurfaceNSView: NSView {
     var hasObservedAgentActivity = false
     var lastRuntimeEventAppliedAt: TimeInterval?
     var lastRuntimeAttentionEventAppliedAt: TimeInterval?
+    /// The foreground-process incarnation (pid + start time) observed at the
+    /// moment a genuine provider hook last confirmed `.waiting` — stamped only
+    /// by `applyAgentRuntimeEvent`'s trusted hook path, never by the
+    /// process-recognition (`detectAgentExitedToShell`) or visible-text
+    /// detector paths that also write `.waiting`. `AgentPromptGate.verdict`
+    /// requires this to match the CURRENTLY observed foreground incarnation
+    /// before trusting a nudge target — closes the same-provider-relaunch
+    /// window where a fresh process gets recognized/scraped into `.waiting`
+    /// before its own first real hook ever fires (INT-569 follow-up).
+    var verifiedWaitingForegroundIncarnation: AgentForegroundIncarnation?
     /// Owns command-bridge lifecycle state + sequencing; this view is the thin
     /// AppKit/libghostty adapter it enacts against (see ``CommandBridgeEnactor``).
     /// Lazy so `self` is fully initialized before the enactor captures it.
@@ -453,12 +494,22 @@ final class GhosttySurfaceNSView: NSView {
         enabledAgentRuntimeFileDropSources: Set<AgentRuntimeSource>,
         grokIconEnabled: Bool
     ) {
+        if sessionID != session.id || paneID != pane.id {
+            clearRemoteMarkdownFetchProgress()
+        }
         self.sessionStore = sessionStore
         self.session = session
         self.sessionID = session.id
         if self.pane.terminalSessionID != pane.terminalSessionID {
             commandBridgeEnactor.handleSessionRepoint()
             resetSearchStateForSurfaceTeardown()
+            // A repointed session has a different (or no) process behind it;
+            // a leftover trusted incarnation from the PRIOR pane must never be
+            // read as evidence for this one. Not load-bearing for correctness
+            // (verdict already requires an exact pid/start-time match against
+            // the freshly observed foreground process), but keeps the ivar
+            // from ever holding another pane's identity.
+            verifiedWaitingForegroundIncarnation = nil
         }
         self.pane = pane
         self.paneID = pane.id
@@ -483,10 +534,24 @@ final class GhosttySurfaceNSView: NSView {
         sizeDidChange(contentSize)
     }
 
+    func clearRemoteMarkdownFetchProgress() {
+        remoteMarkdownFetchProgressIndicator?.removeFromSuperview()
+        remoteMarkdownFetchProgressIndicator = nil
+        remoteMarkdownFetchProgressIdentity = nil
+        remoteMarkdownFetchProgressCount = 0
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
             accessibilityFocusRequested = false
+            // Detaching (workspace switch, pane close) must not leave a peek
+            // popover orphaned against a windowless view, nor let a deferred
+            // click-open fire against a detached pane.
+            dismissLinkPeek()
+            armedLinkClickValue = nil
+            pendingLinkOpenWorkItem?.cancel()
+            pendingLinkOpenWorkItem = nil
         }
 
         // Fires on both attach (window != nil) and detach (window == nil).
