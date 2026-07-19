@@ -67,6 +67,42 @@ struct DocumentNudgeForegroundGateTests {
         )
     }
 
+    @Test("a same-provider relaunch's fresh generation declines until its own hook confirms it")
+    func relaunchedProcessDeclines() {
+        let fixture = makeFixture(
+            executionPlan: .local,
+            agentKind: .codex,
+            agentExecutionState: .waiting
+        )
+
+        #expect(
+            resolve(
+                fixture,
+                comm: "codex",
+                verifiedGeneration: AgentForegroundIncarnation(pid: 100, startedAt: 1_000),
+                observedGeneration: AgentForegroundIncarnation(pid: 200, startedAt: 2_000)
+            ) == .unavailable(.noVerifiedAgent)
+        )
+    }
+
+    @Test("no trusted hook generation on record declines a synthesized waiting state")
+    func noTrustedGenerationDeclines() {
+        let fixture = makeFixture(
+            executionPlan: .local,
+            agentKind: .codex,
+            agentExecutionState: .waiting
+        )
+
+        #expect(
+            resolve(
+                fixture,
+                comm: "codex",
+                verifiedGeneration: nil,
+                observedGeneration: AgentForegroundIncarnation(pid: 200, startedAt: 2_000)
+            ) == .unavailable(.noVerifiedAgent)
+        )
+    }
+
     @Test("a waiting agent whose foreground process is not the provider declines")
     func staleAgentForegroundDeclines() {
         let fixture = makeFixture(
@@ -272,20 +308,31 @@ struct DocumentNudgeForegroundGateTests {
         )
     }
 
+    /// Matching by default: these fixtures test the SSH/comm/consent/receptive
+    /// checks, not the generation-binding check added in the INT-569
+    /// follow-up, so a same, non-nil incarnation on both sides keeps every
+    /// pre-existing expectation exercising exactly what it names.
+    private static let defaultGeneration = AgentForegroundIncarnation(pid: 4242, startedAt: 1_000)
+
     private func resolve(
         _ fixture: Fixture,
         comm: String?,
-        binaryPath: String? = nil
+        binaryPath: String? = nil,
+        verifiedGeneration: AgentForegroundIncarnation? = defaultGeneration,
+        observedGeneration: AgentForegroundIncarnation? = defaultGeneration
     ) -> DocumentNudgeTargetResolution {
         DocumentPaneSendBar.resolveNudgeTarget(
             in: fixture.layout,
             for: fixture.document.id,
             isIntegrationEnabled: { _ in true },
-            agentBinaryPath: { _ in binaryPath }
-        ) { paneID in
-            #expect(paneID == fixture.terminal.id)
-            return comm
-        }
+            agentBinaryPath: { _ in binaryPath },
+            foregroundComm: { paneID in
+                #expect(paneID == fixture.terminal.id)
+                return comm
+            },
+            foregroundGeneration: { _ in observedGeneration },
+            verifiedWaitingForegroundGeneration: { _ in verifiedGeneration }
+        )
     }
 
     private func makeFixture(

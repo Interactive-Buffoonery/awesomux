@@ -14,6 +14,30 @@ import Foundation
 /// click-time action, so UI wording can never claim a verified agent when
 /// staging is unsafe. INT-582's provider-aware annotation handoff must route
 /// through this same policy before staging text.
+
+/// Identity of one foreground-process incarnation, observed as (pid, start
+/// time). Mirrors `AmxDaemonIncarnation`'s pid+createdAt shape for the same
+/// reason: a relaunch of the same-named binary gets a new pid and a new start
+/// time, so comparing incarnations tells "still the process we verified"
+/// from "a same-name replacement" without trusting a bare comm-name match
+/// alone. Used to bind `AgentPromptGate.verdict`'s `.waiting` evidence to the
+/// exact process a real hook confirmed it against (INT-569 follow-up).
+///
+/// `startedAt`'s unit is an opaque, source-defined tick (AMX daemon epoch
+/// seconds for a bridged pane, local `proc_pidinfo` epoch MICROSECONDS for a
+/// non-bridged one — see `ProcessLivenessProbe.processStartTime`). Compare
+/// for exact equality only, within the same source's values; never for
+/// ordering or duration math across sources.
+public struct AgentForegroundIncarnation: Equatable, Sendable {
+    public let pid: Int
+    public let startedAt: Int
+
+    public init(pid: Int, startedAt: Int) {
+        self.pid = pid
+        self.startedAt = startedAt
+    }
+}
+
 public enum AgentPromptGate {
     /// The v1 provider scope modeled by INT-569. Grok is deliberately
     /// excluded until the issue's provider list grows.
@@ -45,6 +69,14 @@ public enum AgentPromptGate {
     ///   - observedForegroundCommand: the live foreground process name
     ///     (`p_comm`) of the target terminal, or nil when no evidence is
     ///     available. Nil fails closed.
+    ///   - verifiedWaitingForegroundGeneration: the foreground-process
+    ///     incarnation observed at the moment a genuine provider hook last
+    ///     confirmed `.waiting` for this pane, or nil if no hook has ever done
+    ///     so. Never set by process-recognition or visible-text synthesis —
+    ///     see `GhosttySurfaceTerminalEvents`.
+    ///   - observedForegroundGeneration: the CURRENT foreground-process
+    ///     incarnation, sampled fresh at the same moment as
+    ///     `observedForegroundCommand`. Nil fails closed.
     ///   - configuredBinaryCandidate: symlink-resolved basename of the
     ///     provider's configured `binary_path`, when set; consulted only
     ///     after the earlier checks pass.
@@ -53,6 +85,8 @@ public enum AgentPromptGate {
         agentState: AgentState,
         isIntegrationEnabled: (AgentKind) -> Bool,
         observedForegroundCommand: String?,
+        verifiedWaitingForegroundGeneration: AgentForegroundIncarnation? = nil,
+        observedForegroundGeneration: AgentForegroundIncarnation? = nil,
         configuredBinaryCandidate: () -> String? = { nil }
     ) -> Verdict {
         guard supportedProviders.contains(agentKind) else {
@@ -68,15 +102,32 @@ public enum AgentPromptGate {
         guard agentState == .waiting else {
             return .unavailable(.agentNotReceptive(agentKind))
         }
+        // `.waiting` alone is not proof a real hook ever fired: it can also be
+        // synthesized from bare process-name recognition the instant a
+        // same-named process becomes foreground (`detectAgentExitedToShell`),
+        // or scraped from viewport text — neither proves THIS process
+        // incarnation ever reached a real, receptive prompt. A same-provider
+        // relaunch would pass a comm-name check alone during its own
+        // seconds-wide startup window (a splash screen or onboarding TUI that
+        // consumes injected bytes), before its first genuine hook lands.
+        // Only a trusted hook (`applyAgentRuntimeEvent`) stamps
+        // `verifiedWaitingForegroundGeneration`, tied to the exact (pid, start
+        // time) observed at that moment — a relaunch gets a fresh pid/start
+        // time immediately, so requiring an exact match against the CURRENT
+        // foreground incarnation rejects both a stale generation (old process
+        // already exited) and a synthesized one (no trusted generation was
+        // ever recorded).
+        guard
+            let verifiedWaitingForegroundGeneration,
+            let observedForegroundGeneration,
+            verifiedWaitingForegroundGeneration == observedForegroundGeneration
+        else {
+            return .unavailable(.noVerifiedAgent)
+        }
         // Durable pane state can outlive the process that reported it (Codex
         // and OpenCode emit no trusted quit signal), so also require the live
         // foreground process to look like the provider binary. A bare shell
         // or a raw-mode TUI in the foreground fails this and declines.
-        // ponytail: `.waiting` and the comm match are independent snapshots —
-        // a same-provider relaunch can pass during its seconds-wide startup
-        // window until its first hook event lands. The receiver is still the
-        // provider binary, never a shell; generation-tagged prompt evidence
-        // is the upgrade path if that window ever bites (INT-582 candidate).
         guard
             let observedForegroundCommand,
             foregroundCommandMatches(

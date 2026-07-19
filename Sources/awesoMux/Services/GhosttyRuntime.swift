@@ -318,6 +318,20 @@ final class GhosttyRuntime {
         return surfaceView.documentNudgeForegroundComm()
     }
 
+    /// CURRENT foreground-process incarnation for a pane, sampled fresh —
+    /// pairs with `foregroundComm(in:)` as the other half of the document-nudge
+    /// gate's generation check (INT-569 follow-up).
+    func foregroundGeneration(in paneID: TerminalPane.ID) -> AgentForegroundIncarnation? {
+        surfaceViews[paneID]?.documentNudgeForegroundGeneration()
+    }
+
+    /// The foreground-process incarnation observed the last time a genuine
+    /// provider hook confirmed `.waiting` on this pane, or nil if none has.
+    /// See `verifiedWaitingForegroundIncarnation` on `GhosttySurfaceNSView`.
+    func verifiedWaitingForegroundGeneration(in paneID: TerminalPane.ID) -> AgentForegroundIncarnation? {
+        surfaceViews[paneID]?.verifiedWaitingForegroundIncarnation
+    }
+
     /// INT-569 field diagnostics for the document-nudge evidence chain.
     nonisolated private static let nudgeGateLogger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
