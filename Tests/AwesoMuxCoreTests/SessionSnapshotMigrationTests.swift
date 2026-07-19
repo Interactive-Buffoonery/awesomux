@@ -192,7 +192,7 @@ struct SessionSnapshotMigrationTests {
         dict["groups"] = groups
 
         let data = try JSONSerialization.data(withJSONObject: dict)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let store = SessionStore(restoring: decoded)
 
         #expect(store.selectedSession?.activePane?.agentKind == .shell)
@@ -508,7 +508,7 @@ struct SessionSnapshotMigrationTests {
         )
 
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let store = SessionStore(restoring: decoded)
 
         #expect(store.selectedSession?.activePane?.agentKind == .shell)
@@ -588,7 +588,7 @@ struct SessionSnapshotMigrationTests {
         dict["groups"] = groups
 
         let data = try JSONSerialization.data(withJSONObject: dict)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let store = SessionStore(restoring: decoded)
 
         let restored = store.groups.first?.sessions.first

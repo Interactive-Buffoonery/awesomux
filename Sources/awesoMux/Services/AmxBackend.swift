@@ -1,4 +1,5 @@
 import Foundation
+import AwesoMuxConfig
 import AwesoMuxCore
 import os
 
@@ -100,9 +101,8 @@ enum AmxBackend {
     private static let cachedSSHControlDirectory: String = {
         let stable = (NSHomeDirectory() as NSString)
             .appendingPathComponent(".awesomux/" + AppRuntimeProfile.current.sshControlDirectoryName)
-        try? FileManager.default.createDirectory(
-            atPath: stable, withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
+        try? FileManager.default.createOwnerOnlyDirectory(
+            at: URL(fileURLWithPath: stable, isDirectory: true)
         )
         // createDirectory is a no-op on an existing path (it never re-applies
         // 0700 or checks what the path IS), so verify before trusting: a real
@@ -132,9 +132,8 @@ enum AmxBackend {
         // trips and ssh drops the shared ControlMaster — but that degradation
         // is safe, which is the priority when both $HOME and /tmp are broken.
         let fallback = (NSTemporaryDirectory() as NSString).appendingPathComponent("awesomux-ssh")
-        try? FileManager.default.createDirectory(
-            atPath: fallback, withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
+        try? FileManager.default.createOwnerOnlyDirectory(
+            at: URL(fileURLWithPath: fallback, isDirectory: true)
         )
         return fallback
     }()
