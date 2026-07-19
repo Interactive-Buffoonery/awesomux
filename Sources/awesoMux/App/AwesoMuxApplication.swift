@@ -101,32 +101,6 @@ final class AwesoMuxApplication: NSApplication {
             return
         }
 
-        if CommandPaletteShortcut.matches(event) {
-            guard canHandleAppShortcut else {
-                ShortcutDiagnostics.log("stage=sendEvent commandPalette=true blocked=modalOrNoWindow")
-                super.sendEvent(event)
-                return
-            }
-
-            ShortcutDiagnostics.log("stage=sendEvent commandPalette=true action=toggleCommandPalette")
-            NotificationCenter.default.post(
-                name: .awesoMuxCommandPaletteRequested,
-                object: self
-            )
-            return
-        }
-
-        if CommandPaletteShortcut.isRepeat(ofCommandPaletteChord: event) {
-            guard canHandleAppShortcut else {
-                ShortcutDiagnostics.log("stage=sendEvent commandPalette=false repeat=true blocked=modalOrNoWindow")
-                super.sendEvent(event)
-                return
-            }
-
-            ShortcutDiagnostics.log("stage=sendEvent commandPalette=false repeat=true action=ignore")
-            return
-        }
-
         if KeyboardCheatsheetShortcut.matches(event) {
             guard canHandleAppShortcut else {
                 ShortcutDiagnostics.log("stage=sendEvent keyboardCheatsheet=true blocked=modalOrNoWindow")

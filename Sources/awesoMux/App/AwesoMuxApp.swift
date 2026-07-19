@@ -572,9 +572,6 @@ struct AwesoMuxApp: App {
             .onReceive(NotificationCenter.default.publisher(for: .awesoMuxToggleSidebarVisibilityRequested)) { _ in
                 requestSidebarVisibilityToggle()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .awesoMuxCommandPaletteRequested)) { _ in
-                toggleCommandPalette()
-            }
             .onReceive(NotificationCenter.default.publisher(for: .awesoMuxKeyboardCheatsheetRequested)) { _ in
                 toggleKeyboardCheatsheet()
             }
@@ -960,11 +957,22 @@ struct AwesoMuxApp: App {
                 .disabled(isAnySheetPresented)
 
                 Button(commandPaletteMenuTitle) {
+                    // A real `.keyboardShortcut` auto-repeats its action while
+                    // held, unlike the deleted NSEvent interceptor which
+                    // explicitly swallowed repeats. Scoped to THIS closure
+                    // (not `toggleCommandPalette()` itself) so the sidebar's
+                    // magnifying-glass button and the palette's own
+                    // "Command Palette" list entry — both call
+                    // `toggleCommandPalette()` too — are never gated on
+                    // ambient `NSApp.currentEvent`, which reflects whatever
+                    // the app last dispatched, not what triggered THEIR call.
+                    guard !(NSApp.currentEvent?.type == .keyDown && NSApp.currentEvent?.isARepeat == true) else {
+                        ShortcutDiagnostics.log("stage=commandPaletteMenuAction repeat=true action=ignore")
+                        return
+                    }
                     toggleCommandPalette()
                 }
-                // Interceptor-only by design: a real `.keyboardShortcut` here
-                // would let AppKit route the same Cmd-K event through the menu
-                // after `AwesoMuxApplication.sendEvent` posts the request.
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleCommandPalette))
                 .disabled(isAnySheetPresented)
 
                 Button("Session Manager") {
@@ -1066,7 +1074,10 @@ struct AwesoMuxApp: App {
                 Button(keyboardCheatsheetMenuTitle) {
                     toggleKeyboardCheatsheet()
                 }
-                // Interceptor-only by design; see Command Palette above.
+                // Interceptor-only by design: Cmd-/ still routes through
+                // `AwesoMuxApplication.sendEvent`'s `KeyboardCheatsheetShortcut`
+                // branch. Migrating it to a real `.keyboardShortcut` (the fix
+                // Command Palette got in INT-643) is a separate follow-up.
                 .disabled(isAnySheetPresented)
 
                 // Same URL and picker as the sidebar footer's feedback menu
@@ -2226,7 +2237,7 @@ struct AwesoMuxApp: App {
 
     private var commandPaletteMenuTitle: String {
         let action = commandPaletteController.isVisible ? "Hide" : "Show"
-        return "\(action) Command Palette    \(shortcut(KeyboardShortcutCatalog.toggleCommandPalette).displaySymbol)"
+        return "\(action) Command Palette"
     }
 
     private var sidebarVisibilityMenuTitle: String {
