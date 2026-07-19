@@ -3,6 +3,35 @@ import AwesoMuxCore
 
 @MainActor
 enum TerminalAccessibilityAnnouncer {
+    static func announceRemoteMarkdownLoading() {
+        announce(
+            String(
+                localized: "Loading remote Markdown.",
+                comment: "VoiceOver announcement when a remote Markdown fetch starts"
+            ))
+    }
+
+    static func announceRemoteMarkdown(_ outcome: RemoteMarkdownFetchOutcome) {
+        announce(remoteMarkdownAnnouncement(for: outcome))
+    }
+
+    static func remoteMarkdownAnnouncement(for outcome: RemoteMarkdownFetchOutcome) -> String {
+        switch outcome {
+        case .fresh:
+            String(localized: "Remote Markdown loaded.", comment: "VoiceOver announcement after a fresh remote Markdown document loads")
+        case .cached:
+            String(
+                localized: "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",
+                comment: "VoiceOver announcement when a failed refresh falls back to cached remote Markdown"
+            )
+        case .failureDocument:
+            String(
+                localized: "Remote Markdown fetch failed. Opening the failure document.",
+                comment: "VoiceOver announcement when an initial remote Markdown fetch fails"
+            )
+        }
+    }
+
     static func announceSettingsError(
         _ message: String?,
         announce: (String) -> Void = {

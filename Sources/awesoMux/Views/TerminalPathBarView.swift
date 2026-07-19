@@ -86,7 +86,9 @@ struct TerminalPathBarView: View {
             // pane identity + focus is enough: a pane switch or feature-toggle
             // restarts the loop, and `.task(id:)` cancels the old loop on any key
             // change, stopping the poll when the view disappears or the pane
-            // loses focus.
+            // loses focus. The polled value tracks the FOREGROUND JOB's cwd
+            // (not just the shell's), so the bar can legitimately move without
+            // a user `cd` — e.g. while an agent or build works elsewhere.
             .task(id: bridgePollKey) {
                 guard let pane = session.activePane,
                     BridgeCwdRefreshPolicy.shouldRefreshCwdFromAmx(

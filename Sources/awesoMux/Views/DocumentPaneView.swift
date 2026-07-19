@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -29,52 +30,92 @@ struct DocumentPaneSendBar: View {
     /// user knows the action failed rather than silently no-oping.
     @State private var nudgeFailed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// Whether `TerminalPane.agentKind` is a trustworthy "which agent is live in this
-    /// pane right now" signal. It is NOT yet: the runtime only resets `agentKind` to
-    /// `.shell` on a clean `sessionEnd` event, so a pane that once ran Claude reads
-    /// `.claudeCode` forever after even while sitting at a bare shell prompt. Reliable
-    /// per-pane agent detection is available; flip this to `true`
-    /// then and the button names the agent automatically. Until then the label stays
-    /// honest-but-generic ("Send to Agent") rather than mislabeling shells.
-    private static let agentDetectionTrustworthy = false
+    // Same convention as TerminalPaneView/SidebarSessionTile: read settings
+    // through the environment-injected store, not `runtime`'s provider-closure
+    // indirection, so enabling an integration recomputes `body` immediately
+    // instead of waiting on an unrelated render (CodeRabbit finding).
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private var nudgeResolution: DocumentNudgeTargetResolution {
-        Self.resolveNudgeTarget(
+        let integrations = appSettingsStore.agentIntegrations.value
+        return Self.resolveNudgeTarget(
             in: session.layout,
             for: pane.id,
-            foregroundExecutableMatch: runtime.foregroundExecutableMatch
+            isIntegrationEnabled: { kind in
+                switch kind {
+                case .claudeCode: integrations.claudeCode.enabled
+                case .codex: integrations.codex.enabled
+                case .openCode: integrations.openCode.enabled
+                case .pi: integrations.pi.enabled
+                case .grok: integrations.grok.enabled
+                case .shell: false
+                }
+            },
+            agentBinaryPath: { kind in
+                switch kind {
+                case .claudeCode: integrations.claudeCode.binaryPath
+                case .codex: integrations.codex.binaryPath
+                case .openCode: integrations.openCode.binaryPath
+                case .pi: integrations.pi.binaryPath
+                case .grok: integrations.grok.binaryPath
+                case .shell: nil
+                }
+            },
+            foregroundComm: { runtime.foregroundComm(in: $0) },
+            foregroundGeneration: { runtime.foregroundGeneration(in: $0) },
+            verifiedWaitingForegroundGeneration: { runtime.verifiedWaitingForegroundGeneration(in: $0) }
         )
     }
 
     static func resolveNudgeTarget(
         in layout: TerminalPaneLayout,
         for documentID: DocumentPane.ID,
-        foregroundExecutableMatch: (String, TerminalPane.ID) -> ProcessLivenessProbe.ForegroundExecutableMatch
+        isIntegrationEnabled: (AgentKind) -> Bool,
+        agentBinaryPath: (AgentKind) -> String? = { _ in nil },
+        foregroundComm: (TerminalPane.ID) -> String?,
+        foregroundGeneration: (TerminalPane.ID) -> AgentForegroundIncarnation? = { _ in nil },
+        verifiedWaitingForegroundGeneration: (TerminalPane.ID) -> AgentForegroundIncarnation? = { _ in nil }
     ) -> DocumentNudgeTargetResolution {
         let resolution = layout.documentNudgeTarget(for: documentID)
         guard case .available(let target) = resolution else { return resolution }
-        switch foregroundExecutableMatch("ssh", target.id) {
-        case .matching:
-            return .unavailable(.foregroundSSH)
-        case .unknown:
+        // One live probe per resolution: the SSH safety check and the prompt
+        // gate both read the same observed foreground process name. Absent
+        // evidence fails closed before either check.
+        guard let observedComm = foregroundComm(target.id) else {
             return .unavailable(.localTerminalUnverified)
-        case .notMatching:
+        }
+        if observedComm == "ssh" {
+            return .unavailable(.foregroundSSH)
+        }
+        // Verified-agent-prompt gate (INT-569).
+        switch AgentPromptGate.verdict(
+            agentKind: target.agentKind,
+            agentState: target.agentState,
+            isIntegrationEnabled: isIntegrationEnabled,
+            observedForegroundCommand: observedComm,
+            verifiedWaitingForegroundGeneration: verifiedWaitingForegroundGeneration(target.id),
+            observedForegroundGeneration: foregroundGeneration(target.id),
+            configuredBinaryCandidate: {
+                guard let path = agentBinaryPath(target.agentKind), !path.isEmpty else {
+                    return nil
+                }
+                // `p_comm` names the RESOLVED file: a `claude` symlink to
+                // `versions/2.1.214` observes as "2.1.214", so resolve the
+                // configured path before taking its basename.
+                return URL(fileURLWithPath: path).resolvingSymlinksInPath().lastPathComponent
+            }
+        ) {
+        case .verified:
             return resolution
+        case .unavailable(let reason):
+            return .unavailable(reason)
         }
     }
 
-    /// The agent running in the terminal the nudge targets. Drives the button label
-    /// once `agentDetectionTrustworthy` is true. Uses the same deterministic
-    /// target resolver as the send action so nil associations may recover to a
-    /// direct sibling, while stale explicit associations still fail closed.
-    private var targetAgentKind: AgentKind {
-        guard case .available(let target) = nudgeResolution else { return .shell }
-        return target.agentKind
-    }
-
-    private var sendUnavailableDescription: String? {
-        guard case .unavailable(let reason) = nudgeResolution else { return nil }
+    private func sendUnavailableDescription(
+        for resolution: DocumentNudgeTargetResolution
+    ) -> String? {
+        guard case .unavailable(let reason) = resolution else { return nil }
         return Self.unavailableDescription(for: reason)
     }
 
@@ -108,15 +149,54 @@ struct DocumentPaneSendBar: View {
                 localized: "Local document paths can only be sent to a local terminal",
                 comment: "Unavailable reason for sending a Mac-local document path to a declared SSH terminal"
             )
+        case .noVerifiedAgent:
+            return String(
+                localized: "Sending is available when a supported agent is waiting in this document's terminal",
+                comment: "Unavailable reason when the document's terminal is not running a verified supported agent"
+            )
+        case .agentIntegrationDisabled(let kind):
+            return String(
+                localized: "Enable the \(kind.shortName) integration in Settings to send",
+                comment: "Unavailable reason when the target agent's integration is disabled in settings"
+            )
+        case .agentNotReceptive(let kind):
+            return String(
+                localized: "\(kind.shortName) isn't waiting for input yet",
+                comment: "Unavailable reason when the target agent is not currently waiting at its prompt"
+            )
         }
     }
 
-    /// "Send to Claude" / "Send to Codex" / … when the associated terminal's agent
-    /// is known and detection is trustworthy; generic "Send to Agent" otherwise.
-    private var sendButtonTitle: String {
-        guard Self.agentDetectionTrustworthy else { return "Send to Agent" }
-        let kind = targetAgentKind
-        return kind == .shell ? "Send to Agent" : "Send to \(kind.shortName)"
+    /// Names the agent whenever one was identified — the verified target AND
+    /// the agent-specific denials (not receptive, integration disabled): a
+    /// disabled "Send to Claude" with the caption explaining why beats an
+    /// anonymous button when the gate knows who is there. Generic "Send to
+    /// Agent" only when no agent was identified, so the wording still never
+    /// claims an agent that wasn't detected. Enabled state and caption come
+    /// from the same resolution (one-verdict invariant).
+    static func sendButtonTitle(
+        for resolution: DocumentNudgeTargetResolution
+    ) -> String {
+        let namedKind: AgentKind?
+        switch resolution {
+        case .available(let target):
+            namedKind = target.agentKind
+        case .unavailable(.agentNotReceptive(let kind)),
+            .unavailable(.agentIntegrationDisabled(let kind)):
+            namedKind = kind
+        case .unavailable:
+            namedKind = nil
+        }
+        guard let namedKind else {
+            return String(
+                localized: "Send to Agent",
+                comment: "Generic send-bar button title when no agent was identified in the target terminal"
+            )
+        }
+        return String(
+            localized: "Send to \(namedKind.shortName)",
+            comment: "Send-bar button title naming the agent identified in the target terminal"
+        )
     }
 
     var body: some View {
@@ -130,15 +210,33 @@ struct DocumentPaneSendBar: View {
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .accessibilityLabel(Text("Read-only remote Markdown snapshot from \(origin)"))
             } else {
-                Spacer(minLength: 0)
-                SendToAgentButton(
-                    title: sendButtonTitle,
-                    failed: nudgeFailed,
-                    unavailableDescription: sendUnavailableDescription,
-                    action: requestCompose
-                )
-                .frame(height: 28)
-                Spacer(minLength: 0)
+                // Resolve once per render: the resolution issues a live foreground
+                // probe, and the title, the unavailable description, and the
+                // caption all derive from the same verdict (one-verdict invariant).
+                let resolution = nudgeResolution
+                let unavailableDescription = sendUnavailableDescription(for: resolution)
+                VStack(spacing: 3) {
+                    SendToAgentButton(
+                        title: Self.sendButtonTitle(for: resolution),
+                        failed: nudgeFailed,
+                        unavailableDescription: unavailableDescription,
+                        action: requestCompose
+                    )
+                    .frame(height: 28)
+                    if let unavailableDescription {
+                        // Visible "why" for the disabled state. The button's
+                        // accessibility label already speaks the same string,
+                        // so the caption hides from VoiceOver to avoid a
+                        // double announcement.
+                        Text(unavailableDescription)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.aw.text2)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(.vertical, 6)
@@ -176,17 +274,18 @@ struct DocumentPaneSendBar: View {
     /// composer that can't send. The composer replaces the old one-shot send: the
     /// user revises or extends the review nudge before staging it.
     private func requestCompose() {
-        guard case .available = nudgeResolution else {
-            reportNudgeUnavailable()
+        let resolution = nudgeResolution
+        guard case .available = resolution else {
+            reportNudgeUnavailable(resolution)
             return
         }
         onCompose()
     }
 
-    private func reportNudgeUnavailable() {
+    private func reportNudgeUnavailable(_ resolution: DocumentNudgeTargetResolution) {
         nudgeFailed = true
         TerminalAccessibilityAnnouncer.announce(
-            sendUnavailableDescription
+            sendUnavailableDescription(for: resolution)
                 ?? String(
                     localized: "Couldn't send — this document's terminal isn't available",
                     comment: "VoiceOver announcement when a document has no eligible send target"

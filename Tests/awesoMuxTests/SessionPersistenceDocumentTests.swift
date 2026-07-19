@@ -110,11 +110,12 @@ struct SessionPersistenceDocumentTests {
             let session = TerminalSession(
                 title: "agents",
                 workingDirectory: "~",
-                layout: .split(TerminalSplit(
-                    orientation: .vertical,
-                    first: .pane(codexPane),
-                    second: .pane(claudePane)
-                )),
+                layout: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(codexPane),
+                        second: .pane(claudePane)
+                    )),
                 activePaneID: codexPane.id
             )
             // Encode as v2 snapshot, then inject stray session-level agent keys
@@ -126,14 +127,16 @@ struct SessionPersistenceDocumentTests {
                 groups: [SessionGroup(name: "main", sessions: [session])],
                 selectedSessionID: session.id
             )
-            var dict = try JSONSerialization.jsonObject(
-                with: JSONEncoder().encode(v2Snapshot)
-            ) as! [String: Any]
+            var dict =
+                try JSONSerialization.jsonObject(
+                    with: JSONEncoder().encode(v2Snapshot)
+                ) as! [String: Any]
 
             // Inject stray session-level keys into the session dict — they
             // disagree with the active (codex/waiting) pane's own decoded state.
             if var groups = dict["groups"] as? [[String: Any]],
-               var sessions = groups[0]["sessions"] as? [[String: Any]] {
+                var sessions = groups[0]["sessions"] as? [[String: Any]]
+            {
                 sessions[0]["agentKind"] = "shell"
                 sessions[0]["agentExecutionState"] = "idle"
                 groups[0]["sessions"] = sessions
@@ -183,11 +186,12 @@ struct SessionPersistenceDocumentTests {
                 title: "notes.md"
             )
             // Document groups are always nested inside a split — never the layout root.
-            let layout = TerminalPaneLayout.split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(terminal),
-                second: .documentGroup(DocumentGroup(tabs: [doc], selectedTabID: doc.id))
-            ))
+            let layout = TerminalPaneLayout.split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(terminal),
+                    second: .documentGroup(DocumentGroup(tabs: [doc], selectedTabID: doc.id))
+                ))
             let session = TerminalSession(
                 title: "s",
                 workingDirectory: "~",
@@ -298,41 +302,41 @@ struct SessionPersistenceDocumentTests {
                 String(decoding: try JSONEncoder().encode($0), as: UTF8.self)
             }
             let json = """
-            {
-              "schemaVersion": 4,
-              "groups": [{
-                "id": "\(UUID().uuidString)",
-                "name": "main",
-                "sessions": [{
-                  "id": "\(sessionID.uuidString)",
-                  "title": "s",
-                  "workingDirectory": "~",
-                  "isTitleUserEdited": false,
-                  "layout": {"split":{"_0":{
+                {
+                  "schemaVersion": 4,
+                  "groups": [{
                     "id": "\(UUID().uuidString)",
-                    "orientation": "horizontal",
-                    "firstFraction": 0.5,
-                    "first": {"split":{"_0":{
-                      "id": "\(UUID().uuidString)",
-                      "orientation": "vertical",
-                      "firstFraction": 0.6,
-                      "first": {"pane":{"_0":\(paneJSON[0])}},
-                      "second": \(legacyDoc(docAID, "a.md"))
-                    }}},
-                    "second": {"split":{"_0":{
-                      "id": "\(UUID().uuidString)",
-                      "orientation": "vertical",
-                      "firstFraction": 0.6,
-                      "first": {"pane":{"_0":\(paneJSON[1])}},
-                      "second": \(legacyDoc(docBID, "b.md"))
-                    }}}
-                  }}},
-                  "activePaneID": "\(t1.id.uuidString)"
-                }]
-              }],
-              "selectedSessionID": "\(sessionID.uuidString)"
-            }
-            """
+                    "name": "main",
+                    "sessions": [{
+                      "id": "\(sessionID.uuidString)",
+                      "title": "s",
+                      "workingDirectory": "~",
+                      "isTitleUserEdited": false,
+                      "layout": {"split":{"_0":{
+                        "id": "\(UUID().uuidString)",
+                        "orientation": "horizontal",
+                        "firstFraction": 0.5,
+                        "first": {"split":{"_0":{
+                          "id": "\(UUID().uuidString)",
+                          "orientation": "vertical",
+                          "firstFraction": 0.6,
+                          "first": {"pane":{"_0":\(paneJSON[0])}},
+                          "second": \(legacyDoc(docAID, "a.md"))
+                        }}},
+                        "second": {"split":{"_0":{
+                          "id": "\(UUID().uuidString)",
+                          "orientation": "vertical",
+                          "firstFraction": 0.6,
+                          "first": {"pane":{"_0":\(paneJSON[1])}},
+                          "second": \(legacyDoc(docBID, "b.md"))
+                        }}}
+                      }}},
+                      "activePaneID": "\(t1.id.uuidString)"
+                    }]
+                  }],
+                  "selectedSessionID": "\(sessionID.uuidString)"
+                }
+                """
             try FileManager.default.createDirectory(
                 at: tempDir,
                 withIntermediateDirectories: true
@@ -383,46 +387,46 @@ struct SessionPersistenceDocumentTests {
                 as: UTF8.self
             )
             let json = """
-            {
-              "schemaVersion": 4,
-              "groups": [{
-                "id": "\(UUID().uuidString)",
-                "name": "main",
-                "sessions": [\(liveSessionJSON)]
-              }],
-              "selectedSessionID": "\(liveSession.id.uuidString)",
-              "recentlyClosed": [{
-                "sessionID": "\(UUID().uuidString)",
-                "title": "closed",
-                "isTitleUserEdited": false,
-                "agentKind": "Shell",
-                "layout": {"split":{"_0":{
-                  "id": "\(UUID().uuidString)",
-                  "orientation": "horizontal",
-                  "firstFraction": 0.5,
-                  "first": {"split":{"_0":{
+                {
+                  "schemaVersion": 4,
+                  "groups": [{
                     "id": "\(UUID().uuidString)",
-                    "orientation": "vertical",
-                    "firstFraction": 0.6,
-                    "first": {"pane":{"_0":\(paneJSON[0])}},
-                    "second": \(legacyDoc(docAID, "a.md"))
-                  }}},
-                  "second": {"split":{"_0":{
-                    "id": "\(UUID().uuidString)",
-                    "orientation": "vertical",
-                    "firstFraction": 0.6,
-                    "first": {"pane":{"_0":\(paneJSON[1])}},
-                    "second": \(legacyDoc(docBID, "b.md"))
-                  }}}
-                }}},
-                "activePaneID": "\(t1.id.uuidString)",
-                "groupID": "\(UUID().uuidString)",
-                "groupName": "main",
-                "indexInGroup": 0,
-                "closedAt": \(Date().timeIntervalSinceReferenceDate)
-              }]
-            }
-            """
+                    "name": "main",
+                    "sessions": [\(liveSessionJSON)]
+                  }],
+                  "selectedSessionID": "\(liveSession.id.uuidString)",
+                  "recentlyClosed": [{
+                    "sessionID": "\(UUID().uuidString)",
+                    "title": "closed",
+                    "isTitleUserEdited": false,
+                    "agentKind": "Shell",
+                    "layout": {"split":{"_0":{
+                      "id": "\(UUID().uuidString)",
+                      "orientation": "horizontal",
+                      "firstFraction": 0.5,
+                      "first": {"split":{"_0":{
+                        "id": "\(UUID().uuidString)",
+                        "orientation": "vertical",
+                        "firstFraction": 0.6,
+                        "first": {"pane":{"_0":\(paneJSON[0])}},
+                        "second": \(legacyDoc(docAID, "a.md"))
+                      }}},
+                      "second": {"split":{"_0":{
+                        "id": "\(UUID().uuidString)",
+                        "orientation": "vertical",
+                        "firstFraction": 0.6,
+                        "first": {"pane":{"_0":\(paneJSON[1])}},
+                        "second": \(legacyDoc(docBID, "b.md"))
+                      }}}
+                    }}},
+                    "activePaneID": "\(t1.id.uuidString)",
+                    "groupID": "\(UUID().uuidString)",
+                    "groupName": "main",
+                    "indexInGroup": 0,
+                    "closedAt": \(Date().timeIntervalSinceReferenceDate)
+                  }]
+                }
+                """
             try FileManager.default.createDirectory(
                 at: tempDir,
                 withIntermediateDirectories: true
@@ -462,30 +466,30 @@ struct SessionPersistenceDocumentTests {
             let docID = UUID().uuidString
             let groupID = UUID().uuidString
             let json = """
-            {
-              "schemaVersion": 5,
-              "groups": [{
-                "id": "\(groupID)",
-                "name": "main",
-                "sessions": [{
-                  "id": "\(sessionID)",
-                  "title": "bad",
-                  "workingDirectory": "~",
-                  "isTitleUserEdited": false,
-                  "layout": {
-                    "document": {
-                      "id": "\(docID)",
-                      "fileURL": "file:///tmp/bad.md",
-                      "title": "bad.md",
-                      "scrollOffset": 0
-                    }
-                  },
-                  "activePaneID": "\(UUID().uuidString)"
-                }]
-              }],
-              "selectedSessionID": "\(sessionID)"
-            }
-            """
+                {
+                  "schemaVersion": 5,
+                  "groups": [{
+                    "id": "\(groupID)",
+                    "name": "main",
+                    "sessions": [{
+                      "id": "\(sessionID)",
+                      "title": "bad",
+                      "workingDirectory": "~",
+                      "isTitleUserEdited": false,
+                      "layout": {
+                        "document": {
+                          "id": "\(docID)",
+                          "fileURL": "file:///tmp/bad.md",
+                          "title": "bad.md",
+                          "scrollOffset": 0
+                        }
+                      },
+                      "activePaneID": "\(UUID().uuidString)"
+                    }]
+                  }],
+                  "selectedSessionID": "\(sessionID)"
+                }
+                """
             let data = Data(json.utf8)
             try FileManager.default.createDirectory(
                 at: tempDir,
@@ -510,6 +514,20 @@ struct SessionPersistenceDocumentTests {
         }
     }
 
+    // MARK: - Support directory permissions
+
+    /// The support directory holds `session-state.json` and quarantine archives;
+    /// it must be created private (0o700) rather than the default 0o755.
+    @Test("flush creates the support directory with private permissions")
+    func flushCreatesSupportDirectoryWithPrivatePermissions() throws {
+        try withTemporarySupportDirectory { tempDir in
+            SessionPersistence.flush(SessionStore())
+
+            let attributes = try FileManager.default.attributesOfItem(atPath: tempDir.path)
+            #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
+        }
+    }
+
     // MARK: - Helpers
 
     private func withTemporarySupportDirectory(_ operation: (URL) throws -> Void) throws {
@@ -526,8 +544,8 @@ struct SessionPersistenceDocumentTests {
 }
 
 /// Minimal decodable to peek the schemaVersion from encoded snapshot bytes
-/// without importing or re-exposing the private `SchemaVersionPeek` from
-/// `SessionPersistence.swift`.
+/// without importing or re-exposing the private `SchemaVersionEnvelope` from
+/// `SessionSnapshot.swift`.
 private struct SchemaVersionForTest: Decodable {
     let schemaVersion: Int
 }
