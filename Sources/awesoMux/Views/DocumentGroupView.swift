@@ -17,6 +17,13 @@ struct DocumentGroupView: View {
     let runtime: GhosttyRuntime
 
     @State private var mode: DocumentPaneMode = .document
+    // INT-754: composer presentation is owned here, ABOVE DocumentPaneSendBar's
+    // shell-activity-keyed `.id`, so a target-pane activity flip that rebuilds the
+    // send bar can't tear the open composer down and lose the in-flight draft. The
+    // context PINS the document + target pane resolved when the composer opened, so
+    // a tab switch while it's open can't retarget the send or the focus restore.
+    @State private var composerContext: ComposerContext?
+    @State private var composerFocusPaneID: TerminalPane.ID?
     // INT-683: tracks the document's comment count across reloads to detect the
     // "all comments resolved" (> 0 -> 0) transition, and whether the resulting
     // inline notice is currently shown in the send bar.
@@ -49,6 +56,7 @@ struct DocumentGroupView: View {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.controlActiveState) private var controlActiveState
     @Environment(DocumentComposeTabActionHandler.self) private var documentTabActions
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private static let resolveSettleInterval: Duration = .milliseconds(500)
     private static let revisionExpandedDuration: Duration = .seconds(9)
@@ -240,7 +248,8 @@ struct DocumentGroupView: View {
                     pane: document,
                     session: session,
                     runtime: runtime,
-                    showAllResolvedNotice: $showAllResolvedNotice
+                    showAllResolvedNotice: $showAllResolvedNotice,
+                    onCompose: presentComposer
                 )
                 // Fresh identity per tab so a failure state (Peach button) from
                 // one tab never bleeds into the next tab's healthy send bar. A
@@ -274,6 +283,14 @@ struct DocumentGroupView: View {
                     }
                 )
             }
+        }
+        .sheet(item: $composerContext, onDismiss: restoreFocusAfterComposer) { context in
+            RichInputComposerSheet(
+                seed: context.seed,
+                title: String(localized: "Send to Agent", comment: "Title of the multiline prompt composer"),
+                onSend: { stageComposerText($0, in: context) },
+                onClose: { composerContext = nil }
+            )
         }
         // One handler for both selection changes and tab-set changes so the
         // capture-then-prune order is deterministic (two separate onChange
@@ -445,6 +462,127 @@ struct DocumentGroupView: View {
             comment: "Help text for the Files toggle naming the folder it will browse"
         )
     }
+
+    // MARK: - Composer
+
+    /// Opens the composer, pinning the document + resolved target it targets.
+    /// Silently no-ops if the target is ineligible at open (the send button
+    /// already gated on availability; this only loses the rare open-time race).
+    private func presentComposer() {
+        guard case .available(let target) = resolveSendTarget(for: document.id) else { return }
+        let displayPath = DocumentPaneSendBar.resolveDisplayPath(
+            for: document.fileURL,
+            relativeTo: target.workingDirectory
+        )
+        composerFocusPaneID = target.id
+        composerContext = ComposerContext(
+            documentID: document.id,
+            targetPaneID: target.id,
+            seed: NudgeComposer.text(displayPath: displayPath)
+        )
+    }
+
+    /// Restores first responder to the pinned target terminal when the composer
+    /// closes (Cancel, Esc, close button, or a successful send) so keyboard/
+    /// VoiceOver focus isn't stranded. Uses the captured pane id — which
+    /// `focusSurface` safely no-ops for if it died — rather than re-running the
+    /// eligibility probe, so an SSH/unverifiable target still restores focus.
+    private func restoreFocusAfterComposer() {
+        guard let paneID = composerFocusPaneID else { return }
+        runtime.focusSurface(toPane: paneID)
+        composerFocusPaneID = nil
+    }
+
+    /// Deterministic send target for a document — the same resolver the send bar
+    /// uses, so nil associations recover to a direct sibling and stale explicit
+    /// ones fail closed. Keyed by document id (not the current selection) so a
+    /// pinned composer resolves against session.layout regardless of the tab shown.
+    private func resolveSendTarget(for documentID: DocumentPane.ID) -> DocumentNudgeTargetResolution {
+        let integrations = appSettingsStore.agentIntegrations.value
+        return DocumentPaneSendBar.resolveNudgeTarget(
+            in: session.layout,
+            for: documentID,
+            isIntegrationEnabled: { kind in
+                switch kind {
+                case .claudeCode: integrations.claudeCode.enabled
+                case .codex: integrations.codex.enabled
+                case .openCode: integrations.openCode.enabled
+                case .pi: integrations.pi.enabled
+                case .grok: integrations.grok.enabled
+                case .shell: false
+                }
+            },
+            agentBinaryPath: { kind in
+                switch kind {
+                case .claudeCode: integrations.claudeCode.binaryPath
+                case .codex: integrations.codex.binaryPath
+                case .openCode: integrations.openCode.binaryPath
+                case .pi: integrations.pi.binaryPath
+                case .grok: integrations.grok.binaryPath
+                case .shell: nil
+                }
+            },
+            foregroundComm: { runtime.foregroundComm(in: $0) },
+            foregroundGeneration: { runtime.foregroundGeneration(in: $0) },
+            verifiedWaitingForegroundGeneration: { runtime.verifiedWaitingForegroundGeneration(in: $0) }
+        )
+    }
+
+    /// Stages the composed draft into the PINNED target terminal. Re-resolves the
+    /// pinned document at submit (the target may have died or its association
+    /// changed while the composer was open) and refuses to send if the resolved
+    /// target no longer matches — a tab switch can't retarget the paste. The
+    /// payload is control-char sanitized before it reaches the live PTY. `.failed`
+    /// keeps the composer open with the draft intact.
+    private func stageComposerText(_ draft: String, in context: ComposerContext) -> RichInputSendResult {
+        let resolution = resolveSendTarget(for: context.documentID)
+        guard case .available(let target) = resolution, target.id == context.targetPaneID else {
+            let reason: String
+            if case .unavailable(let why) = resolution {
+                reason = DocumentPaneSendBar.unavailableDescription(for: why)
+            } else {
+                reason = String(
+                    localized: "Couldn't send — this document's terminal isn't available",
+                    comment: "Composer failure when a document has no eligible send target"
+                )
+            }
+            TerminalAccessibilityAnnouncer.announce(reason)
+            return .failed(reason)
+        }
+        let payload = RichInputStaging.stagedPayload(draft)
+        guard !payload.isEmpty else {
+            let reason = String(
+                localized: "Nothing to send",
+                comment: "Composer failure when the draft is empty after sanitizing"
+            )
+            TerminalAccessibilityAnnouncer.announce(reason)
+            return .failed(reason)
+        }
+        if runtime.sendText(payload, toPane: context.targetPaneID) {
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "Pasted into this document's terminal — press Return there to send",
+                    comment: "VoiceOver announcement after staging composed text into the associated terminal prompt"
+                )
+            )
+            return .sent
+        }
+        let reason = String(
+            localized: "Couldn't send — this document's terminal isn't running",
+            comment: "Composer failure when the target terminal's process has exited"
+        )
+        TerminalAccessibilityAnnouncer.announce(reason)
+        return .failed(reason)
+    }
+}
+
+/// Pins the document + resolved target a composer targets, captured when it
+/// opens so a later tab switch can't retarget the send or focus restore.
+private struct ComposerContext: Identifiable {
+    let id = UUID()
+    let documentID: DocumentPane.ID
+    let targetPaneID: TerminalPane.ID
+    let seed: String
 }
 
 struct DocumentNudgeSendBarID: Hashable {
