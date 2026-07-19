@@ -22,15 +22,25 @@ extension NSAlert {
         cancelTitle: String = String(
             localized: "Cancel",
             comment: "Default button on a destructive confirmation dialog. Cancels the action."
-        )
+        ),
+        destructiveAccessibilityLabel: String? = nil,
+        cancelAccessibilityLabel: String? = nil,
+        accessoryView: NSView? = nil
     ) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = title
         alert.informativeText = body + "\n\n" + keyboardHint
-        alert.addButton(withTitle: cancelTitle)
+        alert.accessoryView = accessoryView
+        let cancelButton = alert.addButton(withTitle: cancelTitle)
+        if let cancelAccessibilityLabel {
+            cancelButton.setAccessibilityLabel(cancelAccessibilityLabel)
+        }
         let destructiveButton = alert.addButton(withTitle: destructiveTitle)
         destructiveButton.hasDestructiveAction = true
+        if let destructiveAccessibilityLabel {
+            destructiveButton.setAccessibilityLabel(destructiveAccessibilityLabel)
+        }
         return alert.runModal(keyboardAccept: destructiveButton) == .alertSecondButtonReturn
     }
 
@@ -95,11 +105,11 @@ extension NSAlert {
         // window-match sliver a weak capture had.
         return NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self, weak acceptButton] event in
             guard let acceptButton,
-                  event.window === self.window,
-                  AwKeyboardAcceptChord.isKeyboardAcceptKeyDown(
-                      keyCode: event.keyCode,
-                      modifiers: event.modifierFlags
-                  )
+                event.window === self.window,
+                AwKeyboardAcceptChord.isKeyboardAcceptKeyDown(
+                    keyCode: event.keyCode,
+                    modifiers: event.modifierFlags
+                )
             else {
                 return event
             }

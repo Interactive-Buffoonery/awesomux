@@ -185,6 +185,45 @@ struct CommandBridgeEnactorTests {
         )
     }
 
+    @Test("foreground comm probe shares the executable probe's evidence guards")
+    func foregroundCommUsesCurrentDaemon() throws {
+        let fixture = try makeFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        #expect(enactor.foregroundComm() == nil)
+
+        enactor.sessionID = fixture.sessionID
+        enactor.respawnLedger.recordAttach(AmxDaemonIncarnation(pid: 42, createdAt: 1))
+        var probedDaemonPID: pid_t?
+        let observed = enactor.foregroundComm { daemonPID in
+            probedDaemonPID = daemonPID
+            return "2.1.214"
+        }
+        #expect(observed == "2.1.214")
+        #expect(probedDaemonPID == 42)
+
+        enactor.errorLatched = true
+        #expect(
+            enactor.foregroundComm { _ in
+                Issue.record("latched panes must not probe")
+                return "zsh"
+            } == nil
+        )
+    }
+
+    @Test("nudge foreground comm fails closed for both bridge states without evidence")
+    func nudgeForegroundCommFailsClosed() throws {
+        let fixture = try makeFixture()
+
+        // Non-bridged pane with no live surface: the quit-gate sampler has no
+        // pid to read, so the nudge evidence must be nil (deny), never a guess.
+        #expect(fixture.view.commandBridgeEnactor.sessionID == nil)
+        #expect(fixture.view.documentNudgeForegroundComm() == nil)
+
+        // Bridged pane with no recorded daemon incarnation: same deny.
+        fixture.view.commandBridgeEnactor.sessionID = fixture.sessionID
+        #expect(fixture.view.documentNudgeForegroundComm() == nil)
+    }
+
     @Test("status events for another session are ignored")
     func mismatchedSessionStatusIsIgnored() throws {
         let fixture = try makeFixture()

@@ -2,6 +2,30 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>accessibility.sidebar.searchResultPosition</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%1$@, %2$lld of %3$#@results@</string>
+        <key>results</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%3$lld</string>
+            <key>one</key>
+            <string>%3$lld</string>
+            <key>two</key>
+            <string>%3$lld</string>
+            <key>few</key>
+            <string>%3$lld</string>
+            <key>many</key>
+            <string>%3$lld</string>
+            <key>other</key>
+            <string>%3$lld</string>
+        </dict>
+    </dict>
     <key>accessibility.closeGroup.workspacesClosed</key>
     <dict>
         <key>NSStringLocalizedFormatKey</key>
@@ -680,6 +704,34 @@
             <key>few</key><string>%lld matching diagnostic events</string>
             <key>many</key><string>%lld matching diagnostic events</string>
             <key>other</key><string>%lld matching diagnostic events</string>
+        </dict>
+    </dict>
+    <key>diagnostics.showingMatchingEvents</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%2$#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>Showing %1$lld of %2$lld matching events</string>
+            <key>one</key><string>Showing %1$lld of %2$lld matching event</string>
+            <key>two</key><string>Showing %1$lld of %2$lld matching events</string>
+            <key>few</key><string>Showing %1$lld of %2$lld matching events</string>
+            <key>many</key><string>Showing %1$lld of %2$lld matching events</string>
+            <key>other</key><string>Showing %1$lld of %2$lld matching events</string>
+        </dict>
+    </dict>
+    <key>diagnostics.showingRecordedAnalyticsEvents</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key><string>%2$#@items@</string>
+        <key>items</key><dict>
+            <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key><string>lld</string>
+            <key>zero</key><string>Showing %1$lld of %2$lld recorded events</string>
+            <key>one</key><string>Showing %1$lld of %2$lld recorded event</string>
+            <key>two</key><string>Showing %1$lld of %2$lld recorded events</string>
+            <key>few</key><string>Showing %1$lld of %2$lld recorded events</string>
+            <key>many</key><string>Showing %1$lld of %2$lld recorded events</string>
+            <key>other</key><string>Showing %1$lld of %2$lld recorded events</string>
         </dict>
     </dict>
 </dict>

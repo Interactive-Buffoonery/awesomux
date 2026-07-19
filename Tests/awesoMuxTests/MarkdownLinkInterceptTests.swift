@@ -388,6 +388,13 @@ import Testing
         #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("docs/notes.md#install"))
     }
 
+    @Test func candidateGateAcceptsTopLevelFilenameWithLineSuffix() {
+        // README.md:12 has a colon before the first "/" (there is no "/"),
+        // so Foundation's URL parser reads scheme "README.md" unless the
+        // gate strips the line suffix before parsing.
+        #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("README.md:12"))
+    }
+
     @Test func candidateGateAcceptsTrailingSentencePeriod() {
         #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("docs/notes.md."))
     }
