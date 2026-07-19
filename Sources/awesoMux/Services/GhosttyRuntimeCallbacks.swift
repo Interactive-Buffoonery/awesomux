@@ -57,7 +57,16 @@ extension GhosttyRuntime {
             }
 
             let title = String(cString: titlePointer)
-            Task { @MainActor in
+            // A `Task` here leaves a gap for `update(session:pane:)` to repoint
+            // this view at a different pane before the write lands — same race
+            // INT-587 fixed for GHOSTTY_ACTION_PROGRESS_REPORT below (INT-608).
+            // OSC 0/2 (title) is parsed from PTY output like OSC 9;4 (progress),
+            // so it shares that case's ghostty_app_tick-only assumption too.
+            assert(
+                Thread.isMainThread,
+                "GHOSTTY_ACTION_SET_TITLE fired off-main — the ghostty_app_tick-only assumption no longer holds"
+            )
+            onMainThreadSynchronously {
                 view.updateTerminalTitle(title)
             }
             return true
@@ -69,7 +78,14 @@ extension GhosttyRuntime {
             }
 
             let workingDirectory = String(cString: pwdPointer)
-            Task { @MainActor in
+            // Same pane-recycle race as GHOSTTY_ACTION_SET_TITLE above (INT-608).
+            // OSC 7 (pwd) is parsed from PTY output like OSC 9;4 (progress), so
+            // it shares that case's ghostty_app_tick-only assumption too.
+            assert(
+                Thread.isMainThread,
+                "GHOSTTY_ACTION_PWD fired off-main — the ghostty_app_tick-only assumption no longer holds"
+            )
+            onMainThreadSynchronously {
                 view.updateWorkingDirectory(workingDirectory)
             }
             return true
@@ -79,6 +95,21 @@ extension GhosttyRuntime {
                 return false
             }
 
+            // `markNeedsAttention` shares INT-608's live-identity read, but
+            // stays on `Task` (not `onMainThreadSynchronously`) because it
+            // writes the same `unreadNotificationCount`/attention fields as
+            // GHOSTTY_ACTION_COMMAND_FINISHED's `applyDetectedAgentState`
+            // path, which is ALSO still `Task`-dispatched (see that case
+            // below for why). Converting only THIS case to a synchronous
+            // bridge would deterministically jump it ahead of an
+            // earlier-fired, still-queued COMMAND_FINISHED, letting a stale
+            // command-finished clear a just-applied notification. Matching
+            // dispatch styles removes that new, deterministic inversion, but
+            // does NOT itself guarantee FIFO order between separate `Task`s
+            // on the same actor — that ordering hazard predates this PR and
+            // isn't fixed here. A real fix needs explicit
+            // sequencing/serialization for these three cases together, not
+            // just matching Task-vs-sync — tracked as a follow-up.
             Task { @MainActor in
                 // `workspaces.output_marks_needs_attention = false` means
                 // "don't mark sessions as needing attention from output."
@@ -99,6 +130,8 @@ extension GhosttyRuntime {
             let title = notification.title.map(String.init(cString:)) ?? ""
             let body = notification.body.map(String.init(cString:)) ?? ""
 
+            // Same COMMAND_FINISHED ordering constraint as GHOSTTY_ACTION_RING_BELL
+            // above — stays on `Task` (see that case's comment).
             Task { @MainActor in
                 switch Self.desktopNotificationEffect(
                     title: title,
@@ -202,6 +235,23 @@ extension GhosttyRuntime {
             }
 
             let exitCode = action.action.command_finished.exit_code
+            // KNOWN remaining gap (INT-608 follow-up, not an oversight):
+            // `handleCommandFinished` reads live `sessionID`/`paneID` and can
+            // write the same attention fields GHOSTTY_ACTION_RING_BELL /
+            // GHOSTTY_ACTION_DESKTOP_NOTIFICATION do, so it shares this
+            // codebase's pane-recycle race in principle. Left on `Task`
+            // rather than `onMainThreadSynchronously` because its synchronous
+            // call graph (`refreshShellActivity` → `shellActivitySnapshot()`)
+            // reaches native libghostty calls on OTHER surfaces
+            // (`ghostty_surface_needs_confirm_quit`), which is unproven safe
+            // to invoke from inside this surface's own `action_cb` — that
+            // needs its own investigation. The bell/notification cases above
+            // stay Task-dispatched to match this one and avoid a NEW,
+            // deterministic ordering inversion — but matching dispatch
+            // styles alone doesn't guarantee FIFO order between separate
+            // `Task`s on the same actor, so the pre-existing race between
+            // all three isn't fixed either. A real fix needs explicit
+            // sequencing/serialization across all three together.
             Task { @MainActor in
                 view.handleCommandFinished(exitCode: exitCode)
             }
