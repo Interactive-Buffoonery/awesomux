@@ -135,15 +135,17 @@ remembers its size per display via `TerminalPanelSizeStore`. V1 does not
 restore either panel after app relaunch.
 
 The terminal bridge is split under `Sources/awesoMux/Views/GhosttySurface/`.
-`GhosttySurfaceNSView` stays the thin AppKit/libghostty host, while focused
+`GhosttySurfaceNSView` remains the AppKit/libghostty host, while focused
 extensions own lifecycle/sizing, keyboard and mouse input, `NSTextInputClient`
 IME/preedit, terminal callback interpretation, process-exit close/recycle
 effects, scrollbar math, input mapping, accessibility announcements, and the
-terminal backstop background color. Pure bridge decisions that affect durable
-agent/session behavior live in `AwesoMuxCore`: `CommandExitCache` owns cached
-exit-code freshness, and `VisibleTextAgentStateReducer` owns visible-text
-fallback suppression, `.waiting` preservation, unread deltas, and error
-announcement intents.
+terminal backstop background color. Three focused state holders own native-
+surface lifecycle, terminal-event and sampling, and input/text/pointer state.
+Unsafe native surface storage remains exclusively on `GhosttySurfaceNSView`.
+Pure bridge decisions that affect durable agent/session behavior live in
+`AwesoMuxCore`: `CommandExitCache` owns cached exit-code freshness, and
+`VisibleTextAgentStateReducer` owns visible-text fallback suppression,
+`.waiting` preservation, unread deltas, and error announcement intents.
 
 ## Persistence
 
