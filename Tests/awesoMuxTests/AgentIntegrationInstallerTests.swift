@@ -1,4 +1,5 @@
 import AwesoMuxConfig
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -166,15 +167,15 @@ struct AgentIntegrationInstallerTests {
     }
 
     @Test("a concurrent global mutation fails without changing files")
-    func globalMutationLockFailsClosed() throws {
-        try Self.withTemporaryDirectory { directory in
+    func globalMutationLockFailsClosed() async throws {
+        try await Self.withTemporaryDirectory { directory in
             let installState = directory.appending(path: "global", directoryHint: .isDirectory)
             let installer = AgentIntegrationInstaller(
                 resourcesDirectoryURL: Self.packageResourcesURL,
                 supportDirectoryURL: directory.appending(path: "rendered", directoryHint: .isDirectory),
                 installStateDirectoryURL: installState
             )
-            let lockHolder = try Self.startExternalLockHolder(in: installState)
+            let lockHolder = try await Self.startExternalLockHolder(in: installState)
             defer {
                 lockHolder.terminate()
                 lockHolder.waitUntilExit()
@@ -499,8 +500,8 @@ struct AgentIntegrationInstallerTests {
     }
 
     @Test("legacy import lock contention is reported as busy")
-    func legacyImportLockContentionReportsBusy() throws {
-        try Self.withTemporaryDirectory { directory in
+    func legacyImportLockContentionReportsBusy() async throws {
+        try await Self.withTemporaryDirectory { directory in
             let canonical = directory.appending(path: "canonical", directoryHint: .isDirectory)
             let legacy = directory.appending(path: "legacy", directoryHint: .isDirectory)
             let installer = AgentIntegrationInstaller(
@@ -516,7 +517,7 @@ struct AgentIntegrationInstallerTests {
                 ),
                 to: legacy.appending(path: "install-manifest.json")
             )
-            let lockHolder = try Self.startExternalLockHolder(in: canonical)
+            let lockHolder = try await Self.startExternalLockHolder(in: canonical)
             defer {
                 lockHolder.terminate()
                 lockHolder.waitUntilExit()
@@ -972,7 +973,15 @@ struct AgentIntegrationInstallerTests {
         try operation(directory)
     }
 
-    private static func startExternalLockHolder(in directory: URL) throws -> Process {
+    private static func withTemporaryDirectory(_ operation: (URL) async throws -> Void) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "awesomux-agent-integration-installer-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await operation(directory)
+    }
+
+    private static func startExternalLockHolder(in directory: URL) async throws -> Process {
         let readyURL = directory.appending(path: "lock-ready")
         let script = """
             import fcntl, os, sys, time
@@ -987,10 +996,14 @@ struct AgentIntegrationInstallerTests {
         process.arguments = ["-c", script, directory.path, readyURL.path]
         try process.run()
 
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: readyURL.path) {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        try #require(FileManager.default.fileExists(atPath: readyURL.path))
+        // Interpreter startup can take multiple seconds under full-suite load
+        // (GH #29); the sentinel is written only after flock succeeds, so a
+        // generous ceiling adds no latency to passing runs.
+        try #require(
+            await waitUntilEventually(deadline: .seconds(30)) {
+                FileManager.default.fileExists(atPath: readyURL.path)
+            }
+        )
         return process
     }
 

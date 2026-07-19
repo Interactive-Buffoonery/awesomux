@@ -435,7 +435,7 @@ final class HandoffSheetCancellation: @unchecked Sendable {
 @MainActor
 extension GhosttySurfaceNSView {
     func beginRemoteHandoff(_ candidate: RemoteHandoff.Candidate) {
-        guard remoteHandoffTask == nil else {
+        guard lifecycleState.remoteHandoffTask == nil else {
             RemoteHandoff.presentBusy(window: window)
             return
         }
@@ -464,12 +464,12 @@ extension GhosttySurfaceNSView {
         ])
         progressIndicator.startAnimation(nil)
 
-        remoteHandoffTask = Task { @MainActor [weak self, weak originatingWindow = window] in
+        lifecycleState.remoteHandoffTask = Task { @MainActor [weak self, weak originatingWindow = window] in
             var cleanupSource: RemoteHandoff.PreparedSource?
             defer {
                 cleanupSource?.cleanup()
                 progressIndicator.removeFromSuperview()
-                self?.remoteHandoffTask = nil
+                self?.lifecycleState.remoteHandoffTask = nil
             }
             do {
                 let source = try await RemoteHandoff.prepare(candidate)

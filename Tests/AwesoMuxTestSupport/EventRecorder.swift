@@ -14,4 +14,20 @@ public actor EventRecorder<Event: Sendable> {
         }
         return values.count >= expected
     }
+
+    public func waitForCount(
+        _ expected: Int,
+        deadline: Duration,
+        pollEvery: Duration = .milliseconds(20)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let end = clock.now.advanced(by: deadline)
+
+        while clock.now < end {
+            if values.count >= expected { return true }
+            guard !Task.isCancelled else { return values.count >= expected }
+            try? await clock.sleep(for: pollEvery)
+        }
+        return values.count >= expected
+    }
 }

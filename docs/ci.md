@@ -14,7 +14,8 @@ The `Require fast CI` repository ruleset requires these stable check names:
 - `CodeQL interpreted complete` aggregates the automatic Actions and Python
   CodeQL analyses.
 - `Validate PR metadata` validates the pull-request template and metadata from
-  trusted default-branch workflow code.
+  trusted default-branch workflow code. Dependabot pull requests skip this
+  human-authored description check because GitHub owns their generated bodies.
 
 The ruleset does not require a branch to be up to date before merging. Other
 checks, including tint contrast, pull-request sizing, automated review, and

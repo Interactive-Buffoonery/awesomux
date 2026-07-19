@@ -5,6 +5,42 @@ import Testing
 @MainActor
 @Suite("Ghostty runtime surface GC")
 struct GhosttyRuntimeSurfaceGCTests {
+    @Test("visible surface registration starts and stops the runtime sampler")
+    func visibleSurfaceRegistrationStartsAndStopsRuntimeSampler() {
+        let fixture = makeFixture()
+        let runtime = GhosttyRuntime()
+        defer { runtime.discardAllSurfaces() }
+
+        runtime.noteSurfaceVisibility(paneID: fixture.retainedPane.id, isVisible: true)
+
+        #expect(runtime.visibleSurfaceSamplingPaneIDsForTesting == [fixture.retainedPane.id])
+        #expect(runtime.hasVisibleSurfaceSamplingTaskForTesting)
+
+        runtime.noteSurfaceVisibility(paneID: fixture.retainedPane.id, isVisible: false)
+
+        #expect(runtime.visibleSurfaceSamplingPaneIDsForTesting.isEmpty)
+        #expect(!runtime.hasVisibleSurfaceSamplingTaskForTesting)
+    }
+
+    @Test("discardSurface removes visible sampler membership")
+    func discardSurfaceRemovesVisibleSamplerMembership() {
+        let fixture = makeFixture()
+        let runtime = GhosttyRuntime()
+        defer { runtime.discardAllSurfaces() }
+        _ = runtime.surfaceView(
+            sessionStore: fixture.store,
+            session: fixture.session,
+            pane: fixture.retainedPane,
+            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
+        )
+        runtime.noteSurfaceVisibility(paneID: fixture.retainedPane.id, isVisible: true)
+
+        runtime.discardSurface(for: fixture.retainedPane.id)
+
+        #expect(runtime.visibleSurfaceSamplingPaneIDsForTesting.isEmpty)
+        #expect(!runtime.hasVisibleSurfaceSamplingTaskForTesting)
+    }
+
     @Test("discardSurfacesNotIn preserves retained cached surfaces")
     func discardSurfacesNotInPreservesRetainedCachedSurfaces() {
         let fixture = makeFixture()

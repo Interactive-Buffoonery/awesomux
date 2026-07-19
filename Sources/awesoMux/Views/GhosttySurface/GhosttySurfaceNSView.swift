@@ -7,9 +7,10 @@ import os
 /// AppKit bridge for one libghostty surface.
 ///
 /// Keep this as one bridge type with focused extensions for surface lifecycle,
-/// input, terminal events, process-exit handling, and text input. Introduce a
-/// coordinator only if bridge ownership grows beyond those responsibilities or
-/// unsafe native storage starts spreading beyond the single private field below.
+/// input, terminal events, process-exit handling, and text input. Three focused
+/// state holders store lifecycle, terminal-event, and input state while unsafe
+/// native storage remains exclusively on this view. Introduce a coordinator only
+/// if bridge ownership grows beyond those responsibilities.
 final class GhosttySurfaceNSView: NSView {
     static let terminalDiagnosticsLogger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -29,6 +30,9 @@ final class GhosttySurfaceNSView: NSView {
     static let coldStartCreationPollInterval: TimeInterval = 0.05
 
     let runtime: GhosttyRuntime
+    let lifecycleState = GhosttySurfaceLifecycleState()
+    let terminalEventState = GhosttySurfaceTerminalEventState()
+    let inputState = GhosttySurfaceInputState()
     weak var scrollContainer: GhosttySurfaceContainerView?
     var sessionStore: SessionStore
     var session: TerminalSession
@@ -43,93 +47,16 @@ final class GhosttySurfaceNSView: NSView {
     /// thus its sidebar icon). The same setting gates Grok runtime events.
     /// Refreshed from settings on every `update(…)`, like the sources set above.
     var grokIconEnabled: Bool
-    var mouseOverLink: String?
-    /// OSC 8 hyperlink peek-preview state (INT-453). See `GhosttySurfaceLinkPeek`.
-    /// `peekedLink` is the link the popover is currently presenting (distinct from
-    /// `mouseOverLink`, which is only the hovered link — they differ during the
-    /// dwell window before a preview appears).
-    var linkPeekPopover: NSPopover?
-    var linkPeekShowWorkItem: DispatchWorkItem?
-    var linkPeekDismissWorkItem: DispatchWorkItem?
-    var peekedLink: String?
-    /// INT-453: link armed by a PLAIN left press while hovered, opened app-side
-    /// on the matching non-dragged release (libghostty's own release-time
-    /// activation requires exactly ⌘, so plain clicks must be app-driven).
-    /// Snapshotted at press because libghostty can clear `over_link` — and thus
-    /// `mouseOverLink` — asynchronously between press and release. ⌘-clicks are
-    /// never armed; libghostty handles those, so each click has exactly one
-    /// opener.
-    ///
-    /// ponytail: the snapshot can go stale if terminal output rewrites the cell
-    /// under a stationary pointer between hover and click — libghostty re-derives
-    /// at release for ⌘-clicks, but exposes no link-at-position query API for the
-    /// app to do the same. Every open still routes through the resolve/classify
-    /// gates (blocked classes always confirm). Upgrade path: a narrow query API
-    /// in the ghostty fork, then re-derive here instead of snapshotting.
-    var armedLinkClickValue: String?
-    /// Plain-click opens are deferred by `NSEvent.doubleClickInterval` so the
-    /// second press of a double-click (word-select inside a hyperlink) cancels
-    /// the open instead of racing it — the first press of the pair still has
-    /// `clickCount == 1`, so a press-time gate alone can't tell them apart.
-    var pendingLinkOpenWorkItem: DispatchWorkItem?
-    /// INT-632: computed once at left mouseDown, reused unchanged for the
-    /// paired mouseUp. Never recompute at release time — ⌘ can be released
-    /// mid-gesture, and a press/release pair that disagreed on the injected
-    /// Shift bit would desync libghostty's mouse-report suppression the same
-    /// way INT-607 desynced press/release pairing before.
-    var leftClickLinkBypassActive = false
-    /// The cursor libghostty last requested via `GHOSTTY_ACTION_MOUSE_SHAPE`.
-    /// `nil` until the first request arrives, matching Ghostty's own
-    /// "ignore unknown shapes" default (see `GhosttyCursorMapper`).
-    var terminalCursorShape: NSCursor?
-    /// Mirrors Ghostty's `cursorVisible` (`SurfaceView_AppKit.swift:93`). Plain
-    /// stored var, not `@Published` — nothing in awesoMux reads this reactively
-    /// today; it only feeds `NSCursor.setHiddenUntilMouseMoves`.
-    var terminalCursorVisible = true
     let searchState = SurfaceSearchState()
     var searchNeedleWorkItem: DispatchWorkItem?
     /// Dedupes `performSearchBinding` so a needle set programmatically
     /// (e.g. `search_selection`) and then echoed by the field's own
     /// `onChange` doesn't issue the same `search:<needle>` binding twice.
     var lastSearchedNeedle: String?
-    var markedText = NSMutableAttributedString()
-    var keyTextAccumulator: [String]?
-    var submittedSSHCommandBuffer = ""
-    var submittedSSHCommandCaptureDisabled = false
-    /// Timestamp of a command/control-modified key deferred by
-    /// `performKeyEquivalent` to let AppKit's own responder chain try first.
-    /// `doCommand` reads this to know whether to redispatch the event back
-    /// through `performKeyEquivalent` instead of silently dropping it — see
-    /// `GhosttySurfaceKeyEquivalentPolicy` for the full state machine and
-    /// Ghostty's `SurfaceView_AppKit.swift:1246-1276` for why identity has to
-    /// be tracked by timestamp rather than by holding the `NSEvent` itself.
-    var lastPerformKeyEvent: TimeInterval?
-    let agentOutputDetector = AgentOutputDetector()
-    let handleCommandFinishedReducer = HandleCommandFinishedReducer()
-    let visibleTextAgentStateReducer = VisibleTextAgentStateReducer()
     var commandExitCache = CommandExitCache()
     var shellCommandFinishedIdleLatched = false
     var terminalPromptObserved = false
-    var lastAgentDetectionSample: TimeInterval = 0
-    var lastDetectedVisibleText = ""
-    /// Visible text as of the last `.valueChanged` accessibility post, so the
-    /// sampler only announces once per distinct change instead of once per
-    /// sample tick. See `scheduleAccessibilityValueChangeAnnouncement()`.
-    var lastAccessibilityReportedVisibleText: String?
     private var accessibilityFocusRequested = false
-    var hasObservedAgentActivity = false
-    var lastRuntimeEventAppliedAt: TimeInterval?
-    var lastRuntimeAttentionEventAppliedAt: TimeInterval?
-    /// The foreground-process incarnation (pid + start time) observed at the
-    /// moment a genuine provider hook last confirmed `.waiting` — stamped only
-    /// by `applyAgentRuntimeEvent`'s trusted hook path, never by the
-    /// process-recognition (`detectAgentExitedToShell`) or visible-text
-    /// detector paths that also write `.waiting`. `AgentPromptGate.verdict`
-    /// requires this to match the CURRENTLY observed foreground incarnation
-    /// before trusting a nudge target — closes the same-provider-relaunch
-    /// window where a fresh process gets recognized/scraped into `.waiting`
-    /// before its own first real hook ever fires (INT-569 follow-up).
-    var verifiedWaitingForegroundIncarnation: AgentForegroundIncarnation?
     /// Owns command-bridge lifecycle state + sequencing; this view is the thin
     /// AppKit/libghostty adapter it enacts against (see ``CommandBridgeEnactor``).
     /// Lazy so `self` is fully initialized before the enactor captures it.
@@ -169,15 +96,6 @@ final class GhosttySurfaceNSView: NSView {
     /// queue" need without adding it.
     var accessibilitySelectionChangeWorkItem: DispatchWorkItem?
 
-    /// Debounces the `.valueChanged` VoiceOver notification posted when the
-    /// passive visible-state sampler detects new terminal output. Same
-    /// cancel-then-reschedule `DispatchWorkItem` pattern as
-    /// `accessibilitySelectionChangeWorkItem` above, for the same reason: a
-    /// burst of PTY output (a command's stdout, an agent streaming a
-    /// response) should collapse to one announcement once it settles, not
-    /// one per sample tick.
-    var accessibilityValueChangeWorkItem: DispatchWorkItem?
-
     /// How long `scheduleAccessibilityValueChangeAnnouncement()` waits
     /// before actually posting, once scheduled. MUST stay longer than the
     /// worst-case gap between two successive "content changed" detections
@@ -185,7 +103,7 @@ final class GhosttySurfaceNSView: NSView {
     /// debounce: each sampler tick fires its own notification instead of
     /// the burst collapsing into one. That worst-case gap is
     /// `GhosttySurfaceTerminalEvents.visibleTextChangeThrottle` (0.5s) plus
-    /// up to one more `visibleStateSampleInterval` (250ms) of poll jitter
+    /// up to one more runtime sampler interval (250ms) of poll jitter
     /// before the throttle window closes — ~750ms. 900ms clears that with
     /// margin. (Found in review: the original 100ms — copied from the
     /// user-driven `.selectedTextChanged` debounce, where it's correct
@@ -193,21 +111,9 @@ final class GhosttySurfaceNSView: NSView {
     /// that gap, so it never actually debounced sustained PTY output.)
     static let accessibilityValueChangeDebounceWindow: DispatchTimeInterval = .milliseconds(900)
 
-    /// Auto-clears a `progressReport` that never receives its OSC 9;4
-    /// `remove` state — e.g. the emitting process is killed or crashes
-    /// mid-report. Re-armed on every visible progress write, invalidated on
-    /// `.remove` or teardown. Mirrors Ghostty's `progressReport` `didSet`
-    /// timer (`SurfaceView_AppKit.swift:23-33`), which this port didn't
-    /// originally carry over. See `updateProgressReport`.
-    var progressReportExpiryWorkItem: DispatchWorkItem?
     static let progressReportExpiryInterval: DispatchTimeInterval = .seconds(15)
     static let searchNeedleDebounceInterval: DispatchTimeInterval = .milliseconds(300)
 
-    /// Backs the trailing-edge write throttle in `updateProgressReport` —
-    /// see `ProgressReportWriteThrottle` for the decision logic and
-    /// `progressReportStoreWriteMinInterval` for the window.
-    var progressReportThrottleWorkItem: DispatchWorkItem?
-    var lastProgressReportStoreWriteAt: TimeInterval?
     /// ~10 writes/sec ceiling for progress-report store writes. See
     /// `ProgressReportWriteThrottle`'s doc comment for why the reducer's
     /// existing no-op guard doesn't already cover this.
@@ -218,40 +124,9 @@ final class GhosttySurfaceNSView: NSView {
     /// and its invalidation triggers.
     var terminalAccessibilityScreenContentsCache = GhosttySurfaceAccessibilityScreenContentsCache()
 
-    /// Owns focus-only left-click suppression plus press/release pairing for
-    /// all mouse buttons. The AppKit bridge passes a per-surface-incarnation
-    /// identity into it so a command-bridge respawn between press and release
-    /// cannot send the release to the new surface.
-    var mouseButtonPolicy = GhosttySurfaceMouseButtonPolicy<UInt64>()
-    var nextMouseSurfaceIncarnationID: UInt64 = 0
-    var mouseSurfaceIncarnationID: UInt64?
     var currentMouseSurfaceIdentity: UInt64? {
-        surface == nil ? nil : mouseSurfaceIncarnationID
+        surface == nil ? nil : lifecycleState.mouseSurfaceIncarnationID
     }
-    /// True after the previous left-button press was intentionally suppressed
-    /// because it only transferred pane focus. The next left `mouseDown` consumes
-    /// this to decide whether AppKit's `clickCount` proves the physical gesture
-    /// is a double-click that needs a synthetic catch-up click for libghostty.
-    var hasPendingFocusTransferClick = false
-
-    /// Drives the passive shell-activity + agent-state-from-visible-text
-    /// samplers, which also double as the trigger for the `.valueChanged`
-    /// VoiceOver notification (see `sampleAgentStateFromVisibleText()`'s
-    /// `lastAccessibilityReportedVisibleText` comparison) — new PTY output
-    /// has no other push signal, so it rides the same visible-text diff
-    /// rather than adding a second poll loop.
-    /// These used to piggyback on the `draw(_:)` override; libghostty now owns
-    /// presentation on its own renderer thread (see `GhosttySurfaceTerminalEvents`),
-    /// so the samplers lost their per-frame trigger and run on this independent
-    /// poll instead. The event-driven command submit/finish ladders still own
-    /// precise transition timing — this is only the passive fallback.
-    ///
-    /// Ceiling: a fixed ~250ms poll re-reads each *visible* pane's viewport. If
-    /// that ever shows on a profile, gate it on a libghostty content-change signal
-    /// once one is exposed to the embedder.
-    var visibleStateSamplingTask: Task<Void, Never>?
-    var remoteHandoffTask: Task<Void, Never>?
-    static let visibleStateSampleInterval: Duration = .milliseconds(250)
 
     /// Single unsafe storage slot for the libghostty surface handle.
     ///
@@ -274,17 +149,9 @@ final class GhosttySurfaceNSView: NSView {
         get { unsafeSurface }
         set { unsafeSurface = newValue }
     }
-    weak var observedWindow: NSWindow?
-    var lastKnownOcclusionVisible: Bool = false
-    var lastAppliedSurfaceBackingState: SurfaceBackingState?
-    var pendingSurfaceCreationWorkItem: DispatchWorkItem?
-    var coldStartCreationState = ColdStartSurfaceCreationState()
-    var windowFrameSettleState = WindowFrameSettleState()
-    var nativeSurfaceWasDisposed = false
-    var contentSizeBacking: NSSize?
     var contentSize: NSSize {
-        get { contentSizeBacking ?? frame.size }
-        set { contentSizeBacking = newValue }
+        get { lifecycleState.contentSizeBacking ?? frame.size }
+        set { lifecycleState.contentSizeBacking = newValue }
     }
     var hasNativeSurface: Bool {
         surface != nil
@@ -352,59 +219,14 @@ final class GhosttySurfaceNSView: NSView {
 
     deinit {
         MainActor.assumeIsolated {
-            pendingSurfaceCreationWorkItem?.cancel()
-            pendingSurfaceCreationWorkItem = nil
-            visibleStateSamplingTask?.cancel()
-            visibleStateSamplingTask = nil
-            remoteHandoffTask?.cancel()
-            remoteHandoffTask = nil
-            accessibilitySelectionChangeWorkItem?.cancel()
-            accessibilitySelectionChangeWorkItem = nil
-            accessibilityValueChangeWorkItem?.cancel()
-            accessibilityValueChangeWorkItem = nil
-            progressReportExpiryWorkItem?.cancel()
-            progressReportExpiryWorkItem = nil
-            progressReportThrottleWorkItem?.cancel()
-            progressReportThrottleWorkItem = nil
-            resetSearchStateForSurfaceTeardown()
+            lifecycleState.pendingSurfaceCreationWorkItem?.cancel()
+            lifecycleState.pendingSurfaceCreationWorkItem = nil
+            lifecycleState.remoteHandoffTask?.cancel()
+            lifecycleState.remoteHandoffTask = nil
             NotificationCenter.default.removeObserver(self)
             NSWorkspace.shared.notificationCenter.removeObserver(self)
             disposeNativeSurface(resetHostedLayer: false)
         }
-    }
-
-    // MARK: - Visible-state sampling
-
-    /// Start (or restart) the passive sampler poll. Idempotent — cancels any
-    /// prior task first. The occlusion handlers stop this while the window is
-    /// hidden and restart it on return, so it isn't waking to no-op in the
-    /// background; the in-loop `windowIsVisible` guard is a race-window backstop
-    /// for the gap between an occlusion notification and the stop landing.
-    ///
-    /// NOTE: occlusion pauses libghostty's *renderer*, NOT its IO — the screen
-    /// buffer keeps changing from PTY output while hidden (`Surface.zig`'s
-    /// `occlusionCallback` only messages the renderer thread). We defer sampling
-    /// anyway (matching the old draw-driven path, which also didn't fire while
-    /// occluded); a transition that lands while hidden is caught on the first
-    /// post-return tick via the `lastDetectedVisibleText` dedupe.
-    func startVisibleStateSampling() {
-        visibleStateSamplingTask?.cancel()
-        visibleStateSamplingTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: Self.visibleStateSampleInterval)
-                guard let self, !Task.isCancelled else { return }
-                guard self.surface != nil, self.windowIsVisible else { continue }
-                // Global refresh self-throttles (100ms floor), so N panes each
-                // calling it on their own poll collapse to one sampling cadence.
-                self.runtime.sampleShellActivity(in: self.sessionStore)
-                self.sampleAgentStateFromVisibleText()
-            }
-        }
-    }
-
-    func stopVisibleStateSampling() {
-        visibleStateSamplingTask?.cancel()
-        visibleStateSamplingTask = nil
     }
 
     /// Tell libghostty which display this surface is on so its internal
@@ -426,7 +248,7 @@ final class GhosttySurfaceNSView: NSView {
     func disposeNativeSurface(resetHostedLayer: Bool = false) {
         // Mounted exit-supervision/heal paths opt in so they don't show the
         // previous renderer contents while deciding whether to respawn.
-        if resetHostedLayer, surface != nil, !nativeSurfaceWasDisposed {
+        if resetHostedLayer, surface != nil, !lifecycleState.nativeSurfaceWasDisposed {
             resetLayerAfterNativeSurfaceTeardown()
         }
 
@@ -442,48 +264,48 @@ final class GhosttySurfaceNSView: NSView {
         // synthetic Shift onto a release the new surface never saw a press
         // for. Not reset in update(session:pane:...): that runs on every
         // SwiftUI pass, including mid-drag, and would defeat the latch.
-        leftClickLinkBypassActive = false
+        inputState.leftClickLinkBypassActive = false
         accessibilitySelectionChangeWorkItem?.cancel()
         accessibilitySelectionChangeWorkItem = nil
-        accessibilityValueChangeWorkItem?.cancel()
-        accessibilityValueChangeWorkItem = nil
-        progressReportExpiryWorkItem?.cancel()
-        progressReportExpiryWorkItem = nil
-        progressReportThrottleWorkItem?.cancel()
-        progressReportThrottleWorkItem = nil
-        lastProgressReportStoreWriteAt = nil
+        terminalEventState.accessibilityValueChangeWorkItem?.cancel()
+        terminalEventState.accessibilityValueChangeWorkItem = nil
+        terminalEventState.progressReportExpiryWorkItem?.cancel()
+        terminalEventState.progressReportExpiryWorkItem = nil
+        terminalEventState.progressReportThrottleWorkItem?.cancel()
+        terminalEventState.progressReportThrottleWorkItem = nil
+        terminalEventState.lastProgressReportStoreWriteAt = nil
         resetSearchStateForSurfaceTeardown()
-        stopVisibleStateSampling()
+        runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
         // A VoiceOver accessor firing mid-heal (surface == nil) would
         // otherwise cache an empty read that outlives the surface it was
         // taken from, into the next surface's life.
         terminalAccessibilityScreenContentsCache.invalidate()
         // Both of sampleAgentStateFromVisibleText()'s dedupe gates must
-        // reset together: `lastDetectedVisibleText` is checked FIRST and
+        // reset together: `terminalEventState.lastDetectedVisibleText` is checked FIRST and
         // returns early on a match, so resetting only
-        // `lastAccessibilityReportedVisibleText` leaves that outer gate
+        // `terminalEventState.lastAccessibilityReportedVisibleText` leaves that outer gate
         // stale — a respawned surface whose first sample happens to match
         // the old surface's last text (e.g. both idle at an empty prompt)
         // would return before the accessibility comparison is ever reached,
         // silently suppressing both the `.valueChanged` post and agent-state
         // re-detection for that first post-respawn tick.
-        lastDetectedVisibleText = ""
-        lastAccessibilityReportedVisibleText = nil
+        terminalEventState.lastDetectedVisibleText = ""
+        terminalEventState.lastAccessibilityReportedVisibleText = nil
 
         guard let surface else {
-            mouseSurfaceIncarnationID = nil
+            lifecycleState.mouseSurfaceIncarnationID = nil
             return
         }
 
-        guard !nativeSurfaceWasDisposed else {
+        guard !lifecycleState.nativeSurfaceWasDisposed else {
             assertionFailure("native Ghostty surface disposed more than once")
             return
         }
 
-        nativeSurfaceWasDisposed = true
+        lifecycleState.nativeSurfaceWasDisposed = true
         self.surface = nil
-        mouseSurfaceIncarnationID = nil
-        lastAppliedSurfaceBackingState = nil
+        lifecycleState.mouseSurfaceIncarnationID = nil
+        lifecycleState.lastAppliedSurfaceBackingState = nil
         runtime.freeSurface(surface)
     }
 
@@ -509,7 +331,7 @@ final class GhosttySurfaceNSView: NSView {
             // (verdict already requires an exact pid/start-time match against
             // the freshly observed foreground process), but keeps the ivar
             // from ever holding another pane's identity.
-            verifiedWaitingForegroundIncarnation = nil
+            terminalEventState.verifiedWaitingForegroundIncarnation = nil
         }
         self.pane = pane
         self.paneID = pane.id
@@ -549,9 +371,9 @@ final class GhosttySurfaceNSView: NSView {
             // popover orphaned against a windowless view, nor let a deferred
             // click-open fire against a detached pane.
             dismissLinkPeek()
-            armedLinkClickValue = nil
-            pendingLinkOpenWorkItem?.cancel()
-            pendingLinkOpenWorkItem = nil
+            inputState.armedLinkClickValue = nil
+            inputState.pendingLinkOpenWorkItem?.cancel()
+            inputState.pendingLinkOpenWorkItem = nil
         }
 
         // Fires on both attach (window != nil) and detach (window == nil).
@@ -580,20 +402,14 @@ final class GhosttySurfaceNSView: NSView {
             refreshSurfaceDisplay()
         }
 
-        // Track the sampler across window attach/detach. Detaching (window ==
-        // nil, e.g. a workspace switch that unmounts this pane's view but keeps
-        // the surface cached) must STOP the poll — otherwise it spins at 4Hz
-        // bailing on the `windowIsVisible` guard forever. Re-attaching to a
-        // visible window must RESTART it: occlusion notifications don't fire when
-        // the destination window is already visible (the INT-196 return path), so
-        // without this the passive sampler could stay dead until the next
-        // didBecomeKey. `startVisibleStateSampling` cancels-then-recreates, so
-        // this is safe alongside the occlusion/key/space start paths.
+        // Keep the runtime's centralized sampler registry aligned with window
+        // attachment. A destination window can already be visible, so attach must
+        // register directly instead of waiting for an occlusion edge.
         if window == nil {
-            stopVisibleStateSampling()
+            runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
             scheduleOrphanRescueCheckAfterDetach()
         } else if surface != nil, windowIsVisible {
-            startVisibleStateSampling()
+            runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
         }
     }
 

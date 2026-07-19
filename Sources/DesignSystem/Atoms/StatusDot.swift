@@ -6,7 +6,6 @@ public struct StatusDot: View {
     private let foregroundOverride: Color?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
-    @State private var isSpinning = false
 
     public init(_ state: AwState) {
         self.state = state
@@ -21,18 +20,11 @@ public struct StatusDot: View {
     public var body: some View {
         switch state {
         case .thinking:
-            Circle()
-                .trim(from: 0.2, to: 1)
-                .stroke(foregroundColor, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-                .frame(width: 10, height: 10)
-                .rotationEffect(.degrees(isSpinning ? 360 : 0))
-                .onAppear {
-                    guard !reduceMotion else { return }
-                    withAnimation(AwAnimation.spinThinking) { isSpinning = true }
-                }
-                .onDisappear {
-                    withAnimation(.linear(duration: 0)) { isSpinning = false }
-                }
+            ThinkingSpinner(color: foregroundColor)
+                // Decorative, mirroring `.waiting`: state comes from the
+                // labeled container, and the bridged NSView must not surface
+                // its own unlabeled VoiceOver stop.
+                .accessibilityHidden(true)
 
         case .error:
             Image(systemName: "xmark")

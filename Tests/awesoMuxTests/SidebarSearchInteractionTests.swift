@@ -8,6 +8,85 @@ import Testing
 @Suite("Sidebar search interaction", .serialized)
 @MainActor
 struct SidebarSearchInteractionTests {
+    @Test("activity invalidation excludes query changes but tracks store inputs")
+    func activityInvalidationKeyTracksRosterInputs() {
+        let session = TerminalSession(title: "Agent", workingDirectory: "/tmp/agent")
+        let groups = [SessionGroup(name: "Project", sessions: [session])]
+        let baseline = SidebarActivityInvalidationKey(
+            groups: groups,
+            pinnedSessionIDs: [],
+            selectedSessionID: session.id,
+            displayMode: .expanded,
+            reduceMotion: false
+        )
+
+        #expect(
+            baseline
+                == SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded,
+                    reduceMotion: false
+                )
+        )
+
+        var renamedGroups = groups
+        renamedGroups[0].sessions[0].title = "Renamed agent"
+        #expect(
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: renamedGroups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded,
+                    reduceMotion: false
+                )
+        )
+        #expect(
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: nil,
+                    displayMode: .expanded,
+                    reduceMotion: false
+                )
+        )
+        #expect(
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .collapsed,
+                    reduceMotion: false
+                )
+        )
+        #expect(
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [session.id],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded,
+                    reduceMotion: false
+                )
+        )
+        // Reduce Motion reaches the footer spinners only through updateNSView,
+        // which the equatable gate suppresses unless the key changes.
+        #expect(
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded,
+                    reduceMotion: true
+                )
+        )
+    }
+
     @Test("hosted field intercepts arrows and wraps across pinned and grouped results")
     func hostedFieldInterceptsAndWraps() async throws {
         let transition = try SidebarSearchHostedFixture()
@@ -104,6 +183,16 @@ struct SidebarSearchInteractionTests {
         #expect(fixture.store.selectedSessionID == fixture.sessions[15].id)
     }
 
+    @Test("hosted field exposes canonical state-token help")
+    func hostedFieldExposesCanonicalStateTokenHelp() throws {
+        let fixture = try SidebarSearchHostedFixture()
+        defer { fixture.close() }
+
+        let searchHelp = SidebarAgentStateSearchToken.localizedSearchHelp()
+        #expect(fixture.searchField.accessibilityHelp() == searchHelp)
+        #expect(fixture.searchField.toolTip == searchHelp)
+    }
+
 }
 
 @MainActor
@@ -132,6 +221,7 @@ private final class SidebarSearchHostedFixture {
     let runtime: GhosttyRuntime
     let window: SidebarHostedTestWindow
     let surfaces: [TerminalSession.ID: GhosttySurfaceNSView]
+    let searchField: NSTextField
     let scrollView: NSScrollView
 
     init(
@@ -212,13 +302,14 @@ private final class SidebarSearchHostedFixture {
         surfaces = createdSurfaces
         detail.view.layoutSubtreeIfNeeded()
 
-        let searchField = try #require(
+        let resolvedSearchField = try #require(
             SidebarHostedTestHarness.firstDescendant(
                 of: NSTextField.self,
                 in: sidebar.view,
                 where: { $0.placeholderString == "Search sessions" }
             )
         )
+        searchField = resolvedSearchField
         if focusSearchThroughAppKit {
             if let surface = createdSurfaces.values.first {
                 _ = window.makeFirstResponder(surface)
@@ -239,7 +330,7 @@ private final class SidebarSearchHostedFixture {
         }
         #expect(
             SidebarHostedTestHarness.pumpMainRunLoop(
-                until: { searchField.stringValue == "Result" }
+                until: { resolvedSearchField.stringValue == "Result" }
             )
         )
         scrollView = try #require(
