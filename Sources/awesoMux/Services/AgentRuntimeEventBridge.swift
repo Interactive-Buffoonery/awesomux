@@ -15,6 +15,12 @@ final class AgentRuntimeEventBridge {
     private let initialSnapshotInterposer: ((URL) -> Void)?
 
     private final class Watch {
+        enum InitialSnapshotState {
+            case pending
+            case captured(AgentRuntimeEventFile.Generation, AgentRuntimeEvent?)
+            case complete
+        }
+
         let fileURL: URL
         let applyEvent: (AgentRuntimeEvent) -> Void
         var offset: UInt64
@@ -23,22 +29,18 @@ final class AgentRuntimeEventBridge {
         var hasLoggedSourceFailure: Bool
         var needsDrainRetry: Bool
         var inode: ino_t
-        var needsInitialSnapshot: Bool
-        var initialGeneration: AgentRuntimeEventFile.Generation?
-        var bufferedEvent: AgentRuntimeEvent?
+        var initialSnapshotState: InitialSnapshotState
 
-        init(fileURL: URL, applyEvent: @escaping (AgentRuntimeEvent) -> Void, offset: UInt64) {
+        init(fileURL: URL, applyEvent: @escaping (AgentRuntimeEvent) -> Void) {
             self.fileURL = fileURL
             self.applyEvent = applyEvent
-            self.offset = offset
+            self.offset = 0
             self.trailingFragment = Data()
             self.source = nil
             self.hasLoggedSourceFailure = false
             self.needsDrainRetry = false
             self.inode = 0
-            self.needsInitialSnapshot = true
-            self.initialGeneration = nil
-            self.bufferedEvent = nil
+            self.initialSnapshotState = .pending
         }
     }
 
@@ -100,8 +102,7 @@ final class AgentRuntimeEventBridge {
 
         let watch = Watch(
             fileURL: fileURL,
-            applyEvent: applyEvent,
-            offset: 0
+            applyEvent: applyEvent
         )
         watches[paneID] = watch
         // If startSource fails the watch stays in `watches` with `source ==
@@ -178,6 +179,7 @@ final class AgentRuntimeEventBridge {
                     "failed to open event file for watching: \(watch.fileURL.path, privacy: .public) errno=\(errno, privacy: .public)"
                 )
             }
+            finishInitialSnapshotAfterSourceFailure(for: watch)
             scheduleSourceRetry(for: paneID)
             return false
         }
@@ -196,18 +198,13 @@ final class AgentRuntimeEventBridge {
                 )
             }
             close(fd)
+            finishInitialSnapshotAfterSourceFailure(for: watch)
             scheduleSourceRetry(for: paneID)
             return false
         }
         watch.inode = generation.inode
 
-        // Accepted ceiling: if the first open failed and the helper appended
-        // events before a retry succeeds, this snapshot still reduces the file
-        // to at most a final sessionEnd and skips ahead of the rest. Records
-        // written inside that retry window (bounded by the retry backoff) are
-        // not replayed; the next live event re-establishes state. Replaying
-        // them would need arm-time size tracking the failed open cannot provide.
-        if watch.needsInitialSnapshot {
+        if case .pending = watch.initialSnapshotState {
             let bufferedEvent: AgentRuntimeEvent?
             if generation.size <= Self.maximumEventFileByteCount,
                 let line = AgentRuntimeEventFile.readFinalCompleteNonemptyLine(
@@ -233,8 +230,7 @@ final class AgentRuntimeEventBridge {
                 return false
             }
             watch.offset = generation.size
-            watch.initialGeneration = generation
-            watch.bufferedEvent = bufferedEvent
+            watch.initialSnapshotState = .captured(generation, bufferedEvent)
         }
 
         let source = DispatchSource.makeFileSystemObjectSource(
@@ -374,6 +370,14 @@ final class AgentRuntimeEventBridge {
         return true
     }
 
+    private func finishInitialSnapshotAfterSourceFailure(for watch: Watch) {
+        guard case .pending = watch.initialSnapshotState else { return }
+        // No source descriptor means there is no trustworthy pre-watch byte
+        // boundary. Drain from zero on recovery so events written after watch
+        // creation cannot disappear into a later "initial" snapshot.
+        watch.initialSnapshotState = .complete
+    }
+
     // MARK: - App activation
 
     private func observeActivationState(initialIsAppActive: Bool?) {
@@ -464,20 +468,16 @@ final class AgentRuntimeEventBridge {
             return
         }
 
-        if let initialGeneration = watch.initialGeneration {
+        if case let .captured(initialGeneration, bufferedEvent) = watch.initialSnapshotState {
             guard readHandle.generation == initialGeneration else {
-                watch.needsInitialSnapshot = true
-                watch.initialGeneration = nil
-                watch.bufferedEvent = nil
+                watch.initialSnapshotState = .pending
                 rebuildSource(for: paneID, resetOffset: true)
                 return
             }
-            watch.initialGeneration = nil
-            watch.needsInitialSnapshot = false
-            if let bufferedEvent = watch.bufferedEvent {
+            watch.initialSnapshotState = .complete
+            if let bufferedEvent {
                 watch.applyEvent(bufferedEvent)
             }
-            watch.bufferedEvent = nil
         }
 
         let currentSize = readHandle.size

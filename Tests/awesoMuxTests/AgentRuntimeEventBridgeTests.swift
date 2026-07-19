@@ -312,6 +312,46 @@ struct AgentRuntimeEventBridgeTests {
     }
 
     @MainActor
+    @Test("an initial source-open failure drains events written before retry")
+    func initialSourceOpenFailureDrainsRetryWindowEvents() throws {
+        try Self.withTemporaryDirectory { directory in
+            let runtimeEventsDirectory = directory.appending(path: "runtime-events")
+            try Data("block directory creation".utf8).write(to: runtimeEventsDirectory)
+
+            let paneID = TerminalPane.ID()
+            var phases: [AgentRuntimePhase] = []
+            let bridge = AgentRuntimeEventBridge(
+                runtimeEventsDirectoryURL: runtimeEventsDirectory
+            )
+            let environment = bridge.environment(
+                sessionID: TerminalSession.ID(),
+                paneID: paneID,
+                enabledFileDropSources: []
+            ) { event in
+                if let phase = event.phase {
+                    phases.append(phase)
+                }
+            }
+
+            try FileManager.default.removeItem(at: runtimeEventsDirectory)
+            try FileManager.default.createDirectory(
+                at: runtimeEventsDirectory,
+                withIntermediateDirectories: true
+            )
+            let retryWindowEvents = """
+                {"v":1,"source":"codex","execution":"thinking","phase":"toolStart"}
+                {"v":1,"source":"codex","execution":"waiting","phase":"stop"}
+                """
+            try Data((retryWindowEvents + "\n").utf8).write(to: environment.eventFileURL)
+
+            bridge.retrySourceForTesting(paneID: paneID)
+
+            #expect(phases == [.toolStart, .stop])
+            bridge.stopWatchingAll()
+        }
+    }
+
+    @MainActor
     @Test("source-open failure retries and delivers in background before reactivation")
     func backgroundSourceOpenFailureRecoversBeforeReactivation() async throws {
         let directory = FileManager.default.temporaryDirectory
