@@ -5,8 +5,8 @@
 present on every build.
 
 The files below are canonical copies from the pinned source revisions recorded
-in `.gitmodules` and `Package.resolved`, or from the versioned upstream font
-release named in the table:
+in `.gitmodules` and `Package.resolved`, or from the versioned upstream release
+named in the table:
 
 | Component | Pinned revision | Bundled files |
 | --- | --- | --- |
@@ -14,6 +14,7 @@ release named in the table:
 | zmx / amx | `d157eba5fe73cd203ac2083dd2432d5c6bf22da9` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | bundled Ghostty font resource | `HackNerdFontMono/LICENSE.md` |
 | Geist Sans | `vercel/geist-font` 1.8.0 | `Geist/OFL.txt` |
+| Selenized | `jan-warchol/selenized` v1.0 | `Selenized/LICENSE` |
 | swift-toml | `827506c90475e82d5a7f191f950fb3025cbdc0d6` | `swift-toml/LICENSE.md` |
 | swift-markdown | `3c6f9523da3a1ec2fd829673e472d95b8097a3b8` | `swift-markdown/LICENSE.txt`, `swift-markdown/NOTICE.txt` |
 | swift-cmark | `924936d0427cb25a61169739a7660230bffa6ea6` | `swift-cmark/COPYING` |

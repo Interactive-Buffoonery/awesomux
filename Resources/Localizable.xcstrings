@@ -2689,6 +2689,9 @@
     "Select Refresh all to begin; samples continue while this pane is visible." : {
 
     },
+    "Selenized" : {
+
+    },
     "Send reply" : {
       "comment" : "Accessibility label for the annotation reply button\nHelp text for the annotation reply button"
     },
@@ -2974,6 +2977,9 @@
     "Terminal session unavailable" : {
       "comment" : "Placeholder title in the Terminal Companion when no session exists."
     },
+    "Terminal theme" : {
+
+    },
     "Terminal unavailable" : {
       "comment" : "Fallback header shown when the Terminal Companion store has no selected session."
     },
@@ -3257,7 +3263,7 @@
     "Updates open terminal panes without restarting their shell." : {
       "comment" : "Settings field hint for the terminal font size slider"
     },
-    "Use Ghostty config to keep imported/user terminal themes, or choose an awesoMux color from Catppuccin presets and adjust it if needed." : {
+    "Use Ghostty config to keep imported/user terminal themes, choose a bundled Catppuccin or Selenized theme, or choose an awesoMux color and adjust it if needed." : {
       "comment" : "Settings field hint for the terminal background source picker"
     },
     "Use awesoMux shortcuts" : {
