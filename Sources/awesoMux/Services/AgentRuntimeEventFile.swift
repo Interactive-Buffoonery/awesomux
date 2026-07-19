@@ -41,13 +41,15 @@ enum AgentRuntimeEventFile {
                 let chunkSize = Int(min(remaining, UInt64(64 * 1024)))
                 var buffer = [UInt8](repeating: 0, count: chunkSize)
                 let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
-                    pread(fileDescriptor, rawBuffer.baseAddress, chunkSize, off_t(readOffset))
+                    AgentRuntimeEventFile.preadRetryingInterrupts(
+                        fileDescriptor: fileDescriptor,
+                        buffer: rawBuffer.baseAddress,
+                        byteCount: chunkSize,
+                        offset: readOffset
+                    )
                 }
 
                 if bytesRead < 0 {
-                    if errno == EINTR {
-                        continue
-                    }
                     return nil
                 }
 
@@ -103,7 +105,12 @@ enum AgentRuntimeEventFile {
             let chunkOffset = cursor - UInt64(chunkSize)
             var chunk = [UInt8](repeating: 0, count: chunkSize)
             let bytesRead = chunk.withUnsafeMutableBytes { buffer in
-                pread(fileDescriptor, buffer.baseAddress, chunkSize, off_t(chunkOffset))
+                preadRetryingInterrupts(
+                    fileDescriptor: fileDescriptor,
+                    buffer: buffer.baseAddress,
+                    byteCount: chunkSize,
+                    offset: chunkOffset
+                )
             }
             guard bytesRead == chunkSize else { return nil }
 
@@ -128,6 +135,21 @@ enum AgentRuntimeEventFile {
 
         guard !reversedLine.isEmpty, reversedLine != [0x0D] else { return nil }
         return normalizedLine(from: reversedLine)
+    }
+
+    private static func preadRetryingInterrupts(
+        fileDescriptor: Int32,
+        buffer: UnsafeMutableRawPointer?,
+        byteCount: Int,
+        offset: UInt64
+    ) -> Int {
+        while true {
+            let bytesRead = pread(fileDescriptor, buffer, byteCount, off_t(offset))
+            if bytesRead < 0, errno == EINTR {
+                continue
+            }
+            return bytesRead
+        }
     }
 
     private static func normalizedLine(from reversedLine: [UInt8]) -> Data? {

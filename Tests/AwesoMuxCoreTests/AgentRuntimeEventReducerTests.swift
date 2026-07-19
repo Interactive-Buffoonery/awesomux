@@ -166,6 +166,88 @@ struct AgentRuntimeEventReducerTests {
         #expect(reducer.suppressesHeuristicState(for: paneID))
     }
 
+    @Test("a late session end cannot terminate a restarted ended lifecycle")
+    func lateSessionEndCannotTerminateRestartedEndedLifecycle() throws {
+        let session = TerminalSession(title: "claude", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        var reducer = AgentRuntimeEventReducer()
+
+        let initialEnd = AgentRuntimeEvent(
+            source: .claudeCode,
+            executionState: .idle,
+            phase: .sessionEnd,
+            timestamp: Date(timeIntervalSince1970: 10)
+        )
+        let restart = AgentRuntimeEvent(
+            source: .claudeCode,
+            executionState: .idle,
+            phase: .sessionStart,
+            timestamp: Date(timeIntervalSince1970: 20)
+        )
+        let lateEnd = AgentRuntimeEvent(
+            source: .claudeCode,
+            executionState: .idle,
+            phase: .sessionEnd,
+            timestamp: Date(timeIntervalSince1970: 25)
+        )
+        let currentStop = AgentRuntimeEvent(
+            source: .claudeCode,
+            executionState: .waiting,
+            phase: .stop,
+            timestamp: Date(timeIntervalSince1970: 30)
+        )
+        let currentEnd = AgentRuntimeEvent(
+            source: .claudeCode,
+            executionState: .idle,
+            phase: .sessionEnd,
+            timestamp: Date(timeIntervalSince1970: 30)
+        )
+
+        #expect(
+            reducer.decision(
+                for: initialEnd,
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: false,
+                now: Date(timeIntervalSince1970: 10)
+            ) != nil)
+        #expect(
+            reducer.decision(
+                for: restart,
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: false,
+                now: Date(timeIntervalSince1970: 20)
+            ) != nil)
+        #expect(
+            reducer.decision(
+                for: lateEnd,
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: false,
+                now: Date(timeIntervalSince1970: 20)
+            ) == nil)
+        #expect(!reducer.suppressesHeuristicState(for: paneID))
+
+        #expect(
+            reducer.decision(
+                for: currentStop,
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: false,
+                now: Date(timeIntervalSince1970: 30)
+            ) != nil)
+        #expect(
+            reducer.decision(
+                for: currentEnd,
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: false,
+                now: Date(timeIntervalSince1970: 30)
+            ) != nil)
+        #expect(reducer.suppressesHeuristicState(for: paneID))
+    }
+
     @Test("an attention-only event preserves the pane's prior execution state")
     func attentionOnlyEventPreservesExecutionState() throws {
         var (session, paneID) = singlePaneSession()

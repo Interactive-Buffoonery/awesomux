@@ -64,6 +64,10 @@ events without stable session ids use the Stop/Start boundary. The newer
 lifecycle's own `SessionEnd` still applies after its `Stop`, including when
 timestamps are equal or absent.
 
+The same arrival-order boundary protects a `SessionStart` that revives a pane
+after a buffered `SessionEnd`: a delayed end from the prior lifecycle is ignored
+until the restarted lifecycle emits its own `Stop`.
+
 For Grok, a different-session `SessionStart` is still treated as a child and
 dropped while the parent lifecycle is active. Once the parent has emitted
 `Stop`, arrival order is authoritative: a different-session `SessionStart`

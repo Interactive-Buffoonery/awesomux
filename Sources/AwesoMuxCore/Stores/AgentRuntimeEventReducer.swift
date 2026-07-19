@@ -17,15 +17,15 @@ struct AgentRuntimeEventReducer: Sendable {
                 self == .stopped || self == .supersededStopped
             }
 
-            var hasSupersededStoppedLifecycle: Bool {
+            var hasSupersededLifecycle: Bool {
                 self == .superseded || self == .supersededStopped
             }
 
             mutating func start() {
                 switch self {
-                case .stopped, .superseded, .supersededStopped:
+                case .stopped, .superseded, .supersededStopped, .ended:
                     self = .superseded
-                case .active, .ended:
+                case .active:
                     self = .active
                 }
             }
@@ -130,7 +130,7 @@ struct AgentRuntimeEventReducer: Sendable {
         // so a later buffered Stop can't reapply waiting, re-peach it, or
         // resurrect the agent glyph.
         if event.phase == .sessionEnd {
-            if state.lifecycle.hasSupersededStoppedLifecycle,
+            if state.lifecycle.hasSupersededLifecycle,
                 !state.lifecycle.currentIsStopped,
                 (normalizedProviderSessionID(state.providerSessionID) == nil
                     || normalizedProviderSessionID(event.providerSessionID) == nil)
