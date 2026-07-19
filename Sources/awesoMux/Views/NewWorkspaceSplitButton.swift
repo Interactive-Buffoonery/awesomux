@@ -74,8 +74,17 @@ struct NewWorkspaceSplitButton: View {
         // `.background` on the Menu itself hug just the glyph instead of
         // filling the segment.
         ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius - 2)
-                .fill(isPrimaryHovering ? Color.aw.surface.hover : Color.clear)
+            // Zero radius on the trailing (divider-facing) side so the
+            // highlight sits flush against the divider instead of leaving a
+            // rounded gap there — a symmetric RoundedRectangle curved away
+            // from the divider on that inner edge.
+            UnevenRoundedRectangle(
+                topLeadingRadius: cornerRadius - 2,
+                bottomLeadingRadius: cornerRadius - 2,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 0
+            )
+            .fill(isPrimaryHovering ? Color.aw.surface.hover : Color.clear)
             Button(action: guardedNewWorkspace) {
                 Image(systemName: "plus")
                     // Matches the expanded search icon's exact size/weight
@@ -108,8 +117,15 @@ struct NewWorkspaceSplitButton: View {
 
     private var chevronButton: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius - 2)
-                .fill(isChevronHovering ? Color.aw.surface.hover : Color.clear)
+            // Zero radius on the leading (divider-facing) side — mirror of
+            // primaryButton's shape above, same reasoning.
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: cornerRadius - 2,
+                topTrailingRadius: cornerRadius - 2
+            )
+            .fill(isChevronHovering ? Color.aw.surface.hover : Color.clear)
             Menu {
                 Button("New Workspace Group…") {
                     onNewWorkspaceGroup()

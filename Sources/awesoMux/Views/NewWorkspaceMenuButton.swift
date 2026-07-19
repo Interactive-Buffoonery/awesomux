@@ -24,16 +24,19 @@ struct NewWorkspaceMenuButton: View {
     let onNewWorkspaceGroup: () -> Void
 
     var body: some View {
-        // The background/border live in a ZStack sibling pinned to an outer
-        // `.frame`, not as a `.background`/`.overlay` on the Menu itself —
-        // a Menu's own bounds don't reliably stretch to match its label's
-        // declared frame, so this box was rendering smaller than `size`
-        // while the plain-Button search button beside it rendered correctly.
+        // The background lives in a ZStack sibling pinned to an outer
+        // `.frame`, not as a `.background` on the Menu itself — a Menu's own
+        // bounds don't reliably stretch to match its label's declared frame,
+        // so this box was rendering smaller than `size` while the
+        // plain-Button search button beside it rendered correctly.
+        //
+        // No border stroke — the search button this must match
+        // (SidebarView.swift:664) has none either; adding one here would
+        // make the two rail controls diverge again after eD's explicit
+        // "match search exactly" direction.
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(restFill)
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .stroke(Color.aw.border2, lineWidth: 0.5)
             Menu {
                 Button("New Workspace") {
                     onNewWorkspace()
