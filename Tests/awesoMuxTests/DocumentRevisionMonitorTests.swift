@@ -440,6 +440,43 @@ struct DocumentRevisionMonitorTests {
         }
     }
 
+    // MARK: - Registry
+
+    @Test("registry returns one monitor per group and prune stops dead groups")
+    func registryIdentityAndPrune() async throws {
+        let directory = try TemporaryDirectory(prefix: "DocumentRevisionMonitorTests")
+        defer { withExtendedLifetime(directory) {} }
+        let url = directory.url.appendingPathComponent("a.md")
+        try Self.baseContent.write(to: url, atomically: false, encoding: .utf8)
+        let selected = DocumentPane(
+            fileURL: directory.url.appendingPathComponent("other.md"), title: "other.md")
+        try Self.baseContent.write(to: selected.fileURL, atomically: false, encoding: .utf8)
+        let tab = DocumentPane(fileURL: url, title: "a.md")
+
+        let groupID = UUID()
+        let monitor = DocumentRevisionMonitorRegistry.monitor(for: groupID)
+        // Survives an unmount: the registry hands back the same instance, so
+        // a session switch does not reset baselines or indicators.
+        #expect(DocumentRevisionMonitorRegistry.monitor(for: groupID) === monitor)
+        #expect(DocumentRevisionMonitorRegistry.monitor(for: UUID()) !== monitor)
+
+        monitor.announce = { _ in }
+        monitor.selfWriteContext = { _, _ in nil }
+        monitor.sync(
+            tabs: [selected, tab],
+            selectedTabID: selected.id,
+            cachedSource: { _ in Self.baseContent }
+        )
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        // Pruning a closed group stops its watchers: subsequent edits no
+        // longer record.
+        DocumentRevisionMonitorRegistry.prune(keeping: [])
+        try (Self.baseContent + "\nline4").write(to: url, atomically: true, encoding: .utf8)
+        try await Task.sleep(nanoseconds: 700_000_000)
+        #expect(monitor.indicator(for: tab) == nil)
+    }
+
     // MARK: - Selected-pane passthrough
 
     @Test("recordSelected records and announces")

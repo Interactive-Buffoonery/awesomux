@@ -33,8 +33,13 @@ struct DocumentGroupView: View {
     // active-view dwell. The marker keeps the counts recoverable until the
     // user dismisses it, even when edits land while another app is active.
     // The monitor owns the indicator state plus the background-tab watchers
-    // that populate it for unselected tabs (INT-782).
-    @State private var revisionMonitor = DocumentRevisionMonitor()
+    // that populate it for unselected tabs (INT-782). It lives in the
+    // group-keyed registry, not view @State, so a session switch does not
+    // stop watching: edits made while this session is unmounted still record
+    // and are revealed on return.
+    private var revisionMonitor: DocumentRevisionMonitor {
+        DocumentRevisionMonitorRegistry.monitor(for: group.id)
+    }
     @State private var revisionInteractionActive = false
     // The mounted tab's scroll-anchor capture, tagged with its tab id: on a
     // selection change the group snapshots the OUTGOING tab's position, and the
@@ -350,15 +355,21 @@ struct DocumentGroupView: View {
         // effect VoiceOver would speak for a document that no longer exists.
         .onDisappear {
             settleTask?.cancel()
-            // The group-lifetime background watchers die with the viewer;
-            // baselines and indicators are session-memory, so a remount
-            // starts fresh (same contract as tabMemory).
-            revisionMonitor.stopAll()
+            // Watchers deliberately keep running across a session switch. The
+            // sweep only releases monitors whose group left every layout —
+            // this disappearance may BE that close, and the store mutation
+            // has already landed by the time onDisappear runs.
+            DocumentRevisionMonitorRegistry.prune(keeping: liveDocumentGroupIDs)
         }
         // Initial sync must not wait for a group mutation: a restored
-        // multi-tab group needs its background watchers immediately.
+        // multi-tab group needs its background watchers immediately. The
+        // reconcile covers the selected tab, which neither pipeline watched
+        // while this session was unmounted (no pane, and the monitor skips
+        // the selected tab).
         .task {
+            DocumentRevisionMonitorRegistry.prune(keeping: liveDocumentGroupIDs)
             syncRevisionMonitor(for: group)
+            revisionMonitor.reconcileAll()
         }
         .task(id: revisionAutoCollapseTaskID) {
             guard revisionAutoCollapseTaskID.canRun,
@@ -400,6 +411,10 @@ struct DocumentGroupView: View {
             }
             revisionMonitor.collapse(for: document)
         }
+    }
+
+    private var liveDocumentGroupIDs: Set<AwesoMuxCore.DocumentGroup.ID> {
+        DocumentRevisionMonitorRegistry.liveGroupIDs(in: sessionStore)
     }
 
     private func syncRevisionMonitor(for group: AwesoMuxCore.DocumentGroup) {

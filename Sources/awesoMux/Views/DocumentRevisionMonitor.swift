@@ -2,6 +2,50 @@ import AwesoMuxCore
 import Foundation
 import Observation
 
+// MARK: - DocumentRevisionMonitorRegistry
+
+/// Keeps one `DocumentRevisionMonitor` per live document group, keyed by the
+/// group's stable id, so background watching survives the group view
+/// unmounting on a session switch. Edits made while the user works in another
+/// session keep recording; the remount reveals them instead of silently
+/// re-baselining (INT-782 review finding).
+///
+/// A monitor is released — watchers stopped — only when its group has left
+/// every session layout. The group view sweeps on appearance and
+/// disappearance, both of which run after the store mutation that closed the
+/// group.
+@MainActor
+enum DocumentRevisionMonitorRegistry {
+    private static var monitors: [DocumentGroup.ID: DocumentRevisionMonitor] = [:]
+
+    static func monitor(for groupID: DocumentGroup.ID) -> DocumentRevisionMonitor {
+        if let existing = monitors[groupID] { return existing }
+        let monitor = DocumentRevisionMonitor()
+        monitors[groupID] = monitor
+        return monitor
+    }
+
+    static func prune(keeping liveGroupIDs: Set<DocumentGroup.ID>) {
+        for (id, monitor) in monitors where !liveGroupIDs.contains(id) {
+            monitor.stopAll()
+            monitors[id] = nil
+        }
+    }
+
+    /// Every document group currently present in any session layout.
+    static func liveGroupIDs(in sessionStore: SessionStore) -> Set<DocumentGroup.ID> {
+        Set(
+            sessionStore.groups
+                .flatMap(\.sessions)
+                .flatMap { $0.layout.leaves }
+                .compactMap { leaf -> DocumentGroup.ID? in
+                    guard case let .documentGroup(group) = leaf else { return nil }
+                    return group.id
+                }
+        )
+    }
+}
+
 // MARK: - DocumentRevisionMonitor
 
 /// Owns `DocumentRevisionIndicatorState` for one document group and detects
@@ -77,6 +121,11 @@ final class DocumentRevisionMonitor {
     @ObservationIgnored private var tabs: [DocumentPane] = []
     @ObservationIgnored private var selectedTabID: DocumentPane.ID?
     @ObservationIgnored private var epochCounter = 0
+    /// Tabs with a reconcile enqueued but not yet committed. While one is
+    /// pending, `noteRenderCompleted` must not advance the tab's baseline:
+    /// on a remount the pane's render can complete before the reconcile's
+    /// read, and advancing first would turn the away-edit into old == new.
+    @ObservationIgnored private var pendingReconcileTabIDs: Set<DocumentPane.ID> = []
     /// Bumped by `stopAll()`. In-flight processing chains from before the stop
     /// carry the old value and abort at their next commit point, so a stopped
     /// monitor that quickly re-syncs cannot receive stale commits.
@@ -143,6 +192,7 @@ final class DocumentRevisionMonitor {
         monitorRecordedGenerations = monitorRecordedGenerations.filter { id, _ in
             entries[id] != nil
         }
+        pendingReconcileTabIDs = pendingReconcileTabIDs.filter { entries[$0] != nil }
 
         for tab in tabs where entries[tab.id] == nil {
             epochCounter += 1
@@ -186,6 +236,10 @@ final class DocumentRevisionMonitor {
     /// legitimately recorded indicator).
     func noteRenderCompleted(source: String?, for tab: DocumentPane) {
         guard let source else { return }
+        // A pending reconcile owns this tab's baseline until it commits; see
+        // `pendingReconcileTabIDs`. The baseline refreshes on the tab's next
+        // render completion.
+        guard !pendingReconcileTabIDs.contains(tab.id) else { return }
         let path = tab.fileURL.standardizedFileURL.path
         if var entry = entries[tab.id], entry.sourcePath == path {
             entry.baseline = source
@@ -211,6 +265,7 @@ final class DocumentRevisionMonitor {
     func reconcile(tab: DocumentPane) {
         let path = tab.fileURL.standardizedFileURL.path
         guard let entry = entries[tab.id], entry.sourcePath == path else { return }
+        pendingReconcileTabIDs.insert(tab.id)
         enqueueProcess(
             path: path,
             reconcile: ReconcileRequest(
@@ -219,6 +274,16 @@ final class DocumentRevisionMonitor {
                 capturedBaseline: entry.baseline
             )
         )
+    }
+
+    /// The remount catch-up: re-reads every tab once so edits that landed
+    /// while the whole viewer was unmounted (a session switch — no pane
+    /// watcher, and background events may target a then-stale selection)
+    /// record instead of being absorbed by the next render's baseline.
+    func reconcileAll() {
+        for tab in tabs {
+            reconcile(tab: tab)
+        }
     }
 
     func stopAll() {
@@ -231,10 +296,11 @@ final class DocumentRevisionMonitor {
             task.cancel()
         }
         pathTasks = [:]
-        // A remounted viewer starts with a clean announce slate; suppressing
-        // by pre-stop source would silently swallow a genuine post-remount
-        // transition that happens to match an old announcement.
+        // stopAll is terminal (the registry releases this monitor when its
+        // group closes), but clearing the announce slate keeps the method
+        // safe for any future caller that stops and re-syncs one instance.
         lastAnnouncedSource = [:]
+        pendingReconcileTabIDs = []
     }
 
     // MARK: - Event processing
@@ -264,12 +330,25 @@ final class DocumentRevisionMonitor {
         let expectedRunEpoch = runEpoch
         pathTasks[path] = Task { @MainActor [weak self] in
             await previous?.value
-            guard !Task.isCancelled, let self, self.runEpoch == expectedRunEpoch else { return }
+            guard let self else { return }
+            guard !Task.isCancelled, self.runEpoch == expectedRunEpoch else {
+                // A cancelled reconcile must release its baseline hold, or
+                // noteRenderCompleted stays suppressed for the tab forever.
+                if let reconcile {
+                    self.pendingReconcileTabIDs.remove(reconcile.tabID)
+                }
+                return
+            }
             await self.process(path: path, reconcile: reconcile, expectedRunEpoch: expectedRunEpoch)
         }
     }
 
     private func process(path: String, reconcile: ReconcileRequest?, expectedRunEpoch: Int) async {
+        defer {
+            if let reconcile {
+                pendingReconcileTabIDs.remove(reconcile.tabID)
+            }
+        }
         // The selected tab's pipeline owns its own diff; the monitor only
         // targets it when explicitly reconciling a selection transition.
         // Iterating `tabs` (not the entries dictionary) keeps target order —
