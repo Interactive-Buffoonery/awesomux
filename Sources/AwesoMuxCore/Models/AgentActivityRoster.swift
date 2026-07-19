@@ -3,7 +3,8 @@ import Foundation
 /// The sidebar footer's agent roster (INT-722): every non-shell agent pane,
 /// grouped by display state in priority order. Pure projection — built per
 /// render from the same pane snapshots the session rollup folds, so the
-/// panel, the footer chips, and the sidebar badge can never disagree.
+/// panel, the footer chips, and the sidebar badge can never disagree. The view
+/// rebuilds it when its session-store invalidation key changes.
 public struct AgentActivityRoster: Equatable, Sendable {
     /// One session's pane snapshots — the builder's input unit. Kept as an
     /// explicit pair (not `TerminalSession`) so tests build fixtures without
