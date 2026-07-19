@@ -30,6 +30,13 @@ After Task 1 landed and eD saw it running, two style-only fixes came back from a
 1. **Rail box styling:** the rail's `NewWorkspaceMenuButton` call passed `restFill: Color.aw.surface.sidebar` (blends into background at rest) while the search icon button above it uses `Color.aw.surface.elevated.opacity(0.6)` (a visible box) — mismatched. Fixed by changing the rail call site's `restFill` argument (`SidebarView.swift`) to match. `NewWorkspaceMenuButton.swift` itself unchanged by this fix; only the call-site argument and its doc comment changed.
 2. **Icon color:** both `NewWorkspaceSplitButton` (expanded header) and `NewWorkspaceMenuButton` (rail) used `.foregroundStyle(Color.aw.accent(accentResolver.accent))` — eD felt this read as too prominent for a chrome control at this size. Both switched to `Color.aw.text3`, matching the search icon's neutral color (`SidebarView.swift:659,697`). The now-unused `@Environment(\.awAccent) private var accentResolver` was removed from both files.
 
+A follow-up round of the same feedback loop (eD: "just turn it into the same thing as the search icon, just with a + instead of all that rigamarole") went further on the rail specifically — `NewWorkspaceMenuButton.swift` now mirrors the search button as closely as a `Menu`-wrapped control can:
+
+3. **Icon size:** 14pt → 13pt, matching the search glyph exactly.
+4. **Hover behavior removed:** the rail button no longer brightens on hover (`isHovering` state, `.onHover`, `.onDisappear` all deleted) — the search button above it has a static box with no hover state, so the rail button now matches that instead of looking more "interactive" than its neighbor.
+
+The rail's control remains structurally a `Menu` (required for its dropdown), never gained a chevron, and the geometry decision from the spec's "Call-site divergence" section still holds — this was a pure visual-parity pass, not a reopening of the split-button-on-the-rail question (that was asked and explicitly declined).
+
 ---
 
 ### Task 1: Build `NewWorkspaceSplitButton` and wire it into the expanded header
