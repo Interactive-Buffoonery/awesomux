@@ -240,6 +240,15 @@ public enum AgentRuntimeSource: String, Codable, Sendable {
             nil
         }
     }
+
+    var hasTrustworthySessionRestartBoundary: Bool {
+        switch self {
+        case .claudeCode, .pi:
+            true
+        case .codex, .openCode, .grok, .unknown:
+            false
+        }
+    }
 }
 
 public enum AgentRuntimePhase: String, Codable, Sendable {
