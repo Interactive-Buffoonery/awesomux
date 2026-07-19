@@ -131,10 +131,20 @@ struct ContentView: View {
 
     private let sidebarWidthPreferenceStore = SidebarWidthPreferenceStore()
 
+    private var liveDocumentGroupIDs: Set<UUID> {
+        DocumentRevisionMonitorRegistry.liveGroupIDs(in: sessionStore)
+    }
+
     var body: some View {
         content(sidebarWidth: sidebarWidth)
             .ignoresSafeArea(.container)
             .background(WindowAccessor { hostingWindow = $0 })
+            // The always-mounted sweep for document-group revision monitors:
+            // a group closed while its session is unmounted has no group view
+            // left to release its watchers (INT-782 review finding).
+            .onChange(of: liveDocumentGroupIDs) { (_, live: Set<UUID>) in
+                DocumentRevisionMonitorRegistry.prune(keeping: live)
+            }
             .onAppear {
                 WindowOrderDiagnostics.logSidebarPresentation(
                     event: "sidebar-presentation-appeared",
