@@ -4,8 +4,8 @@ import Testing
 @testable import awesoMux
 
 /// Regression coverage for a bug found (and fixed) during review: an earlier
-/// version of `disposeNativeSurface()` reset `lastAccessibilityReportedVisibleText`
-/// but not `lastDetectedVisibleText`, which is the OUTER dedupe gate in
+/// version of `disposeNativeSurface()` reset `terminalEventState.lastAccessibilityReportedVisibleText`
+/// but not `terminalEventState.lastDetectedVisibleText`, which is the OUTER dedupe gate in
 /// `sampleAgentStateFromVisibleText()` (`GhosttySurfaceTerminalEvents.swift`) —
 /// it's checked first and returns early on a match, so the inner reset was
 /// unreachable in exactly the scenario it was written for: a same-instance
@@ -27,16 +27,16 @@ struct GhosttySurfaceAccessibilityValueChangeDedupeTests {
 
         // Simulate a surface that already sampled and reported some text —
         // the state a live session accumulates before a respawn.
-        view.lastDetectedVisibleText = "user@host:~$ "
-        view.lastAccessibilityReportedVisibleText = "user@host:~$ "
+        view.terminalEventState.lastDetectedVisibleText = "user@host:~$ "
+        view.terminalEventState.lastAccessibilityReportedVisibleText = "user@host:~$ "
 
         view.disposeNativeSurface()
 
         // Both must reset together: if only one does, a respawned surface
         // whose first sample matches the old text gets silently swallowed by
         // whichever gate still holds the stale value.
-        #expect(view.lastDetectedVisibleText == "")
-        #expect(view.lastAccessibilityReportedVisibleText == nil)
+        #expect(view.terminalEventState.lastDetectedVisibleText == "")
+        #expect(view.terminalEventState.lastAccessibilityReportedVisibleText == nil)
     }
 
     @Test("disposeNativeSurface() reset is idempotent with no native surface present")
@@ -45,14 +45,14 @@ struct GhosttySurfaceAccessibilityValueChangeDedupeTests {
         // `surface` is nil here — disposeNativeSurface() must still run its
         // side-effect resets and return early afterward, not skip them.
         let view = try makeView()
-        view.lastDetectedVisibleText = "stale"
-        view.lastAccessibilityReportedVisibleText = "stale"
+        view.terminalEventState.lastDetectedVisibleText = "stale"
+        view.terminalEventState.lastAccessibilityReportedVisibleText = "stale"
 
         view.disposeNativeSurface()
         view.disposeNativeSurface()
 
-        #expect(view.lastDetectedVisibleText == "")
-        #expect(view.lastAccessibilityReportedVisibleText == nil)
+        #expect(view.terminalEventState.lastDetectedVisibleText == "")
+        #expect(view.terminalEventState.lastAccessibilityReportedVisibleText == nil)
     }
 
     private func makeView() throws -> GhosttySurfaceNSView {

@@ -45,7 +45,7 @@ final class AnalyticsEventLogStore {
     /// was off for a span, a load failed, or rejected lines were skipped):
     /// the next retained append then rewrites the whole file instead of
     /// appending, so disk converges back to what the user saw.
-    @ObservationIgnored private var diskMatchesEntries = true
+    @ObservationIgnored private(set) var diskMatchesEntries = true
     @ObservationIgnored private let ioQueue = DispatchQueue(
         label: "awesomux.analytics.event-log-io", qos: .utility
     )

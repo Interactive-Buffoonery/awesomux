@@ -86,7 +86,7 @@ struct SurfaceRemountOnSplitCollapseTests {
         // so the observable contract is: a remount leaves `nil`, forcing the
         // next size update onto the applyImmediately path that re-pushes
         // scale, size, and occlusion to libghostty.
-        survivorView.lastAppliedSurfaceBackingState = SurfaceBackingState(
+        survivorView.lifecycleState.lastAppliedSurfaceBackingState = SurfaceBackingState(
             geometry: SurfaceBackingGeometry(
                 pointSize: CGSize(width: 400, height: 300),
                 backingScale: 2
@@ -97,7 +97,7 @@ struct SurfaceRemountOnSplitCollapseTests {
         let freshContainer = mountContainer(in: window)
         freshContainer.mount(survivorView, isActive: true, contentSize: paneSize)
 
-        #expect(survivorView.lastAppliedSurfaceBackingState == nil)
+        #expect(survivorView.lifecycleState.lastAppliedSurfaceBackingState == nil)
     }
 
     @Test("native teardown replaces a stale hosted render layer")

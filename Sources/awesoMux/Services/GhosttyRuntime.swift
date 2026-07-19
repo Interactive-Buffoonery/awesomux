@@ -399,9 +399,10 @@ final class GhosttyRuntime {
 
     /// The foreground-process incarnation observed the last time a genuine
     /// provider hook confirmed `.waiting` on this pane, or nil if none has.
-    /// See `verifiedWaitingForegroundIncarnation` on `GhosttySurfaceNSView`.
+    /// See `terminalEventState.verifiedWaitingForegroundIncarnation` on
+    /// `GhosttySurfaceNSView`.
     func verifiedWaitingForegroundGeneration(in paneID: TerminalPane.ID) -> AgentForegroundIncarnation? {
-        surfaceViews[paneID]?.verifiedWaitingForegroundIncarnation
+        surfaceViews[paneID]?.terminalEventState.verifiedWaitingForegroundIncarnation
     }
 
     /// INT-569 field diagnostics for the document-nudge evidence chain.

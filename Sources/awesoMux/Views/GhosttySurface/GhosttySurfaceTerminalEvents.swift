@@ -178,7 +178,7 @@ extension GhosttySurfaceNSView {
                 Self.shouldProbeForAgentExit(
                     agentKind: pane.agentKind,
                     hasManagedSSHObservation: pane.hasManagedSSHObservation,
-                    hasObservedAgentActivity: hasObservedAgentActivity,
+                    hasObservedAgentActivity: terminalEventState.hasObservedAgentActivity,
                     shellHasForegroundCommand: pane.agentKind == .shell
                         && (promptMarkerIsAwayFromPrompt() ?? false)
                 )
@@ -311,10 +311,10 @@ extension GhosttySurfaceNSView {
     }
 
     /// Invalidates any pending auto-clear and, for a report that's still
-    /// visible, re-arms a fresh one. See `progressReportExpiryWorkItem`.
+    /// visible, re-arms a fresh one. See `terminalEventState.progressReportExpiryWorkItem`.
     private func scheduleProgressReportExpiry(for progressReport: TerminalProgressReport) {
-        progressReportExpiryWorkItem?.cancel()
-        progressReportExpiryWorkItem = nil
+        terminalEventState.progressReportExpiryWorkItem?.cancel()
+        terminalEventState.progressReportExpiryWorkItem = nil
 
         guard progressReport.isVisible else {
             return
@@ -325,7 +325,7 @@ extension GhosttySurfaceNSView {
         let workItem = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.progressReportExpiryWorkItem = nil
+                self.terminalEventState.progressReportExpiryWorkItem = nil
                 // `update(session:pane:...)` can re-point this NSView at a
                 // different pane while the timer was pending — only clear
                 // the pane that actually armed it.
@@ -340,7 +340,7 @@ extension GhosttySurfaceNSView {
                 self.updateProgressReport(TerminalProgressReport(state: .remove))
             }
         }
-        progressReportExpiryWorkItem = workItem
+        terminalEventState.progressReportExpiryWorkItem = workItem
         DispatchQueue.main.asyncAfter(
             deadline: .now() + Self.progressReportExpiryInterval,
             execute: workItem
@@ -353,12 +353,12 @@ extension GhosttySurfaceNSView {
         let now = CACurrentMediaTime()
         switch ProgressReportWriteThrottle.decide(
             now: now,
-            lastWriteAt: lastProgressReportStoreWriteAt,
+            lastWriteAt: terminalEventState.lastProgressReportStoreWriteAt,
             minInterval: Self.progressReportStoreWriteMinInterval
         ) {
         case .writeNow:
-            progressReportThrottleWorkItem?.cancel()
-            progressReportThrottleWorkItem = nil
+            terminalEventState.progressReportThrottleWorkItem?.cancel()
+            terminalEventState.progressReportThrottleWorkItem = nil
             commitProgressReport(progressReport, writtenAt: now)
         case .deferBy(let delay):
             scheduleThrottledProgressReportWrite(progressReport, after: delay)
@@ -372,14 +372,14 @@ extension GhosttySurfaceNSView {
         _ progressReport: TerminalProgressReport,
         after delay: TimeInterval
     ) {
-        progressReportThrottleWorkItem?.cancel()
+        terminalEventState.progressReportThrottleWorkItem?.cancel()
 
         let sessionID = sessionID
         let paneID = paneID
         let workItem = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.progressReportThrottleWorkItem = nil
+                self.terminalEventState.progressReportThrottleWorkItem = nil
                 // Same pane-recycle hazard as the expiry timer above.
                 guard
                     ProgressReportDispatchGuard.shouldApply(
@@ -392,12 +392,12 @@ extension GhosttySurfaceNSView {
                 self.commitProgressReport(progressReport, writtenAt: CACurrentMediaTime())
             }
         }
-        progressReportThrottleWorkItem = workItem
+        terminalEventState.progressReportThrottleWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     private func commitProgressReport(_ progressReport: TerminalProgressReport, writtenAt: TimeInterval) {
-        lastProgressReportStoreWriteAt = writtenAt
+        terminalEventState.lastProgressReportStoreWriteAt = writtenAt
         sessionStore.updatePane(
             sessionID: sessionID,
             paneID: paneID,
@@ -458,12 +458,12 @@ extension GhosttySurfaceNSView {
         let livePane = liveSession.layout.pane(id: paneID)
         let liveExecutionState = livePane?.agentExecutionState ?? .idle
         let liveAgentKind = livePane?.agentKind ?? .shell
-        let detectorResult = agentOutputDetector.stateForCommandFinished(
+        let detectorResult = terminalEventState.agentOutputDetector.stateForCommandFinished(
             exitCode: exitCode,
-            agentWasActive: hasObservedAgentActivity,
+            agentWasActive: terminalEventState.hasObservedAgentActivity,
             liveAgentKind: liveAgentKind
         )
-        switch handleCommandFinishedReducer.decision(
+        switch terminalEventState.handleCommandFinishedReducer.decision(
             liveExecutionState: liveExecutionState,
             exitCode: exitCode,
             detectorResult: detectorResult,
@@ -507,18 +507,18 @@ extension GhosttySurfaceNSView {
     func sampleAgentStateFromVisibleText() {
         guard surface != nil, windowIsVisible else { return }
         let now = CACurrentMediaTime()
-        guard now - lastAgentDetectionSample >= Self.visibleTextChangeThrottle,
+        guard now - terminalEventState.lastAgentDetectionSample >= Self.visibleTextChangeThrottle,
             let visibleText = visibleTerminalText()
         else {
             return
         }
 
-        lastAgentDetectionSample = now
-        guard visibleText != lastDetectedVisibleText else {
+        terminalEventState.lastAgentDetectionSample = now
+        guard visibleText != terminalEventState.lastDetectedVisibleText else {
             return
         }
 
-        lastDetectedVisibleText = visibleText
+        terminalEventState.lastDetectedVisibleText = visibleText
 
         // Visible content changed since the last sample and since the last
         // VoiceOver post: let assistive technology know there's something
@@ -530,23 +530,23 @@ extension GhosttySurfaceNSView {
         // this, a background pane streaming output (a build log, an agent
         // response) would interrupt VoiceOver reading a different, focused
         // pane every time its own content changed.
-        if visibleText != lastAccessibilityReportedVisibleText {
-            lastAccessibilityReportedVisibleText = visibleText
+        if visibleText != terminalEventState.lastAccessibilityReportedVisibleText {
+            terminalEventState.lastAccessibilityReportedVisibleText = visibleText
             if terminalIsFocused {
                 scheduleAccessibilityValueChangeAnnouncement()
             }
         }
 
-        hasObservedAgentActivity =
-            hasObservedAgentActivity
-            || agentOutputDetector.observesAgentContext(in: visibleText)
+        terminalEventState.hasObservedAgentActivity =
+            terminalEventState.hasObservedAgentActivity
+            || terminalEventState.agentOutputDetector.observesAgentContext(in: visibleText)
 
         // Visible-text changed: the underlying process is producing output.
         // Mark this as agent activity even if no state transition follows,
         // so a long-running `.thinking` task keeps its quit-risk freshness.
         // Conversely, when the process exits and text stops changing, no
         // marks happen and the staleness threshold catches the dead state.
-        if hasObservedAgentActivity {
+        if terminalEventState.hasObservedAgentActivity {
             sessionStore.markAgentActivityObserved(id: sessionID, paneID: paneID)
         }
 
@@ -556,7 +556,7 @@ extension GhosttySurfaceNSView {
         guard
             VisibleTextAgentStateReducer.shouldRunVisibleTextDetector(
                 now: now,
-                lastRuntimeEventAppliedAt: lastRuntimeEventAppliedAt,
+                lastRuntimeEventAppliedAt: terminalEventState.lastRuntimeEventAppliedAt,
                 liveAgentKind: liveKindForGate
             )
         else {
@@ -564,15 +564,15 @@ extension GhosttySurfaceNSView {
         }
 
         guard
-            let detection = agentOutputDetector.detectedOutput(
+            let detection = terminalEventState.agentOutputDetector.detectedOutput(
                 in: visibleText,
-                assumingAgentContext: hasObservedAgentActivity
+                assumingAgentContext: terminalEventState.hasObservedAgentActivity
             )
         else {
             return
         }
 
-        hasObservedAgentActivity = true
+        terminalEventState.hasObservedAgentActivity = true
         if shouldSuppressVisibleTextState(detection.state, now: now) {
             return
         }
@@ -580,11 +580,11 @@ extension GhosttySurfaceNSView {
     }
 
     func shouldSuppressVisibleTextState(_ detectedState: AgentState, now: TimeInterval) -> Bool {
-        visibleTextAgentStateReducer.shouldSuppressVisibleTextState(
+        terminalEventState.visibleTextAgentStateReducer.shouldSuppressVisibleTextState(
             detectedState: detectedState,
             now: now,
-            lastRuntimeEventAppliedAt: lastRuntimeEventAppliedAt,
-            lastRuntimeAttentionEventAppliedAt: lastRuntimeAttentionEventAppliedAt,
+            lastRuntimeEventAppliedAt: terminalEventState.lastRuntimeEventAppliedAt,
+            lastRuntimeAttentionEventAppliedAt: terminalEventState.lastRuntimeAttentionEventAppliedAt,
             liveDisplayState: Self.visibleTextSuppressionLiveState(
                 in: sessionStore.session(id: sessionID),
                 paneID: paneID
@@ -662,7 +662,7 @@ extension GhosttySurfaceNSView {
         let liveAgentKind = livePane?.agentKind ?? .shell
         let liveDisplayState = livePane?.agentState ?? .idle
         let liveExecutionState = livePane?.agentExecutionState ?? .idle
-        let decision = visibleTextAgentStateReducer.visibleTextDecision(
+        let decision = terminalEventState.visibleTextAgentStateReducer.visibleTextDecision(
             detectedState: detection.state,
             detectedAgentKind: detection.agentKind,
             detectedKindIsAuthoritative: detection.agentKindIsAuthoritative,
@@ -794,14 +794,14 @@ extension GhosttySurfaceNSView {
         // legitimately re-arm the latch via observesAgentContext; that is the
         // visible-text heuristic's own scope, not suppressed here.
         if event.phase == .sessionEnd {
-            hasObservedAgentActivity = false
+            terminalEventState.hasObservedAgentActivity = false
         }
 
         // Only state-bearing events suppress the visible-text detector,
         // and only after the store actually accepted the event — a
         // rejected dedupe/stale event shouldn't mute the fallback.
         let suppressionDecision =
-            visibleTextAgentStateReducer
+            terminalEventState.visibleTextAgentStateReducer
             .runtimeEventSuppressionDecision(
                 state: event.state,
                 executionState: event.executionState,
@@ -809,9 +809,9 @@ extension GhosttySurfaceNSView {
             )
         if suppressionDecision.shouldRecordStateEvent {
             let appliedAt = CACurrentMediaTime()
-            lastRuntimeEventAppliedAt = appliedAt
+            terminalEventState.lastRuntimeEventAppliedAt = appliedAt
             if suppressionDecision.shouldRecordAttentionEvent {
-                lastRuntimeAttentionEventAppliedAt = appliedAt
+                terminalEventState.lastRuntimeAttentionEventAppliedAt = appliedAt
             }
         }
 
@@ -823,7 +823,7 @@ extension GhosttySurfaceNSView {
             .layout.pane(id: paneID)?.agentState
         // Trusted-generation stamp for the document-nudge prompt gate
         // (INT-569 follow-up): this is the ONLY path that may set
-        // `verifiedWaitingForegroundIncarnation`, and only for an event that
+        // `terminalEventState.verifiedWaitingForegroundIncarnation`, and only for an event that
         // ITSELF asserts `.waiting` (`assertsWaitingExecutionState`) — not
         // merely because the pane's resulting display state happens to
         // already read `.waiting`. Without the assertion check, ANY accepted
@@ -840,11 +840,11 @@ extension GhosttySurfaceNSView {
         // trusted generation untouched — `verdict` re-checks it against the
         // CURRENT foreground process at click time regardless.
         if event.assertsWaitingExecutionState, newState == .waiting {
-            verifiedWaitingForegroundIncarnation = documentNudgeForegroundGeneration()
+            terminalEventState.verifiedWaitingForegroundIncarnation = documentNudgeForegroundGeneration()
         } else if newState != .waiting {
-            verifiedWaitingForegroundIncarnation = nil
+            terminalEventState.verifiedWaitingForegroundIncarnation = nil
         }
-        let announcementIntent = visibleTextAgentStateReducer.announcementIntent(
+        let announcementIntent = terminalEventState.visibleTextAgentStateReducer.announcementIntent(
             priorDisplayState: priorState,
             newDisplayState: newState
         )
