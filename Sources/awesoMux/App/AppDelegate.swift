@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the delegate has no environment of its own.
     private var openSettings: (() -> Void)?
     private var openPrimaryWindow: (() -> Void)?
+    private var analyticsFlushForTermination: (() -> Void)?
     private let notificationBridge = WorkspaceNotificationBridge()
     private lazy var menuBarMiniStatusItemController = MenuBarMiniStatusItemController(
         primaryAction: { [weak self] in
@@ -785,6 +786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let sessionStore {
             SessionPersistence.flush(sessionStore)
         }
+        analyticsFlushForTermination?()
         // Flush the coalesced window-frame save so a Cmd-Q within the debounce
         // window still persists the final frame.
         pendingPrimaryWindowFrameSave?.cancel()
@@ -838,7 +840,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appSettingsStore: AppSettingsStore,
         terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache,
         openSettings: @escaping () -> Void,
-        openPrimaryWindow: @escaping () -> Void
+        openPrimaryWindow: @escaping () -> Void,
+        analyticsFlushForTermination: @escaping () -> Void
     ) {
         self.sessionStore = sessionStore
         self.ghosttyRuntime = ghosttyRuntime
@@ -847,6 +850,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.appSettingsStore = appSettingsStore
         self.openSettings = openSettings
         self.openPrimaryWindow = openPrimaryWindow
+        self.analyticsFlushForTermination = analyticsFlushForTermination
         ghosttyRuntime.configureOutputMarksAttentionProvider {
             appSettingsStore.workspaces.value.outputMarksNeedsAttention
         }
