@@ -281,7 +281,7 @@ extension GhosttySurfaceNSView {
     // PTY fired at up to 120Hz/pane and forced a redundant main-thread present on
     // top of the renderer thread — starving the main thread and stalling scroll
     // (blank-until-catch-up, SGR-report leak). The passive shell/agent samplers
-    // that used to piggyback on that `draw()` now run on `visibleStateSamplingTask`.
+    // that used to piggyback on `draw()` now run from one runtime-owned task.
 
     func updateTerminalTitle(_ title: String) {
         sessionStore.updatePane(sessionID: sessionID, paneID: paneID, title: title)
@@ -495,6 +495,7 @@ extension GhosttySurfaceNSView {
     static let visibleTextChangeThrottle: TimeInterval = 0.5
 
     func sampleAgentStateFromVisibleText() {
+        guard surface != nil, windowIsVisible else { return }
         let now = CACurrentMediaTime()
         guard now - lastAgentDetectionSample >= Self.visibleTextChangeThrottle,
             let visibleText = visibleTerminalText()

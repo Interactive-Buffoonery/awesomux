@@ -185,7 +185,7 @@ final class GhosttySurfaceNSView: NSView {
     /// debounce: each sampler tick fires its own notification instead of
     /// the burst collapsing into one. That worst-case gap is
     /// `GhosttySurfaceTerminalEvents.visibleTextChangeThrottle` (0.5s) plus
-    /// up to one more `visibleStateSampleInterval` (250ms) of poll jitter
+    /// up to one more runtime sampler interval (250ms) of poll jitter
     /// before the throttle window closes — ~750ms. 900ms clears that with
     /// margin. (Found in review: the original 100ms — copied from the
     /// user-driven `.selectedTextChanged` debounce, where it's correct
@@ -234,24 +234,7 @@ final class GhosttySurfaceNSView: NSView {
     /// is a double-click that needs a synthetic catch-up click for libghostty.
     var hasPendingFocusTransferClick = false
 
-    /// Drives the passive shell-activity + agent-state-from-visible-text
-    /// samplers, which also double as the trigger for the `.valueChanged`
-    /// VoiceOver notification (see `sampleAgentStateFromVisibleText()`'s
-    /// `lastAccessibilityReportedVisibleText` comparison) — new PTY output
-    /// has no other push signal, so it rides the same visible-text diff
-    /// rather than adding a second poll loop.
-    /// These used to piggyback on the `draw(_:)` override; libghostty now owns
-    /// presentation on its own renderer thread (see `GhosttySurfaceTerminalEvents`),
-    /// so the samplers lost their per-frame trigger and run on this independent
-    /// poll instead. The event-driven command submit/finish ladders still own
-    /// precise transition timing — this is only the passive fallback.
-    ///
-    /// Ceiling: a fixed ~250ms poll re-reads each *visible* pane's viewport. If
-    /// that ever shows on a profile, gate it on a libghostty content-change signal
-    /// once one is exposed to the embedder.
-    var visibleStateSamplingTask: Task<Void, Never>?
     var remoteHandoffTask: Task<Void, Never>?
-    static let visibleStateSampleInterval: Duration = .milliseconds(250)
 
     /// Single unsafe storage slot for the libghostty surface handle.
     ///
@@ -354,8 +337,6 @@ final class GhosttySurfaceNSView: NSView {
         MainActor.assumeIsolated {
             pendingSurfaceCreationWorkItem?.cancel()
             pendingSurfaceCreationWorkItem = nil
-            visibleStateSamplingTask?.cancel()
-            visibleStateSamplingTask = nil
             remoteHandoffTask?.cancel()
             remoteHandoffTask = nil
             accessibilitySelectionChangeWorkItem?.cancel()
@@ -371,40 +352,6 @@ final class GhosttySurfaceNSView: NSView {
             NSWorkspace.shared.notificationCenter.removeObserver(self)
             disposeNativeSurface(resetHostedLayer: false)
         }
-    }
-
-    // MARK: - Visible-state sampling
-
-    /// Start (or restart) the passive sampler poll. Idempotent — cancels any
-    /// prior task first. The occlusion handlers stop this while the window is
-    /// hidden and restart it on return, so it isn't waking to no-op in the
-    /// background; the in-loop `windowIsVisible` guard is a race-window backstop
-    /// for the gap between an occlusion notification and the stop landing.
-    ///
-    /// NOTE: occlusion pauses libghostty's *renderer*, NOT its IO — the screen
-    /// buffer keeps changing from PTY output while hidden (`Surface.zig`'s
-    /// `occlusionCallback` only messages the renderer thread). We defer sampling
-    /// anyway (matching the old draw-driven path, which also didn't fire while
-    /// occluded); a transition that lands while hidden is caught on the first
-    /// post-return tick via the `lastDetectedVisibleText` dedupe.
-    func startVisibleStateSampling() {
-        visibleStateSamplingTask?.cancel()
-        visibleStateSamplingTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: Self.visibleStateSampleInterval)
-                guard let self, !Task.isCancelled else { return }
-                guard self.surface != nil, self.windowIsVisible else { continue }
-                // Global refresh self-throttles (100ms floor), so N panes each
-                // calling it on their own poll collapse to one sampling cadence.
-                self.runtime.sampleShellActivity(in: self.sessionStore)
-                self.sampleAgentStateFromVisibleText()
-            }
-        }
-    }
-
-    func stopVisibleStateSampling() {
-        visibleStateSamplingTask?.cancel()
-        visibleStateSamplingTask = nil
     }
 
     /// Tell libghostty which display this surface is on so its internal
@@ -453,7 +400,7 @@ final class GhosttySurfaceNSView: NSView {
         progressReportThrottleWorkItem = nil
         lastProgressReportStoreWriteAt = nil
         resetSearchStateForSurfaceTeardown()
-        stopVisibleStateSampling()
+        runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
         // A VoiceOver accessor firing mid-heal (surface == nil) would
         // otherwise cache an empty read that outlives the surface it was
         // taken from, into the next surface's life.
@@ -580,20 +527,14 @@ final class GhosttySurfaceNSView: NSView {
             refreshSurfaceDisplay()
         }
 
-        // Track the sampler across window attach/detach. Detaching (window ==
-        // nil, e.g. a workspace switch that unmounts this pane's view but keeps
-        // the surface cached) must STOP the poll — otherwise it spins at 4Hz
-        // bailing on the `windowIsVisible` guard forever. Re-attaching to a
-        // visible window must RESTART it: occlusion notifications don't fire when
-        // the destination window is already visible (the INT-196 return path), so
-        // without this the passive sampler could stay dead until the next
-        // didBecomeKey. `startVisibleStateSampling` cancels-then-recreates, so
-        // this is safe alongside the occlusion/key/space start paths.
+        // Keep the runtime's centralized sampler registry aligned with window
+        // attachment. A destination window can already be visible, so attach must
+        // register directly instead of waiting for an occlusion edge.
         if window == nil {
-            stopVisibleStateSampling()
+            runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
             scheduleOrphanRescueCheckAfterDetach()
         } else if surface != nil, windowIsVisible {
-            startVisibleStateSampling()
+            runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
         }
     }
 
