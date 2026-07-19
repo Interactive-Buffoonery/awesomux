@@ -699,52 +699,27 @@ struct KeyboardShortcutCatalogTests {
                 ofToggleSidebarVisibilityChord: repeatEvent))
     }
 
-    @Test("command palette matcher aligns with catalog chord")
-    @MainActor
-    func commandPaletteMatcherAlignsWithCatalogChord() {
-        let binding = KeyboardShortcutCatalog.toggleCommandPalette
-        let event = makeKeyEvent(
-            modifierFlags: binding.modifiers.eventFlags,
-            characters: "k",
-            charactersIgnoringModifiers: "k",
-            keyCode: 0x28
+    @Test("command palette menu shortcut follows keyboard configuration")
+    func commandPaletteMenuShortcutFollowsKeyboardConfiguration() {
+        let defaultBinding = KeyboardShortcutCatalog.resolved(
+            KeyboardShortcutCatalog.toggleCommandPalette,
+            keyboard: .defaultValue
+        )
+        let remappedKeyboard = KeyboardConfig(shortcuts: [
+            KeyboardShortcutCatalog.toggleCommandPalette.id: ShortcutBindingConfig(
+                key: "p",
+                modifiers: [.command, .option]
+            )
+        ])
+        let remappedBinding = KeyboardShortcutCatalog.resolved(
+            KeyboardShortcutCatalog.toggleCommandPalette,
+            keyboard: remappedKeyboard
         )
 
-        #expect(binding.key == "k")
-        #expect(event != nil)
-        #expect(CommandPaletteShortcut.matches(event!))
-    }
-
-    @Test("command palette matcher ignores nearby chords")
-    @MainActor
-    func commandPaletteMatcherIgnoresNearbyChords() {
-        let shiftedEvent = makeKeyEvent(
-            modifierFlags: [.command, .shift],
-            characters: "K",
-            charactersIgnoringModifiers: "K",
-            keyCode: 0x28
-        )
-        let wrongKeyEvent = makeKeyEvent(
-            modifierFlags: [.command],
-            characters: "s",
-            charactersIgnoringModifiers: "s",
-            keyCode: 0x01
-        )
-        let repeatEvent = makeKeyEvent(
-            modifierFlags: [.command],
-            characters: "k",
-            charactersIgnoringModifiers: "k",
-            isARepeat: true,
-            keyCode: 0x28
-        )
-
-        #expect(shiftedEvent != nil)
-        #expect(wrongKeyEvent != nil)
-        #expect(repeatEvent != nil)
-        #expect(!CommandPaletteShortcut.matches(shiftedEvent!))
-        #expect(!CommandPaletteShortcut.matches(wrongKeyEvent!))
-        #expect(!CommandPaletteShortcut.matches(repeatEvent!))
-        #expect(CommandPaletteShortcut.isRepeat(ofCommandPaletteChord: repeatEvent!))
+        #expect(defaultBinding.key == "k")
+        #expect(defaultBinding.modifiers == [.command])
+        #expect(remappedBinding.key == "p")
+        #expect(remappedBinding.modifiers == [.command, .option])
     }
 
     @Test("keyboard cheatsheet matcher aligns with command slash catalog chord")
