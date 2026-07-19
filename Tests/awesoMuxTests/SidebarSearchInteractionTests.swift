@@ -8,6 +8,62 @@ import Testing
 @Suite("Sidebar search interaction", .serialized)
 @MainActor
 struct SidebarSearchInteractionTests {
+    @Test("activity invalidation excludes query changes but tracks store inputs")
+    func activityInvalidationKeyTracksRosterInputs() {
+        let session = TerminalSession(title: "Agent", workingDirectory: "/tmp/agent")
+        let groups = [SessionGroup(name: "Project", sessions: [session])]
+        let baseline = SidebarActivityInvalidationKey(
+            groups: groups,
+            pinnedSessionIDs: [],
+            selectedSessionID: session.id,
+            displayMode: .expanded
+        )
+
+        #expect(
+            baseline == SidebarActivityInvalidationKey(
+                groups: groups,
+                pinnedSessionIDs: [],
+                selectedSessionID: session.id,
+                displayMode: .expanded
+            )
+        )
+
+        var renamedGroups = groups
+        renamedGroups[0].sessions[0].title = "Renamed agent"
+        #expect(
+            baseline != SidebarActivityInvalidationKey(
+                groups: renamedGroups,
+                pinnedSessionIDs: [],
+                selectedSessionID: session.id,
+                displayMode: .expanded
+            )
+        )
+        #expect(
+            baseline != SidebarActivityInvalidationKey(
+                groups: groups,
+                pinnedSessionIDs: [],
+                selectedSessionID: nil,
+                displayMode: .expanded
+            )
+        )
+        #expect(
+            baseline != SidebarActivityInvalidationKey(
+                groups: groups,
+                pinnedSessionIDs: [],
+                selectedSessionID: session.id,
+                displayMode: .collapsed
+            )
+        )
+        #expect(
+            baseline != SidebarActivityInvalidationKey(
+                groups: groups,
+                pinnedSessionIDs: [session.id],
+                selectedSessionID: session.id,
+                displayMode: .expanded
+            )
+        )
+    }
+
     @Test("hosted field intercepts arrows and wraps across pinned and grouped results")
     func hostedFieldInterceptsAndWraps() async throws {
         let transition = try SidebarSearchHostedFixture()

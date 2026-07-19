@@ -26,6 +26,19 @@ struct SidebarHoverIntegrationTests {
         override func isAccessibilityFocused() -> Bool { focused }
     }
 
+    @Test("active drag uses the latest emitted frames before state catches up")
+    func activeDragUsesLatestEmittedFrames() {
+        let id = UUID()
+        let stored = [id: CGRect(x: 0, y: 0, width: 100, height: 20)]
+        let latest = [id: CGRect(x: 0, y: 40, width: 100, height: 20)]
+        let cache = SidebarDragFrameCache<UUID>()
+
+        cache.update(latest)
+
+        #expect(cache.frames(stored: stored, isDragActive: false) == stored)
+        #expect(cache.frames(stored: stored, isDragActive: true) == latest)
+    }
+
     @Test("persistent visibility commands drive actual hidden and split host outcomes")
     func persistentVisibilityUsesNativeHostOutcomes() throws {
         let (model, defaults, suiteName) = try makeModel(hidden: true)

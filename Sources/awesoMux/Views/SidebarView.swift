@@ -72,6 +72,7 @@ struct SidebarView: View {
     @State private var lastDragWatchdogRefresh = Date.distantPast
     @State private var sidebarDragClearDeadline: Date?
     @State private var groupFrames: [SessionGroup.ID: CGRect] = [:]
+    @State private var groupFrameCache = SidebarDragFrameCache<SessionGroup.ID>()
     @State private var groupDropIndex: Int?
     @State private var isSearchFocused = false
     @State private var focusedSearchSessionID: TerminalSession.ID?
@@ -89,10 +90,6 @@ struct SidebarView: View {
     // and cleared on any pointer interaction (tap/hover). Mouse users still see
     // the selected row via its tinted border.
     @State private var isKeyboardNavigating = false
-    /// INT-722 roster panel. Transient by design — resets on relaunch.
-    @State private var activityPanelOpen = false
-    @State private var activityPanelScrollTarget: AgentDisplayState?
-
     private let groupCoordinateSpaceName = "sidebar-groups"
 
     /// Rendered layout mode. Derived from the live width so it switches as a drag
@@ -161,6 +158,10 @@ struct SidebarView: View {
         // closure below, which would otherwise rebuild this set on every
         // layout pass during a drag.
         let visibleGroupIDSet = Set(visibleGroupIDs)
+        let dragGroupFrames = groupFrameCache.frames(
+            stored: groupFrames,
+            isDragActive: activeDragID != nil
+        )
         let structuralAnimation: Animation? =
             reduceMotion || isFiltering
             ? nil
@@ -355,7 +356,20 @@ struct SidebarView: View {
                     .contentShape(Rectangle())
                     .animation(structuralAnimation, value: visibleGroupIDs)
                     .onPreferenceChange(SidebarGroupFramePreferenceKey.self) { frames in
-                        groupFrames = frames.filter { visibleGroupIDSet.contains($0.key) }
+                        let visibleFrames = frames.filter { visibleGroupIDSet.contains($0.key) }
+                        groupFrameCache.update(visibleFrames)
+                        // Keep the reader live so SwiftUI can coalesce preference
+                        // emission; only the @State write is drag-gated while idle.
+                        guard activeDragID != nil else { return }
+                        groupFrames = visibleFrames
+                    }
+                    .onChange(of: activeDragID) { _, dragID in
+                        if dragID != nil {
+                            groupFrames = groupFrameCache.frames(
+                                stored: groupFrames,
+                                isDragActive: true
+                            )
+                        }
                     }
                     .onChange(of: visibleGroupIDs) { _, groupIDs in
                         let visibleIDs = Set(groupIDs)
@@ -376,7 +390,7 @@ struct SidebarView: View {
                             let y = SidebarInsertionResolver.insertionY(
                                 forInsertionIndex: groupDropIndex,
                                 orderedIDs: visibleGroupIDs,
-                                frames: groupFrames,
+                                frames: dragGroupFrames,
                                 spacing: density.groupStackSpacing
                             )
                         {
@@ -390,7 +404,7 @@ struct SidebarView: View {
                         enabled: activeDragKind == .group && !isFiltering,
                         delegate: SidebarGroupReorderDropDelegate(
                             groupIDs: visibleGroupIDs,
-                            groupFrames: groupFrames,
+                            groupFrames: dragGroupFrames,
                             isFiltering: isFiltering,
                             activeDragKind: activeDragKind,
                             activeDragID: activeDragID,
@@ -426,50 +440,18 @@ struct SidebarView: View {
                 }
             }
 
-            if activityPanelOpen, displayMode != .collapsed {
-                Divider()
-                AgentActivityPanel(
-                    groups: snapshot.roster.groups.map { group in
-                        (state: group.state, items: group.rows.map(panelItem))
-                    },
-                    scrollTarget: activityPanelScrollTarget,
-                    onSelect: { row in
-                        // If the target session is hidden under the active search
-                        // filter, clear the filter first so the jump lands somewhere
-                        // visible (mirrors the search onSubmit top-match clear).
-                        if isFiltering,
-                            !snapshot.entries.contains(where: { entry in
-                                entry.sessions.contains { $0.session.id == row.sessionID }
-                            }),
-                            !snapshot.pinned.contains(where: { $0.entry.session.id == row.sessionID })
-                        {
-                            clearFilters()
-                        }
-                        onFocusPane(row.sessionID, row.paneID)
-                    },
-                    onClose: { setActivityPanel(open: false) }
-                )
-            }
-
-            SidebarStatusFooter(
-                counts: snapshot.counts,
-                total: snapshot.total,
-                displayMode: displayMode,
+            SidebarActivitySection(
+                invalidationKey: SidebarActivityInvalidationKey(
+                    groups: sessionStore.groups,
+                    pinnedSessionIDs: sessionStore.pinnedSessionIDs,
+                    selectedSessionID: sessionStore.selectedSessionID,
+                    displayMode: displayMode
+                ),
+                searchText: $searchText,
                 onOpenQuickSettings: onOpenQuickSettings,
-                onSelectNextMatchingState: { focusNextAgentPane(matching: $0, in: snapshot.roster) },
-                onToggleActivityPanel: { state in
-                    // Chips only open/retarget; closing lives on the total
-                    // label and the panel's own close button. Keeps the chips'
-                    // "Show…" tooltips truthful — a same-state second click
-                    // used to silently close the panel (review finding).
-                    if activityPanelOpen, state == nil {
-                        setActivityPanel(open: false)
-                    } else {
-                        setActivityPanel(open: true, scrollTarget: state)
-                    }
-                },
-                activityPanelOpen: activityPanelOpen
+                onFocusPane: onFocusPane
             )
+            .equatable()
         }
         .background(Color.aw.surface.sidebar)
         .onHover { pointerInside in
@@ -532,29 +514,13 @@ struct SidebarView: View {
             }
         }
         .onChange(of: displayMode) { _, mode in
-            WindowOrderDiagnostics.logRoster(
-                event: "sidebar-display-mode-changed",
-                open: activityPanelOpen,
-                displayMode: mode
-            )
             searchText = SidebarSearchModePolicy.query(
                 afterChangingTo: mode,
                 currentQuery: searchText
             )
-            // The panel is expanded-mode only; collapsing while it's open would
-            // strand the open state + its announcement. Close it so both stay
-            // coherent with what's on screen.
-            if mode == .collapsed, activityPanelOpen {
-                setActivityPanel(open: false)
-            }
         }
         .onAppear {
             sessionStore.undoManager = undoManager
-            WindowOrderDiagnostics.logRoster(
-                event: "roster-appeared",
-                open: activityPanelOpen,
-                displayMode: displayMode
-            )
         }
         .onChange(of: undoManager) { _, undoManager in
             sessionStore.undoManager = undoManager
@@ -894,109 +860,13 @@ struct SidebarView: View {
         return SidebarVisibleRows.firstTarget(in: visibleRows)
     }
 
-    /// Collapsed-rail chip jump: cycle pane-grain through the agent rows matching
-    /// the chip's state, landing on the pane after the currently-active one. Uses
-    /// the same `onFocusPane` the panel rows do, so a counted pane is never
-    /// unreachable (session-grain cycling could skip a pane hiding behind a
-    /// higher-priority winner in the same session).
-    private func focusNextAgentPane(matching state: AwState, in roster: AgentActivityRoster) {
-        let rows = roster.groups.flatMap(\.rows).filter { $0.state.awState == state }
-        guard !rows.isEmpty else {
-            return
-        }
-        let activePaneID = sessionStore.selectedSession?.activePaneID
-        let startIndex =
-            activePaneID.flatMap { id in
-                rows.firstIndex { $0.paneID == id }
-            } ?? -1
-        let next = rows[(startIndex + 1) % rows.count]
-        onFocusPane(next.sessionID, next.paneID)
-    }
-
-    /// Single writer for the roster panel's open state so the a11y announcement
-    /// can't be missed by one path (spec §5: expansion is announced).
-    private func setActivityPanel(open: Bool, scrollTarget: AgentDisplayState? = nil) {
-        activityPanelScrollTarget = scrollTarget
-        guard open != activityPanelOpen else {
-            return
-        }
-        activityPanelOpen = open
-        WindowOrderDiagnostics.logRoster(
-            event: "roster-open-state-changed",
-            open: open,
-            displayMode: displayMode
-        )
-        TerminalAccessibilityAnnouncer.announce(
-            open
-                ? String(
-                    localized: "Agent activity panel opened",
-                    comment: "VoiceOver announcement when the sidebar agent activity panel expands.")
-                : String(
-                    localized: "Agent activity panel closed",
-                    comment: "VoiceOver announcement when the sidebar agent activity panel collapses.")
-        )
-    }
-
-    private func panelItem(for row: AgentActivityRoster.Row) -> AgentActivityPanelItem {
-        let session = sessionStore.session(id: row.sessionID)
-        // Resolve the ROW's pane, not the session's sidebarLocation — that
-        // helper reads the ACTIVE pane, which in a split can be a different
-        // pane's cwd/host than the row being rendered (review finding).
-        let pane = session?.layout.pane(id: row.paneID)
-        let location: SidebarSessionLocation? = pane.map { pane in
-            if let host = pane.remotePresentationHost {
-                return .remote(host: host)
-            }
-            return .local(pane.workingDirectory)
-        }
-        // Split sessions: name the row after ITS pane (the pane title bar the
-        // user sees), via the same displayTitle helper the bar uses so the two
-        // can't diverge. Lone panes have no pane bar — the workspace title
-        // names them, so the row keeps the session title there.
-        let title: String
-        if let pane, session?.layout.hasMultiplePanes == true {
-            title = PaneTitleBarView.displayTitle(for: pane)
-        } else {
-            title = session?.title ?? ""
-        }
-        return AgentActivityPanelItem(
-            row: row,
-            title: title,
-            locationText: location?.displayText ?? ""
-        )
-    }
-
-    /// Builds the body's snapshot in one place: filter-independent state counts
-    /// for the footer overview, the fuzzy projection, and post-trim of empty
-    /// groups while filtering. Empty groups remain visible when no filter is
-    /// active so the empty-group drop target keeps working.
-    ///
-    /// The counts are a single O(total sessions) pass over the unfiltered tree.
-    /// The footer reports the global picture, so it counts every session
-    /// regardless of the current query.
+    /// Builds only the query-dependent projection. The filter-independent agent
+    /// roster lives in `SidebarActivitySection`, whose equatable boundary is
+    /// keyed to the session tree rather than `searchText`.
     private func computedSnapshot(query: String, isFiltering: Bool) -> SidebarSnapshot {
-        // Pane-grain agent roster replaces the old session-grain state walk: it
-        // folds every agent pane once (the same traversal `chromeAwState` did),
-        // and the footer now reports agents, not workspaces.
-        let roster = AgentActivityRoster.build(
-            sessions: sessionStore.groups.flatMap(\.sessions),
-            at: Date()
-        )
-        // Chip counts stay in the design-system state space the footer renders.
-        var counts: [AwState: Int] = [:]
-        for (state, count) in roster.counts {
-            counts[state.awState, default: 0] += count
-        }
-
-        let projection = SidebarSearchProjection.project(
+        let projection = Self.searchProjection(
             groups: sessionStore.groups,
-            query: query,
-            haystacks: { session in
-                SidebarSearchHaystacks(
-                    title: session.title,
-                    location: session.sidebarLocation.searchText
-                )
-            }
+            query: query
         )
 
         // Float pinned sessions into the synthetic Pinned section and drop
@@ -1014,10 +884,25 @@ struct SidebarView: View {
         return SidebarSnapshot(
             entries: pinnedProjection.entries,
             pinned: pinnedProjection.pinned,
-            total: roster.total,
-            counts: counts,
-            roster: roster,
             topMatchID: pinnedProjection.topMatch
+        )
+    }
+
+    /// Kept as one recognizable projection call so search-haystack additions
+    /// remain localized (including the agent-state token work in PR #116).
+    fileprivate static func searchProjection(
+        groups: [SessionGroup],
+        query: String
+    ) -> SidebarSearchProjection.Output {
+        SidebarSearchProjection.project(
+            groups: groups,
+            query: query,
+            haystacks: { session in
+                SidebarSearchHaystacks(
+                    title: session.title,
+                    location: session.sidebarLocation.searchText
+                )
+            }
         )
     }
 
@@ -1361,6 +1246,195 @@ private struct CollapsedEmptySidebarAction: View {
         .frame(maxWidth: .infinity)
         .accessibilityLabel("New workspace")
         .help("New Workspace")
+    }
+}
+
+struct SidebarActivityInvalidationKey: Equatable {
+    let groups: [SessionGroup]
+    let pinnedSessionIDs: [TerminalSession.ID]
+    let selectedSessionID: TerminalSession.ID?
+    let displayMode: SidebarWidthMode
+}
+
+/// Owns the filter-independent roster UI behind an explicit session-tree
+/// invalidation boundary. Parent search-state changes compare equal here, so
+/// typing can rebuild the search/pinned projection without folding every pane.
+private struct SidebarActivitySection: View, Equatable {
+    let invalidationKey: SidebarActivityInvalidationKey
+    @Binding var searchText: String
+    let onOpenQuickSettings: () -> Void
+    let onFocusPane: (TerminalSession.ID, UUID) -> Void
+
+    /// INT-722 roster panel. Transient by design — resets on relaunch.
+    @State private var activityPanelOpen = false
+    @State private var activityPanelScrollTarget: AgentDisplayState?
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.invalidationKey == rhs.invalidationKey
+    }
+
+    var body: some View {
+        let sessions = invalidationKey.groups.flatMap(\.sessions)
+        // Pane-grain agent roster replaces the old session-grain state walk: it
+        // folds every agent pane once, only when the session-tree key changes.
+        let roster = AgentActivityRoster.build(sessions: sessions, at: Date())
+        // Chip counts stay in the design-system state space the footer renders.
+        var counts: [AwState: Int] = [:]
+        for (state, count) in roster.counts {
+            counts[state.awState, default: 0] += count
+        }
+        let sessionsByID = Dictionary(
+            sessions.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return VStack(spacing: 0) {
+            if activityPanelOpen, invalidationKey.displayMode != .collapsed {
+                Divider()
+                AgentActivityPanel(
+                    groups: roster.groups.map { group in
+                        (
+                            state: group.state,
+                            items: group.rows.map { panelItem(for: $0, sessionsByID: sessionsByID) }
+                        )
+                    },
+                    scrollTarget: activityPanelScrollTarget,
+                    onSelect: selectActivityRow,
+                    onClose: { setActivityPanel(open: false) }
+                )
+            }
+
+            SidebarStatusFooter(
+                counts: counts,
+                total: roster.total,
+                displayMode: invalidationKey.displayMode,
+                onOpenQuickSettings: onOpenQuickSettings,
+                onSelectNextMatchingState: { focusNextAgentPane(matching: $0, in: roster) },
+                onToggleActivityPanel: { state in
+                    // Chips only open/retarget; closing lives on the total
+                    // label and the panel's own close button. Keeps the chips'
+                    // "Show…" tooltips truthful.
+                    if activityPanelOpen, state == nil {
+                        setActivityPanel(open: false)
+                    } else {
+                        setActivityPanel(open: true, scrollTarget: state)
+                    }
+                },
+                activityPanelOpen: activityPanelOpen
+            )
+        }
+        .onChange(of: invalidationKey.displayMode) { _, mode in
+            WindowOrderDiagnostics.logRoster(
+                event: "sidebar-display-mode-changed",
+                open: activityPanelOpen,
+                displayMode: mode
+            )
+            // The panel is expanded-mode only; collapsing while it's open would
+            // strand the open state + its announcement. Close it so both stay
+            // coherent with what's on screen.
+            if mode == .collapsed, activityPanelOpen {
+                setActivityPanel(open: false)
+            }
+        }
+        .onAppear {
+            WindowOrderDiagnostics.logRoster(
+                event: "roster-appeared",
+                open: activityPanelOpen,
+                displayMode: invalidationKey.displayMode
+            )
+        }
+    }
+
+    private func selectActivityRow(_ row: AgentActivityRoster.Row) {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            let projection = SidebarView.searchProjection(
+                groups: invalidationKey.groups,
+                query: query
+            )
+            let targetIsVisible = projection.entries.contains { entry in
+                entry.sessions.contains { $0.session.id == row.sessionID }
+            }
+            // If the target session is hidden under the active search filter,
+            // clear it first so the jump lands somewhere visible.
+            if !targetIsVisible {
+                searchText = ""
+            }
+        }
+        onFocusPane(row.sessionID, row.paneID)
+    }
+
+    /// Collapsed-rail chip jump: cycle pane-grain through the matching rows,
+    /// landing on the pane after the currently-active one.
+    private func focusNextAgentPane(matching state: AwState, in roster: AgentActivityRoster) {
+        let rows = roster.groups.flatMap(\.rows).filter { $0.state.awState == state }
+        guard !rows.isEmpty else {
+            return
+        }
+        let activePaneID = invalidationKey.selectedSessionID.flatMap { selectedID in
+            invalidationKey.groups
+                .lazy
+                .flatMap(\.sessions)
+                .first { $0.id == selectedID }?
+                .activePaneID
+        }
+        let startIndex =
+            activePaneID.flatMap { id in
+                rows.firstIndex { $0.paneID == id }
+            } ?? -1
+        let next = rows[(startIndex + 1) % rows.count]
+        onFocusPane(next.sessionID, next.paneID)
+    }
+
+    /// Single writer for the roster panel's open state so the a11y announcement
+    /// can't be missed by one path.
+    private func setActivityPanel(open: Bool, scrollTarget: AgentDisplayState? = nil) {
+        activityPanelScrollTarget = scrollTarget
+        guard open != activityPanelOpen else {
+            return
+        }
+        activityPanelOpen = open
+        WindowOrderDiagnostics.logRoster(
+            event: "roster-open-state-changed",
+            open: open,
+            displayMode: invalidationKey.displayMode
+        )
+        TerminalAccessibilityAnnouncer.announce(
+            open
+                ? String(
+                    localized: "Agent activity panel opened",
+                    comment: "VoiceOver announcement when the sidebar agent activity panel expands.")
+                : String(
+                    localized: "Agent activity panel closed",
+                    comment: "VoiceOver announcement when the sidebar agent activity panel collapses.")
+        )
+    }
+
+    private func panelItem(
+        for row: AgentActivityRoster.Row,
+        sessionsByID: [TerminalSession.ID: TerminalSession]
+    ) -> AgentActivityPanelItem {
+        let session = sessionsByID[row.sessionID]
+        // Resolve the ROW's pane, not the session's sidebarLocation — that
+        // helper reads the active pane, which can be a different split.
+        let pane = session?.layout.pane(id: row.paneID)
+        let location: SidebarSessionLocation? = pane.map { pane in
+            if let host = pane.remotePresentationHost {
+                return .remote(host: host)
+            }
+            return .local(pane.workingDirectory)
+        }
+        let title: String
+        if let pane, session?.layout.hasMultiplePanes == true {
+            title = PaneTitleBarView.displayTitle(for: pane)
+        } else {
+            title = session?.title ?? ""
+        }
+        return AgentActivityPanelItem(
+            row: row,
+            title: title,
+            locationText: location?.displayText ?? ""
+        )
     }
 }
 
