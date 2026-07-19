@@ -1,0 +1,32 @@
+name: Native CI execution-ref cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      execution-ref:
+        description: Native executor ref to delete.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  cleanup:
+    name: Delete native execution ref
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete execution ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EXECUTION_REF: ${{ inputs.execution-ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$EXECUTION_REF" =~ ^native-ci-runs/run-[0-9]+-[0-9]+$ ]]; then
+            echo "ref does not match the native execution namespace" >&2
+            exit 1
+          fi
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/git/refs/heads/${EXECUTION_REF}" >/dev/null

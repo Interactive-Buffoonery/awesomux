@@ -44,12 +44,16 @@ Add rows here when a term is used repeatedly in code, issues, or ADRs and the me
 | **Workspace tree** | The `SessionGroup -> TerminalSession -> TerminalPaneLayout` hierarchy. |
 | **Workspace group color** | Optional per-`SessionGroup` sidebar tint override. It drives group identity chrome — the group dot/header tint plus row accent chrome such as the active rail/glow or a future collapsed-sidebar dot. It is decorative for row backgrounds: sidebar tile row text stays on stable semantic surfaces (verified by `script/check_tint_contrast.py`), and the tint does not affect terminal colors. |
 | **Pane** | `TerminalPane` — one terminal slot; backed by a libghostty surface when attached. |
+| **Workspace-pane kind** | `WorkspacePaneKind` — the closed leaf taxonomy (`terminal`, `documentGroup`). `WorkspaceLeaf` is the leaf-as-value type-aware projections dispatch on; a new kind is added here, not via a protocol/plugin ([ADR 0026](docs/adr/0026-typed-workspace-pane-foundation.md)). |
+| **Pane capabilities** | `WorkspacePaneCapabilities` — per-leaf `localFileAccess`/`remoteProvenance`/`safeInputTarget`/`duplicable`/`presetEligible`, so views don't guess behavior from raw payloads. |
+| **Pane availability** | `PaneAvailability` — derivable attachment classifier (`awaitingHydration`/`attached`/`unavailable`/`stale`). Visibility (`isMounted`) and close phase are separate axes. |
+| **Layout intent** | `WorkspaceLayoutIntent` — reusable, serializable layout structure with zero live-only state; the INT-757 preset seam. Produced by the prune-and-normalize `TerminalPaneLayout.layoutIntent`. |
 | **Execution location** | `ExecutionLocation` — value-semantic local or SSH-host identity. A pane's durable `PaneExecutionPlan` is authoritative; a workspace group's `RemoteTarget` only seeds new panes and migrates legacy snapshots. |
 | **Resource identity** | `ResourceIdentity` — an execution location plus a path. Equal path strings on different hosts identify different resources. |
 | **Document pane** | `DocumentPane` — auxiliary Markdown viewer leaf in a workspace layout; validates local `.md`/`.markdown` files, renders comments/highlights, and stays paired with a terminal pane for agent nudges. |
 | **Shell activity** | Runtime-only busy/idle signal for shell sessions. It is derived from Ghostty prompt markers after at least one prompt has been observed, debounced for chrome, not persisted, and separate from the raw quit-confirmation signal. |
 | **Session snapshot** | On-disk JSON (`Application Support/…/session-state.json`) representing groups, layout, and selection for restore. |
-| **Product analytics** | Explicitly opt-in, anonymous-by-default reporting about awesoMux product health; currently limited to error reports and never terminal content. |
+| **Product analytics** | Explicitly opt-in, anonymous-by-default reporting about awesoMux product health. The current foundation is local-only; future provider delivery remains bounded by ADR-0008 and never includes terminal content. |
 | **Analytics consent level** | The user's product analytics choice: off, error reports, or product usage. |
 | **Error report** | A privacy-filtered product analytics event describing an awesoMux app failure, crash, or handled error category. |
 | **Feedback report** | A user-initiated support message with diagnostics shown in an editable email draft before anything is sent. |

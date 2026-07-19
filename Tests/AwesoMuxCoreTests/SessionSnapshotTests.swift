@@ -45,16 +45,16 @@ final class SessionSnapshotTests: XCTestCase {
 
     func testLegacyTerminalPaneMintsTerminalSessionID() throws {
         let json = """
-        {
-          "id": "\(UUID().uuidString)",
-          "title": "zsh",
-          "isTitleUserEdited": false,
-          "workingDirectory": "~",
-          "agentKind": "Shell",
-          "agentExecutionState": "idle",
-          "unreadNotificationCount": 0
-        }
-        """
+            {
+              "id": "\(UUID().uuidString)",
+              "title": "zsh",
+              "isTitleUserEdited": false,
+              "workingDirectory": "~",
+              "agentKind": "Shell",
+              "agentExecutionState": "idle",
+              "unreadNotificationCount": 0
+            }
+            """
 
         let decoded = try JSONDecoder().decode(TerminalPane.self, from: Data(json.utf8))
 
@@ -85,11 +85,12 @@ final class SessionSnapshotTests: XCTestCase {
         let session = TerminalSession(
             title: "split",
             workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(first),
-                second: .pane(second)
-            )),
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(first),
+                    second: .pane(second)
+                )),
             activePaneID: first.id
         )
         let snapshot = SessionSnapshot(
@@ -110,15 +111,15 @@ final class SessionSnapshotTests: XCTestCase {
     func testRejectsFutureSchemaVersionReportsVersions() {
         let futureVersion = SessionSnapshot.currentSchemaVersion + 1
         let json = """
-        {
-          "schemaVersion": \(futureVersion),
-          "groups": [],
-          "selectedSessionID": null
-        }
-        """
+            {
+              "schemaVersion": \(futureVersion),
+              "groups": [],
+              "selectedSessionID": null
+            }
+            """
 
         XCTAssertThrowsError(
-            try JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8))
+            try SessionSnapshot.decode(from: Data(json.utf8))
         ) { error in
             guard case let DecodingError.dataCorrupted(context) = error else {
                 XCTFail("Expected dataCorrupted, got \(error)")
@@ -129,6 +130,67 @@ final class SessionSnapshotTests: XCTestCase {
                 "Unsupported future session snapshot schema version: found \(futureVersion), current \(SessionSnapshot.currentSchemaVersion)."
             )
         }
+    }
+
+    func testDecodeThreadsSchemaVersionIntoNestedModels() throws {
+        let terminal = TerminalPane(
+            title: "zsh",
+            workingDirectory: "~",
+            executionPlan: .local
+        )
+        let sessionID = UUID()
+        let documentID = UUID()
+        let groupID = UUID()
+        let terminalJSON = String(decoding: try JSONEncoder().encode(terminal), as: UTF8.self)
+        let json = """
+            {
+              "schemaVersion": 7,
+              "groups": [{
+                "id": "\(groupID.uuidString)",
+                "name": "main",
+                "sessions": [{
+                  "id": "\(sessionID.uuidString)",
+                  "title": "workspace",
+                  "workingDirectory": "~",
+                  "layout": {"split":{"_0":{
+                    "id": "\(UUID().uuidString)",
+                    "orientation": "vertical",
+                    "firstFraction": 0.5,
+                    "first": {"pane":{"_0":\(terminalJSON)}},
+                    "second": {"documentGroup":{"_0":{
+                      "id": "\(UUID().uuidString)",
+                      "tabs": [{
+                        "id": "\(documentID.uuidString)",
+                        "fileURL": "file:///tmp/cache.md",
+                        "title": "cache.md",
+                        "remoteSnapshotOrigin": "devbox:/repo/cache.md"
+                      }],
+                      "selectedTabID": "\(documentID.uuidString)"
+                    }}}
+                  }}},
+                  "activePaneID": "\(terminal.id.uuidString)"
+                }]
+              }],
+              "selectedSessionID": "\(sessionID.uuidString)"
+            }
+            """
+
+        let legacyData = Data(
+            json.replacingOccurrences(
+                of: #""schemaVersion": 7"#,
+                with: #""schemaVersion": 6"#
+            ).utf8
+        )
+        let migrated = try SessionSnapshot.decode(from: legacyData)
+        let recovered = try SessionSnapshot.decode(from: Data(json.utf8))
+
+        XCTAssertEqual(
+            migrated.groups.first?.sessions.first?.layout.firstDocumentGroup?
+                .selectedTab?.remoteSnapshotOrigin,
+            "devbox:/repo/cache.md"
+        )
+        XCTAssertEqual(recovered.droppedDocumentTabCountDuringDecoding, 1)
+        XCTAssertNil(recovered.groups.first?.sessions.first?.layout.firstDocumentGroup)
     }
 
     @MainActor
@@ -151,7 +213,7 @@ final class SessionSnapshotTests: XCTestCase {
         )
 
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let restored = SessionStore(restoring: decoded)
 
         XCTAssertEqual(decoded.groups.first?.color, .yellow)
@@ -162,21 +224,21 @@ final class SessionSnapshotTests: XCTestCase {
         for color in [WorkspaceGroupColor.sky, .lavender] {
             let groupID = UUID()
             let json = """
-            {
-              "schemaVersion": \(SessionSnapshot.currentSchemaVersion),
-              "groups": [
                 {
-                  "id": "\(groupID.uuidString)",
-                  "name": "awesoMux",
-                  "color": "\(color.rawValue)",
-                  "sessions": []
+                  "schemaVersion": \(SessionSnapshot.currentSchemaVersion),
+                  "groups": [
+                    {
+                      "id": "\(groupID.uuidString)",
+                      "name": "awesoMux",
+                      "color": "\(color.rawValue)",
+                      "sessions": []
+                    }
+                  ],
+                  "selectedSessionID": null
                 }
-              ],
-              "selectedSessionID": null
-            }
-            """
+                """
 
-            let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8))
+            let decoded = try SessionSnapshot.decode(from: Data(json.utf8))
 
             XCTAssertEqual(decoded.groups.first?.color, color)
         }
@@ -185,21 +247,21 @@ final class SessionSnapshotTests: XCTestCase {
     func testUnknownWorkspaceGroupColorDecodesAsNil() throws {
         let groupID = UUID()
         let json = """
-        {
-          "schemaVersion": \(SessionSnapshot.currentSchemaVersion),
-          "groups": [
             {
-              "id": "\(groupID.uuidString)",
-              "name": "awesoMux",
-              "color": "ultraviolet",
-              "sessions": []
+              "schemaVersion": \(SessionSnapshot.currentSchemaVersion),
+              "groups": [
+                {
+                  "id": "\(groupID.uuidString)",
+                  "name": "awesoMux",
+                  "color": "ultraviolet",
+                  "sessions": []
+                }
+              ],
+              "selectedSessionID": null
             }
-          ],
-          "selectedSessionID": null
-        }
-        """
+            """
 
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8))
+        let decoded = try SessionSnapshot.decode(from: Data(json.utf8))
 
         XCTAssertNil(decoded.groups.first?.color)
     }
@@ -207,21 +269,21 @@ final class SessionSnapshotTests: XCTestCase {
     func testMalformedWorkspaceGroupColorShapeDecodesAsNil() throws {
         let groupID = UUID()
         let json = """
-        {
-          "schemaVersion": \(SessionSnapshot.currentSchemaVersion),
-          "groups": [
             {
-              "id": "\(groupID.uuidString)",
-              "name": "awesoMux",
-              "color": { "unexpected": "shape" },
-              "sessions": []
+              "schemaVersion": \(SessionSnapshot.currentSchemaVersion),
+              "groups": [
+                {
+                  "id": "\(groupID.uuidString)",
+                  "name": "awesoMux",
+                  "color": { "unexpected": "shape" },
+                  "sessions": []
+                }
+              ],
+              "selectedSessionID": null
             }
-          ],
-          "selectedSessionID": null
-        }
-        """
+            """
 
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8))
+        let decoded = try SessionSnapshot.decode(from: Data(json.utf8))
 
         XCTAssertNil(decoded.groups.first?.color)
     }
@@ -288,7 +350,7 @@ final class SessionSnapshotTests: XCTestCase {
         )
 
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let store = SessionStore(restoring: decoded)
 
         XCTAssertEqual(store.selectedSession?.agentState, .waiting)
@@ -310,7 +372,7 @@ final class SessionSnapshotTests: XCTestCase {
         )
 
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let store = SessionStore(restoring: decoded)
 
         // R5: a live permission prompt survives relaunch (restores badged); the
@@ -345,12 +407,13 @@ final class SessionSnapshotTests: XCTestCase {
             second: .pane(innerRightPane),
             firstFraction: 0.5
         )
-        let layout = TerminalPaneLayout.split(TerminalSplit(
-            orientation: .vertical,
-            first: .pane(leftPane),
-            second: .split(innerSplit),
-            firstFraction: 0.5
-        ))
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .pane(leftPane),
+                second: .split(innerSplit),
+                firstFraction: 0.5
+            ))
         let session = TerminalSession(
             title: "ws",
             workingDirectory: "~",
@@ -404,7 +467,7 @@ final class SessionSnapshotTests: XCTestCase {
         let modifiedData = try JSONSerialization.data(withJSONObject: jsonObj)
 
         // Decode must succeed without throwing (no quarantine).
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: modifiedData)
+        let decoded = try SessionSnapshot.decode(from: modifiedData)
         let decodedSession = try XCTUnwrap(decoded.groups.first?.sessions.first)
 
         // Siblings with valid colors survive intact.

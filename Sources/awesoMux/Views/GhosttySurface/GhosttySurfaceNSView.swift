@@ -35,6 +35,9 @@ final class GhosttySurfaceNSView: NSView {
     var sessionID: TerminalSession.ID
     var pane: TerminalPane
     var paneID: TerminalPane.ID
+    var remoteMarkdownFetchProgressIndicator: NSProgressIndicator?
+    var remoteMarkdownFetchProgressIdentity: (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)?
+    var remoteMarkdownFetchProgressCount = 0
     var enabledAgentRuntimeFileDropSources: Set<AgentRuntimeSource>
     /// Whether a text-detected `grok` session may adopt the Grok agent kind (and
     /// thus its sidebar icon). The same setting gates Grok runtime events.
@@ -117,6 +120,16 @@ final class GhosttySurfaceNSView: NSView {
     var hasObservedAgentActivity = false
     var lastRuntimeEventAppliedAt: TimeInterval?
     var lastRuntimeAttentionEventAppliedAt: TimeInterval?
+    /// The foreground-process incarnation (pid + start time) observed at the
+    /// moment a genuine provider hook last confirmed `.waiting` — stamped only
+    /// by `applyAgentRuntimeEvent`'s trusted hook path, never by the
+    /// process-recognition (`detectAgentExitedToShell`) or visible-text
+    /// detector paths that also write `.waiting`. `AgentPromptGate.verdict`
+    /// requires this to match the CURRENTLY observed foreground incarnation
+    /// before trusting a nudge target — closes the same-provider-relaunch
+    /// window where a fresh process gets recognized/scraped into `.waiting`
+    /// before its own first real hook ever fires (INT-569 follow-up).
+    var verifiedWaitingForegroundIncarnation: AgentForegroundIncarnation?
     /// Owns command-bridge lifecycle state + sequencing; this view is the thin
     /// AppKit/libghostty adapter it enacts against (see ``CommandBridgeEnactor``).
     /// Lazy so `self` is fully initialized before the enactor captures it.
@@ -481,12 +494,22 @@ final class GhosttySurfaceNSView: NSView {
         enabledAgentRuntimeFileDropSources: Set<AgentRuntimeSource>,
         grokIconEnabled: Bool
     ) {
+        if sessionID != session.id || paneID != pane.id {
+            clearRemoteMarkdownFetchProgress()
+        }
         self.sessionStore = sessionStore
         self.session = session
         self.sessionID = session.id
         if self.pane.terminalSessionID != pane.terminalSessionID {
             commandBridgeEnactor.handleSessionRepoint()
             resetSearchStateForSurfaceTeardown()
+            // A repointed session has a different (or no) process behind it;
+            // a leftover trusted incarnation from the PRIOR pane must never be
+            // read as evidence for this one. Not load-bearing for correctness
+            // (verdict already requires an exact pid/start-time match against
+            // the freshly observed foreground process), but keeps the ivar
+            // from ever holding another pane's identity.
+            verifiedWaitingForegroundIncarnation = nil
         }
         self.pane = pane
         self.paneID = pane.id
@@ -509,6 +532,13 @@ final class GhosttySurfaceNSView: NSView {
             setAccessibilityElement(shouldBeAccessibilityElement)
         }
         sizeDidChange(contentSize)
+    }
+
+    func clearRemoteMarkdownFetchProgress() {
+        remoteMarkdownFetchProgressIndicator?.removeFromSuperview()
+        remoteMarkdownFetchProgressIndicator = nil
+        remoteMarkdownFetchProgressIdentity = nil
+        remoteMarkdownFetchProgressCount = 0
     }
 
     override func viewDidMoveToWindow() {
