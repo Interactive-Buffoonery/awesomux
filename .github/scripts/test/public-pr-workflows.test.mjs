@@ -102,6 +102,7 @@ test("Swift CodeQL is weekly and manual only", () => {
 
 test("PR hygiene consolidates the external checklist", () => {
   const workflow = workflows.template;
+  assert.match(workflow, /if: github\.event\.pull_request\.user\.login != 'dependabot\[bot\]'/);
   assert.match(workflow, /MAINTAINER_LOGINS_JSON/);
   assert.match(workflow, /<!-- awesomux-external-pr-checklist -->/);
   assert.match(workflow, /--method PATCH/);
