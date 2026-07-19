@@ -370,6 +370,7 @@ struct AwesoMuxApp: App {
             }
             .sheet(item: $remoteWorkspaceGroupCreateRequest) { _ in
                 RemoteWorkspaceGroupCreateSheet(
+                    existingGroupNames: sessionStore.groups.map(\.name),
                     onCancel: {
                         remoteWorkspaceGroupCreateRequest = nil
                     },
@@ -776,6 +777,16 @@ struct AwesoMuxApp: App {
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitDown))
                 .disabled(sessionStore.selectedSession == nil)
+
+                Button("Save Layout as Preset…") {
+                    saveLayoutPresetForSelectedWorkspace()
+                }
+                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
+
+                Button("Apply Layout Preset…") {
+                    applyLayoutPresetViaPicker()
+                }
+                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
 
                 // Same conditional as the File-menu binding: closeActivePane()
                 // routes single-pane sessions through closeWorkspace(_:), so
@@ -3110,6 +3121,35 @@ struct AwesoMuxApp: App {
                         runCustomCommand(id: commandID)
                     }))
         }
+        // One direct-apply row per checked-in layout preset, snapshotted at
+        // palette-open time like the daemon rows above. The source session and
+        // its anchor are captured HERE and baked into the command id, so a
+        // stale row (selection or active pane changed while the palette sat
+        // open) cannot silently resolve against a different session's
+        // same-named preset when `runPaletteCommand` rebuilds this list fresh
+        // at Enter time — the id simply won't be present in the rebuild and
+        // the row is a no-op, matching every other id-keyed palette command.
+        // The preset name and file are still re-validated and re-read at run
+        // time (via `applyLayoutPreset`'s own load), so a preset deleted
+        // between summon and Enter still fails with the normal load alert.
+        if !isAnySheetPresented, let selected = sessionStore.selectedSession {
+            let anchor = layoutPresetAnchorDirectory(for: selected)
+            let sessionID = selected.id
+            for presetName in LayoutPresetStore.listPresetNames(forWorkingDirectory: anchor) {
+                commands.append(
+                    PaletteCommand(
+                        id: "applyLayoutPreset.\(sessionID).\(anchor).\(presetName)",
+                        title: "Apply Layout: \(presetName)",
+                        subtitle: "Layout preset",
+                        keywords: ["layout", "preset", "split", "apply"],
+                        shortcut: nil,
+                        isEnabled: true,
+                        run: { [self] in
+                            applyLayoutPreset(named: presetName, sessionID: sessionID, anchorDirectory: anchor)
+                        }
+                    ))
+            }
+        }
         return commands
     }
 
@@ -3264,6 +3304,8 @@ struct AwesoMuxApp: App {
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFilePanel,
             openSessionManager: toggleSessionManager,
+            saveLayoutPreset: saveLayoutPresetForSelectedWorkspace,
+            applyLayoutPreset: applyLayoutPresetViaPicker,
             openRecentLink: { value, sessionID, paneID in
                 Task { @MainActor in
                     await GhosttyRuntime.openRecentLink(
@@ -3452,6 +3494,310 @@ struct AwesoMuxApp: App {
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
         alert.runModal()
+    }
+
+    // MARK: - Layout presets (INT-757)
+
+    /// The directory the preset root is resolved FROM: the active pane's
+    /// live-validated cwd — what the path bar shows — falling back to the
+    /// session's declared cwd. A session created with a default cwd ("~") can
+    /// silently anchor somewhere the user never looks; save/apply/list must all
+    /// resolve from the location the user can SEE, and all from the same one.
+    ///
+    /// The active pane is excluded entirely when it carries a remote execution
+    /// plan: a remote pane's `workingDirectory` is a path reported by the far
+    /// side and may coincidentally exist locally, which would silently anchor
+    /// presets in an unrelated local repository (INT-757 review).
+    private func layoutPresetAnchorDirectory(for session: TerminalSession) -> String {
+        let activeLocalDirectory: String? = session.activePane.flatMap { pane in
+            guard pane.executionPlan.remoteTarget == nil else { return nil }
+            return pane.workingDirectory
+        }
+        return WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
+            activeLocalDirectory,
+            session.workingDirectory,
+        ]) ?? session.workingDirectory
+    }
+
+    private func saveLayoutPresetForSelectedWorkspace() {
+        guard !isAnySheetPresented, let selected = sessionStore.selectedSession else { return }
+
+        guard let intent = selected.layout.layoutIntent else {
+            showLayoutPresetAlert(
+                title: String(
+                    localized: "No Layout to Save",
+                    comment: "Alert title when the workspace has no preset-eligible panes."),
+                message: String(
+                    localized:
+                        "This workspace has no local terminal panes, so there is no layout to save as a preset.",
+                    comment: "Alert text when the workspace has no preset-eligible panes."))
+            return
+        }
+
+        // Resolve the destination BEFORE asking for a name, so the dialog can
+        // say exactly where the file will land — the root can differ from
+        // where the user assumes (default-cwd sessions, worktrees).
+        let anchorDirectory = layoutPresetAnchorDirectory(for: selected)
+        guard let projectRoot = LayoutPresetStore.projectRoot(forWorkingDirectory: anchorDirectory)
+        else {
+            showLayoutPresetAlert(
+                title: String(
+                    localized: "Could Not Save Preset",
+                    comment: "Alert title when saving a layout preset fails."),
+                message: String(
+                    localized: "The workspace's project folder could not be found.",
+                    comment: "Failure reason when the layout preset project root cannot be resolved."))
+            return
+        }
+        let destinationDirectory =
+            projectRoot
+            .appendingPathComponent(".awesomux/layouts", isDirectory: true)
+
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "Save Layout as Preset",
+            comment: "Alert title for naming a new layout preset.")
+        alert.informativeText = String(
+            localized:
+                "The preset will be saved to \(destinationDirectory.path), so it can be checked in and shared.",
+            comment: "Alert text naming the folder the layout preset will be saved to.")
+        alert.alertStyle = .informational
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.placeholderString = String(
+            localized: "Preset name",
+            comment: "Placeholder for the layout preset name field.")
+        field.setAccessibilityLabel(
+            String(
+                localized: "Preset name",
+                comment: "Accessibility label for the layout preset name field."))
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        alert.addButton(
+            withTitle: String(localized: "Save", comment: "Button title that saves a layout preset."))
+        alert.addButton(
+            withTitle: String(localized: "Cancel", comment: "Button title that cancels saving a layout preset."))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        guard let name = LayoutPresetStore.sanitizedPresetName(field.stringValue) else {
+            showLayoutPresetAlert(
+                title: String(
+                    localized: "Invalid Preset Name",
+                    comment: "Alert title for a rejected layout preset name."),
+                message: String(
+                    localized:
+                        "Preset names use letters, numbers, spaces, hyphens, and underscores, up to 64 characters.",
+                    comment: "Alert text describing the allowed layout preset name characters."))
+            return
+        }
+
+        if LayoutPresetStore.presetFileExists(
+            named: name,
+            forWorkingDirectory: anchorDirectory
+        ) {
+            let overwrite = NSAlert()
+            overwrite.messageText = String(
+                localized: "Replace Existing Preset?",
+                comment: "Alert title when saving over an existing layout preset.")
+            overwrite.informativeText = String(
+                localized: "A preset named “\(name)” already exists in this project.",
+                comment: "Alert text when saving over an existing layout preset.")
+            overwrite.alertStyle = .warning
+            overwrite.addButton(
+                withTitle: String(
+                    localized: "Replace", comment: "Button title that overwrites an existing layout preset."))
+            overwrite.addButton(
+                withTitle: String(
+                    localized: "Cancel", comment: "Button title that cancels overwriting a layout preset."))
+            guard overwrite.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        do {
+            let savedURL = try LayoutPresetStore.save(
+                intent,
+                named: name,
+                forWorkingDirectory: anchorDirectory
+            )
+            postAccessibilityAnnouncement(
+                String(
+                    localized: "Saved layout preset \(name)",
+                    comment: "VoiceOver announcement after saving a layout preset."))
+            // Name the exact file that was written — the resolved root is not
+            // always where the user assumes, and a silent success hides that.
+            let confirmation = NSAlert()
+            confirmation.messageText = String(
+                localized: "Preset Saved",
+                comment: "Alert title confirming a layout preset was saved.")
+            confirmation.informativeText = savedURL.path
+            confirmation.alertStyle = .informational
+            confirmation.addButton(
+                withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
+            confirmation.addButton(
+                withTitle: String(
+                    localized: "Reveal in Finder",
+                    comment: "Button title that reveals the saved layout preset in Finder."))
+            if confirmation.runModal() == .alertSecondButtonReturn {
+                NSWorkspace.shared.activateFileViewerSelecting([savedURL])
+            }
+        } catch {
+            showLayoutPresetAlert(
+                title: String(
+                    localized: "Could Not Save Preset",
+                    comment: "Alert title when saving a layout preset fails."),
+                message: layoutPresetFailureMessage(for: error))
+        }
+    }
+
+    private func applyLayoutPresetViaPicker() {
+        guard !isAnySheetPresented, let selected = sessionStore.selectedSession else { return }
+
+        // Captured once, before the modal alert runs, and reused verbatim at
+        // apply time below — the picker must load from the anchor its list
+        // came from, not whatever is selected by the time the alert closes.
+        let anchor = layoutPresetAnchorDirectory(for: selected)
+        let sessionID = selected.id
+        let names = LayoutPresetStore.listPresetNames(forWorkingDirectory: anchor)
+        guard !names.isEmpty else {
+            showLayoutPresetAlert(
+                title: String(
+                    localized: "No Layout Presets Found",
+                    comment: "Alert title when the project has no layout presets."),
+                message: String(
+                    localized:
+                        "No presets were found under .awesomux/layouts for this project. Use “Save Layout as Preset…” to create one.",
+                    comment: "Alert text when the project has no layout presets."))
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "Apply Layout Preset",
+            comment: "Alert title for picking a layout preset to apply.")
+        alert.informativeText = String(
+            localized: "The preset opens as a new workspace in this project.",
+            comment: "Alert text explaining that applying a preset creates a new workspace.")
+        alert.alertStyle = .informational
+        let popup = NSPopUpButton(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 26),
+            pullsDown: false
+        )
+        popup.setAccessibilityLabel(
+            String(
+                localized: "Layout preset",
+                comment: "Accessibility label for the layout preset picker popup."))
+        for name in names {
+            popup.addItem(withTitle: name)
+        }
+        alert.accessoryView = popup
+        alert.addButton(
+            withTitle: String(localized: "Apply", comment: "Button title that applies the selected layout preset."))
+        alert.addButton(
+            withTitle: String(localized: "Cancel", comment: "Button title that cancels applying a layout preset."))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let selectedIndex = popup.indexOfSelectedItem
+        guard names.indices.contains(selectedIndex) else { return }
+        applyLayoutPreset(named: names[selectedIndex], sessionID: sessionID, anchorDirectory: anchor)
+    }
+
+    /// `sessionID` and `anchorDirectory` are a snapshot taken by the caller at
+    /// listing time (palette row build, or picker pre-alert) — never
+    /// recomputed from `sessionStore.selectedSession` here. Recomputing would
+    /// reintroduce the staleness this is guarding against: the session the
+    /// user picked from could differ from whatever is selected by the time
+    /// this runs, silently loading a same-named preset from another project.
+    private func applyLayoutPreset(named name: String, sessionID: TerminalSession.ID, anchorDirectory: String) {
+        guard let selected = sessionStore.session(id: sessionID) else { return }
+        let workingDirectory = anchorDirectory
+
+        do {
+            let intent = try LayoutPresetStore.load(
+                named: name,
+                forWorkingDirectory: workingDirectory
+            )
+            let layout = intent.materialize(workingDirectory: workingDirectory)
+            let session = TerminalSession(
+                title: name,
+                workingDirectory: workingDirectory,
+                isTitleUserEdited: true,
+                layout: layout
+            )
+            // New workspace lands next to the one it was applied from; the
+            // default group is only a fallback for a groupless edge state.
+            let groupName =
+                sessionStore.groups.first { group in
+                    group.sessions.contains { $0.id == selected.id }
+                }?.name ?? appSettingsStore.workspaces.value.defaultGroup
+            sessionStore.insertSession(session, groupName: groupName)
+            appDelegate.surfacePrimaryWindow()
+            postAccessibilityAnnouncement(
+                String(
+                    localized: "Applied layout preset \(name)",
+                    comment: "VoiceOver announcement after applying a layout preset."))
+        } catch {
+            showLayoutPresetAlert(
+                title: String(
+                    localized: "Could Not Apply Preset",
+                    comment: "Alert title when applying a layout preset fails."),
+                message: layoutPresetFailureMessage(for: error))
+        }
+    }
+
+    private func showLayoutPresetAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(
+            withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
+        alert.runModal()
+    }
+
+    private func layoutPresetFailureMessage(for error: Error) -> String {
+        switch error {
+        case LayoutPresetStore.PresetError.invalidName:
+            return String(
+                localized: "The preset name is not valid.",
+                comment: "Failure reason for an invalid layout preset name.")
+        case LayoutPresetStore.PresetError.rootUnavailable:
+            return String(
+                localized: "The workspace's project folder could not be found.",
+                comment: "Failure reason when the layout preset project root cannot be resolved.")
+        case LayoutPresetStore.PresetError.directoryUnavailable:
+            return String(
+                localized:
+                    "The .awesomux/layouts folder is missing or is not a plain folder. Symbolic links are not followed.",
+                comment: "Failure reason when the layout preset folder is unusable.")
+        case LayoutPresetStore.PresetError.notARegularFile:
+            return String(
+                localized: "The preset is not a plain file. Symbolic links are not followed.",
+                comment: "Failure reason when a layout preset is not a regular file.")
+        case LayoutPresetStore.PresetError.fileTooLarge:
+            return String(
+                localized: "The preset file is too large to be a layout preset.",
+                comment: "Failure reason when a layout preset file exceeds the size cap.")
+        case LayoutPresetStore.PresetError.nestingTooDeep:
+            return String(
+                localized: "The preset file is nested too deeply to be a valid layout.",
+                comment: "Failure reason when a layout preset file fails the nesting scan.")
+        case let WorkspaceLayoutPresetError.unsupportedVersion(version):
+            return String(
+                localized:
+                    "The preset uses format version \(version), which this version of awesoMux does not support.",
+                comment: "Failure reason for an unsupported layout preset format version.")
+        case WorkspaceLayoutPresetError.layoutTooDeep:
+            return String(
+                localized: "The preset's layout has more nested splits than awesoMux supports.",
+                comment: "Failure reason when a layout preset exceeds the split depth cap.")
+        case WorkspaceLayoutPresetError.tooManyTerminals:
+            return String(
+                localized: "The preset's layout has more terminals than awesoMux supports.",
+                comment: "Failure reason when a layout preset exceeds the terminal count cap.")
+        case is DecodingError:
+            return String(
+                localized: "The preset file could not be read as a layout preset.",
+                comment: "Failure reason for a malformed layout preset file.")
+        default:
+            return error.localizedDescription
+        }
     }
 
     private func openMarkdownFilePanel() {
