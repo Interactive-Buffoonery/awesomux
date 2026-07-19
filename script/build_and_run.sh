@@ -795,9 +795,18 @@ stream_terminal_diagnostics_logs() {
 
 stream_shortcut_diagnostics_logs() {
   local pid="$1"
-  echo "Streaming awesoMux shortcut diagnostics. Quit awesoMux to stop; press Ctrl-C to stop watching logs."
-  /usr/bin/log stream --info --style compact \
-    --predicate "subsystem == \"$LOG_SUBSYSTEM\" AND category == \"ShortcutDiagnostics\" AND processIdentifier == $pid"
+  local diagnostics_file="/tmp/awesomux-shortcuts-${pid}.jsonl"
+  local attempt=0
+  while [[ ! -f "$diagnostics_file" && "$attempt" -lt 40 ]]; do
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  if [[ ! -f "$diagnostics_file" ]]; then
+    echo "error: shortcut diagnostics file was not created at $diagnostics_file" >&2
+    return 1
+  fi
+  echo "Streaming awesoMux shortcut diagnostics from $diagnostics_file. Quit awesoMux to stop; press Ctrl-C to stop watching."
+  tail -n +1 -f "$diagnostics_file"
 }
 
 stream_window_diagnostics_logs() {
