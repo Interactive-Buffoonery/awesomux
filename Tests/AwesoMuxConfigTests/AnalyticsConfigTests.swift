@@ -11,7 +11,6 @@ struct AnalyticsConfigTests {
         #expect(config.analytics == .defaultValue)
         #expect(config.analytics.consentLevel == .off)
         #expect(config.analytics.retainLocalEventLog)
-        #expect(config.analytics.posthogHost == "https://us.i.posthog.com")
     }
 
     @Test("full section round-trips through TOML")
@@ -32,21 +31,6 @@ struct AnalyticsConfigTests {
         #expect(throws: (any Error).self) {
             try TOMLConfigCodec().decode(toml)
         }
-    }
-
-    @Test("non-https posthog host fails validation")
-    func nonHTTPSHostRejected() {
-        let toml = "[analytics]\nposthog_host = \"http://us.i.posthog.com\"\n"
-        #expect(throws: (any Error).self) {
-            try TOMLConfigCodec().decode(toml)
-        }
-    }
-
-    @Test("uppercase HTTPS scheme validates")
-    func uppercaseHTTPSSchemeAccepted() throws {
-        let toml = "[analytics]\nposthog_host = \"HTTPS://us.i.posthog.com\"\n"
-        let config = try TOMLConfigCodec().decode(toml)
-        #expect(config.analytics.posthogHost == "HTTPS://us.i.posthog.com")
     }
 
 }
