@@ -69,20 +69,26 @@ struct NewWorkspaceSplitButton: View {
     }
 
     private var primaryButton: some View {
-        Button(action: guardedNewWorkspace) {
-            Image(systemName: "plus")
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: primarySize, height: primarySize)
-                .contentShape(Rectangle())
+        // The hover fill is a ZStack sibling of the Button, both pinned to
+        // the same outer `.frame`, rather than the fill living inside the
+        // Button's own `.background` — this guarantees the highlight spans
+        // the full declared segment regardless of how the interactive
+        // control inside sizes its own content. Same structure as
+        // `chevronButton` below, where a `Menu`'s internal sizing made a
+        // `.background` on the Menu itself hug just the glyph instead of
+        // filling the segment.
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius - 2)
+                .fill(isPrimaryHovering ? Color.aw.surface.hover : Color.clear)
+            Button(action: guardedNewWorkspace) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: primarySize, height: primarySize)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        // A plain, fully-rounded inset highlight — not mirrored corners tied
-        // to this segment's position — so it's the identical shape the
-        // chevron segment below uses, not just a mirror image of it.
-        .background(
-            isPrimaryHovering ? Color.aw.surface.hover : Color.clear,
-            in: RoundedRectangle(cornerRadius: cornerRadius - 2)
-        )
+        .frame(width: primarySize, height: primarySize)
         .onHover { isPrimaryHovering = $0 }
         // `.onHover(false)` isn't guaranteed when the view is torn down
         // mid-hover (see TerminalPaneView / SidebarSessionTile) — reset so a
@@ -95,35 +101,33 @@ struct NewWorkspaceSplitButton: View {
     }
 
     private var chevronButton: some View {
-        Menu {
-            Button("New Workspace Group…") {
-                onNewWorkspaceGroup()
-            }
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius - 2)
+                .fill(isChevronHovering ? Color.aw.surface.hover : Color.clear)
+            Menu {
+                Button("New Workspace Group…") {
+                    onNewWorkspaceGroup()
+                }
 
-            if !otherGroups.isEmpty {
-                Menu("New Workspace in…") {
-                    ForEach(otherGroups, id: \.id) { entry in
-                        Button(entry.name) {
-                            onNewWorkspaceInGroup(entry.id)
+                if !otherGroups.isEmpty {
+                    Menu("New Workspace in…") {
+                        ForEach(otherGroups, id: \.id) { entry in
+                            Button(entry.name) {
+                                onNewWorkspaceInGroup(entry.id)
+                            }
                         }
                     }
                 }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: chevronWidth, height: primarySize)
+                    .contentShape(Rectangle())
             }
-        } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .frame(width: chevronWidth, height: primarySize)
-                .contentShape(Rectangle())
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        // Same shape as the primary segment's hover fill (plain, fully
-        // rounded, same corner radius) — not a mirrored asymmetric shape —
-        // so the two read as identical highlights, not just similar ones.
-        .background(
-            isChevronHovering ? Color.aw.surface.hover : Color.clear,
-            in: RoundedRectangle(cornerRadius: cornerRadius - 2)
-        )
+        .frame(width: chevronWidth, height: primarySize)
         .onHover { isChevronHovering = $0 }
         .onDisappear { isChevronHovering = false }
         .accessibilityLabel("New Workspace Options")

@@ -51,6 +51,11 @@ struct NewWorkspaceMenuButton: View {
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
+        // SwiftUI draws a native disclosure chevron next to a Menu's label
+        // by default — this was never hidden here, so the rail has shown an
+        // unintended "+ ⌄" this whole time, not a plain "+". Hiding it now
+        // matches the search button beside it, which has no indicator at all.
+        .menuIndicator(.hidden)
         // Neutral, matching the search icon button above it on the rail —
         // not the accent color, which reads as too prominent for a chrome
         // control at this size.
