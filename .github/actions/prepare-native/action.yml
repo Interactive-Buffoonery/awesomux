@@ -77,6 +77,12 @@ runs:
       if: steps.ghostty-cache.outputs.cache-hit != 'true'
       shell: bash
       working-directory: ${{ github.workspace }}
+      env:
+        # Homebrew's tap-trust gate aborts EVERY brew command while any
+        # untrusted tap is present, and GitHub's macos-26 image ships with
+        # aws/tap preinstalled — nothing we install comes from it. Non-
+        # interactive CI can't answer the trust prompt, so opt out here.
+        HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
       run: |
         set -euo pipefail
         brew install zig@0.15
@@ -92,6 +98,9 @@ runs:
     # cache-hit check above) since it's a fast no-op when already present.
     - name: Install ripgrep
       shell: bash
+      env:
+        # Same tap-trust opt-out as the Ghostty tools step above.
+        HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
       run: command -v rg >/dev/null 2>&1 || brew install ripgrep
 
     - name: Build or validate Ghostty artifacts

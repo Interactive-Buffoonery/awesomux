@@ -189,6 +189,12 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Install Zig (Homebrew, pinned 0.15 formula)
+        env:
+          # Homebrew's tap-trust gate aborts every brew command while any
+          # untrusted tap is present, and GitHub's macOS images ship with
+          # aws/tap preinstalled. Non-interactive CI can't answer the trust
+          # prompt, so opt out (same as prepare-native).
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           set -euo pipefail
           # zig@0.15, not current zig: Ghostty requires same-minor 0.15 with
