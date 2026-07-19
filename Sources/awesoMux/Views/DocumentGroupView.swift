@@ -246,11 +246,14 @@ struct DocumentGroupView: View {
                 // one tab never bleeds into the next tab's healthy send bar. A
                 // shell-activity flip is the existing event-driven invalidation
                 // for command submit/finish, so leaving manual SSH also forces a
-                // fresh foreground check without polling.
+                // fresh foreground check without polling. Agent kind/state
+                // flips invalidate the same way so the prompt gate's label and
+                // enabled state track the target's hook-driven transitions
+                // (running -> waiting) without polling (INT-569).
                 .id(
                     DocumentNudgeSendBarID(
                         documentID: document.id,
-                        shellActivity: session.layout.documentSendTarget(for: document.id)?.shellActivity
+                        target: session.layout.documentSendTarget(for: document.id)
                     )
                 )
             case .files:
@@ -447,6 +450,15 @@ struct DocumentGroupView: View {
 struct DocumentNudgeSendBarID: Hashable {
     let documentID: DocumentPane.ID
     let shellActivity: ShellActivity?
+    let agentKind: AgentKind?
+    let agentState: AgentState?
+
+    init(documentID: DocumentPane.ID, target: TerminalPane?) {
+        self.documentID = documentID
+        shellActivity = target?.shellActivity
+        agentKind = target?.agentKind
+        agentState = target?.agentState
+    }
 }
 
 private enum DocumentPaneMode {
