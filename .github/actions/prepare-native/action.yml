@@ -85,6 +85,15 @@ runs:
           xcodebuild -downloadComponent MetalToolchain
         fi
 
+    # Not bundled on the macos-26 runner image (unlike prior macOS images);
+    # script/check_public_seed_source.sh hard-requires it, so every Native CI
+    # run was failing PublicSeedSourceScriptTests.swift regardless of the
+    # PR's own changes. Runs unconditionally (not gated behind the Ghostty
+    # cache-hit check above) since it's a fast no-op when already present.
+    - name: Install ripgrep
+      shell: bash
+      run: command -v rg >/dev/null 2>&1 || brew install ripgrep
+
     - name: Build or validate Ghostty artifacts
       shell: bash
       working-directory: ${{ github.workspace }}
