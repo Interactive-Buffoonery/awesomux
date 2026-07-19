@@ -4,9 +4,9 @@ awesoMux keeps AI review and deterministic testing separate:
 
 - **OpenCode review** performs read-only PR review with exact GLM 5.2 through
   Synthetic.
-- **Native validation** is temporarily maintainer-local while timing-sensitive
-  tests are made deterministic on constrained hosted macOS runners. It does not
-  produce code-review findings.
+- **Native validation** runs existing test and staging scripts for an immutable
+  pull-request SHA when an allowlisted maintainer requests `/ci`. It is advisory
+  and does not produce code-review findings.
 
 Neither system can approve or merge a pull request.
 
@@ -88,7 +88,7 @@ that explains how to request the larger manual review.
 | Name                     | Kind             | Purpose                                              |
 | ------------------------ | ---------------- | ---------------------------------------------------- |
 | `SYNTHETIC_API_KEY`      | Actions secret   | Calls GLM 5.2 through Synthetic.                     |
-| `MAINTAINER_LOGINS_JSON` | Actions variable | JSON array of logins allowed to trigger paid review. |
+| `MAINTAINER_LOGINS_JSON` | Actions variable | JSON array of logins allowed to trigger review and native CI. |
 
 ## Local verification
 
@@ -110,8 +110,7 @@ installer digest verification, output guards, and permission-actor forwarding.
 
 ## Deterministic validation
 
-Maintainers currently run `./script/preflight.sh` locally for native validation.
-The hosted Swift workflow is disabled until timing-sensitive tests use
-deterministic clocks, gates, and event sources that remain reliable on
-constrained macOS runners. Cheap review-automation, source-policy, plural, and
-contrast guards remain separate Linux jobs so they fail quickly.
+Maintainers run `./script/preflight.sh` as the strongest local gate and may
+request advisory, exact-SHA hosted native validation with `/ci`. See
+[`ci.md`](ci.md) for scopes, authorization, artifacts, and the separation
+between required checks, native execution, and review automation.

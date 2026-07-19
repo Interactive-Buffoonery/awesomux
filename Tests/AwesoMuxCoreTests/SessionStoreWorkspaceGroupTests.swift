@@ -5,6 +5,55 @@ import Testing
 @MainActor
 @Suite("SessionStore — Workspace Groups")
 struct SessionStoreWorkspaceGroupTests {
+    @Test("addLocalSession inserts explicit fields and selects the workspace")
+    func addLocalSessionInsertsAndSelects() throws {
+        let group = SessionGroup(name: "work", sessions: [])
+        let store = SessionStore(groups: [group])
+
+        let id = store.addLocalSession(
+            title: "feature/int-857",
+            workingDirectory: "/tmp/repo-worktrees/int-857",
+            toGroupID: group.id
+        )
+
+        let session = try #require(store.groups[0].sessions.first)
+        #expect(session.id == id)
+        #expect(store.selectedSessionID == id)
+        #expect(session.title == "feature/int-857")
+        #expect(session.workingDirectory == "/tmp/repo-worktrees/int-857")
+    }
+
+    @Test("addLocalSession fails closed for a missing group")
+    func addLocalSessionRejectsMissingGroup() {
+        let original = SessionGroup(name: "work", sessions: [])
+        let store = SessionStore(groups: [original])
+
+        let id = store.addLocalSession(
+            title: "feature",
+            workingDirectory: "/tmp/feature",
+            toGroupID: UUID()
+        )
+
+        #expect(id == nil)
+        #expect(store.groups == [original])
+    }
+
+    @Test("addLocalSession never inherits a group's remote default")
+    func addLocalSessionInRemoteGroupStaysLocal() throws {
+        let remote = try #require(RemoteTarget(parsing: "dev@example.com"))
+        let group = SessionGroup(name: "remote", remote: remote, sessions: [])
+        let store = SessionStore(groups: [group])
+
+        let id = store.addLocalSession(
+            title: nil,
+            workingDirectory: "/tmp/local-worktree",
+            toGroupID: group.id
+        )
+
+        let session = try #require(store.groups[0].sessions.first { $0.id == id })
+        #expect(session.activePane?.executionPlan == .local)
+    }
+
     @Test("addWorkspaceGroup creates a starter workspace and selects it")
     func createsStarterWorkspaceAndSelectsIt() {
         let existingSession = TerminalSession(
@@ -224,9 +273,9 @@ struct SessionStoreWorkspaceGroupTests {
         // share the canonical-default lookup key — they must merge, not split
         // into one phantom group each. (Pins the canonical fallback, which a
         // raw-input fallback would have failed.)
-        _ = store.addSession(groupName: "\u{202E}")       // RLO
-        _ = store.addSession(groupName: "\u{200B}\u{FEFF}") // zero-width + BOM
-        _ = store.addSession(groupName: "\u{0301}")        // combining mark only
+        _ = store.addSession(groupName: "\u{202E}")  // RLO
+        _ = store.addSession(groupName: "\u{200B}\u{FEFF}")  // zero-width + BOM
+        _ = store.addSession(groupName: "\u{0301}")  // combining mark only
 
         #expect(store.groups.count == 1)
         #expect(store.groups[0].sessions.count == 3)
@@ -315,7 +364,7 @@ struct SessionStoreWorkspaceGroupTests {
         let snapshot = SessionSnapshot(
             groups: [
                 SessionGroup(name: "scratch", sessions: [firstSession]),
-                SessionGroup(name: "scratch\u{200B}", sessions: [secondSession])
+                SessionGroup(name: "scratch\u{200B}", sessions: [secondSession]),
             ],
             selectedSessionID: firstSession.id
         )
@@ -400,7 +449,7 @@ struct SessionStoreWorkspaceGroupTests {
         let snapshot = SessionSnapshot(
             groups: [
                 SessionGroup(name: "scratch\u{200C}", sessions: [firstSession]),
-                SessionGroup(name: "scratch\u{200D}", sessions: [secondSession])
+                SessionGroup(name: "scratch\u{200D}", sessions: [secondSession]),
             ],
             selectedSessionID: firstSession.id
         )
@@ -441,7 +490,7 @@ struct SessionStoreWorkspaceGroupTests {
         #expect(store.session(id: sessionID)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
         store.moveSession(id: sessionID, toGroupID: group.id, atIndex: 0)
         let data = try JSONEncoder().encode(store.snapshot())
-        let restored = SessionStore(restoring: try JSONDecoder().decode(SessionSnapshot.self, from: data))
+        let restored = SessionStore(restoring: try SessionSnapshot.decode(from: data))
         #expect(restored.session(id: sessionID)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
         #expect(restored.groups[0].remote == nil)
     }
@@ -540,7 +589,7 @@ struct SessionStoreWorkspaceGroupTests {
         // reducer: the INT-767 drop happened between an intact Codable layer
         // and the in-memory rebuild.
         let data = try JSONEncoder().encode(store.snapshot())
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
 
         let restored = SessionStore(restoring: decoded)
         #expect(restored.groups.first?.remote == target)

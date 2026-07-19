@@ -57,7 +57,16 @@ extension GhosttyRuntime {
             }
 
             let title = String(cString: titlePointer)
-            Task { @MainActor in
+            // A `Task` here leaves a gap for `update(session:pane:)` to repoint
+            // this view at a different pane before the write lands — same race
+            // INT-587 fixed for GHOSTTY_ACTION_PROGRESS_REPORT below (INT-608).
+            // OSC 0/2 (title) is parsed from PTY output like OSC 9;4 (progress),
+            // so it shares that case's ghostty_app_tick-only assumption too.
+            assert(
+                Thread.isMainThread,
+                "GHOSTTY_ACTION_SET_TITLE fired off-main — the ghostty_app_tick-only assumption no longer holds"
+            )
+            onMainThreadSynchronously {
                 view.updateTerminalTitle(title)
             }
             return true
@@ -69,7 +78,14 @@ extension GhosttyRuntime {
             }
 
             let workingDirectory = String(cString: pwdPointer)
-            Task { @MainActor in
+            // Same pane-recycle race as GHOSTTY_ACTION_SET_TITLE above (INT-608).
+            // OSC 7 (pwd) is parsed from PTY output like OSC 9;4 (progress), so
+            // it shares that case's ghostty_app_tick-only assumption too.
+            assert(
+                Thread.isMainThread,
+                "GHOSTTY_ACTION_PWD fired off-main — the ghostty_app_tick-only assumption no longer holds"
+            )
+            onMainThreadSynchronously {
                 view.updateWorkingDirectory(workingDirectory)
             }
             return true
@@ -79,6 +95,21 @@ extension GhosttyRuntime {
                 return false
             }
 
+            // `markNeedsAttention` shares INT-608's live-identity read, but
+            // stays on `Task` (not `onMainThreadSynchronously`) because it
+            // writes the same `unreadNotificationCount`/attention fields as
+            // GHOSTTY_ACTION_COMMAND_FINISHED's `applyDetectedAgentState`
+            // path, which is ALSO still `Task`-dispatched (see that case
+            // below for why). Converting only THIS case to a synchronous
+            // bridge would deterministically jump it ahead of an
+            // earlier-fired, still-queued COMMAND_FINISHED, letting a stale
+            // command-finished clear a just-applied notification. Matching
+            // dispatch styles removes that new, deterministic inversion, but
+            // does NOT itself guarantee FIFO order between separate `Task`s
+            // on the same actor — that ordering hazard predates this PR and
+            // isn't fixed here. A real fix needs explicit
+            // sequencing/serialization for these three cases together, not
+            // just matching Task-vs-sync — tracked as a follow-up.
             Task { @MainActor in
                 // `workspaces.output_marks_needs_attention = false` means
                 // "don't mark sessions as needing attention from output."
@@ -99,6 +130,8 @@ extension GhosttyRuntime {
             let title = notification.title.map(String.init(cString:)) ?? ""
             let body = notification.body.map(String.init(cString:)) ?? ""
 
+            // Same COMMAND_FINISHED ordering constraint as GHOSTTY_ACTION_RING_BELL
+            // above — stays on `Task` (see that case's comment).
             Task { @MainActor in
                 switch Self.desktopNotificationEffect(
                     title: title,
@@ -124,6 +157,13 @@ extension GhosttyRuntime {
             )
             Task { @MainActor in
                 view.updateMouseOverLink(link)
+                if let link, !link.isEmpty {
+                    view.sessionStore.recordRecentTerminalLink(
+                        sessionID: view.sessionID,
+                        paneID: view.paneID,
+                        value: link
+                    )
+                }
             }
             return true
 
@@ -195,6 +235,23 @@ extension GhosttyRuntime {
             }
 
             let exitCode = action.action.command_finished.exit_code
+            // KNOWN remaining gap (INT-608 follow-up, not an oversight):
+            // `handleCommandFinished` reads live `sessionID`/`paneID` and can
+            // write the same attention fields GHOSTTY_ACTION_RING_BELL /
+            // GHOSTTY_ACTION_DESKTOP_NOTIFICATION do, so it shares this
+            // codebase's pane-recycle race in principle. Left on `Task`
+            // rather than `onMainThreadSynchronously` because its synchronous
+            // call graph (`refreshShellActivity` → `shellActivitySnapshot()`)
+            // reaches native libghostty calls on OTHER surfaces
+            // (`ghostty_surface_needs_confirm_quit`), which is unproven safe
+            // to invoke from inside this surface's own `action_cb` — that
+            // needs its own investigation. The bell/notification cases above
+            // stay Task-dispatched to match this one and avoid a NEW,
+            // deterministic ordering inversion — but matching dispatch
+            // styles alone doesn't guarantee FIFO order between separate
+            // `Task`s on the same actor, so the pre-existing race between
+            // all three isn't fixed either. A real fix needs explicit
+            // sequencing/serialization across all three together.
             Task { @MainActor in
                 view.handleCommandFinished(exitCode: exitCode)
             }
@@ -450,12 +507,34 @@ extension GhosttyRuntime {
             return (sanitizedForAlertBody(display), sanitizedForAlertBody(puny))
         }()
 
-        // Title keeps the "Security warning:" prefix so VoiceOver gets an
-        // audible cue this is a security gate even when the punycode
-        // hostname is pronounced fluently by TTS. Cancel stays the default
-        // (Return); Esc also cancels — both wired by AwModal. See INT-22's
-        // confirmCloseIfNeeded for the button-order rationale.
-        let configuration = AwModalConfiguration(
+        // The comparison rides as the alert's accessory view so it spans the
+        // dialog's content width below the body copy. NSAlert sizes itself
+        // to the accessory frame; the width cap keeps a 120-char sanitized
+        // host wrapping instead of stretching the alert across the screen.
+        let accessoryView: NSView? = hostComparison.map { pair in
+            let hosting = NSHostingView(
+                rootView: BlockedURLHostComparisonView(
+                    displayHost: pair.display,
+                    punycodeHost: pair.punycode
+                )
+                .frame(maxWidth: 400)
+                .awUIFont(AwUIFontRuntime.current)
+            )
+            hosting.setFrameSize(hosting.fittingSize)
+            return hosting
+        }
+
+        // Presented through NSAlert.confirmDestructive — the same dialog as
+        // every other destructive confirm in the app (live-smoke direction:
+        // no bespoke chrome for this surface). That path already wires
+        // Cancel as the default button (Return and Esc both cancel), marks
+        // Open destructive, and installs the scoped ⌘Return accept monitor
+        // (NSAlert.layout() strips Return-family keyEquivalents from
+        // destructive buttons, so the monitor stays load-bearing). Title
+        // keeps the "Security warning:" prefix so VoiceOver gets an audible
+        // cue this is a security gate even when the punycode hostname is
+        // pronounced fluently by TTS.
+        return NSAlert.confirmDestructive(
             title: String(
                 localized: "Security warning: \(blockConfirmTitle(for: reason))",
                 comment: "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
@@ -467,7 +546,11 @@ extension GhosttyRuntime {
                 punycodeHost: punycodeHost,
                 includeHostLines: hostComparison == nil
             ),
-            confirmTitle: String(
+            keyboardHint: String(
+                localized: "Press ⌘Return to open. Return or Esc cancels.",
+                comment: "Keyboard hint line on the OSC 8 hyperlink confirmation dialog."
+            ),
+            destructiveTitle: String(
                 localized: "Open",
                 comment: "Destructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler."
             ),
@@ -475,7 +558,7 @@ extension GhosttyRuntime {
                 localized: "Cancel",
                 comment: "Default button on the OSC 8 hyperlink confirmation dialog. Cancels the open."
             ),
-            confirmAccessibilityLabel: String(
+            destructiveAccessibilityLabel: String(
                 localized: "Open URL anyway",
                 comment: "VoiceOver label for the destructive Open button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Open' so a user who tabs to the button still has context."
             ),
@@ -483,29 +566,16 @@ extension GhosttyRuntime {
                 localized: "Cancel and do not open URL",
                 comment: "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
             ),
-            keyboardHint: String(
-                localized: "Press ⌘Return to open. Return or Esc cancels.",
-                comment: "Keyboard hint line on the OSC 8 hyperlink confirmation dialog."
-            )
+            accessoryView: accessoryView
         )
-
-        if let hostComparison {
-            return await AwModal(configuration: configuration) {
-                BlockedURLHostComparisonView(
-                    displayHost: hostComparison.display,
-                    punycodeHost: hostComparison.punycode
-                )
-            }.run() == .confirm
-        }
-        return await AwModal(configuration: configuration).run() == .confirm
     }
 
     private static func blockConfirmTitle(for reason: URLClassifier.BlockReason) -> String {
         switch reason {
         case .nonAsciiHost:
             String(
-                localized: "Open URL with non-Latin host?",
-                comment: "OSC 8 confirmation dialog title segment when the URL's host contains non-ASCII characters."
+                localized: "Open URL with an unverified host?",
+                comment: "OSC 8 dialog title segment when the URL's host mixes confusable scripts or has undecodable punycode."
             )
         case .embeddedUserInfo:
             String(
@@ -563,10 +633,14 @@ extension GhosttyRuntime {
             } else if let display = displayHost ?? punycodeHost {
                 lines.append("\u{2068}\(Self.sanitizedForAlertBody(display))\u{2069}")
             } else {
-                lines.append(String(
-                    localized: "This URL's host contains non-Latin characters.",
-                    comment: "Fallback body line when host accessors are unavailable but the URL was flagged as non-ASCII."
-                ))
+                // Unreachable from URLClassifier (both-nil hosts return
+                // .missingHost before .nonAsciiHost) — defensive copy for
+                // direct callers only.
+                lines.append(
+                    String(
+                        localized: "This URL's host could not be verified.",
+                        comment: "Fallback body line when host accessors are unavailable but the URL's host was flagged as suspicious."
+                    ))
             }
         case .embeddedUserInfo:
             // Surface BOTH the deceptive prefix (userinfo) AND the

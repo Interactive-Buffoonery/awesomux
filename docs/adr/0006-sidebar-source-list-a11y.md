@@ -14,7 +14,7 @@ A pre-merge a11y review on PR #30 flagged that going non-`List` quietly strips m
 
 - Per-row `accessibilityElement(children: .combine)` with a rich combined label (title, agent kind, state, working directory, pane count, notification count, backgrounded floating panel hint).
 - Named `accessibilityAction`s on each row for **Rename Workspace**, **Close Workspace**, and **New Workspace Here** — discoverable through the VoiceOver actions rotor.
-- Group headers: `accessibilityLabel`, `accessibilityValue` for `Collapsed` / `Expanded`, `.isHeader` trait, and named header actions (**New Workspace in Group**, **New Workspace Group…**, **Remove Empty Group**).
+- Group headers: `accessibilityLabel`, `accessibilityValue` for `Collapsed` / `Expanded`, `.isHeader` trait, and named header actions (**New Workspace in Group**, **New Workspace Group…**, **Close Group**).
 - Footer state-filter chips: `.isSelected` trait when the filter is active.
 - Discrete `accessibilityLabel` and `help` on the search field's clear button and on each tile's close button.
 
