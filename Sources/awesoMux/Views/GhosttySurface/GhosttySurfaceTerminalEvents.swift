@@ -168,11 +168,19 @@ extension GhosttySurfaceNSView {
         let livePane = sessionStore.session(id: sessionID)?
             .layout.pane(id: paneID)
         let shouldProbe =
-            livePane.map {
+            livePane.map { pane in
+                // The away-from-prompt marker (cheap libghostty read) keeps the
+                // comm fast-path below alive for untagged shells: an agent
+                // launched via an alias or with a TUI that clears its launch
+                // line has no text signature, so the running-command window is
+                // the only signal that there is something worth recognizing.
+                // Idle shells at their prompt still skip libproc entirely.
                 Self.shouldProbeForAgentExit(
-                    agentKind: $0.agentKind,
-                    hasManagedSSHObservation: $0.hasManagedSSHObservation,
-                    hasObservedAgentActivity: hasObservedAgentActivity
+                    agentKind: pane.agentKind,
+                    hasManagedSSHObservation: pane.hasManagedSSHObservation,
+                    hasObservedAgentActivity: hasObservedAgentActivity,
+                    shellHasForegroundCommand: pane.agentKind == .shell
+                        && (promptMarkerIsAwayFromPrompt() ?? false)
                 )
             } ?? false
         let foregroundProcess = foregroundProcessLivenessAndSample(
@@ -227,9 +235,11 @@ extension GhosttySurfaceNSView {
     nonisolated static func shouldProbeForAgentExit(
         agentKind: AgentKind,
         hasManagedSSHObservation: Bool,
-        hasObservedAgentActivity: Bool
+        hasObservedAgentActivity: Bool,
+        shellHasForegroundCommand: Bool
     ) -> Bool {
         agentKind != .shell || hasManagedSSHObservation || hasObservedAgentActivity
+            || shellHasForegroundCommand
     }
 
     @MainActor

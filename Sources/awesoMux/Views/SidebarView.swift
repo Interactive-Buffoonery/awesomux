@@ -1269,6 +1269,11 @@ private struct SidebarActivitySection: View, Equatable {
     @State private var activityPanelOpen = false
     @State private var activityPanelScrollTarget: AgentDisplayState?
 
+    // The equatable gate freezes the previous view value — closures included —
+    // whenever the key compares equal. These callbacks must stay capture-stable
+    // (stores and actions only); any reactive input a closure closes over must
+    // move into `invalidationKey`, or it will route through a stale capture
+    // (same failure class as @Environment not piercing .equatable(), PR #428).
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.invalidationKey == rhs.invalidationKey
     }
@@ -1283,13 +1288,15 @@ private struct SidebarActivitySection: View, Equatable {
         for (state, count) in roster.counts {
             counts[state.awState, default: 0] += count
         }
-        let sessionsByID = Dictionary(
-            sessions.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-
         return VStack(spacing: 0) {
             if activityPanelOpen, invalidationKey.displayMode != .collapsed {
+                // Built only while the panel is open — the roster rebuild path
+                // runs on every session-tree change and must not pay an O(n)
+                // dictionary for a closed panel.
+                let sessionsByID = Dictionary(
+                    sessions.map { ($0.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
                 Divider()
                 AgentActivityPanel(
                     groups: roster.groups.map { group in

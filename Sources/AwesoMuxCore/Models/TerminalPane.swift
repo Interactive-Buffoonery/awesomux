@@ -293,6 +293,14 @@ public extension TerminalPane {
     // strand a render. Revisit if a view ever takes a `TerminalPane` as an
     // `Equatable` render trigger.
     //
+    // LIVE EQUATABLE CONSUMER: `SidebarActivityInvalidationKey` (SidebarView)
+    // keys an `.equatable()` render boundary on `[SessionGroup]`, which bottoms
+    // out here. Every field its roster/footer/panel renders (agentKind,
+    // agentExecutionState, attentionReason, title, workingDirectory,
+    // remotePresentationHost via remoteHost) is INCLUDED below. If that panel
+    // ever renders one of the excluded runtime fields, add the field here or
+    // the panel will sit stale behind the boundary.
+    //
     // The INT-561 command-bridge fields are excluded too: `terminalSessionID`
     // is durable backend identity that is 1:1 with `id` (a pane never changes
     // its session id), so it's redundant here; `terminalBackendMetadata` is
