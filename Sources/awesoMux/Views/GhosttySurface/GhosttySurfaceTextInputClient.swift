@@ -3,15 +3,15 @@ import GhosttyKit
 
 extension GhosttySurfaceNSView: @preconcurrency NSTextInputClient {
     func hasMarkedText() -> Bool {
-        markedText.length > 0
+        inputState.markedText.length > 0
     }
 
     func markedRange() -> NSRange {
-        guard markedText.length > 0 else {
+        guard inputState.markedText.length > 0 else {
             return NSRange()
         }
 
-        return NSRange(location: 0, length: markedText.length)
+        return NSRange(location: 0, length: inputState.markedText.length)
     }
 
     func selectedRange() -> NSRange {
@@ -38,26 +38,26 @@ extension GhosttySurfaceNSView: @preconcurrency NSTextInputClient {
     ) {
         switch string {
         case let attributedString as NSAttributedString:
-            markedText = NSMutableAttributedString(attributedString: attributedString)
+            inputState.markedText = NSMutableAttributedString(attributedString: attributedString)
 
         case let string as String:
-            markedText = NSMutableAttributedString(string: string)
+            inputState.markedText = NSMutableAttributedString(string: string)
 
         default:
-            markedText = NSMutableAttributedString()
+            inputState.markedText = NSMutableAttributedString()
         }
 
-        if keyTextAccumulator == nil {
+        if inputState.keyTextAccumulator == nil {
             syncPreedit()
         }
     }
 
     func unmarkText() {
-        guard markedText.length > 0 else {
+        guard inputState.markedText.length > 0 else {
             return
         }
 
-        markedText.mutableString.setString("")
+        inputState.markedText.mutableString.setString("")
         syncPreedit()
     }
 
@@ -149,13 +149,13 @@ extension GhosttySurfaceNSView: @preconcurrency NSTextInputClient {
             return
         }
 
-        // `keyTextAccumulator` is only non-nil while `keyDown` is actively
+        // `inputState.keyTextAccumulator` is only non-nil while `keyDown` is actively
         // running `interpretKeyEvents` (see `GhosttySurfaceInputBridge.
         // keyDown`) — that's the ONLY path through which the real system IME
         // resolves its own composition into `text`, and in that path `text`
         // already fully supersedes whatever was marked (Ghostty's own
         // comment: "If insertText is called, our preedit must be over").
-        // `keyTextAccumulator == nil` with marked text still present means
+        // `inputState.keyTextAccumulator == nil` with marked text still present means
         // this call did NOT come from the IME resolving its own composition
         // — e.g. a drag-and-drop drop landing mid-composition
         // (`GhosttySurfaceDragAndDrop.performDragOperation` calls
@@ -164,15 +164,16 @@ extension GhosttySurfaceNSView: @preconcurrency NSTextInputClient {
         // otherwise be silently discarded with zero commit. Commit it first,
         // mirroring the committed-preedit-before-replay handling in
         // `GhosttySurfaceInputBridge.keyDown`.
-        let abandonedComposition: String? = keyTextAccumulator == nil && hasMarkedText()
-            ? markedText.string
+        let abandonedComposition: String? =
+            inputState.keyTextAccumulator == nil && hasMarkedText()
+            ? inputState.markedText.string
             : nil
 
         unmarkText()
 
-        if var accumulator = keyTextAccumulator {
+        if var accumulator = inputState.keyTextAccumulator {
             accumulator.append(text)
-            keyTextAccumulator = accumulator
+            inputState.keyTextAccumulator = accumulator
         } else {
             if let abandonedComposition, !abandonedComposition.isEmpty {
                 sendText(abandonedComposition)
@@ -198,10 +199,10 @@ extension GhosttySurfaceNSView: @preconcurrency NSTextInputClient {
             // event so `performKeyEquivalent` gets one final pass and routes
             // it to the terminal instead. Mirrors Ghostty's `doCommand`
             // (`SurfaceView_AppKit.swift:2053-2064`); Ghostty resets
-            // `lastPerformKeyEvent` in the SECOND `performKeyEquivalent` pass
+            // `inputState.lastPerformKeyEvent` in the SECOND `performKeyEquivalent` pass
             // (see `GhosttyKeyEquivalentPolicy`'s `.redispatch` case), not
             // here, so we don't touch it in this branch either.
-            if let lastPerformKeyEvent,
+            if let lastPerformKeyEvent = inputState.lastPerformKeyEvent,
                let current = NSApp.currentEvent,
                lastPerformKeyEvent == current.timestamp {
                 NSApp.sendEvent(current)

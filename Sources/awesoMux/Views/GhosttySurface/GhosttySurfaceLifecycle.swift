@@ -31,11 +31,11 @@ extension GhosttySurfaceNSView {
     }
 
     func updateMouseOverLink(_ link: String?) {
-        guard mouseOverLink != link else {
+        guard inputState.mouseOverLink != link else {
             return
         }
 
-        mouseOverLink = link
+        inputState.mouseOverLink = link
         discardCursorRects()
         window?.invalidateCursorRects(for: self)
         updateLinkPeek(for: link)
@@ -54,7 +54,7 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        terminalCursorShape = style.nsCursor
+        inputState.terminalCursorShape = style.nsCursor
         discardCursorRects()
         window?.invalidateCursorRects(for: self)
     }
@@ -64,7 +64,7 @@ extension GhosttySurfaceNSView {
     /// while-typing is the only caller today, so `NSCursor.setHiddenUntilMouseMoves`
     /// is the right primitive rather than manual show/hide bookkeeping.
     func setCursorVisibility(_ visible: Bool) {
-        terminalCursorVisible = visible
+        inputState.terminalCursorVisible = visible
         NSCursor.setHiddenUntilMouseMoves(!visible)
     }
 
@@ -155,10 +155,10 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        pendingSurfaceCreationWorkItem?.cancel()
-        pendingSurfaceCreationWorkItem = nil
-        coldStartCreationState = ColdStartSurfaceCreationState()
-        windowFrameSettleState = WindowFrameSettleState()
+        lifecycleState.pendingSurfaceCreationWorkItem?.cancel()
+        lifecycleState.pendingSurfaceCreationWorkItem = nil
+        lifecycleState.coldStartCreationState = ColdStartSurfaceCreationState()
+        lifecycleState.windowFrameSettleState = WindowFrameSettleState()
         logSurfaceGeometryDiagnostics(event: "surface-create-before")
         // The enactor decides attach-vs-local-shell, mints/arms the status
         // channel on attach, and clears bridge state on fallback. A nil command
@@ -232,9 +232,9 @@ extension GhosttySurfaceNSView {
         )
         if let createdSurface {
             commandBridgeEnactor.errorLatched = false
-            nativeSurfaceWasDisposed = false
-            nextMouseSurfaceIncarnationID += 1
-            mouseSurfaceIncarnationID = nextMouseSurfaceIncarnationID
+            lifecycleState.nativeSurfaceWasDisposed = false
+            lifecycleState.nextMouseSurfaceIncarnationID += 1
+            lifecycleState.mouseSurfaceIncarnationID = lifecycleState.nextMouseSurfaceIncarnationID
             surface = createdSurface
             // A VoiceOver accessor firing mid-heal (surface == nil) could have
             // cached an empty read from the OLD surface; don't let it leak
@@ -544,7 +544,7 @@ extension GhosttySurfaceNSView {
         )
 
         switch SurfaceResizeUpdatePolicy.decision(
-            lastApplied: lastAppliedSurfaceBackingState,
+            lastApplied: lifecycleState.lastAppliedSurfaceBackingState,
             next: state,
             isInLiveResize: forceImmediateApply ? false : inLiveResize
         ) {
@@ -564,7 +564,7 @@ extension GhosttySurfaceNSView {
     }
 
     func applySurfaceBackingState(_ state: SurfaceBackingState) {
-        guard lastAppliedSurfaceBackingState != state,
+        guard lifecycleState.lastAppliedSurfaceBackingState != state,
               let surface else {
             return
         }
@@ -583,7 +583,7 @@ extension GhosttySurfaceNSView {
         ghostty_surface_set_size(surface, state.geometry.width, state.geometry.height)
         logNativeSurfaceSizeDiagnostics(event: "surface-native-size-after-set")
         pushSurfaceOcclusion(surface, isVisible: state.isVisible, source: "backing-state-apply")
-        lastAppliedSurfaceBackingState = state
+        lifecycleState.lastAppliedSurfaceBackingState = state
         invalidateSurfaceAfterResize()
     }
 
@@ -601,7 +601,7 @@ extension GhosttySurfaceNSView {
     /// at the PREVIOUS container's stale `contentSize` and reflow the PTY
     /// twice per adoption (review finding).
     func surfaceWasRemounted() {
-        lastAppliedSurfaceBackingState = nil
+        lifecycleState.lastAppliedSurfaceBackingState = nil
         updateSurfaceDisplayID()
         if surface != nil, windowIsVisible {
             runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
@@ -639,8 +639,8 @@ extension GhosttySurfaceNSView {
         }
 
         guard windowIsVisible else {
-            coldStartCreationState = ColdStartSurfaceCreationState()
-            windowFrameSettleState = WindowFrameSettleState()
+            lifecycleState.coldStartCreationState = ColdStartSurfaceCreationState()
+            lifecycleState.windowFrameSettleState = WindowFrameSettleState()
             logSurfaceGeometryDiagnostics(event: "surface-create-hidden-deferred")
             return
         }
@@ -652,7 +652,7 @@ extension GhosttySurfaceNSView {
         // cold-start pane, or a late-mounting sibling still below the floor)
         // falls through to the settle path. `createSurfaceIfNeeded` cancels any
         // pending work.
-        let paneEnteredColdStartWait = coldStartCreationState.anchorAt != nil
+        let paneEnteredColdStartWait = lifecycleState.coldStartCreationState.anchorAt != nil
         if ColdStartSurfaceCreationPolicy.canSpawnImmediately(
             isColdStartPhase: isColdStartSurfacePhase,
             paneEnteredColdStartWait: paneEnteredColdStartWait,
@@ -675,7 +675,7 @@ extension GhosttySurfaceNSView {
             return
         }
         switch WindowFrameSettlePolicy.decision(
-            state: &windowFrameSettleState,
+            state: &lifecycleState.windowFrameSettleState,
             windowFrame: window.frame,
             now: ContinuousClock.now
         ) {
@@ -687,7 +687,7 @@ extension GhosttySurfaceNSView {
         }
 
         switch ColdStartSurfaceCreationPolicy.decision(
-            state: &coldStartCreationState,
+            state: &lifecycleState.coldStartCreationState,
             width: contentSize.width,
             now: ContinuousClock.now
         ) {
@@ -706,7 +706,7 @@ extension GhosttySurfaceNSView {
     /// window-frame settle and the cold-start width settle — both clear on
     /// timing the layout path doesn't always re-surface on its own.
     private func scheduleColdStartRecheck(event: String) {
-        pendingSurfaceCreationWorkItem?.cancel()
+        lifecycleState.pendingSurfaceCreationWorkItem?.cancel()
         // `asyncAfter(deadline:)` to `.main` guarantees main-thread execution,
         // but the closure is not statically MainActor-isolated — assert it so
         // the contract survives a future `nonisolated`/refactor, matching the
@@ -714,11 +714,11 @@ extension GhosttySurfaceNSView {
         let workItem = DispatchWorkItem {
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
-                self.pendingSurfaceCreationWorkItem = nil
+                self.lifecycleState.pendingSurfaceCreationWorkItem = nil
                 self.scheduleSurfaceCreationIfNeeded()
             }
         }
-        pendingSurfaceCreationWorkItem = workItem
+        lifecycleState.pendingSurfaceCreationWorkItem = workItem
         logSurfaceGeometryDiagnostics(event: event)
         DispatchQueue.main.asyncAfter(
             deadline: .now() + Self.coldStartCreationPollInterval,
@@ -845,7 +845,7 @@ extension GhosttySurfaceNSView {
     func updateWindowObservation() {
         // Scope removal to the previously-observed window so we don't sweep
         // away unrelated occlusion observers if any are added later.
-        if let observedWindow {
+        if let observedWindow = lifecycleState.observedWindow {
             NotificationCenter.default.removeObserver(
                 self,
                 name: NSWindow.didChangeOcclusionStateNotification,
@@ -868,13 +868,13 @@ extension GhosttySurfaceNSView {
             object: nil
         )
 
-        observedWindow = window
+        lifecycleState.observedWindow = window
         guard let window else {
-            lastKnownOcclusionVisible = false
+            lifecycleState.lastKnownOcclusionVisible = false
             return
         }
 
-        lastKnownOcclusionVisible = windowIsVisible
+        lifecycleState.lastKnownOcclusionVisible = windowIsVisible
 
         NotificationCenter.default.addObserver(
             self,
@@ -918,17 +918,17 @@ extension GhosttySurfaceNSView {
         let isVisible = windowIsVisible
 
         guard let surface else {
-            let wasVisible = lastKnownOcclusionVisible
-            lastKnownOcclusionVisible = isVisible
+            let wasVisible = lifecycleState.lastKnownOcclusionVisible
+            lifecycleState.lastKnownOcclusionVisible = isVisible
             if isVisible, !wasVisible {
                 scheduleSurfaceCreationIfNeeded()
             }
             return
         }
 
-        if let state = lastAppliedSurfaceBackingState {
+        if let state = lifecycleState.lastAppliedSurfaceBackingState {
             if state.isVisible != isVisible {
-                lastAppliedSurfaceBackingState = SurfaceBackingState(
+                lifecycleState.lastAppliedSurfaceBackingState = SurfaceBackingState(
                     geometry: state.geometry,
                     isVisible: isVisible
                 )
@@ -948,8 +948,8 @@ extension GhosttySurfaceNSView {
         // edges. With N panes mounted, each notification fires every surface's
         // handler — without this gate that's an "occlusion storm" of redundant
         // refreshes per visibility flap.
-        let wasVisible = lastKnownOcclusionVisible
-        lastKnownOcclusionVisible = isVisible
+        let wasVisible = lifecycleState.lastKnownOcclusionVisible
+        lifecycleState.lastKnownOcclusionVisible = isVisible
         if isVisible, !wasVisible {
             refreshSurfaceDisplay()
             // Re-pace the display link in case the window returned on a

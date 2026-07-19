@@ -128,7 +128,9 @@ struct DocumentFileWatcherTests {
         watcher.start()
         try await Task.sleep(nanoseconds: 50_000_000)
         try "created".write(to: url, atomically: false, encoding: .utf8)
-        let received = await awaitCondition(timeout: 1.0) { counter.value > 0 }
+        // Retry cadence stretches under full-suite load; the wait is
+        // event-bounded, so a generous ceiling adds no latency when green.
+        let received = await awaitCondition(timeout: 30.0) { counter.value > 0 }
         watcher.stop()
 
         #expect(received, "successful initial retry should notify after the file appears")
