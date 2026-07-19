@@ -1,6 +1,45 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Close About awesoMux" : {
+
+    },
+    "About awesoMux" : {
+
+    },
+    "A native terminal for agents" : {
+
+    },
+    "Version" : {
+
+    },
+    "Build" : {
+
+    },
+    "Terminal backend" : {
+
+    },
+    "Open source" : {
+
+    },
+    "License" : {
+
+    },
+    "Notice" : {
+
+    },
+    "View license for %@" : {
+
+    },
+    "View notice for %@" : {
+
+    },
+    "GitHub" : {
+
+    },
+    "Development" : {
+
+    },
     "" : {
 
     },
