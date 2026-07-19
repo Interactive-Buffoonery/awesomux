@@ -14,6 +14,7 @@ import Testing
 //   isPromotionPulseActive, isFiltering, duplicateDisambiguation,
 //   indexInGroup, sessionCountInGroup, ownerGroupIndex,
 //   previousNeighborGroup, nextNeighborGroup, otherGroups, verticalPadding,
+//   tintedHighContrast, alwaysShowJumpNumbers,
 //   onSelect (closure), onNewSessionHere (closure), onAcknowledge (closure),
 //   onMoveWithinGroup (closure), onMoveToGroup (closure), onClose (closure),
 //   onClear (closure), onRename (closure), canMakeWorkspaceManaged,
@@ -122,7 +123,9 @@ struct SidebarSessionTileEquatableTests {
         previousNeighborGroup: SessionGroup? = nil,
         nextNeighborGroup: SessionGroup? = nil,
         otherGroups: [SessionGroup] = [],
-        canMakeWorkspaceManaged: Bool = false
+        canMakeWorkspaceManaged: Bool = false,
+        tintedHighContrast: Bool = false,
+        alwaysShowJumpNumbers: Bool = false
     ) -> SidebarSessionTile {
         let focusState = FocusState<SidebarVisibleRowTarget?>()
         return SidebarSessionTile(
@@ -146,6 +149,8 @@ struct SidebarSessionTileEquatableTests {
             nextNeighborGroup: nextNeighborGroup,
             otherGroups: otherGroups,
             verticalPadding: 9,
+            tintedHighContrast: tintedHighContrast,
+            alwaysShowJumpNumbers: alwaysShowJumpNumbers,
             onSelect: {},
             onNewSessionHere: {},
             onAcknowledge: {},
@@ -399,6 +404,35 @@ struct SidebarSessionTileEquatableTests {
         let sessionID = UUID()
         let tileA = tile(session: session(id: sessionID, panes: [quiet]))
         let tileB = tile(session: session(id: sessionID, panes: [loud]))
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("tintedHighContrast difference compares NOT equal")
+    func tintedHighContrastChangeRerenders() {
+        // Pins INT-645's live-update path: the toggle flips in Settings while
+        // the tile sits behind `.equatable()`, so the flag must be a compared
+        // constructor snapshot — an in-tile store read would compare
+        // permanently equal and leave the active border stale (PR #428).
+        let onePane = pane()
+        let sessionValue = session(panes: [onePane])
+
+        let tileA = tile(session: sessionValue, isActive: true, tintedHighContrast: false)
+        let tileB = tile(session: sessionValue, isActive: true, tintedHighContrast: true)
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("alwaysShowJumpNumbers difference compares NOT equal")
+    func alwaysShowJumpNumbersChangeRerenders() {
+        // Same PR #428 staling class as tintedHighContrast above: the setting
+        // drives `jumpNumberDisplay`, a render-path read, so it must be a
+        // compared constructor snapshot rather than an in-tile store read.
+        let onePane = pane()
+        let sessionValue = session(panes: [onePane])
+
+        let tileA = tile(session: sessionValue, alwaysShowJumpNumbers: false)
+        let tileB = tile(session: sessionValue, alwaysShowJumpNumbers: true)
 
         #expect(tileA != tileB)
     }
