@@ -1,16 +1,18 @@
 name: Native CI execution-ref cleanup
 
 on:
-  workflow_run:
-    workflows: [Native CI executor]
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      execution-ref:
+        description: Native executor ref to delete.
+        required: true
+        type: string
 
 permissions: {}
 
 jobs:
   cleanup:
     name: Delete native execution ref
-    if: startsWith(github.event.workflow_run.head_branch, 'native-ci-runs/run-')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,7 +21,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          EXECUTION_REF: ${{ github.event.workflow_run.head_branch }}
+          EXECUTION_REF: ${{ inputs.execution-ref }}
         run: |
           set -euo pipefail
           if [[ ! "$EXECUTION_REF" =~ ^native-ci-runs/run-[0-9]+-[0-9]+$ ]]; then
