@@ -14,6 +14,22 @@ enum BoundedCommandResult: Equatable, Sendable {
     /// treat this case as a failure without the payload.
     case outputTruncated(Data)
     case outputNotDrained
+
+    /// Fail-closed: only fully collected successful stdout.
+    var completeData: Data? {
+        if case .success(let data) = self { return data }
+        return nil
+    }
+
+    /// Prefix-safe: complete or truncated prefix after a clean exit + EOF.
+    var dataAllowingTruncation: Data? {
+        switch self {
+        case .success(let data), .outputTruncated(let data):
+            return data
+        default:
+            return nil
+        }
+    }
 }
 
 /// Runs a Path Bar status lookup (`git status`, `gh pr view`, `gh run list`) for
@@ -22,9 +38,10 @@ enum BoundedCommandResult: Equatable, Sendable {
 /// shell out.
 typealias StatusCommandRunner = @Sendable (_ repoRoot: String, _ branch: String) async -> Data?
 
-/// Runs a bounded external command and returns its stdout on a clean exit
-/// (status 0), or nil on any failure (executable missing, non-zero exit,
-/// timeout). Shared by the Path Bar's `gh` (PR) and `git` (status) lookups.
+/// Runs a bounded external command and returns an explicit stdout result on a
+/// clean exit (status 0), or `.failed` on any failure (executable missing,
+/// non-zero exit, timeout, undrained pipe). Shared by the Path Bar's `gh` (PR)
+/// and `git` (status) lookups.
 ///
 /// A launched `.app` bundle inherits launchd's minimal PATH, NOT the user's shell
 /// PATH, so the executable is resolved by absolute path up front. The call is
@@ -143,7 +160,7 @@ struct BoundedCommandRunner: Sendable {
                     state.markExited(status: process.terminationStatus)
                     // Bounded fallback: if EOF never arrives because a descendant
                     // inherited stdout and holds it open, resume after a short grace
-                    // rather than blocking forever. We resolve to nil (not the
+                    // rather than blocking forever. We resolve to `.failed` (not the
                     // partial buffer): without EOF we can't prove the output is
                     // complete, and a silently-undercounted dirty chip is worse than
                     // none. The normal path resumes immediately once EOF + exit
@@ -171,8 +188,11 @@ struct BoundedCommandRunner: Sendable {
         } onCancel: {
             // Own the escalation here too: if a cancelled child ignores SIGTERM,
             // SIGKILL it after a grace so cancellation can't leave it running.
+            // Detach so the grace Task does not inherit this cancelled context
+            // (an inherited-cancelled Task would skip the delay and may race
+            // the kill before the test/harness observes the grace path).
             handle.terminateIfRunning()
-            Task {
+            Task.detached {
                 try? await delay(.seconds(1))
                 handle.killIfRunning()
             }
@@ -283,7 +303,7 @@ struct BoundedCommandRunner: Sendable {
         }
 
         /// Resume only when both the child has exited and stdout reached EOF — the
-        /// only state where the collected buffer is provably the complete output.
+        /// only state where the collected buffer's completeness is known.
         private func readyResumeLocked() -> (() -> Void)? {
             guard exited, drained else { return nil }
             if timedOut {

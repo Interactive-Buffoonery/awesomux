@@ -49,7 +49,8 @@ struct PullRequestInfo: Equatable, Sendable {
         // repo). Refuse anything but https so a hostile remote can't make a
         // single click open `file://`, a custom scheme, or `javascript:`.
         guard let url = URL(string: payload.url),
-              url.scheme?.lowercased() == "https" else {
+            url.scheme?.lowercased() == "https"
+        else {
             return nil
         }
 
@@ -58,7 +59,8 @@ struct PullRequestInfo: Equatable, Sendable {
         if payload.isDraft {
             self.state = .draft
         } else if let decision = payload.reviewDecision?.uppercased(),
-                  decision == "REVIEW_REQUIRED" || decision == "CHANGES_REQUESTED" {
+            decision == "REVIEW_REQUIRED" || decision == "CHANGES_REQUESTED"
+        {
             self.state = .inReview
         } else {
             // APPROVED or no review required ("") both read as a plain open PR.
@@ -84,14 +86,15 @@ struct GhPullRequestCommandRunner: Sendable {
         // `--` terminator is also load-bearing: a valid branch like `--web` or
         // `--json=x` (refs/heads/--web is legal) would otherwise be parsed by gh
         // as a flag, not the positional branch.
-        await Self.command.run(
+        // Fail-closed: truncated JSON is not parseable as an authoritative PR.
+        await Self.command.runDetailed(
             arguments: [
                 "pr", "view",
                 "--json", "number,url,state,isDraft,reviewDecision",
                 "--", branch,
             ],
             inDirectory: repoRoot
-        )
+        ).completeData
     }
 }
 

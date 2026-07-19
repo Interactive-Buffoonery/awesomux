@@ -222,10 +222,13 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         if let fetchOverride {
             return await fetchOverride(reference)
         }
-        return await runner.run(
+        // Fail-closed: a truncated remote read must not be treated as the file.
+        // The runner's cap is maxFileSizeBytes + 1 so an oversize remote still
+        // surfaces as truncation / oversize rather than a silently short body.
+        return await runner.runDetailed(
             arguments: Self.sshArguments(target: reference.sshTarget, path: reference.remotePath),
             inDirectory: FileManager.default.currentDirectoryPath
-        )
+        ).completeData
     }
 
     static func sshArguments(target: String, path: String) -> [String] {
