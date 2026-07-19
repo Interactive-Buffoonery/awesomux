@@ -70,6 +70,7 @@ struct SidebarGroupView: View {
     let onToggleNotificationsMute: (TerminalSession) -> Void
     let onTogglePin: (TerminalSession) -> Void
     let focusedRowTarget: FocusState<SidebarVisibleRowTarget?>.Binding
+    let focusedSearchSessionID: TerminalSession.ID?
     @Binding var isKeyboardNavigating: Bool
 
     @State private var rowFrames: [TerminalSession.ID: CGRect] = [:]
@@ -198,6 +199,7 @@ struct SidebarGroupView: View {
                             isActive: selectedSessionID == session.id,
                             displayMode: displayMode,
                             isKeyboardFocused: focusedRowTarget.wrappedValue == .session(session.id),
+                            showsSearchFocusCue: focusedSearchSessionID == session.id,
                             jumpIndex: jumpIndexBySessionID[session.id],
                             hasBackgroundedFloatingWork:
                                 workspacesWithBackgroundedFloatingWork.contains(session.id),
@@ -263,6 +265,7 @@ struct SidebarGroupView: View {
                         // this tile with identical rendered inputs — see
                         // `SidebarSessionTile.RenderKey`.
                         .equatable()
+                        .id(session.id)
                         // Per-tile frame cache for y-hit-test. One coordinate
                         // space scoped to the group avoids cross-group
                         // ambiguity when rows are lazy-evicted.

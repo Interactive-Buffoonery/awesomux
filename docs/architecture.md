@@ -96,6 +96,8 @@ Ghostty’s own **`macos/Sources/Ghostty/`** tree remains the best upstream refe
 1. **`AwesoMuxApp`** — Registers default settings (`SettingsDefault`) *before* loading state so `UserDefaults` observers see real defaults. Loads `SessionStore` via `SessionPersistence.load()`, owns `GhosttyRuntime` and the local `DiagnosticsModel`, and wires `AppDelegate` to the store and runtime after launch.
 
 **Local diagnostics (INT-671):** after the user performs a manual refresh and while its Settings pane remains visible, `DiagnosticsModel` samples the awesoMux process tree every 30 seconds and retains at most one hour of aggregate CPU and memory history. Manual refresh also discovers awesoMux-owned `amx` daemon trees; timed samples reuse that cached ownership instead of launching `amx list`. The sampler keeps fixed deadlines, skips missed intervals, and gives macOS timing tolerance to reduce wakeups. `LocalDiagnosticEventRecorder` receives bounded, privacy-safe config, restore, terminal, and runtime-failure outcomes; normal agent activity is not duplicated into diagnostics. This state is never persisted or uploaded, and it is deliberately separate from opt-in product analytics under ADR-0008.
+
+**Product analytics foundation (INT-768):** analytics defaults to off. Capture sites submit closed, typed `AnalyticsEventInput` values through one sanitizer; there is no arbitrary string property path. Only post-redaction payloads can enter the bounded, owner-only local JSONL ledger shown in Diagnostics. The current `LocalAnalyticsClient` has no network dependency and records eligible events as delivery-unavailable. PostHog provider delivery and production instrumentation remain a later slice behind the same client and sanitizer boundary.
 2. **`SessionStore`** (`@MainActor`, `@Observable`) — Authoritative facade for selection, pane operations, and agent fields. `groups` is a read-only snapshot; callers mutate the workspace tree through explicit commands and replace a restored snapshot with `replaceState(restoring:)`. It keeps observable UI state in one main-actor store, while focused internal reducers own pure workspace-tree, pane-layout, restore, recently-closed, shell-activity, runtime-event, and attention decisions. Persists on meaningful changes (debounced save — see `SessionPersistence`).
 3. **`GhosttyRuntime`** — Process-wide libghostty lifecycle: init, config, `ghostty_app_t`, tick/wakeups; creates surfaces for AppKit views embedded in SwiftUI.
 4. **Notification path** — `WorkspaceNotificationPolicy` + `WorkspaceNotificationTracker` + `WorkspaceNotificationBridge` / `UNUserNotificationCenter` (details below).
@@ -148,6 +150,7 @@ announcement intents.
 - **Location:** profile-scoped Application Support JSON (see `SessionPersistence.supportDirectoryURL`): installed/production builds use `Application Support/awesoMux/session-state.json`; the primary checkout's dev bundle (`com.interactivebuffoonery.awesomux.dev`) uses `Application Support/awesoMux-dev/session-state.json`; linked worktrees use `Application Support/awesoMux-dev-<worktree-id>/session-state.json`.
 - **Format:** JSON via `JSONEncoder` / `SessionSnapshot`; debounced writes to avoid thrashing.
 - **Safety:** size cap, corruption detection with archive-and-reset behavior, conservative restore sanitization (titles, cwd paths, layout depth, duplicate group names) so tampered files cannot violate UI invariants.
+- **File permissions:** local stores keep their on-disk state owner-only — directories `0o700`, files `0o600`. The posture is defined once in `AwesoMuxConfig` (`FileManager+OwnerOnly.swift`: `createOwnerOnlyDirectory(at:)`, `setOwnerOnlyPermissions(onFileAt:/onDirectoryAt:)`); new stores adopt those helpers instead of hand-rolling permission literals (INT-859).
 - **Execution-plan migration:** pane plans are additive and do not bump the snapshot schema. A missing or null pane plan inherits the owning group's legacy `RemoteTarget` during restore; only a successfully decoded, non-null plan is authoritative. A true v1 session with no `layout` key follows the same inheritance rule for its synthesized pane. Malformed active pane plans fail decoding and trigger the normal archive-and-reset path, while malformed recently-closed rows remain isolated to that disposable row.
 
 The same runtime profile split scopes runtime event files, rendered integration
@@ -171,6 +174,55 @@ Older sketch docs assumed UserDefaults for v0; **the shipped direction is JSON o
 ## Split model
 
 Splits live **inside** a session. `Command-D` creates **Split Right** and `Command-Shift-D` creates **Split Down**; each pane owns its own Ghostty surface and inherits cwd from the active pane when created (see keyboard catalog / session APIs in code). Sidebar rows stay **sessions**, not per-pane rows.
+
+## Typed workspace-pane model
+
+The layout tree (`TerminalPaneLayout`) is a **closed** taxonomy of leaf kinds —
+a terminal pane and a tabbed Markdown `documentGroup` — plus a split node. It is
+deliberately an enum, not a protocol or plugin registry: awesoMux owns a small
+set of product-owned pane kinds. `WorkspacePaneKind` names the leaf kinds,
+`WorkspaceLeafID` is a kind-tagged durable reference, and `WorkspaceLeaf` is the
+leaf-as-value that type-aware projections dispatch on (the protocol-free "shared
+leaf"). Shared layout operations live over the tree
+(`leaves`/`leafIDs`/`leaf(_:)`/`removingLeaf(_:)`/`replacingLeaf(_:with:)`, with
+`TerminalSplit.rebuilding` centralizing split reconstruction); removal
+*dispatches* to the distinct per-kind policies because only terminal removal
+defends the root "≥1 terminal" invariant — an auxiliary pane can never be a
+workspace's sole survivor.
+
+Type-aware behavior is exposed as pure projections so the view layer need not
+guess from raw payloads:
+
+- **Capabilities** — `WorkspacePaneCapabilities` (`localFileAccess`,
+  `remoteProvenance`, `safeInputTarget`, `duplicable`, `presetEligible`) at
+  layout granularity, reusing `ExecutionContext`.
+- **Lifecycle, three axes** — `PaneAvailability`
+  (`awaitingHydration`/`attached`/`unavailable`/`stale`) is the derivable
+  classifier over a leaf plus its runtime signals and never lets a
+  remote/degraded/dead pane read as a healthy local attach; `PaneVisibility`
+  (`visible`/`hidden`) is supplied by the mounting layer; `PaneClosePhase`
+  (`active`/`closing`/`closed`) is supplied by the close pipeline. `PaneLifecycle`
+  composes all three so every lifecycle term is representable while each axis is
+  produced only by the authority that can observe it.
+- **Live state vs reusable layout intent** — `WorkspaceLayoutIntent` is the
+  preset seam (INT-757). The `TerminalPaneLayout.layoutIntent` projection prunes
+  everything not preset-eligible (documents, remote terminals), collapses the
+  resulting unary splits, and carries an explicit attribute allowlist only
+  (orientation, fraction, user-pinned title, color). It has no field for a
+  session id, execution plan, file URL, agent state, or remote-cache origin, so
+  a preset cannot serialize live-only state.
+- **Restore / close / descriptor seams** — `PaneRestorationRequirement`
+  separates reattaching an existing terminal (durable `TerminalSessionID`) from
+  reopening a document group (INT-425); `PaneCloseConsequence` folds terminals
+  through `QuitRiskPolicy` and closes documents immediately;
+  `WorkspaceLeafDescriptor` aggregates id/kind/label/capabilities/availability
+  for INT-810 and INT-809.
+
+The model is additive: it changes **no encoded snapshot form** (schema stays
+v7). Adding a persisted kind is a localized set of exhaustive-switch arms reusing
+the single split renderer and Codable machinery — see
+[ADR 0026](adr/0026-typed-workspace-pane-foundation.md) for the full model and
+the touch-point checklist.
 
 ## Sidebar presentation
 
@@ -296,6 +348,7 @@ open -n dist/awesoMux.app
 | Ghostty app actions and awesoMux command ownership | [0020 - Ghostty app actions are not an awesoMux command surface](adr/0020-ghostty-app-actions-are-not-an-awesomux-command-surface.md) |
 | Remote SSH workspaces: local `amx`, declared execution identity, SSH composition | [0023 - Remote workspace architecture](adr/0023-remote-workspace-architecture.md) |
 | Sidebar single-host presentation | [0025 - Sidebar single-host presentation](adr/0025-sidebar-single-host-presentation.md) |
+| Typed workspace-pane model, capabilities, live-vs-intent seam | [0026 - Typed workspace-pane foundation](adr/0026-typed-workspace-pane-foundation.md) |
 | Ghostty submodule, XCFramework, linker, resources | [`docs/ghostty-integration.md`](ghostty-integration.md) |
 | Ghostty XCFramework prebuilds, richer persistence | Open items in [`AGENTS.md`](../AGENTS.md) **Stack & decisions (open)** |
 

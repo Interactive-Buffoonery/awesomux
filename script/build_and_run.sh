@@ -636,6 +636,15 @@ APP_VERSION="${APP_VERSION:-0.0.0}"
 # successive dev builds distinguishable now that the describe suffix is gone.
 BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || true)"
 BUILD_NUMBER="${BUILD_NUMBER:-0}"
+# Short git revision the build was stamped from — surfaced in the About window
+# as the human-facing build hash (CFBundleVersion above is a monotonic count,
+# not a hash). The hex-only gate doubles as the injection guard, same as
+# APP_VERSION: a hostile ref can't inject XML into the heredoc. Empty on a
+# non-git build; the About window hides the row when the key is empty/absent.
+# build_release.sh stages via this script and only rewrites the two CFBundle
+# version keys, so this key flows through to release bundles unchanged.
+SOURCE_REVISION="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || true)"
+[[ "$SOURCE_REVISION" =~ ^[0-9a-f]+$ ]] || SOURCE_REVISION=""
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -648,6 +657,8 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$APP_VERSION</string>
   <key>CFBundleVersion</key>
   <string>$BUILD_NUMBER</string>
+  <key>AwesoMuxSourceRevision</key>
+  <string>$SOURCE_REVISION</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleIconFile</key>
@@ -795,9 +806,18 @@ stream_terminal_diagnostics_logs() {
 
 stream_shortcut_diagnostics_logs() {
   local pid="$1"
-  echo "Streaming awesoMux shortcut diagnostics. Quit awesoMux to stop; press Ctrl-C to stop watching logs."
-  /usr/bin/log stream --info --style compact \
-    --predicate "subsystem == \"$LOG_SUBSYSTEM\" AND category == \"ShortcutDiagnostics\" AND processIdentifier == $pid"
+  local diagnostics_file="/tmp/awesomux-shortcuts-${pid}.jsonl"
+  local attempt=0
+  while [[ ! -f "$diagnostics_file" && "$attempt" -lt 40 ]]; do
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  if [[ ! -f "$diagnostics_file" ]]; then
+    echo "error: shortcut diagnostics file was not created at $diagnostics_file" >&2
+    return 1
+  fi
+  echo "Streaming awesoMux shortcut diagnostics from $diagnostics_file. Quit awesoMux to stop; press Ctrl-C to stop watching."
+  tail -n +1 -f "$diagnostics_file"
 }
 
 stream_window_diagnostics_logs() {

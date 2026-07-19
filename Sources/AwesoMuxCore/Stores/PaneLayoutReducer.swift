@@ -718,6 +718,22 @@ struct PaneLayoutReducer: Sendable {
         return session
     }
 
+    static func recordRecentTerminalLink(
+        in session: TerminalSession,
+        paneID: TerminalPane.ID,
+        value: String
+    ) -> TerminalSession? {
+        guard var pane = session.layout.pane(id: paneID), pane.recentLinks.record(value) else {
+            return nil
+        }
+        var session = session
+        guard let layout = session.layout.replacingPane(id: paneID, with: .pane(pane)) else {
+            return nil
+        }
+        session.layout = layout
+        return session
+    }
+
     /// Pins a user/programmatic custom title on a pane and freezes it against
     /// the live terminal title. Returns nil if the pane is absent or the title
     /// sanitizes to empty (callers treat empty as "reset" via `resetPaneTitle`).

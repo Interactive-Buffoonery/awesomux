@@ -30,8 +30,9 @@ extension ProcessAgentPluginRunner {
         // the CODEX_HOME field, not Repair: Repair re-reads the same configured
         // home and re-hits this guard, so the escape is to fix the path, not retry.
         if let configured = setup.configHome?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !configured.isEmpty,
-           !directoryExists(home) {
+            !configured.isEmpty,
+            !directoryExists(home)
+        {
             return AgentPluginStatusReport(status: .needsRepair(codexMissingHomeGuidance(home: home)))
         }
 
@@ -41,13 +42,16 @@ extension ProcessAgentPluginRunner {
         // circuits a pointless app-server spawn, and a healthy-looking hook would
         // still never run under the policy.
         if codexManagedHooksOnly(home: home) {
-            return AgentPluginStatusReport(status: .unsupported(
-                "Codex is set to allow_managed_hooks_only; user hooks like awesoMux's are ignored in this environment"
-            ))
+            return AgentPluginStatusReport(
+                status: .unsupported(
+                    "Codex is set to allow_managed_hooks_only; user hooks like awesoMux's are ignored in this environment"
+                ))
         }
 
-        guard let ref = effectiveRefForRecordedInstall(provider: .codex)
-            ?? (try? marketplaceRef(provider: .codex)) else {
+        guard
+            let ref = effectiveRefForRecordedInstall(provider: .codex)
+                ?? (try? marketplaceRef(provider: .codex))
+        else {
             return AgentPluginStatusReport(status: .unsupported("Bundled marketplace catalog is missing"))
         }
 
@@ -85,7 +89,8 @@ extension ProcessAgentPluginRunner {
         let recordedHome = record.configHome
         let liveHome = codexHome(setup: liveSetup).path
         guard recordedHome != liveHome else { return nil }
-        return "Actions target the recorded home \(recordedHome); the CODEX_HOME field now points at \(liveHome). Repair to move the install, or restore the field to keep using the recorded home."
+        return
+            "Actions target the recorded home \(recordedHome); the CODEX_HOME field now points at \(liveHome). Repair to move the install, or restore the field to keep using the recorded home."
     }
 
     /// Best-effort read of the documented `allow_managed_hooks_only` flag in the
@@ -212,15 +217,17 @@ extension ProcessAgentPluginRunner {
         let home = codexHome(setup: setup)
 
         if let configured = setup.configHome?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !configured.isEmpty,
-           !directoryExists(home) {
+            !configured.isEmpty,
+            !directoryExists(home)
+        {
             return AgentPluginActionOutcome(status: .needsRepair(codexMissingHomeGuidance(home: home)))
         }
 
         if codexManagedHooksOnly(home: home) {
-            return AgentPluginActionOutcome(status: .unsupported(
-                "Codex is set to allow_managed_hooks_only; user hooks like awesoMux's are ignored in this environment"
-            ))
+            return AgentPluginActionOutcome(
+                status: .unsupported(
+                    "Codex is set to allow_managed_hooks_only; user hooks like awesoMux's are ignored in this environment"
+                ))
         }
 
         let tree: AgentPluginRenderedTree
@@ -237,14 +244,14 @@ extension ProcessAgentPluginRunner {
         let env = codexEnvironment(home: home)
         let steps: [MutationStep] = [
             MutationStep(["plugin", "marketplace", "add", tree.marketplaceRootURL.path]),
-            MutationStep(["plugin", "add", ref.pluginRef])
+            MutationStep(["plugin", "add", ref.pluginRef]),
         ]
         if let failure = await runMutationSteps(
             executable: executable,
             steps: steps,
             env: env,
             repairGuidance: "Install failed partway through; use Repair to reconcile",
-            mapCommandError: { codexMutationFailure($0, executable: executable) }
+            mapCommandError: { codexMutationFailure($0, executable: $1) }
         ) {
             return failure
         }
@@ -277,8 +284,10 @@ extension ProcessAgentPluginRunner {
         let setup = effectiveSetupForRecordedInstall(provider: .codex, current: setup)
         let executable = resolvedExecutable(provider: .codex, setup: setup)
         let home = codexHome(setup: setup)
-        guard let ref = effectiveRefForRecordedInstall(provider: .codex)
-            ?? (try? marketplaceRef(provider: .codex)) else {
+        guard
+            let ref = effectiveRefForRecordedInstall(provider: .codex)
+                ?? (try? marketplaceRef(provider: .codex))
+        else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
         switch await codexSetEnabled(false, executable: executable, home: home, ref: ref) {
@@ -295,21 +304,23 @@ extension ProcessAgentPluginRunner {
         let setup = effectiveSetupForRecordedInstall(provider: .codex, current: setup)
         let executable = resolvedExecutable(provider: .codex, setup: setup)
         let home = codexHome(setup: setup)
-        guard let ref = effectiveRefForRecordedInstall(provider: .codex)
-            ?? (try? marketplaceRef(provider: .codex)) else {
+        guard
+            let ref = effectiveRefForRecordedInstall(provider: .codex)
+                ?? (try? marketplaceRef(provider: .codex))
+        else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
         let env = codexEnvironment(home: home)
         let steps: [MutationStep] = [
             MutationStep(["plugin", "remove", ref.pluginRef]),
-            MutationStep(["plugin", "marketplace", "remove", ref.marketplaceName])
+            MutationStep(["plugin", "marketplace", "remove", ref.marketplaceName]),
         ]
         if let failure = await runMutationSteps(
             executable: executable,
             steps: steps,
             env: env,
             repairGuidance: "Uninstall failed partway through; use Repair to reconcile",
-            mapCommandError: { codexMutationFailure($0, executable: executable) }
+            mapCommandError: { codexMutationFailure($0, executable: $1) }
         ) {
             return failure
         }
@@ -334,14 +345,14 @@ extension ProcessAgentPluginRunner {
             [
                 "CODEX_HOME=\(codexHome) codex plugin marketplace add [generated awesoMux marketplace path]",
                 "CODEX_HOME=\(codexHome) codex plugin add \(ref.pluginRef)",
-                "config/batchWrite hooks.state[<hook keys>] = { enabled: true } (upsert, reload)"
+                "config/batchWrite hooks.state[<hook keys>] = { enabled: true } (upsert, reload)",
             ]
         case .disable:
             ["config/batchWrite hooks.state[<hook keys>] = { enabled: false } (upsert, reload)"]
         case .uninstall:
             [
                 "CODEX_HOME=\(codexHome) codex plugin remove \(ref.pluginRef)",
-                "CODEX_HOME=\(codexHome) codex plugin marketplace remove \(ref.marketplaceName)"
+                "CODEX_HOME=\(codexHome) codex plugin marketplace remove \(ref.marketplaceName)",
             ]
         }
     }
@@ -414,7 +425,7 @@ extension ProcessAgentPluginRunner {
     private func codexEnvironment(home: URL) -> [String: String] {
         [
             "CODEX_HOME": home.path,
-            "PATH": mergedToolPath()
+            "PATH": mergedToolPath(),
         ]
     }
 

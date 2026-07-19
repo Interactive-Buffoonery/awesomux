@@ -3,12 +3,14 @@ import AwesoMuxCore
 import SwiftUI
 
 struct RemoteWorkspaceGroupCreateSheet: View {
+    let existingGroupNames: [String]
     let onCancel: () -> Void
     let onCreate: (_ name: String, _ target: RemoteTarget) -> Void
 
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var draftName = ""
     @State private var draftHost = ""
+    @State private var adjustmentAnnouncementGate = WorkspaceGroupNameAdjustmentAnnouncementGate()
     @FocusState private var isHostFocused: Bool
 
     var body: some View {
@@ -16,7 +18,12 @@ struct RemoteWorkspaceGroupCreateSheet: View {
         // destinations must be rejected at every creation boundary, and the
         // store guard returning nil would otherwise leave a dead Create button.
         let target = SSHWorkspaceDestinationValidation.target(from: draftHost)
-        let canCreate = target != nil
+        let nameDraft = WorkspaceGroupNameDraft(
+            typedName: draftName,
+            existingGroupNames: existingGroupNames,
+            allowsEmptyName: true
+        )
+        let canCreate = target != nil && nameDraft.canSubmit
 
         return VStack(alignment: .leading, spacing: 16) {
             Text("New Remote Workspace Group")
@@ -31,7 +38,12 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled(true)
                 .accessibilityLabel("Workspace group name")
-                .onSubmit { submit(target: target, canCreate: canCreate) }
+                .onSubmit { submit(nameDraft: nameDraft, target: target) }
+                .onChange(of: draftName) { _, _ in
+                    adjustmentAnnouncementGate.editingChanged()
+                }
+
+            WorkspaceGroupNameFeedback(draft: nameDraft)
 
             Text("Host")
                 .font(.caption)
@@ -42,7 +54,7 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 .autocorrectionDisabled(true)
                 .focused($isHostFocused)
                 .accessibilityLabel("Remote host")
-                .onSubmit { submit(target: target, canCreate: canCreate) }
+                .onSubmit { submit(nameDraft: nameDraft, target: target) }
 
             if let message = SSHWorkspaceDestinationValidation.message(for: draftHost) ?? settingsErrorMessage {
                 Text(message)
@@ -70,14 +82,15 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 .keyboardShortcut(.cancelAction)
 
                 Button(primaryButtonLabel) {
-                    submit(target: target, canCreate: canCreate)
+                    submit(nameDraft: nameDraft, target: target)
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canCreate)
                 // Conditional hint on one stable button identity — an if/else
                 // over two button copies resets focus mid-edit.
                 .accessibilityHint(
-                    SSHWorkspaceDestinationValidation.message(for: draftHost)
+                    nameDraft.validationMessage
+                        ?? SSHWorkspaceDestinationValidation.message(for: draftHost)
                         ?? String(
                             localized: "Enter a host to enable Create",
                             comment: "Accessibility hint for the disabled Create button in the New Remote Workspace Group sheet"),
@@ -94,12 +107,13 @@ struct RemoteWorkspaceGroupCreateSheet: View {
         }
     }
 
-    private func submit(target: RemoteTarget?, canCreate: Bool) {
-        guard canCreate, let target else {
+    private func submit(nameDraft: WorkspaceGroupNameDraft, target: RemoteTarget?) {
+        guard nameDraft.canSubmit, let target else {
             return
         }
         guard backgroundSessionsEnabled || enableBackgroundSessions() else { return }
-        onCreate(draftName, target)
+        adjustmentAnnouncementGate.announceIfNeeded(for: nameDraft)
+        onCreate(nameDraft.sanitizedName, target)
     }
 
     private var backgroundSessionsEnabled: Bool {

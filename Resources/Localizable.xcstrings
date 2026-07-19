@@ -1,6 +1,45 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Close About awesoMux" : {
+
+    },
+    "About awesoMux" : {
+
+    },
+    "A native terminal for agents" : {
+
+    },
+    "Version" : {
+
+    },
+    "Build" : {
+
+    },
+    "Terminal backend" : {
+
+    },
+    "Open source" : {
+
+    },
+    "License" : {
+
+    },
+    "Notice" : {
+
+    },
+    "View license for %@" : {
+
+    },
+    "View notice for %@" : {
+
+    },
+    "GitHub" : {
+
+    },
+    "Development" : {
+
+    },
     "" : {
 
     },
@@ -229,6 +268,17 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$arg, %2$arg"
+          }
+        }
+      }
+    },
+    "%arg, %arg, %arg, %arg, %arg, %arg" : {
+      "comment" : "Accessibility label for a worktree row. Includes its action, branch state, branch name, current or linked state, open state, and path.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg, %2$arg, %3$arg, %4$arg, %5$arg, %6$arg"
           }
         }
       }
@@ -517,6 +567,15 @@
     "Bounce Dock icon" : {
 
     },
+    "Branch" : {
+      "comment" : "Accessibility state for a branch worktree.\nExisting local branch picker label."
+    },
+    "Branch %arg was created, but the worktree was not." : {
+      "comment" : "Branch-only partial worktree creation announcement.\nBranch-only partial worktree creation result."
+    },
+    "Branch mode" : {
+      "comment" : "Worktree create branch mode label."
+    },
     "Branches menu" : {
 
     },
@@ -542,7 +601,7 @@
       "comment" : "Settings field label for the CRT scanlines toggle"
     },
     "Cancel" : {
-      "comment" : "Button title that cancels choosing an IDE.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nCancel remote clipboard handoff button\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
+      "comment" : "Button title that cancels choosing an IDE.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nCancel remote clipboard handoff button\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -589,11 +648,23 @@
     "Checking…" : {
       "comment" : "Settings label while the Open at Login status is being fetched.\nSettings label while the macOS notification permission state is being fetched."
     },
+    "Choose" : {
+      "comment" : "Confirm button for the worktree target path picker."
+    },
     "Choose an IDE for this project." : {
       "comment" : "IDE picker alert explanatory text."
     },
+    "Choose or create the folder for the new worktree." : {
+      "comment" : "Worktree target path picker guidance message."
+    },
+    "Choose or enter a branch name." : {
+      "comment" : "Blank branch validation."
+    },
     "Choose the IDE or editor to open this project." : {
       "comment" : "Accessibility help for the IDE picker popup."
+    },
+    "Choose…" : {
+      "comment" : "Open a folder picker for the worktree target path."
     },
     "Clear %arg?" : {
       "comment" : "Title of the clear-workspace (permanent close) confirmation dialog. Argument is the bidi-isolated workspace title."
@@ -638,7 +709,7 @@
 
     },
     "Close Group" : {
-      "comment" : "Destructive button on the close-group confirmation dialog."
+      "comment" : "Destructive button on the close-group confirmation dialog.\nLabel and help text for controls that close a workspace group."
     },
     "Close Pane" : {
       "comment" : "Destructive button on the close-pane confirmation dialog."
@@ -662,6 +733,9 @@
           }
         }
       }
+    },
+    "Close Worktree Manager" : {
+      "comment" : "Accessibility label for the Worktree Manager close button."
     },
     "Close agent activity panel" : {
       "comment" : "Accessibility label for the agent activity panel's close button"
@@ -870,11 +944,23 @@
     "Couldn’t connect. The workspace is no longer available." : {
       "comment" : "Error shown when a managed SSH connection request targets a workspace that no longer exists"
     },
+    "Couldn’t create the worktree. Check the path and Git details, then try again." : {
+      "comment" : "Worktree creation failure message."
+    },
+    "Couldn’t load local branches." : {
+      "comment" : "Branch loading failure in worktree create form."
+    },
+    "Couldn’t refresh worktrees. Check Git and try again." : {
+      "comment" : "Worktree Manager open error when repository identity validation fails.\nWorktree Manager refresh error when the Git command fails."
+    },
     "Count of malformed or oversized runtime event payloads ignored this launch" : {
       "comment" : "VoiceOver hint for Diagnostics malformed-event count"
     },
     "Create" : {
-      "comment" : "Button that creates a remote workspace group"
+      "comment" : "Button that creates a remote workspace group\nCreate worktree accessibility label.\nCreate worktree submit button label."
+    },
+    "Create Worktree…" : {
+      "comment" : "Command palette action that opens Worktree Manager for worktree creation."
     },
     "Create a new workspace" : {
       "comment" : "Empty workspace primary action help and tooltip.",
@@ -912,8 +998,11 @@
     "Creates a managed SSH workspace in “%arg.”\nOpenSSH will use your existing config and credentials." : {
       "comment" : "Explanation in the Connect via SSH sheet"
     },
+    "Creating…" : {
+      "comment" : "Worktree creation in progress accessibility label.\nWorktree creation in progress button label."
+    },
     "Current" : {
-
+      "comment" : "Main worktree indicator."
     },
     "Cursor glow" : {
 
@@ -956,6 +1045,9 @@
     },
     "Destination" : {
 
+    },
+    "Detached" : {
+      "comment" : "Accessibility state for a detached worktree."
     },
     "Diagnostic events" : {
       "comment" : "Diagnostics settings section title"
@@ -1160,6 +1252,9 @@
     "Executable paths and session metadata may be sensitive. Review screenshots or copied text before sharing them." : {
 
     },
+    "Existing local branch" : {
+      "comment" : "Existing branch create mode."
+    },
     "Exit SSH to send this local document path" : {
       "comment" : "Unavailable reason for sending a Mac-local document path while the terminal is inside manual SSH"
     },
@@ -1201,6 +1296,9 @@
     },
     "Floating terminal panel focused." : {
       "comment" : "VoiceOver announcement when the floating panel is re-keyed without workspace context."
+    },
+    "Focus" : {
+      "comment" : "Accessibility action for focusing an open worktree workspace.\nFocus an already-open worktree workspace."
     },
     "Focus Sidebar" : {
 
@@ -1441,6 +1539,9 @@
     "Loading document" : {
 
     },
+    "Loading worktrees…" : {
+      "comment" : "Worktree Manager loading state."
+    },
     "Local and remote panes on %arg" : {
       "comment" : "VoiceOver location summary for a group with local and remote panes."
     },
@@ -1465,6 +1566,9 @@
     "Local · SSH default %arg" : {
       "comment" : "Location summary for local panes in a group that retains an SSH creation default."
     },
+    "Locked" : {
+      "comment" : "Locked worktree indicator."
+    },
     "MIT" : {
 
     },
@@ -1479,6 +1583,9 @@
     },
     "Malformed runtime event was ignored" : {
       "comment" : "Diagnostics event summary"
+    },
+    "Manage Worktrees…" : {
+      "comment" : "Command palette action that opens Worktree Manager.\nWorkspace menu action that opens Worktree Manager."
     },
     "Managed SSH requires background terminal sessions." : {
       "comment" : "Explanation on a managed SSH pane blocked because background terminal sessions are disabled"
@@ -1665,8 +1772,17 @@
     "New Workspace menu" : {
 
     },
+    "New Worktree" : {
+      "comment" : "Open the create worktree form."
+    },
     "New annotation" : {
       "comment" : "Accessibility label for the new annotation popover"
+    },
+    "New branch from HEAD" : {
+      "comment" : "New branch create mode."
+    },
+    "New branch name" : {
+      "comment" : "New worktree branch name field label."
     },
     "New command" : {
       "comment" : "Settings field label for the add-custom-command button"
@@ -1728,6 +1844,9 @@
     "No workspace overrides" : {
 
     },
+    "No worktrees" : {
+      "comment" : "Worktree Manager empty-state title."
+    },
     "Not Now" : {
       "comment" : "Button: dismiss the wedged terminal event loop alert without acting"
     },
@@ -1768,7 +1887,7 @@
       "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
     },
     "Open" : {
-      "comment" : "Button title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler."
+      "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
     },
     "Open Markdown File…" : {
 
@@ -1779,17 +1898,20 @@
     "Open URL anyway" : {
       "comment" : "VoiceOver label for the destructive Open button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Open' so a user who tabs to the button still has context."
     },
+    "Open URL with an unverified host?" : {
+      "comment" : "OSC 8 dialog title segment when the URL's host mixes confusable scripts or has undecodable punycode."
+    },
     "Open URL with embedded login info?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL has a `user@host` prefix that may disguise the real host."
     },
     "Open URL with hidden characters?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL path contains bidi-override / zero-width / control codepoints."
     },
-    "Open URL with non-Latin host?" : {
-      "comment" : "OSC 8 confirmation dialog title segment when the URL's host contains non-ASCII characters."
-    },
     "Open URL with non-standard scheme?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL's scheme is outside http/https/mailto."
+    },
+    "Open Worktree…" : {
+      "comment" : "Command palette action that opens Worktree Manager for worktree selection."
     },
     "Open at Login" : {
       "comment" : "Settings field and VoiceOver label for controlling whether awesoMux opens when the user logs in."
@@ -2173,6 +2295,9 @@
         }
       }
     },
+    "Refresh" : {
+      "comment" : "Refresh Worktree Manager action."
+    },
     "Refresh Markdown files" : {
 
     },
@@ -2255,9 +2380,6 @@
     },
     "Remove %arg" : {
       "comment" : "Accessibility label for the remove button of a named custom command"
-    },
-    "Remove Empty Group" : {
-
     },
     "Remove Group" : {
       "comment" : "Destructive button on the empty-group removal confirmation dialog."
@@ -2348,6 +2470,9 @@
     "Reply…" : {
       "comment" : "Placeholder for the annotation reply field"
     },
+    "Report a Bug or Suggest a Feature…" : {
+
+    },
     "Report a bug…" : {
 
     },
@@ -2421,6 +2546,9 @@
     },
     "Restore workspaces" : {
 
+    },
+    "Retry" : {
+      "comment" : "Retry Worktree Manager refresh action."
     },
     "Return inserts a new line · ⌘Return submits" : {
       "comment" : "Document note editor keyboard help"
@@ -2681,6 +2809,9 @@
         }
       }
     },
+    "Some characters or spacing will be adjusted. This name will be saved as “{savedName}”." : {
+      "comment" : "Visual or spoken feedback in workspace group create and rename sheets. Preserve {savedName}; visual callers replace it with the exact saved name wrapped in bidi isolates."
+    },
     "Sound" : {
 
     },
@@ -2737,6 +2868,12 @@
     },
     "System default" : {
       "comment" : "Font picker entry for the built-in system font\nSpoken name for the terminal's default monospace font when no override is set."
+    },
+    "Target path" : {
+      "comment" : "New worktree target path field label."
+    },
+    "Target path must be absolute." : {
+      "comment" : "Absolute path validation.\nWorktree target absolute path validation."
     },
     "Teal" : {
       "comment" : "Workspace group tint color",
@@ -2837,6 +2974,9 @@
     "That workspace is no longer available to reopen" : {
       "comment" : "VoiceOver announcement when a Recently Closed entry was already reopened or expired before the user selected it."
     },
+    "The Git repository changed. Reopen Worktree Manager from the active workspace." : {
+      "comment" : "Worktree Manager open error when the captured repository is no longer current.\nWorktree Manager refresh error when the captured repository is no longer current."
+    },
     "The active pane in %arg has activity that will be interrupted. Closing the pane will terminate the running process." : {
       "comment" : "Body of the close-pane confirmation dialog. Argument is the bidi-isolated workspace title."
     },
@@ -2860,6 +3000,9 @@
     },
     "The config file on disk is invalid. Changes made here won't be saved until it's fixed." : {
 
+    },
+    "The current workspace group is no longer available." : {
+      "comment" : "Worktree Manager open failure when its target group disappeared.\nWorktree creation target group failure."
     },
     "The declared destination does not have a compatible awesoMux helper." : {
       "comment" : "Remote handoff unsupported error body"
@@ -2924,6 +3067,18 @@
     "The source is unavailable or changed" : {
       "comment" : "Remote handoff source error title"
     },
+    "The target overlaps an existing worktree." : {
+      "comment" : "Worktree target overlap validation."
+    },
+    "The target parent directory does not exist." : {
+      "comment" : "Missing target parent validation."
+    },
+    "The target parent directory is not writable." : {
+      "comment" : "Unwritable target parent validation."
+    },
+    "The target path already exists." : {
+      "comment" : "Existing worktree target validation."
+    },
     "Theme" : {
       "comment" : "Appearance settings section title\nSettings field label for the theme picker"
     },
@@ -2938,14 +3093,17 @@
         }
       }
     },
+    "This Git repository has no healthy worktrees to show." : {
+      "comment" : "Worktree Manager empty-state detail."
+    },
     "This URL parses but has no host. Likely malformed." : {
       "comment" : "Body of the OSC 8 confirmation dialog for an http(s) URL with no host component."
     },
     "This URL uses a scheme outside the standard web/mail allowlist." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a non-standard scheme."
     },
-    "This URL's host contains non-Latin characters." : {
-      "comment" : "Fallback body line when host accessors are unavailable but the URL was flagged as non-ASCII."
+    "This URL's host could not be verified." : {
+      "comment" : "Fallback body line when host accessors are unavailable but the URL's host was flagged as suspicious."
     },
     "This URL's path contains invisible or direction-flipping characters that may disguise the file extension or target." : {
       "comment" : "Body of the OSC 8 confirmation dialog for a URL whose path contains bidi-override, zero-width, or control codepoints."
@@ -3108,6 +3266,9 @@
     "Visual-only overlay. Off by default." : {
       "comment" : "Settings field hint for the CRT scanlines toggle"
     },
+    "WORKTREE MANAGER" : {
+      "comment" : "Worktree Manager kicker."
+    },
     "Waiting" : {
       "comment" : "Agent state label",
       "localizations" : {
@@ -3175,6 +3336,18 @@
           }
         }
       }
+    },
+    "Worktree Manager" : {
+      "comment" : "Worktree Manager accessibility title.\nWorktree Manager panel accessibility label.\nWorktree Manager panel title."
+    },
+    "Worktree created and opened." : {
+      "comment" : "Successful worktree create announcement.\nSuccessful worktree create result."
+    },
+    "Worktree created; workspace could not be opened." : {
+      "comment" : "Worktree created but workspace open failed announcement.\nWorktree created but workspace open failed result."
+    },
+    "Worktrees unavailable" : {
+      "comment" : "Worktree Manager error title."
     },
     "Write a note about the whole document…" : {
 
@@ -3258,6 +3431,9 @@
     "click to pin · reap" : {
 
     },
+    "current worktree" : {
+      "comment" : "Accessibility state for the main worktree."
+    },
     "dismiss" : {
 
     },
@@ -3266,6 +3442,9 @@
     },
     "libghostty" : {
 
+    },
+    "linked worktree" : {
+      "comment" : "Accessibility state for a linked worktree."
     },
     "macOS cannot find this app bundle as a login item. Try from a built awesoMux.app bundle." : {
       "comment" : "Settings hint when the current app cannot be registered as a login item."
@@ -3314,6 +3493,9 @@
         }
       }
     },
+    "not open" : {
+      "comment" : "Accessibility state for a worktree without a live workspace."
+    },
     "nothing to clean up" : {
 
     },
@@ -3321,7 +3503,7 @@
       "comment" : "Accessibility label fragment for a sidebar workspace whose macOS notifications are muted."
     },
     "open" : {
-
+      "comment" : "Accessibility state for a worktree with a live workspace."
     },
     "or" : {
 
@@ -3414,6 +3596,9 @@
     },
     "●  " : {
 
+    },
+    "⟨branch name⟩" : {
+      "comment" : "Placeholder leaf directory in the worktree target path hint before a branch name is chosen or typed."
     },
     "ツ" : {
 

@@ -317,4 +317,48 @@ struct BoundedCommandRunnerTests {
         #expect(await run.value == nil)
         scheduler.advanceOneCycle()
     }
+
+    @Test("legacy run() still returns the capped buffer on a clean exit past the cap")
+    func legacyRunReturnsCappedDataOnTruncation() async throws {
+        let directory = NSTemporaryDirectory()
+        let path = directory + "pathbar-cap-\(UUID().uuidString).txt"
+        try String(repeating: "X", count: 10_000).write(toFile: path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let runner = BoundedCommandRunner(executableCandidates: ["/bin/cat"], maxOutputBytes: 100)
+        // Pre-existing Path Bar contract (a dirty count saturates its display
+        // long before the cap): a clean exit past the cap must still hand
+        // back the capped buffer, not nil.
+        let data = await runner.run(arguments: [path], inDirectory: directory)
+        #expect(data?.count == 100)
+    }
+
+    @Test("runDetailed() reports truncation distinctly from a complete parse")
+    func detailedRunDistinguishesTruncation() async throws {
+        let directory = NSTemporaryDirectory()
+        let path = directory + "pathbar-cap-\(UUID().uuidString).txt"
+        try String(repeating: "X", count: 10_000).write(toFile: path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let runner = BoundedCommandRunner(executableCandidates: ["/bin/cat"], maxOutputBytes: 100)
+        guard case .outputTruncated(let data) = await runner.runDetailed(arguments: [path], inDirectory: directory)
+        else {
+            Issue.record("Expected outputTruncated")
+            return
+        }
+        #expect(data.count == 100)
+    }
+
+    @Test("a non-zero exit past the cap is still nonZeroExit, not outputTruncated")
+    func nonZeroExitTakesPriorityOverTruncation() async {
+        let runner = BoundedCommandRunner(executableCandidates: ["/bin/sh"], maxOutputBytes: 10)
+        // Payload is passed as $1 rather than shelling out to `seq`, which isn't
+        // guaranteed to exist; the literal string reliably exceeds maxOutputBytes.
+        let payload = String(repeating: "X", count: 2_000)
+        let result = await runner.runDetailed(
+            arguments: ["-c", "printf '%s' \"$1\"; exit 3", "_", payload],
+            inDirectory: NSTemporaryDirectory()
+        )
+        #expect(result == .nonZeroExit(3))
+    }
 }

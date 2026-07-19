@@ -376,20 +376,7 @@ private struct PathInfo {
         startingAt url: URL,
         fileManager: FileManager
     ) -> URL? {
-        var candidate = url.standardizedFileURL
-
-        while true {
-            let gitPath = candidate.appendingPathComponent(".git").path
-            if fileManager.fileExists(atPath: gitPath) {
-                return candidate
-            }
-
-            let parent = candidate.deletingLastPathComponent()
-            guard parent.path != candidate.path else {
-                return nil
-            }
-            candidate = parent
-        }
+        GitRepoRootLocator.repoRootURL(startingAt: url, fileManager: fileManager)
     }
 
     // MARK: - Git directory resolution (validated)
