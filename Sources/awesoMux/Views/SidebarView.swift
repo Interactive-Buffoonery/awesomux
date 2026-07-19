@@ -78,6 +78,7 @@ struct SidebarView: View {
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
     @FocusState private var isCollapsedEmptyActionFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.undoManager) private var undoManager
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var isCommandKeyHeld = false
     // Focus-visible: the accent `awFocusRing` should only show while the user is
@@ -548,11 +549,15 @@ struct SidebarView: View {
             }
         }
         .onAppear {
+            sessionStore.undoManager = undoManager
             WindowOrderDiagnostics.logRoster(
                 event: "roster-appeared",
                 open: activityPanelOpen,
                 displayMode: displayMode
             )
+        }
+        .onChange(of: undoManager) { _, undoManager in
+            sessionStore.undoManager = undoManager
         }
         .onChange(of: sessionStore.selectedSessionID) { _, newValue in
             // Selection can land inside a collapsed group via more than

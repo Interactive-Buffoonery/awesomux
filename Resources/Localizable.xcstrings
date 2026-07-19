@@ -1640,6 +1640,9 @@
     "More settings…" : {
 
     },
+    "Move Group" : {
+      "comment" : "Undo action for reordering a workspace group."
+    },
     "Move Group Down" : {
 
     },
@@ -1657,6 +1660,9 @@
     },
     "Move Pane Up" : {
 
+    },
+    "Move Workspace" : {
+      "comment" : "Undo action for moving a workspace within or between groups."
     },
     "Move Workspace Down" : {
 
@@ -2402,6 +2408,9 @@
     "Rename '%arg'" : {
 
     },
+    "Rename Group" : {
+      "comment" : "Undo action for renaming a workspace group."
+    },
     "Rename Pane" : {
 
     },
@@ -2700,6 +2709,9 @@
     },
     "Sessions idle longer than this threshold are cleaned up at launch." : {
 
+    },
+    "Set Group Color" : {
+      "comment" : "Undo action for changing a workspace group color."
     },
     "Set Pane Color to %arg" : {
 
