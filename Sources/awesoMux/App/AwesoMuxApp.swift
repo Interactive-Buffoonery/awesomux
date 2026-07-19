@@ -97,6 +97,8 @@ struct AwesoMuxApp: App {
     @State private var keyboardCheatsheetController = KeyboardCheatsheetController()
     @State private var sessionManagerController = SessionManagerController()
     @State private var sessionManagerModel: SessionManagerModel
+    @State private var worktreeManagerController = WorktreeManagerController()
+    @State private var worktreeManagerModel: WorktreeManagerModel?
     @State private var diagnosticsModel: DiagnosticsModel
     /// The SwiftUI-native window action, captured from the window's environment
     /// so App-level wiring can open scenes without AppKit selectors.
@@ -446,6 +448,7 @@ struct AwesoMuxApp: App {
                 commandPaletteController.appSettingsStore = appSettingsStore
                 keyboardCheatsheetController.appSettingsStore = appSettingsStore
                 sessionManagerController.appSettingsStore = appSettingsStore
+                worktreeManagerController.appSettingsStore = appSettingsStore
                 appDelegate.bind(
                     sessionStore: sessionStore,
                     ghosttyRuntime: ghosttyRuntime,
@@ -480,6 +483,19 @@ struct AwesoMuxApp: App {
                 dismissPaneEditorIfTargetClosed()
                 appDelegate.evaluateAndPostNotifications()
                 appDelegate.syncMenuBarMiniStatusItem()
+            }
+            .task(id: worktreeRepositorySelectionID) {
+                await refreshWorktreeRepositoryContext()
+            }
+            // The refresh above intentionally no-ops while the manager is
+            // visible (so it can't swap the hosted model out from under an
+            // open panel). Once it closes, catch up: the selection may have
+            // changed to a different repository while it was skipped, and
+            // nothing else re-triggers the `.task(id:)` above for the SAME
+            // selection ID the panel opened with.
+            .onChange(of: worktreeManagerController.isVisible) { _, isVisible in
+                guard !isVisible else { return }
+                Task { await refreshWorktreeRepositoryContext() }
             }
             // Pins live outside the group array, so the groups onChange above
             // never fires for a pin/unpin — persist them on their own signal.
@@ -674,6 +690,16 @@ struct AwesoMuxApp: App {
                     requestManagedSSHWorkspaceConversion()
                 }
                 .disabled(selectedManagedSSHConversionTarget == nil || isAnySheetPresented)
+
+                Button(
+                    String(
+                        localized: "Manage Worktrees…",
+                        comment: "Workspace menu action that opens Worktree Manager."
+                    )
+                ) {
+                    showWorktreeManager()
+                }
+                .disabled(worktreeManagerModel == nil || isAnySheetPresented)
 
                 Divider()
 
@@ -2656,6 +2682,75 @@ struct AwesoMuxApp: App {
         )
     }
 
+    private var worktreeRepositorySelectionID: String? {
+        guard let session = sessionStore.selectedSession,
+            let pane = session.activePane,
+            WorkspacePaneCapabilities.terminal(pane).localFileAccess
+        else {
+            return nil
+        }
+        return "\(session.id.uuidString)|\(pane.id.uuidString)|\(pane.workingDirectory)"
+    }
+
+    private func refreshWorktreeRepositoryContext() async {
+        // While the manager is open, its own operations (list/create) already
+        // re-validate repository identity and fail closed on drift. Swapping
+        // `worktreeManagerModel` out from under a VISIBLE panel here would
+        // orphan the hosted view on the old model (the controller only
+        // rehosts on the next explicit `show()`) and could race an in-flight
+        // Create on that old model — simplest correct fix is to not do it.
+        guard !worktreeManagerController.isVisible else { return }
+        guard let selectionID = worktreeRepositorySelectionID,
+            let pane = sessionStore.selectedSession?.activePane
+        else {
+            worktreeManagerModel = nil
+            worktreeManagerController.dismiss()
+            return
+        }
+
+        let outcome = await LocalGitRepositoryLocator().locate(
+            startingAt: URL(fileURLWithPath: pane.workingDirectory)
+        )
+        guard selectionID == worktreeRepositorySelectionID,
+            case .located(let context) = outcome
+        else {
+            if selectionID == worktreeRepositorySelectionID {
+                worktreeManagerModel = nil
+                worktreeManagerController.dismiss()
+            }
+            return
+        }
+        worktreeManagerModel = WorktreeManagerModel(
+            repositoryContext: context,
+            sessionStore: sessionStore
+        )
+    }
+
+    // menu/palette entry points only ever show the panel, never dismiss it —
+    // there's no keyboard-shortcut toggle affordance for this yet, so there's
+    // nothing left that should call a dismiss-on-second-invocation `toggle`.
+    private func showWorktreeManager() {
+        guard !isAnySheetPresented, let worktreeManagerModel else { return }
+        worktreeManagerController.show(
+            model: worktreeManagerModel,
+            relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
+            presentingCreateForm: false
+        )
+    }
+
+    // Distinct from `showWorktreeManager`: the palette's "Create Worktree…"
+    // should always land in the create flow, even if the panel is already
+    // open on something else — `show`, not `toggle`, so a second invocation
+    // never dismisses it instead.
+    private func presentWorktreeCreateForm() {
+        guard !isAnySheetPresented, let worktreeManagerModel else { return }
+        worktreeManagerController.show(
+            model: worktreeManagerModel,
+            relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
+            presentingCreateForm: true
+        )
+    }
+
     private func presentFindInActivePane() {
         guard !isAnySheetPresented,
             let session = sessionStore.selectedSession
@@ -2978,7 +3073,8 @@ struct AwesoMuxApp: App {
                 isAnySheetPresented: isAnySheetPresented,
                 isOpenInIDEEnabled: appSettingsStore.workspaces.value.openInIDEEnabled,
                 isSidebarHidden: isSidebarPersistentlyHidden,
-                isSidebarCommandTargetAvailable: sidebarCommandTargetAvailability.isAvailable
+                isSidebarCommandTargetAvailable: sidebarCommandTargetAvailability.isAvailable,
+                isWorktreeManagerAvailable: worktreeManagerModel != nil && !isAnySheetPresented
             ),
             actions: paletteActions,
             keyboard: keyboardConfig
@@ -3167,7 +3263,10 @@ struct AwesoMuxApp: App {
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFilePanel,
-            openSessionManager: toggleSessionManager
+            openSessionManager: toggleSessionManager,
+            openWorktreeManager: showWorktreeManager,
+            createWorktree: presentWorktreeCreateForm,
+            openWorktree: showWorktreeManager
         )
     }
 
