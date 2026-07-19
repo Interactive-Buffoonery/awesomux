@@ -394,7 +394,14 @@ struct AnalyticsEventLogStoreTests {
         retain = true
         store.append(Self.entry())
         store.waitForPendingWrites()
-        await Task.yield()
+        // The failed rewrite reports back through a MainActor hop that
+        // waitForPendingWrites cannot cover; wait for the flag itself so the
+        // next append deterministically takes the full-ledger retry path.
+        let deadline = ContinuousClock.now + .seconds(30)
+        while store.diskMatchesEntries, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!store.diskMatchesEntries)
 
         try FileManager.default.removeItem(at: eventsURL)
         store.append(Self.entry())

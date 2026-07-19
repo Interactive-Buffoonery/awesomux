@@ -110,7 +110,7 @@ struct ProcessCommandRunner: CommandRunner {
             execution.stderrPipe.fileHandleForReading.readDataToEndOfFile()
         }
 
-        let timedOut = TimeoutFlag()
+        let timedOut = OneShotFlag()
         let timeout = timeout
 
         try await withTaskCancellationHandler {
@@ -257,26 +257,5 @@ private final class SingleResume: @unchecked Sendable {
         let continuation = continuation
         self.continuation = nil
         return continuation
-    }
-}
-
-// MARK: - TimeoutFlag
-
-/// One-shot, thread-safe flag set by the timeout task and read after the process
-/// exits to distinguish a timeout-kill from an ordinary non-zero exit.
-private final class TimeoutFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-
-    func set() {
-        lock.lock()
-        value = true
-        lock.unlock()
-    }
-
-    var isSet: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return value
     }
 }

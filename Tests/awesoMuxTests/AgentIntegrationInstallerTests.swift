@@ -987,7 +987,11 @@ struct AgentIntegrationInstallerTests {
         process.arguments = ["-c", script, directory.path, readyURL.path]
         try process.run()
 
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: readyURL.path) {
+        // Interpreter startup can take multiple seconds under full-suite load
+        // (GH #29); the sentinel is written only after flock succeeds, so a
+        // generous ceiling adds no latency to passing runs.
+        let deadline = Date().addingTimeInterval(30)
+        while !FileManager.default.fileExists(atPath: readyURL.path), Date() < deadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
         try #require(FileManager.default.fileExists(atPath: readyURL.path))

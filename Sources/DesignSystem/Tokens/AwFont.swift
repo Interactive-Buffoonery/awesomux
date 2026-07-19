@@ -369,7 +369,6 @@ public enum AwRadius {
 
 public enum AwAnimation {
     public static let pulseNeeds = Animation.easeOut(duration: 1.4).repeatForever(autoreverses: true)
-    public static let spinThinking = Animation.linear(duration: 0.9).repeatForever(autoreverses: false)
 }
 
 // MARK: - Text-scaling previews
