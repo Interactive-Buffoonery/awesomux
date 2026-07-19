@@ -14,6 +14,7 @@ enum AnalyticsProviderConfiguration {
 @MainActor
 final class PostHogCaptureProvider: AnalyticsDeliveryProvider {
     static let maximumInFlightRequests = 4
+    private static let timestampFormatter = ISO8601DateFormatter()
 
     private let projectToken: String
     private let endpoint: URL
@@ -115,7 +116,7 @@ final class PostHogCaptureProvider: AnalyticsDeliveryProvider {
             "event": event.name.rawValue,
             "distinct_id": anonymousID.uuidString,
             "properties": properties,
-            "timestamp": ISO8601DateFormatter().string(from: timestamp),
+            "timestamp": timestampFormatter.string(from: timestamp),
         ]
         guard JSONSerialization.isValidJSONObject(envelope),
             let body = try? JSONSerialization.data(withJSONObject: envelope)
