@@ -445,7 +445,8 @@ struct SidebarView: View {
                     groups: sessionStore.groups,
                     pinnedSessionIDs: sessionStore.pinnedSessionIDs,
                     selectedSessionID: sessionStore.selectedSessionID,
-                    displayMode: displayMode
+                    displayMode: displayMode,
+                    reduceMotion: reduceMotion
                 ),
                 searchText: $searchText,
                 onOpenQuickSettings: onOpenQuickSettings,
@@ -1254,6 +1255,10 @@ struct SidebarActivityInvalidationKey: Equatable {
     let pinnedSessionIDs: [TerminalSession.ID]
     let selectedSessionID: TerminalSession.ID?
     let displayMode: SidebarWidthMode
+    /// Snapshotted into the key because @Environment doesn't pierce the
+    /// .equatable() gate (PR #428): the footer/roster thinking spinners read
+    /// Reduce Motion via updateNSView, which only runs when this key changes.
+    let reduceMotion: Bool
 }
 
 /// Owns the filter-independent roster UI behind an explicit session-tree
