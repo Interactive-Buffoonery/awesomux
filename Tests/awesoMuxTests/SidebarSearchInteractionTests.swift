@@ -20,47 +20,52 @@ struct SidebarSearchInteractionTests {
         )
 
         #expect(
-            baseline == SidebarActivityInvalidationKey(
-                groups: groups,
-                pinnedSessionIDs: [],
-                selectedSessionID: session.id,
-                displayMode: .expanded
-            )
+            baseline
+                == SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded
+                )
         )
 
         var renamedGroups = groups
         renamedGroups[0].sessions[0].title = "Renamed agent"
         #expect(
-            baseline != SidebarActivityInvalidationKey(
-                groups: renamedGroups,
-                pinnedSessionIDs: [],
-                selectedSessionID: session.id,
-                displayMode: .expanded
-            )
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: renamedGroups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded
+                )
         )
         #expect(
-            baseline != SidebarActivityInvalidationKey(
-                groups: groups,
-                pinnedSessionIDs: [],
-                selectedSessionID: nil,
-                displayMode: .expanded
-            )
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: nil,
+                    displayMode: .expanded
+                )
         )
         #expect(
-            baseline != SidebarActivityInvalidationKey(
-                groups: groups,
-                pinnedSessionIDs: [],
-                selectedSessionID: session.id,
-                displayMode: .collapsed
-            )
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .collapsed
+                )
         )
         #expect(
-            baseline != SidebarActivityInvalidationKey(
-                groups: groups,
-                pinnedSessionIDs: [session.id],
-                selectedSessionID: session.id,
-                displayMode: .expanded
-            )
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [session.id],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded
+                )
         )
     }
 
