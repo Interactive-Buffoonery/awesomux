@@ -85,7 +85,11 @@ struct GhosttyRuntimeRecentLinkTests {
 
     @Test func remoteMarkdownUsesCapturedPaneRoutingContext() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-        defer { GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting() }
+        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        defer {
+            GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
+            GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        }
         let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
         let pane = TerminalPane(
             title: "remote",
@@ -100,6 +104,10 @@ struct GhosttyRuntimeRecentLinkTests {
             captured = reference
             return nil
         }
+        // Stub the presenter: nil-provider-result now surfaces a failure
+        // (see nilRemoteSnapshotPresentsRoutingFailure), which would otherwise
+        // block this test on a real NSAlert.
+        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { _ in }
 
         await GhosttyRuntime.openRecentLink(
             "docs/readme.md",
@@ -113,7 +121,11 @@ struct GhosttyRuntimeRecentLinkTests {
 
     @Test func remoteMarkdownLineReferenceNeverFallsThroughToSameNamedLocalFile() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-        defer { GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting() }
+        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        defer {
+            GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
+            GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        }
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -134,6 +146,10 @@ struct GhosttyRuntimeRecentLinkTests {
             captured = reference
             return nil
         }
+        // Stub the presenter: nil-provider-result now surfaces a failure
+        // (see nilRemoteSnapshotPresentsRoutingFailure), which would otherwise
+        // block this test on a real NSAlert.
+        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { _ in }
 
         await GhosttyRuntime.openRecentLink(
             "README.md:12",
@@ -173,6 +189,40 @@ struct GhosttyRuntimeRecentLinkTests {
         )
 
         #expect(didPresent)
+    }
+
+    @Test func nilRemoteSnapshotPresentsRoutingFailure() async throws {
+        GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
+        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        defer {
+            GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
+            GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        }
+        let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
+        let pane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/local",
+            remoteWorkingDirectory: "/srv/project",
+            executionPlan: .ssh(.init(target: target))
+        )
+        let session = makeSession(pane)
+        let store = makeStore(session)
+        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in nil }
+        var didPresent = false
+        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { view in
+            #expect(view == nil)
+            didPresent = true
+        }
+
+        await GhosttyRuntime.openRecentLink(
+            "docs/readme.md",
+            in: session.id,
+            associatedWith: pane.id,
+            sessionStore: store
+        )
+
+        #expect(didPresent)
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
     }
 
     private func makeStore(
