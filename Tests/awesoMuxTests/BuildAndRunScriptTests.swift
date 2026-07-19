@@ -181,8 +181,9 @@ struct BuildAndRunScriptTests {
         #expect(!script.contains(#"--predicate "subsystem == \"$LOG_SUBSYSTEM\"""#))
         #expect(script.contains(#"subsystem == \"$LOG_SUBSYSTEM\" AND processIdentifier == $pid"#))
         #expect(script.contains(#"category == \"TerminalDiagnostics\" AND processIdentifier == $pid"#))
-        #expect(script.contains(#"category == \"ShortcutDiagnostics\" AND processIdentifier == $pid"#))
         #expect(script.contains(#"category == \"WindowOrderDiagnostics\" AND processIdentifier == $pid"#))
+        #expect(script.contains(#"awesomux-shortcuts-${pid}.jsonl"#))
+        #expect(script.contains("tail -n +1 -f \"$diagnostics_file\""))
     }
 
     @Test("window diagnostics are opt-in and use the shared diagnostic launcher")

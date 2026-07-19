@@ -56,6 +56,7 @@ struct DocumentGroupView: View {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.controlActiveState) private var controlActiveState
     @Environment(DocumentComposeTabActionHandler.self) private var documentTabActions
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private static let resolveSettleInterval: Duration = .milliseconds(500)
     private static let revisionExpandedDuration: Duration = .seconds(9)
@@ -254,11 +255,14 @@ struct DocumentGroupView: View {
                 // one tab never bleeds into the next tab's healthy send bar. A
                 // shell-activity flip is the existing event-driven invalidation
                 // for command submit/finish, so leaving manual SSH also forces a
-                // fresh foreground check without polling.
+                // fresh foreground check without polling. Agent kind/state
+                // flips invalidate the same way so the prompt gate's label and
+                // enabled state track the target's hook-driven transitions
+                // (running -> waiting) without polling (INT-569).
                 .id(
                     DocumentNudgeSendBarID(
                         documentID: document.id,
-                        shellActivity: session.layout.documentSendTarget(for: document.id)?.shellActivity
+                        target: session.layout.documentSendTarget(for: document.id)
                     )
                 )
             case .files:
@@ -494,10 +498,33 @@ struct DocumentGroupView: View {
     /// ones fail closed. Keyed by document id (not the current selection) so a
     /// pinned composer resolves against session.layout regardless of the tab shown.
     private func resolveSendTarget(for documentID: DocumentPane.ID) -> DocumentNudgeTargetResolution {
-        DocumentPaneSendBar.resolveNudgeTarget(
+        let integrations = appSettingsStore.agentIntegrations.value
+        return DocumentPaneSendBar.resolveNudgeTarget(
             in: session.layout,
             for: documentID,
-            foregroundExecutableMatch: runtime.foregroundExecutableMatch
+            isIntegrationEnabled: { kind in
+                switch kind {
+                case .claudeCode: integrations.claudeCode.enabled
+                case .codex: integrations.codex.enabled
+                case .openCode: integrations.openCode.enabled
+                case .pi: integrations.pi.enabled
+                case .grok: integrations.grok.enabled
+                case .shell: false
+                }
+            },
+            agentBinaryPath: { kind in
+                switch kind {
+                case .claudeCode: integrations.claudeCode.binaryPath
+                case .codex: integrations.codex.binaryPath
+                case .openCode: integrations.openCode.binaryPath
+                case .pi: integrations.pi.binaryPath
+                case .grok: integrations.grok.binaryPath
+                case .shell: nil
+                }
+            },
+            foregroundComm: { runtime.foregroundComm(in: $0) },
+            foregroundGeneration: { runtime.foregroundGeneration(in: $0) },
+            verifiedWaitingForegroundGeneration: { runtime.verifiedWaitingForegroundGeneration(in: $0) }
         )
     }
 
@@ -561,6 +588,15 @@ private struct ComposerContext: Identifiable {
 struct DocumentNudgeSendBarID: Hashable {
     let documentID: DocumentPane.ID
     let shellActivity: ShellActivity?
+    let agentKind: AgentKind?
+    let agentState: AgentState?
+
+    init(documentID: DocumentPane.ID, target: TerminalPane?) {
+        self.documentID = documentID
+        shellActivity = target?.shellActivity
+        agentKind = target?.agentKind
+        agentState = target?.agentState
+    }
 }
 
 private enum DocumentPaneMode {

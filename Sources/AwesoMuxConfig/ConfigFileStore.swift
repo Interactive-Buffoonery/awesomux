@@ -247,15 +247,9 @@ public struct ConfigFileStore: Sendable {
         }
 
         do {
-            // 0o700 on the config directory: only the owning user should
-            // be able to read agent-permission posture and (eventually)
-            // tool-trust state. Default macOS umask leaves directories at
-            // 0o755 which is more open than this content warrants.
-            try FileManager.default.createDirectory(
-                at: directoryURL,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
+            // Owner-only: the config holds agent-permission posture and
+            // (eventually) tool-trust state.
+            try FileManager.default.createOwnerOnlyDirectory(at: directoryURL)
         } catch {
             throw .cannotCreateDirectory(directoryURL, message: String(describing: error))
         }

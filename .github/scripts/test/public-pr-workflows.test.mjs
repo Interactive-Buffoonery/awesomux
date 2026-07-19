@@ -8,7 +8,12 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const read = (path) => readFileSync(join(repoRoot, path), "utf8");
 
 const workflows = {
+  cheapGuards: read(".github/workflows/cheap-guards.yml"),
+  codeql: read(".github/workflows/codeql.yml"),
+  native: read(".github/workflows/native-ci.yml"),
+  nativeExecutor: read(".github/workflows/native-ci-executor.yml"),
   size: read(".github/workflows/pr-size.yml"),
+  swiftCodeql: read(".github/workflows/swift-codeql.yml"),
   template: read(".github/workflows/pr-template.yml"),
 };
 
@@ -58,8 +63,41 @@ test("PR sizing uses a verified passive ref and effective line rules", () => {
   assert.match(workflow, /issues\/comments\/\$\{comment_id\}/);
 });
 
-test("native Swift CI stays disabled until its tests are deterministic", () => {
-  assert.equal(existsSync(join(repoRoot, ".github/workflows/swift.yml")), false);
+test("hosted native CI stays advisory and maintainer-triggered", () => {
+  assert.match(workflows.native, /issue_comment:\n\s+types: \[created\]/);
+  assert.match(workflows.native, /workflow_dispatch:/);
+  assert.doesNotMatch(workflows.native, /^\s{2}(?:push|pull_request|schedule):/m);
+  assert.match(workflows.nativeExecutor, /workflow_dispatch:/);
+  assert.doesNotMatch(
+    workflows.nativeExecutor,
+    /^\s{2}(?:issue_comment|push|pull_request|pull_request_target|schedule):/m,
+  );
+});
+
+test("fast required checks have stable names", () => {
+  assert.match(workflows.cheapGuards, /name: Fast deterministic guards/);
+  assert.match(workflows.codeql, /name: CodeQL interpreted complete/);
+  assert.match(workflows.template, /name: Validate PR metadata/);
+});
+
+test("interpreted CodeQL stays automatic without waiting for Swift", () => {
+  const workflow = workflows.codeql;
+  assert.match(workflow, /push:\n\s+branches: \[main\]/);
+  assert.match(workflow, /pull_request:\n\s+branches: \[main\]/);
+  assert.match(workflow, /matrix:\n\s+language: \[actions, python\]/);
+  assert.doesNotMatch(workflow, /schedule:|workflow_dispatch:|Analyze \(swift\)|needs: \[[^\]]*swift/);
+});
+
+test("Swift CodeQL is weekly and manual only", () => {
+  const workflow = workflows.swiftCodeql;
+  assert.match(workflow, /schedule:\n\s+- cron: "17 8 \* \* 2"/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.doesNotMatch(workflow, /^\s{2}(?:push|pull_request):/m);
+  assert.match(workflow, /runs-on: \$\{\{ vars\.NATIVE_CI_RUNNER \|\| 'macos-26' \}\}/);
+  assert.match(workflow, /permissions:\n\s+contents: read\n\s+security-events: write/);
+  assert.match(workflow, /uses: \.\/\.github\/actions\/prepare-native/);
+  assert.match(workflow, /save-cache: "true"/);
+  assert.match(workflow, /languages: swift\n\s+build-mode: manual/);
 });
 
 test("PR hygiene consolidates the external checklist", () => {
