@@ -94,12 +94,12 @@ struct WorkspaceGroupRenameSheet: View {
             return
         }
 
-        adjustmentAnnouncementGate.announceIfNeeded(for: nameDraft)
         guard nameDraft.sanitizedName != groupName else {
             onCancel()
             return
         }
 
+        adjustmentAnnouncementGate.announceIfNeeded(for: nameDraft)
         onSave(nameDraft.sanitizedName)
     }
 }
