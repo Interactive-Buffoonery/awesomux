@@ -188,7 +188,10 @@ test("native CI exposes only slash-command and scoped manual triggers", () => {
 
 test("native CI resolves authorized requests in trusted workflow code", () => {
   const workflow = nativeRequestWorkflow;
+  const resolveJob = workflow.match(/\n  resolve:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
+  assert.ok(resolveJob, "native request resolver job must exist");
 
+  assert.match(resolveJob, /permissions:\n\s+actions: write\n\s+contents: write\n\s+issues: write\n\s+pull-requests: write/);
   assert.match(workflow, /MAINTAINER_LOGINS_JSON: \$\{\{ vars\.MAINTAINER_LOGINS_JSON \|\| '\[\]' \}\}/);
   assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
   assert.match(workflow, /node \.github\/scripts\/native-ci-request\.mjs parse/);
