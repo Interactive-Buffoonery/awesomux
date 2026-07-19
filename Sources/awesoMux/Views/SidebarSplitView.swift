@@ -80,6 +80,16 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
         }
     }
 
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsViewController: SidebarSplitController,
+        context: Context
+    ) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height else { return nil }
+        // Avoid tree-wide AppKit fitting-size measurement when hosted-pane animations tick.
+        return CGSize(width: width, height: height)
+    }
+
     static func dismantleNSViewController(
         _ controller: SidebarSplitController,
         coordinator: Void
