@@ -16,7 +16,8 @@ struct SidebarSearchInteractionTests {
             groups: groups,
             pinnedSessionIDs: [],
             selectedSessionID: session.id,
-            displayMode: .expanded
+            displayMode: .expanded,
+            reduceMotion: false
         )
 
         #expect(
@@ -25,7 +26,8 @@ struct SidebarSearchInteractionTests {
                     groups: groups,
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
-                    displayMode: .expanded
+                    displayMode: .expanded,
+                    reduceMotion: false
                 )
         )
 
@@ -37,7 +39,8 @@ struct SidebarSearchInteractionTests {
                     groups: renamedGroups,
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
-                    displayMode: .expanded
+                    displayMode: .expanded,
+                    reduceMotion: false
                 )
         )
         #expect(
@@ -46,7 +49,8 @@ struct SidebarSearchInteractionTests {
                     groups: groups,
                     pinnedSessionIDs: [],
                     selectedSessionID: nil,
-                    displayMode: .expanded
+                    displayMode: .expanded,
+                    reduceMotion: false
                 )
         )
         #expect(
@@ -55,7 +59,8 @@ struct SidebarSearchInteractionTests {
                     groups: groups,
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
-                    displayMode: .collapsed
+                    displayMode: .collapsed,
+                    reduceMotion: false
                 )
         )
         #expect(
@@ -64,7 +69,20 @@ struct SidebarSearchInteractionTests {
                     groups: groups,
                     pinnedSessionIDs: [session.id],
                     selectedSessionID: session.id,
-                    displayMode: .expanded
+                    displayMode: .expanded,
+                    reduceMotion: false
+                )
+        )
+        // Reduce Motion reaches the footer spinners only through updateNSView,
+        // which the equatable gate suppresses unless the key changes.
+        #expect(
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded,
+                    reduceMotion: true
                 )
         )
     }
