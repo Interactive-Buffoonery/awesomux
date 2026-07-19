@@ -32,9 +32,12 @@ public struct AgentOutputDetector: Sendable {
         in visibleText: String,
         assumingAgentContext: Bool = false
     ) -> AgentOutputDetection? {
+        // locale: nil, not .current — every needle below is ASCII, and a
+        // locale-sensitive fold breaks matching outright (Turkish İ/ı turns
+        // "THINKING" into "thınkıng"). Case-insensitive folding already
+        // lowercases, so no second .lowercased() pass over the viewport.
         let normalized = visibleText
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .lowercased()
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
 
         guard assumingAgentContext || containsAgentContext(normalized) else {
             return nil
@@ -98,8 +101,7 @@ public struct AgentOutputDetector: Sendable {
     public func observesAgentContext(in visibleText: String) -> Bool {
         containsAgentContext(
             visibleText
-                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                .lowercased()
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         )
     }
 
