@@ -4,18 +4,27 @@ import Testing
 
 @Suite("Agent prompt gate")
 struct AgentPromptGateTests {
+    /// A matching pair by default so every pre-existing test — none of which
+    /// are about generation binding — keeps exercising exactly the behavior
+    /// it names. Tests for the generation check itself override these.
+    private static let defaultGeneration = AgentForegroundIncarnation(pid: 4242, startedAt: 1_000)
+
     private func verdict(
         kind: AgentKind,
         state: AgentState = .waiting,
         enabled: Bool = true,
         comm: String? = nil,
-        binaryCandidate: String? = nil
+        binaryCandidate: String? = nil,
+        verifiedGeneration: AgentForegroundIncarnation? = defaultGeneration,
+        observedGeneration: AgentForegroundIncarnation? = defaultGeneration
     ) -> AgentPromptGate.Verdict {
         AgentPromptGate.verdict(
             agentKind: kind,
             agentState: state,
             isIntegrationEnabled: { _ in enabled },
             observedForegroundCommand: comm,
+            verifiedWaitingForegroundGeneration: verifiedGeneration,
+            observedForegroundGeneration: observedGeneration,
             configuredBinaryCandidate: { binaryCandidate }
         )
     }
@@ -73,7 +82,9 @@ struct AgentPromptGateTests {
                 consentConsulted = true
                 return false
             },
-            observedForegroundCommand: kind == .claudeCode ? "claude" : "codex"
+            observedForegroundCommand: kind == .claudeCode ? "claude" : "codex",
+            verifiedWaitingForegroundGeneration: Self.defaultGeneration,
+            observedForegroundGeneration: Self.defaultGeneration
         )
         #expect(verdict == .verified(kind))
         #expect(!consentConsulted)
@@ -101,6 +112,88 @@ struct AgentPromptGateTests {
     )
     func foregroundMismatchDeclines(comm: String) {
         #expect(verdict(kind: .claudeCode, comm: comm) == .unavailable(.noVerifiedAgent))
+    }
+
+    // MARK: - Foreground-generation binding (INT-569 follow-up)
+    //
+    // `.waiting` can be synthesized from bare process-name recognition or
+    // scraped viewport text — neither proves the CURRENT foreground process
+    // ever earned it via a real hook. These prove the gate now binds
+    // `.waiting` evidence to the exact (pid, start time) a trusted hook last
+    // confirmed, and rejects anything that doesn't match the live process.
+
+    @Test("a same-provider relaunch's fresh incarnation is rejected until its own hook confirms it")
+    func relaunchedProcessDeclinesDespiteMatchingComm() {
+        // The stale `.waiting` (and its trusted generation) came from a
+        // process that has since exited; a new same-named process is now
+        // foreground with a different pid/start time — exactly the
+        // same-provider-relaunch spoof window this closes.
+        let staleGeneration = AgentForegroundIncarnation(pid: 100, startedAt: 1_000)
+        let relaunchedGeneration = AgentForegroundIncarnation(pid: 200, startedAt: 2_000)
+        #expect(
+            verdict(
+                kind: .claudeCode,
+                comm: "claude",
+                verifiedGeneration: staleGeneration,
+                observedGeneration: relaunchedGeneration
+            ) == .unavailable(.noVerifiedAgent)
+        )
+    }
+
+    @Test("no trusted hook has ever confirmed waiting for this pane")
+    func absentTrustedGenerationDeclines() {
+        // Only a synthesized/scraped `.waiting` exists (e.g.
+        // `detectAgentExitedToShell`'s process-recognition fast path) — no
+        // real hook ever stamped a trusted generation.
+        #expect(
+            verdict(
+                kind: .claudeCode,
+                comm: "claude",
+                verifiedGeneration: nil,
+                observedGeneration: AgentForegroundIncarnation(pid: 200, startedAt: 2_000)
+            ) == .unavailable(.noVerifiedAgent)
+        )
+    }
+
+    @Test("no live foreground process evidence declines even with a trusted generation on record")
+    func absentObservedGenerationDeclines() {
+        #expect(
+            verdict(
+                kind: .claudeCode,
+                comm: "claude",
+                verifiedGeneration: AgentForegroundIncarnation(pid: 100, startedAt: 1_000),
+                observedGeneration: nil
+            ) == .unavailable(.noVerifiedAgent)
+        )
+    }
+
+    @Test("the same live process that earned a trusted waiting hook is still verified")
+    func sameProcessIncarnationVerifies() {
+        // The process never relaunched — pid and start time are unchanged —
+        // so the earlier hook's trust still legitimately applies.
+        let generation = AgentForegroundIncarnation(pid: 4242, startedAt: 1_000)
+        #expect(
+            verdict(
+                kind: .claudeCode,
+                comm: "claude",
+                verifiedGeneration: generation,
+                observedGeneration: generation
+            ) == .verified(.claudeCode)
+        )
+    }
+
+    @Test("incarnations with the same pid but a different start time are rejected")
+    func pidReuseWithDifferentStartTimeDeclines() {
+        // A pid can be recycled by the OS; start time is what actually
+        // distinguishes the exited process from its replacement.
+        #expect(
+            verdict(
+                kind: .claudeCode,
+                comm: "claude",
+                verifiedGeneration: AgentForegroundIncarnation(pid: 100, startedAt: 1_000),
+                observedGeneration: AgentForegroundIncarnation(pid: 100, startedAt: 9_000)
+            ) == .unavailable(.noVerifiedAgent)
+        )
     }
 
     @Test("the configured binary candidate is not consulted for a non-receptive agent")

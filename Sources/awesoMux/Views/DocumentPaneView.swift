@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -23,12 +24,14 @@ struct DocumentPaneSendBar: View {
     /// user knows the action failed rather than silently no-oping.
     @State private var nudgeFailed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Same convention as TerminalPaneView/SidebarSessionTile: read settings
+    // through the environment-injected store, not `runtime`'s provider-closure
+    // indirection, so enabling an integration recomputes `body` immediately
+    // instead of waiting on an unrelated render (CodeRabbit finding).
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private var nudgeResolution: DocumentNudgeTargetResolution {
-        // Settings are read live per resolution (non-reactive source); a
-        // toggle flipped after render is caught by the click-time re-resolve
-        // in `performNudge`, the action-time safety floor.
-        let integrations = runtime.agentIntegrations
+        let integrations = appSettingsStore.agentIntegrations.value
         return Self.resolveNudgeTarget(
             in: session.layout,
             for: pane.id,
@@ -52,7 +55,9 @@ struct DocumentPaneSendBar: View {
                 case .shell: nil
                 }
             },
-            foregroundComm: { runtime.foregroundComm(in: $0) }
+            foregroundComm: { runtime.foregroundComm(in: $0) },
+            foregroundGeneration: { runtime.foregroundGeneration(in: $0) },
+            verifiedWaitingForegroundGeneration: { runtime.verifiedWaitingForegroundGeneration(in: $0) }
         )
     }
 
@@ -61,7 +66,9 @@ struct DocumentPaneSendBar: View {
         for documentID: DocumentPane.ID,
         isIntegrationEnabled: (AgentKind) -> Bool,
         agentBinaryPath: (AgentKind) -> String? = { _ in nil },
-        foregroundComm: (TerminalPane.ID) -> String?
+        foregroundComm: (TerminalPane.ID) -> String?,
+        foregroundGeneration: (TerminalPane.ID) -> AgentForegroundIncarnation? = { _ in nil },
+        verifiedWaitingForegroundGeneration: (TerminalPane.ID) -> AgentForegroundIncarnation? = { _ in nil }
     ) -> DocumentNudgeTargetResolution {
         let resolution = layout.documentNudgeTarget(for: documentID)
         guard case .available(let target) = resolution else { return resolution }
@@ -80,6 +87,8 @@ struct DocumentPaneSendBar: View {
             agentState: target.agentState,
             isIntegrationEnabled: isIntegrationEnabled,
             observedForegroundCommand: observedComm,
+            verifiedWaitingForegroundGeneration: verifiedWaitingForegroundGeneration(target.id),
+            observedForegroundGeneration: foregroundGeneration(target.id),
             configuredBinaryCandidate: {
                 guard let path = agentBinaryPath(target.agentKind), !path.isEmpty else {
                     return nil

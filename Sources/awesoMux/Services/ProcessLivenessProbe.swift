@@ -28,6 +28,26 @@ enum ProcessLivenessProbe {
         return buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
     }
 
+    /// The process start time in MICROSECONDS since epoch for `pid`, or nil if
+    /// it cannot be read (dead/reaped pid, or a permission error). Paired with
+    /// `pid` this is a foreground-process "incarnation" — see
+    /// `AgentForegroundIncarnation` — cheap enough to call at nudge-verify
+    /// time: one extra `proc_pidinfo` syscall alongside the existing
+    /// `foregroundComm` read.
+    ///
+    /// Microsecond (not second) resolution is load-bearing, not cosmetic: a
+    /// PID recycled by the OS within the same wall-clock second would
+    /// otherwise compare equal to a stale incarnation at second precision —
+    /// `proc_bsdinfo` already reports `pbi_start_tvusec` for free, so there is
+    /// no reason to discard it (review finding).
+    static func processStartTime(pid: pid_t) -> Int? {
+        guard pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
+        guard size == Int32(MemoryLayout<proc_bsdinfo>.size) else { return nil }
+        return Int(info.pbi_start_tvsec) * 1_000_000 + Int(info.pbi_start_tvusec)
+    }
+
     /// Whether `pid` has at least one child process, or nil if the child list
     /// cannot be resolved. Uses `proc_listpids(PROC_PPID_ONLY, …)`. Returns nil
     /// (not false) when the pid is gone — the sizing call may return a non-zero
@@ -95,6 +115,31 @@ enum ProcessLivenessProbe {
             return nil
         }
         return observed
+    }
+
+    /// The pid of the foreground process itself (leader of the bridged
+    /// daemon's sole root shell's foreground process group), or nil when
+    /// unresolvable. Same traversal as `terminalForegroundComm` — kept as a
+    /// separate function (not a refactor of it) so its existing injected-
+    /// closure test coverage is untouched.
+    ///
+    /// This is the pid the document-nudge generation check must bind to for a
+    /// bridged pane: the DAEMON's own incarnation (`respawnLedger.lastIncarnation`)
+    /// survives a same-daemon CLI relaunch (a persistent bridged session's
+    /// user quits and restarts the agent CLI inside the same shell), so
+    /// keying on the daemon alone would silently re-trust a fresh, unverified
+    /// CLI process — the exact spoof window this gate exists to close.
+    static func terminalForegroundPID(
+        daemonPID: pid_t,
+        childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },
+        foregroundGroup: (pid_t) -> pid_t? = {
+            ProcessLivenessProbe.terminalForegroundProcessGroup(pid: $0)
+        }
+    ) -> pid_t? {
+        guard let roots = childPIDs(daemonPID), roots.count == 1 else {
+            return nil
+        }
+        return foregroundGroup(roots[0])
     }
 
     static func terminalForegroundExecutableMatch(
