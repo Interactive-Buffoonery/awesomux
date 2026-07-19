@@ -11,7 +11,7 @@ struct LocalGitRepositoryLocatorTests {
         let nested = fixture.repository.appending(path: "one/two", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
 
-        let outcome = await LocalGitRepositoryLocator().locate(startingAt: nested)
+        let outcome = await Self.makeLocator().locate(startingAt: nested)
         let context = try #require(outcome.context)
         #expect(context.invocationRoot == fixture.repository.resolvingSymlinksInPath())
         #expect(context.displayName == "primary")
@@ -28,7 +28,7 @@ struct LocalGitRepositoryLocatorTests {
         let linked = fixture.root.appending(path: "linked", directoryHint: .isDirectory)
         try fixture.git(["worktree", "add", "--detach", linked.path], cwd: fixture.repository)
 
-        let locator = LocalGitRepositoryLocator()
+        let locator = Self.makeLocator()
         let primary = try #require((await locator.locate(startingAt: fixture.repository)).context)
         let linkedContext = try #require((await locator.locate(startingAt: linked)).context)
         #expect(linkedContext.invocationRoot == linked.resolvingSymlinksInPath())
@@ -42,7 +42,7 @@ struct LocalGitRepositoryLocatorTests {
         let bare = fixture.root.appending(path: "bare.git", directoryHint: .isDirectory)
         try fixture.git(["init", "--bare", bare.path], cwd: fixture.root)
 
-        #expect(await LocalGitRepositoryLocator().locate(startingAt: bare) == .bareRepository)
+        #expect(await Self.makeLocator().locate(startingAt: bare) == .bareRepository)
     }
 
     @Test("the innermost repository wins for a repository nested inside another")
@@ -53,7 +53,7 @@ struct LocalGitRepositoryLocatorTests {
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
         try fixture.git(["init"], cwd: nested)
 
-        let context = try #require((await LocalGitRepositoryLocator().locate(startingAt: nested)).context)
+        let context = try #require((await Self.makeLocator().locate(startingAt: nested)).context)
         #expect(context.invocationRoot == nested.resolvingSymlinksInPath())
     }
 
@@ -64,10 +64,16 @@ struct LocalGitRepositoryLocatorTests {
         let link = fixture.root.appending(path: "primary-link", directoryHint: .isDirectory)
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: fixture.repository)
 
-        let locator = LocalGitRepositoryLocator()
+        let locator = Self.makeLocator()
         let direct = try #require((await locator.locate(startingAt: fixture.repository)).context)
         let throughLink = try #require((await locator.locate(startingAt: link)).context)
         #expect(throughLink == direct)
+    }
+
+    /// Git subprocess latency stretches under full-suite load; the timeout is
+    /// an outlier guard here, not the behavior under test.
+    private static func makeLocator() -> LocalGitRepositoryLocator {
+        LocalGitRepositoryLocator(runner: BoundedLocalGitCommandRunner(timeout: .seconds(30)))
     }
 }
 
