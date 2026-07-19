@@ -119,7 +119,7 @@ jobs:
           git -C "$TAP_DIR" add Casks/awesomux.rb
           git -C "$TAP_DIR" commit -m "chore(awesomux): bump cask to $RELEASE_VERSION"
           gh auth setup-git
-          git -C "$TAP_DIR" push --set-upstream origin "$BRANCH"
+          git -C "$TAP_DIR" push --force-with-lease --set-upstream origin "$BRANCH"
 
           gh pr create \
             --repo "$TAP_REPOSITORY" \

@@ -25,6 +25,7 @@ test("published release assets produce a verified tap pull request", () => {
   assert.match(workflow, /gh release download "\$RELEASE_TAG"/);
   assert.match(workflow, /shasum -a 256 -c/);
   assert.match(workflow, /\.\/script\/update_homebrew_cask\.sh/);
+  assert.match(workflow, /push --force-with-lease --set-upstream origin "\$BRANCH"/);
   assert.match(workflow, /gh pr create/);
-  assert.doesNotMatch(workflow, /git push[^\n]*(?:origin\s+)?main/);
+  assert.doesNotMatch(workflow, /push[^\n]*\bmain\b/);
 });
