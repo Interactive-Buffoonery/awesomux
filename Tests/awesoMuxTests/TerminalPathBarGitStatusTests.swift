@@ -237,6 +237,41 @@ struct BoundedCommandRunnerTests {
         #expect(await runner.run(arguments: [], inDirectory: NSTemporaryDirectory()) == nil)
     }
 
+    @Test("output at the cap boundary reports complete vs truncated explicitly")
+    func truncationIsExplicitAtCapBoundary() async throws {
+        let directory = NSTemporaryDirectory()
+        let underPath = directory + "pathbar-under-\(UUID().uuidString).txt"
+        let exactPath = directory + "pathbar-exact-\(UUID().uuidString).txt"
+        let overPath = directory + "pathbar-over-\(UUID().uuidString).txt"
+        let cap = 64
+        try String(repeating: "a", count: cap - 1).write(toFile: underPath, atomically: true, encoding: .utf8)
+        try String(repeating: "b", count: cap).write(toFile: exactPath, atomically: true, encoding: .utf8)
+        try String(repeating: "c", count: cap + 1).write(toFile: overPath, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(atPath: underPath)
+            try? FileManager.default.removeItem(atPath: exactPath)
+            try? FileManager.default.removeItem(atPath: overPath)
+        }
+
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/cat"],
+            maxOutputBytes: cap
+        )
+
+        #expect(
+            await runner.runDetailed(arguments: [underPath], inDirectory: directory)
+                == .success(Data(repeating: UInt8(ascii: "a"), count: cap - 1))
+        )
+        #expect(
+            await runner.runDetailed(arguments: [exactPath], inDirectory: directory)
+                == .success(Data(repeating: UInt8(ascii: "b"), count: cap))
+        )
+        let over = await runner.runDetailed(arguments: [overPath], inDirectory: directory)
+        #expect(over == .outputTruncated(Data(repeating: UInt8(ascii: "c"), count: cap)))
+        #expect(over.completeData == nil)
+        #expect(over.dataAllowingTruncation?.count == cap)
+    }
+
     @Test("a child that exits while a descendant holds stdout resolves bounded to nil")
     func descendantHoldingStdoutDoesNotHang() async {
         // `sh` exits immediately but backgrounds a short `sleep`, which inherits
