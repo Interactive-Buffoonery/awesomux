@@ -2767,6 +2767,9 @@
         }
       }
     },
+    "Some characters or spacing will be adjusted. This name will be saved as “{savedName}”." : {
+      "comment" : "Visual or spoken feedback in workspace group create and rename sheets. Preserve {savedName}; visual callers replace it with the exact saved name wrapped in bidi isolates."
+    },
     "Sound" : {
 
     },

@@ -370,6 +370,7 @@ struct AwesoMuxApp: App {
             }
             .sheet(item: $remoteWorkspaceGroupCreateRequest) { _ in
                 RemoteWorkspaceGroupCreateSheet(
+                    existingGroupNames: sessionStore.groups.map(\.name),
                     onCancel: {
                         remoteWorkspaceGroupCreateRequest = nil
                     },
