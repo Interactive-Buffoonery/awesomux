@@ -1,8 +1,9 @@
 # Test suite baseline
 
-This document records the starting point for the deterministic hosted Swift CI
-rebuild. The baseline was captured from an untouched `origin/main` before any
-test organization or behavior changed.
+This document records the historical starting point for deterministic hosted
+Swift validation and the current test-group interface. The baseline was
+captured from an untouched `origin/main` before any test organization or
+behavior changed.
 
 ## Baseline run
 
@@ -82,6 +83,12 @@ Arguments after the group are passed to `swift test`. For example,
 `./script/test.sh unit --xunit-output result.xml` records the unit result.
 `./script/preflight.sh` remains the complete local check, including non-Swift
 guards and app launch verification.
+
+The same scopes are available through advisory native CI on an open,
+same-repository, non-draft pull request. An allowlisted maintainer may comment
+exactly `/ci`, `/ci all`, `/ci unit`, `/ci adapter`, or `/ci system`. Each
+request captures the current head SHA, so a new commit requires a fresh command.
+See [`ci.md`](ci.md) for the hosted trust boundary, artifacts, and cache policy.
 
 `AwesoMuxTestSupportTests` belongs to the unit group. The shared support target
 is test-only; production targets must not depend on it.

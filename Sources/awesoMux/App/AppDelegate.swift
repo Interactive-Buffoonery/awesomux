@@ -494,7 +494,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowOrderDiagnostics.start()
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        ShortcutDiagnostics.log("stage=applicationDidFinishLaunching applicationClass=\(type(of: NSApp))")
+        ShortcutDiagnostics.log(
+            "stage=applicationDidFinishLaunching applicationClass=\(NSStringFromClass(type(of: NSApp!))) customApplication=\(NSApp is AwesoMuxApplication)"
+        )
         #if DEBUG
         if !(NSApp is AwesoMuxApplication) {
             assertionFailure("Expected NSApp to be AwesoMuxApplication for app-level shortcuts.")

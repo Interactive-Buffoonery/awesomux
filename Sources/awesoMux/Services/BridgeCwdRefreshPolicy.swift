@@ -1,8 +1,9 @@
 // Pure, testable decision helpers for bridge-pane cwd refresh.
 //
-// A bridge pane runs a daemon shell that does NOT emit OSC 7, so its cwd goes
-// stale as soon as the user changes directories. `AmxBackend.queryCwd` is the
-// out-of-band oracle; this policy owns WHEN to call it and WHAT to write back.
+// A bridge pane cannot rely on OSC 7: the daemon shell may not emit it, and a
+// reattach snapshot does not replay it. `AmxBackend.queryCwd` is the single
+// out-of-band oracle for shell or active-job directory changes; this policy
+// owns WHEN to call it and WHAT to write back.
 //
 // Everything here is side-effect free — the view layer (TerminalPathBarView) is
 // the enactor. Tests live in BridgeCwdRefreshPolicyTests.
