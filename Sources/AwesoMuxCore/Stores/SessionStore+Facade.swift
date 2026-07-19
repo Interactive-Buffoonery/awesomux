@@ -169,6 +169,7 @@ extension SessionStore {
 
     /// Applies visible-text detector state to a pane. Public unread deltas only
     /// add badges. `paneID` defaults to the session's active pane.
+    @discardableResult
     public func applyDetectedAgentState(
         id: TerminalSession.ID,
         paneID: TerminalPane.ID? = nil,
@@ -177,10 +178,15 @@ extension SessionStore {
         clearsAttention: Bool,
         clearsUnreadNotifications: Bool = false,
         unreadNotificationDelta: Int = 0
-    ) {
-        applyPaneUpdate(
+    ) -> Bool {
+        guard let targetPaneID = resolvedPaneID(sessionID: id, paneID: paneID),
+            !runtimeEventReducer.suppressesHeuristicState(for: targetPaneID)
+        else {
+            return false
+        }
+        return applyPaneUpdate(
             sessionID: id,
-            paneID: paneID,
+            paneID: targetPaneID,
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentKind: agentKind,
                 agentState: detectedState,

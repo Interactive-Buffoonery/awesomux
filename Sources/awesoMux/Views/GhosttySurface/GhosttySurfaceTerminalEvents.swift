@@ -652,14 +652,14 @@ extension GhosttySurfaceNSView {
             }
         }
 
+        // Stale-error cleanup is independent of the agent-state mutation: an
+        // ended pane that suppresses the heuristic update must still drop
+        // lingering error paint when the visible text moves past the error.
         if decision.shouldClearStaleError {
             clearStaleErrorState()
         }
-        if applyState != nil || decision.agentKind != nil {
-            announce(decision.announcementIntent)
-        }
 
-        sessionStore.applyDetectedAgentState(
+        let applied = sessionStore.applyDetectedAgentState(
             id: sessionID,
             paneID: paneID,
             detectedState: applyState,
@@ -668,6 +668,11 @@ extension GhosttySurfaceNSView {
             clearsUnreadNotifications: applyState != nil ? decision.clearsUnreadNotifications : false,
             unreadNotificationDelta: applyState != nil ? decision.unreadNotificationDelta : 0
         )
+        guard applied else { return }
+
+        if applyState != nil || decision.agentKind != nil {
+            announce(decision.announcementIntent)
+        }
     }
 
     func announce(_ intent: AgentStateAnnouncementIntent) {
