@@ -26,23 +26,6 @@ final class GhosttySurfaceTerminalEventState {
     /// before its own first real hook ever fires (INT-569 follow-up).
     var verifiedWaitingForegroundIncarnation: AgentForegroundIncarnation?
 
-    /// Drives the passive shell-activity + agent-state-from-visible-text
-    /// samplers, which also double as the trigger for the `.valueChanged`
-    /// VoiceOver notification (see `sampleAgentStateFromVisibleText()`'s
-    /// `lastAccessibilityReportedVisibleText` comparison) — new PTY output
-    /// has no other push signal, so it rides the same visible-text diff
-    /// rather than adding a second poll loop.
-    /// These used to piggyback on the `draw(_:)` override; libghostty now owns
-    /// presentation on its own renderer thread (see `GhosttySurfaceTerminalEvents`),
-    /// so the samplers lost their per-frame trigger and run on this independent
-    /// poll instead. The event-driven command submit/finish ladders still own
-    /// precise transition timing — this is only the passive fallback.
-    ///
-    /// Ceiling: a fixed ~250ms poll re-reads each *visible* pane's viewport. If
-    /// that ever shows on a profile, gate it on a libghostty content-change signal
-    /// once one is exposed to the embedder.
-    var visibleStateSamplingTask: Task<Void, Never>?
-
     /// Auto-clears a `progressReport` that never receives its OSC 9;4
     /// `remove` state — e.g. the emitting process is killed or crashes
     /// mid-report. Re-armed on every visible progress write, invalidated on

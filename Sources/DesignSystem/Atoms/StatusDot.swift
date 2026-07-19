@@ -26,8 +26,11 @@ public struct StatusDot: View {
                 .stroke(foregroundColor, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
                 .frame(width: 10, height: 10)
                 .rotationEffect(.degrees(isSpinning ? 360 : 0))
-                .onAppear {
-                    guard !reduceMotion else { return }
+                .onChange(of: reduceMotion, initial: true) { _, _ in
+                    guard !reduceMotion else {
+                        withAnimation(.linear(duration: 0)) { isSpinning = false }
+                        return
+                    }
                     withAnimation(AwAnimation.spinThinking) { isSpinning = true }
                 }
                 .onDisappear {

@@ -74,6 +74,7 @@ struct SidebarGroupView: View {
     @Binding var isKeyboardNavigating: Bool
 
     @State private var rowFrames: [TerminalSession.ID: CGRect] = [:]
+    @State private var rowFrameCache = SidebarDragFrameCache<TerminalSession.ID>()
     @State private var workspaceDropIndex: Int?
     @State private var headerWorkspaceDropTargeted = false
     @State private var suppressedWorkspaceDragID: UUID?
@@ -109,6 +110,10 @@ struct SidebarGroupView: View {
         // don't each rebuild `sessions.map(\.id)` (a double allocation —
         // `sessions` is itself computed) on every render / layout pass.
         let sessionIDSet = Set(sessionIDs)
+        let dragRowFrames = rowFrameCache.frames(
+            stored: rowFrames,
+            isDragActive: activeDragID != nil
+        )
         let structuralAnimation: Animation? =
             reduceMotion || isFiltering
             ? nil
@@ -304,7 +309,13 @@ struct SidebarGroupView: View {
                 .onPreferenceChange(SidebarRowFramePreferenceKey.self) { frames in
                     // Keep only frames for currently-visible sessions so the
                     // y-hit-test never indexes against a stale row.
-                    rowFrames = frames.filter { sessionIDSet.contains($0.key) }
+                    let visibleFrames = frames.filter { sessionIDSet.contains($0.key) }
+                    rowFrameCache.update(visibleFrames)
+                    // Keep the reader live so SwiftUI can coalesce preference
+                    // emission; only the @State write is drag-gated to avoid
+                    // idle layout invalidating this whole group again.
+                    guard activeDragID != nil else { return }
+                    rowFrames = visibleFrames
                 }
                 .onChange(of: sessionIDs) { _, _ in
                     // Filter changes / group restructures invalidate cached
@@ -325,7 +336,7 @@ struct SidebarGroupView: View {
                         let y = SidebarInsertionResolver.insertionY(
                             forInsertionIndex: workspaceDropIndex,
                             orderedIDs: sessionIDs,
-                            frames: rowFrames,
+                            frames: dragRowFrames,
                             spacing: density.sessionStackSpacing
                         )
                     {
@@ -339,7 +350,7 @@ struct SidebarGroupView: View {
                     delegate: SidebarWorkspaceListDropDelegate(
                         groupID: group.id,
                         sessionIDs: sessionIDs,
-                        rowFrames: rowFrames,
+                        rowFrames: dragRowFrames,
                         isFiltering: isFiltering,
                         activeDragKind: activeDragKind,
                         activeDragID: activeDragID,
@@ -370,6 +381,9 @@ struct SidebarGroupView: View {
             // `SidebarGroupHeaderRow` (it owns `isHeaderHovered`).
         }
         .onChange(of: activeDragID) { _, dragID in
+            if dragID != nil {
+                rowFrames = rowFrameCache.frames(stored: rowFrames, isDragActive: true)
+            }
             if dragID != suppressedWorkspaceDragID {
                 suppressedWorkspaceDragID = nil
             }

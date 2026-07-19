@@ -514,6 +514,17 @@ struct CommentBadgePillGeometryTests {
         #expect(CommentBadgeOverlay.pillAccessibilityLabel(displayNumber: 2, isAddPill: false) == "Comment 2")
     }
 
+    @Test("disabled pill accessibility press does not claim success")
+    func disabledAccessibilityPressDoesNotClaimSuccess() {
+        let element = PillAccessibilityElement()
+        var didPress = false
+        element.onPress = { didPress = true }
+        element.setAccessibilityEnabled(false)
+
+        #expect(element.accessibilityPerformPress() == false)
+        #expect(didPress == false)
+    }
+
     @Test("pill sits immediately after the trailing edge of the glyph rect")
     func pillIsAfterTrailingEdge() {
         let trailing = NSRect(x: 100, y: 40, width: 8, height: 16)

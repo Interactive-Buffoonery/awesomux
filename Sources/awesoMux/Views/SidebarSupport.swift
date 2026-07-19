@@ -126,12 +126,6 @@ struct SidebarSnapshot {
     /// Pinned workspaces floated into the synthetic Pinned section, in pin
     /// order. Removed from `entries` by `SidebarPinnedProjection` (INT-737).
     let pinned: [PinnedSessionEntry]
-    let total: Int
-    let counts: [AwState: Int]
-    /// Pane-grain agent roster (INT-722) — the footer chips' source and the
-    /// activity panel's list. Built from the same pane snapshots the session
-    /// rollup folds, so chip, panel, and badge can't disagree.
-    let roster: AgentActivityRoster
     /// Highest-ranked filtered session across all groups, used by ⏎ to
     /// commit a search to a selection. Nil when no query is active.
     let topMatchID: TerminalSession.ID?

@@ -137,7 +137,7 @@ actor ProcessCodexAppServerClient: CodexAppServerClient {
         // `requestTimedOut` deterministically — rather than racing on which child
         // reaches `next()` first — the deadline child sets this before closing, and
         // a `connectionClosed` seen while it is set is reinterpreted as the timeout.
-        let timedOut = TimeoutFlag()
+        let timedOut = OneShotFlag()
         // Closing the transport is the only thing that unblocks a `receive()`
         // parked in the real stdio transport's non-cancellable `availableData`
         // read. The deadline child does that on timeout — but external
@@ -197,25 +197,6 @@ actor ProcessCodexAppServerClient: CodexAppServerClient {
             }
             return response.result ?? .null
         }
-    }
-}
-
-// MARK: - TimeoutFlag
-
-/// One-shot thread-safe flag shared between the deadline child and the correlate
-/// child, so a `connectionClosed` triggered by the deadline's own `close()` is
-/// surfaced as `requestTimedOut` rather than racing it.
-private final class TimeoutFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-
-    var isSet: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return value
-    }
-
-    func set() {
-        lock.lock(); value = true; lock.unlock()
     }
 }
 

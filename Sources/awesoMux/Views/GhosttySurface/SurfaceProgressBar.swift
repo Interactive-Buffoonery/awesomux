@@ -151,11 +151,11 @@ private struct BouncingProgressBar: View {
                     .offset(x: position * (geometry.size.width * (1 - barWidthRatio)))
             }
         }
-        .onAppear {
+        .onChange(of: reduceMotion, initial: true) { _, _ in
             guard !reduceMotion else {
                 // Static, centered indicator instead of the infinite bounce —
                 // still communicates "indeterminate progress" without motion.
-                position = 0.5
+                withAnimation(.linear(duration: 0)) { position = 0.5 }
                 return
             }
             withAnimation(

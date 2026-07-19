@@ -625,10 +625,12 @@ struct DocumentPaneView: View {
     /// `cachedRender` seeds `loadResult`/`renderedDoc` so a tab the user
     /// switches back to shows its content immediately instead of a spinner —
     /// the load task still re-reads the file (the watcher was off while the tab
-    /// was hidden) and swaps in any changes. `initialScrollAnchor` seeds
-    /// `pendingScrollAnchor` so the first render restores the tab's last scroll
-    /// position; it's a `State` seed (not a fallback read on every pass) so the
-    /// reset paths that clear the pending anchor stay authoritative.
+    /// was hidden) and swaps in any changes. A successful cached seed has empty
+    /// blocks and no file snapshot; `renderedDoc` paints immediately while
+    /// snapshot-dependent edits wait for that reload. `initialScrollAnchor`
+    /// seeds `pendingScrollAnchor` so the first render restores the tab's last
+    /// scroll position; it's a `State` seed (not a fallback read on every pass)
+    /// so the reset paths that clear the pending anchor stay authoritative.
     init(
         pane: DocumentPane,
         cachedRender: DocumentTabMemory.Render? = nil,
@@ -800,8 +802,9 @@ struct DocumentPaneView: View {
         blocks: [MarkdownBlock],
         snapshot: MarkdownDocumentSnapshot?
     ) -> some View {
-        if let doc = renderedDoc, let snapshot {
+        if let doc = renderedDoc {
             let isReadOnly = pane.isReadOnlySnapshot
+            let annotationsInteractive = snapshot != nil
             let spanTouchesMark =
                 selectedSourceSpan.map {
                     SelectionSourceMapping.spanTouchesExistingMark($0, in: doc)
@@ -831,7 +834,9 @@ struct DocumentPaneView: View {
                             textColor: markdownTextColor,
                             relativeLinkBaseURL: pane.fileURL.deletingLastPathComponent(),
                             allowsDocumentLinks: !isReadOnly,
+                            annotationsInteractive: annotationsInteractive,
                             onPillClicked: { markID, pillRect, anchorView in
+                                guard let snapshot else { return }
                                 showCommentPopover(
                                     markID: markID,
                                     pillRect: pillRect,
@@ -842,7 +847,9 @@ struct DocumentPaneView: View {
                             },
                             onAddPillClicked: { pillRect, anchorView in
                                 // Secondary affordance: still works if user clicks the add pill.
-                                guard !isReadOnly, let span = selectedSourceSpan, !spanTouchesMark else { return }
+                                guard !isReadOnly, let snapshot,
+                                    let span = selectedSourceSpan, !spanTouchesMark
+                                else { return }
                                 showComposePopover(
                                     span: span,
                                     pillRect: pillRect,
@@ -851,7 +858,7 @@ struct DocumentPaneView: View {
                                     snapshot: snapshot
                                 )
                             },
-                            selectionTouchesMark: spanTouchesMark || isReadOnly,
+                            selectionTouchesMark: spanTouchesMark || isReadOnly || !annotationsInteractive,
                             onTextViewAvailable: { tv in markdownNSTextView = tv },
                             // Fix 3 (INT-562): auto-present compose popover when the user
                             // finalizes a selection (mouseUp with a non-empty, non-mark-touching
@@ -860,7 +867,7 @@ struct DocumentPaneView: View {
                             // the popover already closed on Cancel/Esc/click-away, so re-selection
                             // correctly re-opens the composer with a clean state).
                             onSelectionFinalized: { span, trailingRect, tv in
-                                guard !isReadOnly else { return }
+                                guard !isReadOnly, let snapshot else { return }
                                 // If a popover is already showing, don't stack another one.
                                 if let existing = nsPopover, existing.isShown {
                                     return
@@ -885,7 +892,9 @@ struct DocumentPaneView: View {
                         .contextMenu {
                             if !isReadOnly {
                                 Button("Add Comment") {
-                                    guard let span = selectedSourceSpan, !spanTouchesMark else { return }
+                                    guard let snapshot,
+                                        let span = selectedSourceSpan, !spanTouchesMark
+                                    else { return }
                                     if let tv = markdownNSTextView {
                                         // Fix 5 (INT-562): anchor to the VISIBLE clip-view centre,
                                         // not tv.bounds.midY (which is the full document height and
@@ -909,12 +918,14 @@ struct DocumentPaneView: View {
                                         )
                                     }
                                 }
-                                .disabled(selectedSourceSpan == nil || spanTouchesMark)
+                                .disabled(snapshot == nil || selectedSourceSpan == nil || spanTouchesMark)
 
                                 Button(doc.documentNote == nil ? "Add Document Note…" : "Document Note…") {
+                                    guard let snapshot else { return }
                                     documentNoteSheetDoc = doc
                                     documentNoteSheetSnapshot = snapshot
                                 }
+                                .disabled(snapshot == nil)
                             }
                             Toggle("Hide Resolved Annotations", isOn: $hideResolved)
                         }
@@ -1025,13 +1036,14 @@ struct DocumentPaneView: View {
     /// the leading edge and the inline resolved filter on the trailing edge.
     private func documentAnnotationBar(
         doc: RenderedDocument,
-        snapshot: MarkdownDocumentSnapshot
+        snapshot: MarkdownDocumentSnapshot?
     ) -> some View {
         let documentNote = doc.documentNote
         let resolvedCount = doc.resolvedAnnotationCount
         return HStack {
             if !pane.isReadOnlySnapshot || documentNote != nil {
                 Button {
+                    guard let snapshot else { return }
                     documentNoteSheetDoc = doc
                     documentNoteSheetSnapshot = snapshot
                 } label: {
@@ -1043,6 +1055,7 @@ struct DocumentPaneView: View {
                     .foregroundStyle(documentNote?.status == .resolved ? Color.aw.text2 : Color.aw.text)
                 }
                 .buttonStyle(.plain)
+                .disabled(snapshot == nil)
                 .help(documentNote == nil ? "Add a document note" : "Show document note")
                 .accessibilityLabel(documentNoteAccessibilityLabel(documentNote))
             }

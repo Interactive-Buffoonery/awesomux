@@ -22,10 +22,12 @@ extension AppSettingsStore {
 }
 
 @MainActor
-extension SectionStore {
+extension SectionSlice {
     /// Per-section binding helper. Reads depend only on this section's
     /// store, so SwiftUI invalidates only the views that touch this
-    /// slice.
+    /// slice. On the concrete slice, not the SectionStore protocol — the
+    /// protocol has exactly one conformer; move this back up only if a
+    /// second store or a polymorphic call site ever appears.
     func binding<T>(_ keyPath: WritableKeyPath<Value, T>) -> Binding<T> {
         Binding(
             get: { self.value[keyPath: keyPath] },

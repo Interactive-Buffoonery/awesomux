@@ -786,9 +786,7 @@ extension SessionStore {
     ) {
         guard liveness == .idleShell,
             let pane = session(id: sessionID)?.layout.pane(id: paneID),
-            pane.executionPlan == .local,
-            pane.remoteHost != nil || pane.remoteSSHTarget != nil
-                || pane.hasConsumedManagedSSHWorkspaceOffer
+            pane.hasManagedSSHObservation
         else {
             return
         }
