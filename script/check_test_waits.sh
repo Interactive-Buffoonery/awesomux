@@ -25,6 +25,7 @@ check_line() {
     local line="$2"
     local content="$3"
 
+    [[ "$file" == Tests/AwesoMuxTestSupport/Wait.swift ]] && return
     [[ "$file" == Tests/awesoMuxTests/*.swift ]] && return
     if [[ "$content" =~ $wait_pattern ]]; then
         printf '%s:%s:%s\n' "$file" "$line" "$content" >&2

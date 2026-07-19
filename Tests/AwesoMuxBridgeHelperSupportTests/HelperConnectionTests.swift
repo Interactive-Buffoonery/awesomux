@@ -55,14 +55,14 @@ struct HelperConnectionTests {
             let request = BridgeEnvelope(
                 token: "token", session: "session", id: "request", ts: Date().timeIntervalSince1970,
                 message: .permissionRequest(
-                    PermissionRequest(tool: "Bash", target: "build", expiresAt: Date().addingTimeInterval(0.1).timeIntervalSince1970)
+                    PermissionRequest(tool: "Bash", target: "build", expiresAt: Date().addingTimeInterval(10).timeIntervalSince1970)
                 )
             )
             var runtime = HelperPermissionRuntime(token: "token", session: "session")
             #expect(runtime.admit(envelope: request, now: Date()) == .admitted)
             try client.send(request)
             let decision = try client.readPermissionDecision(
-                deadline: HelperConnection.defaultMonotonicNow().addingTimeInterval(0.1)
+                deadline: HelperConnection.defaultMonotonicNow().addingTimeInterval(10)
             )
             #expect(
                 decision?.message

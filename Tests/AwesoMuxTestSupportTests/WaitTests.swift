@@ -1,3 +1,4 @@
+import Dispatch
 import Testing
 @testable import AwesoMuxTestSupport
 
@@ -23,5 +24,26 @@ struct WaitTests {
         await recorder.record(1)
 
         #expect(await observed)
+    }
+
+    @Test("eventual wait observes a real-time-delayed update")
+    func eventualWaitSucceeds() async {
+        var ready = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(30)) {
+            ready = true
+        }
+
+        #expect(
+            await waitUntilEventually(
+                deadline: .seconds(10),
+                pollEvery: .milliseconds(5)
+            ) { ready }
+        )
+        #expect(
+            !(await waitUntilEventually(
+                deadline: .milliseconds(20),
+                pollEvery: .milliseconds(5)
+            ) { false })
+        )
     }
 }
