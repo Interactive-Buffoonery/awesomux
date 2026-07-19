@@ -30,6 +30,8 @@ Rather than force one geometry to fit both, the two call sites diverge:
 
 Different sidebar states already have different affordances throughout this app; this isn't a new pattern.
 
+**Styling exception:** the rail's `NewWorkspaceMenuButton` call currently passes `restFill: Color.aw.surface.sidebar` (blends into the background at rest), while the search icon button above it on the same rail uses `Color.aw.surface.elevated.opacity(0.6)` (a visible boxed background) — eD flagged this mismatch from a reference screenshot. Fix: change the rail call site's `restFill` argument to match the search button's, so both controls read as the same style. This is a call-site argument change only — `NewWorkspaceMenuButton.swift` itself still doesn't change.
+
 ## Control layout (expanded header only)
 
 A new component, used only by the expanded header call site, replaces `NewWorkspaceMenuButton` there:

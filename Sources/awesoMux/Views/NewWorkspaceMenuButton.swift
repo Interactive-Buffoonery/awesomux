@@ -5,10 +5,10 @@ import SwiftUI
 struct NewWorkspaceMenuButton: View {
     let size: CGFloat
     let cornerRadius: CGFloat
-    /// Resting background fill. The expanded header passes `surface.sidebar`
-    /// (mantle) so the glyph blends into the sidebar next to the search field;
-    /// the collapsed rail passes `surface.hover` to keep its boxed look,
-    /// matching the disabled command-palette button stacked above it.
+    /// Resting background fill. This component now serves the collapsed rail
+    /// only (the expanded header uses `NewWorkspaceSplitButton`) — the rail
+    /// passes `surface.elevated.opacity(0.6)` to match the search icon
+    /// button stacked above it.
     let restFill: Color
     /// Groups available for the "New Workspace in…" submenu, in the order
     /// they appear in the sidebar.
@@ -24,7 +24,6 @@ struct NewWorkspaceMenuButton: View {
     let onNewWorkspaceGroup: () -> Void
 
     @State private var isHovering = false
-    @Environment(\.awAccent) private var accentResolver
 
     var body: some View {
         Menu {
@@ -52,7 +51,10 @@ struct NewWorkspaceMenuButton: View {
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
-        .foregroundStyle(Color.aw.accent(accentResolver.accent))
+        // Neutral, matching the search icon button above it on the rail —
+        // not the accent color, which reads as too prominent for a chrome
+        // control at this size.
+        .foregroundStyle(Color.aw.text3)
         // `restFill` decides whether the button blends into the sidebar
         // (expanded header) or keeps a box (collapsed rail). On hover it always
         // surfaces the `surface.hover` highlight so it reads as a button — for

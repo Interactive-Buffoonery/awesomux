@@ -12,7 +12,7 @@
 
 - Spec: `docs/superpowers/specs/2026-07-19-new-workspace-split-button-design.md` (approved, revised after architecture review + cross-model adversarial pass).
 - The three underlying actions (`onNewWorkspace`, `onNewWorkspaceInGroup`, `onNewWorkspaceGroup`) do not change behavior anywhere — this is an entry-point/layout change only.
-- **Collapsed rail is untouched.** `Sources/awesoMux/Views/NewWorkspaceMenuButton.swift` and its call site (`SidebarView.swift:669-682`) are not modified by this plan at all.
+- **Collapsed rail's behavior is untouched.** `NewWorkspaceMenuButton.swift` keeps its single-`Menu` structure and the rail's callback wiring is unchanged. Two post-Task-1 styling-only additions do touch this file and its call site — see "Post-Task-1 styling addendum" below — but no behavior, structure, or interaction model changes.
 - `otherGroups` stays unfiltered exactly as it is today (it already includes the current group — the property name is a slight misnomer, pre-existing, not this plan's problem to fix). Do not add current-group filtering.
 - Chevron menu is **up to 2 rows** — 1 when the user has no other groups yet, 2 otherwise — in this order: **"New Workspace Group…" first, then "New Workspace in ▶" second** (order flipped from the spec's first draft per eD's explicit call — flagged low-confidence, may get flipped back later; wording is the established term, not a rename). The group list itself stays behind the nested submenu, never flattened to the top level.
 - No naming prompt anywhere in this change — both instant-creation paths (primary click, "New Workspace in [Group]") stay unnamed, matching current behavior exactly.
@@ -22,6 +22,13 @@
 - `main` is protected — this work continues on the `docs/new-workspace-split-button-design` branch (already checked out, currently holds the spec and plan commits).
 - Splitting one focusable control into two changes keyboard Tab order for this control (one stop → two). This control isn't wired into the sidebar's custom `SidebarVisibleRowTarget` focus system, so this is an accepted, low-severity, unremarkable side effect of the redesign.
 - A native `Menu(primaryAction:)` split control was considered and not adopted (unverified whether it renders as a true split under `.menuStyle(.borderlessButton)`, and scoping to the expanded header alone already resolves the geometry pressure that motivated considering it). Documented here per the spec so it isn't silently reconsidered without this context.
+
+## Post-Task-1 styling addendum
+
+After Task 1 landed and eD saw it running, two style-only fixes came back from a reference screenshot — applied directly (no subagent dispatch; both are single-line-scale, zero-behavior-change, low-risk):
+
+1. **Rail box styling:** the rail's `NewWorkspaceMenuButton` call passed `restFill: Color.aw.surface.sidebar` (blends into background at rest) while the search icon button above it uses `Color.aw.surface.elevated.opacity(0.6)` (a visible box) — mismatched. Fixed by changing the rail call site's `restFill` argument (`SidebarView.swift`) to match. `NewWorkspaceMenuButton.swift` itself unchanged by this fix; only the call-site argument and its doc comment changed.
+2. **Icon color:** both `NewWorkspaceSplitButton` (expanded header) and `NewWorkspaceMenuButton` (rail) used `.foregroundStyle(Color.aw.accent(accentResolver.accent))` — eD felt this read as too prominent for a chrome control at this size. Both switched to `Color.aw.text3`, matching the search icon's neutral color (`SidebarView.swift:659,697`). The now-unused `@Environment(\.awAccent) private var accentResolver` was removed from both files.
 
 ---
 

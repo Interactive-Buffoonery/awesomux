@@ -41,7 +41,6 @@ struct NewWorkspaceSplitButton: View {
     @State private var isPrimaryHovering = false
     @State private var isChevronHovering = false
     @State private var lastCreateAt: Date?
-    @Environment(\.awAccent) private var accentResolver
 
     var body: some View {
         HStack(spacing: 0) {
@@ -55,7 +54,10 @@ struct NewWorkspaceSplitButton: View {
                 .accessibilityHidden(true)
             chevronButton
         }
-        .foregroundStyle(Color.aw.accent(accentResolver.accent))
+        // Neutral, matching the search icon beside it (SidebarView.swift) —
+        // not the accent color, which reads as too prominent for a chrome
+        // control at this size.
+        .foregroundStyle(Color.aw.text3)
         .background(restFill, in: RoundedRectangle(cornerRadius: cornerRadius))
     }
 
