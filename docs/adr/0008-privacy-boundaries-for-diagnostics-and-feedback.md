@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-05-17
-- **Amended:** 2026-07-11
+- **Amended:** 2026-07-18
 - **Deciders:** Sarah
 
 ## Context
@@ -46,6 +46,46 @@ The durable privacy boundary is stricter than the provider choice:
   diagnostic summary while analytics is off, but it must appear in an editable
   email draft before anything is sent.
 
+## Anonymous PostHog delivery
+
+For anonymous delivery, awesoMux constructs one HTTPS request per accepted
+event against PostHog's
+[documented `/i/v0/e/` Capture API](https://posthog.com/docs/api/capture) at the
+fixed US Cloud ingestion origin. The origin and path are not user-configurable, and all HTTP
+redirects are rejected. There is no PostHog SDK: the transport has no automatic
+lifecycle or screen events, swizzling, remote config, feature flags, person
+profiles, crash capture, or provider-owned persistent queue. Anonymous
+operation never calls `identify`.
+
+The request envelope has a closed shape: project token, allowlisted event name,
+app-owned random identifier, timestamp, sanitized typed properties,
+`$process_person_profile = false`, and `$geoip_disable = true`. PostHog still
+receives ordinary network-layer metadata such as the request source IP, but the
+event disables GeoIP enrichment. The PostHog project must also keep GeoIP
+enrichment disabled and IP anonymization enabled; this provider-side setting
+is a release gate. The transport uses an ephemeral URL session with cookie,
+cache, and credential stores disabled.
+
+The app maintains no retry queue. At most four requests may be in flight; an
+event above that bound is dropped and recorded as such in the local ledger.
+The ledger's `queued` wire value is displayed as **Submitted** and means only
+that the request was created and resumed, never that PostHog ingested it. HTTP
+failures and non-success responses are recorded in private system logs, not used
+to claim delivery. Consent is checked immediately before submission. Consent
+withdrawal, a tier downgrade, and explicit analytics-data deletion cancel tracked
+requests;
+a request already in flight may still reach PostHog. Normal termination drains
+the app-owned ledger only and does not delay exit for analytics delivery.
+
+The app-local random analytics identifier is retained when a user turns
+analytics off and chooses to keep local data. Explicitly deleting analytics
+data removes the local ledger and identifier; the next accepted event mints a
+new identifier. Delivery fails closed unless identifier persistence and
+owner-only permissions are proven. The ledger intentionally shows the final
+sanitized app event properties and submission result, but excludes the random
+identifier and transport-only privacy controls so it does not become an
+identity store itself.
+
 ## Team-diagnostics posture
 
 Maintainers need richer error detail from their own machines to troubleshoot
@@ -66,10 +106,11 @@ consent level is `error_reports` or `product_usage`, `team_diagnostics =
 true`, and `team_handle` is a valid handle (nonempty, at most 32 characters,
 `[a-z0-9_-]` only) in the `[analytics]` config section. The predicate is
 evaluated at launch, on every config reload, and again at send time for every
-payload — including crash payloads queued from a previous launch. A payload
-is sanitized against the tier that holds when it is sent, never the tier that
-held when it was captured; if consent is `off` at send time, queued payloads
-are dropped. If any part of the predicate fails, the standard tier applies
+payload — including crash artifacts persisted by a future crash handler from a
+previous launch. A payload is sanitized against the tier that holds when it is
+submitted, never the tier that held when it was captured; if consent is `off`
+at send time, the artifact is not submitted. If any part of the predicate
+fails, the standard tier applies
 and `identify` is never called. Predicate failure is not silent: the app logs
 at startup why the posture is inactive.
 
@@ -100,16 +141,14 @@ records the omission reason in the local analytics event log; the event still
 sends with its surviving fields.
 
 Provider payloads are app-constructed: the awesoMux diagnostics boundary
-builds and sanitizes the final outgoing payload before the analytics SDK
-receives it, SDK-side enrichment outside the allowlist is disabled at SDK
-configuration rather than merely filtered at send, and the final send gate
-drops anything that slips past. If SDK-native crash capture is used, it must
-be configured so the artifact it persists before the next launch contains
-only signal and stack data; that on-disk artifact is covered by this ADR's
-boundary and is never transmitted or attached anywhere except through the app
-sanitizer. The local analytics event log records the final serialized payload
-— not an earlier input object — and in team mode retains the exact outgoing
-payload; the implementing issue owns its retention bounds.
+builds and sanitizes the event before the fixed transport receives it, and the
+transport accepts no generic provider metadata dictionary. If a future crash
+handler persists an artifact before the next launch, that artifact is covered
+by this ADR's boundary and is never transmitted or attached anywhere except
+through the app sanitizer. The local analytics event log records the final
+sanitized app event properties — not an earlier input object — while omitting
+the random identifier and transport controls; the implementing issue owns its
+retention bounds.
 
 The never-capture list above applies in team mode with exactly the named
 admissions of this section — scrubbed description strings and scoped crash
@@ -129,10 +168,10 @@ predicate holds; regular use never calls `identify`.
 
 Deactivation is idempotent and does not depend on witnessing a transition:
 whenever the predicate evaluates false — at launch, on config reload, or on
-consent change — any queued team-mode events are dropped, the super
-properties are unregistered, and the provider identity is reset before any
-further event is sent. Deactivation does not retroactively delete
-already-sent events; purging them requires a provider-side deletion request.
+consent change — tracked team-mode requests are cancelled and app-owned team
+annotations cease before any further event is submitted. Deactivation does
+not retroactively delete already-sent events; purging them requires a
+provider-side deletion request.
 
 ## Consequences
 
@@ -140,8 +179,13 @@ Instrumentation work must introduce explicit event/error shapes rather than
 shipping generic metadata dictionaries. Any new field that leaves the machine
 needs an allowlist decision.
 
+The PostHog project token is necessarily a public client-side ingestion key,
+not a secret or authentication control. Ingestion can therefore be spoofed;
+maintainers must monitor for abuse and treat analytics as directional evidence,
+not an authoritative security or billing signal.
+
 The wider team-diagnostics tier is a separate allowlist, not a relaxation of
-the default one. Automatic crash capture — SDK crash-handler capture whose
+the default one. Automatic crash capture — future crash-handler capture whose
 payload is still reduced to the named fields above by the app before send —
 ships in team mode first. Team-mode validation does not authorize it for
 anonymous users: enabling it for `error_reports` users requires a separately
