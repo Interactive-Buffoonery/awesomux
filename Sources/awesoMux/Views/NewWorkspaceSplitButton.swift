@@ -26,9 +26,9 @@ struct NewWorkspaceSplitButton: View {
     let onNewWorkspaceInGroup: (SessionGroup.ID) -> Void
     let onNewWorkspaceGroup: () -> Void
 
-    /// Matches the search field chip's height (`AwSpacing.searchFieldHeight`)
-    /// so the two chips on the expanded header's row read as one size.
-    private let primarySize: CGFloat = 30
+    /// Matches the search field chip's height so the two chips on the
+    /// expanded header's row read as one size.
+    private let primarySize: CGFloat = AwSpacing.searchFieldHeight
     private let cornerRadius: CGFloat = 7
     /// The 296pt-wide expanded row has room for a comfortable hit target —
     /// this doesn't also need to fit the 60pt collapsed rail.
