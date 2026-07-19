@@ -123,6 +123,19 @@ struct RemoteMarkdownSnapshot: Equatable, Sendable {
     let identity: ResourceIdentity
 }
 
+enum RemoteMarkdownFetchOutcome: Equatable, Sendable {
+    case fresh(RemoteMarkdownSnapshot)
+    case cached(RemoteMarkdownSnapshot)
+    case failureDocument(RemoteMarkdownSnapshot)
+
+    var snapshot: RemoteMarkdownSnapshot {
+        switch self {
+        case .fresh(let snapshot), .cached(let snapshot), .failureDocument(let snapshot):
+            snapshot
+        }
+    }
+}
+
 private actor RemoteMarkdownFetchCoordinator {
     struct Key: Hashable, Sendable {
         let identity: ResourceIdentity
@@ -131,13 +144,13 @@ private actor RemoteMarkdownFetchCoordinator {
 
     static let shared = RemoteMarkdownFetchCoordinator()
 
-    private var inFlight: [Key: Task<RemoteMarkdownSnapshot?, Never>] = [:]
+    private var inFlight: [Key: Task<RemoteMarkdownFetchOutcome?, Never>] = [:]
 
     func value(
         for key: Key,
         onCoalesced: (@Sendable () async -> Void)? = nil,
-        operation: @escaping @Sendable () async -> RemoteMarkdownSnapshot?
-    ) async -> RemoteMarkdownSnapshot? {
+        operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
+    ) async -> RemoteMarkdownFetchOutcome? {
         if let existing = inFlight[key] {
             await onCoalesced?()
             return await existing.value
@@ -164,7 +177,7 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     var fetchOverride: (@Sendable (RemoteMarkdownReference) async -> Data?)?
     var onCoalescedFetch: (@Sendable () async -> Void)?
 
-    func fetch(_ reference: RemoteMarkdownReference) async -> RemoteMarkdownSnapshot? {
+    func fetch(_ reference: RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? {
         let key = RemoteMarkdownFetchCoordinator.Key(
             identity: reference.identity,
             cacheDirectoryPath: cacheDirectoryURL.standardizedFileURL.path
@@ -179,24 +192,20 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
 
     private func fetchUncoordinated(
         _ reference: RemoteMarkdownReference
-    ) async -> RemoteMarkdownSnapshot? {
+    ) async -> RemoteMarkdownFetchOutcome? {
         let output = await fetchOutput(for: reference)
-        let content: Data
         if let output, output.count <= DocumentURLValidator.maxFileSizeBytes {
-            content = output
-        } else {
-            content = Data(failureMarkdown(for: reference).utf8)
+            return write(output, for: reference).map(RemoteMarkdownFetchOutcome.fresh)
         }
-        return write(content, for: reference)
+        if let cached = cachedSnapshot(for: reference) {
+            return .cached(cached)
+        }
+        return write(Data(failureMarkdown(for: reference).utf8), for: reference)
+            .map(RemoteMarkdownFetchOutcome.failureDocument)
     }
 
     func pruneUnreferencedSnapshots(keeping referencedFileURLs: Set<URL>) {
-        guard (try? fileManager.destinationOfSymbolicLink(atPath: cacheDirectoryURL.path)) == nil else {
-            return
-        }
-        guard ((try? cacheDirectoryURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory) == true else {
-            return
-        }
+        guard let cacheDirectoryURL = validatedCacheDirectory(createIfMissing: false) else { return }
         guard
             let entries = try? fileManager.contentsOfDirectory(
                 at: cacheDirectoryURL,
@@ -247,9 +256,8 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         for reference: RemoteMarkdownReference
     ) -> RemoteMarkdownSnapshot? {
         do {
-            try fileManager.createOwnerOnlyDirectory(at: cacheDirectoryURL)
-            try fileManager.setOwnerOnlyPermissions(onDirectoryAt: cacheDirectoryURL)
-            let fileURL = cacheDirectoryURL.appending(path: cacheFileName(for: reference))
+            guard validatedCacheDirectory(createIfMissing: true) != nil else { return nil }
+            let fileURL = cacheFileURL(for: reference)
             try content.write(to: fileURL, options: .atomic)
             // The chmod follows symlinks; safe only because the atomic write
             // above just replaced any pre-planted link at this path.
@@ -258,6 +266,48 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         } catch {
             return nil
         }
+    }
+
+    private func cachedSnapshot(
+        for reference: RemoteMarkdownReference
+    ) -> RemoteMarkdownSnapshot? {
+        guard validatedCacheDirectory(createIfMissing: false) != nil else { return nil }
+        let fileURL = cacheFileURL(for: reference)
+        guard ((try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile) == true else {
+            return nil
+        }
+        return RemoteMarkdownSnapshot(fileURL: fileURL, identity: reference.identity)
+    }
+
+    private func validatedCacheDirectory(createIfMissing: Bool) -> URL? {
+        if (try? fileManager.destinationOfSymbolicLink(atPath: cacheDirectoryURL.path)) != nil {
+            return nil
+        }
+        if !fileManager.fileExists(atPath: cacheDirectoryURL.path) {
+            guard createIfMissing else { return nil }
+            do {
+                try fileManager.createOwnerOnlyDirectory(at: cacheDirectoryURL)
+            } catch {
+                return nil
+            }
+        }
+        guard (try? fileManager.destinationOfSymbolicLink(atPath: cacheDirectoryURL.path)) == nil,
+            ((try? cacheDirectoryURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory) == true
+        else {
+            return nil
+        }
+        if createIfMissing {
+            do {
+                try fileManager.setOwnerOnlyPermissions(onDirectoryAt: cacheDirectoryURL)
+            } catch {
+                return nil
+            }
+        }
+        return cacheDirectoryURL
+    }
+
+    private func cacheFileURL(for reference: RemoteMarkdownReference) -> URL {
+        cacheDirectoryURL.appending(path: cacheFileName(for: reference))
     }
 
     func cacheFileName(for reference: RemoteMarkdownReference) -> String {
