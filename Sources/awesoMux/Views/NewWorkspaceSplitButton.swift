@@ -78,7 +78,12 @@ struct NewWorkspaceSplitButton: View {
                 .fill(isPrimaryHovering ? Color.aw.surface.hover : Color.clear)
             Button(action: guardedNewWorkspace) {
                 Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .semibold))
+                    // Matches the expanded search icon's exact size/weight
+                    // (SidebarView.swift:697) — .semibold at a larger size
+                    // rasterizes with more opaque pixels than .medium, so it
+                    // read as a brighter color even at the identical RGB
+                    // value (diagnosed via Codex, not a color bug).
+                    .font(.system(size: 12.5, weight: .medium))
                     // Applied directly on the glyph, not inherited from an
                     // ancestor .foregroundStyle — Menu (below) doesn't
                     // reliably pass that down to its label, so both glyphs
@@ -121,7 +126,11 @@ struct NewWorkspaceSplitButton: View {
                 }
             } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    // Kept compact for the narrower segment, but matches the
+                    // search icon's .medium weight — see the primary
+                    // segment's comment above for why weight (not color)
+                    // was the actual mismatch.
+                    .font(.system(size: 9, weight: .medium))
                     // Explicit, not inherited — a Menu's label doesn't
                     // reliably pick up an ancestor .foregroundStyle (it was
                     // rendering the system default instead of text3).
