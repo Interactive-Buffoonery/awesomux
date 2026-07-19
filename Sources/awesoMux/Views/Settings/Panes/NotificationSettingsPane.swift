@@ -8,6 +8,7 @@ struct NotificationSettingsPane: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(SessionStore.self) private var sessionStore
     @State private var authorizationModel = NotificationAuthorizationModel()
+    @State private var isDockBounceConfirmationPresented = false
 
     private var muted: Bool {
         appSettingsStore.notifications.value.muted
@@ -17,17 +18,15 @@ struct NotificationSettingsPane: View {
     // hints, which append muted-state context the visible column doesn't need
     // (a sighted user sees the dimmed switch next to the Mute toggle).
     private static let soundHint = "Play the default notification sound."
-    private static let doNotDisturbHint = "When on, macOS Focus modes can silence awesoMux notifications. When off, attention notifications break through Focus filters."
     private static let needsInputHint = "Banner appears when a workspace surfaces a needs-attention signal."
-    private static let dockBounceHint = "Bounce the Dock icon when a background workspace surfaces a needs-attention signal."
+    private static let dockBounceHint = "Bounce when a workspace needs you."
     private static let turnDoneHint = "Banner appears when an agent finishes its turn and is waiting for your next message."
     private static let turnDoneFocusedHint = "Also play a sound for the workspace you're currently viewing when its agent finishes a turn."
     private static let workspaceDetailsHint = "Includes workspace names and project context in macOS notification previews."
 
-    private var dockBounceDisabled: Bool {
+    private var dockBounceUnavailable: Bool {
         muted
             || !appSettingsStore.notifications.value.notifyOnNeedsAttention
-            || appSettingsStore.notifications.value.respectDoNotDisturb
     }
 
     private var turnDoneDisabled: Bool {
@@ -69,16 +68,21 @@ struct NotificationSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Respect Do Not Disturb",
-                    hint: Self.doNotDisturbHint,
-                    forwardsAccessibilityToControl: true,
-                    forwardsHintToControl: false
+                    label: "During Focus",
+                    hint: focusBehaviorHint
                 ) {
-                    Toggle("Respect Do Not Disturb", isOn: appSettingsStore.notifications.binding(\.respectDoNotDisturb))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(muted)
-                        .accessibilityHint(mutedAwareHint(Self.doNotDisturbHint))
+                    Picker(
+                        "During Focus",
+                        selection: appSettingsStore.notifications.binding(\.respectDoNotDisturb)
+                    ) {
+                        Text("Keep awesoMux quiet").tag(true)
+                        Text("Let awesoMux get my attention").tag(false)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.radioGroup)
+                    .disabled(muted)
+                    .accessibilityLabel("During Focus")
+                    .accessibilityHint(mutedAwareHint(focusBehaviorHint))
                 }
 
                 SettingsField(
@@ -96,15 +100,22 @@ struct NotificationSettingsPane: View {
 
                 SettingsField(
                     label: "Bounce Dock icon",
-                    hint: dockBounceAwareHint,
-                    forwardsAccessibilityToControl: true,
-                    forwardsHintToControl: false
+                    hint: dockBounceAwareHint
                 ) {
-                    Toggle("Bounce Dock icon", isOn: appSettingsStore.notifications.binding(\.dockBounceOnNeedsAttention))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(dockBounceDisabled)
+                    if appSettingsStore.notifications.value.respectDoNotDisturb, !dockBounceUnavailable {
+                        Button("Enable…") {
+                            isDockBounceConfirmationPresented = true
+                        }
+                        .accessibilityLabel("Enable Dock bouncing")
                         .accessibilityHint(Text(dockBounceAwareHint))
+                    } else {
+                        Toggle("Bounce Dock icon", isOn: appSettingsStore.notifications.binding(\.dockBounceOnNeedsAttention))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .disabled(dockBounceUnavailable)
+                            .accessibilityLabel("Bounce Dock icon")
+                            .accessibilityHint(Text(dockBounceAwareHint))
+                    }
                 }
 
                 SettingsField(
@@ -176,7 +187,8 @@ struct NotificationSettingsPane: View {
             SettingsSection(
                 index: 3,
                 title: "Per-workspace mute",
-                subtitle: "Muted workspaces skip macOS banners, sound, and Dock bounces but keep their sidebar indicators, unread badges, and dock-badge count. Per-workspace mute is local to this machine."
+                subtitle:
+                    "Muted workspaces skip macOS banners, sound, and Dock bounces but keep their sidebar indicators, unread badges, and dock-badge count. Per-workspace mute is local to this machine."
             ) {
                 SettingsField(
                     label: "Muted workspaces",
@@ -199,6 +211,23 @@ struct NotificationSettingsPane: View {
             NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
         ) { _ in
             authorizationModel.refresh()
+        }
+        .confirmationDialog(
+            "Turn on Dock bouncing?",
+            isPresented: $isDockBounceConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Turn On") {
+                appSettingsStore.notifications.update { notifications in
+                    notifications.respectDoNotDisturb = false
+                    notifications.dockBounceOnNeedsAttention = true
+                }
+            }
+            Button("Not Now", role: .cancel) {}
+        } message: {
+            Text(
+                "Focus can quiet notifications, but it can’t stop Dock bounces. To use this, awesoMux will need to get your attention even when Focus is on."
+            )
         }
     }
 
@@ -293,6 +322,13 @@ struct NotificationSettingsPane: View {
         Text(muted ? base + " " + String(localized: "Unavailable while notifications are muted.") : base)
     }
 
+    private var focusBehaviorHint: String {
+        if appSettingsStore.notifications.value.respectDoNotDisturb {
+            return String(localized: "No notification banners or sounds, and the Dock icon won’t bounce.")
+        }
+        return String(localized: "Notification banners and sounds can come through, and you can turn on Dock bouncing.")
+    }
+
     private var dockBounceAwareHint: String {
         if muted {
             return Self.dockBounceHint + " " + String(localized: "Unavailable while notifications are muted.")
@@ -301,7 +337,7 @@ struct NotificationSettingsPane: View {
             return Self.dockBounceHint + " " + String(localized: "Turn on “Notify when an agent needs input” to enable this.")
         }
         if appSettingsStore.notifications.value.respectDoNotDisturb {
-            return Self.dockBounceHint + " " + String(localized: "Turn off “Respect Do Not Disturb” to enable this.")
+            return Self.dockBounceHint + " " + String(localized: "Choose “Let awesoMux get my attention” to turn this on.")
         }
         return Self.dockBounceHint
     }

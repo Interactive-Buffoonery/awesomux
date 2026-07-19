@@ -570,6 +570,9 @@
     "Bounce Dock icon" : {
 
     },
+    "Bounce when a workspace needs you." : {
+
+    },
     "Branch" : {
       "comment" : "Accessibility state for a branch worktree.\nExisting local branch picker label."
     },
@@ -653,6 +656,9 @@
     },
     "Choose" : {
       "comment" : "Confirm button for the worktree target path picker."
+    },
+    "Choose “Let awesoMux get my attention” to turn this on." : {
+
     },
     "Choose an IDE for this project." : {
       "comment" : "IDE picker alert explanatory text."
@@ -1178,6 +1184,9 @@
     "Drag to rearrange · double-click to rename" : {
 
     },
+    "During Focus" : {
+
+    },
     "Edit" : {
 
     },
@@ -1194,6 +1203,12 @@
       "comment" : "Button that opens the editor for an existing custom command"
     },
     "Enable %arg" : {
+
+    },
+    "Enable Dock bouncing" : {
+
+    },
+    "Enable…" : {
 
     },
     "Enable and Connect" : {
@@ -1308,6 +1323,9 @@
     },
     "Focus" : {
       "comment" : "Accessibility action for focusing an open worktree workspace.\nFocus an already-open worktree workspace."
+    },
+    "Focus can quiet notifications, but it can’t stop Dock bounces. To use this, awesoMux will need to get your attention even when Focus is on." : {
+
     },
     "Focus Sidebar" : {
 
@@ -1513,6 +1531,9 @@
     "Keep terminal sessions running in the background" : {
 
     },
+    "Keep awesoMux quiet" : {
+
+    },
     "Keyboard" : {
 
     },
@@ -1537,6 +1558,9 @@
       }
     },
     "Left" : {
+
+    },
+    "Let awesoMux get my attention" : {
 
     },
     "Live processes" : {
@@ -1847,6 +1871,9 @@
     "No matching shortcuts" : {
 
     },
+    "No notification banners or sounds, and the Dock icon won’t bounce." : {
+
+    },
     "No recently closed workspace to reopen" : {
       "comment" : "VoiceOver announcement when Cmd-Shift-T is invoked but the recently-closed cache is empty or fully expired."
     },
@@ -1863,7 +1890,7 @@
       "comment" : "Worktree Manager empty-state title."
     },
     "Not Now" : {
-      "comment" : "Button: dismiss the wedged terminal event loop alert without acting"
+      "comment" : "Button: cancel enabling Dock bouncing\nButton: dismiss the wedged terminal event loop alert without acting"
     },
     "Not checked yet" : {
       "comment" : "Diagnostics freshness"
@@ -1878,6 +1905,9 @@
 
     },
     "Notifications muted for this workspace" : {
+
+    },
+    "Notification banners and sounds can come through, and you can turn on Dock bouncing." : {
 
     },
     "Notify when an agent needs input" : {
@@ -2526,9 +2556,6 @@
     },
     "Resource history" : {
       "comment" : "Diagnostics settings section title"
-    },
-    "Respect Do Not Disturb" : {
-
     },
     "Restart Shell" : {
       "comment" : "Destructive button on the restart-shell confirmation dialog."
@@ -3212,7 +3239,10 @@
     "Try another filter or refresh the pane." : {
 
     },
-    "Turn off “Respect Do Not Disturb” to enable this." : {
+    "Turn On" : {
+
+    },
+    "Turn on Dock bouncing?" : {
 
     },
     "Turn on “Notify when an agent needs input” to enable this." : {
