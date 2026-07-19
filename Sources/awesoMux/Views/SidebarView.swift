@@ -740,9 +740,7 @@ struct SidebarView: View {
                     .stroke(Color.aw.border2, lineWidth: 0.5)
             }
 
-            NewWorkspaceMenuButton(
-                size: 34,
-                cornerRadius: 7,
+            NewWorkspaceSplitButton(
                 // Blend into the sidebar so it pairs cleanly with the search field.
                 restFill: Color.aw.surface.sidebar,
                 otherGroups: sessionStore.groups.map { ($0.id, $0.name) },
