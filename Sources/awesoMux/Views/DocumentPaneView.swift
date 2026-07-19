@@ -20,6 +20,12 @@ struct DocumentPaneSendBar: View {
     /// vanishing on a clock (HIG: prefer clearing status on cause, not timeout).
     @Binding var showAllResolvedNotice: Bool
 
+    /// Opens the multiline composer for this document. Hosted by the enclosing
+    /// group (above this bar's shell-activity-keyed identity) so an in-flight
+    /// draft survives the bar being torn down and rebuilt when the target pane's
+    /// shell activity flips.
+    let onCompose: () -> Void
+
     /// Whether the last nudge attempt found no live surface — shown briefly so the
     /// user knows the action failed rather than silently no-oping.
     @State private var nudgeFailed = false
@@ -110,6 +116,13 @@ struct DocumentPaneSendBar: View {
         for resolution: DocumentNudgeTargetResolution
     ) -> String? {
         guard case .unavailable(let reason) = resolution else { return nil }
+        return Self.unavailableDescription(for: reason)
+    }
+
+    /// Localized reason a document can't be sent. Shared with the composer sheet
+    /// (hosted above the send bar's churning identity) so both surfaces speak the
+    /// same language for an unavailable target.
+    static func unavailableDescription(for reason: DocumentNudgeUnavailableReason) -> String {
         switch reason {
         case .foregroundSSH:
             return String(
@@ -207,7 +220,7 @@ struct DocumentPaneSendBar: View {
                         title: Self.sendButtonTitle(for: resolution),
                         failed: nudgeFailed,
                         unavailableDescription: unavailableDescription,
-                        action: performNudge
+                        action: requestCompose
                     )
                     .frame(height: 28)
                     if let unavailableDescription {
@@ -254,47 +267,19 @@ struct DocumentPaneSendBar: View {
         }
     }
 
-    // MARK: - Nudge action
+    // MARK: - Composer
 
-    private func performNudge() {
-        // Route through the tab's deterministic send target. This is not an
-        // activePaneID fallback: live stored associations win, nil associations
-        // may recover to the document group's direct split sibling, and stale
-        // explicit associations fail closed rather than guessing.
-        //
-        // Safety invariant: this click-time re-resolve (including the live
-        // foreground probe inside the prompt gate) and the `sendText` below run
-        // in one synchronous MainActor hop with no suspension between them —
-        // the same atomicity standard the bridge consent path documents. Do
-        // not introduce an `await` between the gate and the write.
+    /// Opens the composer (hosted by the enclosing group) when the target is
+    /// eligible; otherwise reports the reason on the button rather than opening a
+    /// composer that can't send. The composer replaces the old one-shot send: the
+    /// user revises or extends the review nudge before staging it.
+    private func requestCompose() {
         let resolution = nudgeResolution
-        guard case .available(let targetPane) = resolution else {
+        guard case .available = resolution else {
             reportNudgeUnavailable(resolution)
             return
         }
-        let targetID = targetPane.id
-        // Make the path relative to the TARGET terminal's cwd, not the active pane's —
-        // in a nested split those differ, and the nudge lands in the target, so a path
-        // relative to a different pane would be wrong for the agent (Codex review).
-        let displayPath = Self.resolveDisplayPath(
-            for: pane.fileURL,
-            relativeTo: targetPane.workingDirectory
-        )
-        let text = NudgeComposer.text(displayPath: displayPath)
-        // Drive the flag off the result both ways so a success after a prior failure
-        // clears the Peach state immediately (re-keying the reset task), rather than
-        // leaving it stale until the original 2s timer fires.
-        if runtime.sendText(text, toPane: targetID) {
-            nudgeFailed = false
-            TerminalAccessibilityAnnouncer.announce(
-                String(
-                    localized: "Sent comments to this document's terminal",
-                    comment: "VoiceOver announcement when sending document comments to the associated terminal succeeds"
-                )
-            )
-        } else {
-            reportNudgeFailure()
-        }
+        onCompose()
     }
 
     private func reportNudgeUnavailable(_ resolution: DocumentNudgeTargetResolution) {
@@ -305,18 +290,6 @@ struct DocumentPaneSendBar: View {
                     localized: "Couldn't send — this document's terminal isn't available",
                     comment: "VoiceOver announcement when a document has no eligible send target"
                 )
-        )
-    }
-
-    private func reportNudgeFailure() {
-        nudgeFailed = true
-        // The visual failure state is a hue + glyph swap that reverts after 2s;
-        // a VoiceOver user who pressed the button needs to hear the outcome now.
-        TerminalAccessibilityAnnouncer.announce(
-            String(
-                localized: "Couldn't send — this document's terminal isn't running",
-                comment: "VoiceOver announcement when sending to a document's terminal fails"
-            )
         )
     }
 
@@ -654,10 +627,12 @@ struct DocumentPaneView: View {
     /// `cachedRender` seeds `loadResult`/`renderedDoc` so a tab the user
     /// switches back to shows its content immediately instead of a spinner —
     /// the load task still re-reads the file (the watcher was off while the tab
-    /// was hidden) and swaps in any changes. `initialScrollAnchor` seeds
-    /// `pendingScrollAnchor` so the first render restores the tab's last scroll
-    /// position; it's a `State` seed (not a fallback read on every pass) so the
-    /// reset paths that clear the pending anchor stay authoritative.
+    /// was hidden) and swaps in any changes. A successful cached seed has empty
+    /// blocks and no file snapshot; `renderedDoc` paints immediately while
+    /// snapshot-dependent edits wait for that reload. `initialScrollAnchor`
+    /// seeds `pendingScrollAnchor` so the first render restores the tab's last
+    /// scroll position; it's a `State` seed (not a fallback read on every pass)
+    /// so the reset paths that clear the pending anchor stay authoritative.
     init(
         pane: DocumentPane,
         cachedRender: DocumentTabMemory.Render? = nil,
@@ -829,8 +804,9 @@ struct DocumentPaneView: View {
         blocks: [MarkdownBlock],
         snapshot: MarkdownDocumentSnapshot?
     ) -> some View {
-        if let doc = renderedDoc, let snapshot {
+        if let doc = renderedDoc {
             let isReadOnly = pane.isReadOnlySnapshot
+            let annotationsInteractive = snapshot != nil
             let spanTouchesMark =
                 selectedSourceSpan.map {
                     SelectionSourceMapping.spanTouchesExistingMark($0, in: doc)
@@ -860,7 +836,9 @@ struct DocumentPaneView: View {
                             textColor: markdownTextColor,
                             relativeLinkBaseURL: pane.fileURL.deletingLastPathComponent(),
                             allowsDocumentLinks: !isReadOnly,
+                            annotationsInteractive: annotationsInteractive,
                             onPillClicked: { markID, pillRect, anchorView in
+                                guard let snapshot else { return }
                                 showCommentPopover(
                                     markID: markID,
                                     pillRect: pillRect,
@@ -871,7 +849,9 @@ struct DocumentPaneView: View {
                             },
                             onAddPillClicked: { pillRect, anchorView in
                                 // Secondary affordance: still works if user clicks the add pill.
-                                guard !isReadOnly, let span = selectedSourceSpan, !spanTouchesMark else { return }
+                                guard !isReadOnly, let snapshot,
+                                    let span = selectedSourceSpan, !spanTouchesMark
+                                else { return }
                                 showComposePopover(
                                     span: span,
                                     pillRect: pillRect,
@@ -880,7 +860,7 @@ struct DocumentPaneView: View {
                                     snapshot: snapshot
                                 )
                             },
-                            selectionTouchesMark: spanTouchesMark || isReadOnly,
+                            selectionTouchesMark: spanTouchesMark || isReadOnly || !annotationsInteractive,
                             onTextViewAvailable: { tv in markdownNSTextView = tv },
                             // Fix 3 (INT-562): auto-present compose popover when the user
                             // finalizes a selection (mouseUp with a non-empty, non-mark-touching
@@ -889,7 +869,7 @@ struct DocumentPaneView: View {
                             // the popover already closed on Cancel/Esc/click-away, so re-selection
                             // correctly re-opens the composer with a clean state).
                             onSelectionFinalized: { span, trailingRect, tv in
-                                guard !isReadOnly else { return }
+                                guard !isReadOnly, let snapshot else { return }
                                 // If a popover is already showing, don't stack another one.
                                 if let existing = nsPopover, existing.isShown {
                                     return
@@ -914,7 +894,9 @@ struct DocumentPaneView: View {
                         .contextMenu {
                             if !isReadOnly {
                                 Button("Add Comment") {
-                                    guard let span = selectedSourceSpan, !spanTouchesMark else { return }
+                                    guard let snapshot,
+                                        let span = selectedSourceSpan, !spanTouchesMark
+                                    else { return }
                                     if let tv = markdownNSTextView {
                                         // Fix 5 (INT-562): anchor to the VISIBLE clip-view centre,
                                         // not tv.bounds.midY (which is the full document height and
@@ -938,12 +920,14 @@ struct DocumentPaneView: View {
                                         )
                                     }
                                 }
-                                .disabled(selectedSourceSpan == nil || spanTouchesMark)
+                                .disabled(snapshot == nil || selectedSourceSpan == nil || spanTouchesMark)
 
                                 Button(doc.documentNote == nil ? "Add Document Note…" : "Document Note…") {
+                                    guard let snapshot else { return }
                                     documentNoteSheetDoc = doc
                                     documentNoteSheetSnapshot = snapshot
                                 }
+                                .disabled(snapshot == nil)
                             }
                             Toggle("Hide Resolved Annotations", isOn: $hideResolved)
                         }
@@ -1054,13 +1038,14 @@ struct DocumentPaneView: View {
     /// the leading edge and the inline resolved filter on the trailing edge.
     private func documentAnnotationBar(
         doc: RenderedDocument,
-        snapshot: MarkdownDocumentSnapshot
+        snapshot: MarkdownDocumentSnapshot?
     ) -> some View {
         let documentNote = doc.documentNote
         let resolvedCount = doc.resolvedAnnotationCount
         return HStack {
             if !pane.isReadOnlySnapshot || documentNote != nil {
                 Button {
+                    guard let snapshot else { return }
                     documentNoteSheetDoc = doc
                     documentNoteSheetSnapshot = snapshot
                 } label: {
@@ -1072,6 +1057,7 @@ struct DocumentPaneView: View {
                     .foregroundStyle(documentNote?.status == .resolved ? Color.aw.text2 : Color.aw.text)
                 }
                 .buttonStyle(.plain)
+                .disabled(snapshot == nil)
                 .help(documentNote == nil ? "Add a document note" : "Show document note")
                 .accessibilityLabel(documentNoteAccessibilityLabel(documentNote))
             }

@@ -5,6 +5,7 @@ struct SidebarSearchField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let isEnabled: Bool
+    let accessibilityHelp: String
     let onMoveFocus: (Int) -> Bool
     let onSubmit: () -> Void
     let onEscape: () -> Bool
@@ -19,12 +20,8 @@ struct SidebarSearchField: NSViewRepresentable {
         field.textColor = .labelColor
         field.placeholderString = String(localized: "Search sessions")
         field.setAccessibilityLabel(String(localized: "Sidebar search"))
-        field.setAccessibilityHelp(
-            String(
-                localized:
-                    "Filters workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear."
-            )
-        )
+        field.setAccessibilityHelp(accessibilityHelp)
+        field.toolTip = accessibilityHelp
         field.delegate = context.coordinator
         return field
     }
@@ -38,6 +35,8 @@ struct SidebarSearchField: NSViewRepresentable {
             onEscape: onEscape
         )
         field.isEnabled = isEnabled
+        field.setAccessibilityHelp(accessibilityHelp)
+        field.toolTip = accessibilityHelp
         if field.stringValue != text {
             field.stringValue = text
         }

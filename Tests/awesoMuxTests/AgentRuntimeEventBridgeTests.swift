@@ -1,5 +1,6 @@
 import AppKit
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -7,8 +8,8 @@ import Testing
 @Suite("Agent runtime event bridge", .serialized)
 struct AgentRuntimeEventBridgeTests {
     @MainActor
-    @Test("a new watch does not replay lifecycle events buffered before pane reuse")
-    func newWatchStartsAfterExistingLifecycleEvents() throws {
+    @Test("a new watch consumes a buffered terminal session end")
+    func newWatchConsumesBufferedTerminalSessionEnd() throws {
         try Self.withTemporaryDirectory { directory in
             try SessionPersistence.withTemporarySupportDirectory(directory) {
                 let paneID = TerminalPane.ID()
@@ -35,7 +36,7 @@ struct AgentRuntimeEventBridgeTests {
                 }
 
                 bridge.drainRuntimeEventsForTesting(paneID: paneID)
-                #expect(appliedEvents.isEmpty)
+                #expect(appliedEvents.map(\.phase) == [.sessionEnd])
 
                 let newStart = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionStart"}"#
                 let handle = try FileHandle(forWritingTo: environment.eventFileURL)
@@ -44,9 +45,126 @@ struct AgentRuntimeEventBridgeTests {
                 try handle.close()
                 bridge.drainRuntimeEventsForTesting(paneID: paneID)
 
-                #expect(appliedEvents.map(\.phase) == [.sessionStart])
+                #expect(appliedEvents.map(\.phase) == [.sessionEnd, .sessionStart])
                 bridge.stopWatchingAll()
             }
+        }
+    }
+
+    @MainActor
+    @Test("a newer buffered lifecycle prevents an old session end replay")
+    func newerBufferedLifecyclePreventsOldSessionEndReplay() throws {
+        try Self.withTemporaryDirectory { directory in
+            try SessionPersistence.withTemporarySupportDirectory(directory) {
+                let paneID = TerminalPane.ID()
+                let eventsDirectory = directory.appending(
+                    path: "runtime-events",
+                    directoryHint: .isDirectory
+                )
+                try FileManager.default.createDirectory(
+                    at: eventsDirectory,
+                    withIntermediateDirectories: true
+                )
+                let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
+                let bufferedEvents = """
+                    {"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}
+                    {"v":1,"source":"pi","execution":"idle","phase":"sessionStart"}
+                    """
+                try Data((bufferedEvents + "\n").utf8).write(to: eventFile)
+
+                let bridge = AgentRuntimeEventBridge()
+                var appliedEvents: [AgentRuntimeEvent] = []
+                bridge.environment(
+                    sessionID: TerminalSession.ID(),
+                    paneID: paneID,
+                    enabledFileDropSources: []
+                ) { appliedEvents.append($0) }
+
+                #expect(appliedEvents.isEmpty)
+                bridge.stopWatchingAll()
+            }
+        }
+    }
+
+    @MainActor
+    @Test("only the final complete nonempty buffered record can provide lifecycle truth")
+    func finalBufferedRecordIsAuthoritative() throws {
+        let invalidFinalRecords = [
+            "not-json",
+            #"{"v":2,"source":"pi","execution":"idle","phase":"sessionStart"}"#,
+            #"{"v":1,"source":"future","execution":"idle","phase":"sessionEnd"}"#,
+            String(repeating: "x", count: AgentRuntimeEvent.maximumLineByteCount + 1),
+        ]
+
+        for invalidFinalRecord in invalidFinalRecords {
+            try Self.withTemporaryDirectory { directory in
+                let paneID = TerminalPane.ID()
+                let eventsDirectory = directory.appending(path: "runtime-events")
+                try FileManager.default.createDirectory(at: eventsDirectory, withIntermediateDirectories: true)
+                let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
+                let oldEnd = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}"#
+                try Data("\(oldEnd)\n\(invalidFinalRecord)\n".utf8).write(to: eventFile)
+
+                var appliedEvents: [AgentRuntimeEvent] = []
+                let bridge = AgentRuntimeEventBridge(runtimeEventsDirectoryURL: eventsDirectory)
+                bridge.environment(
+                    sessionID: TerminalSession.ID(),
+                    paneID: paneID,
+                    enabledFileDropSources: []
+                ) { appliedEvents.append($0) }
+
+                #expect(appliedEvents.isEmpty)
+                bridge.stopWatchingAll()
+            }
+        }
+    }
+
+    @MainActor
+    @Test("dense trailing empty records do not allocate or decode the whole file")
+    func denseTrailingNewlinesUseBoundedTailScan() throws {
+        try Self.withTemporaryDirectory { directory in
+            let paneID = TerminalPane.ID()
+            let eventsDirectory = directory.appending(path: "runtime-events")
+            try FileManager.default.createDirectory(at: eventsDirectory, withIntermediateDirectories: true)
+            let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
+            let end = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}"#
+            try Data((end + "\n" + String(repeating: "\n", count: 512 * 1024)).utf8).write(to: eventFile)
+
+            var phases: [AgentRuntimePhase] = []
+            let bridge = AgentRuntimeEventBridge(runtimeEventsDirectoryURL: eventsDirectory)
+            bridge.environment(
+                sessionID: TerminalSession.ID(),
+                paneID: paneID,
+                enabledFileDropSources: []
+            ) { event in
+                if let phase = event.phase {
+                    phases.append(phase)
+                }
+            }
+
+            #expect(phases == [.sessionEnd])
+            bridge.stopWatchingAll()
+        }
+    }
+
+    @MainActor
+    @Test("inode rotation invalidates the initial buffered decision")
+    func inodeRotationInvalidatesInitialSnapshot() throws {
+        try Self.initialSnapshotMutationTest { eventFile, replacement in
+            let rotatedFile = eventFile.appendingPathExtension("rotated")
+            try FileManager.default.moveItem(at: eventFile, to: rotatedFile)
+            try replacement.write(to: eventFile)
+        }
+    }
+
+    @MainActor
+    @Test("truncate and regrow invalidates the initial buffered decision")
+    func truncateRegrowInvalidatesInitialSnapshot() throws {
+        try Self.initialSnapshotMutationTest { eventFile, replacement in
+            let handle = try FileHandle(forWritingTo: eventFile)
+            try handle.truncate(atOffset: 0)
+            try handle.write(contentsOf: replacement)
+            try handle.close()
         }
     }
 
@@ -56,7 +174,9 @@ struct AgentRuntimeEventBridgeTests {
         try Self.withTemporaryDirectory { directory in
             try SessionPersistence.withTemporarySupportDirectory(directory) {
                 var diagnostics: [LocalDiagnosticEventInput] = []
-                let bridge = AgentRuntimeEventBridge { diagnostics.append($0) }
+                let bridge = AgentRuntimeEventBridge(
+                    diagnosticEventHandler: { diagnostics.append($0) }
+                )
                 let sessionID = TerminalSession.ID()
                 let paneID = TerminalPane.ID()
                 var appliedEvents: [AgentRuntimeEvent] = []
@@ -86,7 +206,9 @@ struct AgentRuntimeEventBridgeTests {
         try Self.withTemporaryDirectory { directory in
             try SessionPersistence.withTemporarySupportDirectory(directory) {
                 var diagnostics: [LocalDiagnosticEventInput] = []
-                let bridge = AgentRuntimeEventBridge { diagnostics.append($0) }
+                let bridge = AgentRuntimeEventBridge(
+                    diagnosticEventHandler: { diagnostics.append($0) }
+                )
                 let sessionID = TerminalSession.ID()
                 let paneID = TerminalPane.ID()
                 var appliedEvents: [AgentRuntimeEvent] = []
@@ -96,11 +218,11 @@ struct AgentRuntimeEventBridgeTests {
                     enabledFileDropSources: []
                 ) { appliedEvents.append($0) }
                 let payload = """
-                not-json
-                {"v":1,"source":"codex","execution":"thinking","phase":"toolStart"}
-                also-not-json
-                still-broken
-                """
+                    not-json
+                    {"v":1,"source":"codex","execution":"thinking","phase":"toolStart"}
+                    also-not-json
+                    still-broken
+                    """
                 let handle = try FileHandle(forWritingTo: environment.eventFileURL)
                 try handle.seekToEnd()
                 try handle.write(contentsOf: Data((payload + "\n").utf8))
@@ -150,12 +272,14 @@ struct AgentRuntimeEventBridgeTests {
             paneID: session.activePaneID,
             enabledFileDropSources: []
         ) { event in
-            guard store.applyAgentRuntimeEvent(
-                event,
-                to: session.id,
-                paneID: session.activePaneID,
-                terminalIsFocused: false
-            ) else {
+            guard
+                store.applyAgentRuntimeEvent(
+                    event,
+                    to: session.id,
+                    paneID: session.activePaneID,
+                    terminalIsFocused: false
+                )
+            else {
                 return
             }
             appliedEventCount += 1
@@ -177,15 +301,52 @@ struct AgentRuntimeEventBridgeTests {
         try handle.write(contentsOf: Data((event + "\n").utf8))
         try handle.close()
 
-        let deadline = ContinuousClock.now + .seconds(3)
-        while notificationEvents.isEmpty, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(await waitUntilEventually(deadline: .seconds(10)) { !notificationEvents.isEmpty })
 
         #expect(appliedEventCount == 1)
         #expect(store.session(id: session.id)?.agentState == .needsAttention)
         #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
         #expect(notificationEvents.map(\.kind) == [.needsAttention])
+    }
+
+    @MainActor
+    @Test("an initial source-open failure drains events written before retry")
+    func initialSourceOpenFailureDrainsRetryWindowEvents() throws {
+        try Self.withTemporaryDirectory { directory in
+            let runtimeEventsDirectory = directory.appending(path: "runtime-events")
+            try Data("block directory creation".utf8).write(to: runtimeEventsDirectory)
+
+            let paneID = TerminalPane.ID()
+            var phases: [AgentRuntimePhase] = []
+            let bridge = AgentRuntimeEventBridge(
+                runtimeEventsDirectoryURL: runtimeEventsDirectory
+            )
+            let environment = bridge.environment(
+                sessionID: TerminalSession.ID(),
+                paneID: paneID,
+                enabledFileDropSources: []
+            ) { event in
+                if let phase = event.phase {
+                    phases.append(phase)
+                }
+            }
+
+            try FileManager.default.removeItem(at: runtimeEventsDirectory)
+            try FileManager.default.createDirectory(
+                at: runtimeEventsDirectory,
+                withIntermediateDirectories: true
+            )
+            let retryWindowEvents = """
+                {"v":1,"source":"codex","execution":"thinking","phase":"toolStart"}
+                {"v":1,"source":"codex","execution":"waiting","phase":"stop"}
+                """
+            try Data((retryWindowEvents + "\n").utf8).write(to: environment.eventFileURL)
+
+            bridge.retrySourceForTesting(paneID: paneID)
+
+            #expect(phases == [.toolStart, .stop])
+            bridge.stopWatchingAll()
+        }
     }
 
     @MainActor
@@ -225,12 +386,14 @@ struct AgentRuntimeEventBridgeTests {
             paneID: session.activePaneID,
             enabledFileDropSources: []
         ) { event in
-            guard store.applyAgentRuntimeEvent(
-                event,
-                to: session.id,
-                paneID: session.activePaneID,
-                terminalIsFocused: false
-            ) else {
+            guard
+                store.applyAgentRuntimeEvent(
+                    event,
+                    to: session.id,
+                    paneID: session.activePaneID,
+                    terminalIsFocused: false
+                )
+            else {
                 return
             }
             notificationEvents = tracker.notificationEvents(
@@ -250,23 +413,18 @@ struct AgentRuntimeEventBridgeTests {
             at: runtimeEventsDirectory,
             withIntermediateDirectories: true
         )
-        let fileCreationDeadline = ContinuousClock.now + .seconds(3)
-        while !FileManager.default.fileExists(atPath: environment.eventFileURL.path),
-              ContinuousClock.now < fileCreationDeadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-
-        try #require(FileManager.default.fileExists(atPath: environment.eventFileURL.path))
+        try #require(
+            await waitUntilEventually(deadline: .seconds(10)) {
+                FileManager.default.fileExists(atPath: environment.eventFileURL.path)
+            }
+        )
         let event = #"{"v":1,"source":"codex","execution":"waiting","phase":"stop"}"#
         let handle = try FileHandle(forWritingTo: environment.eventFileURL)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data((event + "\n").utf8))
         try handle.close()
 
-        let deadline = ContinuousClock.now + .seconds(3)
-        while notificationEvents.isEmpty, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(await waitUntilEventually(deadline: .seconds(10)) { !notificationEvents.isEmpty })
 
         #expect(store.session(id: session.id)?.agentState == .waiting)
         #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
@@ -307,12 +465,14 @@ struct AgentRuntimeEventBridgeTests {
             paneID: session.activePaneID,
             enabledFileDropSources: []
         ) { event in
-            guard store.applyAgentRuntimeEvent(
-                event,
-                to: session.id,
-                paneID: session.activePaneID,
-                terminalIsFocused: false
-            ) else {
+            guard
+                store.applyAgentRuntimeEvent(
+                    event,
+                    to: session.id,
+                    paneID: session.activePaneID,
+                    terminalIsFocused: false
+                )
+            else {
                 return
             }
             notificationEvents = tracker.notificationEvents(
@@ -351,10 +511,7 @@ struct AgentRuntimeEventBridgeTests {
             ofItemAtPath: environment.eventFileURL.path
         )
 
-        let deadline = ContinuousClock.now + .seconds(3)
-        while notificationEvents.isEmpty, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(await waitUntilEventually(deadline: .seconds(10)) { !notificationEvents.isEmpty })
 
         #expect(store.session(id: session.id)?.agentState == .needsAttention)
         #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
@@ -393,6 +550,53 @@ struct AgentRuntimeEventBridgeTests {
                 #expect(appliedEvents.isEmpty)
                 bridge.stopWatchingAll()
             }
+        }
+    }
+
+    @MainActor
+    private static func initialSnapshotMutationTest(
+        _ mutation: @escaping (URL, Data) throws -> Void
+    ) throws {
+        try Self.withTemporaryDirectory { directory in
+            let paneID = TerminalPane.ID()
+            let eventsDirectory = directory.appending(path: "runtime-events")
+            try FileManager.default.createDirectory(at: eventsDirectory, withIntermediateDirectories: true)
+            let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
+            let end = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}"# + "\n"
+            let replacement = #"{"v":1,"source":"pi","execution":"idle","phase":"toolStart" }"# + "\n"
+            #expect(end.utf8.count == replacement.utf8.count)
+            try Data(end.utf8).write(to: eventFile)
+
+            var didMutate = false
+            var mutationError: Error?
+            let bridge = AgentRuntimeEventBridge(
+                runtimeEventsDirectoryURL: eventsDirectory,
+                initialSnapshotInterposer: { url in
+                    guard !didMutate else { return }
+                    didMutate = true
+                    do {
+                        try mutation(url, Data(replacement.utf8))
+                    } catch {
+                        mutationError = error
+                    }
+                }
+            )
+            var phases: [AgentRuntimePhase] = []
+            bridge.environment(
+                sessionID: TerminalSession.ID(),
+                paneID: paneID,
+                enabledFileDropSources: []
+            ) { event in
+                if let phase = event.phase {
+                    phases.append(phase)
+                }
+            }
+            try #require(mutationError == nil)
+            #expect(phases.isEmpty)
+
+            bridge.retrySourceForTesting(paneID: paneID)
+            #expect(phases.isEmpty)
+            bridge.stopWatchingAll()
         }
     }
 

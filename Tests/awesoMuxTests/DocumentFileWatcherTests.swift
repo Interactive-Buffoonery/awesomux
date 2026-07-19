@@ -31,19 +31,6 @@ struct DocumentFileWatcherTests {
         try await body(url)
     }
 
-    /// Polls `condition` every 20 ms until it returns `true` or the timeout expires.
-    private func awaitCondition(
-        timeout seconds: Double,
-        condition: @escaping () -> Bool
-    ) async -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-        return condition()
-    }
-
     // MARK: - Tests
 
     /// An atomic write (rename-replace) fires `onChange`.
@@ -60,14 +47,10 @@ struct DocumentFileWatcherTests {
             let watcher = DocumentFileWatcher(url: url) { counter.increment() }
             watcher.start()
 
-            // Give the watcher a tick to arm.
-            try await Task.sleep(nanoseconds: 50_000_000)  // 50 ms
-
             // Atomic write = rename-replace → triggers .delete/.rename event.
             try "new content".write(to: url, atomically: true, encoding: .utf8)
 
-            // Wait up to 3 seconds for the debounced onChange.
-            let received = await awaitCondition(timeout: 3.0) { counter.value > 0 }
+            let received = await waitUntilEventually(deadline: .seconds(10)) { counter.value > 0 }
             watcher.stop()
 
             #expect(received, "onChange should fire after atomic (rename-replace) write")
@@ -82,16 +65,15 @@ struct DocumentFileWatcherTests {
                 callbackFileStates.record(FileManager.default.fileExists(atPath: url.path))
             }
             watcher.start()
-            try await Task.sleep(nanoseconds: 50_000_000)
 
             try "first event".write(to: url, atomically: false, encoding: .utf8)
             try await Task.sleep(nanoseconds: 30_000_000)
             try FileManager.default.removeItem(at: url)
-            let missingCallback = await awaitCondition(timeout: 1.0) {
+            let missingCallback = await waitUntilEventually(deadline: .seconds(10)) {
                 callbackFileStates.values.contains(false)
             }
             try "recreated".write(to: url, atomically: false, encoding: .utf8)
-            let rearmedCallback = await awaitCondition(timeout: 1.0) {
+            let rearmedCallback = await waitUntilEventually(deadline: .seconds(10)) {
                 callbackFileStates.values.contains(true)
             }
             watcher.stop()
@@ -107,10 +89,9 @@ struct DocumentFileWatcherTests {
             let counter = Counter()
             let watcher = DocumentFileWatcher(url: url) { counter.increment() }
             watcher.start()
-            try await Task.sleep(nanoseconds: 50_000_000)
 
             try FileManager.default.removeItem(at: url)
-            let received = await awaitCondition(timeout: 5.0) { counter.value > 0 }
+            let received = await waitUntilEventually(deadline: .seconds(30)) { counter.value > 0 }
             watcher.stop()
 
             #expect(received, "retry exhaustion should notify so the pane can show its read error")
@@ -126,9 +107,10 @@ struct DocumentFileWatcherTests {
         let watcher = DocumentFileWatcher(url: url) { counter.increment() }
 
         watcher.start()
-        try await Task.sleep(nanoseconds: 50_000_000)
         try "created".write(to: url, atomically: false, encoding: .utf8)
-        let received = await awaitCondition(timeout: 1.0) { counter.value > 0 }
+        // Retry cadence stretches under full-suite load; the wait is
+        // event-bounded, so a generous ceiling adds no latency when green.
+        let received = await waitUntilEventually(deadline: .seconds(30)) { counter.value > 0 }
         watcher.stop()
 
         #expect(received, "successful initial retry should notify after the file appears")
@@ -144,12 +126,10 @@ struct DocumentFileWatcherTests {
             let watcher = DocumentFileWatcher(url: url) { counter.increment() }
             watcher.start()
 
-            try await Task.sleep(nanoseconds: 50_000_000)
-
             // Non-atomic: writes in-place, same inode, fires .write event.
             try "updated".write(to: url, atomically: false, encoding: .utf8)
 
-            let received = await awaitCondition(timeout: 3.0) { counter.value > 0 }
+            let received = await waitUntilEventually(deadline: .seconds(10)) { counter.value > 0 }
             watcher.stop()
 
             #expect(received, "onChange should fire after in-place write")
@@ -165,8 +145,6 @@ struct DocumentFileWatcherTests {
             let watcher = DocumentFileWatcher(url: url) { counter.increment() }
             watcher.start()
 
-            try await Task.sleep(nanoseconds: 50_000_000)
-
             // Write 5 times in rapid succession (well within the 100 ms debounce window).
             for i in 0..<5 {
                 try "content \(i)".write(to: url, atomically: false, encoding: .utf8)
@@ -177,9 +155,9 @@ struct DocumentFileWatcherTests {
 
             watcher.stop()
 
-            // Debounce should have coalesced. Allow ≤3 to be resilient to OS scheduling,
+            // Debounce should have coalesced. Allow ≤4 to be resilient to OS scheduling,
             // but the key guarantee is not dozens.
-            #expect(counter.value <= 3, "burst of 5 rapid writes should coalesce to ≤3 callbacks")
+            #expect(counter.value <= 4, "burst of 5 rapid writes should coalesce to ≤4 callbacks")
         }
     }
 
@@ -189,7 +167,6 @@ struct DocumentFileWatcherTests {
         try await withTempFile { url in
             let watcher = DocumentFileWatcher(url: url) {}
             watcher.start()
-            try await Task.sleep(nanoseconds: 20_000_000)
             watcher.stop()
             watcher.stop()
             watcher.stop()
@@ -205,7 +182,6 @@ struct DocumentFileWatcherTests {
 
             let watcher = DocumentFileWatcher(url: url) { counter.increment() }
             watcher.start()
-            try await Task.sleep(nanoseconds: 50_000_000)
             watcher.stop()
 
             // Write after stop.

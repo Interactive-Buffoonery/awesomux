@@ -52,6 +52,7 @@ final class SelectionAwareTextView: NSTextView {
 /// - `highlightColor` (Task 5): highlight tint for `<mark>` runs.
 /// - `onPillClicked` (Bigfoot): callback when a comment `•••` pill is clicked.
 /// - `onAddPillClicked` (Bigfoot): callback when the add `•••` pill is clicked.
+/// - `annotationsInteractive`: disables annotation actions while their source snapshot reloads.
 /// - `selectionTouchesMark` (Bigfoot): suppresses the add pill when true.
 /// - `onTextViewAvailable` (Bigfoot): surfaces NSTextView reference for popover anchoring.
 /// - `scrollAnchorOffset` (Task 7): source offset to scroll-to on appear.
@@ -71,6 +72,9 @@ struct MarkdownTextView: NSViewRepresentable {
     /// Remote snapshots keep external web links actionable but render document
     /// links as plain text because they cannot safely resolve another file.
     var allowsDocumentLinks = true
+    /// Whether snapshot-backed annotation actions can run. Pills remain visible
+    /// while false so existing comments still provide location context.
+    var annotationsInteractive = true
 
     // Bigfoot seams
     /// Called when a comment pill is clicked. Args: markID, pill rect in overlay coords, overlay view.
@@ -187,10 +191,12 @@ struct MarkdownTextView: NSViewRepresentable {
         // the pane bottom (INT-562 Bigfoot).
         let overlay = CommentBadgeOverlay(frame: textView.bounds)
         overlay.autoresizingMask = [.width, .height]
+        overlay.annotationsInteractive = annotationsInteractive
         context.coordinator.badgeOverlay = overlay
         textView.addSubview(overlay)
 
         context.coordinator.textView = textView
+        context.coordinator.annotationsInteractive = annotationsInteractive
 
         // INT-687: pane resizes reach the coordinator through the clip view's
         // frame, which is the one geometry the prose wrap width depends on.
@@ -297,6 +303,7 @@ struct MarkdownTextView: NSViewRepresentable {
         // Fix 3: push finalization callback + mark-touch guard to coordinator every update.
         context.coordinator.onSelectionFinalized = onSelectionFinalized
         context.coordinator.selectionTouchesMark = selectionTouchesMark
+        context.coordinator.annotationsInteractive = annotationsInteractive
         context.coordinator.onOpenDocumentLink = onOpenDocumentLink
 
         // Task 7: re-register the capture closure on every update pass.
@@ -308,6 +315,7 @@ struct MarkdownTextView: NSViewRepresentable {
         // The overlay autoresizes with the text view's bounds (it's a subview), so we
         // don't reset its frame here. Its space == the text view's flipped space.
         if let overlay = context.coordinator.badgeOverlay {
+            overlay.annotationsInteractive = annotationsInteractive
             overlay.onPillClicked = onPillClicked
             overlay.onAddPillClicked = onAddPillClicked
 
@@ -427,6 +435,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     // Fix 3 (INT-562): auto-present compose popover on finalized selection.
     var onSelectionFinalized: ((Range<Int>, NSRect, NSTextView) -> Void)? = nil
     var selectionTouchesMark: Bool = false
+    var annotationsInteractive = true
 
     // INT-748 PR2: document links inherit the host tab's terminal association.
     var onOpenDocumentLink: ((URL) -> Void)? = nil
@@ -592,6 +601,9 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     /// accurate, span-based `spanTouchesExistingMark` check only.
     @MainActor
     func handleSelectionFinished(in textView: NSTextView) {
+        // Unlike selectionTouchesMark, this state is authoritative for whether
+        // snapshot-backed annotation actions can run during a cached render gap.
+        guard annotationsInteractive else { return }
         let range = textView.selectedRange()
         guard range.length > 0, let doc = lastDoc else { return }
         let utf16Range = range.location..<(range.location + range.length)

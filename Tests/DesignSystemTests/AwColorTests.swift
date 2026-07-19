@@ -475,6 +475,11 @@ struct AwColorTests {
     // floor would leave ~0.25-1.1 of slack the design margins don't actually
     // have, so each background asserts its own documented target. Mocha keeps
     // the bright accent and clears both with wide room.
+    //
+    // INT-645's tinted-HC opt-in leans on this test transitively: it resolves
+    // .aqua/.darkAqua only, which covers the Increase Contrast path solely
+    // because `tintBorder`/`surface0`/`mantle` are HC-invariant today. If any
+    // of them gains a genuine HC variant, extend this test to HC appearances.
     @Test("workspace tint border tokens clear WCAG 1.4.11 contrast")
     func workspaceTintBorderTokensClearContrastFloor() {
         let backgrounds: [(Color, floor: Double, label: String)] = [

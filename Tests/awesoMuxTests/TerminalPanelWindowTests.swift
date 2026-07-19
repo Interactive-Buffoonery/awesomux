@@ -113,23 +113,25 @@ struct TerminalPanelWindowTests {
             backing: .buffered,
             defer: false
         )
+        panel.isReleasedWhenClosed = false
         panel.orderFrontRegardless()
         defer {
             panel.orderOut(nil)
             panel.close()
         }
 
-        let event = try #require(NSEvent.mouseEvent(
-            with: .leftMouseDown,
-            location: CGPoint(x: 492, y: 338),
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: panel.windowNumber,
-            context: nil,
-            eventNumber: 1,
-            clickCount: 1,
-            pressure: 1
-        ))
+        let event = try #require(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: CGPoint(x: 492, y: 338),
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: panel.windowNumber,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            ))
 
         panel.sendEvent(event)
     }
@@ -259,6 +261,7 @@ private final class PromotionFixture {
             backing: .buffered,
             defer: false
         )
+        panel.isReleasedWhenClosed = false
         panel.onPromote = { [weak self] in self?.promotionCount += 1 }
         panel.orderFrontRegardless()
         parent.orderFrontRegardless()
@@ -302,12 +305,14 @@ private final class PromotionFixture {
     }
 
     private static func makeWindow() -> NSWindow {
-        NSWindow(
+        let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     private static func application() -> AwesoMuxApplication {

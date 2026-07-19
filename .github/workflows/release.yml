@@ -189,6 +189,12 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Install Zig (Homebrew, pinned 0.15 formula)
+        env:
+          # Homebrew's tap-trust gate aborts every brew command while any
+          # untrusted tap is present, and GitHub's macOS images ship with
+          # aws/tap preinstalled. Non-interactive CI can't answer the trust
+          # prompt, so opt out (same as prepare-native).
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           set -euo pipefail
           # zig@0.15, not current zig: Ghostty requires same-minor 0.15 with
@@ -265,7 +271,7 @@ jobs:
       - name: Restore cached swift.org toolchain pkg
         if: steps.xcode.outputs.needs_toolchain == 'true'
         id: swift-pkg-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/swift-toolchain.pkg
           key: swift-pkg-v1-${{ hashFiles('.swift-version') }}
@@ -318,14 +324,14 @@ jobs:
 
       - name: Save swift.org toolchain pkg to cache
         if: steps.xcode.outputs.needs_toolchain == 'true' && steps.swift-pkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/swift-toolchain.pkg
           key: ${{ steps.swift-pkg-cache.outputs.cache-primary-key }}
 
       - name: Restore cached Ghostty artifacts
         id: ghostty-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/ghostty
           # v1 prefix is the manual poison-cache invalidation lever. Xcode
@@ -338,7 +344,7 @@ jobs:
 
       - name: Save Ghostty artifacts to cache
         if: steps.ghostty-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/ghostty
           key: ${{ steps.ghostty-cache.outputs.cache-primary-key }}
@@ -461,7 +467,7 @@ jobs:
 
       - name: Upload release DMG
         if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: awesoMux-release-dmg
           path: dist/release/awesoMux-*.dmg
@@ -470,7 +476,7 @@ jobs:
 
       - name: Upload release checksum
         if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: awesoMux-release-checksum
           path: dist/release/*.sha256
@@ -479,7 +485,7 @@ jobs:
 
       - name: Upload notarization debug artifacts
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: awesoMux-release-debug
           path: |

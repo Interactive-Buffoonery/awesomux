@@ -496,6 +496,9 @@
     "Annotation intent" : {
       "comment" : "Accessibility label for the annotation intent picker"
     },
+    "Annotation note" : {
+      "comment" : "Accessibility label for the new annotation note field"
+    },
     "Annotation reopened" : {
       "comment" : "VoiceOver announcement after reopening an annotation"
     },
@@ -845,6 +848,9 @@
         }
       }
     },
+    "Comment annotation intent" : {
+      "comment" : "Accessibility label for the comment annotation intent option"
+    },
     "Compact mode" : {
       "comment" : "Settings field label for the sidebar compact mode toggle"
     },
@@ -1030,6 +1036,9 @@
     },
     "Delete annotation" : {
 
+    },
+    "Delete annotation intent" : {
+      "comment" : "Accessibility label for the delete annotation intent option"
     },
     "Denied" : {
       "comment" : "Settings label when macOS notification permission is denied."
@@ -1276,8 +1285,8 @@
     "File watcher configuration reload was rejected" : {
       "comment" : "Diagnostics event summary"
     },
-    "Filters workspaces. Press Return to open the top match. Press Escape to clear." : {
-
+    "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for Needs input workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
+      "comment" : "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."
     },
     "Find" : {
 
@@ -1640,6 +1649,9 @@
     "More settings…" : {
 
     },
+    "Move Group" : {
+      "comment" : "Undo action for reordering a workspace group."
+    },
     "Move Group Down" : {
 
     },
@@ -1657,6 +1669,9 @@
     },
     "Move Pane Up" : {
 
+    },
+    "Move Workspace" : {
+      "comment" : "Undo action for moving a workspace within or between groups."
     },
     "Move Workspace Down" : {
 
@@ -1882,6 +1897,9 @@
     },
     "On" : {
       "comment" : "Settings label when Open at Login is enabled."
+    },
+    "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default." : {
+      "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
     },
     "Open" : {
       "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
@@ -2399,6 +2417,9 @@
     "Rename '%arg'" : {
 
     },
+    "Rename Group" : {
+      "comment" : "Undo action for renaming a workspace group."
+    },
     "Rename Pane" : {
 
     },
@@ -2451,6 +2472,9 @@
     },
     "Replace Invalid File with Current Settings" : {
 
+    },
+    "Replace annotation intent" : {
+      "comment" : "Accessibility label for the replace annotation intent option"
     },
     "Replacement text…" : {
       "comment" : "Placeholder for a replacement annotation"
@@ -2677,6 +2701,9 @@
     "Select Refresh all to begin; samples continue while this pane is visible." : {
 
     },
+    "Selenized" : {
+
+    },
     "Send reply" : {
       "comment" : "Accessibility label for the annotation reply button\nHelp text for the annotation reply button"
     },
@@ -2697,6 +2724,9 @@
     },
     "Sessions idle longer than this threshold are cleaned up at launch." : {
 
+    },
+    "Set Group Color" : {
+      "comment" : "Undo action for changing a workspace group color."
     },
     "Set Pane Color to %arg" : {
 
@@ -2959,6 +2989,9 @@
     "Terminal session unavailable" : {
       "comment" : "Placeholder title in the Terminal Companion when no session exists."
     },
+    "Terminal theme" : {
+
+    },
     "Terminal unavailable" : {
       "comment" : "Fallback header shown when the Terminal Companion store has no selected session."
     },
@@ -3144,6 +3177,9 @@
     "Tighter row spacing for users with many sessions in a single workspace." : {
       "comment" : "Settings field hint for the sidebar compact mode toggle"
     },
+    "Tinted workspace colors" : {
+      "comment" : "Settings field label for the tinted high-contrast workspace colors toggle"
+    },
     "Tints active sidebar rows, focus outlines, and progress affordances." : {
       "comment" : "Settings field hint for the accent color swatches"
     },
@@ -3239,7 +3275,7 @@
     "Updates open terminal panes without restarting their shell." : {
       "comment" : "Settings field hint for the terminal font size slider"
     },
-    "Use Ghostty config to keep imported/user terminal themes, or choose an awesoMux color from Catppuccin presets and adjust it if needed." : {
+    "Use Ghostty config to keep imported/user terminal themes, choose a bundled Catppuccin or Selenized theme, or choose an awesoMux color and adjust it if needed." : {
       "comment" : "Settings field hint for the terminal background source picker"
     },
     "Use awesoMux shortcuts" : {

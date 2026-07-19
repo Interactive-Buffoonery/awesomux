@@ -63,8 +63,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         markNeedsAttentionPromptAnswered()
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
-        keyTextAccumulator = []
-        defer { keyTextAccumulator = nil }
+        inputState.keyTextAccumulator = []
+        defer { inputState.keyTextAccumulator = nil }
 
         let translatedModifierFlags = GhosttyInputMapper.modifierFlags(
             original: event.modifierFlags,
@@ -98,13 +98,13 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         let keyboardIdBefore: String? = markedTextBefore ? nil : GhosttyKeyboardLayout.id
 
         // `interpretKeyEvents` below may itself invoke `doCommand(by:)`,
-        // which reads `lastPerformKeyEvent` to decide whether to redispatch
+        // which reads `inputState.lastPerformKeyEvent` to decide whether to redispatch
         // (see `GhosttySurfaceTextInputClient.doCommand`). That field is
         // scoped to a specific `performKeyEquivalent` pass, so stale state
         // left over from an earlier, already-resolved key equivalent must
         // not leak into this unrelated `interpretKeyEvents` call. Mirrors
         // Ghostty's `SurfaceView_AppKit.keyDown`.
-        lastPerformKeyEvent = nil
+        inputState.lastPerformKeyEvent = nil
 
         interpretKeyEvents([translationEvent])
 
@@ -129,7 +129,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
         let composing = hasMarkedText() || markedTextBefore
 
-        if markedTextBefore, let accumulatedText = keyTextAccumulator, !accumulatedText.isEmpty {
+        if markedTextBefore, let accumulatedText = inputState.keyTextAccumulator, !accumulatedText.isEmpty {
             // The IME just committed preedit text while handling this key
             // (Korean IME: composing a character, then arrow-navigating away
             // commits it). Send the committed text as its own key events —
@@ -165,7 +165,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             return
         }
 
-        guard let accumulatedText = keyTextAccumulator, !accumulatedText.isEmpty else {
+        guard let accumulatedText = inputState.keyTextAccumulator, !accumulatedText.isEmpty else {
             // A raw control character (e.g. ctrl+h) arriving mid-composition
             // belongs to the IME, not the terminal.
             if GhosttySurfaceIMEPolicy.shouldSuppressComposingControlInput(event.characters, composing: composing) {
@@ -266,6 +266,14 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
                 GhosttyInputMapper.mouseModifiers(event.modifierFlags, mouseCaptured: true)
             )
         }
+
+        // INT-453: ⌘ pressed while already resting on a link promotes the peek to
+        // instant (no new `updateMouseOverLink` fires for an unchanged link).
+        if GhosttyInputMapper.isCommandKeyCode(event.keyCode),
+            event.modifierFlags.contains(.command)
+        {
+            promoteLinkPeekForCommandIfHovering()
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -336,9 +344,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             characters: event.characters,
             modifierFlags: event.modifierFlags,
             timestamp: event.timestamp,
-            lastPerformKeyEvent: lastPerformKeyEvent
+            lastPerformKeyEvent: inputState.lastPerformKeyEvent
         )
-        lastPerformKeyEvent = updatedLastPerformKeyEvent
+        inputState.lastPerformKeyEvent = updatedLastPerformKeyEvent
 
         switch decision {
         case .ignore, .waitForResponderChain:
@@ -375,16 +383,16 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // `performKeyEquivalent` → `dispatchKeyEquivalent` → here, nested
         // inside the ORIGINAL `keyDown`'s own `interpretKeyEvents` call. The
         // nested `keyDown(with: finalEvent)` unconditionally resets
-        // `keyTextAccumulator = []` on entry and nils it via its own `defer`
+        // `inputState.keyTextAccumulator = []` on entry and nils it via its own `defer`
         // on exit — without saving/restoring here, that clobbers whatever
         // the enclosing (outer) `keyDown` call had already accumulated,
-        // silently dropping IME input. `keyTextAccumulator` is a
-        // per-keystroke ephemeral batch (unlike `markedText`, which is
+        // silently dropping IME input. `inputState.keyTextAccumulator` is a
+        // per-keystroke ephemeral batch (unlike `inputState.markedText`, which is
         // legitimately shared, continuously-updated IME UI state with no
         // "outer vs. nested" distinction) — save/restore is scoped to this
         // one field.
-        let savedAccumulator = keyTextAccumulator
-        defer { keyTextAccumulator = savedAccumulator }
+        let savedAccumulator = inputState.keyTextAccumulator
+        defer { inputState.keyTextAccumulator = savedAccumulator }
 
         keyDown(with: finalEvent)
         return true
@@ -422,6 +430,15 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // A click on the hovered link opens through the existing open-URL gate;
+        // dismiss the peek preview first (transient would also close, but this
+        // clears state deterministically and keeps click-through intact).
+        dismissLinkPeek()
+        inputState.armedLinkClickValue = nil
+        // Any new press cancels a prior click's deferred open — this is what
+        // turns the second press of a double-click into a cancellation.
+        inputState.pendingLinkOpenWorkItem?.cancel()
+        inputState.pendingLinkOpenWorkItem = nil
         // No extra `makeFirstResponder` here — `localEventLeftMouseDown`
         // (below) already transferred focus for this click, via a global
         // event monitor that runs BEFORE the responder chain.
@@ -439,10 +456,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // prediction, is consumed here to decide whether THIS click's press
         // should reach libghostty at all — not just whether to un-arm a release
         // suppression after the fact.
-        let wasFocusOnlyClick = mouseButtonPolicy.isFocusOnlyLeftClickArmed
+        let wasFocusOnlyClick = inputState.mouseButtonPolicy.isFocusOnlyLeftClickArmed
         let currentSurface = surface
         let shouldCheckMouseCapture = !wasFocusOnlyClick
-            && hasPendingFocusTransferClick
+            && inputState.hasPendingFocusTransferClick
             && event.clickCount > 1
         let mouseCaptured = if shouldCheckMouseCapture, let currentSurface {
             ghostty_surface_mouse_captured(currentSurface)
@@ -451,22 +468,24 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         }
         let leftMouseDownDecision = GhosttyMouseFocusClickPolicy.decideLeftMouseDown(
             isFocusOnlyClick: wasFocusOnlyClick,
-            hasPendingFocusTransferClick: hasPendingFocusTransferClick,
+            hasPendingFocusTransferClick: inputState.hasPendingFocusTransferClick,
             clickCount: event.clickCount,
             hasSurface: currentSurface != nil,
             mouseCaptured: mouseCaptured
         )
-        hasPendingFocusTransferClick = leftMouseDownDecision.hasPendingFocusTransferClick
+        inputState.hasPendingFocusTransferClick = leftMouseDownDecision.hasPendingFocusTransferClick
 
         logMouseDiagnostic(
             event: "mouse-down",
-            extra: "focusOnly=\(wasFocusOnlyClick) pendingFocusClick=\(self.hasPendingFocusTransferClick)"
+            extra: "focusOnly=\(wasFocusOnlyClick) pendingFocusClick=\(self.inputState.hasPendingFocusTransferClick)"
         )
 
-        guard mouseButtonPolicy.mouseDown(
-            button: .left,
-            surfaceIdentity: currentMouseSurfaceIdentity
-        ) == .send else {
+        guard
+            inputState.mouseButtonPolicy.mouseDown(
+                button: .left,
+                surfaceIdentity: currentMouseSurfaceIdentity
+            ) == .send
+        else {
             return
         }
 
@@ -484,11 +503,19 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // current surface identity. That covers cold-start/respawn windows and
         // lets the later mouseUp verify it is still talking to the same native
         // surface incarnation.
+        // Arm plain-click link activation only for a single-click press that
+        // actually goes to the surface (focus-only clicks returned above).
+        // clickCount > 1 is a word/line selection gesture — the second press
+        // must not re-open the link. ⌘-clicks are excluded: libghostty's own
+        // release-time link path handles those.
+        if event.clickCount == 1, !event.modifierFlags.contains(.command) {
+            inputState.armedLinkClickValue = inputState.mouseOverLink
+        }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_LEFT, event: event)
     }
 
     override func mouseUp(with event: NSEvent) {
-        let decision = mouseButtonPolicy.mouseUp(
+        let decision = inputState.mouseButtonPolicy.mouseUp(
             button: .left,
             surfaceIdentity: currentMouseSurfaceIdentity
         )
@@ -499,6 +526,33 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         }
 
         sendMouseButton(.release, button: GHOSTTY_MOUSE_LEFT, event: event)
+
+        // INT-453: complete plain-click link activation (armed at press,
+        // cancelled by drag). Routed through the same funnel as
+        // libghostty-driven opens, so document routing and the
+        // resolve/classify/block-confirm gates are identical — a plain click
+        // on a blocked link must raise the confirm, never fail silently.
+        // Deferred by the double-click interval: the next press cancels, so
+        // word/line selection inside a hyperlink never opens it.
+        if let value = inputState.armedLinkClickValue {
+            inputState.armedLinkClickValue = nil
+            guard !event.modifierFlags.contains(.command) else {
+                // ⌘ acquired mid-gesture: libghostty's release path owns it.
+                return
+            }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.inputState.pendingLinkOpenWorkItem = nil
+                Task { @MainActor in
+                    await GhosttyRuntime.openURLAction(OpenURLAction(value), from: self)
+                }
+            }
+            inputState.pendingLinkOpenWorkItem = work
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + NSEvent.doubleClickInterval,
+                execute: work
+            )
+        }
     }
 
     // Runs on a global local event monitor, BEFORE the responder chain sees
@@ -517,7 +571,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             return event
         }
 
-        mouseButtonPolicy.clearFocusOnlyLeftClick()
+        inputState.mouseButtonPolicy.clearFocusOnlyLeftClick()
 
         guard window.firstResponder !== self else {
             logMouseDiagnostic(event: "mouse-focus-monitor", extra: "branch=already-focused")
@@ -532,7 +586,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             // records the prediction and still returns `event` (not `nil`),
             // since consuming here doesn't reliably stop dispatch anyway.
             window.makeFirstResponder(self)
-            mouseButtonPolicy.armFocusOnlyLeftClick()
+            inputState.mouseButtonPolicy.armFocusOnlyLeftClick()
             logMouseDiagnostic(event: "mouse-focus-monitor", extra: "branch=consumed-focus-transfer")
             return event
         }
@@ -551,20 +605,24 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // Same cold-start/respawn race as the left button (INT-607 follow-up,
         // caught by adversarial review): don't allow a release through if the
         // press itself never reached a live surface.
-        guard mouseButtonPolicy.mouseDown(
-            button: .right,
-            surfaceIdentity: currentMouseSurfaceIdentity
-        ) == .send else {
+        guard
+            inputState.mouseButtonPolicy.mouseDown(
+                button: .right,
+                surfaceIdentity: currentMouseSurfaceIdentity
+            ) == .send
+        else {
             return
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_RIGHT, event: event)
     }
 
     override func rightMouseUp(with event: NSEvent) {
-        guard mouseButtonPolicy.mouseUp(
-            button: .right,
-            surfaceIdentity: currentMouseSurfaceIdentity
-        ) == .send else {
+        guard
+            inputState.mouseButtonPolicy.mouseUp(
+                button: .right,
+                surfaceIdentity: currentMouseSurfaceIdentity
+            ) == .send
+        else {
             return
         }
 
@@ -576,10 +634,12 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // Same cold-start/respawn race as the left button (INT-607 follow-up).
         // One shared flag covers all non-left/right button numbers, matching
         // this file's existing choice not to track them individually elsewhere.
-        guard mouseButtonPolicy.mouseDown(
-            button: .other,
-            surfaceIdentity: currentMouseSurfaceIdentity
-        ) == .send else {
+        guard
+            inputState.mouseButtonPolicy.mouseDown(
+                button: .other,
+                surfaceIdentity: currentMouseSurfaceIdentity
+            ) == .send
+        else {
             return
         }
         sendMouseButton(
@@ -590,10 +650,12 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func otherMouseUp(with event: NSEvent) {
-        guard mouseButtonPolicy.mouseUp(
-            button: .other,
-            surfaceIdentity: currentMouseSurfaceIdentity
-        ) == .send else {
+        guard
+            inputState.mouseButtonPolicy.mouseUp(
+                button: .other,
+                surfaceIdentity: currentMouseSurfaceIdentity
+            ) == .send
+        else {
             return
         }
 
@@ -638,6 +700,14 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     override func mouseEntered(with event: NSEvent) {
         logMouseDiagnostic(event: "mouse-entered", extra: "gated=\(!self.hasNoMouseButtonHeld)")
 
+        // Re-entering over a NON-link cell emits no new `MOUSE_OVER_LINK`
+        // (nil → nil dedups), so a peek left open while the pointer crossed its
+        // own popover would otherwise never dismiss. No-ops when nothing is
+        // shown; a link cell re-arms normally via the hover callback.
+        if inputState.mouseOverLink == nil {
+            scheduleLinkPeekDismiss()
+        }
+
         guard hasNoMouseButtonHeld else {
             return
         }
@@ -647,6 +717,13 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
     override func mouseExited(with event: NSEvent) {
         logMouseDiagnostic(event: "mouse-exited", extra: "gated=\(!self.hasNoMouseButtonHeld)")
+
+        // Pointer left the surface — schedule the graced dismiss rather than an
+        // immediate one: a `.maxY` popover flipped below a top-edge anchor covers
+        // the cursor and fires a transient `mouseExited`, and an instant dismiss
+        // here would close the peek the moment it opened (review finding). A
+        // genuine departure still dismisses after the short grace.
+        scheduleLinkPeekDismiss()
 
         guard let surface else {
             return
@@ -691,9 +768,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // own app only shows a URL banner on hover, see `SurfaceView.swift`
         // around line 139 — it doesn't touch the cursor there), so it takes
         // priority over whatever shape the terminal program last requested.
-        if mouseOverLink != nil {
+        if inputState.mouseOverLink != nil {
             addCursorRect(bounds, cursor: .pointingHand)
-        } else if let terminalCursorShape {
+        } else if let terminalCursorShape = inputState.terminalCursorShape {
             addCursorRect(bounds, cursor: terminalCursorShape)
         }
     }
@@ -704,6 +781,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // physically held (the "AppKit's own button-tracking state confused"
         // lead), this log line proves it directly.
         logMouseDiagnostic(event: "mouse-dragged")
+        // A drag is a selection gesture, not a click — never open the link the
+        // press started on.
+        inputState.armedLinkClickValue = nil
         sendMousePosition(event)
     }
 
@@ -716,6 +796,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        // Scrolling moves the content under a peek anchored at a fixed cursor
+        // point; dismiss rather than let it float over unrelated text.
+        dismissLinkPeek()
+
         guard let surface else {
             return
         }
@@ -931,9 +1015,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         }
 
         if isCommandSubmit {
-            let command = submittedSSHCommandBuffer
-            submittedSSHCommandBuffer = ""
-            submittedSSHCommandCaptureDisabled = false
+            let command = inputState.submittedSSHCommandBuffer
+            inputState.submittedSSHCommandBuffer = ""
+            inputState.submittedSSHCommandCaptureDisabled = false
             if !command.isEmpty {
                 sessionStore.noteSubmittedCommand(
                     sessionID: sessionID,
@@ -944,23 +1028,24 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             return
         }
 
-        guard !submittedSSHCommandCaptureDisabled else {
+        guard !inputState.submittedSSHCommandCaptureDisabled else {
             return
         }
         if Self.isBackspace(event, text: text) {
-            if !submittedSSHCommandBuffer.isEmpty {
-                submittedSSHCommandBuffer.removeLast()
+            if !inputState.submittedSSHCommandBuffer.isEmpty {
+                inputState.submittedSSHCommandBuffer.removeLast()
             }
             return
         }
         guard let text, !text.isEmpty else {
             return
         }
-        submittedSSHCommandBuffer.append(text)
-        if submittedSSHCommandBuffer.count > Self.submittedSSHCommandCaptureLimit
-            || !Self.isPossibleSubmittedSSHCommandPrefix(submittedSSHCommandBuffer) {
-            submittedSSHCommandBuffer = ""
-            submittedSSHCommandCaptureDisabled = true
+        inputState.submittedSSHCommandBuffer.append(text)
+        if inputState.submittedSSHCommandBuffer.count > Self.submittedSSHCommandCaptureLimit
+            || !Self.isPossibleSubmittedSSHCommandPrefix(inputState.submittedSSHCommandBuffer)
+        {
+            inputState.submittedSSHCommandBuffer = ""
+            inputState.submittedSSHCommandCaptureDisabled = true
         }
     }
 
@@ -1107,8 +1192,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             return
         }
 
-        if markedText.length > 0 {
-            let text = markedText.string
+        if inputState.markedText.length > 0 {
+            let text = inputState.markedText.string
             text.withCString { cText in
                 ghostty_surface_preedit(
                     surface,
@@ -1137,7 +1222,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
         // INT-632: only the left button ever opens a link, so only the left
         // button ever gets the bypass. Compute the decision once at press —
-        // never at release, see `leftClickLinkBypassActive`'s doc comment —
+        // never at release, see `inputState.leftClickLinkBypassActive`'s doc comment —
         // and reuse it unchanged for the paired release. No hover gate here:
         // libghostty's own (continuously refreshed) over_link state decides
         // whether the click opens a link; our job is only to make the mods
@@ -1145,10 +1230,11 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         var mods = GhosttyInputMapper.modifiers(event.modifierFlags)
         if button == GHOSTTY_MOUSE_LEFT {
             if state == .press {
-                leftClickLinkBypassActive = ghostty_surface_mouse_captured(surface)
+                inputState.leftClickLinkBypassActive =
+                    ghostty_surface_mouse_captured(surface)
                     && event.modifierFlags.contains(.command)
             }
-            if leftClickLinkBypassActive {
+            if inputState.leftClickLinkBypassActive {
                 mods = ghostty_input_mods_e(mods.rawValue | GHOSTTY_MODS_SHIFT.rawValue)
             }
         }
@@ -1175,18 +1261,33 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // libghostty's over_link hover state fresh through cursor drift —
         // see `GhosttyInputMapper.mouseModifiers` for why one-shot isn't
         // enough and why the motion-report trade-off is accepted.
+        //
+        // INT-453: the capture state feeds `armLinkHover` (plain-hover link
+        // detection, which the peek dwell needs, is safe only on an uncaptured
+        // surface), so button-free motion reads it every event where the old
+        // code short-circuited behind a ⌘ test. Plain DRAGS must skip the read
+        // entirely: `mouse_captured` takes libghostty's renderer mutex, the
+        // render thread holds that mutex through selection redraws, and one
+        // extra acquire per drag-motion event beachballed live text selection
+        // (smoke round 2) — a held button already disables `armLinkHover`, so
+        // the read buys nothing there. ⌘-drags keep it for the INT-632 bypass.
+        // The read-then-push pair is not atomic against the IO thread flipping
+        // mouse mode, so one motion event can straddle the transition with a
+        // stale decision — the same window the ⌘-shift bypass has always had.
         let pos = mousePosition(for: event)
+        let buttonFree = hasNoMouseButtonHeld
+        let needsCaptureState = buttonFree || event.modifierFlags.contains(.command)
+        let captured = needsCaptureState && ghostty_surface_mouse_captured(surface)
         ghostty_surface_mouse_pos(
             surface,
             pos.x,
             pos.y,
             GhosttyInputMapper.mouseModifiers(
                 event.modifierFlags,
-                // ⌘ test first: mouse_captured takes libghostty's renderer
-                // mutex, and this runs per motion event — short-circuit past
-                // it on the vast majority of moves where ⌘ isn't held.
-                mouseCaptured: event.modifierFlags.contains(.command)
-                    && ghostty_surface_mouse_captured(surface)
+                mouseCaptured: event.modifierFlags.contains(.command) && captured,
+                // Button-free gate keeps drag motion byte-identical to today —
+                // selection/drag mods must never grow a fake Super bit.
+                armLinkHover: buttonFree && !captured
             )
         )
     }

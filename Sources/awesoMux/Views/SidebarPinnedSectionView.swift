@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -44,13 +45,21 @@ struct SidebarPinnedSectionView: View {
     @Binding var isKeyboardNavigating: Bool
 
     @State private var rowFrames: [TerminalSession.ID: CGRect] = [:]
+    @State private var rowFrameCache = SidebarDragFrameCache<TerminalSession.ID>()
     @State private var dropIndex: Int?
+    // Read here (ungated) and passed into the tile as a compared snapshot —
+    // in-tile store reads stale behind the tile's `.equatable()` gate (PR #428).
+    @Environment(AppSettingsStore.self) private var appSettingsStore
 
     private var coordinateSpaceName: String { "sidebar-pinned-section" }
 
     var body: some View {
         let pinnedSessionIDs = pinned.map(\.entry.session.id)
         let pinnedSessionIDSet = Set(pinnedSessionIDs)
+        let dragRowFrames = rowFrameCache.frames(
+            stored: rowFrames,
+            isDragActive: activeDragID != nil
+        )
 
         VStack(alignment: .leading, spacing: density.sessionStackSpacing) {
             header
@@ -63,7 +72,12 @@ struct SidebarPinnedSectionView: View {
                 .onPreferenceChange(SidebarRowFramePreferenceKey.self) { frames in
                     // Keep only frames for currently-visible pinned tiles so the
                     // y-hit-test never indexes against a stale row.
-                    rowFrames = frames.filter { pinnedSessionIDSet.contains($0.key) }
+                    let visibleFrames = frames.filter { pinnedSessionIDSet.contains($0.key) }
+                    rowFrameCache.update(visibleFrames)
+                    // Keep the reader live so SwiftUI can coalesce preference
+                    // emission; only the @State write is drag-gated while idle.
+                    guard activeDragID != nil else { return }
+                    rowFrames = visibleFrames
                 }
                 .onChange(of: pinnedSessionIDs) { _, _ in
                     rowFrames = rowFrames.filter { pinnedSessionIDSet.contains($0.key) }
@@ -78,7 +92,7 @@ struct SidebarPinnedSectionView: View {
                         let y = SidebarInsertionResolver.insertionY(
                             forInsertionIndex: dropIndex,
                             orderedIDs: pinnedSessionIDs,
-                            frames: rowFrames,
+                            frames: dragRowFrames,
                             spacing: density.sessionStackSpacing
                         )
                     {
@@ -91,7 +105,7 @@ struct SidebarPinnedSectionView: View {
                     enabled: activeDragKind == .workspace && !isFiltering,
                     delegate: SidebarPinnedReorderDropDelegate(
                         pinnedSessionIDs: pinnedSessionIDs,
-                        rowFrames: rowFrames,
+                        rowFrames: dragRowFrames,
                         isFiltering: isFiltering,
                         activeDragKind: activeDragKind,
                         activeDragID: activeDragID,
@@ -113,6 +127,11 @@ struct SidebarPinnedSectionView: View {
         .onChange(of: activeDragKind) { _, kind in
             if kind != .workspace {
                 dropIndex = nil
+            }
+        }
+        .onChange(of: activeDragID) { _, dragID in
+            if dragID != nil {
+                rowFrames = rowFrameCache.frames(stored: rowFrames, isDragActive: true)
             }
         }
         .onChange(of: isFiltering) { _, filtering in
@@ -234,6 +253,8 @@ struct SidebarPinnedSectionView: View {
             nextNeighborGroup: nil,
             otherGroups: allGroups.filter { $0.id != item.originGroup.id },
             verticalPadding: density.sessionTileVerticalPadding,
+            tintedHighContrast: appSettingsStore.appearance.value.tintedHighContrast,
+            alwaysShowJumpNumbers: appSettingsStore.appearance.value.alwaysShowJumpNumbers,
             onSelect: { onSelect(session) },
             onNewSessionHere: { onNewSessionHere(session) },
             onAcknowledge: { onAcknowledge(session) },

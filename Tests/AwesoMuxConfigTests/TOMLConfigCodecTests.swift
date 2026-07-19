@@ -133,13 +133,13 @@ struct TOMLConfigCodecTests {
     @Test("terminal_theme_id round-trips through appearance table")
     func terminalThemeIDRoundTripsThroughAppearanceTable() throws {
         var config = AwesoMuxConfig.defaultValue
-        config.appearance.terminalThemeID = TerminalThemeCatalog.catppuccinID
+        config.appearance.terminalThemeID = TerminalThemeCatalog.selenizedID
 
         let encoded = try codec.encodeString(config)
         let decoded = try codec.decode(encoded)
 
-        #expect(encoded.contains(#"terminal_theme_id = "catppuccin""#))
-        #expect(decoded.appearance.terminalThemeID == TerminalThemeCatalog.catppuccinID)
+        #expect(encoded.contains(#"terminal_theme_id = "selenized""#))
+        #expect(decoded.appearance.terminalThemeID == TerminalThemeCatalog.selenizedID)
     }
 
     @Test("TOML without confirm fields decodes to default true")
