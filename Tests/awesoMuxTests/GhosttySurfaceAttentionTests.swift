@@ -4,31 +4,45 @@ import Testing
 
 @Suite("Ghostty surface attention decisions")
 struct GhosttySurfaceAttentionTests {
-    @Test("agent-exit probe eligibility excludes only unobserved plain shells")
+    @Test("agent-exit probe eligibility excludes only idle unobserved shells")
     func agentExitProbeEligibility() {
         #expect(
             GhosttySurfaceNSView.shouldProbeForAgentExit(
                 agentKind: .codex,
                 hasManagedSSHObservation: false,
-                hasObservedAgentActivity: false
+                hasObservedAgentActivity: false,
+                shellHasForegroundCommand: false
             ))
         #expect(
             GhosttySurfaceNSView.shouldProbeForAgentExit(
                 agentKind: .shell,
                 hasManagedSSHObservation: true,
-                hasObservedAgentActivity: false
+                hasObservedAgentActivity: false,
+                shellHasForegroundCommand: false
             ))
         #expect(
             GhosttySurfaceNSView.shouldProbeForAgentExit(
                 agentKind: .shell,
                 hasManagedSSHObservation: false,
-                hasObservedAgentActivity: true
+                hasObservedAgentActivity: true,
+                shellHasForegroundCommand: false
+            ))
+        // A running foreground command in an untagged shell keeps the comm
+        // fast-path alive for signature-less agent launches (alias / TUI
+        // clearing the launch line).
+        #expect(
+            GhosttySurfaceNSView.shouldProbeForAgentExit(
+                agentKind: .shell,
+                hasManagedSSHObservation: false,
+                hasObservedAgentActivity: false,
+                shellHasForegroundCommand: true
             ))
         #expect(
             !GhosttySurfaceNSView.shouldProbeForAgentExit(
                 agentKind: .shell,
                 hasManagedSSHObservation: false,
-                hasObservedAgentActivity: false
+                hasObservedAgentActivity: false,
+                shellHasForegroundCommand: false
             ))
     }
 

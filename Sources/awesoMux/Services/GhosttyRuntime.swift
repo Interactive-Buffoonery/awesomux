@@ -203,15 +203,6 @@ final class GhosttyRuntime {
     @ObservationIgnored
     private var shellActivityLifecycleRefreshTasks: [TerminalPane.ID: Task<Void, Never>] = [:]
 
-    // Throttle floor shared by the centralized passive sampler and event-driven
-    // callers. The runtime task intentionally ticks at 250ms; this lower floor
-    // only preserves existing semantics when a submit/finish refresh lands near a
-    // passive tick. (Until INT-523's render fix this floor tamed the draw() hot
-    // path, which fired at up to 120Hz/pane under a chatty PTY — the INT-471 path.)
-    @ObservationIgnored
-    private var lastShellActivitySampleAt: ContinuousClock.Instant?
-    private static let shellActivitySampleThrottle: Duration = .milliseconds(100)
-
     /// One runtime-owned task drives passive shell/agent sampling for every
     /// visible surface. Views register only their pane IDs; resolving through
     /// `surfaceViews` each tick avoids a second ownership edge to AppKit views.
@@ -363,8 +354,20 @@ final class GhosttyRuntime {
         }
         stopVisibleSurfaceSamplingIfIdle()
 
-        guard let sessionStore = visibleSurfaceViews.first?.sessionStore else { return }
-        sampleShellActivity(in: sessionStore)
+        // Popup and floating panels carry their own SessionStore, so refresh
+        // once per DISTINCT store — sampling only the first view's store would
+        // starve every other store's passive busy/idle catch-up (review
+        // finding, three lanes convergent).
+        var refreshedStores = Set<ObjectIdentifier>()
+        for surfaceView in visibleSurfaceViews {
+            let store = surfaceView.sessionStore
+            if refreshedStores.insert(ObjectIdentifier(store)).inserted {
+                refreshShellActivity(in: store)
+            }
+        }
+        if !visibleSurfaceViews.isEmpty {
+            detectExitedAgents()
+        }
         for surfaceView in visibleSurfaceViews {
             surfaceView.sampleAgentStateFromVisibleText()
         }
@@ -684,29 +687,15 @@ final class GhosttyRuntime {
         sessionStore.updateTerminalQuitConfirmationRisks(snapshots)
     }
 
-    /// Throttled entry point shared by the runtime-owned passive sampler and
-    /// other polling callers. Event-driven command submit/finish and surface
-    /// creation paths call `refreshShellActivity` directly so their intentional
-    /// timing is preserved; the floor keeps a nearby passive tick from repeating
-    /// the same global sweep.
-    func sampleShellActivity(in sessionStore: SessionStore) {
-        let now = ContinuousClock.now
-        if let last = lastShellActivitySampleAt,
-           now - last < Self.shellActivitySampleThrottle {
-            return
-        }
-        lastShellActivitySampleAt = now
-        refreshShellActivity(in: sessionStore)
-        detectExitedAgents()
-    }
-
-    /// One visible pane's sampler tick sweeps EVERY cached surface (mirrors
+    /// One sampler tick sweeps EVERY cached surface (mirrors
     /// `refreshShellActivity`): a stale agent glyph is most visible on a
     /// background session's sidebar tile, whose own detached view isn't
     /// sampling. Each view applies the reset through its own session store,
     /// so floating-panel panes are covered too. Each view gates its libproc
-    /// probe to agent-tagged panes, managed-SSH observations, or panes with
-    /// observed agent activity; plain shells stop after cheap libghostty reads.
+    /// probe to agent-tagged panes, managed-SSH observations, observed agent
+    /// activity, or an untagged shell that currently has a foreground command
+    /// running (so first-time agent recognition by process name still works);
+    /// idle plain shells stop after cheap libghostty reads.
     private func detectExitedAgents() {
         for surfaceView in surfaceViews.values {
             surfaceView.detectAgentExitedToShell()
