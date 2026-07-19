@@ -36,6 +36,11 @@ extension EnvironmentValues {
 /// body row — distinct from the rail-collapsed `displayMode`, which
 /// suppresses the X entirely).
 enum SidebarGroupClosePolicy {
+    static let actionLabel = String(
+        localized: "Close Group",
+        comment: "Label and help text for controls that close a workspace group."
+    )
+
     /// - Parameters:
     ///   - isHeaderHovered: pointer is over the header row; the X is a
     ///     hover-only shortcut, never resting UI.
@@ -616,7 +621,7 @@ struct SidebarGroupHeaderRow: View {
         if !isFiltering, currentGroupIndex != nil {
             Divider()
 
-            Button("Close Group", role: .destructive) {
+            Button(SidebarGroupClosePolicy.actionLabel, role: .destructive) {
                 onCloseGroup()
             }
             .disabled(
@@ -691,7 +696,7 @@ struct SidebarGroupHeaderRow: View {
                 totalGroupCount: totalGroupCount
             )
         {
-            Button("Close Group") {
+            Button(SidebarGroupClosePolicy.actionLabel) {
                 onCloseGroup()
             }
         }
@@ -812,7 +817,7 @@ struct SidebarGroupHeaderRow: View {
         // unresolved row, empty group) where the X never shows.
         // "Close Group" matches the context menu and VoiceOver action names
         // for the same operation (consistent identification).
-        .help(showsGroupCloseButton ? "Close Group" : "")
+        .help(showsGroupCloseButton ? SidebarGroupClosePolicy.actionLabel : "")
     }
 
     private var groupAccessibilityValue: String {
