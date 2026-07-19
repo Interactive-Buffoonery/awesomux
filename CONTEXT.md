@@ -53,7 +53,7 @@ Add rows here when a term is used repeatedly in code, issues, or ADRs and the me
 | **Document pane** | `DocumentPane` — auxiliary Markdown viewer leaf in a workspace layout; validates local `.md`/`.markdown` files, renders comments/highlights, and stays paired with a terminal pane for agent nudges. |
 | **Shell activity** | Runtime-only busy/idle signal for shell sessions. It is derived from Ghostty prompt markers after at least one prompt has been observed, debounced for chrome, not persisted, and separate from the raw quit-confirmation signal. |
 | **Session snapshot** | On-disk JSON (`Application Support/…/session-state.json`) representing groups, layout, and selection for restore. |
-| **Product analytics** | Explicitly opt-in, anonymous-by-default reporting about awesoMux product health; currently limited to error reports and never terminal content. |
+| **Product analytics** | Explicitly opt-in, anonymous-by-default reporting about awesoMux product health. The current foundation is local-only; future provider delivery remains bounded by ADR-0008 and never includes terminal content. |
 | **Analytics consent level** | The user's product analytics choice: off, error reports, or product usage. |
 | **Error report** | A privacy-filtered product analytics event describing an awesoMux app failure, crash, or handled error category. |
 | **Feedback report** | A user-initiated support message with diagnostics shown in an editable email draft before anything is sent. |

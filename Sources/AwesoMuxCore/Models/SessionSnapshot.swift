@@ -27,7 +27,7 @@ public final class SessionSnapshotDecodeRecoveryRecorder: @unchecked Sendable {
     }
 }
 
-public struct SessionSnapshot: Codable, Hashable, Sendable {
+public struct SessionSnapshot: Encodable, Hashable, Sendable {
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
         category: "SessionSnapshot"
@@ -108,11 +108,25 @@ public struct SessionSnapshot: Codable, Hashable, Sendable {
         case pinnedSessionIDs
     }
 
-    public init(from decoder: Decoder) throws {
+    /// Decodes through the version envelope so nested migrations share one
+    /// authoritative schema version for the entire snapshot.
+    public static func decode(from data: Data) throws -> Self {
+        let schemaVersion = try JSONDecoder().decode(
+            SchemaVersionEnvelope.self,
+            from: data
+        ).schemaVersion
+        let decoder = JSONDecoder()
+        decoder.userInfo[.snapshotSchemaVersion] = schemaVersion
+        decoder.userInfo[.snapshotDecodeRecoveryRecorder] =
+            SessionSnapshotDecodeRecoveryRecorder()
+        return try decoder.decode(DecodedSnapshot.self, from: data).snapshot
+    }
+
+    private init(decoding decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let schemaVersion =
             try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
-            ?? Self.currentSchemaVersion
+            ?? Self.assumedLegacyVersionWhenAbsent
         guard schemaVersion <= Self.currentSchemaVersion else {
             Self.logger.error(
                 "Unsupported future session snapshot schema version: found \(schemaVersion, privacy: .public), current \(Self.currentSchemaVersion, privacy: .public)"
@@ -140,6 +154,25 @@ public struct SessionSnapshot: Codable, Hashable, Sendable {
         self.droppedDocumentTabCountDuringDecoding =
             (decoder.userInfo[.snapshotDecodeRecoveryRecorder]
             as? SessionSnapshotDecodeRecoveryRecorder)?.droppedDocumentTabs ?? 0
+    }
+
+    private struct DecodedSnapshot: Decodable {
+        let snapshot: SessionSnapshot
+
+        init(from decoder: Decoder) throws {
+            snapshot = try SessionSnapshot(decoding: decoder)
+        }
+    }
+
+    private struct SchemaVersionEnvelope: Decodable {
+        let schemaVersion: Int
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            schemaVersion =
+                try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+                ?? SessionSnapshot.assumedLegacyVersionWhenAbsent
+        }
     }
 
     public func encode(to encoder: Encoder) throws {

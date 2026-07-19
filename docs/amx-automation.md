@@ -74,8 +74,18 @@ If `$ZMX_SESSION` is unset, you are not in a daemon-backed pane (see
 | `amx send <name>` | **required** | Send text to the pane's PTY (include your own trailing `\r`) — payloads failing the daemon's user-input gate are silently dropped, see below |
 | `amx history <name> [--vt\|--html]` | optional — defaults to `$ZMX_SESSION` | Dump the pane's scrollback |
 | `amx list [--short]` | n/a | List sessions in `$ZMX_DIR` |
-| `amx cwd <name>` | **required** | Print the session root shell's cwd |
+| `amx cwd <name>` | **required** | Print the active terminal job's cwd, falling back to the session root shell |
 | `amx wait <name>` | **required** | Block until an `amx run -d` **task** completes — see below |
+
+For `cwd`, the active terminal job is the foreground process group — the
+shell while it owns the prompt, or an interactive program such as Pi, Claude
+Code, or an editor while that program controls the terminal. `amx` reads the
+group leader's directory while the leader is alive, falls back to a surviving
+group member when the leader has exited (bash pipelines routinely leave the
+job running under a dead leader), and only then to the durable root shell.
+An agent's background tool subprocesses never take the terminal, so they are
+not followed; a foreground child that does take it is reported while it holds
+the terminal. This keeps every consumer on the same out-of-band cwd oracle.
 
 Session-argument precision (`vendor/zmx/src/main.zig`): only `history` falls
 back to `$ZMX_SESSION` when the argument is omitted (line 136-137); `send`

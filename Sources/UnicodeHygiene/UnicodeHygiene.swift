@@ -153,19 +153,19 @@ public enum UnicodeHygiene {
     private static func isUnsafePathScalar(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
         case 0x0000...0x001F, 0x007F, 0x0080...0x009F:
-            return true // C0, DEL, C1 controls
+            return true  // C0, DEL, C1 controls
         case 0x2028, 0x2029:
-            return true // LINE SEPARATOR / PARAGRAPH SEPARATOR
+            return true  // LINE SEPARATOR / PARAGRAPH SEPARATOR
         case 0x202A...0x202E:
-            return true // Bidi formatting controls (LRE/RLE/PDF/LRO/RLO)
+            return true  // Bidi formatting controls (LRE/RLE/PDF/LRO/RLO)
         case 0x2066...0x2069:
-            return true // Bidi isolates (LRI/RLI/FSI/PDI)
+            return true  // Bidi isolates (LRI/RLI/FSI/PDI)
         case 0x200E, 0x200F, 0x061C:
-            return true // LRM / RLM / Arabic letter mark
+            return true  // LRM / RLM / Arabic letter mark
         case 0x200B, 0x200C, 0x200D, 0xFEFF, 0x2060:
-            return true // Zero-width space / ZWNJ / ZWJ / BOM / word joiner
+            return true  // Zero-width space / ZWNJ / ZWJ / BOM / word joiner
         case 0x2061...0x2064:
-            return true // Invisible math operators
+            return true  // Invisible math operators
         default:
             return false
         }
@@ -201,12 +201,12 @@ public enum UnicodeHygiene {
 
         switch scalar.properties.generalCategory {
         case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter,
-             .modifierLetter, .otherLetter,
-             .decimalNumber, .letterNumber, .otherNumber,
-             .connectorPunctuation, .dashPunctuation, .openPunctuation,
-             .closePunctuation, .initialPunctuation, .finalPunctuation,
-             .otherPunctuation,
-             .mathSymbol, .currencySymbol, .modifierSymbol, .otherSymbol:
+            .modifierLetter, .otherLetter,
+            .decimalNumber, .letterNumber, .otherNumber,
+            .connectorPunctuation, .dashPunctuation, .openPunctuation,
+            .closePunctuation, .initialPunctuation, .finalPunctuation,
+            .otherPunctuation,
+            .mathSymbol, .currencySymbol, .modifierSymbol, .otherSymbol:
             return true
         default:
             return false
@@ -218,21 +218,122 @@ public enum UnicodeHygiene {
             return nil
         }
 
+        // NOTE: this range table is maintained by report, not generated
+        // from Unicode's Script=Latin property — Swift's stdlib has no
+        // `Unicode.Scalar.Properties.script` accessor and there's no public
+        // Foundation/ICU wrapper for it either (confirmed: `import
+        // Foundation; Unicode.Scalar("я").properties.script` fails to
+        // compile — "has no member 'script'"). Every Latin block found
+        // reachable through a real IDN host so far is listed below; an
+        // as-yet-unlisted block (there are dozens in total, most
+        // vanishingly obscure) would read as single-script when paired
+        // with Cyrillic/Greek. Extend this switch, don't redesign the
+        // algorithm, when the next one surfaces.
         switch scalar.value {
-        case 0x0041 ... 0x005A,
-             0x0061 ... 0x007A,
-             0x00C0 ... 0x00FF,
-             0x0100 ... 0x024F,
-             // IPA Extensions and Latin Extended Additional: without these a
-             // spoofer readmits the mixed-script class via e.g. Vietnamese
-             // letters (U+1E01) beside Cyrillic.
-             0x0250 ... 0x02AF,
-             0x1E00 ... 0x1EFF:
+        case 0x0041...0x005A,
+            0x0061...0x007A,
+            0x00C0...0x00FF,
+            0x0100...0x024F,
+            // IPA Extensions and Latin Extended Additional: without these a
+            // spoofer readmits the mixed-script class via e.g. Vietnamese
+            // letters (U+1E01) beside Cyrillic.
+            0x0250...0x02AF,
+            0x1E00...0x1EFF,
+            // Latin Extended-C/D/E/F/G: without these, a Latin-lookalike
+            // letter from one of these blocks (e.g. U+A7CA LATIN CAPITAL
+            // LETTER S WITH SHORT STROKE) returns nil from this switch —
+            // contributing NO family — so pairing it with a real
+            // Cyrillic/Greek letter reads as single-script and slips past
+            // the mixing check. Confirmed reachable through a real IDN
+            // host: Foundation accepts and punycode-encodes
+            // "\u{A7CA}\u{0430}.com".
+            0x2C60...0x2C7F,
+            0xA720...0xA7FF,
+            // Latin Extended-E, minus U+AB65 GREEK LETTER SMALL CAPITAL
+            // OMEGA embedded in the same block (folded into .greek below) —
+            // a pre-existing gap from before this PR, fixed in passing
+            // since it's the identical bug class.
+            0xAB30...0xAB64,
+            0xAB66...0xAB6F,
+            0x10780...0x107BF,
+            0x1DF00...0x1DFFF,
+            // Phonetic Extensions / Phonetic Extensions Supplement, minus
+            // the Greek/Cyrillic-lookalike letters scattered through the
+            // SAME block (see the exclusion list on the .greek/.cyrillic
+            // cases below — this isn't a clean sub-range split, the
+            // exceptions are individual codepoints threaded throughout).
+            // An earlier pass listed the whole block as Latin, which
+            // misclassified those codepoints instead of their real script;
+            // multi-reviewer + cross-model review caught it before merge.
+            // A first CORRECTED pass then over-corrected 5 codepoints
+            // (1D45, 1D9B, 1DA5, 1DB2, 1DB7) into .greek based on their
+            // visually-Greek-derived IPA names — cross-model review caught
+            // that too, citing Unicode's actual Script property: all 5
+            // NFKC-decompose to Script=Latin IPA letters (U+0251/0252/0269/
+            // 0278/028A), not Greek. This table has bitten this exact way
+            // THREE times in one PR — treat any future edit here as
+            // suspect until verified against Unicode's real Script
+            // property (not just letter names, which can mislead both
+            // ways), and prefer that over guessing from visual resemblance.
+            0x1D00...0x1D25,
+            0x1D2C...0x1D5C,
+            0x1D62...0x1D65,
+            0x1D6B...0x1D77,
+            0x1D79...0x1DBE,
+            // Mathematical Alphanumeric Symbols, Latin portion only — this
+            // block interleaves Latin and Greek mathematical letters (bold/
+            // italic/script/fraktur/etc. variants of both alphabets); the
+            // Greek portion (U+1D6A8...0x1D7CB) is folded into .greek
+            // below, NOT included here. NFKC-folds to plain ASCII (U+1D400
+            // MATHEMATICAL BOLD CAPITAL A -> "A"), the textbook "bold text"
+            // homograph vector — Foundation accepts and punycode-encodes
+            // e.g. "\u{1D400}\u{0430}.com". Math symbols interspersed in
+            // this range (nabla, partial differential) are `Sm`, not a
+            // letter category, so `isLetterScalar` already excludes them
+            // upstream regardless of this range's width.
+            0x1D400...0x1D6A7,
+            // Fullwidth Latin (Halfwidth and Fullwidth Forms): same
+            // NFKC-folds-to-ASCII signal (U+FF21 -> "A"), a documented
+            // real-world phishing pattern.
+            0xFF21...0xFF3A,
+            0xFF41...0xFF5A:
             return .latin
-        case 0x0370 ... 0x03FF,
-             0x1F00 ... 0x1FFF:
+        // U+214E TURNED SMALL F (Letterlike Symbols) and U+2184 LATIN
+        // SMALL LETTER REVERSED C (Number Forms): both Foundation-reachable
+        // Latin letters outside any range above.
+        case 0x214E, 0x2184:
+            return .latin
+        case 0x0370...0x03FF,
+            0x1F00...0x1FFF,
+            // U+AB65 GREEK LETTER SMALL CAPITAL OMEGA, embedded in the
+            // Latin Extended-E block (see the Latin case above).
+            0xAB65,
+            // Greek letterforms scattered through the Phonetic Extensions /
+            // Phonetic Extensions Supplement blocks (see the Latin case
+            // above for why these are split out rather than left in a
+            // whole-block Latin range).
+            0x1D26...0x1D2A,
+            0x1D5D...0x1D61,
+            0x1D66...0x1D6A,
+            // Mathematical Alphanumeric Symbols, Greek portion (see the
+            // Latin case above — the block interleaves both alphabets).
+            0x1D6A8...0x1D7CB,
+            0x1DBF:
             return .greek
-        case 0x0400 ... 0x052F:
+        case 0x0400...0x052F,
+            // Cyrillic Extended-B/C/D: the same false-open class as the
+            // Latin Extended-C/D/E/F/G gap above, on the Cyrillic side.
+            // Confirmed reachable through a real IDN host (e.g. U+A641,
+            // U+1E08F both round-trip through Foundation's punycode
+            // encoder the same way U+A7CA does).
+            0xA640...0xA69F,
+            0x1C80...0x1C8F,
+            0x1E030...0x1E08F,
+            // Cyrillic letterforms embedded in the Phonetic Extensions /
+            // Phonetic Extensions Supplement blocks (see the Latin case
+            // above).
+            0x1D2B,
+            0x1D78:
             return .cyrillic
         default:
             return nil
@@ -242,7 +343,7 @@ public enum UnicodeHygiene {
     private static func isLetterScalar(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.properties.generalCategory {
         case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter,
-             .modifierLetter, .otherLetter:
+            .modifierLetter, .otherLetter:
             return true
         default:
             return false

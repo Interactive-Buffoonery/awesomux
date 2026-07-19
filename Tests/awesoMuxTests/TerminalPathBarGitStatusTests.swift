@@ -237,6 +237,41 @@ struct BoundedCommandRunnerTests {
         #expect(await runner.run(arguments: [], inDirectory: NSTemporaryDirectory()) == nil)
     }
 
+    @Test("output at the cap boundary reports complete vs truncated explicitly")
+    func truncationIsExplicitAtCapBoundary() async throws {
+        let directory = NSTemporaryDirectory()
+        let underPath = directory + "pathbar-under-\(UUID().uuidString).txt"
+        let exactPath = directory + "pathbar-exact-\(UUID().uuidString).txt"
+        let overPath = directory + "pathbar-over-\(UUID().uuidString).txt"
+        let cap = 64
+        try String(repeating: "a", count: cap - 1).write(toFile: underPath, atomically: true, encoding: .utf8)
+        try String(repeating: "b", count: cap).write(toFile: exactPath, atomically: true, encoding: .utf8)
+        try String(repeating: "c", count: cap + 1).write(toFile: overPath, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(atPath: underPath)
+            try? FileManager.default.removeItem(atPath: exactPath)
+            try? FileManager.default.removeItem(atPath: overPath)
+        }
+
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/cat"],
+            maxOutputBytes: cap
+        )
+
+        #expect(
+            await runner.runDetailed(arguments: [underPath], inDirectory: directory)
+                == .success(Data(repeating: UInt8(ascii: "a"), count: cap - 1))
+        )
+        #expect(
+            await runner.runDetailed(arguments: [exactPath], inDirectory: directory)
+                == .success(Data(repeating: UInt8(ascii: "b"), count: cap))
+        )
+        let over = await runner.runDetailed(arguments: [overPath], inDirectory: directory)
+        #expect(over == .outputTruncated(Data(repeating: UInt8(ascii: "c"), count: cap)))
+        #expect(over.completeData == nil)
+        #expect(over.dataAllowingTruncation?.count == cap)
+    }
+
     @Test("a child that exits while a descendant holds stdout resolves bounded to nil")
     func descendantHoldingStdoutDoesNotHang() async {
         // `sh` exits immediately but backgrounds a short `sleep`, which inherits
@@ -316,5 +351,49 @@ struct BoundedCommandRunnerTests {
         scheduler.advanceOneCycle()
         #expect(await run.value == nil)
         scheduler.advanceOneCycle()
+    }
+
+    @Test("legacy run() still returns the capped buffer on a clean exit past the cap")
+    func legacyRunReturnsCappedDataOnTruncation() async throws {
+        let directory = NSTemporaryDirectory()
+        let path = directory + "pathbar-cap-\(UUID().uuidString).txt"
+        try String(repeating: "X", count: 10_000).write(toFile: path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let runner = BoundedCommandRunner(executableCandidates: ["/bin/cat"], maxOutputBytes: 100)
+        // Pre-existing Path Bar contract (a dirty count saturates its display
+        // long before the cap): a clean exit past the cap must still hand
+        // back the capped buffer, not nil.
+        let data = await runner.run(arguments: [path], inDirectory: directory)
+        #expect(data?.count == 100)
+    }
+
+    @Test("runDetailed() reports truncation distinctly from a complete parse")
+    func detailedRunDistinguishesTruncation() async throws {
+        let directory = NSTemporaryDirectory()
+        let path = directory + "pathbar-cap-\(UUID().uuidString).txt"
+        try String(repeating: "X", count: 10_000).write(toFile: path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let runner = BoundedCommandRunner(executableCandidates: ["/bin/cat"], maxOutputBytes: 100)
+        guard case .outputTruncated(let data) = await runner.runDetailed(arguments: [path], inDirectory: directory)
+        else {
+            Issue.record("Expected outputTruncated")
+            return
+        }
+        #expect(data.count == 100)
+    }
+
+    @Test("a non-zero exit past the cap is still nonZeroExit, not outputTruncated")
+    func nonZeroExitTakesPriorityOverTruncation() async {
+        let runner = BoundedCommandRunner(executableCandidates: ["/bin/sh"], maxOutputBytes: 10)
+        // Payload is passed as $1 rather than shelling out to `seq`, which isn't
+        // guaranteed to exist; the literal string reliably exceeds maxOutputBytes.
+        let payload = String(repeating: "X", count: 2_000)
+        let result = await runner.runDetailed(
+            arguments: ["-c", "printf '%s' \"$1\"; exit 3", "_", payload],
+            inDirectory: NSTemporaryDirectory()
+        )
+        #expect(result == .nonZeroExit(3))
     }
 }

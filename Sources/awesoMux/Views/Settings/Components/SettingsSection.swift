@@ -7,7 +7,22 @@ struct SettingsSection<Content: View>: View {
     let index: Int
     let title: String
     var subtitle: String?
+    var accessibilityFocus: AccessibilityFocusState<Bool>.Binding?
     @ViewBuilder let content: Content
+
+    init(
+        index: Int,
+        title: String,
+        subtitle: String? = nil,
+        accessibilityFocus: AccessibilityFocusState<Bool>.Binding? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.index = index
+        self.title = title
+        self.subtitle = subtitle
+        self.accessibilityFocus = accessibilityFocus
+        self.content = content()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -19,10 +34,7 @@ struct SettingsSection<Content: View>: View {
                 .padding(.bottom, 6)
                 .accessibilityHidden(true)
 
-            Text(title)
-                .awFont(AwFont.UI.title)
-                .foregroundStyle(Color.aw.text)
-                .accessibilityAddTraits(.isHeader)
+            titleView
 
             if let subtitle {
                 Text(subtitle)
@@ -39,6 +51,23 @@ struct SettingsSection<Content: View>: View {
         }
         .padding(.bottom, AwSpacing.sectionGap)
         .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private var titleView: some View {
+        if let accessibilityFocus {
+            titleLabel
+                .accessibilityFocused(accessibilityFocus)
+        } else {
+            titleLabel
+        }
+    }
+
+    private var titleLabel: some View {
+        Text(title)
+            .awFont(AwFont.UI.title)
+            .foregroundStyle(Color.aw.text)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var kickerText: String {

@@ -158,9 +158,11 @@ The preflight runs public-wording and Ghostty-archive guards, the sidebar
 tint/status WCAG contrast gate (`script/check_tint_contrast.py`), a non-mutating
 Swift format check for changed lines, the
 Ghostty-aware Swift test wrapper, then builds, stages, ad-hoc signs, and
-launch-verifies `dist/awesoMux.app`. Native Swift CI is temporarily disabled
-while its timing-sensitive tests are made deterministic on constrained hosted
-macOS runners; maintainers run the full preflight locally in the meantime.
+launch-verifies `dist/awesoMux.app`. Maintainers can request advisory hosted
+native validation for an exact pull-request SHA with `/ci`; the full local
+preflight remains the strongest pre-PR gate. Required checks, native scopes,
+trust boundaries, and troubleshooting are documented in
+[`docs/ci.md`](docs/ci.md).
 The OpenCode review workflows run exact GLM 5.2 reviews through Synthetic for
 eligible maintainer PRs and support maintainer-requested `/codereview` reruns;
 they cannot publish approvals or merge.

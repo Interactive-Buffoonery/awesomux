@@ -55,3 +55,8 @@ pluralization.
   without updating every other target's lookup path.
 - `AGENTS.md` documents the convention under Swift code style so agents
   and humans default to it.
+- Tests assert the developer-language (English) value of localized strings
+  directly; suites run under an English locale. Pinning such assertions to
+  an explicit locale is deliberately avoided — label constants carry no
+  bundle/locale plumbing, and review findings asking for it are dismissed
+  as out of convention.
