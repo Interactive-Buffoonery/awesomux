@@ -218,7 +218,7 @@ public enum UnicodeHygiene {
             return nil
         }
 
-        // ponytail: this range table is maintained by report, not generated
+        // NOTE: this range table is maintained by report, not generated
         // from Unicode's Script=Latin property — Swift's stdlib has no
         // `Unicode.Scalar.Properties.script` accessor and there's no public
         // Foundation/ICU wrapper for it either (confirmed: `import
