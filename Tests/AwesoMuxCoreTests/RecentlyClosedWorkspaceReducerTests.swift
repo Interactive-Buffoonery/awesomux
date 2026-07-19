@@ -27,13 +27,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace?
 
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
 
         #expect(groups[0].sessions[0].syntheticTitle == syntheticTitle)
         #expect(groups[0].sessions[0].title == "shell 4")
@@ -75,13 +74,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace?
 
-        let reopenedID = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        let reopenedID = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
 
         let reopened = try #require(groups[0].sessions.first { $0.id == reopenedID })
         #expect(reopened.syntheticTitle == SyntheticSessionTitle(agentKind: .shell, index: 3))
@@ -110,13 +108,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace? = entry
 
-        let reopenedID = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        let reopenedID = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
         let reopened = try #require(groups[0].sessions.first)
 
         #expect(recentlyClosed.isEmpty)
@@ -333,13 +330,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace? = entry
 
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
         let reopenedPane = try #require(groups[0].sessions.first?.activePane)
 
         // Both the pane id and the daemon identity must survive: the pane id
@@ -423,12 +419,11 @@ struct RecentlyClosedWorkspaceReducerTests {
             title: "split",
             isTitleUserEdited: false,
             agentKind: .shell,
-            layout: .split(
-                TerminalSplit(
-                    orientation: .vertical,
-                    first: .pane(first),
-                    second: .pane(second)
-                )),
+            layout: .split(TerminalSplit(
+                orientation: .vertical,
+                first: .pane(first),
+                second: .pane(second)
+            )),
             activePaneID: first.id,
             groupID: groupID,
             groupName: "main",
@@ -440,13 +435,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace? = entry
 
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
         let restoredLayout = try #require(groups[0].sessions.first?.layout)
         var metadataByID: [TerminalSessionID: TerminalBackendMetadata] = [:]
         restoredLayout.forEachPane { metadataByID[$0.terminalSessionID] = $0.terminalBackendMetadata }
@@ -482,12 +476,11 @@ struct RecentlyClosedWorkspaceReducerTests {
             title: "twin",
             isTitleUserEdited: false,
             agentKind: .shell,
-            layout: .split(
-                TerminalSplit(
-                    orientation: .vertical,
-                    first: .pane(first),
-                    second: .pane(second)
-                )),
+            layout: .split(TerminalSplit(
+                orientation: .vertical,
+                first: .pane(first),
+                second: .pane(second)
+            )),
             activePaneID: first.id,
             groupID: groupID,
             groupName: "main",
@@ -499,13 +492,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace? = entry
 
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
         let restoredLayout = try #require(groups[0].sessions.first?.layout)
         var restoredPanes: [TerminalPane] = []
         restoredLayout.forEachPane { restoredPanes.append($0) }
@@ -561,13 +553,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace? = entry
 
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
         let reopenedSession = try #require(groups[0].sessions.last)
         let reopenedPane = try #require(reopenedSession.activePane)
         #expect(reopenedPane.terminalSessionID != sharedID)
@@ -620,13 +611,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace? = entry
 
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
         let reopenedPane = try #require(groups[0].sessions.last?.activePane)
         #expect(reopenedPane.id != sharedPaneID)
         // The live pane keeps its id untouched.
@@ -696,13 +686,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace? = nil
 
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
 
         let recreated = try #require(groups.first { $0.id == entry.groupID })
         #expect(recreated.remote == target)
@@ -732,13 +721,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace? = nil
 
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
 
         #expect(groups[0].remote == nil)
     }
@@ -770,13 +758,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var recentlyClosed = [entry]
         var transient: RecentlyClosedWorkspace? = nil
 
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
+        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date(timeIntervalSince1970: 11)
+        ))
 
         let recreated = try #require(groups.first { $0.id == entry.groupID })
         #expect(recreated.name == "staging 2")
@@ -819,13 +806,12 @@ struct RecentlyClosedWorkspaceReducerTests {
         var transient: RecentlyClosedWorkspace? = nil
 
         for _ in 0..<2 {
-            _ = try #require(
-                RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                    in: &groups,
-                    recentlyClosed: &recentlyClosed,
-                    lastClosedTransient: &transient,
-                    now: Date(timeIntervalSince1970: 30)
-                ))
+            _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+                in: &groups,
+                recentlyClosed: &recentlyClosed,
+                lastClosedTransient: &transient,
+                now: Date(timeIntervalSince1970: 30)
+            ))
         }
 
         #expect(groups.count == 2)
@@ -867,10 +853,9 @@ struct RecentlyClosedWorkspaceReducerTests {
             indexInGroup: 0,
             closedAt: Date(timeIntervalSince1970: 10)
         )
-        var json = try #require(
-            try JSONSerialization.jsonObject(
-                with: JSONEncoder().encode(modern)
-            ) as? [String: Any])
+        var json = try #require(try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(modern)
+        ) as? [String: Any])
         json.removeValue(forKey: "groupRemote")
 
         let decoded = try JSONDecoder().decode(
@@ -890,11 +875,10 @@ struct RecentlyClosedWorkspaceReducerTests {
         guard depth > 1 else {
             return .pane(TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local))
         }
-        return .split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: deepLayout(depth: depth - 1),
+        return .split(TerminalSplit(
+            orientation: .vertical,
+            first: deepLayout(depth: depth - 1),
                 second: .pane(TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local))
-            ))
+        ))
     }
 }

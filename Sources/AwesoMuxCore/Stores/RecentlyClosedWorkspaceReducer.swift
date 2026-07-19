@@ -144,13 +144,11 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         guard let reopenedID = insertReopened(entry: entry, into: &candidateGroups) else {
             return nil
         }
-        guard
-            drain(
-                entry: entry,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &lastClosedTransient
-            )
-        else {
+        guard drain(
+            entry: entry,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &lastClosedTransient
+        ) else {
             return nil
         }
         groups = candidateGroups
@@ -219,10 +217,8 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         entry: RecentlyClosedWorkspace,
         into groups: inout [SessionGroup]
     ) -> TerminalSession.ID? {
-        guard
-            SessionRestoreReducer.layoutDepth(entry.layout)
-                <= SessionRestoreReducer.maxRestoredLayoutDepth
-        else {
+        guard SessionRestoreReducer.layoutDepth(entry.layout)
+            <= SessionRestoreReducer.maxRestoredLayoutDepth else {
             return nil
         }
 
@@ -233,8 +229,7 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         let liveGroupIndex = groups.firstIndex(where: { $0.id == entry.groupID })
         let groupIndex = liveGroupIndex ?? groups.count
         let destinationCount = liveGroupIndex.map { groups[$0].sessions.count } ?? 0
-        let insertionIndex =
-            liveGroupIndex != nil
+        let insertionIndex = liveGroupIndex != nil
             ? max(0, min(entry.indexInGroup, destinationCount))
             : destinationCount
 
@@ -283,17 +278,15 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         // terminal pane. If the restored layout has no terminal pane at all
         // (a doc-only entry that should never have been persisted), bail
         // rather than trapping in `firstPaneID` (C1).
-        guard
-            let restoredActivePaneID = paneIDRemap[entry.activePaneID]
-                ?? restoredLayout.firstPane?.id
+        guard let restoredActivePaneID = paneIDRemap[entry.activePaneID]
+            ?? restoredLayout.firstPane?.id
         else {
             return nil
         }
         // Recently closed entries come from live sessions we already trusted;
         // avoid synchronous cwd validation on reopen so remote or unmounted
         // paths are preserved for the terminal to handle.
-        let activeCwd =
-            restoredLayout.pane(id: restoredActivePaneID)?.workingDirectory
+        let activeCwd = restoredLayout.pane(id: restoredActivePaneID)?.workingDirectory
             ?? restoredLayout.firstPane?.workingDirectory
             ?? "~"
         let fallbackTitle = SessionStoreText.restoredTitle(
@@ -344,28 +337,26 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             // duplicate name breaks name-keyed session routing (`addSession`
             // and `insertSession` match groups by lookup key).
             let lookupName = SessionStoreText.groupLookupKey(entry.groupName)
-            let groupName =
-                WorkspaceTreeReducer.containsGroup(in: groups, named: lookupName)
+            let groupName = WorkspaceTreeReducer.containsGroup(in: groups, named: lookupName)
                 ? SessionRestoreReducer.disambiguatedName(
                     for: lookupName,
                     reserved: groups.map(\.name)
                 )
                 : lookupName
-            groups.append(
-                SessionGroup(
-                    id: groupID,
-                    name: groupName,
-                    // Carry the SSH target captured at close time so the last
-                    // workspace of a deleted remote group reopens REMOTE, not
-                    // silently local (INT-773). Only this recreate path reads it —
-                    // a matched LIVE group is authoritative over the stale capture,
-                    // which also makes reopen ORDER decide the target when a group
-                    // was retargeted between closes: the first reopened entry's
-                    // capture recreates the group, later entries fold into it and
-                    // their (older or newer) captures are deliberately discarded.
-                    remote: entry.groupRemote,
-                    sessions: []
-                ))
+            groups.append(SessionGroup(
+                id: groupID,
+                name: groupName,
+                // Carry the SSH target captured at close time so the last
+                // workspace of a deleted remote group reopens REMOTE, not
+                // silently local (INT-773). Only this recreate path reads it —
+                // a matched LIVE group is authoritative over the stale capture,
+                // which also makes reopen ORDER decide the target when a group
+                // was retargeted between closes: the first reopened entry's
+                // capture recreates the group, later entries fold into it and
+                // their (older or newer) captures are deliberately discarded.
+                remote: entry.groupRemote,
+                sessions: []
+            ))
         }
         groups[groupIndex].sessions.insert(restored, at: insertionIndex)
         return restored.id
@@ -472,30 +463,29 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             // reattach to the still-blocked agent (INT-578). A fresh daemon has
             // no waiting agent, so it comes back `.idle`. Attention/unread are
             // still dropped, like restore.
-            return .pane(
-                TerminalPane(
-                    id: newID,
-                    terminalSessionID: terminalSessionID,
-                    terminalBackendMetadata: terminalBackendMetadata,
-                    title: sanitisedTitle,
-                    // Drop the freeze if the pinned title sanitized away to a
-                    // synthetic fallback (INT-283 / QA H1) — mirrors restore.
-                    isTitleUserEdited: pane.isTitleUserEdited
-                        && !SessionStoreText.titleSanitizesToFallback(pane.title),
-                    workingDirectory: pane.workingDirectory,
-                    // Keep the pane's name-plate tint — it's durable user intent
-                    // (red = prod, etc.), and restore preserves it, so reopen must
-                    // too rather than coming back colourless (QA).
-                    color: pane.color,
-                    agentKind: pane.agentKind,
-                    agentExecutionState: preservedDaemonIdentity
+            return .pane(TerminalPane(
+                id: newID,
+                terminalSessionID: terminalSessionID,
+                terminalBackendMetadata: terminalBackendMetadata,
+                title: sanitisedTitle,
+                // Drop the freeze if the pinned title sanitized away to a
+                // synthetic fallback (INT-283 / QA H1) — mirrors restore.
+                isTitleUserEdited: pane.isTitleUserEdited
+                    && !SessionStoreText.titleSanitizesToFallback(pane.title),
+                workingDirectory: pane.workingDirectory,
+                // Keep the pane's name-plate tint — it's durable user intent
+                // (red = prod, etc.), and restore preserves it, so reopen must
+                // too rather than coming back colourless (QA).
+                color: pane.color,
+                agentKind: pane.agentKind,
+                agentExecutionState: preservedDaemonIdentity
                         ? SessionRestoreReducer.restoredAgentExecutionState(
                             pane.agentExecutionState)
                         : .idle,
                     executionPlan: pane.hasExplicitExecutionPlan
                         ? pane.executionPlan
                         : legacyExecutionPlan
-                ))
+            ))
         case .split(let split):
             let first = reidentifiedLayout(
                 split.first,
@@ -513,12 +503,12 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             )
             return .split(
                 TerminalSplit(
-                    id: UUID(),
-                    orientation: split.orientation,
-                    first: first,
-                    second: second,
-                    firstFraction: split.firstFraction
-                ))
+                id: UUID(),
+                orientation: split.orientation,
+                first: first,
+                second: second,
+                firstFraction: split.firstFraction
+            ))
         case .documentGroup(let group):
             // Remint the group's and every tab's own ID so a reopened workspace
             // doesn't alias the original. Tab IDs are NOT TerminalPane.IDs, so
@@ -541,12 +531,11 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 }
                 remintedTabs.append(reminted)
             }
-            return .documentGroup(
-                DocumentGroup(
-                    id: UUID(),
-                    tabs: remintedTabs,
-                    selectedTabID: selectedTabID ?? remintedTabs[0].id
-                ))
+            return .documentGroup(DocumentGroup(
+                id: UUID(),
+                tabs: remintedTabs,
+                selectedTabID: selectedTabID ?? remintedTabs[0].id
+            ))
         }
     }
 

@@ -45,7 +45,7 @@ enum AmxBackend {
     private static let scrubbedEnvironmentKeys: Set<String> = [
         "ZMX_SESSION",
         "ZMX_SESSION_PREFIX",
-        "ZMX_LOG_MODE",
+        "ZMX_LOG_MODE"
     ]
 
     /// Dedicated, per-user socket directory for awesoMux's daemons. Because
@@ -109,10 +109,9 @@ enum AmxBackend {
         // directory, not a symlink, owned by this uid, no group/world access.
         var status = stat()
         if lstat(stable, &status) == 0,
-            (status.st_mode & S_IFMT) == S_IFDIR,
-            status.st_uid == geteuid(),
-            (status.st_mode & 0o077) == 0
-        {
+           (status.st_mode & S_IFMT) == S_IFDIR,
+           status.st_uid == geteuid(),
+           (status.st_mode & 0o077) == 0 {
             return stable
         }
 
@@ -171,8 +170,7 @@ enum AmxBackend {
     static func sshControlPath() -> String {
         let directory = sshControlDirectory()
         // +1 separator, + the pre-rename temp suffix ssh actually binds, +1 NUL.
-        let estimatedLength =
-            directory.utf8.count + 1
+        let estimatedLength = directory.utf8.count + 1
             + sshControlPathHashWidth + sshControlPathTempSuffixWidth + 1
         if estimatedLength > sockaddrUnPathLimit {
             logger.warning(
@@ -182,7 +180,7 @@ enum AmxBackend {
             // crash a release build — a warning plus the degraded path beats a
             // crash, and the short /tmp dir keeps this branch unreachable.
             #if DEBUG
-                assertionFailure("ssh ControlPath is too long for sockaddr_un — shorten sshControlDirectory()")
+            assertionFailure("ssh ControlPath is too long for sockaddr_un — shorten sshControlDirectory()")
             #endif
         }
         return "\(directory)/%C"
@@ -218,7 +216,7 @@ enum AmxBackend {
             "-u ZMX_SESSION_PREFIX",
             "-u ZMX_LOG_MODE",
             "-u AMX_STATUS_FILE",
-            "-u AMX_STATUS_TOKEN",
+            "-u AMX_STATUS_TOKEN"
         ]
         if remote != nil {
             tokens += AgentRuntimeEnvironmentKey.paneScopedKeys.map { "-u \($0)" }
@@ -275,7 +273,7 @@ enum AmxBackend {
             "-o", "ControlPath=" + sshControlPath(),
             "-o", "ControlPersist=60",
             "-o", "ConnectTimeout=10",
-            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveInterval=15"
         ]
         if remoteCommand != nil {
             // Supplying a command disables ssh's automatic TTY allocation.
@@ -301,12 +299,10 @@ enum AmxBackend {
     /// running .app — Sparkle-style updates relaunch the process — so the
     /// `isExecutableFile` stat is wasted work to repeat on every `queryCwd`.
     private static let cachedBundledExecutableURL: URL? = {
-        guard
-            let url = Bundle.main.executableURL?
-                .deletingLastPathComponent()
-                .appendingPathComponent(executableName),
-            FileManager.default.isExecutableFile(atPath: url.path)
-        else {
+        guard let url = Bundle.main.executableURL?
+            .deletingLastPathComponent()
+            .appendingPathComponent(executableName),
+              FileManager.default.isExecutableFile(atPath: url.path) else {
             return nil
         }
         return url
@@ -372,8 +368,7 @@ enum AmxBackend {
             return nil
         }
 
-        var tokens =
-            [shellQuote(envExecutablePath)]
+        var tokens = [shellQuote(envExecutablePath)]
             + environmentScrubTokens(remote: remote)
             + [
                 shellQuote("ZMX_DIR=" + socketDirectory),
@@ -490,8 +485,7 @@ enum AmxBackend {
         // (the state file would land in a directory nobody created).
         let bridgeDirectory = (channel.stateFilePath as NSString).deletingLastPathComponent
         let quotedDirectory = shellQuote(bridgeDirectory)
-        let remoteScript =
-            "umask 077; mkdir -p " + quotedDirectory
+        let remoteScript = "umask 077; mkdir -p " + quotedDirectory
             + " && owner=$(stat -f '%u' " + quotedDirectory + ")"
             + " && mode=$(stat -f '%Lp' " + quotedDirectory + ")"
             + " && [ \"$owner\" = \"$(id -u)\" ] && [ \"$mode\" = 700 ]"
@@ -500,18 +494,17 @@ enum AmxBackend {
             + " && cat > \"$tmp\" && chmod 600 \"$tmp\""
             + " && mv \"$tmp\" " + shellQuote(channel.stateFilePath)
             + " && trap - EXIT HUP INT TERM"
-        let tokens =
-            [
-                "ssh",
-                "-S", shellQuote(controlPath),
-            ] + bridgeExecMasterOptionTokens + [
-                // `--` ends option parsing so a destination that begins with `-`
-                // (a hostile saved target like `-oProxyCommand=…`) can never be
-                // read as an ssh option — the ADR-0021 submitted-target lesson.
-                "--",
-                shellQuote(remote.sshDestination),
-                shellQuote(remoteScript),
-            ]
+        let tokens = [
+            "ssh",
+            "-S", shellQuote(controlPath)
+        ] + bridgeExecMasterOptionTokens + [
+            // `--` ends option parsing so a destination that begins with `-`
+            // (a hostile saved target like `-oProxyCommand=…`) can never be
+            // read as an ssh option — the ADR-0021 submitted-target lesson.
+            "--",
+            shellQuote(remote.sshDestination),
+            shellQuote(remoteScript)
+        ]
         return BridgeStateFileWrite(command: tokens.joined(separator: " "), stdinData: stdinData)
     }
 
@@ -529,7 +522,7 @@ enum AmxBackend {
         "-o", "ControlMaster=auto",
         "-o", "ControlPersist=60",
         "-o", "ConnectTimeout=10",
-        "-o", "ServerAliveInterval=15",
+        "-o", "ServerAliveInterval=15"
     ]
 
     /// Pure assembly of the one-time exec-channel command that resolves the
@@ -545,17 +538,16 @@ enum AmxBackend {
     /// correct (idempotent) but is wasted round trips.
     static func bridgeHomeResolutionCommand(controlPath: String, remote: RemoteTarget) -> String {
         let remoteScript = #"printf '%s' "$HOME""#
-        let tokens =
-            [
-                "ssh",
-                "-S", shellQuote(controlPath),
-            ] + bridgeExecMasterOptionTokens + [
-                // See bridgeStateFileWriteCommand: `--` stops a `-`-prefixed
-                // destination from being parsed as an ssh option.
-                "--",
-                shellQuote(remote.sshDestination),
-                shellQuote(remoteScript),
-            ]
+        let tokens = [
+            "ssh",
+            "-S", shellQuote(controlPath)
+        ] + bridgeExecMasterOptionTokens + [
+            // See bridgeStateFileWriteCommand: `--` stops a `-`-prefixed
+            // destination from being parsed as an ssh option.
+            "--",
+            shellQuote(remote.sshDestination),
+            shellQuote(remoteScript)
+        ]
         return tokens.joined(separator: " ")
     }
 
@@ -594,7 +586,7 @@ enum AmxBackend {
             "-u AMX_STATUS_TOKEN",
             shellQuote("AWESOMUX_BRIDGE_STATE=" + stateFilePath),
             shellQuote("AWESOMUX_BRIDGE_SESSION=" + session.rawValue),
-            shellQuote("AWESOMUX_BRIDGE_HELPER=" + helperPath),
+            shellQuote("AWESOMUX_BRIDGE_HELPER=" + helperPath)
         ]
         return (tokens + [remoteCommand]).joined(separator: " ")
     }
@@ -618,23 +610,22 @@ enum AmxBackend {
             return nil
         }
 
-        var tokens =
-            [shellQuote(envExecutablePath)]
+        var tokens = [shellQuote(envExecutablePath)]
             + environmentScrubTokens(remote: remote)
             + [
                 shellQuote("ZMX_DIR=" + socketDirectory),
-                shellQuote("ZMX_DIR_MODE=" + socketDirectoryMode),
+                shellQuote("ZMX_DIR_MODE=" + socketDirectoryMode)
             ]
         if let status {
             tokens += [
                 shellQuote("AMX_STATUS_FILE=" + status.fileURL.path),
-                shellQuote("AMX_STATUS_TOKEN=" + status.token),
+                shellQuote("AMX_STATUS_TOKEN=" + status.token)
             ]
         }
         tokens += [
             shellQuote(executablePath),
             "attach",
-            shellQuote(sessionID.rawValue),
+            shellQuote(sessionID.rawValue)
         ]
 
         let remoteShell = bridgeEnvironmentPrefixedRemoteCommand(
@@ -745,7 +736,7 @@ enum AmxBackend {
             // See bridgeStateFileWriteCommand: `--` stops a `-`-prefixed
             // destination from being read as an ssh option (ADR-0021).
             "--",
-            shellQuote(remote.sshDestination),
+            shellQuote(remote.sshDestination)
         ]
         return tokens.joined(separator: " ")
     }
@@ -758,15 +749,14 @@ enum AmxBackend {
         remote: RemoteTarget,
         remoteSocketPath: String
     ) -> String {
-        let tokens =
-            [
-                "ssh",
-                "-S", shellQuote(controlPath),
-            ] + bridgeExecMasterOptionTokens + [
-                "--",
-                shellQuote(remote.sshDestination),
-                "rm", "-f", shellQuote(remoteSocketPath),
-            ]
+        let tokens = [
+            "ssh",
+            "-S", shellQuote(controlPath)
+        ] + bridgeExecMasterOptionTokens + [
+            "--",
+            shellQuote(remote.sshDestination),
+            "rm", "-f", shellQuote(remoteSocketPath)
+        ]
         return tokens.joined(separator: " ")
     }
 
@@ -795,18 +785,16 @@ enum AmxBackend {
     ) -> String {
         let socketBasename = (remoteSocketPath as NSString).lastPathComponent
         let quotedState = shellQuote(stateFilePath)
-        let script =
-            "grep -qsF -- \(shellQuote(socketBasename)) \(quotedState)"
+        let script = "grep -qsF -- \(shellQuote(socketBasename)) \(quotedState)"
             + " && rm -f -- \(quotedState)"
-        let tokens =
-            [
-                "ssh",
-                "-S", shellQuote(controlPath),
-            ] + bridgeExecMasterOptionTokens + [
-                "--",
-                shellQuote(remote.sshDestination),
-                shellQuote(script),
-            ]
+        let tokens = [
+            "ssh",
+            "-S", shellQuote(controlPath)
+        ] + bridgeExecMasterOptionTokens + [
+            "--",
+            shellQuote(remote.sshDestination),
+            shellQuote(script)
+        ]
         return tokens.joined(separator: " ")
     }
 
@@ -823,18 +811,16 @@ enum AmxBackend {
         remoteSocketPath: String
     ) -> String {
         let quoted = shellQuote(remoteSocketPath)
-        let script =
-            "if [ -S \(quoted) ] && [ -O \(quoted) ]; then "
+        let script = "if [ -S \(quoted) ] && [ -O \(quoted) ]; then "
             + "stat -c %a \(quoted) 2>/dev/null || stat -f %Lp \(quoted) 2>/dev/null; fi"
-        let tokens =
-            [
-                "ssh",
-                "-S", shellQuote(controlPath),
-            ] + bridgeExecMasterOptionTokens + [
-                "--",
-                shellQuote(remote.sshDestination),
-                shellQuote(script),
-            ]
+        let tokens = [
+            "ssh",
+            "-S", shellQuote(controlPath)
+        ] + bridgeExecMasterOptionTokens + [
+            "--",
+            shellQuote(remote.sshDestination),
+            shellQuote(script)
+        ]
         return tokens.joined(separator: " ")
     }
 
@@ -844,13 +830,11 @@ enum AmxBackend {
     /// Empty/garbled output fails closed — the standing fail-open-to-no-bridge
     /// posture means a rejected admission just degrades this attach.
     static func bridgeAdmissionPassed(statOutput: String) -> Bool {
-        guard
-            let line =
-                statOutput
-                .split(whereSeparator: \.isNewline)
-                .lazy
-                .map({ $0.trimmingCharacters(in: .whitespaces) })
-                .first(where: { !$0.isEmpty }),
+        guard let line = statOutput
+            .split(whereSeparator: \.isNewline)
+            .lazy
+            .map({ $0.trimmingCharacters(in: .whitespaces) })
+            .first(where: { !$0.isEmpty }),
             let mode = Int(line, radix: 8)
         else {
             return false
@@ -868,17 +852,16 @@ enum AmxBackend {
         helperPath: String
     ) -> String {
         let remoteScript = shellQuote(helperPath) + " --version"
-        let tokens =
-            [
-                "ssh",
-                "-S", shellQuote(controlPath),
-            ] + bridgeExecMasterOptionTokens + [
-                // See bridgeStateFileWriteCommand: `--` stops a `-`-prefixed
-                // destination from being parsed as an ssh option (ADR-0021).
-                "--",
-                shellQuote(remote.sshDestination),
-                shellQuote(remoteScript),
-            ]
+        let tokens = [
+            "ssh",
+            "-S", shellQuote(controlPath)
+        ] + bridgeExecMasterOptionTokens + [
+            // See bridgeStateFileWriteCommand: `--` stops a `-`-prefixed
+            // destination from being parsed as an ssh option (ADR-0021).
+            "--",
+            shellQuote(remote.sshDestination),
+            shellQuote(remoteScript)
+        ]
         return tokens.joined(separator: " ")
     }
 
@@ -903,15 +886,14 @@ enum AmxBackend {
             helperPath: helperPath,
             remoteCommand: shellQuote(helperPath) + " --self-check"
         )
-        let tokens =
-            [
-                "ssh",
-                "-S", shellQuote(controlPath),
-            ] + bridgeExecMasterOptionTokens + [
-                "--",
-                shellQuote(remote.sshDestination),
-                shellQuote(remoteScript),
-            ]
+        let tokens = [
+            "ssh",
+            "-S", shellQuote(controlPath)
+        ] + bridgeExecMasterOptionTokens + [
+            "--",
+            shellQuote(remote.sshDestination),
+            shellQuote(remoteScript)
+        ]
         return tokens.joined(separator: " ")
     }
 
@@ -920,8 +902,7 @@ enum AmxBackend {
     /// or nil on empty output, nonzero exit, timeout, or missing binary.
     static func queryCwd(_ sessionID: TerminalSessionID) async -> String? {
         guard TerminalSessionID.isValid(sessionID.rawValue),
-            let executableURL = bundledExecutableURL()
-        else {
+              let executableURL = bundledExecutableURL() else {
             return nil
         }
         let runner = BoundedCommandRunner(
@@ -955,18 +936,15 @@ enum AmxBackend {
     /// base). A malformed line — daemon error text, a partial write — yields
     /// nil rather than a bogus cwd.
     static func parseCwdOutput(_ raw: String) -> String? {
-        guard
-            let candidate = raw.split(whereSeparator: \.isNewline)
-                .lazy
-                .map({ $0.trimmingCharacters(in: .whitespaces) })
-                .first(where: { !$0.isEmpty })
-        else {
+        guard let candidate = raw.split(whereSeparator: \.isNewline)
+            .lazy
+            .map({ $0.trimmingCharacters(in: .whitespaces) })
+            .first(where: { !$0.isEmpty }) else {
             return nil
         }
         guard candidate.hasPrefix("/"),
-            candidate.utf8.count <= 1024,
-            !candidate.contains("\0")
-        else {
+              candidate.utf8.count <= 1024,
+              !candidate.contains("\0") else {
             return nil
         }
         // A cwd carrying bidi/zero-width codepoints is either corrupt or
@@ -1093,8 +1071,7 @@ enum AmxBackend {
                 for id in ids {
                     group.addTask {
                         if await killSession(id) == false {
-                            killLog.info(
-                                "\(context, privacy: .public) kill failed sessionID=\(id.rawValue, privacy: .public); launch GC will reap")
+                            killLog.info("\(context, privacy: .public) kill failed sessionID=\(id.rawValue, privacy: .public); launch GC will reap")
                         }
                     }
                 }
@@ -1107,8 +1084,7 @@ enum AmxBackend {
     /// kill failed. The caller re-lists afterward to count daemons actually gone.
     static func killSession(_ id: TerminalSessionID) async -> Bool {
         guard TerminalSessionID.isValid(id.rawValue),
-            let executableURL = bundledExecutableURL()
-        else { return false }
+              let executableURL = bundledExecutableURL() else { return false }
         let runner = BoundedCommandRunner(
             executableCandidates: [executableURL.path],
             timeout: .seconds(2),
