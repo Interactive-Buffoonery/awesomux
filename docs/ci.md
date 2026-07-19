@@ -103,9 +103,10 @@ trusted and untrusted workflow contexts:
 4. The reporter does not check out or execute pull-request code. It receives
    only the captured metadata and native result and uses `checks: write` to
    publish the completed `Native CI` check.
-5. A trusted `workflow_run` cleanup deletes only completed refs in the
-   `native-ci-runs/run-...` namespace. It never downloads artifacts or executes
-   pull-request code.
+5. After execution and reporting finish, a trusted final executor job explicitly
+   dispatches the isolated cleanup workflow. Cleanup deletes only the exact ref
+   in the `native-ci-runs/run-...` namespace; neither job downloads artifacts or
+   executes pull-request code.
 
 OpenCode review uses a different passive-data boundary and never executes pull
 request code. See [`code-review.md`](code-review.md).
