@@ -445,6 +445,15 @@ final class GhosttyRuntime {
         return true
     }
 
+    /// Restores first responder to a pane's live surface. Used when a chrome
+    /// sheet (the rich-input composer) dismisses, so keyboard/VoiceOver focus
+    /// lands on the terminal the composed text targets rather than being
+    /// stranded. No-ops when the surface is gone.
+    func focusSurface(toPane paneID: TerminalPane.ID) {
+        guard let surface = surfaceViews[paneID] else { return }
+        surface.window?.makeFirstResponder(surface)
+    }
+
     func discardSurface(for paneID: TerminalPane.ID) {
         // Stop a closed pane's submit/finish ladder from waking up to re-sample
         // a surface set it no longer belongs to. Done before the surface-view

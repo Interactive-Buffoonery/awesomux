@@ -20,6 +20,12 @@ struct DocumentPaneSendBar: View {
     /// vanishing on a clock (HIG: prefer clearing status on cause, not timeout).
     @Binding var showAllResolvedNotice: Bool
 
+    /// Opens the multiline composer for this document. Hosted by the enclosing
+    /// group (above this bar's shell-activity-keyed identity) so an in-flight
+    /// draft survives the bar being torn down and rebuilt when the target pane's
+    /// shell activity flips.
+    let onCompose: () -> Void
+
     /// Whether the last nudge attempt found no live surface — shown briefly so the
     /// user knows the action failed rather than silently no-oping.
     @State private var nudgeFailed = false
@@ -110,6 +116,13 @@ struct DocumentPaneSendBar: View {
         for resolution: DocumentNudgeTargetResolution
     ) -> String? {
         guard case .unavailable(let reason) = resolution else { return nil }
+        return Self.unavailableDescription(for: reason)
+    }
+
+    /// Localized reason a document can't be sent. Shared with the composer sheet
+    /// (hosted above the send bar's churning identity) so both surfaces speak the
+    /// same language for an unavailable target.
+    static func unavailableDescription(for reason: DocumentNudgeUnavailableReason) -> String {
         switch reason {
         case .foregroundSSH:
             return String(
@@ -207,7 +220,7 @@ struct DocumentPaneSendBar: View {
                         title: Self.sendButtonTitle(for: resolution),
                         failed: nudgeFailed,
                         unavailableDescription: unavailableDescription,
-                        action: performNudge
+                        action: requestCompose
                     )
                     .frame(height: 28)
                     if let unavailableDescription {
@@ -254,47 +267,19 @@ struct DocumentPaneSendBar: View {
         }
     }
 
-    // MARK: - Nudge action
+    // MARK: - Composer
 
-    private func performNudge() {
-        // Route through the tab's deterministic send target. This is not an
-        // activePaneID fallback: live stored associations win, nil associations
-        // may recover to the document group's direct split sibling, and stale
-        // explicit associations fail closed rather than guessing.
-        //
-        // Safety invariant: this click-time re-resolve (including the live
-        // foreground probe inside the prompt gate) and the `sendText` below run
-        // in one synchronous MainActor hop with no suspension between them —
-        // the same atomicity standard the bridge consent path documents. Do
-        // not introduce an `await` between the gate and the write.
+    /// Opens the composer (hosted by the enclosing group) when the target is
+    /// eligible; otherwise reports the reason on the button rather than opening a
+    /// composer that can't send. The composer replaces the old one-shot send: the
+    /// user revises or extends the review nudge before staging it.
+    private func requestCompose() {
         let resolution = nudgeResolution
-        guard case .available(let targetPane) = resolution else {
+        guard case .available = resolution else {
             reportNudgeUnavailable(resolution)
             return
         }
-        let targetID = targetPane.id
-        // Make the path relative to the TARGET terminal's cwd, not the active pane's —
-        // in a nested split those differ, and the nudge lands in the target, so a path
-        // relative to a different pane would be wrong for the agent (Codex review).
-        let displayPath = Self.resolveDisplayPath(
-            for: pane.fileURL,
-            relativeTo: targetPane.workingDirectory
-        )
-        let text = NudgeComposer.text(displayPath: displayPath)
-        // Drive the flag off the result both ways so a success after a prior failure
-        // clears the Peach state immediately (re-keying the reset task), rather than
-        // leaving it stale until the original 2s timer fires.
-        if runtime.sendText(text, toPane: targetID) {
-            nudgeFailed = false
-            TerminalAccessibilityAnnouncer.announce(
-                String(
-                    localized: "Sent comments to this document's terminal",
-                    comment: "VoiceOver announcement when sending document comments to the associated terminal succeeds"
-                )
-            )
-        } else {
-            reportNudgeFailure()
-        }
+        onCompose()
     }
 
     private func reportNudgeUnavailable(_ resolution: DocumentNudgeTargetResolution) {
@@ -305,18 +290,6 @@ struct DocumentPaneSendBar: View {
                     localized: "Couldn't send — this document's terminal isn't available",
                     comment: "VoiceOver announcement when a document has no eligible send target"
                 )
-        )
-    }
-
-    private func reportNudgeFailure() {
-        nudgeFailed = true
-        // The visual failure state is a hue + glyph swap that reverts after 2s;
-        // a VoiceOver user who pressed the button needs to hear the outcome now.
-        TerminalAccessibilityAnnouncer.announce(
-            String(
-                localized: "Couldn't send — this document's terminal isn't running",
-                comment: "VoiceOver announcement when sending to a document's terminal fails"
-            )
         )
     }
 
