@@ -331,3 +331,38 @@ jobs:
             -f details_url="$details_url" \
             -f "output[title]=Native CI (${SCOPE}) ${conclusion}" \
             -f "output[summary]=$summary" >/dev/null
+
+  cleanup:
+    name: Dispatch native execution-ref cleanup
+    needs: [resolve, native, report]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch cleanup for this execution ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXECUTION_REF: ${{ inputs.execution-ref }}
+          TRUSTED_SHA: ${{ inputs.trusted-sha }}
+          ACTUAL_REF: ${{ github.ref }}
+          ACTUAL_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$EXECUTION_REF" =~ ^native-ci-runs/run-[0-9]+-[0-9]+$ ]] || \
+            [[ "$ACTUAL_REF" != "refs/heads/$EXECUTION_REF" ]]; then
+            echo "native cleanup dispatch requires this workflow's exact execution ref" >&2
+            exit 1
+          fi
+          if [[ ! "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$ACTUAL_SHA" != "$TRUSTED_SHA" ]]; then
+            echo "native cleanup dispatch requires the captured trusted SHA" >&2
+            exit 1
+          fi
+
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/native-ci-cleanup.yml/dispatches" \
+            -f ref="$DEFAULT_BRANCH" \
+            -f "inputs[execution-ref]=$EXECUTION_REF" >/dev/null

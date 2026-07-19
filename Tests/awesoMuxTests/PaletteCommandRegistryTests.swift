@@ -121,10 +121,41 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.showKeyboardCheatsheet.id,
                 KeyboardShortcutCatalog.openMarkdownFile.id,
                 KeyboardShortcutCatalog.sessionManager.id,
+                "createWorktree",
+                "openWorktree",
+                "manageWorktrees",
             ])
 
         #expect(commands.map(\.id).count == ids.count)
         #expect(ids == expectedIDs)
+    }
+
+    @Test("Worktree manager availability gates worktree commands")
+    @MainActor
+    func worktreeManagerAvailabilityGatesWorktreeCommands() throws {
+        let unavailableCommands = PaletteCommandRegistry.commands(
+            sessionStore: SessionStore(groups: []),
+            availability: .init(isWorktreeManagerAvailable: false),
+            actions: .noop
+        )
+        let availableCommands = PaletteCommandRegistry.commands(
+            sessionStore: SessionStore(groups: []),
+            availability: .init(isWorktreeManagerAvailable: true),
+            actions: .noop
+        )
+
+        for commandID in ["createWorktree", "openWorktree", "manageWorktrees"] {
+            #expect(
+                try !#require(
+                    PaletteCommandRegistry.command(id: commandID, in: unavailableCommands)
+                ).isEnabled
+            )
+            #expect(
+                try #require(
+                    PaletteCommandRegistry.command(id: commandID, in: availableCommands)
+                ).isEnabled
+            )
+        }
     }
 
     @Test("No-session store gates session-dependent commands")
@@ -823,5 +854,161 @@ struct PaletteCommandRegistryTests {
 
         // Bare-query product rule still holds: no implicit selection.
         #expect(results.defaultSelectionIndex == nil)
+    }
+
+    @Test @MainActor
+    func recentLinkRowsComeOnlyFromFocusedPane() throws {
+        var left = TerminalPane(title: "left", workingDirectory: "/tmp", executionPlan: .local)
+        var right = TerminalPane(title: "right", workingDirectory: "/tmp", executionPlan: .local)
+        left.recentLinks.record("https://left.example/one")
+        right.recentLinks.record("https://right.example/two")
+        let session = TerminalSession(
+            title: "session",
+            workingDirectory: "/tmp",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(left),
+                    second: .pane(right)
+                )
+            ),
+            activePaneID: right.id
+        )
+        let rows = recentLinkRows(in: makeStore(session))
+        #expect(rows.count == 1)
+        #expect(try #require(rows.first?.subtitle).contains("right.example"))
+    }
+
+    @Test @MainActor
+    func recentLinkRowsAreNewestFirstAndCapped() {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        for index in 0..<25 {
+            pane.recentLinks.record("https://example.com/path/\(index)")
+        }
+        let rows = recentLinkRows(in: makeStore(makeSession(pane)))
+        #expect(rows.count == 20)
+        #expect(rows.first?.subtitle == "example.com/path/24")
+        #expect(rows.last?.subtitle == "example.com/path/5")
+    }
+
+    @Test @MainActor
+    func noFocusedPaneProducesNoRecentLinkRows() {
+        #expect(recentLinkRows(in: SessionStore(groups: [])).isEmpty)
+    }
+
+    @Test @MainActor
+    func rowRunCapturesExactSessionPaneAndRawValue() throws {
+        let raw = "https://user@example.com/private?token=secret#fragment"
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record(raw)
+        let session = makeSession(pane)
+        let store = makeStore(session)
+        var received: (String, TerminalSession.ID, TerminalPane.ID)?
+        let actions = PaletteAppActions.noop { value, sessionID, paneID in
+            received = (value, sessionID, paneID)
+        }
+        let row = try #require(
+            recentLinkRows(in: store, actions: actions).first
+        )
+        row.run()
+        #expect(received?.0 == raw)
+        #expect(received?.1 == session.id)
+        #expect(received?.2 == pane.id)
+    }
+
+    @Test @MainActor
+    func rowIDsDoNotContainRawURLOrQueryTokens() throws {
+        let raw = "https://example.com/private?token=secret"
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record(raw)
+        let id = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first?.id)
+        #expect(id.hasPrefix(PaletteCommandRegistry.openRecentLinkIDPrefix))
+        #expect(!id.contains("example.com"))
+        #expect(!id.contains("secret"))
+    }
+
+    @Test @MainActor
+    func httpPreviewRedactsUserinfoQueryAndFragment() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("https://user:pass@example.com/account?token=secret#billing")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        #expect(row.subtitle == "example.com/account")
+        #expect(row.keywords.contains("example.com"))
+        #expect(!row.keywords.joined().contains("secret"))
+        #expect(!row.keywords.joined().contains("user"))
+    }
+
+    @Test @MainActor
+    func schemelessPreviewRedactsQuery() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("example.com/api/login?token=abc123")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        let subtitle = try #require(row.subtitle)
+        #expect(!subtitle.contains("token=abc123"))
+    }
+
+    @Test @MainActor
+    func allQueryPreviewUsesGenericFallback() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("?token=secret")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        #expect(row.subtitle == "Detected terminal link")
+    }
+
+    @Test @MainActor
+    func schemelessPreviewShowsOnlyFinalPathComponent() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("private-project/readme.md")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        #expect(row.subtitle == "readme.md")
+        let subtitle = try #require(row.subtitle)
+        #expect(!subtitle.contains("private-project"))
+    }
+
+    @Test @MainActor
+    func topLevelMarkdownLineReferencePreviewShowsFilename() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("README.md:12")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        #expect(row.subtitle == "README.md")
+    }
+
+    @Test @MainActor
+    func mailtoPreviewDoesNotExposeRecipientOrParameters() throws {
+        var pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        pane.recentLinks.record("mailto:person@example.com?subject=private")
+        let row = try #require(recentLinkRows(in: makeStore(makeSession(pane))).first)
+        #expect(row.subtitle == "Email link")
+        #expect(!row.keywords.joined().contains("person@example.com"))
+        #expect(!row.keywords.joined().contains("private"))
+    }
+
+    @MainActor
+    private func recentLinkRows(
+        in store: SessionStore,
+        actions: PaletteAppActions = .noop
+    ) -> [PaletteCommand] {
+        PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(),
+            actions: actions
+        ).filter { $0.id.hasPrefix(PaletteCommandRegistry.openRecentLinkIDPrefix) }
+    }
+
+    private func makeSession(_ pane: TerminalPane) -> TerminalSession {
+        TerminalSession(
+            title: "session",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+    }
+
+    @MainActor
+    private func makeStore(_ session: TerminalSession) -> SessionStore {
+        SessionStore(
+            groups: [SessionGroup(name: "group", sessions: [session])],
+            selectedSessionID: session.id
+        )
     }
 }

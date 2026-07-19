@@ -87,7 +87,7 @@ struct GhPullRequestCommandRunner: Sendable {
         // `--json=x` (refs/heads/--web is legal) would otherwise be parsed by gh
         // as a flag, not the positional branch.
         // Fail-closed: truncated JSON is not parseable as an authoritative PR.
-        await Self.command.run(
+        await Self.command.runDetailed(
             arguments: [
                 "pr", "view",
                 "--json", "number,url,state,isDraft,reviewDecision",

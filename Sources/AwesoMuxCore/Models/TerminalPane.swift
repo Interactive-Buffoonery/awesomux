@@ -95,6 +95,10 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// genuinely still down, so a persisted flag would have no reliable clear
     /// path for a re-attach to an existing daemon (see `CodingKeys`).
     public var remoteReconnect: RemoteReconnectState? = nil
+    /// Runtime-only links observed under the pointer in this pane. Deliberately
+    /// excluded from Codable/equality/hash so high-frequency hover updates do
+    /// not become persisted workspace state or unrelated render identity.
+    public var recentLinks: RecentTerminalLinks = .init()
 
     public init(
         id: UUID = UUID(),
@@ -141,7 +145,8 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.remoteWorkingDirectory = remoteWorkingDirectory
         self.liveTerminalTitle = liveTerminalTitle
         self.agentKind = agentKind
-        self.agentExecutionState = agentExecutionState
+        self.agentExecutionState =
+            agentExecutionState
             ?? agentState?.executionState
             ?? agentKind.initialSessionState.executionState
             ?? .idle

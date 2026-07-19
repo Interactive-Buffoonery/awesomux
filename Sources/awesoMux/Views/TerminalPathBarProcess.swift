@@ -1,36 +1,42 @@
 import Darwin
 import Foundation
 
-/// Runs a Path Bar status lookup (`git status`, `gh pr view`, `gh run list`) for
-/// a repo/branch and returns stdout on success, or nil on any failure (tool
-/// missing, non-zero exit, timeout). Injected into the resolvers so tests never
-/// shell out.
-typealias StatusCommandRunner = @Sendable (_ repoRoot: String, _ branch: String) async -> Data?
-
-/// Outcome of a bounded subprocess run. Callers must choose whether truncated
-/// stdout is acceptable (prefix-safe chips) or must fail closed (authoritative
-/// lists / existence checks).
-enum BoundedCommandResult: Sendable, Equatable {
-    case complete(Data)
-    case truncated(prefix: Data)
-    case failed
+enum BoundedCommandResult: Equatable, Sendable {
+    case success(Data)
+    case executableNotFound
+    case spawnFailure
+    case nonZeroExit(Int32)
+    case timedOut
+    /// Carries the capped buffer: a clean exit whose output hit the cap is
+    /// still the Path Bar's pre-existing "truncated but usable" contract
+    /// (see `run(arguments:inDirectory:)`), while callers that must not trust
+    /// a truncated parse (e.g. `git worktree list --porcelain`) can still
+    /// treat this case as a failure without the payload.
+    case outputTruncated(Data)
+    case outputNotDrained
 
     /// Fail-closed: only fully collected successful stdout.
     var completeData: Data? {
-        if case .complete(let data) = self { return data }
+        if case .success(let data) = self { return data }
         return nil
     }
 
     /// Prefix-safe: complete or truncated prefix after a clean exit + EOF.
     var dataAllowingTruncation: Data? {
         switch self {
-        case .complete(let data), .truncated(let data):
+        case .success(let data), .outputTruncated(let data):
             return data
-        case .failed:
+        default:
             return nil
         }
     }
 }
+
+/// Runs a Path Bar status lookup (`git status`, `gh pr view`, `gh run list`) for
+/// a repo/branch and returns stdout on success, or nil on any failure (tool
+/// missing, non-zero exit, timeout). Injected into the resolvers so tests never
+/// shell out.
+typealias StatusCommandRunner = @Sendable (_ repoRoot: String, _ branch: String) async -> Data?
 
 /// Runs a bounded external command and returns an explicit stdout result on a
 /// clean exit (status 0), or `.failed` on any failure (executable missing,
@@ -74,6 +80,9 @@ struct BoundedCommandRunner: Sendable {
         for key in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"] {
             environment.removeValue(forKey: key)
         }
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_PAGER"] = "cat"
+        environment["PAGER"] = "cat"
         return environment
     }()
 
@@ -96,9 +105,23 @@ struct BoundedCommandRunner: Sendable {
         self.delay = delay
     }
 
-    func run(arguments: [String], inDirectory directory: String) async -> BoundedCommandResult {
+    func run(arguments: [String], inDirectory directory: String) async -> Data? {
+        // Pre-existing Path Bar contract: a clean exit whose output hit the
+        // cap still yields the capped buffer (a git-status dirty count
+        // saturates the `+999+` display long before 512 KB), not a hard
+        // failure — only `runDetailed` callers that need to distinguish
+        // truncation from a complete parse see it as a distinct outcome.
+        switch await runDetailed(arguments: arguments, inDirectory: directory) {
+        case .success(let data), .outputTruncated(let data):
+            return data
+        default:
+            return nil
+        }
+    }
+
+    func runDetailed(arguments: [String], inDirectory directory: String) async -> BoundedCommandResult {
         guard let executableURL else {
-            return .failed
+            return .executableNotFound
         }
 
         let handle = ProcessHandle()
@@ -108,6 +131,7 @@ struct BoundedCommandRunner: Sendable {
         handle.process.environment = environment
         handle.process.standardOutput = handle.stdout
         handle.process.standardError = FileHandle.nullDevice
+        handle.process.standardInput = FileHandle.nullDevice
 
         let timeout = timeout
         let maxOutputBytes = maxOutputBytes
@@ -133,7 +157,7 @@ struct BoundedCommandRunner: Sendable {
                 }
 
                 handle.process.terminationHandler = { process in
-                    state.markExited(success: process.terminationStatus == 0)
+                    state.markExited(status: process.terminationStatus)
                     // Bounded fallback: if EOF never arrives because a descendant
                     // inherited stdout and holds it open, resume after a short grace
                     // rather than blocking forever. We resolve to `.failed` (not the
@@ -152,6 +176,7 @@ struct BoundedCommandRunner: Sendable {
                     state.registerTimeoutTask(
                         Task {
                             do { try await delay(timeout) } catch { return }
+                            state.markTimedOut()
                             handle.terminateIfRunning()  // SIGTERM
                             do { try await delay(.seconds(1)) } catch { return }
                             handle.killIfRunning()  // SIGKILL
@@ -184,10 +209,11 @@ struct BoundedCommandRunner: Sendable {
         private let readHandle: FileHandle
         private let maxBytes: Int
         private var buffer = Data()
-        private var truncated = false
         private var exited = false
         private var drained = false
-        private var success = false
+        private var exitStatus: Int32?
+        private var timedOut = false
+        private var truncated = false
         private var resumed = false
         private var timeoutTask: Task<Void, Never>?
 
@@ -203,19 +229,16 @@ struct BoundedCommandRunner: Sendable {
 
         func append(_ chunk: Data) {
             lock.lock()
-            // Cap accumulation: keep draining the pipe (so the child can't block)
-            // but stop growing the buffer past `maxBytes`, and record truncation
-            // so callers never treat a prefix as complete output.
-            if buffer.count >= maxBytes {
+            let remaining = max(0, maxBytes - buffer.count)
+            if chunk.count > remaining {
                 truncated = true
-            } else {
-                let remaining = maxBytes - buffer.count
-                if chunk.count <= remaining {
-                    buffer.append(chunk)
-                } else {
-                    buffer.append(chunk.prefix(remaining))
-                    truncated = true
-                }
+            }
+            // Cap accumulation: keep draining the pipe (so the child can't block)
+            // but stop growing the buffer. Porcelain headers come first, and the
+            // dirty count saturates the `+999+` display long before this, so a
+            // capped buffer still yields a correct-enough count.
+            if buffer.count < maxBytes {
+                buffer.append(chunk.prefix(remaining))
             }
             lock.unlock()
         }
@@ -224,16 +247,22 @@ struct BoundedCommandRunner: Sendable {
             lock.lock(); drained = true; let resume = readyResumeLocked(); lock.unlock(); resume?()
         }
 
-        func markExited(success: Bool) {
+        func markExited(status: Int32) {
             lock.lock()
             exited = true
-            self.success = success
+            exitStatus = status
             let timeoutTask = timeoutTask
             self.timeoutTask = nil
             let resume = readyResumeLocked()
             lock.unlock()
             timeoutTask?.cancel()
             resume?()
+        }
+
+        func markTimedOut() {
+            lock.lock()
+            timedOut = true
+            lock.unlock()
         }
 
         func registerTimeoutTask(_ task: Task<Void, Never>) {
@@ -245,11 +274,20 @@ struct BoundedCommandRunner: Sendable {
         }
 
         /// Grace fallback: the child exited but stdout never reached EOF (a
-        /// descendant holds the pipe). Resolve to `.failed` — an unconfirmed-
-        /// complete buffer must not be painted as a real result.
+        /// descendant holds the pipe). Resolve to nil — an unconfirmed-complete
+        /// buffer must not be painted as a real result. Mirrors
+        /// `readyResumeLocked`'s timeout-first priority: a process SIGTERM'd by
+        /// the timeout that also never drained is a timeout, not merely undrained.
         func resumeUndrainedAsFailureIfExited() {
             lock.lock()
-            let resume = exited ? finishLocked(returning: .failed) : nil
+            let resume: (() -> Void)?
+            if !exited {
+                resume = nil
+            } else if timedOut {
+                resume = finishLocked(returning: .timedOut)
+            } else {
+                resume = finishLocked(returning: .outputNotDrained)
+            }
             lock.unlock()
             resume?()
         }
@@ -258,7 +296,7 @@ struct BoundedCommandRunner: Sendable {
             lock.lock()
             let timeoutTask = timeoutTask
             self.timeoutTask = nil
-            let resume = finishLocked(returning: .failed)
+            let resume = finishLocked(returning: .spawnFailure)
             lock.unlock()
             timeoutTask?.cancel()
             resume?()
@@ -268,13 +306,20 @@ struct BoundedCommandRunner: Sendable {
         /// only state where the collected buffer's completeness is known.
         private func readyResumeLocked() -> (() -> Void)? {
             guard exited, drained else { return nil }
-            guard success else {
-                return finishLocked(returning: .failed)
+            if timedOut {
+                return finishLocked(returning: .timedOut)
+            }
+            // Exit status takes priority over truncation: a non-zero exit is
+            // `nonZeroExit` regardless of how much output it produced first —
+            // truncation only recolors an otherwise-CLEAN exit as "capped but
+            // usable" rather than "fully parsed."
+            guard exitStatus == 0 else {
+                return finishLocked(returning: .nonZeroExit(exitStatus ?? -1))
             }
             if truncated {
-                return finishLocked(returning: .truncated(prefix: buffer))
+                return finishLocked(returning: .outputTruncated(buffer))
             }
-            return finishLocked(returning: .complete(buffer))
+            return finishLocked(returning: .success(buffer))
         }
 
         private func finishLocked(returning value: BoundedCommandResult) -> (() -> Void)? {

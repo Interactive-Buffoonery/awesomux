@@ -188,7 +188,10 @@ test("native CI exposes only slash-command and scoped manual triggers", () => {
 
 test("native CI resolves authorized requests in trusted workflow code", () => {
   const workflow = nativeRequestWorkflow;
+  const resolveJob = workflow.match(/\n  resolve:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
+  assert.ok(resolveJob, "native request resolver job must exist");
 
+  assert.match(resolveJob, /permissions:\n\s+actions: write\n\s+contents: write\n\s+issues: write\n\s+pull-requests: write/);
   assert.match(workflow, /MAINTAINER_LOGINS_JSON: \$\{\{ vars\.MAINTAINER_LOGINS_JSON \|\| '\[\]' \}\}/);
   assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
   assert.match(workflow, /node \.github\/scripts\/native-ci-request\.mjs parse/);
@@ -302,13 +305,25 @@ test("native CI reporting is isolated from pull request execution", () => {
   assert.match(reportJob, /ARTIFACT_URL: \$\{\{ needs\.native\.outputs\.artifact-url \}\}/);
 });
 
-test("native CI deletes only completed disposable execution refs", () => {
-  assert.match(nativeCleanupWorkflow, /workflow_run:[\s\S]*workflows: \[Native CI executor\]/);
-  assert.match(nativeCleanupWorkflow, /types: \[completed\]/);
-  assert.match(
-    nativeCleanupWorkflow,
-    /startsWith\(github\.event\.workflow_run\.head_branch, 'native-ci-runs\/run-'\)/,
+test("native CI explicitly dispatches isolated execution-ref cleanup", () => {
+  const cleanupDispatchJob = nativeExecutorWorkflow.match(
+    /\n  cleanup:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/,
+  )?.[1];
+  assert.ok(cleanupDispatchJob, "trusted cleanup dispatch job must exist");
+
+  assert.match(cleanupDispatchJob, /needs: \[resolve, native, report\]/);
+  assert.match(cleanupDispatchJob, /if: always\(\)/);
+  assert.match(cleanupDispatchJob, /permissions:\n\s+actions: write/);
+  assert.match(cleanupDispatchJob, /native-ci-cleanup\.yml\/dispatches/);
+  assert.match(cleanupDispatchJob, /inputs\[execution-ref\]/);
+  assert.match(cleanupDispatchJob, /ACTUAL_REF: \$\{\{ github\.ref \}\}/);
+  assert.match(cleanupDispatchJob, /ACTUAL_SHA: \$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(
+    cleanupDispatchJob,
+    /actions\/checkout|\.\/script\/|secrets\.|contents: write|checks: write|issues: write/,
   );
+
+  assert.match(nativeCleanupWorkflow, /workflow_dispatch:[\s\S]*execution-ref:/);
   assert.match(nativeCleanupWorkflow, /permissions:\n\s+contents: write/);
   assert.match(nativeCleanupWorkflow, /\^native-ci-runs\/run-\[0-9\]\+\-\[0-9\]\+\$/);
   assert.match(nativeCleanupWorkflow, /git\/refs\/heads\/\$\{EXECUTION_REF\}/);

@@ -18,7 +18,7 @@ struct BranchListCommandRunner: Sendable {
         // execute (see GitStatusCommandRunner).
         // Prefix-safe: `BranchListMenuModel.parse` drops a mid-line fragment
         // when the trailing newline is missing after a capped read.
-        await Self.command.run(
+        await Self.command.runDetailed(
             arguments: [
                 "--no-optional-locks",
                 "-c", "core.fsmonitor=false",

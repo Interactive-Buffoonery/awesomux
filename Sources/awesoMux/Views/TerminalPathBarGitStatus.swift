@@ -93,7 +93,7 @@ struct GitStatusCommandRunner: Sendable {
         // Prefix-safe: porcelain headers lead the stream and the dirty chip
         // saturates well before the stdout cap, so a truncated buffer is still
         // useful. Authoritative list parsers must use `.completeData` instead.
-        await Self.command.run(
+        await Self.command.runDetailed(
             arguments: [
                 "--no-optional-locks",
                 "-c", "core.fsmonitor=false",
