@@ -76,6 +76,34 @@ struct LocalizedPluralStringsTests {
         #expect(LocalizedPluralStrings.diagnosticsSamples(count: 2, bundle: Self.resourcesBundle) == "2 samples")
         #expect(LocalizedPluralStrings.diagnosticsMatchingEvents(count: 2, bundle: Self.resourcesBundle) == "2 matching diagnostic events")
         #expect(
+            LocalizedPluralStrings.diagnosticsShowingMatchingEvents(
+                visible: 1,
+                total: 1,
+                bundle: Self.resourcesBundle
+            ) == "Showing 1 of 1 matching event"
+        )
+        #expect(
+            LocalizedPluralStrings.diagnosticsShowingMatchingEvents(
+                visible: 100,
+                total: 125,
+                bundle: Self.resourcesBundle
+            ) == "Showing 100 of 125 matching events"
+        )
+        #expect(
+            LocalizedPluralStrings.diagnosticsShowingRecordedAnalyticsEvents(
+                visible: 1,
+                total: 1,
+                bundle: Self.resourcesBundle
+            ) == "Showing 1 of 1 recorded event"
+        )
+        #expect(
+            LocalizedPluralStrings.diagnosticsShowingRecordedAnalyticsEvents(
+                visible: 100,
+                total: 125,
+                bundle: Self.resourcesBundle
+            ) == "Showing 100 of 125 recorded events"
+        )
+        #expect(
             LocalizedPluralStrings.commandPaletteResults(
                 count: 1,
                 bundle: Self.resourcesBundle

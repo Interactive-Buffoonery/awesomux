@@ -61,7 +61,7 @@ struct TerminalPaneTitleEditFlagTests {
         // If that site dropped `isTitleUserEdited`, the pane would come back
         // unfrozen and this assertion would fail.
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let restored = SessionRestoreReducer.restoredComponents(from: decoded)
 
         let restoredPane = try #require(
@@ -87,7 +87,7 @@ struct TerminalPaneTitleEditFlagTests {
         let snapshot = SessionSnapshot(groups: [group], selectedSessionID: session.id)
 
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let restored = SessionRestoreReducer.restoredComponents(from: decoded)
 
         let restoredSession = try #require(restored.groups.first?.sessions.first)
@@ -105,7 +105,7 @@ struct TerminalPaneTitleEditFlagTests {
         let snapshot = SessionSnapshot(groups: [group], selectedSessionID: session.id)
 
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let restored = SessionRestoreReducer.restoredComponents(from: decoded)
 
         let restoredSession = try #require(restored.groups.first?.sessions.first)

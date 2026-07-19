@@ -8,6 +8,7 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
     public var terminal: TerminalConfig
     public var workspaces: WorkspaceConfig
     public var advanced: AdvancedConfig
+    public var analytics: AnalyticsConfig
 
     /// Raw text of unknown top-level `[table]` blocks the user has
     /// hand-written into config.toml (e.g. an `[experimental]` block from
@@ -44,7 +45,8 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         keyboard: .defaultValue,
         terminal: .defaultValue,
         workspaces: .defaultValue,
-        advanced: .defaultValue
+        advanced: .defaultValue,
+        analytics: .defaultValue
     )
 
     public init(
@@ -57,6 +59,7 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         terminal: TerminalConfig = AwesoMuxConfig.defaultValue.terminal,
         workspaces: WorkspaceConfig = AwesoMuxConfig.defaultValue.workspaces,
         advanced: AdvancedConfig = AwesoMuxConfig.defaultValue.advanced,
+        analytics: AnalyticsConfig = AwesoMuxConfig.defaultValue.analytics,
         unknownTopLevelTables: [String: String] = [:],
         unknownTerminalTableLines: String = "",
         unknownAppearanceTableLines: String = ""
@@ -70,6 +73,7 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         self.terminal = terminal
         self.workspaces = workspaces
         self.advanced = advanced
+        self.analytics = analytics
         self.unknownTopLevelTables = unknownTopLevelTables
         self.unknownTerminalTableLines = unknownTerminalTableLines
         self.unknownAppearanceTableLines = unknownAppearanceTableLines
@@ -83,26 +87,38 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
     /// this root decoder still owns whole-section defaulting.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let general = try container.decodeIfPresent(GeneralConfig.self, forKey: .general)
+        let general =
+            try container.decodeIfPresent(GeneralConfig.self, forKey: .general)
             ?? AwesoMuxConfig.defaultValue.general
-        let appearance = try container.decodeIfPresent(AppearanceConfig.self, forKey: .appearance)
+        let appearance =
+            try container.decodeIfPresent(AppearanceConfig.self, forKey: .appearance)
             ?? AwesoMuxConfig.defaultValue.appearance
-        let notifications = try container.decodeIfPresent(NotificationConfig.self, forKey: .notifications)
+        let notifications =
+            try container.decodeIfPresent(NotificationConfig.self, forKey: .notifications)
             ?? AwesoMuxConfig.defaultValue.notifications
-        let agents = try container.decodeIfPresent(AgentConfig.self, forKey: .agents)
+        let agents =
+            try container.decodeIfPresent(AgentConfig.self, forKey: .agents)
             ?? AwesoMuxConfig.defaultValue.agents
-        let agentIntegrations = try container.decodeIfPresent(
-            AgentIntegrationsConfig.self,
-            forKey: .agentIntegrations
-        ) ?? AwesoMuxConfig.defaultValue.agentIntegrations
-        let keyboard = try container.decodeIfPresent(KeyboardConfig.self, forKey: .keyboard)
+        let agentIntegrations =
+            try container.decodeIfPresent(
+                AgentIntegrationsConfig.self,
+                forKey: .agentIntegrations
+            ) ?? AwesoMuxConfig.defaultValue.agentIntegrations
+        let keyboard =
+            try container.decodeIfPresent(KeyboardConfig.self, forKey: .keyboard)
             ?? AwesoMuxConfig.defaultValue.keyboard
-        let terminal = try container.decodeIfPresent(TerminalConfig.self, forKey: .terminal)
+        let terminal =
+            try container.decodeIfPresent(TerminalConfig.self, forKey: .terminal)
             ?? AwesoMuxConfig.defaultValue.terminal
-        let workspaces = try container.decodeIfPresent(WorkspaceConfig.self, forKey: .workspaces)
+        let workspaces =
+            try container.decodeIfPresent(WorkspaceConfig.self, forKey: .workspaces)
             ?? AwesoMuxConfig.defaultValue.workspaces
-        let advanced = try container.decodeIfPresent(AdvancedConfig.self, forKey: .advanced)
+        let advanced =
+            try container.decodeIfPresent(AdvancedConfig.self, forKey: .advanced)
             ?? AwesoMuxConfig.defaultValue.advanced
+        let analytics =
+            try container.decodeIfPresent(AnalyticsConfig.self, forKey: .analytics)
+            ?? AwesoMuxConfig.defaultValue.analytics
 
         self.init(
             general: general,
@@ -113,7 +129,8 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
             keyboard: keyboard,
             terminal: terminal,
             workspaces: workspaces,
-            advanced: advanced
+            advanced: advanced,
+            analytics: analytics
         )
     }
 
@@ -131,6 +148,7 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         case terminal
         case workspaces
         case advanced
+        case analytics
     }
 
     /// Set of top-level table names the structured decoder recognizes;
@@ -145,7 +163,8 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         "keyboard",
         "terminal",
         "workspaces",
-        "advanced"
+        "advanced",
+        "analytics",
     ]
 }
 
