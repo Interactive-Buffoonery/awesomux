@@ -13,11 +13,12 @@
 - Spec: `docs/superpowers/specs/2026-07-19-new-workspace-split-button-design.md` (approved).
 - The three underlying actions (`onNewWorkspace`, `onNewWorkspaceInGroup`, `onNewWorkspaceGroup`) do not change behavior — this is a layout/entry-point change only.
 - `otherGroups` stays unfiltered exactly as it is today (it already includes the current group — the property name is a slight misnomer, pre-existing, not this plan's problem to fix). Do not add current-group filtering.
-- Chevron menu is a fixed 2 rows regardless of how many groups exist: **"New Workgroup…" first, then "New Workspace in ▶" second** (order flipped from spec's first draft per eD's explicit call — flagged low-confidence, may get flipped back later). The group list itself stays behind the nested submenu, never flattened to the top level.
+- Chevron menu is **up to 2 rows** — 1 when the user has no other groups yet, 2 otherwise — in this order: **"New Workgroup…" first, then "New Workspace in ▶" second** (order flipped from spec's first draft per eD's explicit call — flagged low-confidence, may get flipped back later). The group list itself stays behind the nested submenu, never flattened to the top level.
 - No naming prompt anywhere in this change — both instant-creation paths (primary click, "New Workspace in [Group]") stay unnamed, matching current behavior exactly.
 - No changes to `WorkspaceGroupCreateSheet`, `RemoteWorkspaceGroupCreateSheet`, `WorktreeCreateForm`, or the `SessionGroup` model.
 - Conventional Commits: `<type>(<scope>): <lowercase imperative>`, subject ≤72 chars, no period.
-- `main` is protected — this work continues on the `docs/new-workspace-split-button-design` branch (already checked out, currently holds only the spec commit).
+- `main` is protected — this work continues on the `docs/new-workspace-split-button-design` branch (already checked out, currently holds the spec and plan commits).
+- Splitting one focusable control into two changes keyboard Tab order for this control (one stop → two). This control isn't wired into the sidebar's custom `SidebarVisibleRowTarget` focus system, so this is an accepted, low-severity, unremarkable side effect of the redesign — noted here so it doesn't read as an oversight.
 
 ---
 
@@ -80,6 +81,12 @@ struct NewWorkspaceMenuButton: View {
             Rectangle()
                 .fill(Color.aw.border2)
                 .frame(width: 0.5, height: size * 0.6)
+                // Purely decorative — without this, VoiceOver announces an
+                // unlabeled element between "New Workspace" and "New
+                // Workspace Options", matching the pattern already used for
+                // decorative glyphs elsewhere (e.g. the search icon in
+                // SidebarView.swift).
+                .accessibilityHidden(true)
             chevronButton
         }
         .foregroundStyle(Color.aw.accent(accentResolver.accent))
@@ -214,7 +221,10 @@ struct NewWorkspaceMenuButtonHitTargetTests {
 
     // The 34×34 primary segment sits at the leading edge of the control
     // (HStack(spacing: 0), primary first); (17, 17) is its center regardless
-    // of the chevron segment's width.
+    // of the chevron segment's width. The harness frame height below is
+    // exactly `size` (34), not a larger round number, so there's no vertical
+    // slack for SwiftUI to center/align the content within — the primary
+    // segment's on-screen origin is unambiguous.
     private static let primarySegmentPoint = CGPoint(x: 17, y: 17)
 
     private static func makeWindow(
@@ -232,7 +242,7 @@ struct NewWorkspaceMenuButtonHitTargetTests {
                 onNewWorkspaceInGroup: onNewWorkspaceInGroup,
                 onNewWorkspaceGroup: onNewWorkspaceGroup
             ),
-            frame: NSRect(x: 0, y: 0, width: 90, height: 40)
+            frame: NSRect(x: 0, y: 0, width: 90, height: 34)
         )
         return hosted.window
     }
