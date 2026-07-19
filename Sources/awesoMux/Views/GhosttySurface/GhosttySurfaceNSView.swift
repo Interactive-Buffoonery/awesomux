@@ -223,6 +223,7 @@ final class GhosttySurfaceNSView: NSView {
             lifecycleState.pendingSurfaceCreationWorkItem = nil
             lifecycleState.remoteHandoffTask?.cancel()
             lifecycleState.remoteHandoffTask = nil
+            invalidateBridgePreflight()
             NotificationCenter.default.removeObserver(self)
             NSWorkspace.shared.notificationCenter.removeObserver(self)
             disposeNativeSurface(resetHostedLayer: false)
@@ -246,6 +247,7 @@ final class GhosttySurfaceNSView: NSView {
 
     @MainActor
     func disposeNativeSurface(resetHostedLayer: Bool = false) {
+        invalidateBridgePreflight()
         // Mounted exit-supervision/heal paths opt in so they don't show the
         // previous renderer contents while deciding whether to respawn.
         if resetHostedLayer, surface != nil, !lifecycleState.nativeSurfaceWasDisposed {
@@ -316,14 +318,42 @@ final class GhosttySurfaceNSView: NSView {
         enabledAgentRuntimeFileDropSources: Set<AgentRuntimeSource>,
         grokIconEnabled: Bool
     ) {
+        let terminalSessionRepointed = self.pane.terminalSessionID != pane.terminalSessionID
+        let bridgeExecutionPlanChanged = self.pane.executionPlan != pane.executionPlan
+        let bridgePreflightIdentityChanged =
+            sessionID != session.id
+            || paneID != pane.id
+            || terminalSessionRepointed
+            || bridgeExecutionPlanChanged
+        let bridgePolicyDisabled =
+            lifecycleState.bridgePreflightTask != nil
+            && !runtime.isCommandBridgeEnabled
+        let bridgePreflightPolicyInvalidated =
+            lifecycleState.bridgePreflightTask != nil
+            && !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: runtime.isCommandBridgeEnabled,
+                isRemote: pane.executionPlan.remoteTarget != nil,
+                agentChromeEnabled: runtime.isBridgeChromeEnabled,
+                attachCommandAvailable: true,
+                errorLatched: commandBridgeEnactor.errorLatched
+            )
         if sessionID != session.id || paneID != pane.id {
             clearRemoteMarkdownFetchProgress()
+        }
+        var shouldRestartBridgePreflight =
+            (bridgePreflightIdentityChanged || bridgePreflightPolicyInvalidated)
+            && invalidateBridgePreflight()
+        if bridgePolicyDisabled {
+            clearCommandBridgeStateForLocalShellFallback()
+            shouldRestartBridgePreflight = false
         }
         self.sessionStore = sessionStore
         self.session = session
         self.sessionID = session.id
-        if self.pane.terminalSessionID != pane.terminalSessionID {
+        if terminalSessionRepointed || bridgeExecutionPlanChanged {
             commandBridgeEnactor.handleSessionRepoint()
+        }
+        if terminalSessionRepointed {
             resetSearchStateForSurfaceTeardown()
             // A repointed session has a different (or no) process behind it;
             // a leftover trusted incarnation from the PRIOR pane must never be
@@ -338,6 +368,9 @@ final class GhosttySurfaceNSView: NSView {
         self.enabledAgentRuntimeFileDropSources = enabledAgentRuntimeFileDropSources
         self.grokIconEnabled = grokIconEnabled
         applyTerminalBackstopBackgroundColor()
+        if shouldRestartBridgePreflight || lifecycleState.bridgePreflightTask != nil {
+            scheduleSurfaceCreationIfNeeded()
+        }
         // While the reconnect overlay covers this pane the native surface is
         // disposed — exclude it from the accessibility tree so VoiceOver doesn't
         // land on a zombie "Terminal content area" stop under the overlay;

@@ -58,6 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingSystemQuitWarningTimeout: DispatchWorkItem?
     private weak var primaryWindowForFrameSave: NSWindow?
     private var isSystemQuitWarningPresented = false
+    /// AppKit termination is deferred while bridge mutations are cancelled and
+    /// exact cleanup drains. Production bridge exec bounds cap this at roughly
+    /// 30 seconds (15 seconds for an active mutation, then 15 for concurrent
+    /// cleanup); the app remains open rather than exiting ahead of cleanup.
+    private var isBridgeTerminationDrainInProgress = false
     private let windowOrderDiagnostics = WindowOrderDiagnostics()
 
     /// True when `applicationShouldTerminate` is firing as part of a system
@@ -741,7 +746,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hasRiskySessions: !riskySessions.isEmpty
         ) {
         case .terminateNow:
-            return .terminateNow
+            return deferTerminationForBridgeDrain() ? .terminateLater : .terminateNow
         case .presentSystemQuitRiskWarning:
             guard !isSystemQuitWarningPresented else {
                 logger.info(
@@ -818,7 +823,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         remoteConnectivityObserver?.stop()
         remoteConnectivityObserver = nil
         popUpTerminalController?.tearDown()
+        // Normally empty because applicationShouldTerminate defers its reply
+        // until the async ordered drain completes. Retain the bounded sweep as
+        // a defensive fallback for termination paths AppKit delivers without
+        // first asking the delegate.
         ghosttyRuntime?.bridgeGenerationRegistry?.drainForTermination()
+    }
+
+    /// Starts the ordered bridge drain for an already-approved quit. Returns
+    /// true when AppKit must remain in `.terminateLater`; the drain owns the one
+    /// eventual affirmative reply.
+    @discardableResult
+    private func deferTerminationForBridgeDrain() -> Bool {
+        guard !isBridgeTerminationDrainInProgress else { return true }
+        guard let registry = ghosttyRuntime?.bridgeGenerationRegistry,
+            registry.hasTerminationWork
+        else {
+            return false
+        }
+        isBridgeTerminationDrainInProgress = true
+        Task { @MainActor [self] in
+            await registry.drainForTerminationBeforeExit()
+            isBridgeTerminationDrainInProgress = false
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return true
+    }
+
+    private func replyToApprovedTermination() {
+        if !deferTerminationForBridgeDrain() {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
     }
 
     /// Bind the session store and Ghostty runtime, then install focus
@@ -1005,7 +1040,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     alert.window.orderOut(nil)
                 }
             }
-            NSApp.reply(toApplicationShouldTerminate: outcome != .userCancelled)
+            if outcome == .userCancelled {
+                NSApp.reply(toApplicationShouldTerminate: false)
+            } else {
+                replyToApprovedTermination()
+            }
         }
 
         let timeout = DispatchWorkItem {
@@ -1067,7 +1106,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let reply: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             self?.isQuitRiskAlertPresented = false
             // Cancel = first button, Quit Anyway = second button.
-            NSApp.reply(toApplicationShouldTerminate: response == .alertSecondButtonReturn)
+            guard response == .alertSecondButtonReturn else {
+                NSApp.reply(toApplicationShouldTerminate: false)
+                return
+            }
+            self?.replyToApprovedTermination()
         }
 
         switch quitAlertPresentationTarget() {

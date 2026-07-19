@@ -136,6 +136,17 @@ extension GhosttySurfaceNSView {
 
     func createSurfaceIfNeeded() {
         let commandBridgeEnabled = runtime.isCommandBridgeEnabled
+        if lifecycleState.bridgePreflightTask != nil,
+            !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: commandBridgeEnabled,
+                isRemote: pane.executionPlan.remoteTarget != nil,
+                agentChromeEnabled: runtime.isBridgeChromeEnabled,
+                attachCommandAvailable: true,
+                errorLatched: commandBridgeEnactor.errorLatched
+            )
+        {
+            invalidateBridgePreflight()
+        }
         // Don't clear when an error is already latched: for a remote pane with the
         // bridge disabled, `prepareAttach` latches `.remoteUnavailable` and defers
         // `markError()` one runloop hop. `surface` stays nil, so later layout
@@ -147,11 +158,12 @@ extension GhosttySurfaceNSView {
         }
 
         guard surface == nil,
-              runtime.isReady,
-              !commandBridgeEnactor.exitResolutionPending,
-              !commandBridgeEnactor.exitProbeInFlight,
-              !commandBridgeEnactor.bridgePreflightInFlight,
-              !commandBridgeEnactor.errorLatched else {
+            runtime.isReady,
+            !commandBridgeEnactor.exitResolutionPending,
+            !commandBridgeEnactor.exitProbeInFlight,
+            !commandBridgeEnactor.bridgePreflightInFlight,
+            !commandBridgeEnactor.errorLatched
+        else {
             return
         }
 
@@ -210,7 +222,8 @@ extension GhosttySurfaceNSView {
     /// attach string: the D1 env-prefixed remote command on a live bridge, the
     /// bare attach command on a degraded/no-bridge attach, or nil for a plain
     /// local shell.
-    func finishSurfaceCreation(command: String?) {
+    @discardableResult
+    func finishSurfaceCreation(command: String?) -> Bool {
         terminalPromptObserved = false
         var environment = runtime.agentRuntimeEnvironment(
             sessionID: sessionID,
@@ -270,6 +283,7 @@ extension GhosttySurfaceNSView {
         runtime.refreshShellActivity(in: sessionStore)
         sizeDidChange(contentSize)
         needsDisplay = true
+        return createdSurface != nil
     }
 
     /// Kicks the async bridge attach preflight (INT-698 D4 item A). Sets the
@@ -286,9 +300,14 @@ extension GhosttySurfaceNSView {
             finishSurfaceCreation(command: baseCommand)
             return
         }
+        invalidateBridgePreflight()
+        lifecycleState.bridgePreflightGeneration &+= 1
+        let generation = lifecycleState.bridgePreflightGeneration
         commandBridgeEnactor.bridgePreflightInFlight = true
         let controlPath = AmxBackend.sshControlPath()
         let terminalSessionID = pane.terminalSessionID
+        let expectedPaneID = paneID
+        let expectedWorkspaceSessionID = sessionID
         let preflight = runtime.bridgeAttachPreflight(
             for: terminalSessionID,
             paneID: paneID,
@@ -296,25 +315,52 @@ extension GhosttySurfaceNSView {
             sessionStore: sessionStore
         )
         logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-begin")
-        Task { @MainActor [weak self] in
-            let home = await Self.cachedRemoteHome(controlPath: controlPath, remote: remote)
-            guard let self else { return }
+        let dependencies = lifecycleState.bridgePreflightDependencies
+        let statusChannel = commandBridgeEnactor.statusChannel
+        let runtime = runtime
+        let task = Task { @MainActor [weak self] in
+            let home = await dependencies.resolveRemoteHome(controlPath, remote)
+            guard !Task.isCancelled else { return }
             guard let home else {
                 // $HOME capture failed → no usable state path → fail open to a
                 // no-bridge attach with the base command.
-                self.finishBridgePreflight(outcome: nil, baseCommand: baseCommand, controlPath: controlPath, remote: remote, expectedTerminalSessionID: terminalSessionID)
+                await self?.finishBridgePreflight(
+                    outcome: nil,
+                    baseCommand: baseCommand,
+                    controlPath: controlPath,
+                    remote: remote,
+                    expectedTerminalSessionID: terminalSessionID,
+                    expectedPaneID: expectedPaneID,
+                    expectedWorkspaceSessionID: expectedWorkspaceSessionID,
+                    generation: generation,
+                    preflight: preflight,
+                    acknowledgeReady: dependencies.acknowledgeReady
+                )
                 return
             }
             let helperPath = BridgeAttachDecision.helperPath(remoteHome: home)
-            guard await Self.remoteHelperSupportsBridge(
-                controlPath: controlPath,
-                remote: remote,
-                helperPath: helperPath
-            ) else {
+            let helperSupportsBridge = await dependencies.helperSupportsBridge(
+                controlPath,
+                remote,
+                helperPath
+            )
+            guard !Task.isCancelled else { return }
+            guard helperSupportsBridge else {
                 // Missing/incompatible helper identifies the unmanaged or
                 // unprepared-target path. Keep the terminal usable, but perform
                 // no forward, directory creation, or state-file publication.
-                self.finishBridgePreflight(outcome: nil, baseCommand: baseCommand, controlPath: controlPath, remote: remote, expectedTerminalSessionID: terminalSessionID)
+                await self?.finishBridgePreflight(
+                    outcome: nil,
+                    baseCommand: baseCommand,
+                    controlPath: controlPath,
+                    remote: remote,
+                    expectedTerminalSessionID: terminalSessionID,
+                    expectedPaneID: expectedPaneID,
+                    expectedWorkspaceSessionID: expectedWorkspaceSessionID,
+                    generation: generation,
+                    preflight: preflight,
+                    acknowledgeReady: dependencies.acknowledgeReady
+                )
                 return
             }
             let request = BridgeAttachPreflight.Request(
@@ -323,19 +369,58 @@ extension GhosttySurfaceNSView {
                 controlPath: controlPath,
                 remoteHome: home,
                 helperPath: helperPath,
-                commandBuilder: { [status = self.commandBridgeEnactor.statusChannel] channel in
+                commandBuilder: { channel in
                     AmxBackend.bridgeAttachCommand(
                         for: terminalSessionID,
-                        status: status,
+                        status: statusChannel,
                         remote: remote,
                         stateFilePath: channel.stateFilePath,
                         helperPath: helperPath
                     )
                 }
             )
-            let outcome = await preflight.attach(request)
-            self.finishBridgePreflight(outcome: outcome, baseCommand: baseCommand, controlPath: controlPath, remote: remote, expectedTerminalSessionID: terminalSessionID)
+            let outcome = await dependencies.attach(preflight, request)
+            guard let self else {
+                if case .ready(let channel, _) = outcome {
+                    await runtime.discardCommittedBridgeGeneration(
+                        session: terminalSessionID,
+                        channel: channel,
+                        controlPath: controlPath,
+                        remote: remote
+                    )
+                    await dependencies.acknowledgeReady(preflight, channel.token)
+                }
+                return
+            }
+            await self.finishBridgePreflight(
+                outcome: outcome,
+                baseCommand: baseCommand,
+                controlPath: controlPath,
+                remote: remote,
+                expectedTerminalSessionID: terminalSessionID,
+                expectedPaneID: expectedPaneID,
+                expectedWorkspaceSessionID: expectedWorkspaceSessionID,
+                generation: generation,
+                preflight: preflight,
+                acknowledgeReady: dependencies.acknowledgeReady
+            )
         }
+        lifecycleState.bridgePreflightTask = task
+    }
+
+    @discardableResult
+    func invalidateBridgePreflight() -> Bool {
+        guard
+            lifecycleState.bridgePreflightTask != nil
+                || commandBridgeEnactor.bridgePreflightInFlight
+        else {
+            return false
+        }
+        lifecycleState.bridgePreflightGeneration &+= 1
+        lifecycleState.bridgePreflightTask?.cancel()
+        lifecycleState.bridgePreflightTask = nil
+        commandBridgeEnactor.bridgePreflightInFlight = false
+        return true
     }
 
     /// Per-host single-flight cache of the resolved remote `$HOME`, keyed by ssh
@@ -419,23 +504,41 @@ extension GhosttySurfaceNSView {
         baseCommand: String,
         controlPath: String,
         remote: RemoteTarget,
-        expectedTerminalSessionID: TerminalSessionID
-    ) {
+        expectedTerminalSessionID: TerminalSessionID,
+        expectedPaneID: TerminalPane.ID,
+        expectedWorkspaceSessionID: TerminalSession.ID,
+        generation: UInt64,
+        preflight: BridgeAttachPreflight,
+        acknowledgeReady: @MainActor (BridgeAttachPreflight, String) async -> Void
+    ) async {
         // Keep `bridgePreflightInFlight` true until this method returns so a
         // published live-coordinator Observation cannot re-enter
         // `createSurfaceIfNeeded` while `surface` is still nil (review R-4).
-        defer { commandBridgeEnactor.bridgePreflightInFlight = false }
+        defer {
+            if lifecycleState.bridgePreflightGeneration == generation {
+                lifecycleState.bridgePreflightTask = nil
+                commandBridgeEnactor.bridgePreflightInFlight = false
+            }
+        }
 
         // The view may have been re-pointed to a DIFFERENT terminal session while
         // the preflight ran (`update` → `handleSessionRepoint`) — a result minted
         // for the old session must never spawn its stale attach command into the
         // repointed pane, nor register under the new key. The pane may also have
-        // genuinely CLOSED: the Task's strong `self` keeps a discarded view alive
-        // through the ssh round trips, so `surface == nil` alone reads creatable —
-        // the runtime-cache identity check is what tells "waiting to spawn" from
-        // "already evicted". Plus the ordinary entry guards.
-        let stale = pane.terminalSessionID != expectedTerminalSessionID
-        let canCreate = surface == nil
+        // genuinely CLOSED: the task deliberately holds only a weak view reference,
+        // so the runtime-cache identity check distinguishes "waiting to spawn"
+        // from an evicted view that is still reaching its completion boundary.
+        // Plus the ordinary entry guards.
+        let stale =
+            lifecycleState.bridgePreflightGeneration != generation
+            || paneID != expectedPaneID
+            || sessionID != expectedWorkspaceSessionID
+            || pane.terminalSessionID != expectedTerminalSessionID
+            || pane.executionPlan.remoteTarget != remote
+            || !runtime.isCommandBridgeEnabled
+            || !runtime.isBridgeChromeEnabled
+        let canCreate =
+            surface == nil
             && runtime.isReady
             && runtime.cachedSurfaceView(for: paneID) === self
             && !commandBridgeEnactor.exitResolutionPending
@@ -446,28 +549,19 @@ extension GhosttySurfaceNSView {
             if case .ready(let channel, _)? = outcome {
                 // A COMMITTED generation (forward up, state file published, trio
                 // staged) whose pane is gone must be torn down through the
-                // registry, never just dropped — register-then-teardown reuses
-                // the exact-path cancel/rm/shutdown, and `ifToken` protects a
-                // successor that raced in (review finding: the orphaned-forward
-                // window between readiness commit and registration).
-                runtime.discardCommittedBridgeGeneration(
+                // registry, never just dropped. The discard path consumes this
+                // generation's exact channel and staged shutdown without replacing
+                // a successor already registered for the same session.
+                await runtime.discardCommittedBridgeGeneration(
                     session: expectedTerminalSessionID,
                     channel: channel,
                     controlPath: controlPath,
                     remote: remote
                 )
+                await acknowledgeReady(preflight, channel.token)
             }
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-stale")
             return
-        }
-
-        if case .ready(let channel, _)? = outcome {
-            runtime.promoteBridgeGeneration(
-                session: expectedTerminalSessionID,
-                channel: channel,
-                controlPath: controlPath,
-                remote: remote
-            )
         }
 
         guard let outcome else {
@@ -480,6 +574,26 @@ extension GhosttySurfaceNSView {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-cancelled")
             return
         }
+        if case .ready(let channel, _) = outcome {
+            logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-ready")
+            if finishSurfaceCreation(command: command) {
+                runtime.promoteBridgeGeneration(
+                    session: expectedTerminalSessionID,
+                    channel: channel,
+                    controlPath: controlPath,
+                    remote: remote
+                )
+            } else {
+                await runtime.discardCommittedBridgeGeneration(
+                    session: expectedTerminalSessionID,
+                    channel: channel,
+                    controlPath: controlPath,
+                    remote: remote
+                )
+            }
+            await acknowledgeReady(preflight, channel.token)
+            return
+        }
         // Distinct breadcrumbs per outcome: a degraded attach also proceeds to
         // spawn (fail-open), and logging it as "-ready" cost a live-smoke
         // debugging session a half hour chasing a phantom post-publish
@@ -489,13 +603,12 @@ extension GhosttySurfaceNSView {
             logSurfaceGeometryDiagnostics(
                 event: "surface-create-bridge-preflight-degraded-\(reason)"
             )
-        } else {
-            logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-ready")
         }
         finishSurfaceCreation(command: command)
     }
 
     func clearCommandBridgeStateForLocalShellFallback() {
+        invalidateBridgePreflight()
         commandBridgeEnactor.clearStateForLocalShellFallback()
     }
 
@@ -519,8 +632,9 @@ extension GhosttySurfaceNSView {
         }
 
         guard surface != nil,
-              size.width > 0,
-              size.height > 0 else {
+            size.width > 0,
+            size.height > 0
+        else {
             return
         }
 
@@ -565,7 +679,8 @@ extension GhosttySurfaceNSView {
 
     func applySurfaceBackingState(_ state: SurfaceBackingState) {
         guard lifecycleState.lastAppliedSurfaceBackingState != state,
-              let surface else {
+            let surface
+        else {
             return
         }
 
@@ -632,9 +747,10 @@ extension GhosttySurfaceNSView {
 
     func scheduleSurfaceCreationIfNeeded() {
         guard surface == nil,
-              runtime.isReady,
-              contentSize.width > 0,
-              contentSize.height > 0 else {
+            runtime.isReady,
+            contentSize.width > 0,
+            contentSize.height > 0
+        else {
             return
         }
 
@@ -736,14 +852,16 @@ extension GhosttySurfaceNSView {
     }
 
     func applyTerminalBackstopBackgroundColor() {
-        layer?.backgroundColor = TerminalBackstopBackground
+        layer?.backgroundColor =
+            TerminalBackstopBackground
             .color(for: runtime.resolvedTerminalBackgroundHex())?
             .cgColor
     }
 
     func resetLayerAfterNativeSurfaceTeardown() {
         let replacementLayer = CALayer()
-        replacementLayer.contentsScale = window?.screen?.backingScaleFactor
+        replacementLayer.contentsScale =
+            window?.screen?.backingScaleFactor
             ?? window?.backingScaleFactor
             ?? layer?.contentsScale
             ?? NSScreen.main?.backingScaleFactor
@@ -763,7 +881,8 @@ extension GhosttySurfaceNSView {
 
     func logNativeSurfaceSizeDiagnostics(event: String) {
         guard Self.terminalDiagnosticsEnabled,
-              let surface else {
+            let surface
+        else {
             return
         }
 
@@ -789,9 +908,9 @@ extension GhosttySurfaceNSView {
         let geometryFields: String
         if let geometry {
             geometryFields = """
-            backing_px=\(geometry.width)x\(geometry.height) \
-            backing_scale=\(GhosttySurfaceDiagnosticsFormat.coordinateDescription(geometry.scale))
-            """
+                backing_px=\(geometry.width)x\(geometry.height) \
+                backing_scale=\(GhosttySurfaceDiagnosticsFormat.coordinateDescription(geometry.scale))
+                """
         } else {
             geometryFields = "backing_px=unset backing_scale=unset"
         }
