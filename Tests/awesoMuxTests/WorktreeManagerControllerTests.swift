@@ -11,10 +11,12 @@ struct WorktreeManagerControllerTests {
     func visibilityContract() async {
         _ = NSApplication.shared
         let model = makeModel(service: CountingWorktreeListing())
-        let controller = WorktreeManagerController()
+        var presentationCount = 0
+        let controller = makeController { _ in presentationCount += 1 }
 
         controller.show(model: model, relativeTo: nil)
         #expect(controller.isVisible)
+        #expect(presentationCount == 1)
 
         controller.dismiss()
         #expect(!controller.isVisible)
@@ -22,8 +24,10 @@ struct WorktreeManagerControllerTests {
 
         controller.toggle(model: model, relativeTo: nil)
         #expect(controller.isVisible)
+        #expect(presentationCount == 2)
         controller.toggle(model: model, relativeTo: nil)
         #expect(!controller.isVisible)
+        #expect(presentationCount == 2)
     }
 
     @Test("show performs one refresh and starts no polling timer")
@@ -31,7 +35,7 @@ struct WorktreeManagerControllerTests {
         _ = NSApplication.shared
         let service = CountingWorktreeListing()
         let model = makeModel(service: service)
-        let controller = WorktreeManagerController()
+        let controller = makeController()
 
         controller.show(model: model, relativeTo: nil)
         await controller.waitForPendingRefresh()
@@ -51,7 +55,7 @@ struct WorktreeManagerControllerTests {
         let modelA = makeModel(service: serviceA)
         let serviceB = CountingWorktreeListing()
         let modelB = makeModel(service: serviceB)
-        let controller = WorktreeManagerController()
+        let controller = makeController()
 
         controller.show(model: modelA, relativeTo: nil)
         // Block until A's refresh has genuinely entered `list(...)` and is
@@ -83,7 +87,7 @@ struct WorktreeManagerControllerTests {
     func presentingCreateFormSetsPendingFlag() async {
         _ = NSApplication.shared
         let model = makeModel(service: CountingWorktreeListing())
-        let controller = WorktreeManagerController()
+        let controller = makeController()
 
         #expect(!model.pendingCreatePresentation)
         controller.show(model: model, relativeTo: nil, presentingCreateForm: true)
@@ -105,6 +109,12 @@ struct WorktreeManagerControllerTests {
             focus: { _ in },
             addLocalSession: { _, _, _ in nil }
         )
+    }
+
+    private func makeController(
+        presentPanel: @escaping @MainActor (FloatingSwiftUIPanelWindow) -> Void = { _ in }
+    ) -> WorktreeManagerController {
+        WorktreeManagerController(presentPanel: presentPanel)
     }
 }
 
