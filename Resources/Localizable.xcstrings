@@ -1856,14 +1856,14 @@
     "Open URL anyway" : {
       "comment" : "VoiceOver label for the destructive Open button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Open' so a user who tabs to the button still has context."
     },
+    "Open URL with an unverified host?" : {
+      "comment" : "OSC 8 dialog title segment when the URL's host mixes confusable scripts or has undecodable punycode."
+    },
     "Open URL with embedded login info?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL has a `user@host` prefix that may disguise the real host."
     },
     "Open URL with hidden characters?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL path contains bidi-override / zero-width / control codepoints."
-    },
-    "Open URL with non-Latin host?" : {
-      "comment" : "OSC 8 confirmation dialog title segment when the URL's host contains non-ASCII characters."
     },
     "Open URL with non-standard scheme?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL's scheme is outside http/https/mailto."
@@ -3057,8 +3057,8 @@
     "This URL uses a scheme outside the standard web/mail allowlist." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a non-standard scheme."
     },
-    "This URL's host contains non-Latin characters." : {
-      "comment" : "Fallback body line when host accessors are unavailable but the URL was flagged as non-ASCII."
+    "This URL's host could not be verified." : {
+      "comment" : "Fallback body line when host accessors are unavailable but the URL's host was flagged as suspicious."
     },
     "This URL's path contains invisible or direction-flipping characters that may disguise the file extension or target." : {
       "comment" : "Body of the OSC 8 confirmation dialog for a URL whose path contains bidi-override, zero-width, or control codepoints."
