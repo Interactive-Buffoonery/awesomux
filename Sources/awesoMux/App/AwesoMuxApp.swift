@@ -103,6 +103,9 @@ struct AwesoMuxApp: App {
     @State private var openWindowAction: OpenWindowAction?
     @State private var terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache
     @State private var appSettingsStore: AppSettingsStore
+    @State private var analyticsEventLog: AnalyticsEventLogStore
+    @State private var analyticsClient: LocalAnalyticsClient
+    @State private var settingsNavigator = SettingsNavigator()
     @State private var customCommandStore = CustomCommandStore()
     @State private var isCloseConfirmAlertPresented = false
     @State private var sidebarPresentationCommandMailbox = SidebarPresentationCommandMailbox()
@@ -134,7 +137,7 @@ struct AwesoMuxApp: App {
     }
 
     init() {
-        _ = AwesoMuxApplication.shared
+        _ = AwesoMuxApplication.installAsSharedApplicationIfNeeded()
         DesignSystemFonts.registerBundledFonts()
 
         // Ghostty snapshots the process environment when it builds each PTY's
@@ -200,6 +203,17 @@ struct AwesoMuxApp: App {
             loadResult = SessionPersistence.LoadResult(store: store, recoveryWarning: nil)
         }
         _appSettingsStore = State(initialValue: appSettingsStore)
+        let analyticsEventLog = AnalyticsEventLogStore(
+            rootDirectoryURL: runtimeProfile.supportDirectoryURL,
+            retainToDisk: { appSettingsStore.analytics.value.retainLocalEventLog }
+        )
+        _analyticsEventLog = State(initialValue: analyticsEventLog)
+        _analyticsClient = State(
+            initialValue: LocalAnalyticsClient(
+                logStore: analyticsEventLog,
+                consent: { appSettingsStore.analytics.value.consentLevel }
+            )
+        )
         _sessionStore = State(initialValue: loadResult.store)
         if let warning = loadResult.recoveryWarning {
             switch warning.kind {
@@ -489,6 +503,12 @@ struct AwesoMuxApp: App {
             }
             .onChange(of: appSettingsStore.general.value.showMenuBarMiniStatus) { _, _ in
                 appDelegate.syncMenuBarMiniStatusItem()
+            }
+            .onChange(of: appSettingsStore.analytics.value.consentLevel, initial: true) { _, level in
+                analyticsClient.reconcileConsent(level: level)
+            }
+            .onChange(of: appSettingsStore.analytics.value.retainLocalEventLog, initial: true) {
+                analyticsEventLog.reconcileRetention()
             }
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
                 appDelegate.evaluateAndPostNotifications()
@@ -962,6 +982,15 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextWorkspace))
                 .disabled(!canRunWorkspaceShortcut(hasTarget: hasMultipleSessions))
 
+                if let shortcutDiagnosticsURL = ShortcutDiagnostics.fileURL {
+                    Divider()
+
+                    Button("Copy Shortcut Diagnostics Path") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(shortcutDiagnosticsURL.path, forType: .string)
+                    }
+                }
+
                 #if DEBUG
                     Divider()
 
@@ -1017,6 +1046,9 @@ struct AwesoMuxApp: App {
                 // Notifications pane reads/writes per-workspace mute (INT-598).
                 .environment(sessionStore)
                 .environment(diagnosticsModel)
+                .environment(analyticsEventLog)
+                .environment(analyticsClient)
+                .environment(settingsNavigator)
                 .appearanceBridge(appSettingsStore)
         }
         .defaultSize(AwSettings.preferredWindowSize)

@@ -119,10 +119,7 @@ struct ExecutionIdentityTests {
             withJSONObject: legacyJSON
         )
 
-        let decoded = try JSONDecoder().decode(
-            SessionSnapshot.self,
-            from: legacyData
-        )
+        let decoded = try SessionSnapshot.decode(from: legacyData)
         let restored = SessionStore(restoring: decoded).selectedSession?.activePane
         let expected =
             groupRemote.map { PaneExecutionPlan.ssh(SSHExecution(target: $0)) }
@@ -148,8 +145,7 @@ struct ExecutionIdentityTests {
         )
         json["schemaVersion"] = 1
 
-        let decoded = try JSONDecoder().decode(
-            SessionSnapshot.self,
+        let decoded = try SessionSnapshot.decode(
             from: JSONSerialization.data(withJSONObject: json)
         )
         let restored = SessionStore(restoring: decoded).selectedSession?.activePane
@@ -177,7 +173,7 @@ struct ExecutionIdentityTests {
             withJSONObject: replacingExecutionPlans(in: encoded, with: NSNull())
         )
 
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
         let restored = SessionStore(restoring: decoded).selectedSession?.activePane
 
         #expect(restored?.executionPlan == .ssh(SSHExecution(target: target)))
@@ -205,7 +201,7 @@ struct ExecutionIdentityTests {
         let activeData = try JSONSerialization.data(withJSONObject: activeJSON)
 
         #expect(throws: (any Error).self) {
-            try JSONDecoder().decode(SessionSnapshot.self, from: activeData)
+            try SessionSnapshot.decode(from: activeData)
         }
 
         var rowJSON = try #require(
@@ -213,8 +209,7 @@ struct ExecutionIdentityTests {
                 with: JSONEncoder().encode(snapshot)
             ) as? [String: Any])
         rowJSON["recentlyClosed"] = [["layout": ["pane": ["executionPlan": malformedPlan]]]]
-        let decoded = try JSONDecoder().decode(
-            SessionSnapshot.self,
+        let decoded = try SessionSnapshot.decode(
             from: JSONSerialization.data(withJSONObject: rowJSON)
         )
         #expect(decoded.groups.count == 1)
