@@ -40,6 +40,7 @@ struct SidebarPinnedSectionView: View {
     let onDragEnded: () -> Void
     let onDragExited: () -> Void
     let focusedRowTarget: FocusState<SidebarVisibleRowTarget?>.Binding
+    let focusedSearchSessionID: TerminalSession.ID?
     @Binding var isKeyboardNavigating: Bool
 
     @State private var rowFrames: [TerminalSession.ID: CGRect] = [:]
@@ -216,6 +217,7 @@ struct SidebarPinnedSectionView: View {
             isActive: session.id == selectedSessionID,
             displayMode: displayMode,
             isKeyboardFocused: focusedRowTarget.wrappedValue == .session(session.id),
+            showsSearchFocusCue: focusedSearchSessionID == session.id,
             jumpIndex: jumpIndexBySessionID[session.id],
             hasBackgroundedFloatingWork:
                 workspacesWithBackgroundedFloatingWork.contains(session.id),
@@ -258,5 +260,6 @@ struct SidebarPinnedSectionView: View {
         // unrelated row's store publish reconstructs this tile with
         // identical rendered inputs — see `SidebarSessionTile.RenderKey`.
         .equatable()
+        .id(session.id)
     }
 }

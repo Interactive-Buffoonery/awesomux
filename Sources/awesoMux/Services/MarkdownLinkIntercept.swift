@@ -155,20 +155,38 @@ enum MarkdownLinkIntercept {
     /// need the cwd. Keeping this pure lets the handler skip the MainActor hop
     /// and amx round-trip for every payload the resolver would reject anyway.
     static func isRelativeDocumentCandidate(_ value: String) -> Bool {
-        // `let parsed`, not `URL(string:)?.scheme == nil`: a nil parse would
-        // make the optional-chained form pass, but `OpenURLAction.resolve`'s
-        // canary guard rejects unparseable payloads, and this gate must agree.
-        let value = strippingTrailingSentencePunctuation(value)
-        let payload = documentPathPayload(from: value)
-        guard !value.isEmpty,
-              let parsed = URL(string: value), parsed.scheme == nil,
-              !value.hasPrefix("/"),
-              !value.hasPrefix("~"),
-              DocumentURLValidator.allowedExtensions.contains((payload.path as NSString).pathExtension.lowercased()),
-              !containsUnsafePathScalars(payload.path) else {
-            return false
+        relativeDocumentCandidatePath(value) != nil
+    }
+
+    /// Same gate as `isRelativeDocumentCandidate`, returning the stripped
+    /// path so callers that also need it for display (the recent-link palette
+    /// preview) don't re-derive it and risk drifting from this check.
+    static func relativeDocumentCandidatePath(_ value: String) -> String? {
+        let path = documentCandidatePath(from: value)
+        // Parse the line-suffix-stripped `path`, not the raw `value`:
+        // Foundation's `URL` parser treats a bare top-level `README.md:12`
+        // as scheme `README.md` (colon before the first `/`), which would
+        // wrongly reject a plain same-directory `file:line` reference — the
+        // exact link shape compiler/agent output produces.
+        guard !path.isEmpty,
+            let parsed = URL(string: path), parsed.scheme == nil,
+            !path.hasPrefix("/"),
+            !path.hasPrefix("~"),
+            DocumentURLValidator.allowedExtensions.contains((path as NSString).pathExtension.lowercased()),
+            !containsUnsafePathScalars(path)
+        else {
+            return nil
         }
-        return true
+        return path
+    }
+
+    /// Removes terminal-link decoration that identifies a location within a
+    /// document rather than part of its filesystem path. Remote and local
+    /// routing must share this step before URL scheme detection so a bare
+    /// `README.md:12` is not misclassified as scheme `README.md`.
+    static func documentCandidatePath(from value: String) -> String {
+        let value = strippingTrailingSentencePunctuation(value)
+        return documentPathPayload(from: value).path
     }
 
     /// libghostty's bare-path regex (`rooted_or_relative_path_branch` /

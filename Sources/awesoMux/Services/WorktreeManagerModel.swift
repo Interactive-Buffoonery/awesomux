@@ -1,0 +1,309 @@
+import AwesoMuxCore
+import Foundation
+import Observation
+
+struct WorktreeManagerRow: Identifiable, Equatable, Sendable {
+    var record: GitWorktreeRecord
+    var liveMatch: WorktreeWorkspaceMatch?
+
+    var id: URL { record.canonicalPath }
+
+    var workspaceTitle: String {
+        record.isDetached ? record.canonicalPath.lastPathComponent : record.displayBranch
+    }
+}
+
+enum WorktreeManagerState: Equatable, Sendable {
+    case loading
+    case loaded([WorktreeManagerRow])
+    case error(lastGoodRows: [WorktreeManagerRow], message: String)
+
+    var rows: [WorktreeManagerRow] {
+        switch self {
+        case .loading: []
+        case .loaded(let rows): rows
+        case .error(let rows, _): rows
+        }
+    }
+}
+
+enum WorktreeManagerOpenOutcome: Equatable, Sendable {
+    case focused(WorktreeWorkspaceMatch)
+    case created(TerminalSession.ID)
+    case failed(String)
+}
+
+enum WorktreeManagerCreateResult: Equatable, Sendable {
+    case opened(WorktreeManagerOpenOutcome)
+    case worktreeCreatedWorkspaceOpenFailed(String)
+    case branchCreatedWithoutWorktree(String)
+    case failed(String)
+}
+
+enum WorktreeManagerCreateSubmissionState: Equatable, Sendable {
+    case idle
+    case submitting
+    case result(WorktreeManagerCreateResult)
+
+    var isSubmitting: Bool { self == .submitting }
+}
+
+@MainActor
+@Observable
+final class WorktreeManagerModel {
+    let repositoryContext: GitRepositoryContext
+    private(set) var state: WorktreeManagerState = .loading
+    private(set) var createSubmissionState: WorktreeManagerCreateSubmissionState = .idle
+    private(set) var lastCreateRequest: GitWorktreeCreateRequest?
+    /// Set by the controller to jump straight into the create flow (the
+    /// palette's "Create Worktree…" command) instead of just opening the
+    /// panel. The panel's `.task(id:)` observes this, presents the sheet, and
+    /// clears it back to `false` — a `.task(id:)` (not `.onChange`) so it
+    /// still fires when the flag is already `true` on first mount, not only
+    /// on a later flip.
+    var pendingCreatePresentation = false
+    /// Injected by the controller so refresh/create state changes are spoken
+    /// against the hosting panel — announcements on a non-key window are
+    /// otherwise silently dropped (see `SessionManagerController`, same shape).
+    @ObservationIgnored var announce: (String) -> Void = { _ in }
+
+    @ObservationIgnored private let service: any GitWorktreeManaging
+    @ObservationIgnored private let projection: WorktreeWorkspaceProjection
+    @ObservationIgnored private let groups: () -> [SessionGroup]
+    @ObservationIgnored private let currentGroupID: () -> SessionGroup.ID?
+    @ObservationIgnored private let focus: (WorktreeWorkspaceMatch) -> Void
+    @ObservationIgnored private let addLocalSession: (String?, String, SessionGroup.ID) -> TerminalSession.ID?
+    // Refresh is triggered from several uncoordinated places (open, manual
+    // Refresh, post-create) with no cancellation between them; a slower older
+    // call finishing after a faster newer one must not stomp its result.
+    @ObservationIgnored private var refreshGeneration = 0
+
+    init(
+        repositoryContext: GitRepositoryContext,
+        service: any GitWorktreeManaging = GitWorktreeService(),
+        projection: WorktreeWorkspaceProjection = WorktreeWorkspaceProjection(),
+        groups: @escaping () -> [SessionGroup],
+        currentGroupID: @escaping () -> SessionGroup.ID?,
+        focus: @escaping (WorktreeWorkspaceMatch) -> Void,
+        addLocalSession: @escaping (String?, String, SessionGroup.ID) -> TerminalSession.ID?
+    ) {
+        self.repositoryContext = repositoryContext
+        self.service = service
+        self.projection = projection
+        self.groups = groups
+        self.currentGroupID = currentGroupID
+        self.focus = focus
+        self.addLocalSession = addLocalSession
+    }
+
+    convenience init(
+        repositoryContext: GitRepositoryContext,
+        service: any GitWorktreeManaging = GitWorktreeService(),
+        sessionStore: SessionStore
+    ) {
+        self.init(
+            repositoryContext: repositoryContext,
+            service: service,
+            groups: { sessionStore.groups },
+            currentGroupID: {
+                guard let selectedID = sessionStore.selectedSessionID else { return nil }
+                return sessionStore.groups.first { group in
+                    group.sessions.contains { $0.id == selectedID }
+                }?.id
+            },
+            focus: { match in
+                sessionStore.selectedSessionID = match.sessionID
+                sessionStore.setActivePane(id: match.paneID, in: match.sessionID)
+            },
+            addLocalSession: { title, workingDirectory, groupID in
+                sessionStore.addLocalSession(
+                    title: title,
+                    workingDirectory: workingDirectory,
+                    toGroupID: groupID
+                )
+            }
+        )
+    }
+
+    func refresh() async {
+        if state.rows.isEmpty {
+            state = .loading
+        }
+        let previousRows = state.rows
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        let outcome = await service.list(in: repositoryContext)
+        // A newer refresh (manual, post-create, or another `.task(id:)` fire)
+        // started and possibly already finished while this one awaited —
+        // never let a stale response overwrite a fresher one. Cancellation is
+        // cooperative, so a controller-level `refreshTask?.cancel()` (e.g. a
+        // rapid dismiss-then-show reusing the same panel for a different
+        // model) doesn't stop this `await` on its own — check it explicitly
+        // so a cancelled call never mutates state or announces against
+        // whatever the panel is showing now.
+        guard generation == refreshGeneration, !Task.isCancelled else { return }
+
+        switch outcome {
+        case .success(let result):
+            let liveGroups = groups()
+            state = .loaded(
+                result.records.map { record in
+                    WorktreeManagerRow(
+                        record: record,
+                        liveMatch: projection.match(
+                            canonicalWorktreePath: record.canonicalPath,
+                            groups: liveGroups
+                        )
+                    )
+                })
+        case .repositoryChanged:
+            let message = String(
+                localized: "The Git repository changed. Reopen Worktree Manager from the active workspace.",
+                comment: "Worktree Manager refresh error when the captured repository is no longer current."
+            )
+            state = .error(lastGoodRows: previousRows, message: message)
+            announce(message)
+        case .failure:
+            let message = String(
+                localized: "Couldn’t refresh worktrees. Check Git and try again.",
+                comment: "Worktree Manager refresh error when the Git command fails."
+            )
+            state = .error(lastGoodRows: previousRows, message: message)
+            announce(message)
+        }
+    }
+
+    func open(row: WorktreeManagerRow) async -> WorktreeManagerOpenOutcome {
+        await open(record: row.record)
+    }
+
+    func branches() async -> GitWorktreeBranchesOutcome {
+        await service.branches(in: repositoryContext)
+    }
+
+    var destinationWorkspaceGroupID: SessionGroup.ID? { currentGroupID() }
+
+    func validateNewBranchName(_ name: String) async -> Bool {
+        if case .valid = await service.validateNewBranchName(name, in: repositoryContext) {
+            return true
+        }
+        return false
+    }
+
+    @discardableResult
+    func create(request: GitWorktreeCreateRequest) async -> WorktreeManagerCreateResult? {
+        guard !createSubmissionState.isSubmitting else { return nil }
+        lastCreateRequest = request
+        createSubmissionState = .submitting
+        let outcome = await service.create(request)
+        await refresh()
+
+        let result: WorktreeManagerCreateResult
+        switch outcome {
+        case .success(let record):
+            let openOutcome = await open(record: record, destinationGroupID: request.destinationWorkspaceGroupID)
+            if case .failed(let message) = openOutcome {
+                result = .worktreeCreatedWorkspaceOpenFailed(message)
+            } else {
+                result = .opened(openOutcome)
+            }
+        case .branchCreatedWithoutWorktree(let branchName, _):
+            result = .branchCreatedWithoutWorktree(branchName)
+        case .failure(let diagnostic):
+            // `.invalidRequest([.invalidBranchName])` is the one failure the
+            // typed-outcome refactor exists to distinguish from a generic
+            // Git failure — collapsing it back to the catch-all message
+            // below would silently undo that (INT-857 review).
+            if case .invalidRequest(let issues) = diagnostic, issues.contains(.invalidBranchName) {
+                result = .failed(
+                    String(
+                        localized: "Enter a valid branch name.",
+                        comment: "Worktree creation failure message for an invalid branch name."))
+            } else {
+                result = .failed(
+                    String(
+                        localized: "Couldn’t create the worktree. Check the path and Git details, then try again.",
+                        comment: "Worktree creation failure message."))
+            }
+        }
+        createSubmissionState = .result(result)
+        announce(announcement(for: result))
+        return result
+    }
+
+    private func announcement(for result: WorktreeManagerCreateResult) -> String {
+        switch result {
+        case .opened:
+            String(localized: "Worktree created and opened.", comment: "Successful worktree create announcement.")
+        case .worktreeCreatedWorkspaceOpenFailed:
+            String(
+                localized: "Worktree created; workspace could not be opened.",
+                comment: "Worktree created but workspace open failed announcement.")
+        case .branchCreatedWithoutWorktree(let branch):
+            String(
+                localized: "Branch \(branch) was created, but the worktree was not.",
+                comment: "Branch-only partial worktree creation announcement.")
+        case .failed(let message):
+            message
+        }
+    }
+
+    func resetCreateResult() {
+        guard !createSubmissionState.isSubmitting else { return }
+        createSubmissionState = .idle
+    }
+
+    private func open(
+        record: GitWorktreeRecord,
+        destinationGroupID: SessionGroup.ID? = nil
+    ) async -> WorktreeManagerOpenOutcome {
+        switch await service.validateRepositoryIdentity(repositoryContext) {
+        case .valid:
+            break
+        case .changed:
+            let message = String(
+                localized: "The Git repository changed. Reopen Worktree Manager from the active workspace.",
+                comment: "Worktree Manager open error when the captured repository is no longer current."
+            )
+            await refresh()
+            return .failed(message)
+        case .failed:
+            let message = String(
+                localized: "Couldn’t refresh worktrees. Check Git and try again.",
+                comment: "Worktree Manager open error when repository identity validation fails."
+            )
+            await refresh()
+            return .failed(message)
+        }
+
+        if let match = projection.match(
+            canonicalWorktreePath: record.canonicalPath,
+            groups: groups()
+        ) {
+            focus(match)
+            return .focused(match)
+        }
+
+        guard let groupID = destinationGroupID ?? currentGroupID() else {
+            return .failed(
+                String(
+                    localized: "The current workspace group is no longer available.",
+                    comment: "Worktree Manager open failure when its target group disappeared."
+                ))
+        }
+        guard
+            let sessionID = addLocalSession(
+                record.isDetached ? record.canonicalPath.lastPathComponent : record.displayBranch,
+                record.canonicalPath.path,
+                groupID
+            )
+        else {
+            return .failed(
+                String(
+                    localized: "The current workspace group is no longer available.",
+                    comment: "Worktree Manager open failure when its target group disappeared."
+                ))
+        }
+        return .created(sessionID)
+    }
+}

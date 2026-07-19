@@ -1,7 +1,7 @@
 name: Tint contrast
 
 # Cheap pure-Python WCAG gate for sidebar tint/status chrome (F44). Path-filtered
-# so token/sidebar edits still fail on the PR while native Swift CI is disabled.
+# so token/sidebar edits still fail on the PR while native validation is advisory.
 
 on:
   pull_request:
