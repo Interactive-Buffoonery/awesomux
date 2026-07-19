@@ -106,6 +106,7 @@ extension GhosttyRuntime {
         remoteMarkdownRoutingFailurePresenter = {
             presentRemoteMarkdownRoutingFailure(from: $0)
         }
+        isRemoteMarkdownRoutingFailurePresented = false
     }
 
     @MainActor
@@ -126,14 +127,16 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
-            if let snapshot = await recentLinkRemoteSnapshotProvider(reference) {
-                sessionStore.openDocumentPane(
-                    fileURL: snapshot.fileURL,
-                    in: sessionID,
-                    associatedWith: paneID,
-                    remoteResourceIdentity: snapshot.identity
-                )
+            guard let snapshot = await recentLinkRemoteSnapshotProvider(reference) else {
+                remoteMarkdownRoutingFailurePresenter(nil)
+                return
             }
+            sessionStore.openDocumentPane(
+                fileURL: snapshot.fileURL,
+                in: sessionID,
+                associatedWith: paneID,
+                remoteResourceIdentity: snapshot.identity
+            )
             return
         }
 
@@ -275,17 +278,19 @@ extension GhosttyRuntime {
 
         if case .ssh = pane.executionPlan, RemoteMarkdownReference.isPotentialPayload(action.value) {
             guard let reference = RemoteMarkdownReference.make(payload: action.value, pane: pane) else {
-                presentRemoteMarkdownRoutingFailure(from: view)
+                remoteMarkdownRoutingFailurePresenter(view)
                 return
             }
-            if let snapshot = await RemoteMarkdownSnapshotFetcher().fetch(reference) {
-                view.sessionStore.openDocumentPane(
-                    fileURL: snapshot.fileURL,
-                    in: workspaceID,
-                    associatedWith: paneID,
-                    remoteResourceIdentity: snapshot.identity
-                )
+            guard let snapshot = await RemoteMarkdownSnapshotFetcher().fetch(reference) else {
+                remoteMarkdownRoutingFailurePresenter(view)
+                return
             }
+            view.sessionStore.openDocumentPane(
+                fileURL: snapshot.fileURL,
+                in: workspaceID,
+                associatedWith: paneID,
+                remoteResourceIdentity: snapshot.identity
+            )
             return
         }
 
@@ -319,8 +324,18 @@ extension GhosttyRuntime {
         )
     }
 
+    /// Reentry guard mirroring `isURLConfirmAlertPresented`: the recent-link
+    /// palette, OSC 8 clicks, and a stale-tab click-through can all reach
+    /// this presenter in quick succession (e.g. working through a recent-
+    /// links list after a remote host got redeployed), which would
+    /// otherwise stack multiple `NSAlert`s.
+    @MainActor
+    private(set) static var isRemoteMarkdownRoutingFailurePresented = false
+
     @MainActor
     private static func presentRemoteMarkdownRoutingFailure(from view: NSView?) {
+        guard !isRemoteMarkdownRoutingFailurePresented else { return }
+        isRemoteMarkdownRoutingFailurePresented = true
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
@@ -332,8 +347,11 @@ extension GhosttyRuntime {
             comment: "Explanation for rejecting an unsafe or unresolved remote Markdown path"
         )
         if let window = view?.window {
-            alert.beginSheetModal(for: window)
+            alert.beginSheetModal(for: window) { _ in
+                isRemoteMarkdownRoutingFailurePresented = false
+            }
         } else {
+            defer { isRemoteMarkdownRoutingFailurePresented = false }
             alert.runModal()
         }
     }
