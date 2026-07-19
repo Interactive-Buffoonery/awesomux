@@ -55,6 +55,15 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// renders it.
     public var liveTerminalTitle: String?
 
+    /// True while runtime remote observations are attached to this locally
+    /// executing pane. Single definition shared by the managed-SSH clear path
+    /// and the agent-exit probe gate so the two can't drift.
+    public var hasManagedSSHObservation: Bool {
+        executionPlan == .local
+            && (remoteHost != nil || remoteSSHTarget != nil
+                || hasConsumedManagedSSHWorkspaceOffer)
+    }
+
     // Agent state moved down from `TerminalSession` (INT-504): runtime events are
     // already pane-keyed, so the state they mutate belongs to the pane. The
     // session derives a loudest-pane rollup from these — see `SessionAgentRollup`.
@@ -283,6 +292,14 @@ public extension TerminalPane {
     // diffs a `TerminalPane` directly (`ForEach` keys on `id`), so this can't
     // strand a render. Revisit if a view ever takes a `TerminalPane` as an
     // `Equatable` render trigger.
+    //
+    // LIVE EQUATABLE CONSUMER: `SidebarActivityInvalidationKey` (SidebarView)
+    // keys an `.equatable()` render boundary on `[SessionGroup]`, which bottoms
+    // out here. Every field its roster/footer/panel renders (agentKind,
+    // agentExecutionState, attentionReason, title, workingDirectory,
+    // remotePresentationHost via remoteHost) is INCLUDED below. If that panel
+    // ever renders one of the excluded runtime fields, add the field here or
+    // the panel will sit stale behind the boundary.
     //
     // The INT-561 command-bridge fields are excluded too: `terminalSessionID`
     // is durable backend identity that is 1:1 with `id` (a pane never changes

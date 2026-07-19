@@ -241,12 +241,10 @@ extension GhosttySurfaceNSView {
             // into this new surface's first 500ms of life.
             terminalAccessibilityScreenContentsCache.invalidate()
             updateSurfaceDisplayID()
-            // Only start the poll if the window is actually visible; a surface
-            // created while occluded would otherwise spin to no-op until the
-            // first visibility edge. The occlusion/attach handlers start it when
-            // the window appears.
+            // Register only while the window is actually visible. The
+            // occlusion/attach handlers register it when the window appears.
             if windowIsVisible {
-                startVisibleStateSampling()
+                runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
             }
             if command != nil {
                 // Write-only breadcrumb for now: INT-571 removed the preflight
@@ -606,7 +604,7 @@ extension GhosttySurfaceNSView {
         lifecycleState.lastAppliedSurfaceBackingState = nil
         updateSurfaceDisplayID()
         if surface != nil, windowIsVisible {
-            startVisibleStateSampling()
+            runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
         }
     }
 
@@ -955,12 +953,11 @@ extension GhosttySurfaceNSView {
         if isVisible, !wasVisible {
             refreshSurfaceDisplay()
             // Re-pace the display link in case the window returned on a
-            // different screen, and resume the passive sampler (suspended
-            // below while occluded so it isn't waking 4×/sec to no-op).
+            // different screen, and register with the centralized sampler.
             updateSurfaceDisplayID()
-            startVisibleStateSampling()
+            runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
         } else if !isVisible, wasVisible {
-            stopVisibleStateSampling()
+            runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
         }
     }
 
@@ -978,7 +975,7 @@ extension GhosttySurfaceNSView {
         // (idempotently) resume the sampler here too. Backstops the nil-screen
         // case where `windowDidChangeScreen` no-op'd mid-drag.
         updateSurfaceDisplayID()
-        startVisibleStateSampling()
+        runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
     }
 
     @objc func activeSpaceDidChange(_ notification: Notification) {
@@ -992,6 +989,6 @@ extension GhosttySurfaceNSView {
         }
         refreshSurfaceDisplay()
         updateSurfaceDisplayID()
-        startVisibleStateSampling()
+        runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
     }
 }

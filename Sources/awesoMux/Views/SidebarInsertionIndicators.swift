@@ -25,6 +25,22 @@ struct SidebarGroupFramePreferenceKey: PreferenceKey {
     }
 }
 
+/// Keeps the latest preference value without publishing a SwiftUI state change.
+/// A newly-active drag can read this immediately while its gated `@State` cache
+/// catches up, so an unchanged preference value cannot leave the first hover
+/// without geometry.
+final class SidebarDragFrameCache<ID: Hashable> {
+    private var latest: [ID: CGRect] = [:]
+
+    func update(_ frames: [ID: CGRect]) {
+        latest = frames
+    }
+
+    func frames(stored: [ID: CGRect], isDragActive: Bool) -> [ID: CGRect] {
+        isDragActive ? latest : stored
+    }
+}
+
 enum SidebarInsertionResolver {
     static func insertionIndex<ID: Hashable>(
         forDropY y: CGFloat,

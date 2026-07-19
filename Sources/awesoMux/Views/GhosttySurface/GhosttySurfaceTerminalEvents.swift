@@ -21,7 +21,9 @@ extension GhosttySurfaceNSView {
     }
 
     @MainActor
-    private func foregroundProcessLivenessAndSample() -> (
+    private func foregroundProcessLivenessAndSample(
+        includeLibprocSample: Bool = true
+    ) -> (
         liveness: ForegroundProcessLiveness,
         sample: ForegroundProcessSample?
     ) {
@@ -37,7 +39,7 @@ extension GhosttySurfaceNSView {
                 nil
             )
         }
-        let sample = foregroundProcessSample()
+        let sample = foregroundProcessSample(includeLibprocSample: includeLibprocSample)
         guard sample.hasLiveSurface else {
             return (.unsampled, sample)
         }
@@ -82,7 +84,9 @@ extension GhosttySurfaceNSView {
     )
 
     @MainActor
-    private func foregroundProcessSample() -> ForegroundProcessSample {
+    private func foregroundProcessSample(
+        includeLibprocSample: Bool = true
+    ) -> ForegroundProcessSample {
         guard let surface else {
             return ForegroundProcessSample(hasLiveSurface: false)
         }
@@ -91,6 +95,9 @@ extension GhosttySurfaceNSView {
         }
         guard let pid = pid_t(exactly: ghostty_surface_foreground_pid(surface)), pid > 0 else {
             return ForegroundProcessSample(hasLiveSurface: true)
+        }
+        guard includeLibprocSample else {
+            return ForegroundProcessSample(hasLiveSurface: true, pid: pid)
         }
         let comm = ProcessLivenessProbe.foregroundComm(pid: pid)
         let hasChildren: Bool?
@@ -158,7 +165,27 @@ extension GhosttySurfaceNSView {
         // Live store read, not the view's captured pane snapshot: after a
         // reset the snapshot stays non-shell until the next SwiftUI update
         // pass, which would re-probe (and re-announce) every sampler tick.
-        let foregroundProcess = foregroundProcessLivenessAndSample()
+        let livePane = sessionStore.session(id: sessionID)?
+            .layout.pane(id: paneID)
+        let shouldProbe =
+            livePane.map { pane in
+                // The away-from-prompt marker (cheap libghostty read) keeps the
+                // comm fast-path below alive for untagged shells: an agent
+                // launched via an alias or with a TUI that clears its launch
+                // line has no text signature, so the running-command window is
+                // the only signal that there is something worth recognizing.
+                // Idle shells at their prompt still skip libproc entirely.
+                Self.shouldProbeForAgentExit(
+                    agentKind: pane.agentKind,
+                    hasManagedSSHObservation: pane.hasManagedSSHObservation,
+                    hasObservedAgentActivity: terminalEventState.hasObservedAgentActivity,
+                    shellHasForegroundCommand: pane.agentKind == .shell
+                        && (promptMarkerIsAwayFromPrompt() ?? false)
+                )
+            } ?? false
+        let foregroundProcess = foregroundProcessLivenessAndSample(
+            includeLibprocSample: shouldProbe
+        )
         sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
             sessionID: sessionID,
             paneID: paneID,
@@ -203,6 +230,16 @@ extension GhosttySurfaceNSView {
                 executionState: .idle,
                 phase: .sessionEnd
             ))
+    }
+
+    nonisolated static func shouldProbeForAgentExit(
+        agentKind: AgentKind,
+        hasManagedSSHObservation: Bool,
+        hasObservedAgentActivity: Bool,
+        shellHasForegroundCommand: Bool
+    ) -> Bool {
+        agentKind != .shell || hasManagedSSHObservation || hasObservedAgentActivity
+            || shellHasForegroundCommand
     }
 
     @MainActor
@@ -254,7 +291,7 @@ extension GhosttySurfaceNSView {
     // PTY fired at up to 120Hz/pane and forced a redundant main-thread present on
     // top of the renderer thread — starving the main thread and stalling scroll
     // (blank-until-catch-up, SGR-report leak). The passive shell/agent samplers
-    // that used to piggyback on that `draw()` now run on `terminalEventState.visibleStateSamplingTask`.
+    // that used to piggyback on `draw()` now run from one runtime-owned task.
 
     func updateTerminalTitle(_ title: String) {
         sessionStore.updatePane(sessionID: sessionID, paneID: paneID, title: title)
@@ -468,6 +505,7 @@ extension GhosttySurfaceNSView {
     static let visibleTextChangeThrottle: TimeInterval = 0.5
 
     func sampleAgentStateFromVisibleText() {
+        guard surface != nil, windowIsVisible else { return }
         let now = CACurrentMediaTime()
         guard now - terminalEventState.lastAgentDetectionSample >= Self.visibleTextChangeThrottle,
             let visibleText = visibleTerminalText()
