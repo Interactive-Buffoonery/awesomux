@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-05-17
+- **Amended:** 2026-07-18
 - **Deciders:** Sarah
 
 ## Context
@@ -37,10 +38,14 @@ PostHog must be configured for privacy-first macOS use:
 
 - Start opted out unless the user explicitly chooses a non-`off` level.
 - Keep identity anonymous by default; do not call `identify` for normal use.
-- Disable automatic screen/lifecycle capture unless a future allowlist accepts
-  specific events.
-- Keep session replay, screenshots, log capture, terminal content capture, and
-  network telemetry disabled.
+- Submit app-constructed envelopes directly to the fixed US Cloud Capture API;
+  do not add the PostHog SDK while the direct transport meets the requirement.
+- Reject redirects and use no provider-owned persistence or retry queue.
+- Set `$process_person_profile = false` and `$geoip_disable = true` on every
+  request, while retaining the project-side privacy settings in ADR-0008.
+- Keep automatic screen/lifecycle capture, remote config, feature flags,
+  session replay, screenshots, log capture, terminal content capture, and
+  network telemetry absent.
 - Use manual, sanitized error capture for handled app errors.
 - Evaluate automatic crash capture with a spike before relying on it.
 
