@@ -200,6 +200,39 @@ struct DocumentRevisionMonitorTests {
         }
     }
 
+    @Test("manual dismiss resets announcement dedup after a self-write")
+    func manualDismissResetsAnnouncementDedup() async throws {
+        try await withFixture { fixture, monitor, log in
+            let edited = Self.baseContent + "\nexternal"
+            try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
+            let firstRecorded = await awaitCondition(timeout: 3.0) {
+                monitor.indicator(for: fixture.tabB) != nil
+            }
+            #expect(firstRecorded)
+            #expect(log.messages.count == 1)
+
+            monitor.dismiss(for: fixture.tabB)
+            #expect(monitor.indicator(for: fixture.tabB) == nil)
+
+            let selfWritten = Self.baseContent + "\nannotation"
+            monitor.selfWriteContext = { _, onDisk in
+                onDisk == selfWritten
+                    ? MarkdownSelfWriteContext(source: selfWritten, isSelfWrite: true)
+                    : nil
+            }
+            try selfWritten.write(to: fixture.urlB, atomically: true, encoding: .utf8)
+            try await Task.sleep(nanoseconds: 700_000_000)
+            #expect(monitor.indicator(for: fixture.tabB) == nil)
+            #expect(log.messages.count == 1)
+
+            try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
+            let reRecorded = await awaitCondition(timeout: 3.0) {
+                monitor.indicator(for: fixture.tabB) != nil && log.messages.count == 2
+            }
+            #expect(reRecorded)
+        }
+    }
+
     @Test("coalesced self-write and external edit diff from the user's own source")
     func coalescedSelfWriteUsesRegistrySource() async throws {
         try await withFixture { fixture, monitor, _ in

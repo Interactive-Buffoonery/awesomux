@@ -163,6 +163,7 @@ final class DocumentRevisionMonitor {
 
     func dismiss(for tab: DocumentPane) {
         indicators.dismiss(for: tab)
+        lastAnnouncedSource[tab.fileURL.standardizedFileURL.path] = nil
     }
 
     func recordActiveViewingTime(_ duration: Duration, for tab: DocumentPane, generation: Int) {
