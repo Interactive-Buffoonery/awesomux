@@ -135,7 +135,7 @@
       "comment" : "Body of the close-workspace confirmation dialog. Argument is the bidi-isolated workspace title."
     },
     "%arg has activity that will be interrupted. Restarting the shell will terminate the running process." : {
-      "comment" : "Body of the restart-shell confirmation dialog. Argument is the bidi-isolated workspace title."
+      "comment" : "Body of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
     },
     "%arg has activity that will be interrupted. The workspace will be closed permanently and can't be reopened. Its running sessions will be terminated." : {
       "comment" : "Body of the clear-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
@@ -209,6 +209,17 @@
     "%arg — sends your review comments to this document's terminal" : {
       "comment" : "Accessibility label for the document send button"
     },
+    "%arg — unavailable: %arg" : {
+      "comment" : "Accessibility label for the document send button when its target is ineligible",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg — unavailable: %2$arg"
+          }
+        }
+      }
+    },
     "%arg — unavailable: this document's terminal isn't running" : {
       "comment" : "Accessibility label for the send button when its terminal is gone"
     },
@@ -218,6 +229,17 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$arg, %2$arg"
+          }
+        }
+      }
+    },
+    "%arg, %arg, %arg, %arg, %arg, %arg" : {
+      "comment" : "Accessibility label for a worktree row. Includes its action, branch state, branch name, current or linked state, open state, and path.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg, %2$arg, %3$arg, %4$arg, %5$arg, %6$arg"
           }
         }
       }
@@ -271,6 +293,9 @@
         }
       }
     },
+    "%arg:" : {
+
+    },
     "%arg: %arg" : {
       "comment" : "Accessibility label for a compact document revision indicator\nVoiceOver announcement when an external edit revises the visible document",
       "localizations" : {
@@ -290,6 +315,9 @@
     },
     "(empty after sanitizing control characters)" : {
       "comment" : "Clipboard preview fallback when terminal-origin clipboard text contains only unsafe/control characters."
+    },
+    ", resolved" : {
+      "comment" : "Resolved state suffix in an annotation accessibility label"
     },
     "1 hour" : {
       "comment" : "VoiceOver Diagnostics history window"
@@ -320,6 +348,9 @@
     },
     "A command or agent is still running. Closing ends this Terminal Companion session." : {
       "comment" : "Explanation in the confirmation shown before closing a Terminal Companion with running work."
+    },
+    "A file transfer is already in progress" : {
+      "comment" : "Remote handoff busy accessibility status\nRemote handoff busy indication"
     },
     "Accent" : {
       "comment" : "Appearance settings section title"
@@ -353,6 +384,9 @@
     },
     "Add Note" : {
 
+    },
+    "Add a note…" : {
+      "comment" : "Placeholder for a new comment annotation"
     },
     "Adjust background" : {
 
@@ -390,6 +424,9 @@
     "All events" : {
       "comment" : "Diagnostics severity filter"
     },
+    "All pinned" : {
+
+    },
     "Allow" : {
       "comment" : "Button on the OSC 52 clipboard-read confirmation dialog. Allows the terminal program to read the clipboard.\nButton that allows a remote agent's permission request"
     },
@@ -418,7 +455,7 @@
       "comment" : "VoiceOver announcement after deleting an annotation"
     },
     "Annotation intent" : {
-
+      "comment" : "Accessibility label for the annotation intent picker"
     },
     "Annotation reopened" : {
       "comment" : "VoiceOver announcement after reopening an annotation"
@@ -447,10 +484,10 @@
     "Ask before terminal programs read the clipboard" : {
 
     },
-    "Asks before Command-Shift-W or the sidebar close button closes a workspace whose agent or shell is active. Skipped when nothing is at risk. Command-Q (app quit) and Command-W (pane close) have separate prompts." : {
+    "Asks before Command-Shift-W, the sidebar close button, or Command-W on a workspace's last pane closes a workspace whose agent or shell is active. Skipped when nothing is at risk. Command-Q (app quit) has its own prompt. Command-W on any other pane uses the pane-confirmation toggle below." : {
 
     },
-    "Asks before Command-W closes a pane or restarts a single-pane shell whose agent or shell is active. Skipped when nothing is at risk. Workspace close has a separate prompt." : {
+    "Asks before Command-W closes a pane whose agent or shell is active. Skipped when nothing is at risk. Command-W on a workspace's last pane closes the workspace; this toggle also gates that workspace-close prompt, in addition to the toggle above." : {
 
     },
     "Auto-clean up idle background sessions at launch" : {
@@ -491,6 +528,15 @@
     "Bounce Dock icon" : {
 
     },
+    "Branch" : {
+      "comment" : "Accessibility state for a branch worktree.\nExisting local branch picker label."
+    },
+    "Branch %arg was created, but the worktree was not." : {
+      "comment" : "Branch-only partial worktree creation announcement.\nBranch-only partial worktree creation result."
+    },
+    "Branch mode" : {
+      "comment" : "Worktree create branch mode label."
+    },
     "Branches menu" : {
 
     },
@@ -506,11 +552,17 @@
     "CPU" : {
       "comment" : "Diagnostics process table column\nDiagnostics resource metric"
     },
+    "CPU is measured per core: 100% = one fully used core, 200% = two." : {
+      "comment" : "Explanation of CPU percentages in Diagnostics"
+    },
+    "CRT effect" : {
+      "comment" : "Appearance settings section title"
+    },
     "CRT scanlines" : {
-
+      "comment" : "Settings field label for the CRT scanlines toggle"
     },
     "Cancel" : {
-      "comment" : "Button title that cancels choosing an IDE.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
+      "comment" : "Button title that cancels choosing an IDE.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nCancel remote clipboard handoff button\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -557,11 +609,23 @@
     "Checking…" : {
       "comment" : "Settings label while the Open at Login status is being fetched.\nSettings label while the macOS notification permission state is being fetched."
     },
+    "Choose" : {
+      "comment" : "Confirm button for the worktree target path picker."
+    },
     "Choose an IDE for this project." : {
       "comment" : "IDE picker alert explanatory text."
     },
+    "Choose or create the folder for the new worktree." : {
+      "comment" : "Worktree target path picker guidance message."
+    },
+    "Choose or enter a branch name." : {
+      "comment" : "Blank branch validation."
+    },
     "Choose the IDE or editor to open this project." : {
       "comment" : "Accessibility help for the IDE picker popup."
+    },
+    "Choose…" : {
+      "comment" : "Open a folder picker for the worktree target path."
     },
     "Clear %arg?" : {
       "comment" : "Title of the clear-workspace (permanent close) confirmation dialog. Argument is the bidi-isolated workspace title."
@@ -606,7 +670,7 @@
 
     },
     "Close Group" : {
-      "comment" : "Destructive button on the close-group confirmation dialog."
+      "comment" : "Destructive button on the close-group confirmation dialog.\nLabel and help text for controls that close a workspace group."
     },
     "Close Pane" : {
       "comment" : "Destructive button on the close-pane confirmation dialog."
@@ -631,6 +695,9 @@
         }
       }
     },
+    "Close Worktree Manager" : {
+      "comment" : "Accessibility label for the Worktree Manager close button."
+    },
     "Close agent activity panel" : {
       "comment" : "Accessibility label for the agent activity panel's close button"
     },
@@ -644,16 +711,13 @@
 
     },
     "Close group %arg?" : {
-      "comment" : "Title of the close-group confirmation dialog when workspaces in the group have running activity. Argument is the bidi-isolated group name."
+      "comment" : "Title of the close-group confirmation dialog when workspaces in the group have running activity. Argument is the bidi-isolated group name.\nTitle of the confirmation dialog shown when closing a workspace group with remote impact. Argument is the bidi-isolated group name."
     },
     "Close pane cancelled" : {
       "comment" : "VoiceOver announcement after cancelling a close-pane confirmation dialog."
     },
     "Close pane in %arg?" : {
       "comment" : "Title of the close-pane confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
-    },
-    "Close remote group %arg?" : {
-      "comment" : "Title of the confirmation dialog shown when closing a populated workspace group that has a remote SSH target. Argument is the bidi-isolated group name."
     },
     "Closed %arg" : {
       "comment" : "VoiceOver announcement after closing a document tab"
@@ -667,16 +731,16 @@
     "Closed workspace group %arg" : {
       "comment" : "VoiceOver announcement after a workspace group is closed; argument is the group name."
     },
-    "Closing this group also forgets its SSH target." : {
-      "comment" : "Extra line on the close-group confirmation dialog when the group has a remote SSH target that removal would forget."
+    "Closing this group removes its SSH creation default %arg. Its panes are local." : {
+      "comment" : "SSH-default loss line for closing a populated group whose panes are all local."
     },
-    "Closing this group also forgets its SSH target. Sessions on the remote host are not affected." : {
-      "comment" : "Body of the remote-group close confirmation dialog when the group has workspaces but the running-agent risk gate did not fire."
+    "Closing this group terminates local panes and remote panes on %arg." : {
+      "comment" : "Remote-impact line in the close-group confirmation for mixed local and remote panes."
+    },
+    "Closing this group terminates remote panes on %arg." : {
+      "comment" : "Remote-impact line in the close-group confirmation for multiple SSH destinations.\nRemote-impact line in the close-group confirmation for one SSH destination."
     },
     "Collapse/Expand Sidebar" : {
-
-    },
-    "Hide/Show Sidebar" : {
 
     },
     "Collapsed" : {
@@ -729,9 +793,10 @@
       "comment" : "Validation message when the custom command text contains embedded newlines"
     },
     "Comment" : {
-
+      "comment" : "Annotation intent option"
     },
     "Comment %arg%arg" : {
+      "comment" : "Accessibility label for a numbered annotation",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -740,6 +805,9 @@
           }
         }
       }
+    },
+    "Compact mode" : {
+      "comment" : "Settings field label for the sidebar compact mode toggle"
     },
     "Configuration" : {
       "comment" : "Diagnostics event category"
@@ -753,7 +821,7 @@
     "Configure ›" : {
 
     },
-    "Confirm before closing or restarting panes with activity" : {
+    "Confirm before closing panes with activity" : {
 
     },
     "Confirm before closing workspaces with activity" : {
@@ -786,6 +854,9 @@
     "Copy Branch" : {
 
     },
+    "Copy Draft" : {
+      "comment" : "Button to copy a document note draft after a save conflict\nButton to copy a document note editor draft after a save conflict\nButton to copy a new annotation draft after a save conflict\nButton to copy an annotation draft after a save conflict"
+    },
     "Copy Path" : {
 
     },
@@ -797,6 +868,12 @@
     },
     "Copy URL" : {
 
+    },
+    "Copy the draft before closing." : {
+      "comment" : "Document note recovery message when only copying is safe\nNew annotation recovery message when only copying is safe"
+    },
+    "Copy your draft before closing." : {
+      "comment" : "Document note editor recovery message when only copying is safe"
     },
     "Could Not Open in %arg" : {
       "comment" : "Alert title shown when opening a project in the selected IDE fails."
@@ -816,16 +893,38 @@
     "Could not turn on Open at Login. Open System Settings > General > Login Items and allow awesoMux, then try again. %arg" : {
       "comment" : "Error shown when registering awesoMux as a login item fails."
     },
+    "Couldn't send — this document's terminal isn't available" : {
+      "comment" : "VoiceOver announcement when a document has no eligible send target"
+    },
     "Couldn't send — this document's terminal isn't running" : {
       "comment" : "VoiceOver announcement when sending to a document's terminal fails"
+    },
+    "Couldn't verify a local terminal for this document path" : {
+      "comment" : "Unavailable reason for sending a Mac-local document path when foreground process evidence is unavailable"
+    },
+    "Couldn’t connect. The workspace is no longer available." : {
+      "comment" : "Error shown when a managed SSH connection request targets a workspace that no longer exists"
+    },
+    "Couldn’t create the worktree. Check the path and Git details, then try again." : {
+      "comment" : "Worktree creation failure message."
+    },
+    "Couldn’t load local branches." : {
+      "comment" : "Branch loading failure in worktree create form."
+    },
+    "Couldn’t refresh worktrees. Check Git and try again." : {
+      "comment" : "Worktree Manager open error when repository identity validation fails.\nWorktree Manager refresh error when the Git command fails."
     },
     "Count of malformed or oversized runtime event payloads ignored this launch" : {
       "comment" : "VoiceOver hint for Diagnostics malformed-event count"
     },
     "Create" : {
-      "comment" : "Button that creates a remote workspace group"
+      "comment" : "Button that creates a remote workspace group\nCreate worktree accessibility label.\nCreate worktree submit button label."
+    },
+    "Create Worktree…" : {
+      "comment" : "Command palette action that opens Worktree Manager for worktree creation."
     },
     "Create a new workspace" : {
+      "comment" : "Empty workspace primary action help and tooltip.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -860,8 +959,11 @@
     "Creates a managed SSH workspace in “%arg.”\nOpenSSH will use your existing config and credentials." : {
       "comment" : "Explanation in the Connect via SSH sheet"
     },
+    "Creating…" : {
+      "comment" : "Worktree creation in progress accessibility label.\nWorktree creation in progress button label."
+    },
     "Current" : {
-
+      "comment" : "Main worktree indicator."
     },
     "Cursor glow" : {
 
@@ -885,7 +987,7 @@
 
     },
     "Delete" : {
-
+      "comment" : "Annotation intent option"
     },
     "Delete annotation" : {
 
@@ -904,6 +1006,9 @@
     },
     "Destination" : {
 
+    },
+    "Detached" : {
+      "comment" : "Accessibility state for a detached worktree."
     },
     "Diagnostic events" : {
       "comment" : "Diagnostics settings section title"
@@ -979,7 +1084,7 @@
 
     },
     "Document note" : {
-
+      "comment" : "Accessibility label for the document note sheet"
     },
     "Document note added" : {
       "comment" : "VoiceOver announcement after adding the document note"
@@ -996,6 +1101,9 @@
     "Document note updated" : {
       "comment" : "VoiceOver announcement after editing the document note"
     },
+    "Document revised" : {
+      "comment" : "Document revision indicator when exact added and removed line counts were skipped"
+    },
     "Document tabs" : {
       "comment" : "Accessibility label for the document viewer's tab strip"
     },
@@ -1009,6 +1117,12 @@
           }
         }
       }
+    },
+    "Draft copied" : {
+      "comment" : "Draft copy success announcement"
+    },
+    "Draft could not be copied" : {
+      "comment" : "Draft copy failure announcement"
     },
     "Drag to move window · double-click to rename" : {
       "comment" : "Tooltip on the titlebar workspace name explaining its pointer affordances."
@@ -1099,6 +1213,12 @@
     "Executable paths and session metadata may be sensitive. Review screenshots or copied text before sharing them." : {
 
     },
+    "Existing local branch" : {
+      "comment" : "Existing branch create mode."
+    },
+    "Exit SSH to send this local document path" : {
+      "comment" : "Unavailable reason for sending a Mac-local document path while the terminal is inside manual SSH"
+    },
     "Exit status: %arg" : {
 
     },
@@ -1126,6 +1246,9 @@
     "Find in Pane" : {
 
     },
+    "Finish or cancel the annotation before switching or closing document tabs." : {
+      "comment" : "Feedback when a document tab shortcut is blocked by an open annotation draft"
+    },
     "Floating panel has running work in the background" : {
 
     },
@@ -1134,6 +1257,9 @@
     },
     "Floating terminal panel focused." : {
       "comment" : "VoiceOver announcement when the floating panel is re-keyed without workspace context."
+    },
+    "Focus" : {
+      "comment" : "Accessibility action for focusing an open worktree workspace.\nFocus an already-open worktree workspace."
     },
     "Focus Sidebar" : {
 
@@ -1198,6 +1324,9 @@
           }
         }
       }
+    },
+    "Group locations changed" : {
+      "comment" : "Title of the notice shown when a group changes while its close confirmation is open."
     },
     "Group name" : {
 
@@ -1304,7 +1433,7 @@
       "comment" : "CLI agent plugin install record persistence failure warning"
     },
     "Intent" : {
-
+      "comment" : "Label for the annotation intent picker"
     },
     "Interface font" : {
       "comment" : "Accessibility label for the app UI font picker\nSettings field label for the app UI font picker"
@@ -1317,6 +1446,9 @@
     },
     "Issues" : {
       "comment" : "Diagnostics severity filter"
+    },
+    "It also removes the SSH creation default %arg." : {
+      "comment" : "SSH-default loss line appended to a close-group confirmation with active remote panes."
     },
     "It's your turn — %arg is waiting for your next message." : {
       "comment" : "Notification body for turn-done banners. Argument is the agent product name."
@@ -1368,11 +1500,35 @@
     "Loading document" : {
 
     },
+    "Loading worktrees…" : {
+      "comment" : "Worktree Manager loading state."
+    },
+    "Local and remote panes on %arg" : {
+      "comment" : "VoiceOver location summary for a group with local and remote panes."
+    },
+    "Local creation default" : {
+      "comment" : "VoiceOver location summary for an empty local workspace group."
+    },
+    "Local document paths can only be sent to a local terminal" : {
+      "comment" : "Unavailable reason for sending a Mac-local document path to a declared SSH terminal"
+    },
     "Local listener permissions" : {
       "comment" : "Bridge doctor check title"
     },
     "Local only" : {
 
+    },
+    "Local panes" : {
+      "comment" : "VoiceOver location summary for a workspace group containing only local panes."
+    },
+    "Local panes, SSH creation default %arg" : {
+      "comment" : "VoiceOver location summary for local panes in a group that retains an SSH creation default."
+    },
+    "Local · SSH default %arg" : {
+      "comment" : "Location summary for local panes in a group that retains an SSH creation default."
+    },
+    "Locked" : {
+      "comment" : "Locked worktree indicator."
     },
     "MIT" : {
 
@@ -1380,14 +1536,17 @@
     "Make Active Pane Managed…" : {
       "comment" : "Sidebar workspace context-menu and VoiceOver action for converting the selected active ordinary SSH pane"
     },
-    "Make This Workspace Managed…" : {
-      "comment" : "Workspace menu and command palette action for converting the selected ordinary SSH pane"
-    },
     "Make This Workspace Managed?" : {
       "comment" : "Title of the prompt to reconnect an ordinary SSH pane as managed"
     },
+    "Make This Workspace Managed…" : {
+      "comment" : "Workspace menu and command palette action for converting the selected ordinary SSH pane"
+    },
     "Malformed runtime event was ignored" : {
       "comment" : "Diagnostics event summary"
+    },
+    "Manage Worktrees…" : {
+      "comment" : "Command palette action that opens Worktree Manager.\nWorkspace menu action that opens Worktree Manager."
     },
     "Managed SSH requires background terminal sessions." : {
       "comment" : "Explanation on a managed SSH pane blocked because background terminal sessions are disabled"
@@ -1426,6 +1585,9 @@
     },
     "Minimized Terminal Companion" : {
       "comment" : "Accessibility label for the minimized Terminal Companion corner tab window.\nAppKit window title for the minimized Terminal Companion corner tab."
+    },
+    "Mixed locations" : {
+      "comment" : "Location summary for panes running in more than one local or remote location."
     },
     "Mixing Latin with Cyrillic or Greek letters isn't allowed here — use one alphabet." : {
       "comment" : "Validation message when a workspace group name mixes visually confusable alphabets"
@@ -1497,7 +1659,7 @@
 
     },
     "NEW ANNOTATION" : {
-
+      "comment" : "Heading for the new annotation popover"
     },
     "Name" : {
       "comment" : "Diagnostics process table column"
@@ -1526,7 +1688,7 @@
 
     },
     "New Workspace" : {
-      "comment" : "Dock right-click menu item that opens a new workspace.",
+      "comment" : "Dock right-click menu item that opens a new workspace.\nEmpty workspace primary action label.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1571,8 +1733,17 @@
     "New Workspace menu" : {
 
     },
+    "New Worktree" : {
+      "comment" : "Open the create worktree form."
+    },
     "New annotation" : {
-
+      "comment" : "Accessibility label for the new annotation popover"
+    },
+    "New branch from HEAD" : {
+      "comment" : "New branch create mode."
+    },
+    "New branch name" : {
+      "comment" : "New worktree branch name field label."
     },
     "New command" : {
       "comment" : "Settings field label for the add-custom-command button"
@@ -1634,6 +1805,9 @@
     "No workspace overrides" : {
 
     },
+    "No worktrees" : {
+      "comment" : "Worktree Manager empty-state title."
+    },
     "Not Now" : {
       "comment" : "Button: dismiss the wedged terminal event loop alert without acting"
     },
@@ -1662,7 +1836,7 @@
       "comment" : "VoiceOver announcement when the visible document tab changes"
     },
     "OK" : {
-      "comment" : "Button title that dismisses an alert."
+      "comment" : "Button title that dismisses an alert.\nDismiss alert button\nDismiss remote handoff busy indication\nDismiss remote handoff error button"
     },
     "Off" : {
       "comment" : "Settings label when Open at Login is disabled."
@@ -1671,7 +1845,7 @@
       "comment" : "Settings label when Open at Login is enabled."
     },
     "Open" : {
-      "comment" : "Button title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler."
+      "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
     },
     "Open Markdown File…" : {
 
@@ -1682,17 +1856,20 @@
     "Open URL anyway" : {
       "comment" : "VoiceOver label for the destructive Open button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Open' so a user who tabs to the button still has context."
     },
+    "Open URL with an unverified host?" : {
+      "comment" : "OSC 8 dialog title segment when the URL's host mixes confusable scripts or has undecodable punycode."
+    },
     "Open URL with embedded login info?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL has a `user@host` prefix that may disguise the real host."
     },
     "Open URL with hidden characters?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL path contains bidi-override / zero-width / control codepoints."
     },
-    "Open URL with non-Latin host?" : {
-      "comment" : "OSC 8 confirmation dialog title segment when the URL's host contains non-ASCII characters."
-    },
     "Open URL with non-standard scheme?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL's scheme is outside http/https/mailto."
+    },
+    "Open Worktree…" : {
+      "comment" : "Command palette action that opens Worktree Manager for worktree selection."
     },
     "Open at Login" : {
       "comment" : "Settings field and VoiceOver label for controlling whether awesoMux opens when the user logs in."
@@ -1742,6 +1919,9 @@
     "Opens the run in your browser." : {
 
     },
+    "Optional retro overlay on the terminal pane." : {
+      "comment" : "CRT effect section subtitle"
+    },
     "Output" : {
       "comment" : "Agent state label",
       "localizations" : {
@@ -1786,15 +1966,8 @@
     "Pane now runs on %arg." : {
       "comment" : "VoiceOver announcement when the focused pane changes to remote execution"
     },
-    "Pane: %arg%arg" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Pane: %1$arg%2$arg"
-          }
-        }
-      }
+    "Pane: %arg" : {
+      "comment" : "VoiceOver label for a local terminal pane title."
     },
     "Parent folder" : {
 
@@ -1898,6 +2071,15 @@
     "Pinned, from %arg" : {
       "comment" : "VoiceOver value fragment on a pinned sidebar workspace naming its origin group."
     },
+    "Position" : {
+      "comment" : "Settings field label for the sidebar position picker"
+    },
+    "Position, row density, and collapsed-rail behavior." : {
+      "comment" : "Sidebar section subtitle"
+    },
+    "Preparing remote file transfer" : {
+      "comment" : "Remote handoff initial progress status"
+    },
     "Press Command-W or use Minimize to minimize. Use Close to end the terminal." : {
       "comment" : "Accessibility hint on the expanded Terminal Companion window."
     },
@@ -1932,7 +2114,7 @@
       "comment" : "Keyboard hint line on the quit confirmation dialog."
     },
     "Press ⌘Return to remove group. Esc cancels." : {
-      "comment" : "Keyboard hint line on the empty-remote-group removal confirmation dialog."
+      "comment" : "Keyboard hint line on the empty-group removal confirmation dialog."
     },
     "Press ⌘Return to restart shell. Esc cancels." : {
       "comment" : "Keyboard hint line on the restart-shell confirmation dialog."
@@ -1945,12 +2127,6 @@
     },
     "Preview: %arg" : {
       "comment" : "Preview line in the OSC 52 clipboard write confirmation dialog. Argument is a sanitized single-line preview.\nPreview line in the unsafe-paste confirmation dialog. Argument is a sanitized single-line preview of the pending paste content."
-    },
-    "Position" : {
-      "comment" : "Settings field label for the sidebar position picker"
-    },
-    "Position and collapsed-rail behavior." : {
-      "comment" : "Sidebar section subtitle"
     },
     "Previous Document Tab" : {
 
@@ -2077,6 +2253,9 @@
         }
       }
     },
+    "Refresh" : {
+      "comment" : "Refresh Worktree Manager action."
+    },
     "Refresh Markdown files" : {
 
     },
@@ -2101,6 +2280,21 @@
     "Remember approvals per workspace" : {
 
     },
+    "Remote Markdown snapshots are read-only and cannot be sent" : {
+      "comment" : "Unavailable reason for sending a read-only remote Markdown snapshot to an agent"
+    },
+    "Remote file transfer cancelled" : {
+      "comment" : "Remote handoff cancellation accessibility status"
+    },
+    "Remote file transfer complete" : {
+      "comment" : "Remote handoff completion accessibility status"
+    },
+    "Remote file transfer failed" : {
+      "comment" : "Remote handoff transfer error title"
+    },
+    "Remote file transfer is unsupported" : {
+      "comment" : "Remote handoff unsupported error title"
+    },
     "Remote helper" : {
       "comment" : "Bridge doctor check title"
     },
@@ -2110,8 +2304,25 @@
     "Remote pane disconnected from %arg. Background sessions are off." : {
       "comment" : "Accessibility label for a managed SSH pane blocked because background terminal sessions are disabled"
     },
+    "Remote pane on %arg: %arg" : {
+      "comment" : "VoiceOver label for a remote terminal pane, naming the host first and then the title.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Remote pane on %1$arg: %2$arg"
+          }
+        }
+      }
+    },
     "Remote pane reconnecting to %arg" : {
       "comment" : "Accessibility label for the overlay container while a remote pane's manual reconnect is in flight"
+    },
+    "Remote panes on %arg" : {
+      "comment" : "VoiceOver location summary for a group with more than one remote destination.\nVoiceOver location summary for panes that all run on one declared SSH destination."
+    },
+    "Remote session on %arg" : {
+      "comment" : "Tooltip for the remote host badge in a pane title bar."
     },
     "Remote snapshot from %arg" : {
       "comment" : "Help text for the Files toggle when the visible document is a read-only remote snapshot"
@@ -2128,20 +2339,20 @@
     "Remove %arg" : {
       "comment" : "Accessibility label for the remove button of a named custom command"
     },
-    "Remove Empty Group" : {
-
-    },
     "Remove Group" : {
-      "comment" : "Destructive button on the empty-remote-group removal confirmation dialog."
+      "comment" : "Destructive button on the empty-group removal confirmation dialog."
     },
     "Remove editor" : {
 
     },
-    "Remove remote group %arg?" : {
-      "comment" : "Title of the confirmation dialog shown when removing an empty workspace group that has a remote SSH target. Argument is the bidi-isolated group name."
+    "Remove group %arg?" : {
+      "comment" : "Title of the confirmation dialog shown when removing an empty workspace group with an SSH creation default. Argument is the bidi-isolated group name."
     },
     "Remove “%arg”?" : {
       "comment" : "Title of the confirmation dialog before deleting a custom command"
+    },
+    "Removing this group removes its SSH creation default %arg. No active remote panes are affected." : {
+      "comment" : "SSH-default loss line for removing an empty workspace group."
     },
     "Rename" : {
 
@@ -2197,10 +2408,13 @@
       "comment" : "Agent integration recovery action"
     },
     "Replace" : {
-
+      "comment" : "Annotation intent option"
     },
     "Replace Invalid File with Current Settings" : {
 
+    },
+    "Replacement text…" : {
+      "comment" : "Placeholder for a replacement annotation"
     },
     "Reply added" : {
       "comment" : "VoiceOver announcement after replying to an annotation"
@@ -2209,9 +2423,12 @@
       "comment" : "VoiceOver announcement after replying to a resolved annotation, which reopens it"
     },
     "Reply to annotation" : {
-
+      "comment" : "Accessibility label for the annotation reply field"
     },
     "Reply…" : {
+      "comment" : "Placeholder for the annotation reply field"
+    },
+    "Report a Bug or Suggest a Feature…" : {
 
     },
     "Report a bug…" : {
@@ -2229,7 +2446,7 @@
     "Reset to Terminal Title" : {
 
     },
-    "Resets theme, accent, fonts, text size, glow, terminal background, sidebar position, and jump numbers to their shipped defaults. Doesn't touch settings on other panes." : {
+    "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes." : {
       "comment" : "Settings field hint for the reset-to-defaults button"
     },
     "Resolved annotations hidden" : {
@@ -2265,6 +2482,9 @@
     "Restart shell in %arg?" : {
       "comment" : "Title of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
     },
+    "Restarting the shell in %arg ends the current session and starts a fresh one. Scrollback isn't kept." : {
+      "comment" : "Body of the restart-shell confirmation dialog when the active pane is idle. Argument is the bidi-isolated workspace title."
+    },
     "Restore" : {
       "comment" : "Diagnostics event category"
     },
@@ -2285,8 +2505,11 @@
     "Restore workspaces" : {
 
     },
+    "Retry" : {
+      "comment" : "Retry Worktree Manager refresh action."
+    },
     "Return inserts a new line · ⌘Return submits" : {
-
+      "comment" : "Document note editor keyboard help"
     },
     "Return key to open" : {
 
@@ -2296,6 +2519,9 @@
     },
     "Review in Advanced" : {
 
+    },
+    "Review the group's current local and remote panes, then close it again." : {
+      "comment" : "Body of the notice shown when a group changes while its close confirmation is open."
     },
     "Right" : {
 
@@ -2349,14 +2575,23 @@
         }
       }
     },
+    "SSH creation default %arg, no active remote panes" : {
+      "comment" : "VoiceOver location summary for an empty workspace group with an SSH creation default."
+    },
+    "SSH default · %arg" : {
+      "comment" : "Location summary for an empty workspace group with an SSH creation default."
+    },
     "SSH destination" : {
 
     },
     "SSH forwarding" : {
       "comment" : "Bridge doctor check title"
     },
+    "SSH · %arg" : {
+      "comment" : "Location summary for panes that all run on one declared SSH destination."
+    },
     "Save" : {
-
+      "comment" : "Button to save a new annotation"
     },
     "Saved shell commands that appear in the command palette and run in a new workspace tab." : {
       "comment" : "Keys settings section subtitle explaining custom command shortcuts"
@@ -2404,7 +2639,7 @@
 
     },
     "Send reply" : {
-
+      "comment" : "Accessibility label for the annotation reply button\nHelp text for the annotation reply button"
     },
     "Send review comments to the agent in this document's terminal" : {
       "comment" : "Tooltip for the document send button"
@@ -2592,6 +2827,12 @@
     "System default" : {
       "comment" : "Font picker entry for the built-in system font\nSpoken name for the terminal's default monospace font when no override is set."
     },
+    "Target path" : {
+      "comment" : "New worktree target path field label."
+    },
+    "Target path must be absolute." : {
+      "comment" : "Absolute path validation.\nWorktree target absolute path validation."
+    },
     "Teal" : {
       "comment" : "Workspace group tint color",
       "localizations" : {
@@ -2691,8 +2932,20 @@
     "That workspace is no longer available to reopen" : {
       "comment" : "VoiceOver announcement when a Recently Closed entry was already reopened or expired before the user selected it."
     },
+    "The Git repository changed. Reopen Worktree Manager from the active workspace." : {
+      "comment" : "Worktree Manager open error when the captured repository is no longer current.\nWorktree Manager refresh error when the captured repository is no longer current."
+    },
     "The active pane in %arg has activity that will be interrupted. Closing the pane will terminate the running process." : {
       "comment" : "Body of the close-pane confirmation dialog. Argument is the bidi-isolated workspace title."
+    },
+    "The annotation changed or was removed." : {
+      "comment" : "Annotation save recovery message when no draft can be recovered\nSave recovery announcement when an annotation no longer exists"
+    },
+    "The annotation changed or was removed. Copy the draft before closing." : {
+      "comment" : "Save recovery announcement when an annotation draft can be copied"
+    },
+    "The annotation changed or was removed. Copy your draft before closing." : {
+      "comment" : "Annotation save recovery message when a draft can be copied"
     },
     "The awesoMux remote helper is missing or reports an incompatible protocol version." : {
       "comment" : "Bridge doctor failure reason"
@@ -2700,8 +2953,41 @@
     "The bridge handshake did not complete." : {
       "comment" : "Bridge doctor failure reason"
     },
+    "The change was not saved." : {
+      "comment" : "Document note save failure message"
+    },
     "The config file on disk is invalid. Changes made here won't be saved until it's fixed." : {
 
+    },
+    "The current workspace group is no longer available." : {
+      "comment" : "Worktree Manager open failure when its target group disappeared.\nWorktree creation target group failure."
+    },
+    "The declared destination does not have a compatible awesoMux helper." : {
+      "comment" : "Remote handoff unsupported error body"
+    },
+    "The destination changed or closed" : {
+      "comment" : "Remote handoff destination error title"
+    },
+    "The document changed and has reloaded. Save again to retry." : {
+      "comment" : "Annotation save recovery message after reloading a changed document\nDocument note editor recovery message after reloading a changed document\nNew annotation recovery message after reloading a changed document"
+    },
+    "The document changed and has reloaded. Try the action again." : {
+      "comment" : "Document note recovery message after reloading a changed document"
+    },
+    "The document changed, so this selection is no longer safe. Copy the draft and select the text again." : {
+      "comment" : "New annotation recovery message for a stale selection"
+    },
+    "The document changed. Reload complete. Try saving again." : {
+      "comment" : "Save recovery announcement after reloading a changed document"
+    },
+    "The document note changed or was removed." : {
+      "comment" : "Document note editor recovery message when no draft can be recovered\nDocument note recovery message when no draft can be recovered"
+    },
+    "The document note changed or was removed. Copy your draft before closing." : {
+      "comment" : "Document note editor recovery message when a draft can be copied\nDocument note recovery message when a draft can be copied"
+    },
+    "The draft was not saved." : {
+      "comment" : "Annotation save failure message\nDocument note editor save failure message\nNew annotation save failure message\nSave failure announcement"
     },
     "The global integration install record could not be read" : {
       "comment" : "Unreadable CLI agent plugin install manifest action error"
@@ -2711,9 +2997,6 @@
     },
     "The global integration install state is temporarily unavailable" : {
       "comment" : "Unavailable CLI agent plugin install state action error"
-    },
-    "The group is empty, but removing it forgets its SSH target. Sessions on the remote host are not affected." : {
-      "comment" : "Body of the empty-remote-group removal confirmation dialog."
     },
     "The install record could not be read. Agent integration changes are blocked until it is accessible." : {
       "comment" : "Unreadable CLI agent plugin install manifest warning"
@@ -2730,6 +3013,30 @@
     "The remote helper cannot read the bridge state file under its custody rules." : {
       "comment" : "Bridge doctor failure reason"
     },
+    "The remote helper returned an unsafe response" : {
+      "comment" : "Remote handoff unsafe response error title"
+    },
+    "The selection changed. Copy the draft and select the text again." : {
+      "comment" : "Save recovery announcement for a stale text selection"
+    },
+    "The selection is stale. Copy your draft and select the text again." : {
+      "comment" : "Annotation save recovery message for a stale selection"
+    },
+    "The source is unavailable or changed" : {
+      "comment" : "Remote handoff source error title"
+    },
+    "The target overlaps an existing worktree." : {
+      "comment" : "Worktree target overlap validation."
+    },
+    "The target parent directory does not exist." : {
+      "comment" : "Missing target parent validation."
+    },
+    "The target parent directory is not writable." : {
+      "comment" : "Unwritable target parent validation."
+    },
+    "The target path already exists." : {
+      "comment" : "Existing worktree target validation."
+    },
     "Theme" : {
       "comment" : "Appearance settings section title\nSettings field label for the theme picker"
     },
@@ -2744,14 +3051,17 @@
         }
       }
     },
+    "This Git repository has no healthy worktrees to show." : {
+      "comment" : "Worktree Manager empty-state detail."
+    },
     "This URL parses but has no host. Likely malformed." : {
       "comment" : "Body of the OSC 8 confirmation dialog for an http(s) URL with no host component."
     },
     "This URL uses a scheme outside the standard web/mail allowlist." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a non-standard scheme."
     },
-    "This URL's host contains non-Latin characters." : {
-      "comment" : "Fallback body line when host accessors are unavailable but the URL was flagged as non-ASCII."
+    "This URL's host could not be verified." : {
+      "comment" : "Fallback body line when host accessors are unavailable but the URL's host was flagged as suspicious."
     },
     "This URL's path contains invisible or direction-flipping characters that may disguise the file extension or target." : {
       "comment" : "Body of the OSC 8 confirmation dialog for a URL whose path contains bidi-override, zero-width, or control codepoints."
@@ -2767,6 +3077,9 @@
     },
     "This document's terminal has not reported a local directory." : {
       "comment" : "Empty-state detail shown when a document's associated terminal has no local directory"
+    },
+    "This document's terminal isn't available" : {
+      "comment" : "Unavailable reason for sending a document when its associated terminal is gone"
     },
     "This document's terminal isn't available — reopen the document from a running terminal to reconnect" : {
       "comment" : "Tooltip for the send button when its terminal is gone"
@@ -2789,11 +3102,34 @@
     "This workspace now targets %arg." : {
       "comment" : "Second description line on the remote-disconnected overlay when the workspace moved to a different remote host than the one that dropped"
     },
+    "Tighter row spacing for users with many sessions in a single workspace." : {
+      "comment" : "Settings field hint for the sidebar compact mode toggle"
+    },
     "Tints active sidebar rows, focus outlines, and progress affordances." : {
       "comment" : "Settings field hint for the accent color swatches"
     },
     "To: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated mailto recipients."
+    },
+    "Transfer" : {
+      "comment" : "Approve remote clipboard handoff button"
+    },
+    "Transfer %arg to %arg" : {
+      "comment" : "Remote clipboard handoff confirmation body. Arguments are a safe display filename and proposed remote directory.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Transfer %1$arg to %2$arg"
+          }
+        }
+      }
+    },
+    "Transfer file to %arg?" : {
+      "comment" : "Remote clipboard handoff confirmation title. Argument is the declared SSH destination."
+    },
+    "Transfer file to declared SSH destination" : {
+      "comment" : "VoiceOver label for approving remote clipboard handoff"
     },
     "Trust known tools without asking" : {
 
@@ -2882,6 +3218,12 @@
     "Visible prefix: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated `user@` prefix that disguises the real host."
     },
+    "Visual-only overlay. Off by default." : {
+      "comment" : "Settings field hint for the CRT scanlines toggle"
+    },
+    "WORKTREE MANAGER" : {
+      "comment" : "Worktree Manager kicker."
+    },
     "Waiting" : {
       "comment" : "Agent state label",
       "localizations" : {
@@ -2919,6 +3261,9 @@
     "Whether selecting terminal text automatically copies it to the macOS clipboard." : {
 
     },
+    "Why remove? (optional)" : {
+      "comment" : "Placeholder for an optional deletion rationale"
+    },
     "Working" : {
 
     },
@@ -2946,6 +3291,18 @@
           }
         }
       }
+    },
+    "Worktree Manager" : {
+      "comment" : "Worktree Manager accessibility title.\nWorktree Manager panel accessibility label.\nWorktree Manager panel title."
+    },
+    "Worktree created and opened." : {
+      "comment" : "Successful worktree create announcement.\nSuccessful worktree create result."
+    },
+    "Worktree created; workspace could not be opened." : {
+      "comment" : "Worktree created but workspace open failed announcement.\nWorktree created but workspace open failed result."
+    },
+    "Worktrees unavailable" : {
+      "comment" : "Worktree Manager error title."
     },
     "Write a note about the whole document…" : {
 
@@ -3029,6 +3386,9 @@
     "click to pin · reap" : {
 
     },
+    "current worktree" : {
+      "comment" : "Accessibility state for the main worktree."
+    },
     "dismiss" : {
 
     },
@@ -3037,6 +3397,9 @@
     },
     "libghostty" : {
 
+    },
+    "linked worktree" : {
+      "comment" : "Accessibility state for a linked worktree."
     },
     "macOS cannot find this app bundle as a login item. Try from a built awesoMux.app bundle." : {
       "comment" : "Settings hint when the current app cannot be registered as a login item."
@@ -3085,6 +3448,9 @@
         }
       }
     },
+    "not open" : {
+      "comment" : "Accessibility state for a worktree without a live workspace."
+    },
     "nothing to clean up" : {
 
     },
@@ -3092,7 +3458,7 @@
       "comment" : "Accessibility label fragment for a sidebar workspace whose macOS notifications are muted."
     },
     "open" : {
-
+      "comment" : "Accessibility state for a worktree with a live workspace."
     },
     "or" : {
 
@@ -3108,6 +3474,9 @@
     },
     "promote" : {
       "comment" : "Footer pill label for promoting the Terminal Companion to a workspace."
+    },
+    "remote on %arg" : {
+      "comment" : "VoiceOver action fragment naming the remote host for a pane."
     },
     "run" : {
 
@@ -3182,6 +3551,9 @@
     },
     "●  " : {
 
+    },
+    "⟨branch name⟩" : {
+      "comment" : "Placeholder leaf directory in the worktree target path hint before a branch name is chosen or typed."
     },
     "ツ" : {
 
