@@ -212,15 +212,15 @@ extension GhosttySurfaceNSView {
         // selection-change path above.
         terminalAccessibilityScreenContentsCache.invalidate()
 
-        accessibilityValueChangeWorkItem?.cancel()
+        terminalEventState.accessibilityValueChangeWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.accessibilityValueChangeWorkItem = nil
+                self.terminalEventState.accessibilityValueChangeWorkItem = nil
                 NSAccessibility.post(element: self, notification: .valueChanged)
             }
         }
-        accessibilityValueChangeWorkItem = workItem
+        terminalEventState.accessibilityValueChangeWorkItem = workItem
         DispatchQueue.main.asyncAfter(
             deadline: .now() + Self.accessibilityValueChangeDebounceWindow,
             execute: workItem

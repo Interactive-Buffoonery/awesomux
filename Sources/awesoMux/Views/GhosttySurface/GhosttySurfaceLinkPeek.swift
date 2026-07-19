@@ -86,27 +86,27 @@ extension GhosttySurfaceNSView {
             return
         }
         applyLinkPeekTrigger(
-            OSC8LinkPeek.trigger(forLink: mouseOverLink, commandHeld: true),
-            link: mouseOverLink
+            OSC8LinkPeek.trigger(forLink: inputState.mouseOverLink, commandHeld: true),
+            link: inputState.mouseOverLink
         )
     }
 
     private func applyLinkPeekTrigger(_ trigger: OSC8LinkPeek.Trigger, link: String?) {
-        linkPeekShowWorkItem?.cancel()
-        linkPeekShowWorkItem = nil
+        inputState.linkPeekShowWorkItem?.cancel()
+        inputState.linkPeekShowWorkItem = nil
 
         switch trigger {
         case .none:
             scheduleLinkPeekDismiss()
 
         case let .immediate(url):
-            linkPeekDismissWorkItem?.cancel()
-            linkPeekDismissWorkItem = nil
+            inputState.linkPeekDismissWorkItem?.cancel()
+            inputState.linkPeekDismissWorkItem = nil
             showLinkPeek(url, link: link)
 
         case let .delayed(url):
-            linkPeekDismissWorkItem?.cancel()
-            linkPeekDismissWorkItem = nil
+            inputState.linkPeekDismissWorkItem?.cancel()
+            inputState.linkPeekDismissWorkItem = nil
             guard let link, !isShowingLinkPeek(for: link) else {
                 return
             }
@@ -115,19 +115,19 @@ extension GhosttySurfaceNSView {
                 // one already dequeued, so a moved-off / defocused / drag-started
                 // view must not surface a stale preview.
                 guard let self,
-                    self.mouseOverLink == link,
+                    self.inputState.mouseOverLink == link,
                     self.window?.isKeyWindow == true,
                     self.hasNoMouseButtonHeld
                 else { return }
                 self.showLinkPeek(url, link: link)
             }
-            linkPeekShowWorkItem = work
+            inputState.linkPeekShowWorkItem = work
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.linkPeekDwell, execute: work)
         }
     }
 
     private func isShowingLinkPeek(for link: String) -> Bool {
-        peekedLink == link && linkPeekPopover?.isShown == true
+        inputState.peekedLink == link && inputState.linkPeekPopover?.isShown == true
     }
 
     private func showLinkPeek(_ url: URL, link: String?) {
@@ -162,11 +162,11 @@ extension GhosttySurfaceNSView {
         popover.contentViewController = hosting
         popover.show(relativeTo: anchor, of: self, preferredEdge: .maxY)
 
-        linkPeekPopover = popover
-        peekedLink = link
+        inputState.linkPeekPopover = popover
+        inputState.peekedLink = link
 
         // The content carries an accessibilityLabel; announce once per shown link
-        // (peekedLink dedups) for VoiceOver users tracking with a pointer.
+        // (inputState.peekedLink dedups) for VoiceOver users tracking with a pointer.
         TerminalAccessibilityAnnouncer.announce(
             String(
                 localized: "Link preview: \(url.absoluteString)",
@@ -182,8 +182,8 @@ extension GhosttySurfaceNSView {
     /// covers the cursor and fires a transient `mouseExited`; an immediate
     /// dismiss there closes the peek the instant it opens (review finding).
     func scheduleLinkPeekDismiss() {
-        guard linkPeekPopover != nil else {
-            peekedLink = nil
+        guard inputState.linkPeekPopover != nil else {
+            inputState.peekedLink = nil
             return
         }
         // A popover flipped below a top-edge anchor sits under the pointer: the
@@ -196,17 +196,17 @@ extension GhosttySurfaceNSView {
         guard !pointerIsOverLinkPeekPopover else {
             return
         }
-        linkPeekDismissWorkItem?.cancel()
+        inputState.linkPeekDismissWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.pointerIsOverLinkPeekPopover else { return }
             self.dismissLinkPeek()
         }
-        linkPeekDismissWorkItem = work
+        inputState.linkPeekDismissWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.linkPeekDismissGrace, execute: work)
     }
 
     private var pointerIsOverLinkPeekPopover: Bool {
-        guard let popover = linkPeekPopover, popover.isShown,
+        guard let popover = inputState.linkPeekPopover, popover.isShown,
             let popoverWindow = popover.contentViewController?.view.window
         else {
             return false
@@ -220,15 +220,15 @@ extension GhosttySurfaceNSView {
     /// first-responder restore: the preview content is non-interactive and cannot
     /// take first responder, so it never displaces the terminal.
     func dismissLinkPeek() {
-        linkPeekShowWorkItem?.cancel()
-        linkPeekShowWorkItem = nil
-        linkPeekDismissWorkItem?.cancel()
-        linkPeekDismissWorkItem = nil
-        peekedLink = nil
-        guard let popover = linkPeekPopover else {
+        inputState.linkPeekShowWorkItem?.cancel()
+        inputState.linkPeekShowWorkItem = nil
+        inputState.linkPeekDismissWorkItem?.cancel()
+        inputState.linkPeekDismissWorkItem = nil
+        inputState.peekedLink = nil
+        guard let popover = inputState.linkPeekPopover else {
             return
         }
-        linkPeekPopover = nil
+        inputState.linkPeekPopover = nil
         popover.performClose(nil)
     }
 }
@@ -237,18 +237,18 @@ extension GhosttySurfaceNSView {
 
 extension GhosttySurfaceNSView: NSPopoverDelegate {
     /// Reached only by closes that bypass `dismissLinkPeek` (transient
-    /// outside-click, Esc): the dismiss path nils `linkPeekPopover` before
+    /// outside-click, Esc): the dismiss path nils `inputState.linkPeekPopover` before
     /// `performClose`, so its own close fails the identity check here.
     func popoverDidClose(_ notification: Notification) {
         guard let popover = notification.object as? NSPopover,
-            popover === linkPeekPopover
+            popover === inputState.linkPeekPopover
         else {
             return
         }
-        linkPeekPopover = nil
-        peekedLink = nil
-        linkPeekDismissWorkItem?.cancel()
-        linkPeekDismissWorkItem = nil
+        inputState.linkPeekPopover = nil
+        inputState.peekedLink = nil
+        inputState.linkPeekDismissWorkItem?.cancel()
+        inputState.linkPeekDismissWorkItem = nil
     }
 }
 

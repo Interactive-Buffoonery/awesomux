@@ -327,9 +327,10 @@ final class GhosttyRuntime {
 
     /// The foreground-process incarnation observed the last time a genuine
     /// provider hook confirmed `.waiting` on this pane, or nil if none has.
-    /// See `verifiedWaitingForegroundIncarnation` on `GhosttySurfaceNSView`.
+    /// See `terminalEventState.verifiedWaitingForegroundIncarnation` on
+    /// `GhosttySurfaceNSView`.
     func verifiedWaitingForegroundGeneration(in paneID: TerminalPane.ID) -> AgentForegroundIncarnation? {
-        surfaceViews[paneID]?.verifiedWaitingForegroundIncarnation
+        surfaceViews[paneID]?.terminalEventState.verifiedWaitingForegroundIncarnation
     }
 
     /// INT-569 field diagnostics for the document-nudge evidence chain.
@@ -619,7 +620,8 @@ final class GhosttyRuntime {
     }
 
     /// Throttled entry point for the passive per-surface sampler poll
-    /// (`GhosttySurfaceNSView.visibleStateSamplingTask`). Event-driven callers
+    /// (`GhosttySurfaceNSView.terminalEventState.visibleStateSamplingTask`).
+    /// Event-driven callers
     /// (command submit/finish, surface creation) should call
     /// `refreshShellActivity` directly so their intentional timing is preserved.
     /// The throttle floor collapses N panes each polling on their own task into a
