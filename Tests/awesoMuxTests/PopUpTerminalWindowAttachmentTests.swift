@@ -53,8 +53,8 @@ struct PopUpTerminalWindowAttachmentTests {
         }
     }
 
-    @Test("attaching to the current parent is idempotent")
-    func attachmentToCurrentParentIsIdempotent() {
+    @Test("no-op inputs leave an existing attachment unchanged")
+    func noOpInputsLeaveAttachmentUnchanged() {
         _ = NSApplication.shared
         let parent = makeWindow(size: NSSize(width: 800, height: 600))
         let destination = makePanel(size: NSSize(width: 260, height: 48))
@@ -64,8 +64,12 @@ struct PopUpTerminalWindowAttachmentTests {
             parent.close()
         }
 
+        // Re-attach to the current parent, nil window, nil parent: none may
+        // duplicate the child entry or detach the existing attachment.
         PopUpTerminalWindowAttachment.attach(destination, to: parent)
         PopUpTerminalWindowAttachment.attach(destination, to: parent)
+        PopUpTerminalWindowAttachment.attach(nil, to: parent)
+        PopUpTerminalWindowAttachment.attach(destination, to: nil)
 
         #expect(destination.parent === parent)
         #expect(parent.childWindows?.count == 1)
@@ -92,26 +96,6 @@ struct PopUpTerminalWindowAttachmentTests {
         #expect(destination.parent === currentParent)
         #expect(staleParent.childWindows?.isEmpty == true)
         #expect(currentParent.childWindows?.first === destination)
-    }
-
-    @Test("missing window or parent leaves attachment unchanged")
-    func missingEndpointLeavesAttachmentUnchanged() {
-        _ = NSApplication.shared
-        let parent = makeWindow(size: NSSize(width: 800, height: 600))
-        let destination = makePanel(size: NSSize(width: 260, height: 48))
-        defer {
-            destination.parent?.removeChildWindow(destination)
-            destination.close()
-            parent.close()
-        }
-
-        parent.addChildWindow(destination, ordered: .above)
-
-        PopUpTerminalWindowAttachment.attach(nil, to: parent)
-        PopUpTerminalWindowAttachment.attach(destination, to: nil)
-
-        #expect(destination.parent === parent)
-        #expect(parent.childWindows?.first === destination)
     }
 
     private func makeWindow(size: NSSize) -> NSWindow {
