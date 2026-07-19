@@ -43,7 +43,7 @@ struct GeneralSettingsPane: View {
                         }
                         .labelsHidden()
                         .toggleStyle(.switch)
-                        .disabled(loginItemModel.status == .unknown || loginItemModel.status == .unavailable)
+                        .disabled(loginItemModel.status == .unknown)
                         .accessibilityLabel(Text(Self.openAtLoginLabel))
                         .accessibilityValue(Text(loginItemModel.accessibilityValue))
                         .accessibilityHint(Text(loginItemModel.statusHint))
