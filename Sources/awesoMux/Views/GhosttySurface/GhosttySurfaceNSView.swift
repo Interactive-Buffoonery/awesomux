@@ -222,19 +222,8 @@ final class GhosttySurfaceNSView: NSView {
         MainActor.assumeIsolated {
             lifecycleState.pendingSurfaceCreationWorkItem?.cancel()
             lifecycleState.pendingSurfaceCreationWorkItem = nil
-            terminalEventState.visibleStateSamplingTask?.cancel()
-            terminalEventState.visibleStateSamplingTask = nil
             lifecycleState.remoteHandoffTask?.cancel()
             lifecycleState.remoteHandoffTask = nil
-            accessibilitySelectionChangeWorkItem?.cancel()
-            accessibilitySelectionChangeWorkItem = nil
-            terminalEventState.accessibilityValueChangeWorkItem?.cancel()
-            terminalEventState.accessibilityValueChangeWorkItem = nil
-            terminalEventState.progressReportExpiryWorkItem?.cancel()
-            terminalEventState.progressReportExpiryWorkItem = nil
-            terminalEventState.progressReportThrottleWorkItem?.cancel()
-            terminalEventState.progressReportThrottleWorkItem = nil
-            resetSearchStateForSurfaceTeardown()
             NotificationCenter.default.removeObserver(self)
             NSWorkspace.shared.notificationCenter.removeObserver(self)
             disposeNativeSurface(resetHostedLayer: false)
