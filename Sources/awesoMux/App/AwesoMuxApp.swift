@@ -2986,23 +2986,30 @@ struct AwesoMuxApp: App {
                     }))
         }
         // One direct-apply row per checked-in layout preset, snapshotted at
-        // palette-open time like the daemon rows above. Names are re-validated
-        // and the file re-read at run time, so a row going stale between
-        // summon and Enter fails with the normal load alert, not stale data.
+        // palette-open time like the daemon rows above. The source session and
+        // its anchor are captured HERE and baked into the command id, so a
+        // stale row (selection or active pane changed while the palette sat
+        // open) cannot silently resolve against a different session's
+        // same-named preset when `runPaletteCommand` rebuilds this list fresh
+        // at Enter time — the id simply won't be present in the rebuild and
+        // the row is a no-op, matching every other id-keyed palette command.
+        // The preset name and file are still re-validated and re-read at run
+        // time (via `applyLayoutPreset`'s own load), so a preset deleted
+        // between summon and Enter still fails with the normal load alert.
         if !isAnySheetPresented, let selected = sessionStore.selectedSession {
-            for presetName in LayoutPresetStore.listPresetNames(
-                forWorkingDirectory: layoutPresetAnchorDirectory(for: selected)
-            ) {
+            let anchor = layoutPresetAnchorDirectory(for: selected)
+            let sessionID = selected.id
+            for presetName in LayoutPresetStore.listPresetNames(forWorkingDirectory: anchor) {
                 commands.append(
                     PaletteCommand(
-                        id: "applyLayoutPreset.\(presetName)",
+                        id: "applyLayoutPreset.\(sessionID).\(anchor).\(presetName)",
                         title: "Apply Layout: \(presetName)",
                         subtitle: "Layout preset",
                         keywords: ["layout", "preset", "split", "apply"],
                         shortcut: nil,
                         isEnabled: true,
                         run: { [self] in
-                            applyLayoutPreset(named: presetName)
+                            applyLayoutPreset(named: presetName, sessionID: sessionID, anchorDirectory: anchor)
                         }
                     ))
             }
@@ -3347,8 +3354,20 @@ struct AwesoMuxApp: App {
     /// session's declared cwd. A session created with a default cwd ("~") can
     /// silently anchor somewhere the user never looks; save/apply/list must all
     /// resolve from the location the user can SEE, and all from the same one.
+    ///
+    /// The active pane is excluded entirely when it carries a remote execution
+    /// plan: a remote pane's `workingDirectory` is a path reported by the far
+    /// side and may coincidentally exist locally, which would silently anchor
+    /// presets in an unrelated local repository (INT-757 review).
     private func layoutPresetAnchorDirectory(for session: TerminalSession) -> String {
-        session.activePane?.workingDirectory ?? session.workingDirectory
+        let activeLocalDirectory: String? = session.activePane.flatMap { pane in
+            guard pane.executionPlan.remoteTarget == nil else { return nil }
+            return pane.workingDirectory
+        }
+        return WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
+            activeLocalDirectory,
+            session.workingDirectory,
+        ]) ?? session.workingDirectory
     }
 
     private func saveLayoutPresetForSelectedWorkspace() {
@@ -3482,9 +3501,12 @@ struct AwesoMuxApp: App {
     private func applyLayoutPresetViaPicker() {
         guard !isAnySheetPresented, let selected = sessionStore.selectedSession else { return }
 
-        let names = LayoutPresetStore.listPresetNames(
-            forWorkingDirectory: layoutPresetAnchorDirectory(for: selected)
-        )
+        // Captured once, before the modal alert runs, and reused verbatim at
+        // apply time below — the picker must load from the anchor its list
+        // came from, not whatever is selected by the time the alert closes.
+        let anchor = layoutPresetAnchorDirectory(for: selected)
+        let sessionID = selected.id
+        let names = LayoutPresetStore.listPresetNames(forWorkingDirectory: anchor)
         guard !names.isEmpty else {
             showLayoutPresetAlert(
                 title: String(
@@ -3524,14 +3546,18 @@ struct AwesoMuxApp: App {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let selectedIndex = popup.indexOfSelectedItem
         guard names.indices.contains(selectedIndex) else { return }
-        applyLayoutPreset(named: names[selectedIndex])
+        applyLayoutPreset(named: names[selectedIndex], sessionID: sessionID, anchorDirectory: anchor)
     }
 
-    private func applyLayoutPreset(named name: String) {
-        guard let selected = sessionStore.selectedSession else { return }
-        // Same anchor as save/list: load from, and open the new panes in, the
-        // directory the user is looking at.
-        let workingDirectory = layoutPresetAnchorDirectory(for: selected)
+    /// `sessionID` and `anchorDirectory` are a snapshot taken by the caller at
+    /// listing time (palette row build, or picker pre-alert) — never
+    /// recomputed from `sessionStore.selectedSession` here. Recomputing would
+    /// reintroduce the staleness this is guarding against: the session the
+    /// user picked from could differ from whatever is selected by the time
+    /// this runs, silently loading a same-named preset from another project.
+    private func applyLayoutPreset(named name: String, sessionID: TerminalSession.ID, anchorDirectory: String) {
+        guard let selected = sessionStore.session(id: sessionID) else { return }
+        let workingDirectory = anchorDirectory
 
         do {
             let intent = try LayoutPresetStore.load(

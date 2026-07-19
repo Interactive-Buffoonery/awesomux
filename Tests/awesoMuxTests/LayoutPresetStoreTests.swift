@@ -279,6 +279,45 @@ import Testing
         #expect(names.count == LayoutPresetStore.maxListedPresets)
     }
 
+    @Test func listingStopsScanningAtTheInjectedCapRegardlessOfDirectorySize() throws {
+        // Proves the scan itself is bounded (not just the returned count):
+        // with a scan cap far below both the file count and `maxListedPresets`,
+        // the result must be capped at `scanLimit`, not at `maxListedPresets`.
+        let root = try makeProjectRoot()
+        let layouts = root.appendingPathComponent(".awesomux/layouts", isDirectory: true)
+        try fileManager.createDirectory(at: layouts, withIntermediateDirectories: true)
+        for index in 0..<20 {
+            try Data("{}".utf8).write(
+                to: layouts.appendingPathComponent(String(format: "preset-%03d.json", index))
+            )
+        }
+
+        let names = LayoutPresetStore.listPresetNames(
+            forWorkingDirectory: root.path,
+            scanLimit: 3
+        )
+        #expect(names.count == 3)
+    }
+
+    @Test func saveRejectsOversizedPresetAndWritesNothing() throws {
+        // A single terminal with a huge title stays under the split-depth and
+        // terminal-count caps (so `WorkspaceLayoutPreset.init` accepts it) but
+        // pushes the encoded file over `maxPresetBytes` — save must refuse the
+        // exact cap `load` enforces, not write a file this build can't reopen.
+        let root = try makeProjectRoot()
+        let hugeTitle = String(repeating: "x", count: LayoutPresetStore.maxPresetBytes + 1024)
+        let intent = sampleIntent(title: hugeTitle)
+
+        #expect(throws: LayoutPresetStore.PresetError.fileTooLarge) {
+            try LayoutPresetStore.save(intent, named: "huge-title", forWorkingDirectory: root.path)
+        }
+        #expect(
+            !LayoutPresetStore.presetFileExists(
+                named: "huge-title", forWorkingDirectory: root.path
+            )
+        )
+    }
+
     // MARK: - Overwrite
 
     @Test func saveOverwritesExistingRegularFileAtomically() throws {

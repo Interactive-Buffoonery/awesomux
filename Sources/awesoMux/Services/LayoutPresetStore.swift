@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import Darwin
 import Foundation
 
 /// Reads and writes named, checked-in layout presets under
@@ -31,6 +32,12 @@ enum LayoutPresetStore {
     static let maxPresetBytes = 128 * 1024
     static let maxNameLength = 64
     static let maxListedPresets = 50
+    /// Hard cap on directory entries walked per listing call. A checked-in
+    /// layouts directory is expected to hold a handful of presets; this cap
+    /// only exists to bound a hostile/huge directory, so the top-50 alphabetical
+    /// order is exact under normal sizes and a best-effort approximation past
+    /// the cap.
+    static let maxScannedListingEntries = 4096
     /// Byte-level `{`/`[` nesting cap applied before `JSONDecoder`. The preset
     /// format spends a handful of braces per split level, so anything within
     /// `WorkspaceLayoutPreset.maxSplitDepth` sits far below this; anything
@@ -94,7 +101,8 @@ enum LayoutPresetStore {
     // measurably stalls palette presentation.
     static func listPresetNames(
         forWorkingDirectory workingDirectory: String,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        scanLimit: Int = maxScannedListingEntries
     ) -> [String] {
         guard
             let root = projectRoot(
@@ -106,17 +114,36 @@ enum LayoutPresetStore {
                 fileManager: fileManager,
                 createIfMissing: false
             ),
-            let entries = try? fileManager.contentsOfDirectory(atPath: directory.path)
+            let enumerator = fileManager.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.nameKey],
+                options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]
+            )
         else {
             return []
         }
 
+        // Bound the enumeration itself, not only the returned count — a huge
+        // (hostile) directory must not make this synchronous scan hang the
+        // main thread. `enumerator` streams entries lazily, so breaking early
+        // skips the rest of the directory instead of materializing it first.
+        // `scanLimit` defaults to `maxScannedListingEntries`; overridable so
+        // tests can prove the early-break without creating a huge directory.
         let suffix = "." + fileExtension
+        var candidates: [String] = []
+        var scanned = 0
+        for case let entryURL as URL in enumerator {
+            scanned += 1
+            if scanned > scanLimit { break }
+            let entryName = entryURL.lastPathComponent
+            guard entryName.hasSuffix(suffix) else { continue }
+            let candidate = String(entryName.dropLast(suffix.count))
+            guard sanitizedPresetName(candidate) == candidate else { continue }
+            candidates.append(candidate)
+        }
+
         return
-            entries
-            .filter { $0.hasSuffix(suffix) }
-            .map { String($0.dropLast(suffix.count)) }
-            .filter { sanitizedPresetName($0) == $0 }
+            candidates
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
             .prefix(maxListedPresets)
             .map { $0 }
@@ -170,29 +197,49 @@ enum LayoutPresetStore {
             fileManager: fileManager,
             createIfMissing: true
         )
-        let fileURL = presetFileURL(named: clean, in: directory)
 
-        // Refuse to replace anything that isn't a regular file — an
-        // attacker-planted symlink at the destination must not silently become
-        // (or briefly act as) the write target.
-        if let existingType = try? fileManager.attributesOfItem(atPath: fileURL.path)[.type]
-            as? FileAttributeType
-        {
-            guard existingType == .typeRegular else {
+        // Pin the validated directory by descriptor right away: every op below
+        // is `openat`/`renameat` relative to this fd, never a path re-resolve —
+        // closing the TOCTOU window where a symlink swapped in after
+        // `validatedLayoutsDirectory` returns could redirect the write.
+        let directoryDescriptor = try openDirectoryDescriptor(root: root)
+        defer { close(directoryDescriptor) }
+
+        let fileName = clean + "." + fileExtension
+
+        // Refuse to replace anything that isn't a regular file — checked via
+        // the pinned descriptor (not a path lookup) so an attacker-planted
+        // symlink at the destination is detected, not followed.
+        var existingStatus = stat()
+        let existingStatResult = fileName.withCString {
+            fstatat(directoryDescriptor, $0, &existingStatus, AT_SYMLINK_NOFOLLOW)
+        }
+        if existingStatResult == 0 {
+            guard (existingStatus.st_mode & S_IFMT) == S_IFREG else {
                 throw PresetError.notARegularFile
             }
+        } else if errno != ENOENT {
+            // Anything other than "doesn't exist" (permissions, I/O error,
+            // a broken mount) must abort, not silently fall through to
+            // "safe to create" — failing open here defeats the check.
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
 
-        // Throws the cap errors BEFORE any bytes exist — save must never write
-        // a preset this same build would refuse to load.
         let preset = try WorkspaceLayoutPreset(layout: intent)
         let encoder = JSONEncoder()
         // Pretty + sorted: the file is meant to be checked in, so diffs must be
         // stable and human-reviewable.
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(preset)
-        try data.write(to: fileURL, options: .atomic)
-        return fileURL
+
+        // Save must never write a preset this same build would refuse to
+        // load — check the same cap `load` enforces, before any bytes exist.
+        guard data.count <= maxPresetBytes else {
+            throw PresetError.fileTooLarge
+        }
+
+        try writePresetData(data, directoryDescriptor: directoryDescriptor, finalName: fileName)
+        return directory.appendingPathComponent(fileName, isDirectory: false)
     }
 
     // MARK: - Load
@@ -213,25 +260,43 @@ enum LayoutPresetStore {
         else {
             throw PresetError.rootUnavailable
         }
-        let directory = try validatedLayoutsDirectory(
-            root: root,
-            fileManager: fileManager,
-            createIfMissing: false
-        )
-        let fileURL = presetFileURL(named: clean, in: directory)
 
-        // `attributesOfItem` sees a trailing symlink as `.typeSymbolicLink`
-        // (no traversal), so this one call is both the regular-file gate and
-        // the pre-read size gate.
-        let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
-        guard (attributes[.type] as? FileAttributeType) == .typeRegular else {
+        // `openDirectoryDescriptor` walks `.awesomux`/`layouts` itself (each
+        // hop `O_NOFOLLOW`), so it both validates AND pins the directory —
+        // a separate `validatedLayoutsDirectory` path-based check first would
+        // just re-walk the same components and reopen the same TOCTOU window.
+        let directoryDescriptor = try openDirectoryDescriptor(root: root)
+        defer { close(directoryDescriptor) }
+
+        let fileName = clean + "." + fileExtension
+        let fileDescriptor = fileName.withCString {
+            Darwin.openat(directoryDescriptor, $0, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard fileDescriptor >= 0 else {
+            // `O_NOFOLLOW` turns "the entry is a symlink" into `ELOOP` instead
+            // of transparently following it — map that back to the same
+            // error a directory/other-non-regular-type entry gets below.
+            if errno == ELOOP {
+                throw PresetError.notARegularFile
+            }
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { close(fileDescriptor) }
+
+        // `fstat` on the descriptor we're about to read — not a path lookup —
+        // is both the regular-file gate and the pre-read size gate.
+        var status = stat()
+        guard fstat(fileDescriptor, &status) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        guard (status.st_mode & S_IFMT) == S_IFREG else {
             throw PresetError.notARegularFile
         }
-        if let size = attributes[.size] as? Int, size > maxPresetBytes {
+        guard status.st_size >= 0, status.st_size <= maxPresetBytes else {
             throw PresetError.fileTooLarge
         }
 
-        let data = try Data(contentsOf: fileURL)
+        let data = try readPresetData(from: fileDescriptor, size: Int(status.st_size))
         guard data.count <= maxPresetBytes else {
             throw PresetError.fileTooLarge
         }
@@ -288,5 +353,125 @@ enum LayoutPresetStore {
             clean + "." + fileExtension,
             isDirectory: false
         )
+    }
+
+    // MARK: - Descriptor-relative file I/O
+
+    /// Pins `<root>/.awesomux/layouts` by descriptor via a component-by-component
+    /// `openat` walk, each hop with `O_NOFOLLOW`. Opening the full joined path
+    /// in one `open()` call only guards its FINAL component — an intermediate
+    /// component (`.awesomux` itself) swapped for a symlink between
+    /// `validatedLayoutsDirectory` returning and that single call would still
+    /// be followed. Walking hop-by-hop from `root` closes that gap too.
+    private static func openDirectoryDescriptor(root: URL) throws -> Int32 {
+        var currentDescriptor = root.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard currentDescriptor >= 0 else {
+            throw PresetError.directoryUnavailable
+        }
+        for component in directoryComponents {
+            let nextDescriptor = component.withCString {
+                Darwin.openat(
+                    currentDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            close(currentDescriptor)
+            guard nextDescriptor >= 0 else {
+                throw PresetError.directoryUnavailable
+            }
+            currentDescriptor = nextDescriptor
+        }
+        return currentDescriptor
+    }
+
+    /// Writes `data` to `finalName` inside `directoryDescriptor` via a
+    /// temp-file-then-`renameat` swap, both resolved relative to the same
+    /// pinned directory fd. `rename` replaces the destination directory entry
+    /// atomically without following it even if that entry is a symlink, so
+    /// this is safe regardless of what (if anything) currently sits at
+    /// `finalName`.
+    private static func writePresetData(
+        _ data: Data,
+        directoryDescriptor: Int32,
+        finalName: String
+    ) throws {
+        let tempName = finalName + ".tmp-" + UUID().uuidString
+
+        let tempDescriptor = tempName.withCString {
+            Darwin.openat(
+                directoryDescriptor,
+                $0,
+                O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                0o600
+            )
+        }
+        guard tempDescriptor >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+
+        var writeError: Error?
+        data.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) in
+            guard var pointer = rawBuffer.baseAddress, rawBuffer.count > 0 else { return }
+            var remaining = rawBuffer.count
+            while remaining > 0 {
+                let bytesWritten = Darwin.write(tempDescriptor, pointer, remaining)
+                if bytesWritten < 0 {
+                    if errno == EINTR { continue }
+                    writeError = NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+                    return
+                }
+                pointer = pointer.advanced(by: bytesWritten)
+                remaining -= bytesWritten
+            }
+        }
+        close(tempDescriptor)
+
+        if let writeError {
+            // Best-effort cleanup — the write itself already failed, so a
+            // failed unlink here has no better error to surface.
+            _ = tempName.withCString { unlinkat(directoryDescriptor, $0, 0) }
+            throw writeError
+        }
+
+        let renamed = tempName.withCString { tempPointer in
+            finalName.withCString { finalPointer in
+                Darwin.renameat(directoryDescriptor, tempPointer, directoryDescriptor, finalPointer)
+            }
+        }
+        guard renamed == 0 else {
+            let error = NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            _ = tempName.withCString { unlinkat(directoryDescriptor, $0, 0) }
+            throw error
+        }
+    }
+
+    /// Reads exactly `size` bytes (the size `fstat` already measured) from
+    /// `descriptor` via `pread`, so a file that grows after that `fstat`
+    /// still can't yield more bytes than were validated against
+    /// `maxPresetBytes`.
+    private static func readPresetData(from descriptor: Int32, size: Int) throws -> Data {
+        guard size > 0 else { return Data() }
+        var buffer = [UInt8](repeating: 0, count: size)
+        var totalRead = 0
+        while totalRead < size {
+            let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
+                pread(
+                    descriptor,
+                    rawBuffer.baseAddress!.advanced(by: totalRead),
+                    size - totalRead,
+                    off_t(totalRead)
+                )
+            }
+            if bytesRead < 0 {
+                if errno == EINTR { continue }
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            if bytesRead == 0 { break }  // file shrank mid-read; stop at what's there
+            totalRead += bytesRead
+        }
+        return Data(buffer[0..<totalRead])
     }
 }
