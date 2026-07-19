@@ -122,8 +122,8 @@ struct SanitizedAnalyticsEvent: Equatable, Sendable {
     let properties: [AnalyticsPropertyKey: AnalyticsPropertyValue]
 }
 
-/// `queued` is terminal for accepted events: the SDK exposes no
-/// per-event delivery callback, so a confirmed "sent" cannot exist.
+/// `queued` is the stable wire value for a submitted request. It is terminal:
+/// the transport does not treat an HTTP response as proof of ingestion.
 enum AnalyticsDeliveryStatus: String, Codable, Sendable {
     case queued
     case dropped
@@ -134,6 +134,7 @@ enum AnalyticsDropReason: String, Codable, Sendable {
     case analyticsDisabled = "analytics_disabled"
     case invalidPropertyValue = "invalid_property_value"
     case deliveryUnavailable = "delivery_unavailable"
+    case rateLimited = "rate_limited"
 }
 
 /// One line of the local analytics event log — exactly the fields the
@@ -180,10 +181,20 @@ struct AnalyticsLogEntry: Codable, Equatable, Identifiable, Sendable {
         let consentLevel = try container.decode(AnalyticsConfig.ConsentLevel.self, forKey: .consentLevel)
         let provider = try container.decode(String.self, forKey: .provider)
         let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        let name = try container.decode(AnalyticsEventName.self, forKey: .name)
+        let status = try container.decode(AnalyticsDeliveryStatus.self, forKey: .status)
+        let dropReason = try container.decodeIfPresent(AnalyticsDropReason.self, forKey: .dropReason)
+        let sanitizedEventIsValid =
+            properties[.consentLevel] == .token(consentLevel.rawValue)
+            && AnalyticsSanitizer.isEventValid(
+                SanitizedAnalyticsEvent(name: name, properties: properties)
+            )
+        let preSanitizationDropIsValid =
+            status == .dropped && dropReason != nil && properties.isEmpty
         guard consentLevel != .off,
             provider == "posthog",
             schemaVersion == analyticsSchemaVersion,
-            properties.allSatisfy({ AnalyticsSanitizer.isShapeValid($0.value, for: $0.key) })
+            sanitizedEventIsValid || preSanitizationDropIsValid
         else {
             throw DecodingError.dataCorruptedError(
                 forKey: .properties,
@@ -194,11 +205,11 @@ struct AnalyticsLogEntry: Codable, Equatable, Identifiable, Sendable {
 
         id = try container.decode(UUID.self, forKey: .id)
         timestamp = try container.decode(Date.self, forKey: .timestamp)
-        name = try container.decode(AnalyticsEventName.self, forKey: .name)
+        self.name = name
         self.consentLevel = consentLevel
         self.properties = properties
-        status = try container.decode(AnalyticsDeliveryStatus.self, forKey: .status)
-        dropReason = try container.decodeIfPresent(AnalyticsDropReason.self, forKey: .dropReason)
+        self.status = status
+        self.dropReason = dropReason
         self.provider = provider
         self.schemaVersion = schemaVersion
     }

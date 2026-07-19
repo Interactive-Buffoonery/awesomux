@@ -46,6 +46,28 @@ struct AnalyticsSanitizer {
         return .event(SanitizedAnalyticsEvent(name: name, properties: properties))
     }
 
+    /// Final semantic gate shared by persistence and transport. Per-key shape
+    /// validation alone would allow required fields to be omitted or attached
+    /// to the wrong event.
+    static func isEventValid(_ event: SanitizedAnalyticsEvent) -> Bool {
+        guard event.properties.allSatisfy({ isShapeValid($0.value, for: $0.key) }),
+            event.properties[.schemaVersion] == .integer(analyticsSchemaVersion),
+            case .token(let consentRaw) = event.properties[.consentLevel],
+            let consent = AnalyticsConfig.ConsentLevel(rawValue: consentRaw),
+            consent != .off
+        else { return false }
+
+        let common: Set<AnalyticsPropertyKey> = [.schemaVersion, .consentLevel]
+        let required: Set<AnalyticsPropertyKey>
+        switch event.name {
+        case .testPing:
+            required = common
+        case .settingsChanged:
+            required = common.union([.settingsArea])
+        }
+        return Set(event.properties.keys) == required
+    }
+
     static func isShapeValid(
         _ value: AnalyticsPropertyValue,
         for key: AnalyticsPropertyKey
