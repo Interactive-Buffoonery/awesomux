@@ -1285,8 +1285,8 @@
     "File watcher configuration reload was rejected" : {
       "comment" : "Diagnostics event summary"
     },
-    "Filters workspaces. Press Return to open the top match. Press Escape to clear." : {
-
+    "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for Needs input workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
+      "comment" : "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."
     },
     "Find" : {
 

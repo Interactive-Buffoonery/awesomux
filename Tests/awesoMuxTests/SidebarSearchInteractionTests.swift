@@ -183,6 +183,16 @@ struct SidebarSearchInteractionTests {
         #expect(fixture.store.selectedSessionID == fixture.sessions[15].id)
     }
 
+    @Test("hosted field exposes canonical state-token help")
+    func hostedFieldExposesCanonicalStateTokenHelp() throws {
+        let fixture = try SidebarSearchHostedFixture()
+        defer { fixture.close() }
+
+        let searchHelp = SidebarAgentStateSearchToken.localizedSearchHelp()
+        #expect(fixture.searchField.accessibilityHelp() == searchHelp)
+        #expect(fixture.searchField.toolTip == searchHelp)
+    }
+
 }
 
 @MainActor
@@ -211,6 +221,7 @@ private final class SidebarSearchHostedFixture {
     let runtime: GhosttyRuntime
     let window: SidebarHostedTestWindow
     let surfaces: [TerminalSession.ID: GhosttySurfaceNSView]
+    let searchField: NSTextField
     let scrollView: NSScrollView
 
     init(
@@ -291,13 +302,14 @@ private final class SidebarSearchHostedFixture {
         surfaces = createdSurfaces
         detail.view.layoutSubtreeIfNeeded()
 
-        let searchField = try #require(
+        let resolvedSearchField = try #require(
             SidebarHostedTestHarness.firstDescendant(
                 of: NSTextField.self,
                 in: sidebar.view,
                 where: { $0.placeholderString == "Search sessions" }
             )
         )
+        searchField = resolvedSearchField
         if focusSearchThroughAppKit {
             if let surface = createdSurfaces.values.first {
                 _ = window.makeFirstResponder(surface)
@@ -318,7 +330,7 @@ private final class SidebarSearchHostedFixture {
         }
         #expect(
             SidebarHostedTestHarness.pumpMainRunLoop(
-                until: { searchField.stringValue == "Result" }
+                until: { resolvedSearchField.stringValue == "Result" }
             )
         )
         scrollView = try #require(
