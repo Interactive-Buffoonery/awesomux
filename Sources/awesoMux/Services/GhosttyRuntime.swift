@@ -211,6 +211,10 @@ final class GhosttyRuntime {
     @ObservationIgnored
     private var visibleSurfaceSamplingPaneIDs: Set<TerminalPane.ID> = []
     private static let visibleSurfaceSampleInterval: Duration = .milliseconds(250)
+    /// Controlled clock for the sampling cadence (swap in tests to drive
+    /// ticks deterministically).
+    @ObservationIgnored
+    var visibleSurfaceSamplingClock: any Clock<Duration> = ContinuousClock()
 
     var visibleSurfaceSamplingPaneIDsForTesting: Set<TerminalPane.ID> {
         visibleSurfaceSamplingPaneIDs
@@ -328,9 +332,10 @@ final class GhosttyRuntime {
               !visibleSurfaceSamplingPaneIDs.isEmpty else {
             return
         }
+        let clock = visibleSurfaceSamplingClock
         visibleSurfaceSamplingTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: Self.visibleSurfaceSampleInterval)
+                try? await clock.sleep(for: Self.visibleSurfaceSampleInterval)
                 guard let self, !Task.isCancelled else { return }
                 self.sampleVisibleSurfaceState()
             }
