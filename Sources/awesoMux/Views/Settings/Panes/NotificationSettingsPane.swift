@@ -98,22 +98,28 @@ struct NotificationSettingsPane: View {
                         .accessibilityHint(mutedAwareHint(Self.needsInputHint))
                 }
 
-                SettingsField(
-                    label: "Bounce Dock icon",
-                    hint: dockBounceAwareHint
-                ) {
-                    if appSettingsStore.notifications.value.respectDoNotDisturb, !dockBounceUnavailable {
+                if appSettingsStore.notifications.value.respectDoNotDisturb, !dockBounceUnavailable {
+                    SettingsField(
+                        label: "Bounce Dock icon",
+                        hint: dockBounceAwareHint
+                    ) {
                         Button("Enable…") {
                             isDockBounceConfirmationPresented = true
                         }
                         .accessibilityLabel("Enable Dock bouncing")
                         .accessibilityHint(Text(dockBounceAwareHint))
-                    } else {
+                    }
+                } else {
+                    SettingsField(
+                        label: "Bounce Dock icon",
+                        hint: dockBounceAwareHint,
+                        forwardsAccessibilityToControl: true,
+                        forwardsHintToControl: false
+                    ) {
                         Toggle("Bounce Dock icon", isOn: appSettingsStore.notifications.binding(\.dockBounceOnNeedsAttention))
                             .labelsHidden()
                             .toggleStyle(.switch)
                             .disabled(dockBounceUnavailable)
-                            .accessibilityLabel("Bounce Dock icon")
                             .accessibilityHint(Text(dockBounceAwareHint))
                     }
                 }
