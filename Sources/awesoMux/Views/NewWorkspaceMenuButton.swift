@@ -57,8 +57,14 @@ struct NewWorkspaceMenuButton: View {
         .foregroundStyle(Color.aw.text3)
         // Static box, no hover brightening — the search button above it has
         // no hover state either, and this control should read as the same
-        // simple chip, not a more "interactive-looking" one.
+        // simple chip, not a more "interactive-looking" one. The hairline
+        // border matches the "button-y" bordered-pill treatment used
+        // elsewhere (e.g. the terminal path bar chips).
         .background(restFill, in: RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(Color.aw.border2, lineWidth: 0.5)
+        }
         .accessibilityLabel("New Workspace menu")
         .accessibilityHint("Opens a menu with New Workspace, New Workspace in a chosen group, and New Workspace Group")
         .help("New Workspace menu")

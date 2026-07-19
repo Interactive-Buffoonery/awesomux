@@ -7,9 +7,9 @@ import SwiftUI
 /// control unchanged, since 60pt of rail width has no room for a second,
 /// honestly-sized hit target next to a 40pt primary segment.
 struct NewWorkspaceSplitButton: View {
-    /// Resting background fill. Matches the expanded header's treatment of
-    /// the search field it sits beside — blends into the sidebar, not a
-    /// separate boxed color.
+    /// Resting background fill. Matches the search field's own fill it sits
+    /// beside — a bordered pill (see the `.overlay` stroke in `body`), not
+    /// blended into the sidebar.
     let restFill: Color
     /// Groups available for the "New Workspace in…" submenu, in the order
     /// they appear in the sidebar. Unfiltered — includes the current group,
@@ -58,7 +58,14 @@ struct NewWorkspaceSplitButton: View {
         // not the accent color, which reads as too prominent for a chrome
         // control at this size.
         .foregroundStyle(Color.aw.text3)
+        // Filled pill + hairline border, matching the search field's own
+        // treatment right beside it (SidebarView.swift's expandedSearchHeader)
+        // rather than a flat, borderless box — reads as more "button-y".
         .background(restFill, in: RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(Color.aw.border2, lineWidth: 0.5)
+        }
     }
 
     private var primaryButton: some View {
@@ -69,14 +76,12 @@ struct NewWorkspaceSplitButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // A plain, fully-rounded inset highlight — not mirrored corners tied
+        // to this segment's position — so it's the identical shape the
+        // chevron segment below uses, not just a mirror image of it.
         .background(
             isPrimaryHovering ? Color.aw.surface.hover : Color.clear,
-            in: UnevenRoundedRectangle(
-                topLeadingRadius: cornerRadius,
-                bottomLeadingRadius: cornerRadius,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 0
-            )
+            in: RoundedRectangle(cornerRadius: cornerRadius - 2)
         )
         .onHover { isPrimaryHovering = $0 }
         // `.onHover(false)` isn't guaranteed when the view is torn down
@@ -112,14 +117,12 @@ struct NewWorkspaceSplitButton: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        // Same shape as the primary segment's hover fill (plain, fully
+        // rounded, same corner radius) — not a mirrored asymmetric shape —
+        // so the two read as identical highlights, not just similar ones.
         .background(
             isChevronHovering ? Color.aw.surface.hover : Color.clear,
-            in: UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: cornerRadius,
-                topTrailingRadius: cornerRadius
-            )
+            in: RoundedRectangle(cornerRadius: cornerRadius - 2)
         )
         .onHover { isChevronHovering = $0 }
         .onDisappear { isChevronHovering = false }

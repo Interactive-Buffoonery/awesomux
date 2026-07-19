@@ -742,8 +742,10 @@ struct SidebarView: View {
             }
 
             NewWorkspaceSplitButton(
-                // Blend into the sidebar so it pairs cleanly with the search field.
-                restFill: Color.aw.surface.sidebar,
+                // Matches the search field's own fill (line 738) — a
+                // bordered pill, not blended into the sidebar — so the two
+                // chips on this row read as one family.
+                restFill: Color.aw.surface.elevated,
                 otherGroups: sessionStore.groups.map { ($0.id, $0.name) },
                 onNewWorkspace: addWorkspaceInCurrentContext,
                 onNewWorkspaceInGroup: addWorkspace(inGroupID:),
