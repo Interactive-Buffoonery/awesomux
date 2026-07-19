@@ -124,6 +124,13 @@ extension GhosttyRuntime {
             )
             Task { @MainActor in
                 view.updateMouseOverLink(link)
+                if let link, !link.isEmpty {
+                    view.sessionStore.recordRecentTerminalLink(
+                        sessionID: view.sessionID,
+                        paneID: view.paneID,
+                        value: link
+                    )
+                }
             }
             return true
 

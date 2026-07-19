@@ -3264,6 +3264,16 @@ struct AwesoMuxApp: App {
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFilePanel,
             openSessionManager: toggleSessionManager,
+            openRecentLink: { value, sessionID, paneID in
+                Task { @MainActor in
+                    await GhosttyRuntime.openRecentLink(
+                        value,
+                        in: sessionID,
+                        associatedWith: paneID,
+                        sessionStore: sessionStore
+                    )
+                }
+            },
             openWorktreeManager: showWorktreeManager,
             createWorktree: presentWorktreeCreateForm,
             openWorktree: showWorktreeManager
