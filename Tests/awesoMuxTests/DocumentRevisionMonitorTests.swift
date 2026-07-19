@@ -361,6 +361,85 @@ struct DocumentRevisionMonitorTests {
         }
     }
 
+    @Test("a re-edit back to previously announced content announces again after a dismiss")
+    func reEditAfterRevertAnnouncesAgain() async throws {
+        try await withFixture { fixture, monitor, log in
+            let edited = Self.baseContent + "\nline4"
+            try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
+            _ = await awaitCondition(timeout: 3.0) {
+                monitor.indicator(for: fixture.tabB) != nil
+            }
+            #expect(log.messages.count == 1)
+
+            try Self.baseContent.write(to: fixture.urlB, atomically: true, encoding: .utf8)
+            _ = await awaitCondition(timeout: 3.0) {
+                monitor.indicator(for: fixture.tabB) == nil
+            }
+
+            // The same content as the first edit is a genuinely new revision
+            // after the dismiss; the announce dedup must not swallow it.
+            try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
+            let reRecorded = await awaitCondition(timeout: 3.0) {
+                monitor.indicator(for: fixture.tabB) != nil && log.messages.count == 2
+            }
+            #expect(reRecorded)
+        }
+    }
+
+    @Test("reconcile diffs against the baseline captured at selection time")
+    func reconcileUsesCapturedBaseline() async throws {
+        try await withFixture { fixture, monitor, log in
+            monitor.stopAll()
+            let edited = Self.baseContent + "\nline4\nline5"
+            try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
+
+            monitor.sync(
+                tabs: [fixture.tabA, fixture.tabB],
+                selectedTabID: fixture.tabB.id,
+                cachedSource: { _ in Self.baseContent }
+            )
+            monitor.reconcile(tab: fixture.tabB)
+            // Simulate the remounting pane's render winning the race: the
+            // live baseline advances to the on-disk content before the
+            // reconcile read commits. The captured baseline must still win.
+            monitor.noteRenderCompleted(source: edited, for: fixture.tabB)
+
+            let recorded = await awaitCondition(timeout: 3.0) {
+                self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 2, removed: 0)
+            }
+            #expect(recorded)
+            #expect(log.messages.count == 1)
+        }
+    }
+
+    @Test("recordSelected does not re-announce the identical revision a reconcile just recorded")
+    func recordSelectedDeduplicatesReconcileAnnouncement() async throws {
+        try await withFixture { fixture, monitor, log in
+            monitor.stopAll()
+            let edited = Self.baseContent + "\nline4"
+            try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
+            monitor.sync(
+                tabs: [fixture.tabA, fixture.tabB],
+                selectedTabID: fixture.tabB.id,
+                cachedSource: { _ in Self.baseContent }
+            )
+            monitor.reconcile(tab: fixture.tabB)
+            _ = await awaitCondition(timeout: 3.0) {
+                monitor.indicator(for: fixture.tabB) != nil
+            }
+            #expect(log.messages.count == 1)
+
+            // The mounted pane re-reporting the same diff refreshes the
+            // indicator but must not speak a second time.
+            monitor.recordSelected(.exact(LineDiffCount(added: 1, removed: 0)), for: fixture.tabB)
+            #expect(log.messages.count == 1)
+
+            // A genuinely different revision announces normally.
+            monitor.recordSelected(.exact(LineDiffCount(added: 3, removed: 1)), for: fixture.tabB)
+            #expect(log.messages.count == 2)
+        }
+    }
+
     // MARK: - Selected-pane passthrough
 
     @Test("recordSelected records and announces")

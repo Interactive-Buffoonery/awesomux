@@ -56,13 +56,31 @@ final class DocumentRevisionMonitor {
         var lastSeenOnDisk: String?
     }
 
+    /// A reconcile snapshots its target's baseline synchronously at selection
+    /// time: the remounting pane's render advances the entry's baseline
+    /// concurrently, and diffing against the captured value keeps the
+    /// debounce-gap handoff deterministic regardless of which finishes first.
+    private struct ReconcileRequest {
+        let tabID: DocumentPane.ID
+        let epoch: Int
+        let capturedBaseline: String?
+    }
+
     @ObservationIgnored private var entries: [DocumentPane.ID: Entry] = [:]
     @ObservationIgnored private var watchers: [String: DocumentFileWatcher] = [:]
     @ObservationIgnored private var pathTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var lastAnnouncedSource: [String: String] = [:]
+    /// Generation of the most recent monitor-recorded indicator per tab, so
+    /// `recordSelected` can recognize (and not re-announce) the mounted pane
+    /// re-reporting the same revision a reconcile just recorded.
+    @ObservationIgnored private var monitorRecordedGenerations: [DocumentPane.ID: Int] = [:]
     @ObservationIgnored private var tabs: [DocumentPane] = []
     @ObservationIgnored private var selectedTabID: DocumentPane.ID?
     @ObservationIgnored private var epochCounter = 0
+    /// Bumped by `stopAll()`. In-flight processing chains from before the stop
+    /// carry the old value and abort at their next commit point, so a stopped
+    /// monitor that quickly re-syncs cannot receive stale commits.
+    @ObservationIgnored private var runEpoch = 0
 
     // MARK: - Indicator passthroughs
 
@@ -71,9 +89,18 @@ final class DocumentRevisionMonitor {
     }
 
     /// Records a diff produced by the mounted pane's own pipeline and
-    /// announces it — the selected-tab path, unchanged from before INT-782.
+    /// announces it — the selected-tab path, unchanged from before INT-782,
+    /// except that re-reporting the identical revision a reconcile just
+    /// recorded refreshes the indicator without speaking it twice.
     func recordSelected(_ revision: LineDiffCount.ExternalEdit, for tab: DocumentPane) {
+        let monitorGeneration = monitorRecordedGenerations.removeValue(forKey: tab.id)
+        let duplicatesMonitorRecord =
+            monitorGeneration != nil
+            && indicators.indicator(for: tab).map {
+                $0.generation == monitorGeneration && $0.revision == revision
+            } == true
         indicators.record(revision, for: tab)
+        guard !duplicatesMonitorRecord else { return }
         announce(revision.accessibilityAnnouncement(documentTitle: tab.title))
     }
 
@@ -113,6 +140,9 @@ final class DocumentRevisionMonitor {
             uniquingKeysWith: { first, _ in first }
         )
         entries = entries.filter { id, entry in currentPaths[id] == entry.sourcePath }
+        monitorRecordedGenerations = monitorRecordedGenerations.filter { id, _ in
+            entries[id] != nil
+        }
 
         for tab in tabs where entries[tab.id] == nil {
             epochCounter += 1
@@ -142,7 +172,7 @@ final class DocumentRevisionMonitor {
             let path = entry.sourcePath
             let watcher = DocumentFileWatcher(url: tabs.first { $0.id == id }?.fileURL ?? entry.fileURL) {
                 [weak self] in
-                self?.enqueueProcess(path: path, reconcileTargetID: nil)
+                self?.enqueueProcess(path: path)
             }
             watcher.start()
             watchers[path] = watcher
@@ -174,15 +204,25 @@ final class DocumentRevisionMonitor {
     }
 
     /// Covers the selection transition: the incoming tab's file is re-read and
-    /// diffed against its baseline, so an edit that fell into a watcher
-    /// debounce window still records instead of the remount silently adopting
-    /// disk content. `lastSeenOnDisk` makes this a no-op when the background
-    /// watcher already handled the edit.
+    /// diffed against the baseline captured right now, so an edit that fell
+    /// into a watcher debounce window still records instead of the remount
+    /// silently adopting disk content — even when the remounting pane's render
+    /// completes (and advances the live baseline) before the read commits.
     func reconcile(tab: DocumentPane) {
-        enqueueProcess(path: tab.fileURL.standardizedFileURL.path, reconcileTargetID: tab.id)
+        let path = tab.fileURL.standardizedFileURL.path
+        guard let entry = entries[tab.id], entry.sourcePath == path else { return }
+        enqueueProcess(
+            path: path,
+            reconcile: ReconcileRequest(
+                tabID: tab.id,
+                epoch: entry.epoch,
+                capturedBaseline: entry.baseline
+            )
+        )
     }
 
     func stopAll() {
+        runEpoch += 1
         for watcher in watchers.values {
             watcher.stop()
         }
@@ -191,6 +231,10 @@ final class DocumentRevisionMonitor {
             task.cancel()
         }
         pathTasks = [:]
+        // A remounted viewer starts with a clean announce slate; suppressing
+        // by pre-stop source would silently swallow a genuine post-remount
+        // transition that happens to match an old announcement.
+        lastAnnouncedSource = [:]
     }
 
     // MARK: - Event processing
@@ -212,23 +256,28 @@ final class DocumentRevisionMonitor {
     }
 
     /// FIFO-chains processing per path: rapid edits produce ordered commits,
-    /// so an older read can never overwrite a newer result.
-    private func enqueueProcess(path: String, reconcileTargetID: DocumentPane.ID?) {
+    /// so an older read can never overwrite a newer result. `runEpoch` is
+    /// captured here because `stopAll()` clears the chain — a task already
+    /// past its `await previous` would otherwise outlive the stop.
+    private func enqueueProcess(path: String, reconcile: ReconcileRequest? = nil) {
         let previous = pathTasks[path]
+        let expectedRunEpoch = runEpoch
         pathTasks[path] = Task { @MainActor [weak self] in
             await previous?.value
-            guard !Task.isCancelled else { return }
-            await self?.process(path: path, reconcileTargetID: reconcileTargetID)
+            guard !Task.isCancelled, let self, self.runEpoch == expectedRunEpoch else { return }
+            await self.process(path: path, reconcile: reconcile, expectedRunEpoch: expectedRunEpoch)
         }
     }
 
-    private func process(path: String, reconcileTargetID: DocumentPane.ID?) async {
+    private func process(path: String, reconcile: ReconcileRequest?, expectedRunEpoch: Int) async {
         // The selected tab's pipeline owns its own diff; the monitor only
         // targets it when explicitly reconciling a selection transition.
-        let targetIDs = entries.compactMap { id, entry -> DocumentPane.ID? in
-            guard entry.sourcePath == path else { return nil }
-            guard id != selectedTabID || id == reconcileTargetID else { return nil }
-            return id
+        // Iterating `tabs` (not the entries dictionary) keeps target order —
+        // and therefore the announced title for same-file tabs — stable.
+        let targetIDs = tabs.compactMap { tab -> DocumentPane.ID? in
+            guard let entry = entries[tab.id], entry.sourcePath == path else { return nil }
+            guard tab.id != selectedTabID || tab.id == reconcile?.tabID else { return nil }
+            return tab.id
         }
         guard !targetIDs.isEmpty,
             let fileURL = entries[targetIDs[0]]?.fileURL
@@ -237,6 +286,7 @@ final class DocumentRevisionMonitor {
         let source = await Task.detached(priority: .userInitiated) {
             DocumentLoader.readSnapshot(fileURL)?.source
         }.value
+        guard runEpoch == expectedRunEpoch else { return }
         // Deleted or unreadable content never indicates; the next readable
         // event diffs against the untouched baseline.
         guard let source else { return }
@@ -258,10 +308,17 @@ final class DocumentRevisionMonitor {
         }
         var pending: [Pending] = []
         for id in targetIDs {
-            guard let entry = entries[id], entry.lastSeenOnDisk != source else { continue }
+            guard let entry = entries[id] else { continue }
+            // A reconcile bypasses the last-seen dedup and diffs against the
+            // baseline captured at selection time: the pane's render may have
+            // already advanced the live entry, and skipping here would let the
+            // remount silently adopt the very edit reconcile exists to catch.
+            let isReconcileTarget = reconcile?.tabID == id && reconcile?.epoch == entry.epoch
+            guard isReconcileTarget || entry.lastSeenOnDisk != source else { continue }
             // A coalesced self-write + external edit diffs from the user's own
             // just-written source, matching the mounted pane's semantics.
-            guard let old = selfWrite?.source ?? entry.baseline else {
+            let baseline = isReconcileTarget ? reconcile?.capturedBaseline : entry.baseline
+            guard let old = selfWrite?.source ?? baseline else {
                 // First observation of this file for the tab: becomes the
                 // baseline, never an indicator.
                 advance(tabID: id, path: path, to: source)
@@ -271,12 +328,20 @@ final class DocumentRevisionMonitor {
         }
         guard !pending.isEmpty else { return }
 
-        let diffs = await Task.detached(priority: .userInitiated) {
-            pending.map { LineDiffCount.forExternalEdit(old: $0.old, new: source, isSelfWrite: false) }
+        // Same-file tabs usually share a baseline; diff each unique old
+        // source once instead of once per tab.
+        let uniqueOlds = Array(Set(pending.map(\.old)))
+        let diffByOld = await Task.detached(priority: .userInitiated) {
+            Dictionary(
+                uniqueKeysWithValues: uniqueOlds.map {
+                    ($0, LineDiffCount.forExternalEdit(old: $0, new: source, isSelfWrite: false))
+                }
+            )
         }.value
+        guard runEpoch == expectedRunEpoch else { return }
 
         var recordedTab: DocumentPane?
-        for (item, diff) in zip(pending, diffs) {
+        for item in pending {
             // Commit-time validation: the tab must still exist with the same
             // pinned path and epoch — a stale async result for a closed or
             // in-place-replaced tab must not resurrect state.
@@ -287,13 +352,19 @@ final class DocumentRevisionMonitor {
                     $0.id == item.tabID && $0.fileURL.standardizedFileURL.path == path
                 })
             else { continue }
-            if let diff {
+            if let diff = diffByOld[item.old] ?? nil {
                 indicators.record(diff, for: tab)
-                recordedTab = recordedTab ?? tab
-            } else if source == entry.baseline {
+                monitorRecordedGenerations[tab.id] = indicators.indicator(for: tab)?.generation
+                if recordedTab == nil || item.tabID == reconcile?.tabID {
+                    recordedTab = tab
+                }
+            } else if source == item.old {
                 // Content returned exactly to what the user last saw; a stale
-                // marker would claim changes that no longer exist.
+                // marker would claim changes that no longer exist. Clearing
+                // the announce dedup lets a later re-edit back to the
+                // previously announced content speak again.
                 indicators.dismiss(for: tab)
+                lastAnnouncedSource[path] = nil
             }
             advance(tabID: item.tabID, path: path, to: source, keepBaseline: true)
         }
@@ -306,7 +377,7 @@ final class DocumentRevisionMonitor {
             .flatMap { id in tabs.first { $0.id == id } }?
             .fileURL.standardizedFileURL.path
         if let recordedTab,
-            reconcileTargetID != nil || path != selectedPath,
+            reconcile != nil || path != selectedPath,
             lastAnnouncedSource[path] != source,
             let indicator = indicators.indicator(for: recordedTab)
         {
