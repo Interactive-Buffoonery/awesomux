@@ -5,12 +5,14 @@ import DesignSystem
 /// Exercises the LIVE `appearance.ui_font` probe (`resolvedForSystem`) against
 /// the real installed font catalog, using families that ship with every macOS:
 /// Helvetica (proportional) and Menlo (monospaced).
-@Suite("Appearance UI font resolution")
+@Suite("Appearance UI font resolution", .serialized)
 @MainActor
 struct AppearanceUIFontResolutionTests {
     @Test("bundled Geist resolves to the registered family")
     func bundledGeistResolves() {
         _ = DesignSystemFonts.registerBundledFonts()
+        SettingsFontCatalog.cachedProportional = nil
+        SettingsFontCatalog.cachedProportionalIndex = nil
 
         let resolver = AwUIFontResolver.resolvedForSystem(rawFamily: "geist")
         #expect(resolver.family == DesignSystemFonts.geistFamilyName)
