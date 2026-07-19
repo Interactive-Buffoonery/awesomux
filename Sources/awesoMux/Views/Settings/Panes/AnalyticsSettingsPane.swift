@@ -5,7 +5,7 @@ import SwiftUI
 struct AnalyticsSettingsPane: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(SettingsNavigator.self) private var navigator
-    @Environment(LocalAnalyticsClient.self) private var analyticsClient
+    @Environment(AnalyticsPipelineClient.self) private var analyticsClient
     @State private var isDisableDialogPresented = false
     @State private var isDeleteLogDialogPresented = false
     @State private var consentAtDisableDialog: AnalyticsConfig.ConsentLevel?
@@ -45,11 +45,7 @@ struct AnalyticsSettingsPane: View {
                         return
                     }
                     analyticsClient.optIn(level: newLevel)
-                    confirmStatus(
-                        String(
-                            localized: "Analytics consent saved. This build records eligible events locally only.",
-                            comment: "Confirmation after enabling local-only analytics foundation")
-                    )
+                    confirmStatus(Self.enabledMessage(for: newLevel))
                 }
             }
         )
@@ -103,7 +99,8 @@ struct AnalyticsSettingsPane: View {
                 SettingsField(
                     label: String(localized: "Test event", comment: "Analytics test event field label"),
                     hint: String(
-                        localized: "Records one diagnostic test event through the redaction pipeline so you can inspect the final payload.",
+                        localized:
+                            "Submits one diagnostic test event through the redaction pipeline so you can inspect its final event properties and request status.",
                         comment: "Analytics test event field hint"
                     )
                 ) {
@@ -111,19 +108,13 @@ struct AnalyticsSettingsPane: View {
                         analyticsClient.capture(.testPing)
                         TerminalAccessibilityAnnouncer.announce(
                             String(
-                                localized: "Test event recorded. Review it under Analytics events in Diagnostics.",
+                                localized: "Test event processed. Review its request status under Analytics events in Diagnostics.",
                                 comment: "VoiceOver announcement after sending an analytics test event"
                             )
                         )
                     }
-                    .disabled(consent == .off)
-                    .accessibilityHint(
-                        consent == .off
-                            ? String(
-                                localized: "Enable analytics consent above to send a test event.",
-                                comment: "VoiceOver hint on the disabled analytics test event button")
-                            : ""
-                    )
+                    .disabled(consent == .off || appSettingsStore.isDiskConfigInvalid)
+                    .accessibilityHint(testEventAccessibilityHint)
                 }
 
                 SettingsField(
@@ -169,7 +160,7 @@ struct AnalyticsSettingsPane: View {
             Text(
                 String(
                     localized:
-                        "Analytics capture stops immediately. Deleting also removes the local event log and the anonymous identifier.",
+                        "New analytics capture stops immediately, though a request already in flight may finish. Deleting also removes the local event log and the anonymous identifier.",
                     comment: "Disable-analytics dialog message"
                 )
             )
@@ -180,7 +171,7 @@ struct AnalyticsSettingsPane: View {
             titleVisibility: .visible
         ) {
             Button(String(localized: "Delete", comment: "Delete-analytics-log dialog confirm button"), role: .destructive) {
-                confirmDeletion(analyticsClient.logStore.deleteAll())
+                confirmDeletion(analyticsClient.deleteLocalAnalyticsState())
             }
             Button(String(localized: "Cancel", comment: "Dialog cancel button"), role: .cancel) {}
         } message: {
@@ -233,7 +224,7 @@ struct AnalyticsSettingsPane: View {
                     localized: "Analytics event log deleted and identifier reset.",
                     comment: "Confirmation after deleting local analytics state")
                 : String(
-                    localized: "The analytics event log could not be deleted. Check file permissions and try again.",
+                    localized: "Some local analytics data could not be deleted. Check file permissions and try again.",
                     comment: "Failure after deleting local analytics state")
         )
     }
@@ -241,6 +232,35 @@ struct AnalyticsSettingsPane: View {
     private func confirmStatus(_ message: String) {
         statusMessage = message
         TerminalAccessibilityAnnouncer.announce(message)
+    }
+
+    private var testEventAccessibilityHint: String {
+        if appSettingsStore.isDiskConfigInvalid {
+            return String(
+                localized: "Fix the invalid config file before sending a test event.",
+                comment: "VoiceOver hint on analytics test event disabled by invalid config")
+        }
+        if consent == .off {
+            return String(
+                localized: "Enable analytics consent above to send a test event.",
+                comment: "VoiceOver hint on the disabled analytics test event button")
+        }
+        return ""
+    }
+
+    private static func enabledMessage(for level: AnalyticsConfig.ConsentLevel) -> String {
+        switch level {
+        case .errorReports:
+            String(
+                localized: "Analytics on — allowing sanitized handled-error events only.",
+                comment: "Confirmation after enabling error-report analytics")
+        case .productUsage:
+            String(
+                localized: "Analytics on — allowing sanitized handled-error and product-usage events.",
+                comment: "Confirmation after enabling product-usage analytics")
+        case .off:
+            String(localized: "Analytics off.", comment: "Analytics disabled status")
+        }
     }
 
     private static var saveFailedMessage: String {
@@ -271,14 +291,22 @@ struct AnalyticsSettingsPane: View {
 
     private static var privacySummary: String {
         String(
-            localized: "Analytics are off by default. Currently, no analytics go to the developers in any form.",
+            localized: """
+                Analytics are off by default, with no PostHog connection until you opt in. When enabled, \
+                awesoMux submits only final post-redaction events under a random analytics identifier that is \
+                not tied to your name or account. PostHog receives ordinary request metadata, but awesoMux \
+                disables GeoIP enrichment. Current delivery is limited to consent changes and user-triggered \
+                test events, and never includes terminal content, commands, prompts, paths, hostnames, or \
+                direct identifiers.
+                """,
             comment: "Analytics consent section privacy summary"
         )
     }
 
     private static var consentHint: String {
         String(
-            localized: "Choose what future delivery may include. This build records eligible consent and test events locally only.",
+            localized:
+                "Choose which explicitly allowlisted events future instrumentation may submit. This provider slice submits only consent changes and user-triggered test events.",
             comment: "Analytics consent field hint"
         )
     }

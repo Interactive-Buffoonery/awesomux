@@ -2,6 +2,13 @@ import Foundation
 import Observation
 import os
 
+struct AnalyticsLocalDeletionResult: Equatable, Sendable {
+    let eventLogDeleted: Bool
+    let distinctIDDeleted: Bool
+
+    var succeeded: Bool { eventLogDeleted && distinctIDDeleted }
+}
+
 /// Persisted local analytics event log plus the app-local anonymous
 /// distinct id (ADR-0008: random UUID, stored only for analytics, reset
 /// when analytics state is deleted).
@@ -97,12 +104,17 @@ final class AnalyticsEventLogStore {
     }
 
     func append(_ entry: AnalyticsLogEntry) {
+        let sanitizedEventIsValid =
+            entry.properties[.consentLevel] == .token(entry.consentLevel.rawValue)
+            && AnalyticsSanitizer.isEventValid(
+                SanitizedAnalyticsEvent(name: entry.name, properties: entry.properties)
+            )
+        let preSanitizationDropIsValid =
+            entry.status == .dropped && entry.dropReason != nil && entry.properties.isEmpty
         guard entry.provider == "posthog",
             entry.schemaVersion == analyticsSchemaVersion,
             entry.consentLevel != .off,
-            entry.properties.allSatisfy({
-                AnalyticsSanitizer.isShapeValid($0.value, for: $0.key)
-            })
+            sanitizedEventIsValid || preSanitizationDropIsValid
         else {
             logger.error("refusing analytics log entry that did not pass final privacy validation")
             return
@@ -127,19 +139,22 @@ final class AnalyticsEventLogStore {
     /// user-facing deletion confirmation must not report success while files
     /// remain queued for removal.
     @discardableResult
-    func deleteAll() -> Bool {
+    func deleteAll() -> AnalyticsLocalDeletionResult {
         loadGeneration += 1
         let eventsURL = eventsURL
-        let eventsDeleted = ioQueue.sync {
+        let eventLogDeleted = ioQueue.sync {
             Self.removeIfPresent(eventsURL)
         }
         let distinctIDDeleted = Self.removeIfPresent(distinctIDURL)
-        guard eventsDeleted, distinctIDDeleted else { return false }
-
-        entries = []
-        hasLoaded = true
-        diskMatchesEntries = true
-        return true
+        if eventLogDeleted {
+            entries = []
+            hasLoaded = true
+            diskMatchesEntries = true
+        }
+        return AnalyticsLocalDeletionResult(
+            eventLogDeleted: eventLogDeleted,
+            distinctIDDeleted: distinctIDDeleted
+        )
     }
 
     private func startLoadingIfNeeded() {
@@ -182,31 +197,61 @@ final class AnalyticsEventLogStore {
         waiters.forEach { $0.resume() }
     }
 
-    func distinctID() -> String {
-        Self.clampDirectoryToOwnerOnly(directoryURL)
-        Self.clampToOwnerOnly(distinctIDURL)
+    /// Returns only an identifier proven durable and owner-only. Delivery
+    /// fails closed when identity storage is unreadable or cannot be written;
+    /// a throwaway UUID would fragment identity and make deletion misleading.
+    func stableDistinctID() -> UUID? {
+        do {
+            try FileManager.default.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: directoryURL.path
+            )
+        } catch {
+            logger.error("analytics identity directory unavailable: \(error)")
+            return nil
+        }
+
         do {
             let stored = try String(contentsOf: distinctIDURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            if UUID(uuidString: stored) != nil { return stored }
-            logger.notice("replacing invalid analytics distinct id file")
+            guard let identifier = UUID(uuidString: stored) else {
+                logger.notice("replacing invalid analytics distinct id file")
+                return persistFreshDistinctID()
+            }
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: distinctIDURL.path
+            )
+            return identifier
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-            // First use: mint below.
+            return persistFreshDistinctID()
         } catch {
-            // Present but unreadable: a transient I/O error must not rotate
-            // the durable identity. Use a throwaway id for this call only.
-            logger.error("analytics distinct id unreadable, not rotating: \(error)")
-            return UUID().uuidString
+            logger.error("analytics distinct id unavailable: \(error)")
+            return nil
         }
-        let fresh = UUID().uuidString
-        Self.ensureDirectory(directoryURL)
+    }
+
+    private func persistFreshDistinctID() -> UUID? {
+        let fresh = UUID()
         do {
-            try Data(fresh.utf8).write(to: distinctIDURL, options: .atomic)
-            Self.clampToOwnerOnly(distinctIDURL)
+            try Data(fresh.uuidString.utf8).write(to: distinctIDURL, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: distinctIDURL.path
+            )
+            let persisted = try String(contentsOf: distinctIDURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard UUID(uuidString: persisted) == fresh else { return nil }
+            return fresh
         } catch {
             logger.error("failed to persist analytics distinct id: \(error)")
+            return nil
         }
-        return fresh
     }
 
     /// Test seam: blocks until every scheduled disk write has landed.

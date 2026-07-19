@@ -187,7 +187,23 @@ struct AnalyticsEventLogStoreTests {
             schemaVersion: analyticsSchemaVersion
         )
 
+        let semanticallyInvalid = AnalyticsLogEntry(
+            id: UUID(),
+            timestamp: Date(),
+            name: .settingsChanged,
+            consentLevel: .productUsage,
+            properties: [
+                .schemaVersion: .integer(analyticsSchemaVersion),
+                .consentLevel: .token("product_usage"),
+            ],
+            status: .failed,
+            dropReason: .invalidPropertyValue,
+            provider: "posthog",
+            schemaVersion: analyticsSchemaVersion
+        )
+
         store.append(unsafe)
+        store.append(semanticallyInvalid)
         store.waitForPendingWrites()
 
         #expect(store.entries.isEmpty)
@@ -236,17 +252,19 @@ struct AnalyticsEventLogStoreTests {
 
         let store = AnalyticsEventLogStore(rootDirectoryURL: root)
         store.append(Self.entry())
-        let firstID = store.distinctID()
-        #expect(UUID(uuidString: firstID) != nil)
+        let firstID = try #require(store.stableDistinctID())
 
-        store.deleteAll()
+        let deletion = store.deleteAll()
+        #expect(deletion.succeeded)
+        #expect(deletion.eventLogDeleted)
+        #expect(deletion.distinctIDDeleted)
         store.waitForPendingWrites()
         #expect(store.entries.isEmpty)
         let analyticsDir = root.appending(path: "analytics")
         #expect(!FileManager.default.fileExists(atPath: analyticsDir.appending(path: "events.jsonl").path))
         #expect(!FileManager.default.fileExists(atPath: analyticsDir.appending(path: "distinct_id").path))
 
-        let secondID = store.distinctID()
+        let secondID = store.stableDistinctID()
         #expect(secondID != firstID)
     }
 
@@ -256,10 +274,38 @@ struct AnalyticsEventLogStoreTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let store = AnalyticsEventLogStore(rootDirectoryURL: root)
-        #expect(store.distinctID() == store.distinctID())
+        #expect(store.stableDistinctID() == store.stableDistinctID())
 
         let reloaded = AnalyticsEventLogStore(rootDirectoryURL: root)
-        #expect(reloaded.distinctID() == store.distinctID())
+        #expect(reloaded.stableDistinctID() == store.stableDistinctID())
+    }
+
+    @Test("distinct id fails closed when analytics directory is unavailable")
+    func distinctIDFailure() throws {
+        let root = try Self.makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("not a directory".utf8).write(to: root.appending(path: "analytics"))
+
+        let store = AnalyticsEventLogStore(rootDirectoryURL: root)
+
+        #expect(store.stableDistinctID() == nil)
+    }
+
+    @Test("unreadable existing distinct id fails without rotation")
+    func unreadableDistinctID() throws {
+        let root = try Self.makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let identifierURL = root.appending(path: "analytics/distinct_id", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: identifierURL,
+            withIntermediateDirectories: true
+        )
+        let store = AnalyticsEventLogStore(rootDirectoryURL: root)
+
+        #expect(store.stableDistinctID() == nil)
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: identifierURL.path, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
     }
 
     @Test("log, distinct id, and directory stay owner-only")
@@ -270,7 +316,7 @@ struct AnalyticsEventLogStoreTests {
         let store = AnalyticsEventLogStore(rootDirectoryURL: root)
         store.append(Self.entry())
         store.waitForPendingWrites()
-        _ = store.distinctID()
+        _ = store.stableDistinctID()
 
         let analyticsDir = root.appending(path: "analytics")
         func posixPermissions(_ url: URL) throws -> Int {

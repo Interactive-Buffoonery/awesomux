@@ -66,6 +66,10 @@ struct DiagnosticsSettingsPane: View {
             SettingsSection(
                 index: 4,
                 title: String(localized: "Analytics events", comment: "Diagnostics settings section title"),
+                subtitle: String(
+                    localized:
+                        "Final post-redaction event properties and request status. Submitted means the request started, not confirmed delivery.",
+                    comment: "Diagnostics settings section subtitle"),
                 accessibilityFocus: $isAnalyticsEventsHeadingFocused
             ) {
                 analyticsEvents
@@ -909,11 +913,13 @@ struct DiagnosticsSettingsPane: View {
     private func analyticsStatusText(_ entry: AnalyticsLogEntry) -> String {
         switch (entry.status, entry.dropReason) {
         case (.queued, _):
-            String(localized: "Queued", comment: "Analytics event delivery status")
+            String(localized: "Submitted to PostHog", comment: "Analytics event delivery status")
         case (_, .deliveryUnavailable):
-            String(localized: "Not sent. This build records analytics locally only", comment: "Analytics event delivery status")
+            String(localized: "Not sent — delivery unavailable", comment: "Analytics event delivery status")
         case (_, .analyticsDisabled):
-            String(localized: "Not recorded. Analytics is off", comment: "Analytics event delivery status")
+            String(localized: "Not recorded — analytics is off", comment: "Analytics event delivery status")
+        case (_, .rateLimited):
+            String(localized: "Dropped — too many analytics requests in progress", comment: "Analytics event delivery status")
         case (_, .invalidPropertyValue):
             String(localized: "Dropped. Failed privacy checks", comment: "Analytics event delivery status")
         case (.dropped, nil), (.failed, nil):

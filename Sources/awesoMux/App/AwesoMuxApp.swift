@@ -104,7 +104,8 @@ struct AwesoMuxApp: App {
     @State private var terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache
     @State private var appSettingsStore: AppSettingsStore
     @State private var analyticsEventLog: AnalyticsEventLogStore
-    @State private var analyticsClient: LocalAnalyticsClient
+    @State private var analyticsClient: AnalyticsPipelineClient
+    @State private var analyticsConsentObserver: AnalyticsConsentObserver
     @State private var settingsNavigator = SettingsNavigator()
     @State private var customCommandStore = CustomCommandStore()
     @State private var isCloseConfirmAlertPresented = false
@@ -183,7 +184,6 @@ struct AwesoMuxApp: App {
             }
         )
         appSettingsStore.bootstrap()
-        appSettingsStore.startWatching()
         let terminalAppearancePreferencesCache = TerminalAppearancePreferencesCache()
         let initialAppearance = appSettingsStore.appearance.value
         AwUIFontRuntime.current = AwUIFontResolver.resolvedForSystem(
@@ -208,12 +208,22 @@ struct AwesoMuxApp: App {
             retainToDisk: { appSettingsStore.analytics.value.retainLocalEventLog }
         )
         _analyticsEventLog = State(initialValue: analyticsEventLog)
-        _analyticsClient = State(
-            initialValue: LocalAnalyticsClient(
-                logStore: analyticsEventLog,
-                consent: { appSettingsStore.analytics.value.consentLevel }
-            )
+        let analyticsClient = AnalyticsPipelineClient(
+            logStore: analyticsEventLog,
+            consent: {
+                AnalyticsConsentObserver.effectiveConsent(for: appSettingsStore)
+            },
+            provider: PostHogCaptureProvider()
         )
+        _analyticsClient = State(initialValue: analyticsClient)
+        let analyticsConsentObserver = AnalyticsConsentObserver(
+            settings: appSettingsStore,
+            client: analyticsClient,
+            reconcileRetention: { _ in analyticsEventLog.reconcileRetention() }
+        )
+        _analyticsConsentObserver = State(initialValue: analyticsConsentObserver)
+        analyticsConsentObserver.start()
+        appSettingsStore.startWatching()
         _sessionStore = State(initialValue: loadResult.store)
         if let warning = loadResult.recoveryWarning {
             switch warning.kind {
@@ -454,7 +464,8 @@ struct AwesoMuxApp: App {
                     appSettingsStore: appSettingsStore,
                     terminalAppearancePreferencesCache: terminalAppearancePreferencesCache,
                     openSettings: { openSettingsWindow() },
-                    openPrimaryWindow: { openPrimaryWindow() }
+                    openPrimaryWindow: { openPrimaryWindow() },
+                    analyticsFlushForTermination: { analyticsClient.flushForTermination() }
                 )
                 appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
                 appDelegate.syncMenuBarMiniStatusItem()
@@ -503,12 +514,6 @@ struct AwesoMuxApp: App {
             }
             .onChange(of: appSettingsStore.general.value.showMenuBarMiniStatus) { _, _ in
                 appDelegate.syncMenuBarMiniStatusItem()
-            }
-            .onChange(of: appSettingsStore.analytics.value.consentLevel, initial: true) { _, level in
-                analyticsClient.reconcileConsent(level: level)
-            }
-            .onChange(of: appSettingsStore.analytics.value.retainLocalEventLog, initial: true) {
-                analyticsEventLog.reconcileRetention()
             }
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
                 appDelegate.evaluateAndPostNotifications()
