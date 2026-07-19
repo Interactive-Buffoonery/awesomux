@@ -58,7 +58,12 @@ final class FloatingSwiftUIPanelWindow: NSPanel {
     override func resignKey() {
         super.resignKey()
         onKeyStateChanged?(false)
-        if dismissesOnResignKey {
+        // A SwiftUI `.sheet()` presented over this panel's content attaches an
+        // actual child NSWindow, which resigns THIS window's key status the
+        // moment it becomes key itself — that's the sheet opening normally,
+        // not the user clicking away, so it must not order the parent out
+        // from under its own modal child.
+        if dismissesOnResignKey, attachedSheet == nil {
             onDismiss?()
         }
     }

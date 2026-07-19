@@ -121,10 +121,41 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.showKeyboardCheatsheet.id,
                 KeyboardShortcutCatalog.openMarkdownFile.id,
                 KeyboardShortcutCatalog.sessionManager.id,
+                "createWorktree",
+                "openWorktree",
+                "manageWorktrees",
             ])
 
         #expect(commands.map(\.id).count == ids.count)
         #expect(ids == expectedIDs)
+    }
+
+    @Test("Worktree manager availability gates worktree commands")
+    @MainActor
+    func worktreeManagerAvailabilityGatesWorktreeCommands() throws {
+        let unavailableCommands = PaletteCommandRegistry.commands(
+            sessionStore: SessionStore(groups: []),
+            availability: .init(isWorktreeManagerAvailable: false),
+            actions: .noop
+        )
+        let availableCommands = PaletteCommandRegistry.commands(
+            sessionStore: SessionStore(groups: []),
+            availability: .init(isWorktreeManagerAvailable: true),
+            actions: .noop
+        )
+
+        for commandID in ["createWorktree", "openWorktree", "manageWorktrees"] {
+            #expect(
+                try !#require(
+                    PaletteCommandRegistry.command(id: commandID, in: unavailableCommands)
+                ).isEnabled
+            )
+            #expect(
+                try #require(
+                    PaletteCommandRegistry.command(id: commandID, in: availableCommands)
+                ).isEnabled
+            )
+        }
     }
 
     @Test("No-session store gates session-dependent commands")

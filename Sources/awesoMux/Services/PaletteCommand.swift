@@ -102,6 +102,9 @@ struct PaletteAppActions {
     let showKeyboardCheatsheet: @MainActor () -> Void
     let openMarkdownFile: @MainActor () -> Void
     let openSessionManager: @MainActor () -> Void
+    let openWorktreeManager: @MainActor () -> Void
+    let createWorktree: @MainActor () -> Void
+    let openWorktree: @MainActor () -> Void
 
     static var noop: PaletteAppActions {
         let action: @MainActor () -> Void = {}
@@ -158,7 +161,10 @@ struct PaletteAppActions {
             openInIDE: action,
             showKeyboardCheatsheet: action,
             openMarkdownFile: action,
-            openSessionManager: action
+            openSessionManager: action,
+            openWorktreeManager: action,
+            createWorktree: action,
+            openWorktree: action
         )
     }
 }
@@ -168,6 +174,7 @@ struct PaletteCommandAvailability {
     var isOpenInIDEEnabled = true
     var isSidebarHidden = false
     var isSidebarCommandTargetAvailable = true
+    var isWorktreeManagerAvailable = false
 }
 
 @MainActor
@@ -740,6 +747,42 @@ enum PaletteCommandRegistry {
                 shortcut: KeyboardShortcutCatalog.sessionManager,
                 isEnabled: !availability.isAnySheetPresented,
                 run: actions.openSessionManager
+            ),
+            PaletteCommand(
+                id: "createWorktree",
+                title: String(
+                    localized: "Create Worktree…",
+                    comment: "Command palette action that opens Worktree Manager for worktree creation."
+                ),
+                subtitle: nil,
+                keywords: ["git", "worktree", "branch", "create"],
+                shortcut: nil,
+                isEnabled: availability.isWorktreeManagerAvailable,
+                run: actions.createWorktree
+            ),
+            PaletteCommand(
+                id: "openWorktree",
+                title: String(
+                    localized: "Open Worktree…",
+                    comment: "Command palette action that opens Worktree Manager for worktree selection."
+                ),
+                subtitle: nil,
+                keywords: ["git", "worktree", "open", "select"],
+                shortcut: nil,
+                isEnabled: availability.isWorktreeManagerAvailable,
+                run: actions.openWorktree
+            ),
+            PaletteCommand(
+                id: "manageWorktrees",
+                title: String(
+                    localized: "Manage Worktrees…",
+                    comment: "Command palette action that opens Worktree Manager."
+                ),
+                subtitle: nil,
+                keywords: ["git", "worktree", "manage", "list"],
+                shortcut: nil,
+                isEnabled: availability.isWorktreeManagerAvailable,
+                run: actions.openWorktreeManager
             ),
         ])
 

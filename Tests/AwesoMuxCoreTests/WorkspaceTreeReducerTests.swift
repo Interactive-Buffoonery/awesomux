@@ -52,6 +52,44 @@ struct WorkspaceTreeReducerTests {
         #expect(groups[0].sessions[0].syntheticTitle == nil)
     }
 
+    @Test("ID-based insertion preserves explicit local session fields")
+    func idBasedInsertionPreservesExplicitFields() throws {
+        let group = SessionGroup(name: "work", sessions: [])
+        var groups = [group]
+
+        let id = WorkspaceTreeReducer.addSession(
+            to: &groups,
+            selectedSession: nil,
+            title: "feature/int-857",
+            workingDirectory: "/tmp/repo-worktrees/int-857",
+            groupID: group.id,
+            executionPlan: .local
+        )
+
+        let session = try #require(groups[0].sessions.first)
+        #expect(session.id == id)
+        #expect(session.title == "feature/int-857")
+        #expect(session.workingDirectory == "/tmp/repo-worktrees/int-857")
+        #expect(session.activePane?.executionPlan == .local)
+    }
+
+    @Test("ID-based insertion fails when the group disappeared")
+    func idBasedInsertionRejectsMissingGroup() {
+        var groups: [SessionGroup] = []
+
+        let id = WorkspaceTreeReducer.addSession(
+            to: &groups,
+            selectedSession: nil,
+            title: "feature",
+            workingDirectory: "/tmp/feature",
+            groupID: UUID(),
+            executionPlan: .local
+        )
+
+        #expect(id == nil)
+        #expect(groups.isEmpty)
+    }
+
     @Test("synthetic metadata reserves its index independently of the stored display string")
     func syntheticMetadataReservesIndex() {
         let localizedLegacy = TerminalSession(
