@@ -1,10 +1,12 @@
 import AppKit
 import AwesoMuxCore
 import GhosttyKit
+import OSLog
 
 private struct ForegroundProcessSample: Sendable {
     var hasLiveSurface: Bool
     var processExited: Bool = false
+    var pid: pid_t?
     var comm: String?
     var foregroundHasChildren: Bool?
 }
@@ -52,6 +54,33 @@ extension GhosttySurfaceNSView {
         )
     }
 
+    /// Foreground evidence for the document-nudge prompt gate (INT-569).
+    /// Bridged panes read the daemon's foreground process group via the
+    /// command bridge; non-bridged local panes reuse the quit-gate sampler —
+    /// libghostty tracks the surface's foreground pid directly, so the same
+    /// p_comm evidence exists without a bridge session. Nil = no usable
+    /// evidence; every consumer treats it as deny (fail closed).
+    @MainActor
+    func documentNudgeForegroundComm() -> String? {
+        if commandBridgeSessionID != nil {
+            return commandBridgeEnactor.foregroundComm()
+        }
+        let sample = foregroundProcessSample()
+        guard sample.hasLiveSurface, !sample.processExited, let comm = sample.comm else {
+            Self.nudgeGateLogger.info(
+                "nudge probe: pane \(self.paneID.uuidString, privacy: .public) non-bridged sample denied (liveSurface=\(sample.hasLiveSurface, privacy: .public) exited=\(sample.processExited, privacy: .public) commResolved=\(sample.comm != nil, privacy: .public))"
+            )
+            return nil
+        }
+        return comm
+    }
+
+    /// INT-569 field diagnostics for the document-nudge evidence chain.
+    private nonisolated static let nudgeGateLogger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "DocumentNudgeGate"
+    )
+
     @MainActor
     private func foregroundProcessSample() -> ForegroundProcessSample {
         guard let surface else {
@@ -72,9 +101,46 @@ extension GhosttySurfaceNSView {
         }
         return ForegroundProcessSample(
             hasLiveSurface: true,
+            pid: pid,
             comm: comm,
             foregroundHasChildren: hasChildren
         )
+    }
+
+    /// Foreground-process incarnation for the document-nudge prompt gate's
+    /// generation check (INT-569 follow-up). Mirrors
+    /// `documentNudgeForegroundComm()`'s bridged/non-bridged branching so the
+    /// same probe backs both the comm-name evidence and the pid/start-time
+    /// evidence. Nil = no usable evidence; the gate fails closed on nil.
+    ///
+    /// The bridged branch deliberately does NOT use
+    /// `commandBridgeEnactor.respawnLedger.lastIncarnation` (the DAEMON's own
+    /// pid/createdAt) — a persistent bridged session's daemon survives the
+    /// user quitting and restarting the agent CLI inside it, so the daemon
+    /// incarnation staying fixed across a CLI relaunch would silently
+    /// re-trust the fresh, unverified process. It walks to the actual
+    /// foreground process INSIDE that daemon session instead, same as
+    /// `documentNudgeForegroundComm()` does for its comm-name evidence.
+    @MainActor
+    func documentNudgeForegroundGeneration() -> AgentForegroundIncarnation? {
+        if commandBridgeSessionID != nil {
+            guard
+                let rawDaemonPID = commandBridgeEnactor.respawnLedger.lastIncarnation?.pid,
+                let daemonPID = pid_t(exactly: rawDaemonPID),
+                let foregroundPID = ProcessLivenessProbe.terminalForegroundPID(daemonPID: daemonPID),
+                let startedAt = ProcessLivenessProbe.processStartTime(pid: foregroundPID)
+            else {
+                return nil
+            }
+            return AgentForegroundIncarnation(pid: Int(foregroundPID), startedAt: startedAt)
+        }
+        let sample = foregroundProcessSample()
+        guard sample.hasLiveSurface, !sample.processExited, let pid = sample.pid,
+            let startedAt = ProcessLivenessProbe.processStartTime(pid: pid)
+        else {
+            return nil
+        }
+        return AgentForegroundIncarnation(pid: Int(pid), startedAt: startedAt)
     }
 
     /// Passive "agent exited, shell survived" detector (INT-552): when an
@@ -717,6 +783,29 @@ extension GhosttySurfaceNSView {
         // path owns its own announcement (see applyDetectedAgentState).
         let newState = sessionStore.session(id: sessionID)?
             .layout.pane(id: paneID)?.agentState
+        // Trusted-generation stamp for the document-nudge prompt gate
+        // (INT-569 follow-up): this is the ONLY path that may set
+        // `verifiedWaitingForegroundIncarnation`, and only for an event that
+        // ITSELF asserts `.waiting` (`assertsWaitingExecutionState`) — not
+        // merely because the pane's resulting display state happens to
+        // already read `.waiting`. Without the assertion check, ANY accepted
+        // event on an already-`.waiting` pane (a title-only `.rename`, a
+        // tool-lifecycle event, a same-state repeat) would re-sample and
+        // re-stamp trust for whatever process is CURRENTLY foreground — even
+        // though that event proved nothing about it, reopening exactly the
+        // relaunch spoof window this gate exists to close (review finding).
+        //
+        // A hook moving the pane away from `.waiting` clears the stamp, so a
+        // later detector-only re-affirmation of `.waiting` can't inherit
+        // stale trust. Anything else (an accepted, non-asserting event while
+        // the pane is still legitimately `.waiting`) leaves the existing
+        // trusted generation untouched — `verdict` re-checks it against the
+        // CURRENT foreground process at click time regardless.
+        if event.assertsWaitingExecutionState, newState == .waiting {
+            verifiedWaitingForegroundIncarnation = documentNudgeForegroundGeneration()
+        } else if newState != .waiting {
+            verifiedWaitingForegroundIncarnation = nil
+        }
         let announcementIntent = visibleTextAgentStateReducer.announcementIntent(
             priorDisplayState: priorState,
             newDisplayState: newState

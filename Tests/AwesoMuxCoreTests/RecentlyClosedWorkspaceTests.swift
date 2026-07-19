@@ -585,7 +585,7 @@ struct RecentlyClosedWorkspaceTests {
         #expect(store.canReopenClosedWorkspace == false)
     }
 
-    @Test("INT-426 — depth-cap bail drains BOTH tiers when the entry is shared")
+    @Test("INT-426 — depth-cap bail preserves BOTH tiers when the entry is shared")
     func depthCapBailDrainsBothTiers() throws {
         // A gate-admitting workspace lands in both tiers. The captured
         // entry's layout is then forced past the depth cap (simulating
@@ -641,13 +641,13 @@ struct RecentlyClosedWorkspaceTests {
         store.lastClosedTransient = twin
         store.recentlyClosed = [twin]
 
-        // First reopen: depth-guard bails. Both tiers must clear.
+        // Depth-guard bails: recovery rows stay so a failed reopen cannot
+        // erase the only visible recovery entry.
         #expect(store.reopenMostRecentlyClosed() == nil)
-        #expect(store.lastClosedTransient == nil)
-        #expect(store.recentlyClosed.isEmpty)
-
-        // Second reopen: clean no-op.
+        #expect(store.lastClosedTransient == twin)
+        #expect(store.recentlyClosed == [twin])
         #expect(store.reopenMostRecentlyClosed() == nil)
+        #expect(store.recentlyClosed == [twin])
     }
 
     @Test("INT-426 — transient does NOT persist across SessionSnapshot encode/decode")
@@ -996,9 +996,9 @@ struct RecentlyClosedWorkspaceTests {
         let preGroupCount = store.groups[0].sessions.count
         store.recentlyClosed = [entry]
 
-        // Entry is consumed (dropped) without inserting a session.
+        // Entry stays available without inserting a session.
         #expect(store.reopenMostRecentlyClosed() == nil)
-        #expect(store.recentlyClosed.isEmpty)
+        #expect(store.recentlyClosed == [entry])
         #expect(store.groups[0].sessions.count == preGroupCount)
     }
 

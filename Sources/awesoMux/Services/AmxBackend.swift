@@ -911,10 +911,12 @@ enum AmxBackend {
             maxOutputBytes: 4 * 1024,
             environment: bridgeProcessEnvironment()
         )
-        guard let data = await runner.run(
-            arguments: ["cwd", sessionID.rawValue],
-            inDirectory: FileManager.default.currentDirectoryPath
-        ), let output = String(data: data, encoding: .utf8) else {
+        guard
+            let data = await runner.runDetailed(
+                arguments: ["cwd", sessionID.rawValue],
+                inDirectory: FileManager.default.currentDirectoryPath
+            ).completeData, let output = String(data: data, encoding: .utf8)
+        else {
             return nil
         }
         return Self.parseCwdOutput(output)
@@ -970,11 +972,16 @@ enum AmxBackend {
             maxOutputBytes: 1024 * 1024,
             environment: bridgeProcessEnvironment()
         )
-        guard let data = await runner.run(
-            arguments: ["list", "--short"],
-            inDirectory: FileManager.default.currentDirectoryPath
-        ),
-              let output = String(data: data, encoding: .utf8) else {
+        // Fail-closed on truncation: a capped short-list could omit a live
+        // session id and look like a dead daemon, triggering an unnecessary
+        // respawn in the legacy fallback.
+        guard
+            let data = await runner.runDetailed(
+                arguments: ["list", "--short"],
+                inDirectory: FileManager.default.currentDirectoryPath
+            ).completeData,
+            let output = String(data: data, encoding: .utf8)
+        else {
             return false
         }
 
@@ -999,10 +1006,12 @@ enum AmxBackend {
             maxOutputBytes: 1024 * 1024,
             environment: bridgeProcessEnvironment()
         )
-        guard let data = await runner.run(
-            arguments: ["list"],
-            inDirectory: FileManager.default.currentDirectoryPath
-        ), let output = String(data: data, encoding: .utf8) else { return nil }
+        guard
+            let data = await runner.runDetailed(
+                arguments: ["list"],
+                inDirectory: FileManager.default.currentDirectoryPath
+            ).completeData, let output = String(data: data, encoding: .utf8)
+        else { return nil }
         return DaemonGCPlan.parseAmxList(output)
     }
 
@@ -1011,10 +1020,12 @@ enum AmxBackend {
     /// Uses `-xo` (current user only): diagnostics only groups this user's app,
     /// daemon, shell, and agent processes — not other UIDs' full process tables.
     static func currentDiagnosticsProcessSnapshot() async -> [DiagnosticsRawProcess]? {
-        guard let data = await diagnosticsProcessRunner.run(
-            arguments: ["-xo", "pid=,ppid=,%cpu=,rss=,comm="],
-            inDirectory: "/"
-        ), let output = String(data: data, encoding: .utf8) else { return nil }
+        guard
+            let data = await diagnosticsProcessRunner.runDetailed(
+                arguments: ["-xo", "pid=,ppid=,%cpu=,rss=,comm="],
+                inDirectory: "/"
+            ).completeData, let output = String(data: data, encoding: .utf8)
+        else { return nil }
         let snapshot = DiagnosticsProcessParser.parse(output)
         return snapshot.isEmpty ? nil : snapshot
     }
@@ -1033,10 +1044,12 @@ enum AmxBackend {
             maxOutputBytes: 4 * 1024 * 1024,
             environment: [:]
         )
-        guard let data = await runner.run(
-            arguments: ["-axo", "pid=,ppid=,comm="],
-            inDirectory: "/"
-        ), let output = String(data: data, encoding: .utf8) else { return nil }
+        guard
+            let data = await runner.runDetailed(
+                arguments: ["-axo", "pid=,ppid=,comm="],
+                inDirectory: "/"
+            ).completeData, let output = String(data: data, encoding: .utf8)
+        else { return nil }
         let snapshot = DaemonGCPlan.parseProcessSnapshot(output)
         return snapshot.isEmpty ? nil : snapshot
     }
@@ -1078,10 +1091,17 @@ enum AmxBackend {
             maxOutputBytes: 64 * 1024,
             environment: bridgeProcessEnvironment()
         )
-        return await runner.run(
+        // Exit status alone matters for kill; ignore stdout, but still require a
+        // clean exit (timeout / missing binary / nonzero exit → false).
+        switch await runner.runDetailed(
             arguments: ["kill", id.rawValue, "--force"],
             inDirectory: FileManager.default.currentDirectoryPath
-        ) != nil
+        ) {
+        case .success, .outputTruncated:
+            return true
+        default:
+            return false
+        }
     }
 
     static var establishedSessionMetadata: TerminalBackendMetadata {

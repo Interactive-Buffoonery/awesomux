@@ -84,11 +84,99 @@ struct OpenURLAction {
 }
 
 extension GhosttyRuntime {
+    @MainActor
+    static var recentLinkRemoteSnapshotProvider: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
+        await RemoteMarkdownSnapshotFetcher().fetch($0)
+    }
+
+    @MainActor
+    static func resetRecentLinkRemoteSnapshotProviderForTesting() {
+        recentLinkRemoteSnapshotProvider = {
+            await RemoteMarkdownSnapshotFetcher().fetch($0)
+        }
+    }
+
+    @MainActor
+    static var remoteMarkdownRoutingFailurePresenter: @MainActor (NSView?) -> Void = {
+        presentRemoteMarkdownRoutingFailure(from: $0)
+    }
+
+    @MainActor
+    static func resetRemoteMarkdownRoutingFailurePresenterForTesting() {
+        remoteMarkdownRoutingFailurePresenter = {
+            presentRemoteMarkdownRoutingFailure(from: $0)
+        }
+        isRemoteMarkdownRoutingFailurePresented = false
+    }
+
+    @MainActor
+    static func openRecentLink(
+        _ value: String,
+        in sessionID: TerminalSession.ID,
+        associatedWith paneID: TerminalPane.ID,
+        sessionStore: SessionStore
+    ) async {
+        guard let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID) else {
+            return
+        }
+
+        if case .ssh = pane.executionPlan,
+            RemoteMarkdownReference.isPotentialPayload(value)
+        {
+            guard let reference = RemoteMarkdownReference.make(payload: value, pane: pane) else {
+                remoteMarkdownRoutingFailurePresenter(nil)
+                return
+            }
+            guard let outcome = await recentLinkRemoteSnapshotProvider(reference) else {
+                remoteMarkdownRoutingFailurePresenter(nil)
+                return
+            }
+            let snapshot = outcome.snapshot
+            sessionStore.openDocumentPane(
+                fileURL: snapshot.fileURL,
+                in: sessionID,
+                associatedWith: paneID,
+                remoteResourceIdentity: snapshot.identity
+            )
+            return
+        }
+
+        if let url = OpenURLAction.resolve(value) {
+            openURL(url)
+            return
+        }
+
+        guard MarkdownLinkIntercept.isRelativeDocumentCandidate(value) else {
+            return
+        }
+        var workingDirectory = pane.workingDirectory
+        if pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata,
+            let fresh = await AmxBackend.queryCwd(pane.terminalSessionID)
+        {
+            workingDirectory = fresh
+        }
+        guard
+            let url = MarkdownLinkIntercept.documentURL(
+                forSchemelessPath: value,
+                relativeTo: workingDirectory
+            )
+        else {
+            return
+        }
+        sessionStore.openDocumentPane(
+            fileURL: url,
+            in: sessionID,
+            associatedWith: paneID
+        )
+    }
+
     /// Opens an externally-sourced URL through `URLClassifier` — used by OSC 8
     /// hyperlink click-through and by chrome (the Path Bar PR chip). Direct open
-    /// for plain ASCII http/https and bare `mailto:`; block-confirm modal for
-    /// non-ASCII hosts, embedded userinfo (the classic `user@host` phishing
-    /// trick), `mailto:` with attacker-controllable prefill parameters
+    /// for plain ASCII http/https, pure-single-script IDN hosts, and bare
+    /// `mailto:`; block-confirm modal for mixed-script hosts (TR39 homograph
+    /// risk) or undecodable punycode, embedded userinfo (the classic
+    /// `user@host` phishing trick), `mailto:` with attacker-controllable
+    /// prefill parameters
     /// (`to`/`body`/`cc`/`bcc`/`subject` per RFC 6068), malformed http(s) URLs
     /// missing a host, URL paths containing invisible/bidi/RTL-override
     /// codepoints, and any scheme outside the allowlist (defense-in-depth;
@@ -193,7 +281,7 @@ extension GhosttyRuntime {
 
         if case .ssh = pane.executionPlan, RemoteMarkdownReference.isPotentialPayload(action.value) {
             guard let reference = RemoteMarkdownReference.make(payload: action.value, pane: pane) else {
-                presentRemoteMarkdownRoutingFailure(from: view)
+                remoteMarkdownRoutingFailurePresenter(view)
                 return
             }
             let announcesOutcome = presentRemoteMarkdownFetchProgress(
@@ -205,7 +293,16 @@ extension GhosttyRuntime {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
             }
             defer { finishRemoteMarkdownFetchProgress(in: view, sessionID: workspaceID, paneID: paneID) }
-            guard let outcome = await RemoteMarkdownSnapshotFetcher().fetch(reference),
+            guard let outcome = await RemoteMarkdownSnapshotFetcher().fetch(reference) else {
+                remoteMarkdownRoutingFailurePresenter(view)
+                return
+            }
+            // A rejected dispatch means the pane/session moved on while this
+            // fetch was in flight — stale, not a failure this call caused, so
+            // no alert (matches the pane-recycle guard's existing contract
+            // elsewhere: silently drop, don't tell the user their CURRENT
+            // pane failed at something that was actually for a past one).
+            guard
                 ProgressReportDispatchGuard.shouldApply(
                     capturedSessionID: workspaceID,
                     capturedPaneID: paneID,
@@ -258,8 +355,18 @@ extension GhosttyRuntime {
         )
     }
 
+    /// Reentry guard mirroring `isURLConfirmAlertPresented`: the recent-link
+    /// palette, OSC 8 clicks, and a stale-tab click-through can all reach
+    /// this presenter in quick succession (e.g. working through a recent-
+    /// links list after a remote host got redeployed), which would
+    /// otherwise stack multiple `NSAlert`s.
     @MainActor
-    private static func presentRemoteMarkdownRoutingFailure(from view: NSView) {
+    private(set) static var isRemoteMarkdownRoutingFailurePresented = false
+
+    @MainActor
+    private static func presentRemoteMarkdownRoutingFailure(from view: NSView?) {
+        guard !isRemoteMarkdownRoutingFailurePresented else { return }
+        isRemoteMarkdownRoutingFailurePresented = true
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
@@ -270,9 +377,12 @@ extension GhosttyRuntime {
             localized: "awesoMux could not establish a trusted remote path for this link.",
             comment: "Explanation for rejecting an unsafe or unresolved remote Markdown path"
         )
-        if let window = view.window {
-            alert.beginSheetModal(for: window)
+        if let window = view?.window {
+            alert.beginSheetModal(for: window) { _ in
+                isRemoteMarkdownRoutingFailurePresented = false
+            }
         } else {
+            defer { isRemoteMarkdownRoutingFailurePresented = false }
             alert.runModal()
         }
     }

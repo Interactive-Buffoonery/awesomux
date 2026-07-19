@@ -1,6 +1,5 @@
 import AwesoMuxCore
 import SwiftUI
-import UnicodeHygiene
 
 struct WorkspaceGroupRenameSheet: View {
     let groupName: String
@@ -10,6 +9,7 @@ struct WorkspaceGroupRenameSheet: View {
     let onSave: (String) -> Void
 
     @State private var draftName: String
+    @State private var adjustmentAnnouncementGate = WorkspaceGroupNameAdjustmentAnnouncementGate()
     @FocusState private var isNameFocused: Bool
 
     init(
@@ -28,19 +28,12 @@ struct WorkspaceGroupRenameSheet: View {
     }
 
     var body: some View {
-        let sanitized = SessionStore.sanitizedGroupName(draftName)
-        let isMixedScript = UnicodeHygiene.hasSuspiciousScriptMixing(draftName)
-        let isDuplicate = existingGroups.contains { existing in
-            existing.id != currentGroupID
-                && SessionStore.sanitizedGroupName(existing.name)
-                    .caseInsensitiveCompare(sanitized) == .orderedSame
-        }
-        let validation = validationMessage(
-            sanitized: sanitized,
-            isDuplicate: isDuplicate,
-            isMixedScript: isMixedScript
+        let nameDraft = WorkspaceGroupNameDraft(
+            typedName: draftName,
+            existingGroupNames: existingGroups.lazy
+                .filter { $0.id != currentGroupID }
+                .map(\.name)
         )
-        let canSave = !sanitized.isEmpty && !isDuplicate && !isMixedScript
 
         return VStack(alignment: .leading, spacing: 16) {
             Text("Rename '\(groupName)'")
@@ -56,14 +49,12 @@ struct WorkspaceGroupRenameSheet: View {
                 .autocorrectionDisabled(true)
                 .focused($isNameFocused)
                 .accessibilityLabel("Workspace group name")
-                .onSubmit { save(sanitized: sanitized, canSave: canSave) }
+                .onSubmit { save(nameDraft) }
+                .onChange(of: draftName) { _, _ in
+                    adjustmentAnnouncementGate.editingChanged()
+                }
 
-            if let validation {
-                Text(validation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            WorkspaceGroupNameFeedback(draft: nameDraft)
 
             HStack {
                 Spacer()
@@ -74,17 +65,17 @@ struct WorkspaceGroupRenameSheet: View {
                 .keyboardShortcut(.cancelAction)
 
                 let saveButton = Button("Save") {
-                    save(sanitized: sanitized, canSave: canSave)
+                    save(nameDraft)
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!canSave)
+                .disabled(!nameDraft.canSubmit)
 
-                if canSave {
+                if nameDraft.canSubmit {
                     saveButton
                 } else {
                     saveButton
                         .accessibilityHint(
-                            validation ?? "Enter a workspace group name to enable Save"
+                            nameDraft.validationMessage ?? "Enter a workspace group name to enable Save"
                         )
                 }
             }
@@ -98,41 +89,17 @@ struct WorkspaceGroupRenameSheet: View {
         }
     }
 
-    private func validationMessage(
-        sanitized: String,
-        isDuplicate: Bool,
-        isMixedScript: Bool
-    ) -> String? {
-        if sanitized.isEmpty {
-            return draftName.isEmpty
-                ? "Enter a group name."
-                : "Enter a visible group name."
-        }
-
-        if isMixedScript {
-            return String(
-                localized: "Mixing Latin with Cyrillic or Greek letters isn't allowed here — use one alphabet.",
-                comment: "Validation message when a workspace group name mixes visually confusable alphabets"
-            )
-        }
-
-        if isDuplicate {
-            return "\"\(sanitized)\" already exists."
-        }
-
-        return nil
-    }
-
-    private func save(sanitized: String, canSave: Bool) {
-        guard canSave else {
+    private func save(_ nameDraft: WorkspaceGroupNameDraft) {
+        guard nameDraft.canSubmit else {
             return
         }
 
-        guard sanitized != groupName else {
+        guard nameDraft.sanitizedName != groupName else {
             onCancel()
             return
         }
 
-        onSave(sanitized)
+        adjustmentAnnouncementGate.announceIfNeeded(for: nameDraft)
+        onSave(nameDraft.sanitizedName)
     }
 }

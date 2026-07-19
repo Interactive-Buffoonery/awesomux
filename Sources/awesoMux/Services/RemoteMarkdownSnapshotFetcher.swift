@@ -56,20 +56,14 @@ struct RemoteMarkdownReference: Equatable, Sendable {
     }
 
     private static func remotePath(from payload: String) -> String? {
-        guard !payload.isEmpty,
-            let parsed = URL(string: payload)
+        let candidatePath = MarkdownLinkIntercept.documentCandidatePath(from: payload)
+        guard !candidatePath.isEmpty,
+            let parsed = URL(string: candidatePath)
         else {
             return nil
         }
         if parsed.scheme == nil {
-            // libghostty's bare-path regex hands remote panes the same raw,
-            // schemeless match as local panes — including trailing sentence
-            // punctuation (see MarkdownLinkIntercept.strippingTrailingSentencePunctuation).
-            // Without this, a remote path mentioned at the end of a sentence
-            // fails isPotentialPayload's extension check below and falls
-            // through to local resolution, which can silently open a
-            // same-spelled local file instead of fetching the remote one.
-            return MarkdownLinkIntercept.strippingTrailingSentencePunctuation(payload)
+            return candidatePath
         }
         guard parsed.scheme?.lowercased() == "file",
             parsed.query == nil
@@ -228,10 +222,13 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         if let fetchOverride {
             return await fetchOverride(reference)
         }
-        return await runner.run(
+        // Fail-closed: a truncated remote read must not be treated as the file.
+        // The runner's cap is maxFileSizeBytes + 1 so an oversize remote still
+        // surfaces as truncation / oversize rather than a silently short body.
+        return await runner.runDetailed(
             arguments: Self.sshArguments(target: reference.sshTarget, path: reference.remotePath),
             inDirectory: FileManager.default.currentDirectoryPath
-        )
+        ).completeData
     }
 
     static func sshArguments(target: String, path: String) -> [String] {
