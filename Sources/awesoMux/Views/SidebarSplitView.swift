@@ -31,20 +31,9 @@ struct SidebarSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresenta
     @ViewBuilder var detail: () -> Detail
 
     func makeNSViewController(context: Context) -> SidebarSplitController {
-        let sidebarHost = NSHostingController(rootView: sidebar())
-        let detailHost = NSHostingController(rootView: detail())
-        // The split view sizes both panes explicitly, so the hosting views must
-        // not publish intrinsic/fitting size back to AppKit. With sizing
-        // options on, every SwiftUI animation transaction inside a pane (e.g.
-        // a spinning status dot) bubbles _layoutMetricsInvalidatedForHostedView
-        // up through the platform host and re-runs a window-wide constraint
-        // pass per frame — measured at ~14% of a core in the thinking state,
-        // ~0.4% with the options cleared (2026-07-19 A/B, one thinking pane).
-        sidebarHost.sizingOptions = []
-        detailHost.sizingOptions = []
         let controller = SidebarSplitController(
-            sidebar: sidebarHost,
-            detail: detailHost
+            sidebar: NSHostingController(rootView: sidebar()),
+            detail: NSHostingController(rootView: detail())
         )
         controller.terminalMinimumWidth = terminalMinimumWidth
         controller.onLiveWidthChange = onLiveWidthChange
