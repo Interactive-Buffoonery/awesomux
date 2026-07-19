@@ -32,7 +32,9 @@ struct DocumentGroupView: View {
     // Full revision details yield to a compact per-tab marker after a short
     // active-view dwell. The marker keeps the counts recoverable until the
     // user dismisses it, even when edits land while another app is active.
-    @State private var revisionIndicators = DocumentRevisionIndicatorState()
+    // The monitor owns the indicator state plus the background-tab watchers
+    // that populate it for unselected tabs (INT-782).
+    @State private var revisionMonitor = DocumentRevisionMonitor()
     @State private var revisionInteractionActive = false
     // The mounted tab's scroll-anchor capture, tagged with its tab id: on a
     // selection change the group snapshots the OUTGOING tab's position, and the
@@ -71,7 +73,7 @@ struct DocumentGroupView: View {
                 accent: accentResolver.accent,
                 increasedContrast: colorSchemeContrast == .increased,
                 selectedTaskProgress: selectedTaskProgress,
-                revisionIndicators: revisionIndicators,
+                revisionIndicators: revisionMonitor.indicators,
                 onSelectTab: { tabID in
                     // Clicking the already-selected pill while the Files
                     // browser is open must still mean "show me this document" —
@@ -112,19 +114,19 @@ struct DocumentGroupView: View {
                 },
                 onExpandRevision: { tab in
                     if tab.id == group.selectedTabID {
-                        revisionIndicators.expand(for: tab)
+                        revisionMonitor.expand(for: tab)
                         revisionInteractionActive = false
                         mode = .document
                     } else {
                         documentTabActions.perform {
-                            revisionIndicators.expand(for: tab)
+                            revisionMonitor.expand(for: tab)
                             revisionInteractionActive = false
                             sessionStore.selectDocumentTab(tabID: tab.id, in: session.id)
                         }
                     }
                 },
                 onDismissRevision: {
-                    revisionIndicators.dismiss(for: document)
+                    revisionMonitor.dismiss(for: document)
                     revisionInteractionActive = false
                 },
                 onRevisionInteractionChanged: { active in
@@ -150,7 +152,7 @@ struct DocumentGroupView: View {
                             )
                         }
                         scrollAnchorCapture = nil
-                        revisionIndicators.collapse(for: document)
+                        revisionMonitor.collapse(for: document)
                         revisionInteractionActive = false
                     }
                     mode = mode == .files ? .document : .files
@@ -197,6 +199,13 @@ struct DocumentGroupView: View {
                     },
                     onRenderCompleted: { render in
                         tabMemory.storeRender(render, for: document)
+                        // What just rendered is now what the user has seen:
+                        // the monitor's background diffs for this tab measure
+                        // from here on.
+                        revisionMonitor.noteRenderCompleted(
+                            source: render.renderedDoc?.source,
+                            for: document
+                        )
                     },
                     // A link inside a document inherits the CURRENT tab's
                     // terminal, not the active pane's (INT-748 PR2).
@@ -221,15 +230,12 @@ struct DocumentGroupView: View {
                             associationPolicy: .preserveNil
                         )
                     },
+                    // A VoiceOver user who isn't parked on the tab strip never
+                    // encounters the pill, so recordSelected announces the
+                    // appearance — same reasoning as the send bar's
+                    // nudge-failure and the all-resolved notice.
                     onRevision: { diff in
-                        revisionIndicators.record(diff, for: document)
-                        // A VoiceOver user who isn't parked on the tab strip
-                        // never encounters the pill, so announce the
-                        // appearance — same reasoning as the send bar's
-                        // nudge-failure and the all-resolved notice.
-                        TerminalAccessibilityAnnouncer.announce(
-                            diff.accessibilityAnnouncement(documentTitle: document.title)
-                        )
+                        revisionMonitor.recordSelected(diff, for: document)
                     },
                     onRegisterScrollAnchorCapture: { capture in
                         scrollAnchorCapture = (document.id, capture)
@@ -298,11 +304,19 @@ struct DocumentGroupView: View {
             if oldGroup.selectedTabID != newGroup.selectedTabID,
                 let outgoingTab = oldGroup.tab(id: oldGroup.selectedTabID)
             {
-                revisionIndicators.collapse(for: outgoingTab)
+                revisionMonitor.collapse(for: outgoingTab)
                 revisionInteractionActive = false
             }
             tabMemory.prune(keeping: newGroup.tabs)
-            revisionIndicators.prune(keeping: newGroup.tabs)
+            syncRevisionMonitor(for: newGroup)
+            if oldGroup.selectedTabID != newGroup.selectedTabID,
+                let incomingTab = newGroup.tab(id: newGroup.selectedTabID)
+            {
+                // Catch an edit that fell into a watcher debounce window
+                // during the selection change, before the remount silently
+                // adopts the on-disk content (INT-782).
+                revisionMonitor.reconcile(tab: incomingTab)
+            }
         }
         // Same key as DocumentPaneView's .id above so the tracker reset and the
         // child remount agree on what counts as "a different file".
@@ -313,7 +327,7 @@ struct DocumentGroupView: View {
             settleTask?.cancel()
             commentResolution = CommentResolutionTracker()
             showAllResolvedNotice = false
-            revisionIndicators.prune(keeping: group.tabs)
+            syncRevisionMonitor(for: group)
             revisionInteractionActive = false
             // A tab switch always lands on the new tab's document. Without this
             // reset, a Files browser opened on tab A survives an async
@@ -336,10 +350,19 @@ struct DocumentGroupView: View {
         // effect VoiceOver would speak for a document that no longer exists.
         .onDisappear {
             settleTask?.cancel()
+            // The group-lifetime background watchers die with the viewer;
+            // baselines and indicators are session-memory, so a remount
+            // starts fresh (same contract as tabMemory).
+            revisionMonitor.stopAll()
+        }
+        // Initial sync must not wait for a group mutation: a restored
+        // multi-tab group needs its background watchers immediately.
+        .task {
+            syncRevisionMonitor(for: group)
         }
         .task(id: revisionAutoCollapseTaskID) {
             guard revisionAutoCollapseTaskID.canRun,
-                let indicator = revisionIndicators.indicator(for: document)
+                let indicator = revisionMonitor.indicator(for: document)
             else {
                 return
             }
@@ -347,7 +370,7 @@ struct DocumentGroupView: View {
             let clock = ContinuousClock()
             let startedAt = clock.now
             let remaining =
-                revisionIndicators.remainingExpandedTime(
+                revisionMonitor.remainingExpandedTime(
                     of: Self.revisionExpandedDuration,
                     for: document
                 ) ?? Self.revisionExpandedDuration
@@ -355,7 +378,7 @@ struct DocumentGroupView: View {
                 do {
                     try await Task.sleep(for: remaining)
                 } catch {
-                    revisionIndicators.recordActiveViewingTime(
+                    revisionMonitor.recordActiveViewingTime(
                         clock.now - startedAt,
                         for: document,
                         generation: generation
@@ -363,24 +386,32 @@ struct DocumentGroupView: View {
                     return
                 }
             }
-            revisionIndicators.recordActiveViewingTime(
+            revisionMonitor.recordActiveViewingTime(
                 clock.now - startedAt,
                 for: document,
                 generation: generation
             )
             guard revisionAutoCollapseTaskID.canRun,
-                let current = revisionIndicators.indicator(for: document),
+                let current = revisionMonitor.indicator(for: document),
                 current.generation == generation,
                 current.presentation == .expanded
             else {
                 return
             }
-            revisionIndicators.collapse(for: document)
+            revisionMonitor.collapse(for: document)
         }
     }
 
+    private func syncRevisionMonitor(for group: AwesoMuxCore.DocumentGroup) {
+        revisionMonitor.sync(
+            tabs: group.tabs,
+            selectedTabID: group.selectedTabID,
+            cachedSource: { tabMemory.render(for: $0)?.renderedDoc?.source }
+        )
+    }
+
     private var revisionAutoCollapseTaskID: RevisionAutoCollapseTaskID {
-        let indicator = revisionIndicators.indicator(for: document)
+        let indicator = revisionMonitor.indicator(for: document)
         return RevisionAutoCollapseTaskID(
             generation: indicator?.generation,
             canRun: indicator?.presentation == .expanded

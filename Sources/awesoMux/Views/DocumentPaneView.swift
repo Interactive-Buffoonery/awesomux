@@ -593,7 +593,9 @@ struct DocumentPaneView: View {
     /// mounted and popover presentation always closes the previous one, so at
     /// most one document popover exists at a time in this single-window app.
     @MainActor weak static var activeCommentPopover: NSPopover?
-    @MainActor private static var selfWriteRegistry = MarkdownSelfWriteRegistry()
+    // Internal (not private) so DocumentRevisionMonitor's background watchers
+    // share the same self-write suppression the mounted pane records into.
+    @MainActor static var selfWriteRegistry = MarkdownSelfWriteRegistry()
 
     let pane: DocumentPane
     /// Reports the document's comment count on every (re)load so the send bar can
