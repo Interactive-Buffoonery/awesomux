@@ -18,9 +18,16 @@ final class WorktreeManagerController {
     @ObservationIgnored private var refreshGeneration = 0
     @ObservationIgnored private weak var activeModel: WorktreeManagerModel?
     @ObservationIgnored var appSettingsStore: AppSettingsStore?
+    @ObservationIgnored private let presentPanel: @MainActor (FloatingSwiftUIPanelWindow) -> Void
 
     private(set) var isVisible = false
     var hasPendingRefresh: Bool { refreshTask != nil }
+
+    init(
+        presentPanel: @escaping @MainActor (FloatingSwiftUIPanelWindow) -> Void = { $0.presentAndFocus() }
+    ) {
+        self.presentPanel = presentPanel
+    }
 
     /// Awaits the in-flight `show()` refresh, if any. Exists so tests can
     /// observe completion deterministically instead of polling `hasPendingRefresh`
@@ -70,7 +77,7 @@ final class WorktreeManagerController {
         if !isReshowingSameModel {
             position(panel, relativeTo: parentWindow)
         }
-        panel.presentAndFocus()
+        presentPanel(panel)
         isVisible = true
         refreshTask?.cancel()
         refreshGeneration += 1
