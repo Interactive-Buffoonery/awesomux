@@ -226,4 +226,38 @@ struct AgentRuntimeEventTests {
         #expect(AgentRuntimeSource.grok.inferredAgentKind == .grok)
         #expect(AgentRuntimeSource.unknown.inferredAgentKind == nil)
     }
+
+    // MARK: - assertsWaitingExecutionState (AgentPromptGate trust-stamp gate,
+    // INT-569 follow-up / review finding)
+
+    @Test("modern executionState: waiting asserts")
+    func modernExecutionStateWaitingAsserts() {
+        let event = AgentRuntimeEvent(source: .claudeCode, executionState: .waiting)
+        #expect(event.assertsWaitingExecutionState)
+    }
+
+    @Test("legacy state field's executionState: waiting asserts")
+    func legacyStateWaitingAsserts() {
+        let event = AgentRuntimeEvent(source: .codex, state: .waiting)
+        #expect(event.assertsWaitingExecutionState)
+    }
+
+    @Test(
+        "a title-only rename, an openDocument event, and a non-waiting execution state never assert waiting",
+        arguments: [
+            AgentRuntimeEvent(source: .claudeCode, phase: .rename, title: "renamed"),
+            AgentRuntimeEvent(source: .claudeCode, phase: .openDocument, documentPath: "/tmp/a.md"),
+            AgentRuntimeEvent(source: .codex, executionState: .thinking),
+            AgentRuntimeEvent(source: .codex, phase: .toolStart),
+            AgentRuntimeEvent(source: .claudeCode),
+        ]
+    )
+    func nonAssertingEventsNeverAssertWaiting(event: AgentRuntimeEvent) {
+        // This is the exact review finding: an accepted event that carries
+        // neither `executionState` nor `state` (a rename, a tool-lifecycle
+        // ping, a bare same-state repeat) must never read as an authoritative
+        // waiting assertion, even though the PANE it lands on might already be
+        // `.waiting` from an earlier, genuinely-asserting event.
+        #expect(!event.assertsWaitingExecutionState)
+    }
 }

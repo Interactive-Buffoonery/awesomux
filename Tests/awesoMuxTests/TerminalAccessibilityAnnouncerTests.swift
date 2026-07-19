@@ -1,9 +1,21 @@
+import AwesoMuxCore
+import Foundation
 import Testing
 @testable import awesoMux
 
 @MainActor
 @Suite("Terminal accessibility announcements")
 struct TerminalAccessibilityAnnouncerTests {
+    @Test func remoteMarkdownAnnouncementsDescribeEveryOutcome() {
+        let snapshot = RemoteMarkdownSnapshot(
+            fileURL: URL(fileURLWithPath: "/tmp/example.md"),
+            identity: ResourceIdentity(location: .local, path: ResourcePath(rawValue: "/tmp/example.md"))
+        )
+
+        #expect(TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(for: .fresh(snapshot)) == "Remote Markdown loaded.")
+        #expect(TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(for: .cached(snapshot)).contains("stale"))
+        #expect(TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(for: .failureDocument(snapshot)).contains("failure document"))
+    }
     @Test("settings errors are announced when present")
     func settingsErrors() {
         var announcements: [String] = []

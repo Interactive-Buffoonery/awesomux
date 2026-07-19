@@ -1,0 +1,142 @@
+name: Native CI request
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Native validation scope.
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - unit
+          - adapter
+          - system
+
+permissions: {}
+
+jobs:
+  resolve:
+    name: Resolve native request
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check out trusted request resolver
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Resolve, authorize, and dispatch request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          ACTOR: ${{ github.actor }}
+          MAINTAINER_LOGINS_JSON: ${{ vars.MAINTAINER_LOGINS_JSON || '[]' }}
+          ISSUE_IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          DISPATCH_SCOPE: ${{ inputs.scope }}
+          DISPATCH_SHA: ${{ github.sha }}
+          DISPATCH_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          trusted_sha="$(git rev-parse HEAD)"
+          trigger="$EVENT_NAME"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            case "$DISPATCH_SCOPE" in
+              all|unit|adapter|system) ;;
+              *)
+                echo "unsupported native CI scope: $DISPATCH_SCOPE" >&2
+                exit 2
+                ;;
+            esac
+            if [[ "$DISPATCH_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+              echo "manual native CI must be dispatched from the default branch" >&2
+              exit 1
+            fi
+            if [[ ! "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$DISPATCH_SHA" != "$trusted_sha" ]]; then
+              echo "manual native CI did not capture the trusted default-branch SHA" >&2
+              exit 1
+            fi
+            scope="$DISPATCH_SCOPE"
+            target_sha="$DISPATCH_SHA"
+            pr_number=""
+          else
+            if ! scope="$(node .github/scripts/native-ci-request.mjs parse "$COMMENT_BODY")"; then
+              echo "Ignoring a comment that is not an exact native CI command."
+              exit 0
+            fi
+
+            if [[ "$ISSUE_IS_PULL_REQUEST" != "true" ]]; then
+              echo "native CI commands are accepted only on pull requests" >&2
+              exit 1
+            fi
+            if ! jq -e --arg actor "$ACTOR" \
+              'type == "array" and all(.[]; type == "string") and index($actor) != null' \
+              <<< "$MAINTAINER_LOGINS_JSON" >/dev/null; then
+              echo "native CI requires a maintainer command author" >&2
+              exit 1
+            fi
+
+            pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+            authorization="$({
+              jq -cn \
+                --arg actor "$ACTOR" \
+                --arg repository "$GITHUB_REPOSITORY" \
+                --argjson maintainerLogins "$MAINTAINER_LOGINS_JSON" \
+                --argjson pullRequest "$pr_json" \
+                '{
+                  actor: $actor,
+                  maintainerLogins: $maintainerLogins,
+                  repository: $repository,
+                  issueIsPullRequest: true,
+                  pullRequest: $pullRequest
+                }'
+            } | node .github/scripts/native-ci-request.mjs authorize)"
+
+            target_sha="$(jq -r '.headSHA' <<< "$authorization")"
+            pr_number="$(jq -r '.prNumber' <<< "$authorization")"
+          fi
+
+          execution_ref="native-ci-runs/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup_ref() {
+            gh api --method DELETE \
+              "repos/${GITHUB_REPOSITORY}/git/refs/heads/${execution_ref}" >/dev/null 2>&1 || true
+          }
+          trap cleanup_ref ERR
+
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/heads/${execution_ref}" \
+            -f sha="$trusted_sha" >/dev/null
+
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/native-ci-executor.yml/dispatches" \
+            -f ref="$execution_ref" \
+            -f "inputs[target-sha]=$target_sha" \
+            -f "inputs[pr-number]=$pr_number" \
+            -f "inputs[scope]=$scope" \
+            -f "inputs[trusted-sha]=$trusted_sha" \
+            -f "inputs[execution-ref]=$execution_ref" \
+            -f "inputs[trigger]=$trigger" >/dev/null
+
+          trap - ERR
+          if [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            gh api --method POST \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}/reactions" \
+              -f content=eyes >/dev/null
+          fi
+
+          echo "Dispatched native $scope for $target_sha from $execution_ref."

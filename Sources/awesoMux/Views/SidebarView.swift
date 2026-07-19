@@ -68,12 +68,13 @@ struct SidebarView: View {
     /// true — cross-boundary pin/unpin drags are out of scope for v1.
     @State private var activeWorkspaceDragSourceWasPinned = false
     @State private var dragClearScheduler = SidebarDragClearScheduler()
-    @State private var reorderAnnouncer = SidebarReorderAnnouncer()
+    @State private var accessibilityAnnouncer = SidebarAccessibilityAnnouncer()
     @State private var lastDragWatchdogRefresh = Date.distantPast
     @State private var sidebarDragClearDeadline: Date?
     @State private var groupFrames: [SessionGroup.ID: CGRect] = [:]
     @State private var groupDropIndex: Int?
-    @FocusState private var isSearchFocused: Bool
+    @State private var isSearchFocused = false
+    @State private var focusedSearchSessionID: TerminalSession.ID?
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
     @FocusState private var isCollapsedEmptyActionFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -132,16 +133,20 @@ struct SidebarView: View {
         let visibleGroupIDs = snapshot.entries.map { $0.group.id }
         // Pinned tiles render above every group, so ⌘1-9 must count them first
         // to keep the on-tile jump digits truthful (INT-737).
-        let jumpOrderedSessions =
+        let orderedVisibleSessions =
             snapshot.pinned.isEmpty
             ? snapshot.entries.flatMap(\.sessions)
             : snapshot.pinned.map(\.entry) + snapshot.entries.flatMap(\.sessions)
         let jumpIndexBySessionID = Dictionary(
-            jumpOrderedSessions
+            orderedVisibleSessions
                 .enumerated()
                 .map { ($0.element.session.id, $0.offset + 1) },
             uniquingKeysWith: { first, _ in first }
         )
+        let searchResultIDs =
+            isFiltering
+            ? orderedVisibleSessions.map(\.session.id)
+            : []
         let visibleRows = SidebarVisibleRows.rows(
             pinned: snapshot.pinned,
             for: snapshot.entries,
@@ -175,7 +180,10 @@ struct SidebarView: View {
         )
 
         return VStack(spacing: 0) {
-            searchHeader(topMatchID: snapshot.topMatchID)
+            searchHeader(
+                topMatchID: snapshot.topMatchID,
+                searchResultIDs: searchResultIDs
+            )
 
             GeometryReader { scrollViewport in
                 ScrollView {
@@ -299,6 +307,7 @@ struct SidebarView: View {
                                     sessionStore.togglePin(sessionID: session.id)
                                 },
                                 focusedRowTarget: $focusedRowTarget,
+                                focusedSearchSessionID: focusedSearchSessionID,
                                 isKeyboardNavigating: $isKeyboardNavigating
                             )
                             .background(
@@ -334,6 +343,7 @@ struct SidebarView: View {
                             )
                         }
                     }
+                    .scrollTargetLayout()
                     .coordinateSpace(name: groupCoordinateSpaceName)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 12)
@@ -396,6 +406,13 @@ struct SidebarView: View {
                         )
                     )
                 }
+                .scrollPosition(
+                    id: Binding(
+                        get: { focusedSearchSessionID },
+                        set: { _ in }
+                    ),
+                    anchor: .center
+                )
                 .scrollClipDisabled(displayMode == .collapsed)
             }
             // Per-keystroke score-driven reorders inside an active filter would
@@ -498,6 +515,20 @@ struct SidebarView: View {
         .onChange(of: isFiltering) { _, filtering in
             if filtering {
                 clearSidebarDragState()
+            } else {
+                focusedSearchSessionID = nil
+            }
+        }
+        .onChange(of: searchResultIDs) { previousIDs, ids in
+            focusedSearchSessionID = SidebarSearchFocus.reconcile(
+                focusedSearchSessionID,
+                from: previousIDs,
+                to: ids
+            )
+        }
+        .onChange(of: isSearchFocused) { _, focused in
+            if !focused {
+                focusedSearchSessionID = nil
             }
         }
         .onChange(of: displayMode) { _, mode in
@@ -560,7 +591,7 @@ struct SidebarView: View {
                 return
             }
             if let addedID = added.first, let session = sessionStore.session(id: addedID) {
-                reorderAnnouncer.announce("Pinned \(session.title)")
+                accessibilityAnnouncer.announce("Pinned \(session.title)")
             }
             if let removedID = removed.first,
                 let session = sessionStore.session(id: removedID),
@@ -572,7 +603,7 @@ struct SidebarView: View {
                 // hidden under a collapsed header. A pin pruned on close has
                 // no live session → this lookup fails → no-op, as intended.
                 collapsedGroupIDs.remove(group.id)
-                reorderAnnouncer.announce("Unpinned \(session.title), returned to \(group.name)")
+                accessibilityAnnouncer.announce("Unpinned \(session.title), returned to \(group.name)")
             }
         }
         .onChange(of: focusRequestID) { _, requestID in
@@ -630,11 +661,17 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func searchHeader(topMatchID: TerminalSession.ID?) -> some View {
+    private func searchHeader(
+        topMatchID: TerminalSession.ID?,
+        searchResultIDs: [TerminalSession.ID]
+    ) -> some View {
         if displayMode == .collapsed {
             collapsedSearchHeader
         } else {
-            expandedSearchHeader(topMatchID: topMatchID)
+            expandedSearchHeader(
+                topMatchID: topMatchID,
+                searchResultIDs: searchResultIDs
+            )
         }
     }
 
@@ -682,7 +719,10 @@ struct SidebarView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func expandedSearchHeader(topMatchID: TerminalSession.ID?) -> some View {
+    private func expandedSearchHeader(
+        topMatchID: TerminalSession.ID?,
+        searchResultIDs: [TerminalSession.ID]
+    ) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -690,41 +730,27 @@ struct SidebarView: View {
                     .foregroundStyle(Color.aw.text3)
                     .accessibilityHidden(true)
 
-                TextField("Search sessions", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .awFont(AwFont.UI.label)
-                    .foregroundStyle(Color.aw.text)
-                    .focused($isSearchFocused)
-                    .accessibilityLabel("Sidebar search")
-                    .accessibilityHint("Filters workspaces. Press Return to open the top match. Press Escape to clear.")
-                    // ⏎ commits the highest-ranked filtered session and
-                    // collapses the search query. Full ↑↓ navigation is
-                    // deferred to INT-320.
-                    .onSubmit {
-                        if let topMatchID {
-                            sessionStore.selectedSessionID = topMatchID
-                            searchText = ""
-                        }
-                    }
-                    // Esc clears the query without affecting the active
-                    // selection. `.onKeyPress` on a TextField sees macOS field-
-                    // editor keys before SwiftUI's default cancel routing in
-                    // macOS 15, which is what we want here. If a future macOS
-                    // changes this, fall back to a focused-command binding.
-                    .onKeyPress(.escape) {
+                SidebarSearchField(
+                    text: $searchText,
+                    isFocused: $isSearchFocused,
+                    isEnabled: activeDragID == nil,
+                    onMoveFocus: { offset in
+                        moveSearchFocus(
+                            offset: offset,
+                            searchResultIDs: searchResultIDs
+                        )
+                    },
+                    onSubmit: {
+                        commitSearchSelection(topMatchID: topMatchID)
+                    },
+                    onEscape: {
                         if !searchText.isEmpty {
                             searchText = ""
-                            return .handled
+                            return true
                         }
-                        return .ignored
+                        return false
                     }
-                    // Freeze search input during an active sidebar drag.
-                    // Typing here would flip `isFiltering`, whose onChange
-                    // tears down all drop targets mid-drag — leaving the
-                    // user's drag image chasing the cursor with nowhere to
-                    // land. A reorder drag is brief and mouse-bound, so the
-                    // field is never actively in use during one.
-                    .disabled(activeDragID != nil)
+                )
 
                 if !searchText.isEmpty {
                     Button {
@@ -795,6 +821,48 @@ struct SidebarView: View {
             ),
             viaKeyboardNavigation: true
         )
+    }
+
+    private func moveSearchFocus(
+        offset: Int,
+        searchResultIDs: [TerminalSession.ID]
+    ) -> Bool {
+        guard !searchResultIDs.isEmpty else {
+            return false
+        }
+        guard
+            let targetID = SidebarSearchFocus.target(
+                after: focusedSearchSessionID,
+                in: searchResultIDs,
+                offset: offset
+            )
+        else {
+            return false
+        }
+        focusedSearchSessionID = targetID
+        if let session = sessionStore.session(id: targetID),
+            let index = searchResultIDs.firstIndex(of: targetID)
+        {
+            accessibilityAnnouncer.announce(
+                SidebarSearchFocus.accessibilityAnnouncement(
+                    label: session.displayTitle(),
+                    position: index + 1,
+                    count: searchResultIDs.count
+                )
+            )
+        }
+        return true
+    }
+
+    private func commitSearchSelection(topMatchID: TerminalSession.ID?) {
+        guard let targetID = focusedSearchSessionID ?? topMatchID,
+            let session = sessionStore.session(id: targetID)
+        else {
+            return
+        }
+        selectSession(session)
+        focusedSearchSessionID = nil
+        searchText = ""
     }
 
     private func focusKeyboardTarget(
@@ -1006,6 +1074,7 @@ struct SidebarView: View {
             onDragEnded: clearSidebarDragState,
             onDragExited: scheduleSidebarDragStateClear,
             focusedRowTarget: $focusedRowTarget,
+            focusedSearchSessionID: focusedSearchSessionID,
             isKeyboardNavigating: $isKeyboardNavigating
         )
     }
@@ -1121,7 +1190,7 @@ struct SidebarView: View {
         }
         let group = sessionStore.groups[groupIndex]
         let session = group.sessions[sessionIndex]
-        reorderAnnouncer.announce(
+        accessibilityAnnouncer.announce(
             "Moved \(session.title) to position \(sessionIndex + 1) of \(group.sessions.count) in \(group.name)"
         )
     }
@@ -1131,7 +1200,7 @@ struct SidebarView: View {
             return
         }
         let group = sessionStore.groups[index]
-        reorderAnnouncer.announce(
+        accessibilityAnnouncer.announce(
             "Moved \(group.name) group to position \(index + 1) of \(sessionStore.groups.count)"
         )
     }
@@ -1152,7 +1221,7 @@ struct SidebarView: View {
         else {
             return
         }
-        reorderAnnouncer.announce(
+        accessibilityAnnouncer.announce(
             "Moved \(session.title) to position \(landedIndex + 1) of \(sessionStore.pinnedSessionIDs.count) in Pinned"
         )
     }
@@ -1335,13 +1404,12 @@ private final class SidebarDragClearScheduler {
     }
 }
 
-/// Posts a VoiceOver announcement when a workspace or group is reordered, so
-/// a VoiceOver user who triggers a keyboard reorder hears the result land
-/// instead of firing the action into silence. Debounced so a burst of moves
-/// announces only the latest position. A no-op when VoiceOver isn't running
-/// (no assistive client receives `.announcementRequested`).
+/// Posts sidebar VoiceOver feedback for user-initiated navigation and reorder
+/// actions. Debouncing a burst announces only the latest result. A no-op when
+/// VoiceOver isn't running (no assistive client receives
+/// `.announcementRequested`).
 @MainActor
-private final class SidebarReorderAnnouncer {
+private final class SidebarAccessibilityAnnouncer {
     private var pendingTask: Task<Void, Never>?
 
     func announce(_ message: String) {

@@ -148,7 +148,7 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
             try fileManager.removeItem(at: renderedTreeURL)
         }
         try fileManager.copyItem(at: bundledTreeURL, to: renderedTreeURL)
-        setPrivatePermissions(0o700, on: renderedTreeURL)
+        clampOwnerOnly(directoryAt: renderedTreeURL)
 
         var hookConfigURLs: [URL] = []
         for relativePath in provider.helperPathFileRelativePaths {
@@ -200,24 +200,26 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
             guard isDirectory.boolValue else {
                 throw AgentPluginTemplateRendererError.missingTemplateTree(url)
             }
-            setPrivatePermissions(0o700, on: url)
+            clampOwnerOnly(directoryAt: url)
         } else {
-            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-            setPrivatePermissions(0o700, on: url)
+            try fileManager.createOwnerOnlyDirectory(at: url)
         }
     }
 
     private func writePrivateFile(_ data: Data, to url: URL) throws {
         try data.write(to: url, options: [.atomic])
-        setPrivatePermissions(0o600, on: url)
+        do {
+            try fileManager.setOwnerOnlyPermissions(onFileAt: url)
+        } catch {
+            Self.logger.error(
+                "failed to set private permissions on \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
-    private func setPrivatePermissions(_ permissions: Int, on url: URL) {
+    private func clampOwnerOnly(directoryAt url: URL) {
         do {
-            try fileManager.setAttributes(
-                [.posixPermissions: permissions],
-                ofItemAtPath: url.path
-            )
+            try fileManager.setOwnerOnlyPermissions(onDirectoryAt: url)
         } catch {
             Self.logger.error(
                 "failed to set private permissions on \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"

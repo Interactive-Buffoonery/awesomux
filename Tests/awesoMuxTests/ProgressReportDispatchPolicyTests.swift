@@ -3,6 +3,22 @@ import Foundation
 import Testing
 @testable import awesoMux
 
+private actor FetchCompletionGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        isReleased = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 /// `ProgressReportWriteThrottle.decide` — the trailing-edge rate limit for
 /// `progressReport` store writes (INT-587 review, findings #3/#1). Pure, so
 /// it tests without a live `GhosttySurfaceNSView`/native surface.
@@ -10,20 +26,22 @@ import Testing
 struct ProgressReportWriteThrottleTests {
     @Test("first write (no prior write) commits immediately")
     func firstWriteCommitsImmediately() {
-        #expect(ProgressReportWriteThrottle.decide(
-            now: 100,
-            lastWriteAt: nil,
-            minInterval: 0.1
-        ) == .writeNow)
+        #expect(
+            ProgressReportWriteThrottle.decide(
+                now: 100,
+                lastWriteAt: nil,
+                minInterval: 0.1
+            ) == .writeNow)
     }
 
     @Test("a write outside the window commits immediately")
     func writeOutsideWindowCommitsImmediately() {
-        #expect(ProgressReportWriteThrottle.decide(
-            now: 100.2,
-            lastWriteAt: 100.0,
-            minInterval: 0.1
-        ) == .writeNow)
+        #expect(
+            ProgressReportWriteThrottle.decide(
+                now: 100.2,
+                lastWriteAt: 100.0,
+                minInterval: 0.1
+            ) == .writeNow)
     }
 
     @Test("a write just past the window boundary commits immediately")
@@ -32,11 +50,12 @@ struct ProgressReportWriteThrottleTests {
         // so this asserts on a value unambiguously past the boundary rather
         // than an exact tie (which is inherently float-imprecise, not a
         // meaningful throttle behavior to pin down).
-        #expect(ProgressReportWriteThrottle.decide(
-            now: 100.101,
-            lastWriteAt: 100.0,
-            minInterval: 0.1
-        ) == .writeNow)
+        #expect(
+            ProgressReportWriteThrottle.decide(
+                now: 100.101,
+                lastWriteAt: 100.0,
+                minInterval: 0.1
+            ) == .writeNow)
     }
 
     @Test("a write inside the window defers by the remaining time")
@@ -63,11 +82,13 @@ struct ProgressReportWriteThrottleTests {
         let minInterval: TimeInterval = 0.1
         var deadlines: [TimeInterval] = []
         for tick in stride(from: 0.01, through: 0.09, by: 0.01) {
-            guard case .deferBy(let delay) = ProgressReportWriteThrottle.decide(
-                now: tick,
-                lastWriteAt: lastWriteAt,
-                minInterval: minInterval
-            ) else {
+            guard
+                case .deferBy(let delay) = ProgressReportWriteThrottle.decide(
+                    now: tick,
+                    lastWriteAt: lastWriteAt,
+                    minInterval: minInterval
+                )
+            else {
                 Issue.record("expected .deferBy at tick \(tick)")
                 continue
             }
@@ -88,40 +109,64 @@ struct ProgressReportWriteThrottleTests {
 /// fires (INT-587 review, finding #1).
 @Suite("ProgressReportDispatchGuard")
 struct ProgressReportDispatchGuardTests {
+    @Test("suspended fetch does not apply after its surface is repointed")
+    func suspendedFetchDoesNotApplyAfterRepoint() async {
+        let capturedSessionID = TerminalSession.ID()
+        let capturedPaneID = TerminalPane.ID()
+        let gate = FetchCompletionGate()
+        let completion = Task {
+            await gate.wait()
+            return ProgressReportDispatchGuard.shouldApply(
+                capturedSessionID: capturedSessionID,
+                capturedPaneID: capturedPaneID,
+                currentSessionID: capturedSessionID,
+                currentPaneID: TerminalPane.ID()
+            )
+        }
+
+        await Task.yield()
+        await gate.release()
+
+        #expect(await completion.value == false)
+    }
+
     @Test("identical session and pane: applies")
     func identicalIdentityApplies() {
         let sessionID = TerminalSession.ID()
         let paneID = TerminalPane.ID()
 
-        #expect(ProgressReportDispatchGuard.shouldApply(
-            capturedSessionID: sessionID,
-            capturedPaneID: paneID,
-            currentSessionID: sessionID,
-            currentPaneID: paneID
-        ))
+        #expect(
+            ProgressReportDispatchGuard.shouldApply(
+                capturedSessionID: sessionID,
+                capturedPaneID: paneID,
+                currentSessionID: sessionID,
+                currentPaneID: paneID
+            ))
     }
 
     @Test("pane changed underneath (view recycled to a different pane): does not apply")
     func paneIDChangedDoesNotApply() {
         let sessionID = TerminalSession.ID()
 
-        #expect(!ProgressReportDispatchGuard.shouldApply(
-            capturedSessionID: sessionID,
-            capturedPaneID: TerminalPane.ID(),
-            currentSessionID: sessionID,
-            currentPaneID: TerminalPane.ID()
-        ))
+        #expect(
+            !ProgressReportDispatchGuard.shouldApply(
+                capturedSessionID: sessionID,
+                capturedPaneID: TerminalPane.ID(),
+                currentSessionID: sessionID,
+                currentPaneID: TerminalPane.ID()
+            ))
     }
 
     @Test("session changed underneath (view re-pointed to a different workspace): does not apply")
     func sessionIDChangedDoesNotApply() {
         let paneID = TerminalPane.ID()
 
-        #expect(!ProgressReportDispatchGuard.shouldApply(
-            capturedSessionID: TerminalSession.ID(),
-            capturedPaneID: paneID,
-            currentSessionID: TerminalSession.ID(),
-            currentPaneID: paneID
-        ))
+        #expect(
+            !ProgressReportDispatchGuard.shouldApply(
+                capturedSessionID: TerminalSession.ID(),
+                capturedPaneID: paneID,
+                currentSessionID: TerminalSession.ID(),
+                currentPaneID: paneID
+            ))
     }
 }
