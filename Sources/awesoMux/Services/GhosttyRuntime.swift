@@ -203,16 +203,31 @@ final class GhosttyRuntime {
     @ObservationIgnored
     private var shellActivityLifecycleRefreshTasks: [TerminalPane.ID: Task<Void, Never>] = [:]
 
-    // Throttle floor for the passive shell-activity sampler. Each surface polls
-    // on its own ~250ms task, and each refresh samples every surface + walks every
-    // session — so without a floor, N panes would amplify into N× global walks.
-    // Sampling faster than the debounce can't surface a committable transition, so
-    // a monotonic floor collapses concurrent polls into one cadence without losing
-    // fidelity. (Until INT-523's render fix this floor tamed the draw() hot path,
-    // which fired at up to 120Hz/pane under a chatty PTY — the INT-471 path.)
+    // Throttle floor shared by the centralized passive sampler and event-driven
+    // callers. The runtime task intentionally ticks at 250ms; this lower floor
+    // only preserves existing semantics when a submit/finish refresh lands near a
+    // passive tick. (Until INT-523's render fix this floor tamed the draw() hot
+    // path, which fired at up to 120Hz/pane under a chatty PTY — the INT-471 path.)
     @ObservationIgnored
     private var lastShellActivitySampleAt: ContinuousClock.Instant?
     private static let shellActivitySampleThrottle: Duration = .milliseconds(100)
+
+    /// One runtime-owned task drives passive shell/agent sampling for every
+    /// visible surface. Views register only their pane IDs; resolving through
+    /// `surfaceViews` each tick avoids a second ownership edge to AppKit views.
+    @ObservationIgnored
+    private var visibleSurfaceSamplingTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var visibleSurfaceSamplingPaneIDs: Set<TerminalPane.ID> = []
+    private static let visibleSurfaceSampleInterval: Duration = .milliseconds(250)
+
+    var visibleSurfaceSamplingPaneIDsForTesting: Set<TerminalPane.ID> {
+        visibleSurfaceSamplingPaneIDs
+    }
+
+    var hasVisibleSurfaceSamplingTaskForTesting: Bool {
+        visibleSurfaceSamplingTask != nil
+    }
 
     @ObservationIgnored
     private let terminalAppearanceProvider: @MainActor () -> TerminalAppearancePreferences
@@ -305,6 +320,54 @@ final class GhosttyRuntime {
 
     func cachedSurfaceView(for paneID: TerminalPane.ID) -> GhosttySurfaceNSView? {
         surfaceViews[paneID]
+    }
+
+    func noteSurfaceVisibility(paneID: TerminalPane.ID, isVisible: Bool) {
+        if isVisible {
+            visibleSurfaceSamplingPaneIDs.insert(paneID)
+            startVisibleSurfaceSamplingIfNeeded()
+        } else {
+            visibleSurfaceSamplingPaneIDs.remove(paneID)
+            stopVisibleSurfaceSamplingIfIdle()
+        }
+    }
+
+    private func startVisibleSurfaceSamplingIfNeeded() {
+        guard visibleSurfaceSamplingTask == nil,
+              !visibleSurfaceSamplingPaneIDs.isEmpty else {
+            return
+        }
+        visibleSurfaceSamplingTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.visibleSurfaceSampleInterval)
+                guard let self, !Task.isCancelled else { return }
+                self.sampleVisibleSurfaceState()
+            }
+        }
+    }
+
+    private func stopVisibleSurfaceSamplingIfIdle() {
+        guard visibleSurfaceSamplingPaneIDs.isEmpty else { return }
+        visibleSurfaceSamplingTask?.cancel()
+        visibleSurfaceSamplingTask = nil
+    }
+
+    private func sampleVisibleSurfaceState() {
+        let paneIDs = visibleSurfaceSamplingPaneIDs
+        let visibleSurfaceViews = paneIDs.compactMap { paneID -> GhosttySurfaceNSView? in
+            guard let surfaceView = surfaceViews[paneID] else {
+                visibleSurfaceSamplingPaneIDs.remove(paneID)
+                return nil
+            }
+            return surfaceView
+        }
+        stopVisibleSurfaceSamplingIfIdle()
+
+        guard let sessionStore = visibleSurfaceViews.first?.sessionStore else { return }
+        sampleShellActivity(in: sessionStore)
+        for surfaceView in visibleSurfaceViews {
+            surfaceView.sampleAgentStateFromVisibleText()
+        }
     }
 
     /// Observed foreground process name (`p_comm`) for a pane, or nil when no
@@ -460,6 +523,7 @@ final class GhosttyRuntime {
         // guard so a redundant discard (surface already gone, ladder still
         // in-flight) still cancels the orphaned task.
         shellActivityLifecycleRefreshTasks.removeValue(forKey: paneID)?.cancel()
+        noteSurfaceVisibility(paneID: paneID, isVisible: false)
         secureInputCoordinator.removePane(paneID)
         guard let surfaceView = surfaceViews.removeValue(forKey: paneID) else {
 #if DEBUG
@@ -564,6 +628,8 @@ final class GhosttyRuntime {
             task.cancel()
         }
         shellActivityLifecycleRefreshTasks.removeAll()
+        visibleSurfaceSamplingPaneIDs.removeAll()
+        stopVisibleSurfaceSamplingIfIdle()
         secureInputCoordinator.reset()
         for surfaceView in surfaceViews.values {
             surfaceView.disposeNativeSurface()
@@ -618,12 +684,11 @@ final class GhosttyRuntime {
         sessionStore.updateTerminalQuitConfirmationRisks(snapshots)
     }
 
-    /// Throttled entry point for the passive per-surface sampler poll
-    /// (`GhosttySurfaceNSView.visibleStateSamplingTask`). Event-driven callers
-    /// (command submit/finish, surface creation) should call
-    /// `refreshShellActivity` directly so their intentional timing is preserved.
-    /// The throttle floor collapses N panes each polling on their own task into a
-    /// single global sampling cadence.
+    /// Throttled entry point shared by the runtime-owned passive sampler and
+    /// other polling callers. Event-driven command submit/finish and surface
+    /// creation paths call `refreshShellActivity` directly so their intentional
+    /// timing is preserved; the floor keeps a nearby passive tick from repeating
+    /// the same global sweep.
     func sampleShellActivity(in sessionStore: SessionStore) {
         let now = ContinuousClock.now
         if let last = lastShellActivitySampleAt,
