@@ -443,8 +443,30 @@ public final class SessionStore {
             let sessionID = WorkspaceTreeReducer.addSession(
                 to: &_groups,
                 selectedSession: selectedSession,
+                title: nil,
+                workingDirectory: nil,
                 groupID: groupID,
                 executionPlan: .ssh(SSHExecution(target: target))
+            )
+        else { return nil }
+        commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
+        return sessionID
+    }
+
+    @discardableResult
+    public func addLocalSession(
+        title: String?,
+        workingDirectory: String,
+        toGroupID groupID: SessionGroup.ID
+    ) -> TerminalSession.ID? {
+        guard
+            let sessionID = WorkspaceTreeReducer.addSession(
+                to: &_groups,
+                selectedSession: selectedSession,
+                title: title,
+                workingDirectory: workingDirectory,
+                groupID: groupID,
+                executionPlan: .local
             )
         else { return nil }
         commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))

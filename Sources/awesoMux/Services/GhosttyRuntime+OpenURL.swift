@@ -85,7 +85,7 @@ struct OpenURLAction {
 
 extension GhosttyRuntime {
     @MainActor
-    static var recentLinkRemoteSnapshotProvider: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownSnapshot? = {
+    static var recentLinkRemoteSnapshotProvider: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
         await RemoteMarkdownSnapshotFetcher().fetch($0)
     }
 
@@ -127,10 +127,11 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
-            guard let snapshot = await recentLinkRemoteSnapshotProvider(reference) else {
+            guard let outcome = await recentLinkRemoteSnapshotProvider(reference) else {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
+            let snapshot = outcome.snapshot
             sessionStore.openDocumentPane(
                 fileURL: snapshot.fileURL,
                 in: sessionID,
