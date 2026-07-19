@@ -672,9 +672,10 @@ struct SidebarView: View {
                 // (both AwRadius.panel) so the collapsed rail's three chip
                 // types share one corner radius.
                 cornerRadius: AwRadius.panel,
-                // Blend into the sidebar, matching the expanded header's
-                // treatment of this same button — not a separate boxed color.
-                restFill: Color.aw.surface.sidebar,
+                // Matches the search button's resting box above it, rather
+                // than blending into the sidebar — the two rail controls
+                // should read as the same style.
+                restFill: Color.aw.surface.elevated.opacity(0.6),
                 otherGroups: sessionStore.groups.map { ($0.id, $0.name) },
                 onNewWorkspace: addWorkspaceInCurrentContext,
                 onNewWorkspaceInGroup: addWorkspace(inGroupID:),
@@ -743,11 +744,11 @@ struct SidebarView: View {
                     .stroke(Color.aw.border2, lineWidth: 0.5)
             }
 
-            NewWorkspaceMenuButton(
-                size: 34,
-                cornerRadius: 7,
-                // Blend into the sidebar so it pairs cleanly with the search field.
-                restFill: Color.aw.surface.sidebar,
+            NewWorkspaceSplitButton(
+                // Matches the search field's own fill (line 738) — a
+                // bordered pill, not blended into the sidebar — so the two
+                // chips on this row read as one family.
+                restFill: Color.aw.surface.elevated,
                 otherGroups: sessionStore.groups.map { ($0.id, $0.name) },
                 onNewWorkspace: addWorkspaceInCurrentContext,
                 onNewWorkspaceInGroup: addWorkspace(inGroupID:),
