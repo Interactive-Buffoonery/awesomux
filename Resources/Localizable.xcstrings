@@ -496,6 +496,9 @@
     "Annotation intent" : {
       "comment" : "Accessibility label for the annotation intent picker"
     },
+    "Annotation note" : {
+      "comment" : "Accessibility label for the new annotation note field"
+    },
     "Annotation reopened" : {
       "comment" : "VoiceOver announcement after reopening an annotation"
     },
@@ -845,6 +848,9 @@
         }
       }
     },
+    "Comment annotation intent" : {
+      "comment" : "Accessibility label for the comment annotation intent option"
+    },
     "Compact mode" : {
       "comment" : "Settings field label for the sidebar compact mode toggle"
     },
@@ -1030,6 +1036,9 @@
     },
     "Delete annotation" : {
 
+    },
+    "Delete annotation intent" : {
+      "comment" : "Accessibility label for the delete annotation intent option"
     },
     "Denied" : {
       "comment" : "Settings label when macOS notification permission is denied."
@@ -2463,6 +2472,9 @@
     },
     "Replace Invalid File with Current Settings" : {
 
+    },
+    "Replace annotation intent" : {
+      "comment" : "Accessibility label for the replace annotation intent option"
     },
     "Replacement text…" : {
       "comment" : "Placeholder for a replacement annotation"
