@@ -795,7 +795,7 @@ struct RecentlyClosedWorkspaceTests {
             }
             """.data(using: .utf8)!
 
-        let snapshot = try JSONDecoder().decode(SessionSnapshot.self, from: json)
+        let snapshot = try SessionSnapshot.decode(from: json)
         #expect(snapshot.recentlyClosed.isEmpty)
         #expect(snapshot.groups.count == 1)
     }
@@ -836,7 +836,7 @@ struct RecentlyClosedWorkspaceTests {
             }
             """.data(using: .utf8)!
 
-        let snapshot = try JSONDecoder().decode(SessionSnapshot.self, from: json)
+        let snapshot = try SessionSnapshot.decode(from: json)
         #expect(snapshot.recentlyClosed.count == 1)
         #expect(snapshot.recentlyClosed.first?.title == "ok")
     }
@@ -1047,11 +1047,7 @@ struct RecentlyClosedWorkspaceTests {
             recentlyClosed: [entry]
         )
         let encoder = JSONEncoder()
-        let decoder = JSONDecoder()
-        let decoded = try decoder.decode(
-            SessionSnapshot.self,
-            from: try encoder.encode(original)
-        )
+        let decoded = try SessionSnapshot.decode(from: encoder.encode(original))
 
         #expect(decoded.recentlyClosed.count == 1)
         let round = try #require(decoded.recentlyClosed.first)
