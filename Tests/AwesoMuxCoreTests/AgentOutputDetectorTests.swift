@@ -17,19 +17,6 @@ final class AgentOutputDetectorTests: XCTestCase {
         XCTAssertEqual(detector.detectedState(in: text), .needsAttention)
     }
 
-    func testMatchingIsCaseAndDiacriticInsensitiveAfterSinglePassFold() {
-        // Guards the single-pass, locale-independent fold: caseInsensitive
-        // folding must keep lowercasing (no separate .lowercased() pass) and
-        // diacritics must keep stripping.
-        let text = """
-            CLAUDE CODE v1.7.2
-            CLAUDE · THINKING ▰▰▰▱▱
-              ÉSC TO INTERRUPT
-            """
-
-        XCTAssertEqual(detector.detectedState(in: text), .thinking)
-    }
-
     func testDetectsClaudeThinkingCue() {
         let text = """
             claude code v1.7.2
@@ -172,6 +159,25 @@ final class AgentOutputDetectorTests: XCTestCase {
             ),
             .error
         )
+    }
+}
+
+@Suite("AgentOutputDetector text normalization")
+struct AgentOutputDetectorTextNormalizationTests {
+    private let detector = AgentOutputDetector()
+
+    @Test("matching is case- and diacritic-insensitive after the single-pass fold")
+    func matchingIsCaseAndDiacriticInsensitiveAfterSinglePassFold() {
+        // Guards the single-pass, locale-independent fold: caseInsensitive
+        // folding must keep lowercasing (no separate .lowercased() pass) and
+        // diacritics must keep stripping.
+        let text = """
+            CLAUDE CODE v1.7.2
+            CLAUDE · THINKING ▰▰▰▱▱
+              ÉSC TO INTERRUPT
+            """
+
+        #expect(detector.detectedState(in: text) == .thinking)
     }
 }
 
