@@ -23,8 +23,6 @@ struct NewWorkspaceMenuButton: View {
     let onNewWorkspaceInGroup: (SessionGroup.ID) -> Void
     let onNewWorkspaceGroup: () -> Void
 
-    @State private var isHovering = false
-
     var body: some View {
         Menu {
             Button("New Workspace") {
@@ -45,8 +43,10 @@ struct NewWorkspaceMenuButton: View {
                 onNewWorkspaceGroup()
             }
         } label: {
+            // Matches the rail's search button glyph exactly (same font size
+            // and weight) so the two rail controls read as one family.
             Image(systemName: "plus")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .frame(width: size, height: size)
                 .contentShape(Rectangle())
         }
@@ -55,19 +55,10 @@ struct NewWorkspaceMenuButton: View {
         // not the accent color, which reads as too prominent for a chrome
         // control at this size.
         .foregroundStyle(Color.aw.text3)
-        // `restFill` decides whether the button blends into the sidebar
-        // (expanded header) or keeps a box (collapsed rail). On hover it always
-        // surfaces the `surface.hover` highlight so it reads as a button — for
-        // the rail that fill equals its rest state, so hover is a no-op there.
-        .background(
-            isHovering ? Color.aw.surface.hover : restFill,
-            in: RoundedRectangle(cornerRadius: cornerRadius)
-        )
-        .onHover { isHovering = $0 }
-        // `.onHover(false)` isn't guaranteed when the view is torn down mid-hover
-        // (see TerminalPaneView / SidebarSessionTile) — reset so a rebuild over
-        // the old frame doesn't keep a stale hover fill.
-        .onDisappear { isHovering = false }
+        // Static box, no hover brightening — the search button above it has
+        // no hover state either, and this control should read as the same
+        // simple chip, not a more "interactive-looking" one.
+        .background(restFill, in: RoundedRectangle(cornerRadius: cornerRadius))
         .accessibilityLabel("New Workspace menu")
         .accessibilityHint("Opens a menu with New Workspace, New Workspace in a chosen group, and New Workspace Group")
         .help("New Workspace menu")
