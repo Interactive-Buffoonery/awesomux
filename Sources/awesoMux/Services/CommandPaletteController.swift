@@ -66,12 +66,139 @@ enum CommandPaletteLayout {
     }
 }
 
+struct CommandPaletteClickToggleState {
+    private var pendingMouseUp: NSEvent.EventType?
+
+    mutating func recordResignDismiss(during eventType: NSEvent.EventType?) -> Bool {
+        switch eventType {
+        case .leftMouseDown:
+            pendingMouseUp = .leftMouseUp
+        case .rightMouseDown:
+            pendingMouseUp = .rightMouseUp
+        case .otherMouseDown:
+            pendingMouseUp = .otherMouseUp
+        default:
+            return false
+        }
+        return true
+    }
+
+    func isPendingMouseUp(_ eventType: NSEvent.EventType) -> Bool {
+        eventType == pendingMouseUp
+    }
+
+    mutating func consumeToggle(during eventType: NSEvent.EventType?) -> Bool {
+        guard eventType == pendingMouseUp else { return false }
+        pendingMouseUp = nil
+        return true
+    }
+
+    mutating func cancel() {
+        pendingMouseUp = nil
+    }
+}
+
+@MainActor
+final class CommandPaletteClickToggleTracker {
+    typealias AddEventMonitor = (
+        NSEvent.EventTypeMask,
+        @escaping (NSEvent) -> NSEvent?
+    ) -> Any?
+    typealias RemoveEventMonitor = (Any) -> Void
+
+    private var state = CommandPaletteClickToggleState()
+    private var eventMonitor: Any?
+    private var applicationResignObserver: NSObjectProtocol?
+    private let notificationCenter: NotificationCenter
+    private let addEventMonitor: AddEventMonitor
+    private let removeEventMonitor: RemoveEventMonitor
+
+    init(
+        notificationCenter: NotificationCenter = .default,
+        addEventMonitor: @escaping AddEventMonitor = { mask, handler in
+            NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
+        },
+        removeEventMonitor: @escaping RemoveEventMonitor = NSEvent.removeMonitor
+    ) {
+        self.notificationCenter = notificationCenter
+        self.addEventMonitor = addEventMonitor
+        self.removeEventMonitor = removeEventMonitor
+    }
+
+    func recordResignDismiss(during eventType: NSEvent.EventType?) {
+        guard state.recordResignDismiss(during: eventType) else { return }
+        removeObservation()
+        installObservation()
+    }
+
+    func consumeToggle(during eventType: NSEvent.EventType?) -> Bool {
+        guard state.consumeToggle(during: eventType) else { return false }
+        removeObservation()
+        return true
+    }
+
+    func handleMonitoredEvent(_ eventType: NSEvent.EventType) {
+        switch eventType {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            cancel()
+        default:
+            guard state.isPendingMouseUp(eventType) else { return }
+            // SwiftUI runs the Button action later in this same mouse-up dispatch.
+            DispatchQueue.main.async { [weak self] in
+                self?.cancel()
+            }
+        }
+    }
+
+    func cancel() {
+        state.cancel()
+        removeObservation()
+    }
+
+    isolated deinit {
+        cancel()
+    }
+
+    private func installObservation() {
+        eventMonitor = addEventMonitor(
+            [
+                .leftMouseDown, .rightMouseDown, .otherMouseDown,
+                .leftMouseUp, .rightMouseUp, .otherMouseUp,
+            ]
+        ) { [weak self] event in
+            self?.handleMonitoredEvent(event.type)
+            return event
+        }
+        applicationResignObserver = notificationCenter.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cancel()
+            }
+        }
+    }
+
+    private func removeObservation() {
+        if let eventMonitor {
+            removeEventMonitor(eventMonitor)
+            self.eventMonitor = nil
+        }
+        if let applicationResignObserver {
+            notificationCenter.removeObserver(applicationResignObserver)
+            self.applicationResignObserver = nil
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class CommandPaletteController {
     @ObservationIgnored private var panel: FloatingSwiftUIPanelWindow?
     @ObservationIgnored private let focusState = CommandPaletteFocusState()
     @ObservationIgnored private var isDismissing = false
+    @ObservationIgnored private let clickToggleTracker = CommandPaletteClickToggleTracker()
     @ObservationIgnored private let positionStore: PalettePositionStore
     @ObservationIgnored private weak var lastAnchorWindow: NSWindow?
     /// The origin we last set programmatically (center / remembered / reclamp).
@@ -91,6 +218,10 @@ final class CommandPaletteController {
     }
 
     func toggle(relativeTo parentWindow: NSWindow?, presenter: PalettePresenter) {
+        if clickToggleTracker.consumeToggle(during: NSApp.currentEvent?.type) {
+            return
+        }
+
         if isVisible {
             dismiss()
         } else {
@@ -219,7 +350,7 @@ final class CommandPaletteController {
         presenter: PalettePresenter
     ) {
         panel.onDismiss = { [weak self] in
-            self?.dismiss()
+            self?.handlePanelDismiss()
         }
         panel.onKeyStateChanged = { [weak self] isKeyWindow in
             self?.focusState.isKeyWindow = isKeyWindow
@@ -248,6 +379,12 @@ final class CommandPaletteController {
 
             return false
         }
+    }
+
+    private func handlePanelDismiss() {
+        guard !isDismissing else { return }
+        clickToggleTracker.recordResignDismiss(during: NSApp.currentEvent?.type)
+        dismiss()
     }
 
     private func performPaletteCommand(

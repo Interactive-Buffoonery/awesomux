@@ -691,7 +691,9 @@ struct SidebarView: View {
         topMatchID: TerminalSession.ID?,
         searchResultIDs: [TerminalSession.ID]
     ) -> some View {
-        HStack(spacing: 8) {
+        let searchHelp = SidebarAgentStateSearchToken.localizedSearchHelp()
+
+        return HStack(spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12.5, weight: .medium))
@@ -702,6 +704,7 @@ struct SidebarView: View {
                     text: $searchText,
                     isFocused: $isSearchFocused,
                     isEnabled: activeDragID == nil,
+                    accessibilityHelp: searchHelp,
                     onMoveFocus: { offset in
                         moveSearchFocus(
                             offset: offset,
@@ -902,7 +905,10 @@ struct SidebarView: View {
             haystacks: { session in
                 SidebarSearchHaystacks(
                     title: session.title,
-                    location: session.sidebarLocation.searchText
+                    location: session.sidebarLocation.searchText,
+                    agentState: SidebarAgentStateSearchToken(
+                        agentState: session.effectiveChromeState
+                    )
                 )
             }
         )

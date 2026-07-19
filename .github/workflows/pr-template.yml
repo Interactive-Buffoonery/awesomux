@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   validate:
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     name: Validate PR metadata
     runs-on: ubuntu-latest
     env:

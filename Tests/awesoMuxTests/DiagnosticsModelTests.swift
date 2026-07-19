@@ -214,16 +214,19 @@ struct DiagnosticsModelTests {
             groups: []
         )
         var callCount = 0
+        let eventTime = Date(timeIntervalSince1970: 1_000)
+        let clock = TestClock(eventTime)
+        let scheduler = TestScheduler()
         let model = DiagnosticsModel(
             sessionStore: SessionStore(),
-            eventRecorder: recorder
+            eventRecorder: recorder,
+            timing: controlledTiming(clock: clock, scheduler: scheduler)
         ) { _, _, _ in
             callCount += 1
             return callCount == 1
                 ? DiagnosticsCaptureResult(snapshot: snapshot, discoveredDaemons: [])
                 : nil
         }
-        let eventTime = Date()
         recorder.record(.terminalReady, at: eventTime)
 
         await model.refresh()
@@ -517,12 +520,15 @@ struct DiagnosticsModelTests {
     @Test("startSampling publishes launch events without a process snapshot")
     func startSamplingPublishesEventsOnly() {
         let recorder = LocalDiagnosticEventRecorder()
-        let now = Date()
+        let now = Date(timeIntervalSince1970: 1_000)
+        let clock = TestClock(now)
+        let scheduler = TestScheduler()
         recorder.record(.terminalReady, at: now.addingTimeInterval(-2))
         recorder.record(.restoreSanitized, at: now.addingTimeInterval(-1))
         let model = DiagnosticsModel(
             sessionStore: SessionStore(),
-            eventRecorder: recorder
+            eventRecorder: recorder,
+            timing: controlledTiming(clock: clock, scheduler: scheduler)
         ) { _, _, _ in nil }
 
         model.startSampling()
@@ -531,6 +537,7 @@ struct DiagnosticsModelTests {
         #expect(model.presentation.events.events.count == 2)
         #expect(model.presentation.checkedAt == nil)
         model.stopSampling()
+        scheduler.advanceOneCycle()
     }
 
     @Test("pane-visible maintenance prunes events before the first process refresh")
