@@ -6,24 +6,11 @@ struct DocumentPointerTargetTests {
     @Test("annotation actions and compact revision marker use 24 point rectangular targets")
     func documentIconButtonsUseMinimumTargets() throws {
         let commentPopover = try Self.source("Views/Markdown/CommentPopover.swift")
-        let resolve = try Self.block(
-            from: "Button {\n                        submit {\n                            await onSetStatus",
-            through: ".accessibilityLabel(isResolved ? \"Reopen annotation\" : \"Mark annotation resolved\")",
-            in: commentPopover
-        )
-        let edit = try Self.block(
-            from: "Button {\n                        draft = annotation.payload",
-            through: ".accessibilityLabel(\"Edit annotation\")",
-            in: commentPopover
-        )
-        let delete = try Self.block(
-            from: "Button(role: .destructive) {\n                        submit(operation: onDelete)",
-            through: ".accessibilityLabel(\"Delete annotation\")",
-            in: commentPopover
-        )
-        let reply = try Self.block(
-            from: "Button(action: submitReply)",
-            through: ".accessibilityLabel(String(localized: \"Send reply\"",
+        let resolve = try Self.buttonBlock(anchoredBy: "\"Reopen annotation\"", in: commentPopover)
+        let edit = try Self.buttonBlock(anchoredBy: "\"Edit annotation\"", in: commentPopover)
+        let delete = try Self.buttonBlock(anchoredBy: "\"Delete annotation\"", in: commentPopover)
+        let reply = try Self.buttonBlock(
+            anchoredBy: "Accessibility label for the annotation reply button",
             in: commentPopover
         )
         Self.expectMinimumTarget(resolve)
@@ -32,9 +19,8 @@ struct DocumentPointerTargetTests {
         Self.expectMinimumTarget(reply)
 
         let tabStrip = try Self.source("Views/DocumentTabStripView.swift")
-        let marker = try Self.block(
-            from: "return Button(action: onRevealRevision)",
-            through: ".accessibilityHint(",
+        let marker = try Self.buttonBlock(
+            anchoredBy: "Accessibility label for a compact document revision indicator",
             in: tabStrip
         )
         Self.expectMinimumTarget(marker)
@@ -49,7 +35,8 @@ struct DocumentPointerTargetTests {
         let close = try Self.block(from: "onCloseTab:", through: "onExpandRevision:", in: groupView)
         #expect(close.contains("if tab.id == group.selectedTabID"))
         #expect(close.contains("documentTabActions.perform(closeTab)"))
-        #expect(close.contains("else {\n                        closeTab()"))
+        let normalizedClose = close.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        #expect(normalizedClose.contains("else { closeTab()"))
 
         let revision = try Self.block(from: "onExpandRevision:", through: "onDismissRevision:", in: groupView)
         #expect(revision.contains("if tab.id == group.selectedTabID"))
@@ -86,6 +73,19 @@ struct DocumentPointerTargetTests {
         let startRange = try #require(source.range(of: start))
         let endRange = try #require(source.range(of: end, range: startRange.upperBound..<source.endIndex))
         return source[startRange.lowerBound..<endRange.upperBound]
+    }
+
+    /// The modifier chain of the button identified by a stable user-facing
+    /// anchor (accessibility label or its localization comment): from the
+    /// nearest preceding `Button` token through the anchor. Anchoring on
+    /// implementation literals drifted with refactors (GH #80); user-facing
+    /// strings only change when the feature itself does.
+    private static func buttonBlock(anchoredBy anchor: String, in source: String) throws -> Substring {
+        let anchorRange = try #require(source.range(of: anchor))
+        let buttonRange = try #require(
+            source.range(of: "Button", options: .backwards, range: source.startIndex..<anchorRange.lowerBound)
+        )
+        return source[buttonRange.lowerBound..<anchorRange.upperBound]
     }
 
     private static func expectMinimumTarget(_ block: Substring) {
