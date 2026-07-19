@@ -37,6 +37,17 @@ A follow-up round of the same feedback loop (eD: "just turn it into the same thi
 
 The rail's control remains structurally a `Menu` (required for its dropdown), never gained a chevron, and the geometry decision from the spec's "Call-site divergence" section still holds — this was a pure visual-parity pass, not a reopening of the split-button-on-the-rail question (that was asked and explicitly declined).
 
+## Post-final-review bug-fix round
+
+The final whole-branch review (below) passed clean, but further live iteration against the running app surfaced four **real bugs** in `Menu`-based controls, not style preferences — each is a `SwiftUI`/AppKit interaction quirk that would have shipped silently wrong:
+
+1. **Rail showed an unintended native chevron.** `NewWorkspaceMenuButton`'s `Menu` never had `.menuIndicator(.hidden)` applied — SwiftUI draws one by default. The rail has shown "+ ⌄" since before this branch existed, not a plain "+". Every "reference mockup" eD compared against during this session's styling rounds was actually a screenshot of this pre-existing, undocumented default.
+2. **`Menu`'s own bounds don't reliably stretch to match its label's declared `.frame`.** The rail's box rendered smaller than its declared 40×40 (its `.background`/`.overlay` were applied to the `Menu` itself), and the split button's chevron segment's hover highlight only lit a small area hugging the glyph instead of the full declared segment. Fixed by moving the background/border/hover-fill into a `ZStack` sibling pinned to an outer `.frame`, decoupled from whatever the `Menu` does internally with its own layout.
+3. **`.menuStyle(.borderlessButton)` labels render their glyph via the control's accent tint, ignoring `.foregroundStyle` entirely** — whether applied to an ancestor or directly on the `Image`. Two rounds of foregroundStyle-based fixes didn't stick because of this. The actual fix (`.tint(Color.aw.text3)` alongside `.foregroundStyle`) was already established elsewhere in this exact codebase — `SidebarStatusFooter.swift`'s `feedbackMenu` (the "?" help icon) hit and documented this identical bug previously. Should have grepped for prior art before iterating blind.
+4. **Optical weight, not color, was part of the mismatch too.** `.semibold` at 14pt/9pt rasterizes denser than the search icon's 12.5pt `.medium`, reading as a brighter color even at identical RGB — diagnosed via a Codex second opinion. Matched size/weight to the search icon exactly.
+
+All four are committed as separate, individually-tested fixes after the final review (commits `4d662cf`, `d295e23`, `313eac3`, `efc7063`, `b536791`). Given their nature (real behavioral bugs in the code the final review already approved, not scope changes), they don't need a second formal review round — each was verified by rebuilding, re-running the full regression test and the sidebar test suite, and live visual confirmation in the running app.
+
 ---
 
 ### Task 1: Build `NewWorkspaceSplitButton` and wire it into the expanded header
