@@ -7,7 +7,7 @@ extension TerminalPane {
     // `liveTerminalTitle`, and the four runtime-only agent fields
     // `lastAgentStateChangeAt` / `shellActivity` / `needsTerminalQuitConfirmation` /
     // `terminalPromptObserved` / `foregroundProcessLiveness`, plus
-    // `progressReport` and `remoteReconnect`) so
+    // `progressReport`, `remoteReconnect`, and `recentLinks`) so
     // restored panes come back active/idle with no progress chrome until live
     // shell signals prove otherwise. The durable execution plan and four durable
     // agent fields persist.
@@ -52,8 +52,8 @@ extension TerminalPane {
             unreadNotificationCount: max(
                 0,
                 try container.decodeIfPresent(
-                Int.self,
-                forKey: .unreadNotificationCount
+                    Int.self,
+                    forKey: .unreadNotificationCount
                 ) ?? 0),
             executionPlan: try container.decodeIfPresent(
                 PaneExecutionPlan.self,
@@ -74,8 +74,8 @@ extension TerminalPane {
     ) -> TerminalSessionID {
         guard
             let rawValue = try? container.decodeIfPresent(
-            String.self,
-            forKey: .terminalSessionID
+                String.self,
+                forKey: .terminalSessionID
             )
         else {
             return .generate()

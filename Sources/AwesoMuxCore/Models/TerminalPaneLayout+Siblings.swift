@@ -6,6 +6,15 @@ public enum DocumentNudgeUnavailableReason: Hashable, Sendable {
     case localTerminalUnverified
     case terminalUnavailable
     case requiresLocalTerminal
+    /// The target terminal is not a verified live supported-agent surface — a
+    /// plain shell, an unknown TUI, an out-of-scope provider, or an agent pane
+    /// whose foreground process could not be positively confirmed
+    /// (`AgentPromptGate`, INT-569).
+    case noVerifiedAgent
+    case agentIntegrationDisabled(AgentKind)
+    /// The verified agent is not waiting at its prompt (running, thinking,
+    /// needing attention, done, or errored).
+    case agentNotReceptive(AgentKind)
 }
 
 public enum DocumentNudgeTargetResolution: Hashable, Sendable {
@@ -45,7 +54,8 @@ public extension TerminalPaneLayout {
     /// sibling.
     func documentSendTarget(for documentID: DocumentPane.ID) -> TerminalPane? {
         guard let group = firstDocumentGroup,
-              let tab = group.tab(id: documentID) else {
+            let tab = group.tab(id: documentID)
+        else {
             return nil
         }
         if let associatedID = tab.associatedTerminalPaneID {
@@ -95,9 +105,9 @@ public extension TerminalPaneLayout {
     // MARK: - Private traversal
 
     private enum SiblingSearchResult {
-        case found(TerminalPane.ID)      // the direct split-sibling terminal
-        case presentButNotInSplit        // group exists but has no split parent here
-        case notFound                    // group id absent from this subtree
+        case found(TerminalPane.ID)  // the direct split-sibling terminal
+        case presentButNotInSplit  // group exists but has no split parent here
+        case notFound  // group id absent from this subtree
     }
 
     /// Recursive helper. Searches for the group's direct split sibling.

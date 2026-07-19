@@ -1,12 +1,14 @@
 import Foundation
+import UnicodeHygiene
 
 /// Routes OSC 8 hyperlink click-throughs to either a direct open or a
 /// block-confirm modal, based on the URL's threat profile.
 ///
-/// v1 posture (INT-16):
-/// - Block any non-ASCII host (stricter than the textbook IDN-homograph
-///   threat — pure Cyrillic, pure CJK, etc. all prompt). TR39 mixed-script
-///   refinement filed as INT-454.
+/// v1 posture (INT-16), refined per TR39 in INT-454:
+/// - Block a host only when a DNS label mixes scripts that could be
+///   confused for one another (the classic Latin/Cyrillic/Greek homograph
+///   triad — see `UnicodeHygiene.hasSuspiciousScriptMixing`). A pure-script
+///   host (`яндекс.рф`, `日本語.jp`) opens direct even though it isn't ASCII.
 /// - Block any `mailto:` with attacker-controllable prefill parameters
 ///   (`to`, `body`, `cc`, `bcc`, `subject`).
 /// - Block any HTTP(S) URL with embedded `userinfo` — the `user@host`
@@ -24,8 +26,12 @@ import Foundation
 ///   `http://localhost/`) open direct. Useful for dev workflows;
 ///   "click this raw IP from a phishing email" is a known unprotected
 ///   surface. Revisit if friction-vs-protection tradeoff shifts.
-/// - **TR39 mixed-script detection** — v1 blocks ALL non-ASCII hosts,
-///   not just confusable mixed-script combinations. See INT-454.
+/// - **TR39 "Highly Restrictive" exceptions** (e.g. Latin+Han+Hiragana+
+///   Katakana, the legitimate-Japanese-domain combination) aren't
+///   hand-implemented — `UnicodeHygiene.hasSuspiciousScriptMixing` only
+///   recognizes Latin/Cyrillic/Greek, so non-Latin scripts outside that
+///   triad never register as "mixed" in the first place. Revisit if a
+///   real confusable combination outside the triad shows up.
 /// - **Peek-popover** for safe URLs — preview-before-click is INT-453.
 public enum URLClassifier {
     public enum Decision: Equatable, Sendable {
@@ -34,9 +40,12 @@ public enum URLClassifier {
     }
 
     public enum BlockReason: String, Equatable, Sendable {
-        /// Host contains non-ASCII codepoints (IDN). Could be a homograph
-        /// attack — even when it isn't, the user should see what punycode
-        /// actually resolves to before clicking through.
+        /// Host has a DNS label mixing scripts that could be confused for
+        /// one another (TR39 homograph risk — `pаypal.com` with a Cyrillic
+        /// `а`), or a punycode label Foundation failed to decode to Unicode
+        /// (can't verify content, so treated as suspicious). The user
+        /// should see what punycode actually resolves to before clicking
+        /// through.
         case nonAsciiHost
         /// HTTP(S) URL with embedded `userinfo` (`user[:pass]@host`).
         /// Almost always a phishing attempt — userinfo is largely
@@ -72,7 +81,7 @@ public enum URLClassifier {
     /// a hostile remote can't usefully prefill against a phishing
     /// target.
     private static let mailtoPhishingParameters: Set<String> = [
-        "to", "body", "cc", "bcc", "subject"
+        "to", "body", "cc", "bcc", "subject",
     ]
 
     /// Codepoints that are invisible / direction-flipping / zero-width
@@ -107,7 +116,8 @@ public enum URLClassifier {
 
     public static func classify(_ url: URL) -> Decision {
         guard let scheme = url.scheme?.lowercased(),
-              allowedSchemes.contains(scheme) else {
+            allowedSchemes.contains(scheme)
+        else {
             return .blockConfirm(
                 reason: .disallowedScheme,
                 displayHost: nil,
@@ -183,18 +193,53 @@ public enum URLClassifier {
             )
         }
 
-        let displayHasNonASCII = displayHost?.unicodeScalars.contains { $0.value > 0x7F } ?? false
-        let hostHasPunycodeLabel = punycodeHost.map(hostContainsPunycodeLabel) ?? false
         // Foundation percent-decodes the host before exposing it via
         // `URLComponents.host`, so `https://exa%0Ample.com/` decodes to
         // a host containing a literal newline. It similarly decodes
         // malformed reserved delimiters like `%40` and `%2F` into the host.
-        // These are pure ASCII (so the non-ASCII check skips), no `xn--`
-        // label, but malformed/phishing-shaped. Treat as suspicious.
-        let hostHasUnsafeScalar = displayHost.map(hostContainsUnsafeAuthorityScalar) ?? false
-            || punycodeHost.map(hostContainsUnsafeAuthorityScalar) ?? false
+        // These are pure ASCII, no `xn--` label, but malformed/phishing-
+        // shaped. Treat as suspicious.
+        let hostHasUnsafeScalar =
+            (displayHost.map(hostContainsUnsafeAuthorityScalar) ?? false)
+            || (punycodeHost.map(hostContainsUnsafeAuthorityScalar) ?? false)
 
-        if displayHasNonASCII || hostHasPunycodeLabel || hostHasUnsafeScalar {
+        // An IDN host must decode fully to Unicode before we trust script
+        // analysis on it. `punycodeHost` carries the `xn--` form for ANY
+        // IDN host regardless of decode success, so it's the right signal
+        // for "this is an IDN host at all." If that's true but `displayHost`
+        // is nil (Foundation failed to decode invalid/malformed punycode —
+        // `URLComponents.host` returns nil, not the raw `xn--` text, e.g.
+        // `xn--a.com`) or still literally shows `xn--` (partial decode
+        // failure), we can't inspect the real content. Block rather than
+        // guess — this also covers a multi-label host where just one label
+        // fails to decode (`good.xn--a.com`), which blanks `displayHost`
+        // for the WHOLE host, not just that label.
+        let hostFailedPunycodeDecode: Bool = {
+            guard let punycodeHost, hostContainsPunycodeLabel(punycodeHost) else { return false }
+            guard let displayHost else { return true }
+            return hostContainsPunycodeLabel(displayHost)
+        }()
+
+        // TR39 mixed-script detection (INT-454): block a label only when it
+        // mixes scripts that could be confused for one another — the same
+        // Latin/Cyrillic/Greek homograph policy `UnicodeHygiene` already
+        // enforces for display strings elsewhere in the app. A label that's
+        // entirely one script — even a non-Latin one like "яндекс" or
+        // "日本語" — reads clean. Runs per DNS label, not the whole host, so
+        // "日本語.jp" (a pure-Han label plus a pure-ASCII TLD label) stays
+        // open-direct.
+        //
+        // `UnicodeHygiene.hasSuspiciousScriptMixing`'s contract asks for raw
+        // pre-NFKC input elsewhere in the app (workspace titles), but
+        // `displayHost` here has already been through Foundation's IDNA
+        // processing, which folds some compatibility characters (`µ` →
+        // Greek `μ`). That's fine for this call site specifically: a folded
+        // host that now "mixes" is either genuinely non-ASCII (already
+        // blocked pre-INT-454 too — no new false positive) or a punycode
+        // round-trip Foundation already normalized before we ever see it.
+        let hostIsMixedScript = displayHost.map(hostHasMixedScriptLabel) ?? false
+
+        if hostHasUnsafeScalar || hostFailedPunycodeDecode || hostIsMixedScript {
             return .blockConfirm(
                 reason: .nonAsciiHost,
                 displayHost: displayHost ?? punycodeHost,
@@ -262,6 +307,15 @@ public enum URLClassifier {
     private static func hostContainsPunycodeLabel(_ host: String) -> Bool {
         host.lowercased().split(separator: ".").contains { label in
             label.hasPrefix("xn--")
+        }
+    }
+
+    /// TR39 mixed-script is a per-label property, not a whole-host one —
+    /// evaluating the concatenated host would flag legitimate hosts like
+    /// `日本語.jp` (pure-Han label + pure-ASCII TLD label) as mixed.
+    private static func hostHasMixedScriptLabel(_ host: String) -> Bool {
+        host.split(separator: ".").contains { label in
+            UnicodeHygiene.hasSuspiciousScriptMixing(String(label))
         }
     }
 

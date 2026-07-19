@@ -227,14 +227,14 @@ struct BoundedCommandRunnerTests {
         defer { try? FileManager.default.removeItem(atPath: path) }
 
         let runner = BoundedCommandRunner(executableCandidates: ["/bin/cat"])
-        let result = await runner.run(arguments: [path], inDirectory: directory)
-        #expect(result == .complete(Data(repeating: UInt8(ascii: "X"), count: 200_000)))
+        let data = await runner.run(arguments: [path], inDirectory: directory)
+        #expect(data?.count == 200_000)
     }
 
-    @Test("a missing executable degrades to failed")
+    @Test("a missing executable degrades to nil")
     func missingExecutable() async {
         let runner = BoundedCommandRunner(executableCandidates: ["/nonexistent/tool-\(UUID().uuidString)"])
-        #expect(await runner.run(arguments: [], inDirectory: NSTemporaryDirectory()) == .failed)
+        #expect(await runner.run(arguments: [], inDirectory: NSTemporaryDirectory()) == nil)
     }
 
     @Test("output at the cap boundary reports complete vs truncated explicitly")
@@ -259,26 +259,26 @@ struct BoundedCommandRunnerTests {
         )
 
         #expect(
-            await runner.run(arguments: [underPath], inDirectory: directory)
-                == .complete(Data(repeating: UInt8(ascii: "a"), count: cap - 1))
+            await runner.runDetailed(arguments: [underPath], inDirectory: directory)
+                == .success(Data(repeating: UInt8(ascii: "a"), count: cap - 1))
         )
         #expect(
-            await runner.run(arguments: [exactPath], inDirectory: directory)
-                == .complete(Data(repeating: UInt8(ascii: "b"), count: cap))
+            await runner.runDetailed(arguments: [exactPath], inDirectory: directory)
+                == .success(Data(repeating: UInt8(ascii: "b"), count: cap))
         )
-        let over = await runner.run(arguments: [overPath], inDirectory: directory)
-        #expect(over == .truncated(prefix: Data(repeating: UInt8(ascii: "c"), count: cap)))
+        let over = await runner.runDetailed(arguments: [overPath], inDirectory: directory)
+        #expect(over == .outputTruncated(Data(repeating: UInt8(ascii: "c"), count: cap)))
         #expect(over.completeData == nil)
         #expect(over.dataAllowingTruncation?.count == cap)
     }
 
-    @Test("a child that exits while a descendant holds stdout resolves bounded to failed")
+    @Test("a child that exits while a descendant holds stdout resolves bounded to nil")
     func descendantHoldingStdoutDoesNotHang() async {
         // `sh` exits immediately but backgrounds a short `sleep`, which inherits
         // stdout and holds the pipe open, so EOF never arrives. The runner must
-        // resolve via its post-exit grace (not block on the sleep) — and to
-        // `.failed`, since without EOF the output can't be confirmed complete.
-        // The sleep is kept short so the test leaves nothing meaningful behind.
+        // resolve via its post-exit grace (not block on the sleep) — and to nil,
+        // since without EOF the output can't be confirmed complete. The sleep is
+        // kept short so the test leaves nothing meaningful behind.
         let scheduler = TestScheduler()
         let runner = BoundedCommandRunner(
             executableCandidates: ["/bin/sh"],
@@ -293,40 +293,47 @@ struct BoundedCommandRunnerTests {
 
         #expect(await waitUntil { scheduler.requestedDurations.contains(.milliseconds(500)) })
         scheduler.advanceOneCycle()
-        #expect(await run.value == .failed)  // undrained → unknown, not a partial result
+        #expect(await run.value == nil)  // undrained → unknown, not a partial result
     }
 
-    @Test("cancellation resolves the run as failed")
-    func cancellationResolvesFailed() async {
-        // `sleep` dies on the cancel-path SIGTERM; advance any pending
-        // timeout/grace waits so a slow exit cannot hang the suite. The
-        // SIGTERM→SIGKILL escalation for a TERM-ignoring child is covered by
-        // the production `Task.detached` grace path and is not asserted here —
-        // staging a reliable ignore-TERM child races the trap setup under the
-        // test scheduler.
+    @Test("cancellation escalates to SIGKILL after the grace period")
+    func cancellationEscalatesAfterGrace() async {
         let scheduler = TestScheduler()
+        let completedDelays = EventRecorder<Duration>()
+        let completedRuns = EventRecorder<Bool>()
         let runner = BoundedCommandRunner(
-            executableCandidates: ["/bin/sleep"],
+            executableCandidates: ["/bin/sh"],
             timeout: .seconds(60),
             delay: { duration in
                 await scheduler.wait(for: duration)
                 try Task.checkCancellation()
+                await completedDelays.record(duration)
             }
         )
         let run = Task {
-            await runner.run(arguments: ["30"], inDirectory: NSTemporaryDirectory())
+            let result = await runner.run(
+                arguments: ["-c", "trap '' TERM; exec sleep 30"],
+                inDirectory: NSTemporaryDirectory()
+            )
+            await completedRuns.record(true)
+            return result
         }
 
         #expect(await waitUntil { scheduler.requestedDurations.first == .seconds(60) })
         run.cancel()
-        for _ in 0..<4 { scheduler.advanceOneCycle() }
-        #expect(await run.value == .failed)
+        #expect(await waitUntil { scheduler.requestedDurations.contains(.seconds(1)) })
+        #expect(await completedRuns.values.isEmpty)
+
+        scheduler.advanceOneCycle()
+        #expect(await run.value == nil)
+        #expect(await completedDelays.values.contains(.seconds(1)))
+        scheduler.advanceOneCycle()
     }
 
-    @Test("a child that outlives the timeout is killed and yields failed")
+    @Test("a child that outlives the timeout is killed and yields nil")
     func timeoutTerminatesChild() async {
         // `sleep 30` never exits on its own; the 1s timeout must SIGTERM/SIGKILL it
-        // and resolve `.failed` well before the sleep would end.
+        // and resolve nil well before the sleep would end.
         let scheduler = TestScheduler()
         let runner = BoundedCommandRunner(
             executableCandidates: ["/bin/sleep"],
@@ -342,7 +349,51 @@ struct BoundedCommandRunnerTests {
 
         #expect(await waitUntil { scheduler.requestedDurations.first == .seconds(1) })
         scheduler.advanceOneCycle()
-        #expect(await run.value == .failed)
+        #expect(await run.value == nil)
         scheduler.advanceOneCycle()
+    }
+
+    @Test("legacy run() still returns the capped buffer on a clean exit past the cap")
+    func legacyRunReturnsCappedDataOnTruncation() async throws {
+        let directory = NSTemporaryDirectory()
+        let path = directory + "pathbar-cap-\(UUID().uuidString).txt"
+        try String(repeating: "X", count: 10_000).write(toFile: path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let runner = BoundedCommandRunner(executableCandidates: ["/bin/cat"], maxOutputBytes: 100)
+        // Pre-existing Path Bar contract (a dirty count saturates its display
+        // long before the cap): a clean exit past the cap must still hand
+        // back the capped buffer, not nil.
+        let data = await runner.run(arguments: [path], inDirectory: directory)
+        #expect(data?.count == 100)
+    }
+
+    @Test("runDetailed() reports truncation distinctly from a complete parse")
+    func detailedRunDistinguishesTruncation() async throws {
+        let directory = NSTemporaryDirectory()
+        let path = directory + "pathbar-cap-\(UUID().uuidString).txt"
+        try String(repeating: "X", count: 10_000).write(toFile: path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let runner = BoundedCommandRunner(executableCandidates: ["/bin/cat"], maxOutputBytes: 100)
+        guard case .outputTruncated(let data) = await runner.runDetailed(arguments: [path], inDirectory: directory)
+        else {
+            Issue.record("Expected outputTruncated")
+            return
+        }
+        #expect(data.count == 100)
+    }
+
+    @Test("a non-zero exit past the cap is still nonZeroExit, not outputTruncated")
+    func nonZeroExitTakesPriorityOverTruncation() async {
+        let runner = BoundedCommandRunner(executableCandidates: ["/bin/sh"], maxOutputBytes: 10)
+        // Payload is passed as $1 rather than shelling out to `seq`, which isn't
+        // guaranteed to exist; the literal string reliably exceeds maxOutputBytes.
+        let payload = String(repeating: "X", count: 2_000)
+        let result = await runner.runDetailed(
+            arguments: ["-c", "printf '%s' \"$1\"; exit 3", "_", payload],
+            inDirectory: NSTemporaryDirectory()
+        )
+        #expect(result == .nonZeroExit(3))
     }
 }

@@ -76,7 +76,8 @@ struct CIStatusInfo: Equatable, Sendable {
         }
 
         guard let payloads = try? JSONDecoder().decode([Payload].self, from: data),
-              let payload = payloads.first else {
+            let payload = payloads.first
+        else {
             return nil
         }
 
@@ -106,7 +107,8 @@ struct CIStatusInfo: Equatable, Sendable {
         // Refuse anything but https so a hostile remote can't make a single click
         // open `file://`, a custom scheme, or `javascript:`.
         guard let url = URL(string: payload.url),
-              url.scheme?.lowercased() == "https" else {
+            url.scheme?.lowercased() == "https"
+        else {
             return nil
         }
 
@@ -132,9 +134,10 @@ struct CIStatusInfo: Equatable, Sendable {
         }
         let segments = url.pathComponents.filter { $0 != "/" }
         guard segments.count == 5,
-              segments[2] == "actions",
-              segments[3] == "runs",
-              segments[4] == String(runDatabaseID) else {
+            segments[2] == "actions",
+            segments[3] == "runs",
+            segments[4] == String(runDatabaseID)
+        else {
             return nil
         }
         let owner = segments[0]
@@ -143,8 +146,9 @@ struct CIStatusInfo: Equatable, Sendable {
             charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
         )
         guard !owner.isEmpty, !repo.isEmpty,
-              owner.unicodeScalars.allSatisfy(allowed.contains),
-              repo.unicodeScalars.allSatisfy(allowed.contains) else {
+            owner.unicodeScalars.allSatisfy(allowed.contains),
+            repo.unicodeScalars.allSatisfy(allowed.contains)
+        else {
             return nil
         }
         return "\(owner)/\(repo)"
@@ -160,8 +164,8 @@ struct CIStatusInfo: Equatable, Sendable {
         let speechSafe = TerminalAccessibilityPathFormatter.sanitizedForSpeech(raw)
         let filtered = speechSafe.unicodeScalars.filter { scalar in
             switch scalar.value {
-            case 0x202A...0x202E, // LRE RLE PDF LRO RLO
-                 0x2066...0x2069: // LRI RLI FSI PDI
+            case 0x202A...0x202E,  // LRE RLE PDF LRO RLO
+                0x2066...0x2069:  // LRI RLI FSI PDI
                 false
             default:
                 true
@@ -194,7 +198,7 @@ struct GhCIStatusCommandRunner: Sendable {
         // its own argv slot, never a shell string, so a hostile branch name from
         // another repo's HEAD can't inject.
         // Fail-closed: truncated JSON must not paint a partial CI status.
-        await Self.command.run(
+        await Self.command.runDetailed(
             arguments: [
                 "run", "list",
                 "--branch", branch,

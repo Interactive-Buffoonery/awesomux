@@ -56,8 +56,12 @@ enum FloatingPanelEventPolicy {
             && normalizedModifiers(modifiers) == [.command]
     }
 
-    static func canPromoteFloatingPanel(hasAttachedSheet: Bool) -> Bool {
-        !hasAttachedSheet
+    static func canPromoteTerminalPanel(
+        hasAttachedSheet: Bool,
+        parentHasAttachedSheet: Bool,
+        hasModalSession: Bool
+    ) -> Bool {
+        !hasAttachedSheet && !parentHasAttachedSheet && !hasModalSession
     }
 
     static func isGlobalWorkspaceJumpChord(_ event: NSEvent) -> Bool {
@@ -71,7 +75,7 @@ enum FloatingPanelEventPolicy {
         return characters.count == 1 && ("1"..."9").contains(characters)
     }
 
-    private static func normalizedModifiers(
+    static func normalizedModifiers(
         _ modifiers: NSEvent.ModifierFlags
     ) -> NSEvent.ModifierFlags {
         modifiers
