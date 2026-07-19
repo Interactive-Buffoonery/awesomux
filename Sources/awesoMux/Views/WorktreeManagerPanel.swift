@@ -15,6 +15,11 @@ struct WorktreeManagerPanel: View {
     // hands it, every time (INT-857 round-7 smoke).
     let model: WorktreeManagerModel
     let onDismiss: () -> Void
+    // Controlled-clock seam (deterministic-guard requirement: new sleeps
+    // outside Tests/ need an injection point, not a bare wait) — production
+    // keeps the real wait, a test can substitute a gate. Matches this
+    // codebase's own `TerminalPathBarProcess.Delay` convention.
+    var sleep: @Sendable (Duration) async -> Void = { try? await ContinuousClock().sleep(for: $0) }
     @State private var openError: String?
     @State private var isShowingCreateForm = false
     // The panel window is reused across `show()` calls (see
@@ -113,7 +118,7 @@ struct WorktreeManagerPanel: View {
             // must not reach out and close a form the user just reopened.
             let presentationAtSuccess = createFormPresentationToken
             Task {
-                try? await Task.sleep(for: .milliseconds(700))
+                await self.sleep(.milliseconds(700))
                 guard createFormPresentationToken == presentationAtSuccess else { return }
                 isShowingCreateForm = false
                 onDismiss()
