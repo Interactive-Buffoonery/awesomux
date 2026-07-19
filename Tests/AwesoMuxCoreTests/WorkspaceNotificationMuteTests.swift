@@ -19,7 +19,7 @@ struct WorkspaceNotificationMuteTests {
         )
 
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: data)
+        let decoded = try SessionSnapshot.decode(from: data)
 
         #expect(decoded.groups.first?.sessions.first?.notificationsMuted == true)
     }

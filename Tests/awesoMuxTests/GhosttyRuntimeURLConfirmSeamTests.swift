@@ -6,6 +6,41 @@ import Testing
 @MainActor
 @Suite("OSC 8 URL confirmation seam", .serialized)
 struct GhosttyRuntimeURLConfirmSeamTests {
+    @Test("cached suspicious link routes through confirmation and rejection")
+    func suspiciousCachedLinkRoutesThroughConfirmationProvider() async {
+        GhosttyRuntime.resetURLOpenConfirmationProviderForTesting()
+        defer { GhosttyRuntime.resetURLOpenConfirmationProviderForTesting() }
+        let pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        let session = TerminalSession(
+            title: "session",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "group", sessions: [session])],
+            selectedSessionID: session.id
+        )
+        let value = "https://user@example.com/private"
+
+        let received = await withCheckedContinuation { continuation in
+            GhosttyRuntime.urlOpenConfirmationProvider = { url, reason, _, _ in
+                continuation.resume(returning: (url, reason))
+                return false
+            }
+            Task { @MainActor in
+                await GhosttyRuntime.openRecentLink(
+                    value,
+                    in: session.id,
+                    associatedWith: pane.id,
+                    sessionStore: store
+                )
+            }
+        }
+        #expect(received.0.absoluteString == value)
+        #expect(received.1 == .embeddedUserInfo)
+    }
+
     @Test("blocked URL routes through the confirmation provider")
     func blockedURLRoutesThroughProvider() async {
         GhosttyRuntime.resetURLOpenConfirmationProviderForTesting()

@@ -1,0 +1,50 @@
+name: Swift CodeQL
+
+on:
+  schedule:
+    - cron: "17 8 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    name: Analyze (swift)
+    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Prepare native build
+        uses: ./.github/actions/prepare-native
+        with:
+          save-cache: "true"
+
+      - name: Resolve Swift dependencies
+        run: swift package resolve
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        with:
+          languages: swift
+          build-mode: manual
+
+      - name: Build Swift sources
+        run: swift build --arch arm64
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
