@@ -249,12 +249,76 @@ public enum UnicodeHygiene {
             // "\u{A7CA}\u{0430}.com".
             0x2C60...0x2C7F,
             0xA720...0xA7FF,
-            0xAB30...0xAB6F,
+            // Latin Extended-E, minus U+AB65 GREEK LETTER SMALL CAPITAL
+            // OMEGA embedded in the same block (folded into .greek below) —
+            // a pre-existing gap from before this PR, fixed in passing
+            // since it's the identical bug class.
+            0xAB30...0xAB64,
+            0xAB66...0xAB6F,
             0x10780...0x107BF,
-            0x1DF00...0x1DFFF:
+            0x1DF00...0x1DFFF,
+            // Phonetic Extensions / Phonetic Extensions Supplement, minus
+            // the Greek/Cyrillic-lookalike letters scattered through the
+            // SAME block (see the exclusion list on the .greek/.cyrillic
+            // cases below — this isn't a clean sub-range split, the
+            // exceptions are individual codepoints threaded throughout).
+            // An earlier pass listed the whole block as Latin, which
+            // misclassified those codepoints instead of their real script;
+            // multi-reviewer + cross-model review caught it before merge.
+            // A first CORRECTED pass then over-corrected 5 codepoints
+            // (1D45, 1D9B, 1DA5, 1DB2, 1DB7) into .greek based on their
+            // visually-Greek-derived IPA names — cross-model review caught
+            // that too, citing Unicode's actual Script property: all 5
+            // NFKC-decompose to Script=Latin IPA letters (U+0251/0252/0269/
+            // 0278/028A), not Greek. This table has bitten this exact way
+            // THREE times in one PR — treat any future edit here as
+            // suspect until verified against Unicode's real Script
+            // property (not just letter names, which can mislead both
+            // ways), and prefer that over guessing from visual resemblance.
+            0x1D00...0x1D25,
+            0x1D2C...0x1D5C,
+            0x1D62...0x1D65,
+            0x1D6B...0x1D77,
+            0x1D79...0x1DBE,
+            // Mathematical Alphanumeric Symbols, Latin portion only — this
+            // block interleaves Latin and Greek mathematical letters (bold/
+            // italic/script/fraktur/etc. variants of both alphabets); the
+            // Greek portion (U+1D6A8...0x1D7CB) is folded into .greek
+            // below, NOT included here. NFKC-folds to plain ASCII (U+1D400
+            // MATHEMATICAL BOLD CAPITAL A -> "A"), the textbook "bold text"
+            // homograph vector — Foundation accepts and punycode-encodes
+            // e.g. "\u{1D400}\u{0430}.com". Math symbols interspersed in
+            // this range (nabla, partial differential) are `Sm`, not a
+            // letter category, so `isLetterScalar` already excludes them
+            // upstream regardless of this range's width.
+            0x1D400...0x1D6A7,
+            // Fullwidth Latin (Halfwidth and Fullwidth Forms): same
+            // NFKC-folds-to-ASCII signal (U+FF21 -> "A"), a documented
+            // real-world phishing pattern.
+            0xFF21...0xFF3A,
+            0xFF41...0xFF5A:
+            return .latin
+        // U+214E TURNED SMALL F (Letterlike Symbols) and U+2184 LATIN
+        // SMALL LETTER REVERSED C (Number Forms): both Foundation-reachable
+        // Latin letters outside any range above.
+        case 0x214E, 0x2184:
             return .latin
         case 0x0370...0x03FF,
-            0x1F00...0x1FFF:
+            0x1F00...0x1FFF,
+            // U+AB65 GREEK LETTER SMALL CAPITAL OMEGA, embedded in the
+            // Latin Extended-E block (see the Latin case above).
+            0xAB65,
+            // Greek letterforms scattered through the Phonetic Extensions /
+            // Phonetic Extensions Supplement blocks (see the Latin case
+            // above for why these are split out rather than left in a
+            // whole-block Latin range).
+            0x1D26...0x1D2A,
+            0x1D5D...0x1D61,
+            0x1D66...0x1D6A,
+            // Mathematical Alphanumeric Symbols, Greek portion (see the
+            // Latin case above — the block interleaves both alphabets).
+            0x1D6A8...0x1D7CB,
+            0x1DBF:
             return .greek
         case 0x0400...0x052F,
             // Cyrillic Extended-B/C/D: the same false-open class as the
@@ -264,7 +328,12 @@ public enum UnicodeHygiene {
             // encoder the same way U+A7CA does).
             0xA640...0xA69F,
             0x1C80...0x1C8F,
-            0x1E030...0x1E08F:
+            0x1E030...0x1E08F,
+            // Cyrillic letterforms embedded in the Phonetic Extensions /
+            // Phonetic Extensions Supplement blocks (see the Latin case
+            // above).
+            0x1D2B,
+            0x1D78:
             return .cyrillic
         default:
             return nil
