@@ -83,7 +83,11 @@ struct DocumentPointerTargetTests {
     private static func buttonBlock(anchoredBy anchor: String, in source: String) throws -> Substring {
         let anchorRange = try #require(source.range(of: anchor))
         let buttonRange = try #require(
-            source.range(of: "Button", options: .backwards, range: source.startIndex..<anchorRange.lowerBound)
+            ["Button {", "Button("]
+                .compactMap {
+                    source.range(of: $0, options: .backwards, range: source.startIndex..<anchorRange.lowerBound)
+                }
+                .max { $0.lowerBound < $1.lowerBound }
         )
         return source[buttonRange.lowerBound..<anchorRange.upperBound]
     }
