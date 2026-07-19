@@ -22,7 +22,6 @@ final class LoginItemSettingsModel {
         case off
         case on
         case needsApproval
-        case unavailable
     }
 
     private(set) var status: DisplayStatus = .unknown
@@ -48,8 +47,6 @@ final class LoginItemSettingsModel {
             String(localized: "On", comment: "Settings label when Open at Login is enabled.")
         case .needsApproval:
             String(localized: "Needs approval", comment: "Settings label when Open at Login requires approval in System Settings.")
-        case .unavailable:
-            String(localized: "Unavailable", comment: "Settings label when the app cannot be registered as a login item.")
         }
     }
 
@@ -72,13 +69,9 @@ final class LoginItemSettingsModel {
             )
         case .needsApproval:
             String(
-                localized: "macOS has the login item registered, but you still need to approve awesoMux in System Settings > General > Login Items.",
+                localized:
+                    "macOS has the login item registered, but you still need to approve awesoMux in System Settings > General > Login Items.",
                 comment: "Settings hint when Open at Login requires approval in System Settings."
-            )
-        case .unavailable:
-            String(
-                localized: "macOS cannot find this app bundle as a login item. Try from a built awesoMux.app bundle.",
-                comment: "Settings hint when the current app cannot be registered as a login item."
             )
         }
     }
@@ -93,13 +86,12 @@ final class LoginItemSettingsModel {
         return statusLabel
     }
 
-func refresh(clearsResolvedError: Bool = true) {
-    status = Self.displayStatus(for: service.status())
-    if clearsResolvedError && (status == .on || status == .off) {
-        errorMessage = nil
+    func refresh(clearsResolvedError: Bool = true) {
+        status = Self.displayStatus(for: service.status())
+        if clearsResolvedError && (status == .on || status == .off) {
+            errorMessage = nil
+        }
     }
-}
-
     func setRequested(_ requested: Bool) {
         errorMessage = nil
         do {
@@ -123,7 +115,9 @@ func refresh(clearsResolvedError: Bool = true) {
         case .notRegistered:
             .off
         case .notFound:
-            .unavailable
+            // mainApp has no background-task record before its first registration;
+            // register() is valid in this state and creates that record.
+            .off
         @unknown default:
             .unknown
         }
@@ -132,12 +126,14 @@ func refresh(clearsResolvedError: Bool = true) {
     nonisolated static func failureMessage(for error: Error, requested: Bool) -> String {
         if requested {
             return String(
-                localized: "Could not turn on Open at Login. Open System Settings > General > Login Items and allow awesoMux, then try again. \(error.localizedDescription)",
+                localized:
+                    "Could not turn on Open at Login. Open System Settings > General > Login Items and allow awesoMux, then try again. \(error.localizedDescription)",
                 comment: "Error shown when registering awesoMux as a login item fails."
             )
         }
         return String(
-            localized: "Could not turn off Open at Login. Open System Settings > General > Login Items and remove awesoMux, then try again. \(error.localizedDescription)",
+            localized:
+                "Could not turn off Open at Login. Open System Settings > General > Login Items and remove awesoMux, then try again. \(error.localizedDescription)",
             comment: "Error shown when unregistering awesoMux as a login item fails."
         )
     }
