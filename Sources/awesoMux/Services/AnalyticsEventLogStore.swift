@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import Foundation
 import Observation
 import os
@@ -183,8 +184,8 @@ final class AnalyticsEventLogStore {
     }
 
     func distinctID() -> String {
-        Self.clampDirectoryToOwnerOnly(directoryURL)
-        Self.clampToOwnerOnly(distinctIDURL)
+        try? FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: directoryURL)
+        try? FileManager.default.setOwnerOnlyPermissions(onFileAt: distinctIDURL)
         do {
             let stored = try String(contentsOf: distinctIDURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -201,8 +202,9 @@ final class AnalyticsEventLogStore {
         let fresh = UUID().uuidString
         Self.ensureDirectory(directoryURL)
         do {
-            try Data(fresh.utf8).write(to: distinctIDURL, options: .atomic)
-            Self.clampToOwnerOnly(distinctIDURL)
+            try FileManager.default.writeOwnerOnlyFile(
+                at: distinctIDURL, contents: Data(fresh.utf8)
+            )
         } catch {
             logger.error("failed to persist analytics distinct id: \(error)")
         }
@@ -289,8 +291,11 @@ final class AnalyticsEventLogStore {
                 }
             }
         } else {
-            try? data.write(to: eventsURL, options: .atomic)
-            clampToOwnerOnly(eventsURL)
+            do {
+                try FileManager.default.writeOwnerOnlyFile(at: eventsURL, contents: data)
+            } catch {
+                logger.error("failed to create analytics event log: \(error)")
+            }
         }
     }
 
@@ -306,8 +311,7 @@ final class AnalyticsEventLogStore {
             return String(data: data, encoding: .utf8)
         }
         let body = lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")
-        try Data(body.utf8).write(to: eventsURL, options: .atomic)
-        clampToOwnerOnly(eventsURL)
+        try FileManager.default.writeOwnerOnlyFile(at: eventsURL, contents: Data(body.utf8))
     }
 
     private nonisolated static func loadFromDisk(
@@ -317,8 +321,8 @@ final class AnalyticsEventLogStore {
         maximumFileBytes: Int,
         logger: Logger
     ) -> LoadResult {
-        clampDirectoryToOwnerOnly(directoryURL)
-        clampToOwnerOnly(eventsURL)
+        try? FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: directoryURL)
+        try? FileManager.default.setOwnerOnlyPermissions(onFileAt: eventsURL)
         guard retainToDisk else {
             let removed = removeIfPresent(eventsURL)
             if !removed {
@@ -368,9 +372,9 @@ final class AnalyticsEventLogStore {
     /// Owner-only permissions: the log is sanitized of content but still a
     /// behavioral timeline, and distinct_id is the durable analytics
     /// identity — neither belongs to other users on a shared machine.
-    /// Weaker than ConfigFileStore's create-exclusive pattern: writes land
-    /// at umask defaults for a moment before the clamp. INT-859 extracts a
-    /// shared helper that closes that window here too.
+    /// Whole-file writes go through `writeOwnerOnlyFile(at:contents:)`, so
+    /// bytes never sit at umask-default permissions (INT-859); the load-time
+    /// clamps remain to heal files written by older builds.
     private nonisolated static func removeIfPresent(_ url: URL) -> Bool {
         do {
             try FileManager.default.removeItem(at: url)
@@ -383,24 +387,8 @@ final class AnalyticsEventLogStore {
     }
 
     private nonisolated static func ensureDirectory(_ url: URL) {
-        try? FileManager.default.createDirectory(
-            at: url,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        clampDirectoryToOwnerOnly(url)
-    }
-
-    private nonisolated static func clampDirectoryToOwnerOnly(_ url: URL) {
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o700], ofItemAtPath: url.path
-        )
-    }
-
-    private nonisolated static func clampToOwnerOnly(_ url: URL) {
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o600], ofItemAtPath: url.path
-        )
+        try? FileManager.default.createOwnerOnlyDirectory(at: url)
+        try? FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: url)
     }
 
     private nonisolated static func makeEncoder() -> JSONEncoder {
