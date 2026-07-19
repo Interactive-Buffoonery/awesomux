@@ -95,6 +95,7 @@ struct AwesoMuxApp: App {
     @State private var popUpTerminalController = TerminalPanelController(mode: .companion)
     @State private var commandPaletteController = CommandPaletteController()
     @State private var keyboardCheatsheetController = KeyboardCheatsheetController()
+    @State private var aboutPanelController = AboutPanelController()
     @State private var sessionManagerController = SessionManagerController()
     @State private var sessionManagerModel: SessionManagerModel
     @State private var worktreeManagerController = WorktreeManagerController()
@@ -448,6 +449,7 @@ struct AwesoMuxApp: App {
                 // (accent, glow, UI font, text scale). See INT-237/INT-367.
                 commandPaletteController.appSettingsStore = appSettingsStore
                 keyboardCheatsheetController.appSettingsStore = appSettingsStore
+                aboutPanelController.appSettingsStore = appSettingsStore
                 sessionManagerController.appSettingsStore = appSettingsStore
                 worktreeManagerController.appSettingsStore = appSettingsStore
                 appDelegate.bind(
@@ -625,6 +627,7 @@ struct AwesoMuxApp: App {
         }
         .windowResizability(.contentMinSize)
         .commands {
+            AboutCommands(aboutPanelController: aboutPanelController)
             SettingsCommands()
             NewWorkspaceCommands(
                 sessionStore: sessionStore,
@@ -1091,6 +1094,7 @@ struct AwesoMuxApp: App {
         .defaultSize(AwSettings.preferredWindowSize)
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
+
     }
 
     private func closeSelectedSession() {
@@ -2246,6 +2250,10 @@ struct AwesoMuxApp: App {
             return
         }
 
+        if aboutPanelController.hideIfKeyWindow() {
+            return
+        }
+
         let orderedWindows = NSApp.orderedWindows
         let popUpWindow = popUpTerminalController.ownedWindow
         let floatingWindow = floatingPanelController.ownedWindow
@@ -2272,8 +2280,23 @@ struct AwesoMuxApp: App {
         // destruction in a workspace behind the sheet the user can't see
         // (INT-269). Every other workspace command is already
         // `.disabled(isAnySheetPresented)`; Cmd-W routes through here instead
-        // of a menu item, so it needs the guard explicitly.
+        // of a menu item, so it needs the guard explicitly. This runs BEFORE
+        // the auxiliary-window routing below: a presented sheet is its own key
+        // NSWindow, and swallowing here keeps Cmd-W from force-closing it.
         guard !isAnySheetPresented else { return }
+
+        // Cmd-W is a global menu command — it fires regardless of which window
+        // holds key. When an auxiliary scene window (Settings, About) is key,
+        // close THAT window instead of destroying a pane in the primary window
+        // behind it. Fail-closed on role: an unclassified/primary key window
+        // (including the primary before its role is assigned) falls through to
+        // normal pane routing rather than being force-closed.
+        if let keyWindow = NSApp.keyWindow,
+            AwesoMuxWindowRole.isAuxiliaryCloseTarget(keyWindow.awesoMuxWindowRole)
+        {
+            keyWindow.performClose(nil)
+            return
+        }
 
         guard sessionStore.selectedSessionID != nil else {
             NSApp.keyWindow?.performClose(nil)
@@ -3862,6 +3885,21 @@ struct AwesoMuxApp: App {
 
         func body(content: Content) -> some View {
             content.onAppear { action = openWindow }
+        }
+    }
+
+    private struct AboutCommands: Commands {
+        let aboutPanelController: AboutPanelController
+
+        var body: some Commands {
+            // Replaces SwiftUI's default About item in the app menu. Presents
+            // the controller-owned floating panel (not a Window scene) so
+            // placement is deterministic — see AboutPanelController.
+            CommandGroup(replacing: .appInfo) {
+                Button("About awesoMux") {
+                    aboutPanelController.show()
+                }
+            }
         }
     }
 
