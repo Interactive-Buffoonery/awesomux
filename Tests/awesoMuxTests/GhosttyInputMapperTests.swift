@@ -158,6 +158,38 @@ struct GhosttyInputMapperTests {
         #expect(mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0)
     }
 
+    // INT-453: armLinkHover injects a synthetic Super bit so libghostty's
+    // ⌘-gated link detection (`linkAtPos` requires mods == ctrl-or-super)
+    // fires on PLAIN hover and the peek dwell can arm. Callers only set it
+    // for button-free motion on an uncaptured surface.
+    @Test("mouseModifiers armLinkHover injects Super on plain uncaptured hover")
+    func mouseModifiersArmLinkHoverInjectsSuper() {
+        let mods = GhosttyInputMapper.mouseModifiers([], mouseCaptured: false, armLinkHover: true)
+        #expect(mods.rawValue & GHOSTTY_MODS_SUPER.rawValue != 0)
+        #expect(mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue == 0)
+    }
+
+    @Test("mouseModifiers armLinkHover is a no-op when Cmd is physically held")
+    func mouseModifiersArmLinkHoverNoOpWithRealCommand() {
+        let armed = GhosttyInputMapper.mouseModifiers([.command], mouseCaptured: false, armLinkHover: true)
+        let plain = GhosttyInputMapper.mouseModifiers([.command], mouseCaptured: false)
+        #expect(armed == plain)
+    }
+
+    @Test("mouseModifiers without armLinkHover never fabricates Super")
+    func mouseModifiersDefaultNeverFabricatesSuper() {
+        let mods = GhosttyInputMapper.mouseModifiers([], mouseCaptured: false)
+        #expect(mods.rawValue & GHOSTTY_MODS_SUPER.rawValue == 0)
+    }
+
+    @Test("mouseModifiers captured ⌘ path wins over armLinkHover")
+    func mouseModifiersCapturedCommandPathWinsOverArmLinkHover() {
+        // Callers never pass armLinkHover for a captured surface, but the
+        // INT-632 shift-bypass branch must stay first regardless.
+        let mods = GhosttyInputMapper.mouseModifiers([.command], mouseCaptured: true, armLinkHover: true)
+        #expect(mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0)
+    }
+
     @Test("isCommandKeyCode matches left and right Cmd keycodes only")
     func isCommandKeyCodeMatchesOnlyCommandKeys() {
         #expect(GhosttyInputMapper.isCommandKeyCode(0x37))
