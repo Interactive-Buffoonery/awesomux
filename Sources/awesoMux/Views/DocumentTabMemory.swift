@@ -10,13 +10,12 @@ import Foundation
 /// pipeline rebuilds — the seeded view still re-reads the file in the
 /// background (its watcher was off while hidden) and swaps in changes.
 ///
-/// Memory ceiling: one entry per open tab, and an entry holds the parsed
-/// blocks (inside `LoadResult`) plus the `RenderedDocument` runs — several
-/// times the source size in practice, with the source itself bounded by
-/// `DocumentURLValidator.maxFileSizeBytes`. Entries drop when their tab
-/// closes. ponytail: no LRU cap — add one (or slim the cached `LoadResult` to
-/// its error cases) if someone actually opens dozens of max-size tabs and the
-/// resident size matters.
+/// Memory ceiling: one entry per open tab. A successful entry holds the
+/// rendered runs and one source copy inside `RenderedDocument`; failures keep
+/// only their small error details. The source is bounded by
+/// `DocumentURLValidator.maxFileSizeBytes`, and entries drop when their tab
+/// closes. ponytail: no LRU cap — add one if real-world use shows that dozens
+/// of open max-size rendered documents make resident size matter.
 ///
 /// Every entry is keyed by tab id AND pinned to the tab's standardized file
 /// path: the inline Files browser replaces a tab's file in place (same id, new
@@ -25,8 +24,49 @@ import Foundation
 /// whose tab is gone or whose file changed.
 struct DocumentTabMemory {
     struct Render {
-        let loadResult: DocumentLoader.LoadResult
-        let renderedDoc: RenderedDocument?
+        private enum Seed {
+            case rendered(RenderedDocument)
+            case rejected(DocumentURLValidator.Rejection)
+            case readError(String)
+        }
+
+        private let seed: Seed
+
+        init(
+            loadResult: DocumentLoader.LoadResult,
+            renderedDoc: RenderedDocument?
+        ) {
+            switch loadResult {
+            case .loaded:
+                guard let renderedDoc else {
+                    preconditionFailure("A successful document load must have a rendered document")
+                }
+                seed = .rendered(renderedDoc)
+            case let .rejected(reason):
+                seed = .rejected(reason)
+            case let .readError(message):
+                seed = .readError(message)
+            }
+        }
+
+        var loadResult: DocumentLoader.LoadResult {
+            switch seed {
+            case let .rendered(document):
+                // The parsed tree and conflict-safe file snapshot are only
+                // needed during a live load. The cached document bridges the
+                // remount until that background load supplies both again.
+                .loaded([], source: document.source, snapshot: nil)
+            case let .rejected(reason):
+                .rejected(reason)
+            case let .readError(message):
+                .readError(message)
+            }
+        }
+
+        var renderedDoc: RenderedDocument? {
+            guard case let .rendered(document) = seed else { return nil }
+            return document
+        }
     }
 
     private struct Entry {
