@@ -9,12 +9,6 @@ import Testing
 /// deliberately excludes some durable/runtime fields. The lossless contract is
 /// checked on the DURABLE fields explicitly, not via `==`.
 @Suite struct TypedPaneSnapshotRoundTripTests {
-    private func decodeVersioned(_ data: Data, version: Int) throws -> SessionSnapshot {
-        let decoder = JSONDecoder()
-        decoder.userInfo[.snapshotSchemaVersion] = version
-        return try decoder.decode(SessionSnapshot.self, from: data)
-    }
-
     private func fixtureSnapshot() -> (SessionSnapshot, terminal: TerminalPane, tab: DocumentPane) {
         let terminal = TerminalPane(
             id: UUID(),
@@ -65,7 +59,7 @@ import Testing
     @Test func terminalIdentityAndExecutionPlanSurviveRoundTrip() throws {
         let (snapshot, terminal, _) = fixtureSnapshot()
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try decodeVersioned(data, version: SessionSnapshot.currentSchemaVersion)
+        let decoded = try SessionSnapshot.decode(from: data)
 
         let restored = try #require(decoded.groups.first?.sessions.first)
         let restoredTerminal = try #require(restored.layout.pane(id: terminal.id))
@@ -81,7 +75,7 @@ import Testing
     @Test func documentAssociationAndRemoteProvenanceSurviveRoundTrip() throws {
         let (snapshot, terminal, tab) = fixtureSnapshot()
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try decodeVersioned(data, version: SessionSnapshot.currentSchemaVersion)
+        let decoded = try SessionSnapshot.decode(from: data)
 
         let restored = try #require(decoded.groups.first?.sessions.first)
         let group = try #require(restored.layout.firstDocumentGroup)

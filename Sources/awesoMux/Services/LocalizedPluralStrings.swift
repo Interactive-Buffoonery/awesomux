@@ -18,6 +18,8 @@ enum LocalizedPluralStrings {
     private static let diagnosticsEventsKey = "accessibility.diagnostics.events"
     private static let diagnosticsSamplesKey = "accessibility.diagnostics.samples"
     private static let diagnosticsMatchingEventsKey = "accessibility.diagnostics.matchingEvents"
+    private static let diagnosticsShowingMatchingEventsKey = "diagnostics.showingMatchingEvents"
+    private static let diagnosticsShowingRecordedAnalyticsEventsKey = "diagnostics.showingRecordedAnalyticsEvents"
     private static let bridgePermissionQueuedCountKey = "accessibility.bridge.permissionQueued"
     private static let commandPaletteResultsKey = "accessibility.commandPalette.results"
     private static let pathbarUncommittedChangesKey = "accessibility.pathbar.uncommittedChanges"
@@ -131,7 +133,8 @@ enum LocalizedPluralStrings {
             key: closeGroupWorkspacesClosedKey,
             count: count,
             bundle: bundle,
-            comment: "VoiceOver announcement after a group close that closed the confirmed workspaces but left the group populated; argument is the closed-workspace count."
+            comment:
+                "VoiceOver announcement after a group close that closed the confirmed workspaces but left the group populated; argument is the closed-workspace count."
         )
     }
 
@@ -143,7 +146,8 @@ enum LocalizedPluralStrings {
             key: quitOverflowSuffixKey,
             count: count,
             bundle: bundle,
-            comment: "Suffix appended to the quit dialog body when more than three at-risk sessions exist. Argument is the count of sessions beyond the first three."
+            comment:
+                "Suffix appended to the quit dialog body when more than three at-risk sessions exist. Argument is the count of sessions beyond the first three."
         )
     }
 
@@ -216,7 +220,8 @@ enum LocalizedPluralStrings {
             key: branchMenuMoreBranchesKey,
             count: count,
             bundle: bundle,
-            comment: "Non-clickable overflow row at the bottom of the branch foldout; argument is the count of branches beyond the visible cap."
+            comment:
+                "Non-clickable overflow row at the bottom of the branch foldout; argument is the count of branches beyond the visible cap."
         )
     }
 
@@ -229,7 +234,8 @@ enum LocalizedPluralStrings {
         let format = format(
             for: documentRevisionIndicatorKey,
             bundle: bundle,
-            comment: "Document title-bar status after an external plan-file edit. Arguments are added lines, removed lines, and total changed lines."
+            comment:
+                "Document title-bar status after an external plan-file edit. Arguments are added lines, removed lines, and total changed lines."
         )
         return String.localizedStringWithFormat(format, added, removed, changed)
     }
@@ -270,6 +276,32 @@ enum LocalizedPluralStrings {
         )
     }
 
+    static func diagnosticsShowingMatchingEvents(
+        visible: Int,
+        total: Int,
+        bundle: Bundle = .main
+    ) -> String {
+        let format = format(
+            for: diagnosticsShowingMatchingEventsKey,
+            bundle: bundle,
+            comment: "Diagnostics truncation notice; arguments are visible and total matching event counts."
+        )
+        return String.localizedStringWithFormat(format, visible, total)
+    }
+
+    static func diagnosticsShowingRecordedAnalyticsEvents(
+        visible: Int,
+        total: Int,
+        bundle: Bundle = .main
+    ) -> String {
+        let format = format(
+            for: diagnosticsShowingRecordedAnalyticsEventsKey,
+            bundle: bundle,
+            comment: "Analytics truncation notice; arguments are visible and total recorded event counts."
+        )
+        return String.localizedStringWithFormat(format, visible, total)
+    }
+
     /// Accessibility label for the banner's queue badge — how many remote
     /// permission prompts wait behind the active one. The visible badge is just
     /// the number; assistive tech gets the counted noun via the stringsdict
@@ -282,7 +314,8 @@ enum LocalizedPluralStrings {
             key: bridgePermissionQueuedCountKey,
             count: count,
             bundle: bundle,
-            comment: "Accessibility label for the remote permission banner's queue badge; argument is the number of prompts waiting behind the active one."
+            comment:
+                "Accessibility label for the remote permission banner's queue badge; argument is the number of prompts waiting behind the active one."
         )
     }
 

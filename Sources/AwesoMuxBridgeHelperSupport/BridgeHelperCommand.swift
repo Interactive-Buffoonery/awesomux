@@ -92,7 +92,7 @@ public enum BridgeHelperCommand {
         if arguments.count == 2, arguments[0] == "--emit" {
             guard let context = loadContext(environment: environment, readState: readState),
                 supportedBridgeProtocols.contains(context.state.proto),
-                let contents = try? String(contentsOfFile: arguments[1], encoding: .utf8)
+                let contents = try? BoundedUTF8FileReader.read(path: arguments[1])
             else {
                 return 0
             }
@@ -150,8 +150,8 @@ public enum BridgeHelperCommand {
         readState: (String) -> BridgeStateFile?
     ) -> Context? {
         guard let path = environment["AWESOMUX_BRIDGE_STATE"], path.hasPrefix("/"),
-              let session = environment["AWESOMUX_BRIDGE_SESSION"], !session.isEmpty,
-              let state = readState(path)
+            let session = environment["AWESOMUX_BRIDGE_SESSION"], !session.isEmpty,
+            let state = readState(path)
         else {
             return nil
         }
@@ -197,9 +197,10 @@ public enum BridgeHelperCommand {
                 while let decision = try connection.readPermissionDecision(deadline: monotonicDeadline) {
                     guard let outcome = runtime.acceptDecision(decision, now: now()) else { continue }
                     if case .expired = outcome {
-                        try connection.send(expiredEnvelope(
-                            requestID: decisionID(decision) ?? "", context: context, now: now()
-                        ))
+                        try connection.send(
+                            expiredEnvelope(
+                                requestID: decisionID(decision) ?? "", context: context, now: now()
+                            ))
                     }
                     break
                 }

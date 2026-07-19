@@ -27,6 +27,10 @@ extension FileManager {
     }
 
     /// Clamps an existing file to owner-only (`0o600`).
+    ///
+    /// Follows symlinks: callers must only pass paths they just wrote
+    /// atomically (which replaces any pre-planted link). A caller without
+    /// that guarantee would chmod through a link to an unrelated target.
     public func setOwnerOnlyPermissions(onFileAt url: URL) throws {
         try setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }

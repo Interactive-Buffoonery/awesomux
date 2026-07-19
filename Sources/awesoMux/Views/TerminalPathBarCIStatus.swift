@@ -193,7 +193,8 @@ struct GhCIStatusCommandRunner: Sendable {
         // terminator needed here (unlike `gh pr view <branch>`). It still rides in
         // its own argv slot, never a shell string, so a hostile branch name from
         // another repo's HEAD can't inject.
-        await Self.command.run(
+        // Fail-closed: truncated JSON must not paint a partial CI status.
+        await Self.command.runDetailed(
             arguments: [
                 "run", "list",
                 "--branch", branch,
@@ -201,7 +202,7 @@ struct GhCIStatusCommandRunner: Sendable {
                 "--json", "databaseId,status,conclusion,url,workflowName",
             ],
             inDirectory: repoRoot
-        )
+        ).completeData
     }
 }
 

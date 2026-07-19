@@ -11,6 +11,7 @@ struct SidebarSessionTile: View {
     let isActive: Bool
     let displayMode: SidebarWidthMode
     let isKeyboardFocused: Bool
+    let showsSearchFocusCue: Bool
     let jumpIndex: Int?
     let hasBackgroundedFloatingWork: Bool
     let isPromotedInsertion: Bool
@@ -121,7 +122,10 @@ struct SidebarSessionTile: View {
             // on the selected/focused row); the accent `awFocusRing` below is our
             // keyboard-focus indicator and is gated to keyboard navigation.
             .focusEffectDisabled()
-            .awFocusRing(isKeyboardFocused && isKeyboardNavigatingValue, cornerRadius: AwRadius.panel)
+            .awFocusRing(
+                showsSearchFocusCue || (isKeyboardFocused && isKeyboardNavigatingValue),
+                cornerRadius: AwRadius.panel
+            )
             // `.simultaneousGesture(TapGesture)` instead of `.onTapGesture`
             // — see group header for rationale (tap-exclusive blocks drag
             // activation on macOS).
@@ -954,9 +958,10 @@ extension SidebarSessionTile: Equatable {
     /// pane/session equality.
     ///
     /// Full non-closure stored-property enumeration of `SidebarSessionTile`
-    /// (read 2026-07-14), so a reviewer can mechanically diff key fields
+    /// (read 2026-07-17), so a reviewer can mechanically diff key fields
     /// against stored properties:
     ///   session, match, tint, isActive, displayMode, isKeyboardFocused,
+    ///   showsSearchFocusCue,
     ///   jumpIndex, hasBackgroundedFloatingWork, isPromotedInsertion,
     ///   isPromotionPulseActive, isFiltering, duplicateDisambiguation,
     ///   indexInGroup, sessionCountInGroup, ownerGroupIndex,
@@ -1006,7 +1011,7 @@ extension SidebarSessionTile: Equatable {
     ///
     /// `isKeyboardNavigatingValue` is included as a plain field for the same
     /// reason `isKeyboardFocused` is: `interactiveTile` gates
-    /// `.awFocusRing` on `isKeyboardFocused && isKeyboardNavigatingValue`, so
+    /// `.awFocusRing` on keyboard focus/modality or `showsSearchFocusCue`, so
     /// the ring's rendered state has to match what the key compares — an
     /// equal-comparing row that skipped re-render could otherwise show a
     /// stale ring after a keyboard→pointer modality switch. Both callers
@@ -1052,6 +1057,7 @@ extension SidebarSessionTile: Equatable {
         let isActive: Bool
         let displayMode: SidebarWidthMode
         let isKeyboardFocused: Bool
+        let showsSearchFocusCue: Bool
         let jumpIndex: Int?
         let hasBackgroundedFloatingWork: Bool
         let isPromotedInsertion: Bool
@@ -1130,6 +1136,7 @@ extension SidebarSessionTile: Equatable {
             isActive: isActive,
             displayMode: displayMode,
             isKeyboardFocused: isKeyboardFocused,
+            showsSearchFocusCue: showsSearchFocusCue,
             jumpIndex: jumpIndex,
             hasBackgroundedFloatingWork: hasBackgroundedFloatingWork,
             isPromotedInsertion: isPromotedInsertion,

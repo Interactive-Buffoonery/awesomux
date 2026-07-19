@@ -29,6 +29,24 @@ struct ProcessLivenessProbeTests {
         #expect(ProcessLivenessProbe.hasChildren(pid: p.processIdentifier) == false)
     }
 
+    @Test("process start time is a positive epoch microsecond timestamp for a live process, nil for a reaped one")
+    func processStartTimeLiveVersusReaped() throws {
+        let live = Process()
+        live.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        live.arguments = ["30"]
+        try live.run()
+        defer { live.terminate() }
+        let startedAt = try #require(ProcessLivenessProbe.processStartTime(pid: live.processIdentifier))
+        #expect(startedAt > 0)
+
+        let reaped = Process()
+        reaped.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        reaped.arguments = ["0"]
+        try reaped.run()
+        reaped.waitUntilExit()
+        #expect(ProcessLivenessProbe.processStartTime(pid: reaped.processIdentifier) == nil)
+    }
+
     @Test("terminal foreground group is nil for invalid and reaped pids")
     func terminalForegroundGroupFailsClosed() throws {
         #expect(ProcessLivenessProbe.terminalForegroundProcessGroup(pid: -1) == nil)
@@ -56,6 +74,31 @@ struct ProcessLivenessProbeTests {
                 #expect(pgid > 0)
             }
         }
+    }
+
+    @Test("terminal foreground pid resolves through the sole root shell, same as its comm")
+    func terminalForegroundPIDMatchesRootTraversal() {
+        let pid = ProcessLivenessProbe.terminalForegroundPID(
+            daemonPID: 10,
+            childPIDs: { $0 == 10 ? [20] : nil },
+            foregroundGroup: { $0 == 20 ? 30 : nil }
+        )
+        #expect(pid == 30)
+        // Not exactly one root child: unresolvable, same guard as the comm path.
+        #expect(
+            ProcessLivenessProbe.terminalForegroundPID(
+                daemonPID: 10,
+                childPIDs: { _ in [20, 21] },
+                foregroundGroup: { _ in 30 }
+            ) == nil
+        )
+        #expect(
+            ProcessLivenessProbe.terminalForegroundPID(
+                daemonPID: 10,
+                childPIDs: { _ in nil },
+                foregroundGroup: { _ in 30 }
+            ) == nil
+        )
     }
 
     @Test("daemon foreground executable uses its sole root shell's terminal")
