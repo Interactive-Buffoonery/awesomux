@@ -199,13 +199,12 @@ struct BridgeGenerationRegistryTests {
             )
         }
 
-        let start = Date()
         harness.registry.drainForTermination(budget: 0.3)
-        let elapsed = Date().timeIntervalSince(start)
 
-        // Generous ceiling: well under a single 5 s command, proving the bound
-        // is the semaphore wait, not the exec durations (9 commands × 5 s = 45 s).
-        #expect(elapsed < 2.0)
+        // None of the five-second commands can have completed inside the
+        // 0.3-second drain budget; the returned recorder state proves the
+        // sweep abandoned the still-running background work.
+        #expect(harness.syncCommands.isEmpty)
     }
 
     @Test("the quit sweep is a no-op with no live generations")

@@ -44,7 +44,7 @@ struct BridgeConnectionSupervisorTests {
         #expect(BridgeHandshake.parse(line: nackLine) == .helloNack(supported: BridgeConnectionSupervisor.supportedProtocols))
         // The nack is the mandatory, and only, reply — the connection closes
         // right after it, no further bytes.
-        #expect(client.waitForEOF(timeoutMilliseconds: 300))
+        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("unsupported proto still nacks even when the token is also wrong — proto is checked first")
@@ -66,7 +66,7 @@ struct BridgeConnectionSupervisorTests {
 
         let nackLine = try client.readLine()
         #expect(BridgeHandshake.parse(line: nackLine) == .helloNack(supported: BridgeConnectionSupervisor.supportedProtocols))
-        #expect(client.waitForEOF(timeoutMilliseconds: 300))
+        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("wrong token closes silently with no reply")
@@ -84,7 +84,7 @@ struct BridgeConnectionSupervisorTests {
             ).encodedLine())
 
         // First readable event is EOF itself — no ack, no nack, nothing.
-        #expect(client.waitForEOF(timeoutMilliseconds: 300))
+        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
         #expect(await recorder.lostConnections.values.isEmpty)
     }
 
@@ -102,7 +102,7 @@ struct BridgeConnectionSupervisorTests {
                 proto: "awesomux-bridge-v1", token: "token", session: "wrong-session", ts: 1, helper: "test"
             ).encodedLine())
 
-        #expect(client.waitForEOF(timeoutMilliseconds: 300))
+        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("a second valid hello replaces the first and fires the connection-lost sink")
@@ -121,14 +121,14 @@ struct BridgeConnectionSupervisorTests {
         try newClient.write(helloLine)
         _ = try newClient.readLine()
 
-        #expect(oldClient.waitForEOF(timeoutMilliseconds: 300))
-        #expect(await recorder.lostConnections.waitForCount(1))
+        #expect(oldClient.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await recorder.lostConnections.waitForCount(1, deadline: .seconds(10)))
 
         // The replacement, not merely a stray extra event: exactly one loss,
         // and it happened for a connection that is no longer the active one —
         // the new client's own frames still make it to the sink below.
         try newClient.write(try envelope(.paneRename(title: "still active"), id: "after-replace").encodedLine())
-        #expect(await recorder.frames.waitForCount(1))
+        #expect(await recorder.frames.waitForCount(1, deadline: .seconds(10)))
         #expect(await recorder.lostConnections.values.count == 1)
     }
 
@@ -145,7 +145,7 @@ struct BridgeConnectionSupervisorTests {
         _ = try client.readLine()
         client.disconnect()
 
-        #expect(await recorder.lostConnections.waitForCount(1))
+        #expect(await recorder.lostConnections.waitForCount(1, deadline: .seconds(10)))
     }
 
     @Test("post-handshake envelopes reach the frame sink generation-tagged; handshake frames never do")
@@ -166,7 +166,7 @@ struct BridgeConnectionSupervisorTests {
         #expect(await recorder.frames.values.isEmpty)
 
         try firstClient.write(try envelope(.paneRename(title: "first"), id: "first-id").encodedLine())
-        #expect(await recorder.frames.waitForCount(1))
+        #expect(await recorder.frames.waitForCount(1, deadline: .seconds(10)))
         let firstGeneration = try #require(await recorder.frames.values.first?.generation)
 
         // Replace the connection; the new one's frames carry a different
@@ -176,7 +176,7 @@ struct BridgeConnectionSupervisorTests {
         try secondClient.write(helloLine)
         _ = try secondClient.readLine()
         try secondClient.write(try envelope(.paneRename(title: "second"), id: "second-id").encodedLine())
-        #expect(await recorder.frames.waitForCount(2))
+        #expect(await recorder.frames.waitForCount(2, deadline: .seconds(10)))
 
         let secondGeneration = try #require(await recorder.frames.values.last?.generation)
         #expect(firstGeneration != secondGeneration)

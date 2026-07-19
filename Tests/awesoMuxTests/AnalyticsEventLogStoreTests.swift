@@ -1,4 +1,5 @@
 import AwesoMuxConfig
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 
@@ -387,6 +388,7 @@ struct AnalyticsEventLogStoreTests {
             now: { fixedNow }
         )
         store.append(Self.entry())
+        await store.loadIfNeeded()
 
         let analyticsDir = root.appending(path: "analytics", directoryHint: .isDirectory)
         let eventsURL = analyticsDir.appending(path: "events.jsonl", directoryHint: .isDirectory)
@@ -397,11 +399,11 @@ struct AnalyticsEventLogStoreTests {
         // The failed rewrite reports back through a MainActor hop that
         // waitForPendingWrites cannot cover; wait for the flag itself so the
         // next append deterministically takes the full-ledger retry path.
-        let deadline = ContinuousClock.now + .seconds(30)
-        while store.diskMatchesEntries, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(!store.diskMatchesEntries)
+        #expect(
+            await waitUntilEventually(deadline: .seconds(30)) {
+                !store.diskMatchesEntries
+            }
+        )
 
         try FileManager.default.removeItem(at: eventsURL)
         store.append(Self.entry())

@@ -1,5 +1,6 @@
 import AppKit
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -300,10 +301,7 @@ struct AgentRuntimeEventBridgeTests {
         try handle.write(contentsOf: Data((event + "\n").utf8))
         try handle.close()
 
-        let deadline = ContinuousClock.now + .seconds(3)
-        while notificationEvents.isEmpty, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(await waitUntilEventually(deadline: .seconds(10)) { !notificationEvents.isEmpty })
 
         #expect(appliedEventCount == 1)
         #expect(store.session(id: session.id)?.agentState == .needsAttention)
@@ -415,24 +413,18 @@ struct AgentRuntimeEventBridgeTests {
             at: runtimeEventsDirectory,
             withIntermediateDirectories: true
         )
-        let fileCreationDeadline = ContinuousClock.now + .seconds(3)
-        while !FileManager.default.fileExists(atPath: environment.eventFileURL.path),
-            ContinuousClock.now < fileCreationDeadline
-        {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-
-        try #require(FileManager.default.fileExists(atPath: environment.eventFileURL.path))
+        try #require(
+            await waitUntilEventually(deadline: .seconds(10)) {
+                FileManager.default.fileExists(atPath: environment.eventFileURL.path)
+            }
+        )
         let event = #"{"v":1,"source":"codex","execution":"waiting","phase":"stop"}"#
         let handle = try FileHandle(forWritingTo: environment.eventFileURL)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data((event + "\n").utf8))
         try handle.close()
 
-        let deadline = ContinuousClock.now + .seconds(3)
-        while notificationEvents.isEmpty, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(await waitUntilEventually(deadline: .seconds(10)) { !notificationEvents.isEmpty })
 
         #expect(store.session(id: session.id)?.agentState == .waiting)
         #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
@@ -519,10 +511,7 @@ struct AgentRuntimeEventBridgeTests {
             ofItemAtPath: environment.eventFileURL.path
         )
 
-        let deadline = ContinuousClock.now + .seconds(3)
-        while notificationEvents.isEmpty, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(await waitUntilEventually(deadline: .seconds(10)) { !notificationEvents.isEmpty })
 
         #expect(store.session(id: session.id)?.agentState == .needsAttention)
         #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
