@@ -10,6 +10,7 @@ const read = (path) => readFileSync(join(repoRoot, path), "utf8");
 const workflows = {
   cheapGuards: read(".github/workflows/cheap-guards.yml"),
   codeql: read(".github/workflows/codeql.yml"),
+  dependabot: read(".github/dependabot.yml"),
   native: read(".github/workflows/native-ci.yml"),
   nativeExecutor: read(".github/workflows/native-ci-executor.yml"),
   size: read(".github/workflows/pr-size.yml"),
@@ -33,6 +34,22 @@ function assertMetadataOnly(name, workflow) {
     workflow,
     /^\s+(?:npm|pnpm|yarn|bun|swift|zig)\s+(?:install|run|test|build)|^\s+\.\/script\//m,
     `${name} must not execute pull request code or dependencies`,
+  );
+}
+
+function assertMatchingCodeQLActionPins(name, workflow) {
+  const actions = [
+    ...workflow.matchAll(/github\/codeql-action\/(init|analyze)@([0-9a-f]{40})/g),
+  ];
+  assert.deepEqual(
+    actions.map((match) => match[1]).sort(),
+    ["analyze", "init"],
+    `${name} must initialize and analyze CodeQL`,
+  );
+  assert.equal(
+    new Set(actions.map((match) => match[2])).size,
+    1,
+    `${name} must use one CodeQL action version`,
   );
 }
 
@@ -82,6 +99,7 @@ test("fast required checks have stable names", () => {
 
 test("interpreted CodeQL stays automatic without waiting for Swift", () => {
   const workflow = workflows.codeql;
+  assertMatchingCodeQLActionPins("interpreted CodeQL", workflow);
   assert.match(workflow, /push:\n\s+branches: \[main\]/);
   assert.match(workflow, /pull_request:\n\s+branches: \[main\]/);
   assert.match(workflow, /matrix:\n\s+language: \[actions, python\]/);
@@ -90,6 +108,7 @@ test("interpreted CodeQL stays automatic without waiting for Swift", () => {
 
 test("Swift CodeQL is weekly and manual only", () => {
   const workflow = workflows.swiftCodeql;
+  assertMatchingCodeQLActionPins("Swift CodeQL", workflow);
   assert.match(workflow, /schedule:\n\s+- cron: "17 8 \* \* 2"/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /^\s{2}(?:push|pull_request):/m);
@@ -98,6 +117,13 @@ test("Swift CodeQL is weekly and manual only", () => {
   assert.match(workflow, /uses: \.\/\.github\/actions\/prepare-native/);
   assert.match(workflow, /save-cache: "true"/);
   assert.match(workflow, /languages: swift\n\s+build-mode: manual/);
+});
+
+test("Dependabot groups CodeQL action components", () => {
+  assert.match(
+    workflows.dependabot,
+    /groups:\n\s+codeql-action:\n\s+patterns:\n\s+- "github\/codeql-action\/\*"/,
+  );
 });
 
 test("PR hygiene consolidates the external checklist", () => {
