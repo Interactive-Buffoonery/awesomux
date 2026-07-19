@@ -4,6 +4,34 @@ import Testing
 
 @Suite("Ghostty surface attention decisions")
 struct GhosttySurfaceAttentionTests {
+    @Test("agent-exit probe eligibility excludes only unobserved plain shells")
+    func agentExitProbeEligibility() {
+        #expect(
+            GhosttySurfaceNSView.shouldProbeForAgentExit(
+                agentKind: .codex,
+                hasManagedSSHObservation: false,
+                hasObservedAgentActivity: false
+            ))
+        #expect(
+            GhosttySurfaceNSView.shouldProbeForAgentExit(
+                agentKind: .shell,
+                hasManagedSSHObservation: true,
+                hasObservedAgentActivity: false
+            ))
+        #expect(
+            GhosttySurfaceNSView.shouldProbeForAgentExit(
+                agentKind: .shell,
+                hasManagedSSHObservation: false,
+                hasObservedAgentActivity: true
+            ))
+        #expect(
+            !GhosttySurfaceNSView.shouldProbeForAgentExit(
+                agentKind: .shell,
+                hasManagedSSHObservation: false,
+                hasObservedAgentActivity: false
+            ))
+    }
+
     @Test("visible-text suppression reads this pane's state, not the loudest sibling")
     @MainActor
     func suppressionReadsOwnPaneState() {

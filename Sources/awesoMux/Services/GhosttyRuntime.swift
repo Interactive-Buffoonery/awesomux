@@ -639,9 +639,9 @@ final class GhosttyRuntime {
     /// `refreshShellActivity`): a stale agent glyph is most visible on a
     /// background session's sidebar tile, whose own detached view isn't
     /// sampling. Each view applies the reset through its own session store,
-    /// so floating-panel panes are covered too. The per-view `agentKind !=
-    /// .shell` guard keeps the sweep cheap — only agent-tagged panes pay for
-    /// the libproc probe.
+    /// so floating-panel panes are covered too. Each view gates its libproc
+    /// probe to agent-tagged panes, managed-SSH observations, or panes with
+    /// observed agent activity; plain shells stop after cheap libghostty reads.
     private func detectExitedAgents() {
         for surfaceView in surfaceViews.values {
             surfaceView.detectAgentExitedToShell()

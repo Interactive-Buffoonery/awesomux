@@ -21,7 +21,9 @@ extension GhosttySurfaceNSView {
     }
 
     @MainActor
-    private func foregroundProcessLivenessAndSample() -> (
+    private func foregroundProcessLivenessAndSample(
+        includeLibprocSample: Bool = true
+    ) -> (
         liveness: ForegroundProcessLiveness,
         sample: ForegroundProcessSample?
     ) {
@@ -37,7 +39,7 @@ extension GhosttySurfaceNSView {
                 nil
             )
         }
-        let sample = foregroundProcessSample()
+        let sample = foregroundProcessSample(includeLibprocSample: includeLibprocSample)
         guard sample.hasLiveSurface else {
             return (.unsampled, sample)
         }
@@ -82,7 +84,9 @@ extension GhosttySurfaceNSView {
     )
 
     @MainActor
-    private func foregroundProcessSample() -> ForegroundProcessSample {
+    private func foregroundProcessSample(
+        includeLibprocSample: Bool = true
+    ) -> ForegroundProcessSample {
         guard let surface else {
             return ForegroundProcessSample(hasLiveSurface: false)
         }
@@ -91,6 +95,9 @@ extension GhosttySurfaceNSView {
         }
         guard let pid = pid_t(exactly: ghostty_surface_foreground_pid(surface)), pid > 0 else {
             return ForegroundProcessSample(hasLiveSurface: true)
+        }
+        guard includeLibprocSample else {
+            return ForegroundProcessSample(hasLiveSurface: true, pid: pid)
         }
         let comm = ProcessLivenessProbe.foregroundComm(pid: pid)
         let hasChildren: Bool?
@@ -158,7 +165,19 @@ extension GhosttySurfaceNSView {
         // Live store read, not the view's captured pane snapshot: after a
         // reset the snapshot stays non-shell until the next SwiftUI update
         // pass, which would re-probe (and re-announce) every sampler tick.
-        let foregroundProcess = foregroundProcessLivenessAndSample()
+        let livePane = sessionStore.session(id: sessionID)?
+            .layout.pane(id: paneID)
+        let shouldProbe =
+            livePane.map {
+                Self.shouldProbeForAgentExit(
+                    agentKind: $0.agentKind,
+                    hasManagedSSHObservation: $0.hasManagedSSHObservation,
+                    hasObservedAgentActivity: hasObservedAgentActivity
+                )
+            } ?? false
+        let foregroundProcess = foregroundProcessLivenessAndSample(
+            includeLibprocSample: shouldProbe
+        )
         sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
             sessionID: sessionID,
             paneID: paneID,
@@ -203,6 +222,14 @@ extension GhosttySurfaceNSView {
                 executionState: .idle,
                 phase: .sessionEnd
             ))
+    }
+
+    nonisolated static func shouldProbeForAgentExit(
+        agentKind: AgentKind,
+        hasManagedSSHObservation: Bool,
+        hasObservedAgentActivity: Bool
+    ) -> Bool {
+        agentKind != .shell || hasManagedSSHObservation || hasObservedAgentActivity
     }
 
     @MainActor
