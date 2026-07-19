@@ -121,6 +121,8 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.showKeyboardCheatsheet.id,
                 KeyboardShortcutCatalog.openMarkdownFile.id,
                 KeyboardShortcutCatalog.sessionManager.id,
+                "saveLayoutPreset",
+                "applyLayoutPreset",
                 "createWorktree",
                 "openWorktree",
                 "manageWorktrees",
