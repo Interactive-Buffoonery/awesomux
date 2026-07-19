@@ -24,52 +24,56 @@ struct NewWorkspaceMenuButton: View {
     let onNewWorkspaceGroup: () -> Void
 
     var body: some View {
-        Menu {
-            Button("New Workspace") {
-                onNewWorkspace()
-            }
+        // The background/border live in a ZStack sibling pinned to an outer
+        // `.frame`, not as a `.background`/`.overlay` on the Menu itself —
+        // a Menu's own bounds don't reliably stretch to match its label's
+        // declared frame, so this box was rendering smaller than `size`
+        // while the plain-Button search button beside it rendered correctly.
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(restFill)
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(Color.aw.border2, lineWidth: 0.5)
+            Menu {
+                Button("New Workspace") {
+                    onNewWorkspace()
+                }
 
-            if !otherGroups.isEmpty {
-                Menu("New Workspace in…") {
-                    ForEach(otherGroups, id: \.id) { entry in
-                        Button(entry.name) {
-                            onNewWorkspaceInGroup(entry.id)
+                if !otherGroups.isEmpty {
+                    Menu("New Workspace in…") {
+                        ForEach(otherGroups, id: \.id) { entry in
+                            Button(entry.name) {
+                                onNewWorkspaceInGroup(entry.id)
+                            }
                         }
                     }
                 }
-            }
 
-            Button("New Workspace Group…") {
-                onNewWorkspaceGroup()
+                Button("New Workspace Group…") {
+                    onNewWorkspaceGroup()
+                }
+            } label: {
+                // Matches the rail's search button glyph exactly (same font
+                // size and weight) so the two rail controls read as one
+                // family.
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: size, height: size)
+                    .contentShape(Rectangle())
             }
-        } label: {
-            // Matches the rail's search button glyph exactly (same font size
-            // and weight) so the two rail controls read as one family.
-            Image(systemName: "plus")
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: size, height: size)
-                .contentShape(Rectangle())
+            .menuStyle(.borderlessButton)
+            // SwiftUI draws a native disclosure chevron next to a Menu's
+            // label by default — this was never hidden here, so the rail
+            // has shown an unintended "+ ⌄" this whole time, not a plain
+            // "+". Hiding it now matches the search button beside it, which
+            // has no indicator at all.
+            .menuIndicator(.hidden)
+            // Neutral, matching the search icon button above it on the
+            // rail — not the accent color, which reads as too prominent
+            // for a chrome control at this size.
+            .foregroundStyle(Color.aw.text3)
         }
-        .menuStyle(.borderlessButton)
-        // SwiftUI draws a native disclosure chevron next to a Menu's label
-        // by default — this was never hidden here, so the rail has shown an
-        // unintended "+ ⌄" this whole time, not a plain "+". Hiding it now
-        // matches the search button beside it, which has no indicator at all.
-        .menuIndicator(.hidden)
-        // Neutral, matching the search icon button above it on the rail —
-        // not the accent color, which reads as too prominent for a chrome
-        // control at this size.
-        .foregroundStyle(Color.aw.text3)
-        // Static box, no hover brightening — the search button above it has
-        // no hover state either, and this control should read as the same
-        // simple chip, not a more "interactive-looking" one. The hairline
-        // border matches the "button-y" bordered-pill treatment used
-        // elsewhere (e.g. the terminal path bar chips).
-        .background(restFill, in: RoundedRectangle(cornerRadius: cornerRadius))
-        .overlay {
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .stroke(Color.aw.border2, lineWidth: 0.5)
-        }
+        .frame(width: size, height: size)
         .accessibilityLabel("New Workspace menu")
         .accessibilityHint("Opens a menu with New Workspace, New Workspace in a chosen group, and New Workspace Group")
         .help("New Workspace menu")
