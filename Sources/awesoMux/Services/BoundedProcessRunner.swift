@@ -34,7 +34,7 @@ enum BoundedProcessRunner {
             throw ExecError.spawnFailed
         }
 
-        let outputTooLarge = Flag()
+        let outputTooLarge = OneShotFlag()
         let stdoutTask = Task.detached { @Sendable in
             var output = Data()
             let reader = execution.stdoutPipe.fileHandleForReading
@@ -54,7 +54,7 @@ enum BoundedProcessRunner {
             try? execution.stdinPipe.fileHandleForWriting.close()
             return wroteAllBytes
         }
-        let timedOut = Flag()
+        let timedOut = OneShotFlag()
         let timeoutTimer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
         timeoutTimer.schedule(deadline: .now() + timeout)
         timeoutTimer.setEventHandler {
@@ -235,21 +235,6 @@ enum BoundedProcessRunner {
             lock.lock()
             pipesFinished = true
             lock.unlock()
-        }
-    }
-
-    private final class Flag: @unchecked Sendable {
-        private var value = false
-        private let lock = NSLock()
-
-        var isSet: Bool {
-            lock.lock(); defer { lock.unlock() }
-            return value
-        }
-
-        func set() {
-            lock.lock(); defer { lock.unlock() }
-            value = true
         }
     }
 }
