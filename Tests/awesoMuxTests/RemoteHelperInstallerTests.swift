@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import AwesoMuxTestSupport
 import Darwin
@@ -17,12 +18,12 @@ struct RemoteHelperInstallerTests {
     }
 
     @Test("bundled helper preparation snapshots executable bytes and digest")
-    func helperPreparation() throws {
+    func helperPreparation() async throws {
         let directory = try TemporaryDirectory(prefix: "helper-installer-source")
         let payload = Data("helper bytes".utf8)
         let helperURL = try helper(in: directory, payload: payload)
 
-        let prepared = try RemoteHelperInstaller.prepareBundledHelper(at: helperURL)
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(at: helperURL)
 
         #expect(prepared.byteCount == payload.count)
         #expect(prepared.sha256.count == 64)
@@ -35,7 +36,7 @@ struct RemoteHelperInstallerTests {
     }
 
     @Test("bundled helper preparation rejects unsafe source types")
-    func helperPreparationRejectsUnsafeSources() throws {
+    func helperPreparationRejectsUnsafeSources() async throws {
         let directory = try TemporaryDirectory(prefix: "helper-installer-source-reject")
         let directoryURL = directory.url.appendingPathComponent("directory")
         let plainFile = directory.url.appendingPathComponent("plain")
@@ -45,17 +46,17 @@ struct RemoteHelperInstallerTests {
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: plainFile)
 
         for url in [directoryURL, plainFile, symlink] {
-            #expect(throws: RemoteHelperInstaller.Failure.bundledHelperUnavailable) {
-                try RemoteHelperInstaller.prepareBundledHelper(at: url)
+            await #expect(throws: RemoteHelperInstaller.Failure.bundledHelperUnavailable) {
+                try await RemoteHelperInstaller.prepareBundledHelper(at: url)
             }
         }
     }
 
     @Test("source replacement after preparation is rejected")
-    func helperReplacementIsRejected() throws {
+    func helperReplacementIsRejected() async throws {
         let directory = try TemporaryDirectory(prefix: "helper-installer-replacement")
         let helperURL = try helper(in: directory, payload: Data("original".utf8))
-        let prepared = try RemoteHelperInstaller.prepareBundledHelper(at: helperURL)
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(at: helperURL)
         let replacement = directory.url.appendingPathComponent("replacement")
         try Data("replacement".utf8).write(to: replacement)
         guard chmod(replacement.path, 0o700) == 0 else { throw CocoaError(.fileWriteUnknown) }
@@ -81,22 +82,208 @@ struct RemoteHelperInstallerTests {
         ]
     )
     func platformGate(output: String, accepted: Bool) {
-        #expect((RemoteHelperInstaller.supportedPlatform(from: Data(output.utf8)) != nil) == accepted)
+        #expect(RemoteHelperInstaller.isSupportedPlatform(Data(output.utf8)) == accepted)
     }
 
-    @Test("SSH arguments preserve declared authority and transport posture")
-    func sshArguments() throws {
+    @Test("platform probe separates unsupported hosts from transport failure")
+    func platformProbeFailures() async throws {
+        let directory = try TemporaryDirectory(prefix: "helper-platform-probe")
+        let unsupported = try shellScript(in: directory, body: "exit 1")
+        let transportFailure = try shellScript(in: directory, body: "exit 255")
         let remote = try #require(RemoteTarget(parsing: "me@example"))
-        let arguments = RemoteHelperInstaller.sshArguments(
+
+        await #expect(throws: RemoteHelperInstaller.Failure.unsupportedPlatform) {
+            try await RemoteHelperInstaller.probePlatform(
+                remote: remote,
+                controlPath: "/tmp/control/%C",
+                executableURL: unsupported,
+                timeout: .seconds(2)
+            )
+        }
+        await #expect(throws: RemoteHelperInstaller.Failure.platformProbeFailed) {
+            try await RemoteHelperInstaller.probePlatform(
+                remote: remote,
+                controlPath: "/tmp/control/%C",
+                executableURL: transportFailure,
+                timeout: .seconds(2)
+            )
+        }
+    }
+
+    @Test("capability distinguishes install, update, and transport failure")
+    func capabilityStates() async throws {
+        let remote = try #require(RemoteTarget(parsing: "me@example"))
+        let supported = try await RemoteHelperInstaller.capability(
             remote: remote,
             controlPath: "/tmp/control/%C",
-            remoteCommand: "fixed command"
+            helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
+            execChannel: { _, _ in
+                Data("awesomux-handoff-v1\nawesomux-bridge-v1\n".utf8)
+            }
+        )
+        let incompatible = try await RemoteHelperInstaller.capability(
+            remote: remote,
+            controlPath: "/tmp/control/%C",
+            helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
+            execChannel: { _, _ in Data("awesomux-bridge-v1\n".utf8) }
+        )
+        let missing = try await RemoteHelperInstaller.capability(
+            remote: remote,
+            controlPath: "/tmp/control/%C",
+            helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
+            execChannel: { _, _ in throw BoundedProcessRunner.ExecError.nonzeroExit(127) }
+        )
+        let transportFailure = try await RemoteHelperInstaller.capability(
+            remote: remote,
+            controlPath: "/tmp/control/%C",
+            helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
+            execChannel: { _, _ in throw BoundedProcessRunner.ExecError.nonzeroExit(255) }
         )
 
-        #expect(arguments.contains("ControlMaster=auto"))
-        #expect(arguments.contains("ControlPath=/tmp/control/%C"))
-        #expect(arguments.contains("ConnectTimeout=10"))
-        #expect(arguments.suffix(3) == ["--", "me@example", "fixed command"])
+        #expect(supported == .supported)
+        #expect(incompatible == .incompatible)
+        #expect(incompatible.approvalAction == .update)
+        #expect(missing == .missing)
+        #expect(missing.approvalAction == .install)
+        #expect(transportFailure == .probeFailed)
+    }
+
+    @MainActor
+    @Test("approved workflow preserves authority checks and confirmation inputs")
+    func approvedWorkflowSequence() async throws {
+        let directory = try TemporaryDirectory(prefix: "helper-workflow")
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(
+            at: try helper(in: directory, payload: Data("helper".utf8))
+        )
+        let remote = try #require(RemoteTarget(parsing: "me@example"))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        var events: [String] = []
+
+        let outcome = try await RemoteHelperInstaller.performApprovedInstallation(
+            helper: prepared,
+            action: .update,
+            remote: remote,
+            controlPath: "/tmp/control/%C",
+            remoteHome: "/Users/me",
+            helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
+            window: window,
+            authorityIsCurrent: {
+                events.append("authority")
+                return true
+            },
+            confirmation: { action, receivedRemote, receivedWindow in
+                events.append("confirmation")
+                #expect(action == .update)
+                #expect(receivedRemote == remote)
+                #expect(receivedWindow === window)
+                return true
+            },
+            installOperation: { receivedHelper, receivedRemote, controlPath, remoteHome in
+                events.append("install")
+                #expect(receivedHelper.sha256 == prepared.sha256)
+                #expect(receivedRemote == remote)
+                #expect(controlPath == "/tmp/control/%C")
+                #expect(remoteHome == "/Users/me")
+            },
+            capabilityProbe: { receivedRemote, controlPath, helperPath in
+                events.append("verify")
+                #expect(receivedRemote == remote)
+                #expect(controlPath == "/tmp/control/%C")
+                #expect(helperPath == "/Users/me/.awesomux/bin/awesomux-bridge-helper")
+                return .supported
+            },
+            successPresentation: { receivedWindow in
+                events.append("success")
+                #expect(receivedWindow === window)
+            }
+        )
+
+        #expect(outcome == .installed)
+        #expect(events == ["authority", "confirmation", "authority", "install", "verify", "authority", "success"])
+    }
+
+    @MainActor
+    @Test("workflow cancellation and changed authority never install")
+    func workflowStopsBeforeInstallation() async throws {
+        let directory = try TemporaryDirectory(prefix: "helper-workflow-stop")
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(
+            at: try helper(in: directory, payload: Data("helper".utf8))
+        )
+        let remote = try #require(RemoteTarget(parsing: "me@example"))
+        var installCount = 0
+
+        let cancelled = try await RemoteHelperInstaller.performApprovedInstallation(
+            helper: prepared,
+            action: .install,
+            remote: remote,
+            controlPath: "/tmp/control/%C",
+            remoteHome: "/Users/me",
+            helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
+            window: nil,
+            authorityIsCurrent: { true },
+            confirmation: { _, _, _ in false },
+            installOperation: { _, _, _, _ in installCount += 1 },
+            capabilityProbe: { _, _, _ in .supported },
+            successPresentation: { _ in }
+        )
+        #expect(cancelled == .cancelled)
+        #expect(installCount == 0)
+
+        var authorityCheckCount = 0
+        await #expect(throws: RemoteHandoff.Failure.destinationChanged) {
+            try await RemoteHelperInstaller.performApprovedInstallation(
+                helper: prepared,
+                action: .install,
+                remote: remote,
+                controlPath: "/tmp/control/%C",
+                remoteHome: "/Users/me",
+                helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
+                window: nil,
+                authorityIsCurrent: {
+                    authorityCheckCount += 1
+                    return authorityCheckCount == 1
+                },
+                confirmation: { _, _, _ in true },
+                installOperation: { _, _, _, _ in installCount += 1 },
+                capabilityProbe: { _, _, _ in .supported },
+                successPresentation: { _ in }
+            )
+        }
+        #expect(installCount == 0)
+    }
+
+    @MainActor
+    @Test("workflow reports post-install probe failure without presenting success")
+    func workflowVerificationFailure() async throws {
+        let directory = try TemporaryDirectory(prefix: "helper-workflow-verify")
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(
+            at: try helper(in: directory, payload: Data("helper".utf8))
+        )
+        let remote = try #require(RemoteTarget(parsing: "me@example"))
+        var presentedSuccess = false
+
+        await #expect(throws: RemoteHelperInstaller.Failure.verificationFailed) {
+            try await RemoteHelperInstaller.performApprovedInstallation(
+                helper: prepared,
+                action: .install,
+                remote: remote,
+                controlPath: "/tmp/control/%C",
+                remoteHome: "/Users/me",
+                helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
+                window: nil,
+                authorityIsCurrent: { true },
+                confirmation: { _, _, _ in true },
+                installOperation: { _, _, _, _ in },
+                capabilityProbe: { _, _, _ in .probeFailed },
+                successPresentation: { _ in presentedSuccess = true }
+            )
+        }
+        #expect(!presentedSuccess)
     }
 
     @Test("bootstrap command stages, validates, and atomically replaces the helper")
@@ -128,7 +315,7 @@ struct RemoteHelperInstallerTests {
         let directory = try TemporaryDirectory(prefix: "helper-installer-transfer")
         let payload = Data("signed helper bytes".utf8)
         let helperURL = try helper(in: directory, payload: payload)
-        let prepared = try RemoteHelperInstaller.prepareBundledHelper(at: helperURL)
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(at: helperURL)
         let capturedInput = directory.url.appendingPathComponent("captured-input")
         let capturedArguments = directory.url.appendingPathComponent("captured-arguments")
         let executable = try shellScript(
@@ -170,7 +357,7 @@ struct RemoteHelperInstallerTests {
             exit 1
             """.utf8
         )
-        let prepared = try RemoteHelperInstaller.prepareBundledHelper(
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(
             at: try helper(in: directory, payload: helperPayload)
         )
         let remoteHome = directory.url.appendingPathComponent("remote-home")
@@ -214,7 +401,7 @@ struct RemoteHelperInstallerTests {
             printf '%s\\n' awesomux-bridge-v1
             """.utf8
         )
-        let prepared = try RemoteHelperInstaller.prepareBundledHelper(
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(
             at: try helper(in: directory, payload: incompatiblePayload)
         )
         let remoteHome = directory.url.appendingPathComponent("remote-home")
@@ -248,6 +435,36 @@ struct RemoteHelperInstallerTests {
         #expect(names == ["awesomux-bridge-helper"])
     }
 
+    @Test("existing non-private helper directories return an actionable failure")
+    func unsafeExistingLayoutIsDistinguished() async throws {
+        let directory = try TemporaryDirectory(prefix: "helper-installer-unsafe-layout")
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(
+            at: try helper(in: directory, payload: Data("helper".utf8))
+        )
+        let remoteHome = directory.url.appendingPathComponent("remote-home")
+        let awesomuxDirectory = remoteHome.appendingPathComponent(".awesomux")
+        let binDirectory = awesomuxDirectory.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        guard chmod(awesomuxDirectory.path, 0o755) == 0,
+            chmod(binDirectory.path, 0o755) == 0
+        else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let executable = try passthroughSSH(in: directory)
+        let remote = try #require(RemoteTarget(parsing: "me@example"))
+
+        await #expect(throws: RemoteHelperInstaller.Failure.unsafeRemoteLayout) {
+            try await RemoteHelperInstaller.install(
+                helper: prepared,
+                remote: remote,
+                controlPath: "/tmp/control/%C",
+                remoteHome: remoteHome.path,
+                executableURL: executable,
+                timeout: .seconds(10)
+            )
+        }
+    }
+
     @Test(
         "installation rejects process failures and non-exact success output",
         arguments: [
@@ -258,7 +475,7 @@ struct RemoteHelperInstallerTests {
     )
     func installationRejectsFailures(body: String) async throws {
         let directory = try TemporaryDirectory(prefix: "helper-installer-failure")
-        let prepared = try RemoteHelperInstaller.prepareBundledHelper(
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(
             at: try helper(in: directory, payload: Data("helper".utf8))
         )
         let executable = try shellScript(in: directory, body: body)

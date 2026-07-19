@@ -7,21 +7,50 @@ import UnicodeHygiene
 
 enum RemoteHelperInstaller {
     static let helperName = "awesoMuxBridgeHelper"
-    static let remoteRelativePath = "~/.awesomux/bin/awesomux-bridge-helper"
+    static let remoteRelativePath = BridgeAttachDecision.helperPath(remoteHome: "~")
     static let maximumHelperByteCount = 50 * 1024 * 1024
     static let maximumOutputByteCount = 4 * 1024
     static let successToken = "AWESOMUX_HELPER_INSTALLED"
+    static let unsafeRemoteLayoutToken = "AWESOMUX_HELPER_UNSAFE_REMOTE_LAYOUT"
+    static let requiredProtocols = [AmxBackend.bridgeProtocolVersion, "awesomux-handoff-v1"]
 
     enum Failure: Error, Equatable, Sendable {
+        case helperProbeFailed
         case unsupportedPlatform
+        case platformProbeFailed
         case bundledHelperUnavailable
+        case unsafeRemoteLayout
         case installationFailed
+        case verificationFailed
         case installedHelperIncompatible
     }
 
-    struct Platform: Equatable, Sendable {
-        let macOSMajorVersion: Int
-        let architecture: String
+    enum Capability: Equatable, Sendable {
+        case supported
+        case missing
+        case incompatible
+        case probeFailed
+
+        var approvalAction: ApprovalAction? {
+            switch self {
+            case .missing:
+                .install
+            case .incompatible:
+                .update
+            case .supported, .probeFailed:
+                nil
+            }
+        }
+    }
+
+    enum ApprovalAction: Equatable, Sendable {
+        case install
+        case update
+    }
+
+    enum WorkflowOutcome: Equatable, Sendable {
+        case cancelled
+        case installed
     }
 
     struct PreparedHelper: Sendable {
@@ -54,7 +83,18 @@ enum RemoteHelperInstaller {
             .appendingPathComponent(helperName)
     }
 
-    static func prepareBundledHelper(at url: URL) throws -> PreparedHelper {
+    static func prepareBundledHelper(at url: URL) async throws -> PreparedHelper {
+        let preparation = Task.detached(priority: .userInitiated) {
+            try prepareBundledHelperSynchronously(at: url)
+        }
+        return try await withTaskCancellationHandler {
+            try await preparation.value
+        } onCancel: {
+            preparation.cancel()
+        }
+    }
+
+    private static func prepareBundledHelperSynchronously(at url: URL) throws -> PreparedHelper {
         var status = stat()
         guard url.isFileURL,
             url.path.hasPrefix("/"),
@@ -76,6 +116,7 @@ enum RemoteHelperInstaller {
         var offset = 0
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while offset < snapshot.size {
+            try Task.checkCancellation()
             let amount = min(buffer.count, snapshot.size - offset)
             let bytesRead = buffer.withUnsafeMutableBytes {
                 pread(descriptor, $0.baseAddress, amount, off_t(offset))
@@ -97,17 +138,57 @@ enum RemoteHelperInstaller {
         return PreparedHelper(url: url, snapshot: snapshot, sha256: digest)
     }
 
+    static func capability(
+        remote: RemoteTarget,
+        controlPath: String,
+        helperPath: String,
+        execChannel: @escaping BridgeDoctorSignals.ExecChannel = { command, stdin in
+            try await BridgeExecChannel.run(command: command, stdin: stdin)
+        }
+    ) async throws -> Capability {
+        let command = AmxBackend.bridgeHelperVersionCommand(
+            controlPath: controlPath,
+            remote: remote,
+            helperPath: helperPath
+        )
+        let data: Data
+        do {
+            data = try await execChannel(command, nil)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as BoundedProcessRunner.ExecError {
+            switch error {
+            case .nonzeroExit(127):
+                return .missing
+            case .nonzeroExit(255), .spawnFailed, .timedOut, .outputTooLarge, .inputFailed:
+                return .probeFailed
+            case .nonzeroExit:
+                return .incompatible
+            }
+        } catch {
+            return .probeFailed
+        }
+
+        let output = String(decoding: data, as: UTF8.self)
+        let required = Set(requiredProtocols)
+        let compatible = BridgeDoctorSignals.compatibleProtocols(
+            helperVersionOutput: output,
+            appSupported: required
+        )
+        return compatible == required ? .supported : .incompatible
+    }
+
     static func probePlatform(
         remote: RemoteTarget,
         controlPath: String,
         executableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
         timeout: DispatchTimeInterval = .seconds(15)
-    ) async throws -> Platform {
+    ) async throws {
         let output: Data
         do {
             output = try await BoundedProcessRunner.run(
                 executableURL: executableURL,
-                arguments: sshArguments(
+                arguments: RemoteHandoff.sshArguments(
                     remote: remote,
                     controlPath: controlPath,
                     remoteCommand: platformProbeCommand
@@ -118,16 +199,20 @@ enum RemoteHelperInstaller {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as BoundedProcessRunner.ExecError {
+            if case .nonzeroExit(let status) = error, status != 255 {
+                throw Failure.unsupportedPlatform
+            }
+            throw Failure.platformProbeFailed
         } catch {
+            throw Failure.platformProbeFailed
+        }
+        guard isSupportedPlatform(output) else {
             throw Failure.unsupportedPlatform
         }
-        guard let platform = supportedPlatform(from: output) else {
-            throw Failure.unsupportedPlatform
-        }
-        return platform
     }
 
-    static func supportedPlatform(from output: Data) -> Platform? {
+    static func isSupportedPlatform(_ output: Data) -> Bool {
         let lines = String(decoding: output, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -137,9 +222,9 @@ enum RemoteHelperInstaller {
             major >= 15,
             lines[2] == "arm64"
         else {
-            return nil
+            return false
         }
-        return Platform(macOSMajorVersion: major, architecture: lines[2])
+        return true
     }
 
     static func install(
@@ -168,7 +253,7 @@ enum RemoteHelperInstaller {
         do {
             output = try await BoundedProcessRunner.run(
                 executableURL: executableURL,
-                arguments: sshArguments(
+                arguments: RemoteHandoff.sshArguments(
                     remote: remote,
                     controlPath: controlPath,
                     remoteCommand: bootstrapCommand(
@@ -188,9 +273,13 @@ enum RemoteHelperInstaller {
         }
 
         let response = String(decoding: output, as: UTF8.self)
-        guard response == successToken || response == successToken + "\n" else {
-            throw Failure.installationFailed
+        if response == successToken || response == successToken + "\n" {
+            return
         }
+        if response == unsafeRemoteLayoutToken || response == unsafeRemoteLayoutToken + "\n" {
+            throw Failure.unsafeRemoteLayout
+        }
+        throw Failure.installationFailed
     }
 
     static let platformProbeCommand =
@@ -198,21 +287,6 @@ enum RemoteHelperInstaller {
         + shellQuote(
             "/usr/bin/uname -s && /usr/bin/sw_vers -productVersion && /usr/bin/uname -m"
         )
-
-    static func sshArguments(
-        remote: RemoteTarget,
-        controlPath: String,
-        remoteCommand: String
-    ) -> [String] {
-        [
-            "-o", "ControlMaster=auto",
-            "-o", "ControlPath=\(controlPath)",
-            "-o", "ControlPersist=60",
-            "-o", "ServerAliveInterval=15",
-            "-o", "ConnectTimeout=10",
-            "--", remote.sshDestination, remoteCommand,
-        ]
-    }
 
     static func bootstrapCommand(
         remoteHome: String,
@@ -234,24 +308,28 @@ enum RemoteHelperInstaller {
         expectedBytes: Int,
         sha256: String
     ) -> String {
+        let destinationPath = BridgeAttachDecision.helperPath(remoteHome: remoteHome)
+        let binDirectoryPath = (destinationPath as NSString).deletingLastPathComponent
+        let awesomuxDirectoryPath = (binDirectoryPath as NSString).deletingLastPathComponent
         let home = shellQuote(remoteHome)
-        let awesomuxDirectory = shellQuote(remoteHome + "/.awesomux")
-        let binDirectory = shellQuote(remoteHome + "/.awesomux/bin")
-        let destination = shellQuote(remoteHome + "/.awesomux/bin/awesomux-bridge-helper")
-        let temporaryTemplate = shellQuote(remoteHome + "/.awesomux/bin/.helper.XXXXXXXX")
-        return [
+        let awesomuxDirectory = shellQuote(awesomuxDirectoryPath)
+        let binDirectory = shellQuote(binDirectoryPath)
+        let destination = shellQuote(destinationPath)
+        let temporaryTemplate = shellQuote(binDirectoryPath + "/.helper.XXXXXXXX")
+        var commands = [
             "umask 077",
             "home=\(home)",
             "awesomux_dir=\(awesomuxDirectory)",
             "bin_dir=\(binDirectory)",
             "destination=\(destination)",
+            "fail_unsafe_layout() { /bin/cat >/dev/null; printf '%s\\n' \(shellQuote(unsafeRemoteLayoutToken)); exit 0; }",
             "uid=$(/usr/bin/id -u) || exit 1",
-            "[ -d \"$home\" ] && [ ! -L \"$home\" ] || exit 1",
-            "[ \"$(/usr/bin/stat -f '%u' \"$home\")\" = \"$uid\" ] || exit 1",
-            "ensure_private_dir() { dir=$1; if [ -e \"$dir\" ] || [ -L \"$dir\" ]; then [ ! -L \"$dir\" ] && [ -d \"$dir\" ] || exit 1; else /bin/mkdir -m 700 \"$dir\" || exit 1; fi; [ \"$(/usr/bin/stat -f '%u' \"$dir\")\" = \"$uid\" ] && [ \"$(/usr/bin/stat -f '%Lp' \"$dir\")\" = 700 ] || exit 1; }",
+            "[ -d \"$home\" ] && [ ! -L \"$home\" ] || fail_unsafe_layout",
+            "[ \"$(/usr/bin/stat -f '%u' \"$home\")\" = \"$uid\" ] || fail_unsafe_layout",
+            "ensure_private_dir() { dir=$1; if [ -e \"$dir\" ] || [ -L \"$dir\" ]; then [ ! -L \"$dir\" ] && [ -d \"$dir\" ] || fail_unsafe_layout; else /bin/mkdir -m 700 \"$dir\" || exit 1; fi; [ \"$(/usr/bin/stat -f '%u' \"$dir\")\" = \"$uid\" ] && [ \"$(/usr/bin/stat -f '%Lp' \"$dir\")\" = 700 ] || fail_unsafe_layout; }",
             "ensure_private_dir \"$awesomux_dir\"",
             "ensure_private_dir \"$bin_dir\"",
-            "if [ -e \"$destination\" ] || [ -L \"$destination\" ]; then [ ! -L \"$destination\" ] && [ -f \"$destination\" ] && [ \"$(/usr/bin/stat -f '%u' \"$destination\")\" = \"$uid\" ] || exit 1; fi",
+            "if [ -e \"$destination\" ] || [ -L \"$destination\" ]; then [ ! -L \"$destination\" ] && [ -f \"$destination\" ] && [ \"$(/usr/bin/stat -f '%u' \"$destination\")\" = \"$uid\" ] || fail_unsafe_layout; fi",
             "tmp=$(/usr/bin/mktemp \(temporaryTemplate)) || exit 1",
             "trap '/bin/rm -f \"$tmp\"' EXIT",
             "trap 'exit 1' HUP INT TERM",
@@ -261,34 +339,108 @@ enum RemoteHelperInstaller {
             "actual=$(/usr/bin/shasum -a 256 \"$tmp\") || exit 1",
             "[ \"${actual%% *}\" = \(shellQuote(sha256)) ] || exit 1",
             "version=$(\"$tmp\" --version 2>/dev/null) || exit 1",
-            "printf '%s\\n' \"$version\" | /usr/bin/grep -Fqx 'awesomux-bridge-v1' || exit 1",
-            "printf '%s\\n' \"$version\" | /usr/bin/grep -Fqx 'awesomux-handoff-v1' || exit 1",
+        ]
+        commands.append(
+            contentsOf: requiredProtocols.map {
+                "printf '%s\\n' \"$version\" | /usr/bin/grep -Fqx \(shellQuote($0)) || exit 1"
+            })
+        commands.append(contentsOf: [
             "/bin/mv -f \"$tmp\" \"$destination\" || exit 1",
             "trap - EXIT HUP INT TERM",
             "printf '%s\\n' \(shellQuote(successToken))",
-        ].joined(separator: "; ")
+        ])
+        return commands.joined(separator: "; ")
     }
 
     @MainActor
-    static var confirmationProvider: @MainActor (_ remote: RemoteTarget, _ window: NSWindow?) async -> Bool = presentConfirmation
+    static func performApprovedInstallation(
+        helper: PreparedHelper,
+        action: ApprovalAction,
+        remote: RemoteTarget,
+        controlPath: String,
+        remoteHome: String,
+        helperPath: String,
+        window: NSWindow?,
+        authorityIsCurrent: @escaping @MainActor () -> Bool,
+        confirmation: @escaping @MainActor (ApprovalAction, RemoteTarget, NSWindow?) async -> Bool = {
+            action, remote, window in
+            await presentConfirmation(action: action, remote: remote, window: window)
+        },
+        installOperation: @escaping @MainActor (PreparedHelper, RemoteTarget, String, String) async throws -> Void = {
+            helper, remote, controlPath, remoteHome in
+            try await install(
+                helper: helper,
+                remote: remote,
+                controlPath: controlPath,
+                remoteHome: remoteHome
+            )
+        },
+        capabilityProbe: @escaping @MainActor (RemoteTarget, String, String) async throws -> Capability = {
+            remote, controlPath, helperPath in
+            try await capability(
+                remote: remote,
+                controlPath: controlPath,
+                helperPath: helperPath
+            )
+        },
+        successPresentation: @escaping @MainActor (NSWindow?) -> Void = { window in
+            presentSuccess(window: window)
+        }
+    ) async throws -> WorkflowOutcome {
+        guard authorityIsCurrent() else {
+            throw RemoteHandoff.Failure.destinationChanged
+        }
+        guard await confirmation(action, remote, window) else {
+            return .cancelled
+        }
+        try Task.checkCancellation()
+        guard authorityIsCurrent() else {
+            throw RemoteHandoff.Failure.destinationChanged
+        }
+
+        try await installOperation(helper, remote, controlPath, remoteHome)
+        try Task.checkCancellation()
+        switch try await capabilityProbe(remote, controlPath, helperPath) {
+        case .supported:
+            break
+        case .probeFailed:
+            throw Failure.verificationFailed
+        case .missing, .incompatible:
+            throw Failure.installedHelperIncompatible
+        }
+        guard authorityIsCurrent() else {
+            throw RemoteHandoff.Failure.destinationChanged
+        }
+        successPresentation(window)
+        return .installed
+    }
 
     @MainActor
-    static var failurePresenter: @MainActor (Failure, NSWindow?) -> Void = presentFailure
-
-    @MainActor
-    static var successPresenter: @MainActor (NSWindow?) -> Void = presentSuccess
-
-    @MainActor
-    private static func presentConfirmation(remote: RemoteTarget, window: NSWindow?) async -> Bool {
+    private static func presentConfirmation(
+        action: ApprovalAction,
+        remote: RemoteTarget,
+        window: NSWindow?
+    ) async -> Bool {
         guard let window else { return false }
         let alert = NSAlert()
-        alert.messageText = String(localized: "Install awesoMux Remote Helper?", comment: "Remote helper installation title")
-        alert.informativeText = String(
-            localized:
-                "File transfer to \(remote.sshDestination) requires a small helper. awesoMux will install it for your account at \(remoteRelativePath). It receives only files you explicitly approve and does not require administrator access.",
-            comment: "Remote helper installation explanation. Arguments are the declared SSH destination and fixed remote path."
-        )
-        alert.addButton(withTitle: String(localized: "Install Helper", comment: "Approve remote helper installation button"))
+        switch action {
+        case .install:
+            alert.messageText = String(localized: "Install awesoMux Remote Helper?", comment: "Remote helper installation title")
+            alert.informativeText = String(
+                localized:
+                    "File transfer to \(remote.sshDestination) requires a small helper. awesoMux will install it for your account at \(remoteRelativePath). It receives only files you explicitly approve and does not require administrator access.",
+                comment: "Remote helper installation explanation. Arguments are the declared SSH destination and fixed remote path."
+            )
+            alert.addButton(withTitle: String(localized: "Install Helper", comment: "Approve remote helper installation button"))
+        case .update:
+            alert.messageText = String(localized: "Update awesoMux Remote Helper?", comment: "Remote helper update title")
+            alert.informativeText = String(
+                localized:
+                    "The helper at \(remoteRelativePath) on \(remote.sshDestination) is incompatible. awesoMux will replace it for your account. It receives only files you explicitly approve and does not require administrator access.",
+                comment: "Remote helper update explanation. Arguments are the fixed remote path and declared SSH destination."
+            )
+            alert.addButton(withTitle: String(localized: "Update Helper", comment: "Approve remote helper update button"))
+        }
         alert.addButton(withTitle: String(localized: "Not Now", comment: "Decline remote helper installation button"))
         let cancellation = HandoffSheetCancellation(alert: alert, window: window)
         let response = await withTaskCancellationHandler {
@@ -303,20 +455,42 @@ enum RemoteHelperInstaller {
     }
 
     @MainActor
-    private static func presentFailure(_ failure: Failure, window: NSWindow?) {
+    static func presentFailure(_ failure: Failure, window: NSWindow?) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         switch failure {
+        case .helperProbeFailed:
+            alert.messageText = String(localized: "Could not check the remote helper", comment: "Remote helper probe failure title")
+            alert.informativeText = String(
+                localized: "Check the SSH connection and try the file transfer again.",
+                comment: "Remote helper probe failure recovery")
         case .unsupportedPlatform:
             alert.messageText = String(
                 localized: "Remote helper installation is unavailable", comment: "Unsupported remote helper platform title")
             alert.informativeText = String(
-                localized: "This version of the awesoMux helper requires a compatible macOS destination.",
+                localized: "The bundled helper requires an Apple Silicon destination running macOS 15 or later.",
                 comment: "Unsupported remote helper platform explanation")
+        case .platformProbeFailed:
+            alert.messageText = String(localized: "Could not check the remote platform", comment: "Remote platform probe failure title")
+            alert.informativeText = String(
+                localized: "Check the SSH connection and try the installation again.",
+                comment: "Remote platform probe failure recovery")
         case .bundledHelperUnavailable:
             alert.messageText = String(localized: "The bundled remote helper is unavailable", comment: "Bundled helper unavailable title")
+        case .unsafeRemoteLayout:
+            alert.messageText = String(localized: "The remote helper folder is not private", comment: "Unsafe remote helper layout title")
+            alert.informativeText = String(
+                localized:
+                    "The existing ~/.awesomux and ~/.awesomux/bin paths must be regular folders owned by your remote account with permissions 700.",
+                comment: "Unsafe remote helper layout recovery instructions")
         case .installationFailed:
             alert.messageText = String(localized: "Remote helper installation failed", comment: "Remote helper installation failure title")
+        case .verificationFailed:
+            alert.messageText = String(
+                localized: "Could not verify the installed remote helper", comment: "Installed helper verification transport failure title")
+            alert.informativeText = String(
+                localized: "Check the SSH connection and try the file transfer again.",
+                comment: "Installed helper verification transport failure recovery")
         case .installedHelperIncompatible:
             alert.messageText = String(
                 localized: "The installed remote helper is incompatible", comment: "Installed helper verification failure title")
