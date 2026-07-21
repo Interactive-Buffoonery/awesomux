@@ -3,10 +3,8 @@ import Foundation
 import Testing
 @testable import awesoMux
 
-// Assembly-only coverage for INT-698 D1: the pure string builders that will
-// feed the attach sequence's exec-channel writes and env injection. No live ssh here —
-// these tests only assert on the assembled strings, mirroring
-// `AmxBackendAttachCommandTests`'s injectable-seam style.
+// Coverage for INT-698 D1's pure command builders and the local execution of
+// their state-file scripts. No live SSH or remote host is involved.
 @Suite("Bridge attach command assembly")
 struct BridgeAttachAssemblyTests {
     private static let sessionID = TerminalSessionID(rawValue: "abc123-bridge")!
@@ -253,7 +251,7 @@ struct BridgeAttachAssemblyTests {
         #expect(write.command.contains("umask 077; mkdir -p '\\''/Users/example/.awesomux/bridge'\\''"))
         #expect(write.command.contains("stat -f"))
         #expect(write.command.contains("mktemp"))
-        #expect(write.command.contains("cat > \"$tmp\""))
+        #expect(write.command.contains("cat > \"$bridge_state_lock_tmp\""))
         #expect(write.command.contains(" && mv "))
         #expect(write.command.contains(channel.stateFilePath))
         assertNoGlobDeletion(in: write.command)
@@ -304,6 +302,378 @@ struct BridgeAttachAssemblyTests {
         // never as a bare `'` that would terminate the enclosing quoting.
         #expect(!write.command.contains("/Users/e'd"))
         #expect(write.command.contains("/Users/e'\\''"))
+    }
+
+    @Test("state write cannot interleave with an identity-checked stale delete")
+    func stateWriteSerializesWithStaleDelete() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("awesomux-state-race-\(UUID().uuidString)", isDirectory: true)
+        let bridgeDirectory = root.appendingPathComponent("bridge", isDirectory: true)
+        let wrapperDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(
+            at: bridgeDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try fileManager.createDirectory(at: wrapperDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let stateURL = bridgeDirectory.appendingPathComponent("abc123-bridge.json")
+        let enteredURL = root.appendingPathComponent("delete-entered")
+        let releaseURL = root.appendingPathComponent("delete-release")
+        let oldChannel = BridgeChannel(
+            token: "old-token",
+            gen: 1,
+            localSocketPath: "/tmp/old-local.sock",
+            remoteSocketPath: "/tmp/awesomux-bridge-old.sock",
+            stateFilePath: stateURL.path,
+            session: Self.sessionID
+        )
+        let successor = BridgeChannel(
+            token: "successor-token",
+            gen: 2,
+            localSocketPath: "/tmp/successor-local.sock",
+            remoteSocketPath: "/tmp/awesomux-bridge-successor.sock",
+            stateFilePath: stateURL.path,
+            session: Self.sessionID
+        )
+        let oldWrite = try #require(
+            AmxBackend.bridgeStateFileWriteCommand(
+                controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: oldChannel
+            )
+        )
+        let successorWrite = try #require(
+            AmxBackend.bridgeStateFileWriteCommand(
+                controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: successor
+            )
+        )
+        try Self.runShell(
+            try #require(AmxBackend.bridgeStateFileWriteRemoteScript(channel: oldChannel)),
+            stdin: oldWrite.stdinData
+        )
+
+        let rmWrapper = wrapperDirectory.appendingPathComponent("rm")
+        let wrapper = """
+            #!/bin/sh
+            for argument in "$@"; do
+                if [ "$argument" = "$RACE_TARGET" ]; then
+                    : > "$RACE_ENTERED"
+                    while [ ! -e "$RACE_RELEASE" ]; do sleep 0.01; done
+                    break
+                fi
+            done
+            exec /bin/rm "$@"
+            """
+        try Data(wrapper.utf8).write(to: rmWrapper)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rmWrapper.path)
+        let environment = [
+            "PATH": wrapperDirectory.path + ":/usr/bin:/bin",
+            "RACE_TARGET": stateURL.path,
+            "RACE_ENTERED": enteredURL.path,
+            "RACE_RELEASE": releaseURL.path,
+        ]
+        let staleDelete = try Self.startShell(
+            AmxBackend.bridgeStateFileRemoveRemoteScript(
+                stateFilePath: stateURL.path,
+                remoteSocketPath: oldChannel.remoteSocketPath
+            ),
+            environment: environment
+        )
+        try #require(await Self.waitForFile(enteredURL))
+
+        let successorCompletion = ProcessCompletionSignal()
+        let successorWriteProcess = try Self.startShell(
+            try #require(AmxBackend.bridgeStateFileWriteRemoteScript(channel: successor)),
+            stdin: successorWrite.stdinData,
+            completion: successorCompletion,
+        )
+        let successorFinishedBeforeDelete = successorCompletion.wait(timeout: 0.3)
+        try Data().write(to: releaseURL)
+        staleDelete.waitUntilExit()
+        successorWriteProcess.waitUntilExit()
+
+        #expect(!successorFinishedBeforeDelete)
+        #expect(staleDelete.terminationStatus == 0)
+        #expect(successorWriteProcess.terminationStatus == 0)
+        let finalState = try JSONDecoder().decode(
+            BridgeStateFile.self,
+            from: Data(contentsOf: stateURL)
+        )
+        #expect(finalState.socket == successor.remoteSocketPath)
+        #expect(finalState.token == successor.token)
+    }
+
+    @Test("a signalled holder cannot remove its successor's lease")
+    func signalledHolderCannotRemoveSuccessorLease() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("awesomux-lock-signal-\(UUID().uuidString)", isDirectory: true)
+        let bridgeDirectory = root.appendingPathComponent("bridge", isDirectory: true)
+        try fileManager.createDirectory(
+            at: bridgeDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let stateURL = bridgeDirectory.appendingPathComponent("abc123-bridge.json")
+        let lockURL = URL(fileURLWithPath: stateURL.path + ".lock", isDirectory: true)
+        let firstEnteredURL = root.appendingPathComponent("first-entered")
+        let secondEnteredURL = root.appendingPathComponent("second-entered")
+        let secondReleaseURL = root.appendingPathComponent("second-release")
+        let first = try Self.startShell(
+            AmxBackend.bridgeStateFileLockedRemoteScript(
+                stateFilePath: stateURL.path,
+                criticalSection: ": > \(Self.shellQuote(firstEnteredURL.path));"
+                    + " while [ ! -e \(Self.shellQuote(root.appendingPathComponent("never-release").path)) ];"
+                    + " do sleep 0.01; done"
+            )
+        )
+        try #require(await Self.waitForFile(firstEnteredURL))
+        let second = try Self.startShell(
+            AmxBackend.bridgeStateFileLockedRemoteScript(
+                stateFilePath: stateURL.path,
+                criticalSection: ": > \(Self.shellQuote(secondEnteredURL.path));"
+                    + " while [ ! -e \(Self.shellQuote(secondReleaseURL.path)) ];"
+                    + " do sleep 0.01; done"
+            )
+        )
+
+        first.terminate()
+        try #require(await Self.waitForFile(secondEnteredURL))
+        first.waitUntilExit()
+        #expect(first.terminationStatus != 0)
+        #expect(fileManager.fileExists(atPath: lockURL.path))
+        #expect(second.isRunning)
+
+        try Data().write(to: secondReleaseURL)
+        second.waitUntilExit()
+        #expect(second.terminationStatus == 0)
+        #expect(!fileManager.fileExists(atPath: lockURL.path))
+    }
+
+    @Test("an owner publishing its lease cannot have its empty lock parent stolen")
+    func publishingLeaseCannotHaveParentStolen() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("awesomux-lock-publish-\(UUID().uuidString)", isDirectory: true)
+        let bridgeDirectory = root.appendingPathComponent("bridge", isDirectory: true)
+        let wrapperDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(
+            at: bridgeDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try fileManager.createDirectory(at: wrapperDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let stateURL = bridgeDirectory.appendingPathComponent("abc123-bridge.json")
+        let lockURL = URL(fileURLWithPath: stateURL.path + ".lock", isDirectory: true)
+        let parentPublishedURL = root.appendingPathComponent("parent-published")
+        let releasePublisherURL = root.appendingPathComponent("release-publisher")
+        let firstEnteredURL = root.appendingPathComponent("first-entered")
+        let secondEnteredURL = root.appendingPathComponent("second-entered")
+        let mkdirWrapper = wrapperDirectory.appendingPathComponent("mkdir")
+        let wrapper = """
+            #!/bin/sh
+            /bin/mkdir "$@"
+            status=$?
+            if [ "$status" -eq 0 ]; then
+                for argument in "$@"; do
+                    if [ "$argument" = "$RACE_LOCK" ]; then
+                        : > "$RACE_PARENT_PUBLISHED"
+                        while [ ! -e "$RACE_RELEASE_PUBLISHER" ]; do sleep 0.01; done
+                        break
+                    fi
+                done
+            fi
+            exit "$status"
+            """
+        try Data(wrapper.utf8).write(to: mkdirWrapper)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: mkdirWrapper.path)
+        let first = try Self.startShell(
+            AmxBackend.bridgeStateFileLockedRemoteScript(
+                stateFilePath: stateURL.path,
+                criticalSection: ": > \(Self.shellQuote(firstEnteredURL.path))"
+            ),
+            environment: [
+                "PATH": wrapperDirectory.path + ":/usr/bin:/bin",
+                "RACE_LOCK": lockURL.path,
+                "RACE_PARENT_PUBLISHED": parentPublishedURL.path,
+                "RACE_RELEASE_PUBLISHER": releasePublisherURL.path,
+            ]
+        )
+        let parentPublished = await Self.waitForFile(parentPublishedURL)
+        if !parentPublished {
+            try Data().write(to: releasePublisherURL)
+            first.waitUntilExit()
+        }
+        try #require(parentPublished)
+
+        let secondCompletion = ProcessCompletionSignal()
+        let second = try Self.startShell(
+            AmxBackend.bridgeStateFileLockedRemoteScript(
+                stateFilePath: stateURL.path,
+                criticalSection: ": > \(Self.shellQuote(secondEnteredURL.path))"
+            ),
+            completion: secondCompletion
+        )
+        let secondFinishedBeforePublication = secondCompletion.wait(timeout: 0.3)
+        let secondEnteredBeforePublication = fileManager.fileExists(atPath: secondEnteredURL.path)
+        try Data().write(to: releasePublisherURL)
+        first.waitUntilExit()
+        second.waitUntilExit()
+
+        #expect(!secondFinishedBeforePublication)
+        #expect(!secondEnteredBeforePublication)
+        #expect(first.terminationStatus == 0)
+        #expect(second.terminationStatus == 0)
+        #expect(fileManager.fileExists(atPath: firstEnteredURL.path))
+        #expect(fileManager.fileExists(atPath: secondEnteredURL.path))
+        #expect(!fileManager.fileExists(atPath: lockURL.path))
+    }
+
+    @Test("an abandoned empty lock parent fails closed after the bounded wait")
+    func abandonedEmptyParentFailsClosed() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("awesomux-lock-abandoned-\(UUID().uuidString)", isDirectory: true)
+        let bridgeDirectory = root.appendingPathComponent("bridge", isDirectory: true)
+        try fileManager.createDirectory(
+            at: bridgeDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let stateURL = bridgeDirectory.appendingPathComponent("abc123-bridge.json")
+        let lockURL = URL(fileURLWithPath: stateURL.path + ".lock", isDirectory: true)
+        let enteredURL = root.appendingPathComponent("entered")
+        try fileManager.createDirectory(at: lockURL, withIntermediateDirectories: false)
+
+        let completion = ProcessCompletionSignal()
+        let process = try Self.startShell(
+            AmxBackend.bridgeStateFileLockedRemoteScript(
+                stateFilePath: stateURL.path,
+                criticalSection: ": > \(Self.shellQuote(enteredURL.path))"
+            ),
+            completion: completion
+        )
+        let finishedWithinBound = completion.wait(timeout: 45)
+        if !finishedWithinBound { process.terminate() }
+        process.waitUntilExit()
+
+        #expect(finishedWithinBound)
+        #expect(process.terminationStatus != 0)
+        #expect(!fileManager.fileExists(atPath: enteredURL.path))
+        #expect(fileManager.fileExists(atPath: lockURL.path))
+    }
+
+    @Test("an unknown identity for a live incumbent cannot reclaim its lease")
+    func unknownLiveIncumbentIdentityRetainsLease() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("awesomux-lock-identity-\(UUID().uuidString)", isDirectory: true)
+        let bridgeDirectory = root.appendingPathComponent("bridge", isDirectory: true)
+        let wrapperDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(
+            at: bridgeDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try fileManager.createDirectory(at: wrapperDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let stateURL = bridgeDirectory.appendingPathComponent("abc123-bridge.json")
+        let firstEnteredURL = root.appendingPathComponent("first-entered")
+        let releaseFirstURL = root.appendingPathComponent("release-first")
+        let lookupAttemptedURL = root.appendingPathComponent("lookup-attempted")
+        let secondEnteredURL = root.appendingPathComponent("second-entered")
+        let first = try Self.startShell(
+            AmxBackend.bridgeStateFileLockedRemoteScript(
+                stateFilePath: stateURL.path,
+                criticalSection: ": > \(Self.shellQuote(firstEnteredURL.path));"
+                    + " while [ ! -e \(Self.shellQuote(releaseFirstURL.path)) ];"
+                    + " do sleep 0.01; done"
+            )
+        )
+        let firstEntered = await Self.waitForFile(firstEnteredURL)
+        if !firstEntered {
+            try Data().write(to: releaseFirstURL)
+            first.waitUntilExit()
+        }
+        try #require(firstEntered)
+
+        let psWrapper = wrapperDirectory.appendingPathComponent("ps")
+        let wrapper = """
+            #!/bin/sh
+            for argument in "$@"; do
+                if [ "$argument" = "$RACE_INCUMBENT_PID" ]; then
+                    : > "$RACE_LOOKUP_ATTEMPTED"
+                    exit 0
+                fi
+            done
+            exec /bin/ps "$@"
+            """
+        try Data(wrapper.utf8).write(to: psWrapper)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: psWrapper.path)
+        let second = try Self.startShell(
+            AmxBackend.bridgeStateFileLockedRemoteScript(
+                stateFilePath: stateURL.path,
+                criticalSection: ": > \(Self.shellQuote(secondEnteredURL.path))"
+            ),
+            environment: [
+                "PATH": wrapperDirectory.path + ":/usr/bin:/bin",
+                "RACE_INCUMBENT_PID": String(first.processIdentifier),
+                "RACE_LOOKUP_ATTEMPTED": lookupAttemptedURL.path,
+            ]
+        )
+        let lookupAttempted = await Self.waitForFile(lookupAttemptedURL)
+        let secondEnteredWhileFirstHeldLease = fileManager.fileExists(atPath: secondEnteredURL.path)
+        try Data().write(to: releaseFirstURL)
+        first.waitUntilExit()
+        second.waitUntilExit()
+
+        #expect(lookupAttempted)
+        #expect(!secondEnteredWhileFirstHeldLease)
+        #expect(first.terminationStatus == 0)
+        #expect(second.terminationStatus == 0)
+        #expect(fileManager.fileExists(atPath: secondEnteredURL.path))
+    }
+
+    @Test("a reused live PID with a different process identity is stale")
+    func reusedPIDLeaseIsRecovered() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("awesomux-lock-pid-reuse-\(UUID().uuidString)", isDirectory: true)
+        let bridgeDirectory = root.appendingPathComponent("bridge", isDirectory: true)
+        try fileManager.createDirectory(
+            at: bridgeDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let stateURL = bridgeDirectory.appendingPathComponent("abc123-bridge.json")
+        let lockURL = URL(fileURLWithPath: stateURL.path + ".lock", isDirectory: true)
+        try fileManager.createDirectory(at: lockURL, withIntermediateDirectories: false)
+        let staleLeaseURL = lockURL.appendingPathComponent(
+            "\(ProcessInfo.processInfo.processIdentifier).deadbeef",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: staleLeaseURL, withIntermediateDirectories: false)
+        let acquiredURL = root.appendingPathComponent("acquired")
+
+        try Self.runShell(
+            AmxBackend.bridgeStateFileLockedRemoteScript(
+                stateFilePath: stateURL.path,
+                criticalSection: ": > \(Self.shellQuote(acquiredURL.path))"
+            )
+        )
+
+        #expect(fileManager.fileExists(atPath: acquiredURL.path))
+        #expect(!fileManager.fileExists(atPath: lockURL.path))
     }
 
     // MARK: - Remote-command env prefix
@@ -522,10 +892,11 @@ struct BridgeAttachAssemblyTests {
             try #require(AmxBackend.attachCommand(
                 executablePath: "/Apps/amx", sessionID: Self.sessionID, socketDirectory: "/tmp/amx"
             )),
-            try #require(AmxBackend.attachCommand(
-                executablePath: "/Apps/amx", sessionID: Self.sessionID,
-                socketDirectory: "/tmp/amx", status: status, remote: Self.remote
-            ))
+            try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/amx", sessionID: Self.sessionID,
+                    socketDirectory: "/tmp/amx", status: status, remote: Self.remote
+                )),
         ]
         for command in commands {
             assertNoGlobDeletion(in: command)
@@ -537,5 +908,71 @@ struct BridgeAttachAssemblyTests {
         #expect(!command.contains("rm -rf *"))
         #expect(!command.contains("bridge/*"))
         #expect(!command.contains("find "))
+    }
+
+    private static func runShell(_ script: String, stdin: Data? = nil) throws {
+        let process = try startShell(script, stdin: stdin)
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw ShellRaceError.failed(process.terminationStatus)
+        }
+    }
+
+    private static func startShell(
+        _ script: String,
+        stdin: Data? = nil,
+        environment: [String: String]? = nil,
+        completion: ProcessCompletionSignal? = nil,
+    ) throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        if let environment {
+            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+        }
+        if let completion {
+            process.terminationHandler = { _ in completion.signal() }
+        }
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        if let stdin {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            try process.run()
+            try pipe.fileHandleForWriting.write(contentsOf: stdin)
+            try pipe.fileHandleForWriting.close()
+        } else {
+            process.standardInput = FileHandle.nullDevice
+            try process.run()
+        }
+        return process
+    }
+
+    private static func waitForFile(_ url: URL) async -> Bool {
+        for _ in 0..<200 {
+            if FileManager.default.fileExists(atPath: url.path) { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+private enum ShellRaceError: Error {
+    case failed(Int32)
+}
+
+private final class ProcessCompletionSignal: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    func signal() {
+        semaphore.signal()
+    }
+
+    func wait(timeout: TimeInterval) -> Bool {
+        semaphore.wait(timeout: .now() + timeout) == .success
     }
 }
