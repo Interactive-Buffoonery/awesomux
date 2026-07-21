@@ -1,7 +1,85 @@
 import AwesoMuxConfig
 import AwesoMuxCore
+import Darwin
 import Foundation
+import SecureFileIO
 import os
+
+private enum RecoverySnapshotWriteOutcome: Sendable {
+    case success
+    case snapshotTooLarge
+    case writeFailed
+}
+
+private final class RecoverySnapshotWriteCoordinator: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var warningID: UUID?
+    private var writeIsActive = false
+    private var outcome: RecoverySnapshotWriteOutcome?
+    private var gateTransferOutcome: RecoverySnapshotWriteOutcome?
+
+    func beginWrite(for warningID: UUID) {
+        condition.lock()
+        self.warningID = warningID
+        writeIsActive = true
+        outcome = nil
+        gateTransferOutcome = nil
+        condition.unlock()
+    }
+
+    func finishWrite(with outcome: RecoverySnapshotWriteOutcome) {
+        condition.lock()
+        self.outcome = outcome
+        writeIsActive = false
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    var hasActiveWrite: Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return writeIsActive
+    }
+
+    func waitForCompletion() -> (warningID: UUID, outcome: RecoverySnapshotWriteOutcome)? {
+        condition.lock()
+        defer { condition.unlock() }
+        while writeIsActive {
+            condition.wait()
+        }
+        guard let warningID, let outcome else { return nil }
+        return (warningID, outcome)
+    }
+
+    func transferGate(
+        for warningID: UUID,
+        latestWriteOutcome: RecoverySnapshotWriteOutcome
+    ) {
+        condition.lock()
+        if self.warningID == warningID {
+            gateTransferOutcome = latestWriteOutcome
+        }
+        condition.unlock()
+    }
+
+    func transferredGateOutcome(for warningID: UUID) -> RecoverySnapshotWriteOutcome? {
+        condition.lock()
+        defer { condition.unlock() }
+        guard self.warningID == warningID else { return nil }
+        return gateTransferOutcome
+    }
+
+    func endTransaction(for warningID: UUID) {
+        condition.lock()
+        if self.warningID == warningID {
+            self.warningID = nil
+            writeIsActive = false
+            outcome = nil
+            gateTransferOutcome = nil
+        }
+        condition.unlock()
+    }
+}
 
 @MainActor
 enum SessionPersistence {
@@ -10,7 +88,7 @@ enum SessionPersistence {
         category: "SessionPersistence"
     )
 
-    nonisolated private static let maxSnapshotBytes = 4 * 1024 * 1024
+    nonisolated static let maxSnapshotBytes = 4 * 1024 * 1024
     /// Maximum `{`/`[` nesting depth tolerated before a snapshot is treated as
     /// pathological and quarantined WITHOUT being decoded. `TerminalPaneLayout`
     /// is an `indirect enum` whose `Codable` decode recurses per nested `split`;
@@ -58,6 +136,9 @@ enum SessionPersistence {
         supportDirectoryURL: AppRuntimeProfile.current.supportDirectoryURL
     )
     private static var pendingWrite: Task<Void, Never>?
+    private static var blockedRecoveryWarningID: UUID?
+    private static var activeRecoveryReplacementWarningID: UUID?
+    nonisolated private static let recoveryWriteCoordinator = RecoverySnapshotWriteCoordinator()
     nonisolated(unsafe) private static var digestWriteGate = StableDataDigestWriteGate()
 
     struct LoadResult {
@@ -65,9 +146,16 @@ enum SessionPersistence {
         var recoveryWarning: SessionRecoveryWarning?
     }
 
+    enum RecoverySnapshotReplacementError: Error, Equatable {
+        case warningNotActive
+        case snapshotTooLarge
+        case writeFailed
+    }
+
     struct SessionRecoveryWarning: Identifiable {
         enum Kind {
             case archivedSnapshot(archivedSnapshotURL: URL?, archiveError: String?)
+            case snapshotConflict(archivedSnapshotURL: URL?, archiveError: String?)
             case sanitizedRestore(
                 summary: SessionRestoreSanitizationSummary,
                 archivedSnapshotURL: URL?,
@@ -77,10 +165,20 @@ enum SessionPersistence {
 
         let id = UUID()
         let kind: Kind
+        let protectedSnapshotIdentity: SecureFileIdentity?
+
+        init(
+            kind: Kind,
+            protectedSnapshotIdentity: SecureFileIdentity? = nil
+        ) {
+            self.kind = kind
+            self.protectedSnapshotIdentity = protectedSnapshotIdentity
+        }
 
         var archivedSnapshotURL: URL? {
             switch kind {
             case let .archivedSnapshot(url, _),
+                let .snapshotConflict(url, _),
                 let .sanitizedRestore(_, url, _):
                 return url
             }
@@ -89,6 +187,7 @@ enum SessionPersistence {
         var archiveError: String? {
             switch kind {
             case let .archivedSnapshot(_, error),
+                let .snapshotConflict(_, error),
                 let .sanitizedRestore(_, _, error):
                 return error
             }
@@ -103,67 +202,97 @@ enum SessionPersistence {
 
         var preventsInitialSave: Bool {
             switch kind {
-            case .archivedSnapshot:
+            case .archivedSnapshot, .snapshotConflict:
                 true
-            case let .sanitizedRestore(_, archivedSnapshotURL, _):
+            case let .sanitizedRestore(_, archivedSnapshotURL, archiveError):
                 // Only let the cleaned state overwrite the live snapshot once
-                // the dirty original is safely archived. If archiving failed,
-                // the on-disk file is the only remaining copy of the user's
-                // data — don't clobber it.
-                archivedSnapshotURL == nil
+                // the dirty original is safely archived and the live path still
+                // names the file that was opened. Otherwise a replacement may
+                // be the only remaining copy of the user's data.
+                archivedSnapshotURL == nil || archiveError != nil
             }
+        }
+
+        var allowsAutomaticWritesAfterAcknowledgement: Bool {
+            guard case let .archivedSnapshot(archivedSnapshotURL, archiveError) = kind else {
+                return false
+            }
+            return archivedSnapshotURL != nil
+                && archiveError == nil
+                && protectedSnapshotIdentity != nil
         }
     }
 
-    static func load() -> LoadResult {
-        guard FileManager.default.fileExists(atPath: snapshotURL.path) else {
+    static func load(
+        afterSnapshotOpen: () throws -> Void = {},
+        afterCorruptedSnapshotValidation: () throws -> Void = {},
+        remoteMarkdownPrune: (SessionStore) -> Void = {
+            scheduleRemoteMarkdownSnapshotPrune(keeping: $0)
+        }
+    ) -> LoadResult {
+        blockedRecoveryWarningID = nil
+        guard snapshotPathExists else {
             let store = SessionStore()
-            scheduleRemoteMarkdownSnapshotPrune(keeping: store)
+            remoteMarkdownPrune(store)
             return LoadResult(store: store)
         }
 
         let data: Data
+        var openedIdentity: SecureFileIdentity?
         do {
-            data = try Data(contentsOf: snapshotURL)
+            let handle = try SecureFileReader.open(
+                at: snapshotURL,
+                symlinkPolicy: .rejectFinalComponent
+            )
+            openedIdentity = handle.identity
+            guard handle.size <= UInt64(maxSnapshotBytes) else {
+                throw SecureFileReadError.tooLarge
+            }
+            try afterSnapshotOpen()
+            data = try handle.read(maximumBytes: maxSnapshotBytes)
+        } catch SecureFileReadError.tooLarge {
+            logger.error("session snapshot exceeds maximum supported size")
+            return failedLoad(
+                archiveResult: (
+                    nil,
+                    "oversized session snapshot was left untouched"
+                ),
+                protectedSnapshotIdentity: openedIdentity
+            )
         } catch {
             logger.error("failed to read session snapshot: \(error.localizedDescription, privacy: .public)")
-            let archiveResult = archiveCorruptedSnapshot()
-            return LoadResult(
-                store: SessionStore(),
-                recoveryWarning: SessionRecoveryWarning(
-                    kind: .archivedSnapshot(
-                        archivedSnapshotURL: archiveResult.url,
-                        archiveError: archiveResult.error
-                    )
-                )
+            return failedLoad(
+                archiveResult: (
+                    nil,
+                    "session snapshot could not be read safely and was left untouched"
+                ),
+                protectedSnapshotIdentity: openedIdentity
             )
         }
 
         guard data.count <= maxSnapshotBytes else {
             logger.error("session snapshot exceeds maximum supported size: \(data.count, privacy: .public) bytes")
-            let archiveResult = archiveCorruptedSnapshot()
-            return LoadResult(
-                store: SessionStore(),
-                recoveryWarning: SessionRecoveryWarning(
-                    kind: .archivedSnapshot(
-                        archivedSnapshotURL: archiveResult.url,
-                        archiveError: archiveResult.error
-                    )
-                )
+            let archiveResult = archiveCorruptedSnapshot(
+                data,
+                expectedIdentity: openedIdentity,
+                afterValidation: afterCorruptedSnapshotValidation
+            )
+            return failedLoad(
+                archiveResult: archiveResult,
+                protectedSnapshotIdentity: openedIdentity
             )
         }
 
         guard !data.isEmpty else {
             logger.error("session snapshot is empty")
-            let archiveResult = archiveCorruptedSnapshot()
-            return LoadResult(
-                store: SessionStore(),
-                recoveryWarning: SessionRecoveryWarning(
-                    kind: .archivedSnapshot(
-                        archivedSnapshotURL: archiveResult.url,
-                        archiveError: archiveResult.error
-                    )
-                )
+            let archiveResult = archiveCorruptedSnapshot(
+                data,
+                expectedIdentity: openedIdentity,
+                afterValidation: afterCorruptedSnapshotValidation
+            )
+            return failedLoad(
+                archiveResult: archiveResult,
+                protectedSnapshotIdentity: openedIdentity
             )
         }
 
@@ -174,23 +303,29 @@ enum SessionPersistence {
         // only check that can run safely ahead of the recursion.
         guard maxJSONNestingDepth(in: data) <= maxSnapshotNestingDepth else {
             logger.error("session snapshot nesting depth exceeds safe limit")
-            let archiveResult = archiveCorruptedSnapshot()
-            return LoadResult(
-                store: SessionStore(),
-                recoveryWarning: SessionRecoveryWarning(
-                    kind: .archivedSnapshot(
-                        archivedSnapshotURL: archiveResult.url,
-                        archiveError: archiveResult.error
-                    )
-                )
+            let archiveResult = archiveCorruptedSnapshot(
+                data,
+                expectedIdentity: openedIdentity,
+                afterValidation: afterCorruptedSnapshotValidation
+            )
+            return failedLoad(
+                archiveResult: archiveResult,
+                protectedSnapshotIdentity: openedIdentity
             )
         }
 
         do {
             let snapshot = try SessionSnapshot.decode(from: data)
             let restored = SessionStore.restore(from: snapshot)
-            scheduleRemoteMarkdownSnapshotPrune(keeping: restored.store)
             guard !restored.sanitizationSummary.isEmpty else {
+                guard let openedIdentity, snapshotPathMatches(openedIdentity) else {
+                    return conflictedLoad(
+                        store: restored.store,
+                        openedData: data,
+                        protectedSnapshotIdentity: openedIdentity
+                    )
+                }
+                remoteMarkdownPrune(restored.store)
                 updateLastWrittenDigest(StableDataDigest(data: data))
                 return LoadResult(store: restored.store, recoveryWarning: nil)
             }
@@ -198,7 +333,20 @@ enum SessionPersistence {
             // Something was adjusted (possibly only structural IDs) → preserve
             // the exact bytes we decoded before the cleaned state is allowed to
             // overwrite the live file.
-            let archiveResult = archiveSanitizedOriginalSnapshot(data)
+            let archiveResult = archiveSanitizedOriginalSnapshot(
+                data,
+                expectedIdentity: openedIdentity
+            )
+            if archiveResult.error == nil,
+                let openedIdentity,
+                !snapshotPathMatches(openedIdentity)
+            {
+                return conflictedLoad(
+                    store: restored.store,
+                    archiveResult: archiveResult,
+                    protectedSnapshotIdentity: openedIdentity
+                )
+            }
             updateLastWrittenDigest(StableDataDigest(data: data))
 
             // Structural-only adjustments (e.g. rewritten duplicate IDs) aren't
@@ -209,31 +357,39 @@ enum SessionPersistence {
             guard
                 restored.sanitizationSummary.hasUserVisibleAdjustments
                     || archiveResult.url == nil
+                    || archiveResult.error != nil
             else {
+                remoteMarkdownPrune(restored.store)
                 return LoadResult(store: restored.store, recoveryWarning: nil)
             }
 
-            return LoadResult(
+            let result = LoadResult(
                 store: restored.store,
                 recoveryWarning: SessionRecoveryWarning(
                     kind: .sanitizedRestore(
                         summary: restored.sanitizationSummary,
                         archivedSnapshotURL: archiveResult.url,
                         archiveError: archiveResult.error
-                    )
+                    ),
+                    protectedSnapshotIdentity: openedIdentity
                 )
             )
+            if result.recoveryWarning?.preventsInitialSave == true {
+                blockedRecoveryWarningID = result.recoveryWarning?.id
+            } else {
+                remoteMarkdownPrune(restored.store)
+            }
+            return result
         } catch {
             logger.error("failed to decode session snapshot: \(error.localizedDescription, privacy: .public)")
-            let archiveResult = archiveCorruptedSnapshot()
-            return LoadResult(
-                store: SessionStore(),
-                recoveryWarning: SessionRecoveryWarning(
-                    kind: .archivedSnapshot(
-                        archivedSnapshotURL: archiveResult.url,
-                        archiveError: archiveResult.error
-                    )
-                )
+            let archiveResult = archiveCorruptedSnapshot(
+                data,
+                expectedIdentity: openedIdentity,
+                afterValidation: afterCorruptedSnapshotValidation
+            )
+            return failedLoad(
+                archiveResult: archiveResult,
+                protectedSnapshotIdentity: openedIdentity
             )
         }
     }
@@ -330,35 +486,199 @@ enum SessionPersistence {
     /// shell prompt) into a single atomic write. `snapshot()` is O(1) on the
     /// MainActor side because `[SessionGroup]` is COW, so eager capture is
     /// cheap and lets the detached Task stay isolation-free.
-    static func save(_ store: SessionStore) {
+    static func save(
+        _ store: SessionStore,
+        completion: (@MainActor @Sendable (Result<Void, RecoverySnapshotReplacementError>) -> Void)? = nil
+    ) {
+        guard blockedRecoveryWarningID == nil else {
+            pendingWrite?.cancel()
+            pendingWrite = nil
+            return
+        }
         let snapshot = store.snapshot()
         pendingWrite?.cancel()
         pendingWrite = Task.detached(priority: .utility) {
             try? await Task.sleep(for: debounceInterval)
             guard !Task.isCancelled else { return }
-            writeSnapshot(snapshot, isCancelled: { Task.isCancelled })
+            let result = writeSnapshot(snapshot, isCancelled: { Task.isCancelled })
+            guard !Task.isCancelled else { return }
+            await completion?(result)
         }
     }
 
     /// Cancels any pending debounced write before doing a synchronous final
-    /// write. Call from `applicationWillTerminate`.
-    static func flush(_ store: SessionStore) {
+    /// write. If an explicit recovery replacement is outstanding, wait for its
+    /// captured snapshot, transfer the recovery gate after success, then write
+    /// the latest quit-time state. Call from `applicationWillTerminate`.
+    @discardableResult
+    static func flush(
+        _ store: SessionStore,
+        whileWaitingForRecoveryWrite: () -> Void = {}
+    ) -> Result<Void, RecoverySnapshotReplacementError> {
         if let task = pendingWrite {
             pendingWrite = nil
             task.cancel()
         }
-        writeSnapshot(store.snapshot())
+        if recoveryWriteCoordinator.hasActiveWrite {
+            whileWaitingForRecoveryWrite()
+        }
+        if let completion = recoveryWriteCoordinator.waitForCompletion(),
+            blockedRecoveryWarningID == completion.warningID
+        {
+            switch completion.outcome {
+            case .success:
+                blockedRecoveryWarningID = nil
+                let latestResult = writeSnapshot(store.snapshot())
+                recoveryWriteCoordinator.transferGate(
+                    for: completion.warningID,
+                    latestWriteOutcome: writeOutcome(for: latestResult)
+                )
+                return latestResult
+            case .snapshotTooLarge:
+                return .failure(.snapshotTooLarge)
+            case .writeFailed:
+                return .failure(.writeFailed)
+            }
+        }
+        guard blockedRecoveryWarningID == nil else {
+            return .failure(.warningNotActive)
+        }
+        return writeSnapshot(store.snapshot())
+    }
+
+    @discardableResult
+    static func acknowledgeRecoveryWarning(_ warning: SessionRecoveryWarning) -> Bool {
+        guard
+            blockedRecoveryWarningID == warning.id,
+            warning.allowsAutomaticWritesAfterAcknowledgement,
+            let protectedSnapshotIdentity = warning.protectedSnapshotIdentity,
+            snapshotPathMatches(protectedSnapshotIdentity)
+        else {
+            return false
+        }
+        blockedRecoveryWarningID = nil
+        return true
+    }
+
+    /// Replaces a protected snapshot after an explicit user choice. Encoding,
+    /// hashing, and owner-only atomic I/O run on a utility task. The ordinary
+    /// continuation releases the gate and schedules the latest state; a
+    /// concurrent termination flush can instead transfer the gate and persist
+    /// that latest state synchronously.
+    static func replaceSnapshotAfterRecovery(
+        with store: SessionStore,
+        warning: SessionRecoveryWarning,
+        afterSnapshotCapture: () -> Void = {},
+        catchUpSaveCompletion: (
+            @MainActor @Sendable (
+                Result<Void, RecoverySnapshotReplacementError>
+            ) -> Void
+        )? = nil,
+        snapshotWriter:
+            @escaping @Sendable (SessionSnapshot) -> Result<
+                Void, RecoverySnapshotReplacementError
+            > = {
+                writeSnapshot($0, forceWrite: true)
+            },
+        remoteMarkdownPrune: (SessionStore) -> Void = {
+            scheduleRemoteMarkdownSnapshotPrune(keeping: $0)
+        }
+    ) async -> Result<Void, RecoverySnapshotReplacementError> {
+        guard
+            blockedRecoveryWarningID == warning.id,
+            activeRecoveryReplacementWarningID == nil
+        else {
+            return .failure(.warningNotActive)
+        }
+        activeRecoveryReplacementWarningID = warning.id
+        if let task = pendingWrite {
+            pendingWrite = nil
+            task.cancel()
+        }
+
+        // Capture the store's COW snapshot on MainActor, then keep JSONEncoder,
+        // hashing, and filesystem I/O off the UI thread. JSONEncoder exposes no
+        // output-budget hook, so the post-encode byte cap bounds persisted data
+        // but cannot prevent the encoder's temporary allocation itself.
+        let snapshot = store.snapshot()
+        afterSnapshotCapture()
+        recoveryWriteCoordinator.beginWrite(for: warning.id)
+        let result = await Task.detached(priority: .utility) {
+            let result = snapshotWriter(snapshot)
+            recoveryWriteCoordinator.finishWrite(with: writeOutcome(for: result))
+            return result
+        }.value
+        if let transferredOutcome = recoveryWriteCoordinator.transferredGateOutcome(
+            for: warning.id
+        ) {
+            activeRecoveryReplacementWarningID = nil
+            recoveryWriteCoordinator.endTransaction(for: warning.id)
+            catchUpSaveCompletion?(writeResult(for: transferredOutcome))
+            return .success(())
+        }
+        guard case .success = result else {
+            activeRecoveryReplacementWarningID = nil
+            recoveryWriteCoordinator.endTransaction(for: warning.id)
+            return result
+        }
+        guard blockedRecoveryWarningID == warning.id else {
+            activeRecoveryReplacementWarningID = nil
+            recoveryWriteCoordinator.endTransaction(for: warning.id)
+            return .failure(.warningNotActive)
+        }
+        blockedRecoveryWarningID = nil
+        activeRecoveryReplacementWarningID = nil
+        recoveryWriteCoordinator.endTransaction(for: warning.id)
+        // The store can change while the utility write is in flight. Persist
+        // that newer state through the ordinary coalescing path now that the
+        // protected baseline has been replaced successfully.
+        save(store, completion: catchUpSaveCompletion)
+        remoteMarkdownPrune(store)
+        return .success(())
+    }
+
+    nonisolated private static func writeOutcome(
+        for result: Result<Void, RecoverySnapshotReplacementError>
+    ) -> RecoverySnapshotWriteOutcome {
+        switch result {
+        case .success:
+            return .success
+        case .failure(.snapshotTooLarge):
+            return .snapshotTooLarge
+        case .failure(.warningNotActive), .failure(.writeFailed):
+            return .writeFailed
+        }
+    }
+
+    private static func writeResult(
+        for outcome: RecoverySnapshotWriteOutcome
+    ) -> Result<Void, RecoverySnapshotReplacementError> {
+        switch outcome {
+        case .success:
+            return .success(())
+        case .snapshotTooLarge:
+            return .failure(.snapshotTooLarge)
+        case .writeFailed:
+            return .failure(.writeFailed)
+        }
     }
 
     nonisolated private static func writeSnapshot(
         _ snapshot: SessionSnapshot,
+        forceWrite: Bool = false,
         isCancelled: () -> Bool = { false }
-    ) {
+    ) -> Result<Void, RecoverySnapshotReplacementError> {
         do {
             try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
             try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
 
             let data = try encodeSnapshot(snapshot)
+            guard data.count <= maxSnapshotBytes else {
+                logger.error(
+                    "refusing to save session snapshot because encoded state exceeds maximum supported size: \(data.count, privacy: .public) bytes"
+                )
+                return .failure(.snapshotTooLarge)
+            }
             let digest = StableDataDigest(data: data)
 
             // Single critical section across check → write → record so two
@@ -377,36 +697,81 @@ enum SessionPersistence {
             // and skips — it can never clobber flush's newer snapshot with stale
             // bytes. `flush()` passes the default `{ false }`, so its write is
             // never suppressed by ambient cancellation of the terminate context.
-            guard !isCancelled() else { return }
+            guard !isCancelled() else { return .success(()) }
             let snapshotPath = snapshotURL.path
             let snapshotIsUsable =
                 FileManager.default.fileExists(atPath: snapshotPath)
                 && FileManager.default.isReadableFile(atPath: snapshotPath)
-            guard digestWriteGate.shouldWrite(digest, snapshotFileExists: snapshotIsUsable) else {
-                return
+            if !forceWrite,
+                !digestWriteGate.shouldWrite(digest, snapshotFileExists: snapshotIsUsable)
+            {
+                return .success(())
             }
 
-            try data.write(to: snapshotURL, options: [.atomic])
-            // Only record the digest once the file is secured. A swallowed chmod
-            // failure would leave the snapshot world-readable AND gate every
-            // future unchanged save behind the digest, so the bad permissions
-            // would persist until content changes. Skipping recordWritten lets
-            // the next save (or terminate-time flush) retry the write + chmod.
-            try FileManager.default.setOwnerOnlyPermissions(onFileAt: snapshotURL)
+            try FileManager.default.writeOwnerOnlyFile(
+                at: snapshotURL,
+                contents: data
+            )
             digestWriteGate.recordWritten(digest)
+            return .success(())
         } catch {
             logger.error("failed to save session snapshot: \(error.localizedDescription, privacy: .public)")
+            return .failure(.writeFailed)
         }
     }
 
-    nonisolated private static func archiveCorruptedSnapshot() -> (url: URL?, error: String?) {
-        if isSnapshotSymlink {
-            let message = "refusing to archive symbolic-link session snapshot"
-            logger.error("\(message, privacy: .public)")
-            try? FileManager.default.removeItem(at: snapshotURL)
-            return (nil, message)
-        }
+    private static func failedLoad(
+        archiveResult: (url: URL?, error: String?),
+        protectedSnapshotIdentity: SecureFileIdentity?
+    ) -> LoadResult {
+        let warning = SessionRecoveryWarning(
+            kind: .archivedSnapshot(
+                archivedSnapshotURL: archiveResult.url,
+                archiveError: archiveResult.error
+            ),
+            protectedSnapshotIdentity: protectedSnapshotIdentity
+        )
+        blockedRecoveryWarningID = warning.id
+        return LoadResult(
+            store: SessionStore(),
+            recoveryWarning: warning
+        )
+    }
 
+    private static func conflictedLoad(
+        store: SessionStore,
+        openedData: Data,
+        protectedSnapshotIdentity: SecureFileIdentity?
+    ) -> LoadResult {
+        let archiveResult = archiveConflictedSnapshot(openedData)
+        return conflictedLoad(
+            store: store,
+            archiveResult: archiveResult,
+            protectedSnapshotIdentity: protectedSnapshotIdentity
+        )
+    }
+
+    private static func conflictedLoad(
+        store: SessionStore,
+        archiveResult: (url: URL?, error: String?),
+        protectedSnapshotIdentity: SecureFileIdentity?
+    ) -> LoadResult {
+        let warning = SessionRecoveryWarning(
+            kind: .snapshotConflict(
+                archivedSnapshotURL: archiveResult.url,
+                archiveError: archiveResult.error
+            ),
+            protectedSnapshotIdentity: protectedSnapshotIdentity
+        )
+        blockedRecoveryWarningID = warning.id
+        return LoadResult(store: store, recoveryWarning: warning)
+    }
+
+    nonisolated private static func archiveCorruptedSnapshot(
+        _ originalData: Data,
+        expectedIdentity: SecureFileIdentity?,
+        afterValidation: () throws -> Void
+    ) -> (url: URL?, error: String?) {
         let archiveURL = supportDirectoryURL.appending(
             path: "session-state.corrupted-\(archiveTimestamp())-\(UUID().uuidString.prefix(8)).json"
         )
@@ -418,8 +783,33 @@ enum SessionPersistence {
         }
 
         do {
-            try FileManager.default.moveItem(at: snapshotURL, to: archiveURL)
-            setPrivatePermissions(on: archiveURL)
+            try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
+            try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
+            try FileManager.default.writeOwnerOnlyFile(
+                at: archiveURL,
+                contents: originalData
+            )
+
+            guard let expectedIdentity, snapshotPathMatches(expectedIdentity) else {
+                let message = "session snapshot path changed after opening; archived read bytes and left replacement untouched"
+                logger.error("\(message, privacy: .public)")
+                pruneQuarantineArchives(prefix: "session-state.corrupted-")
+                return (archiveURL, message)
+            }
+
+            try afterValidation()
+            guard snapshotPathMatches(expectedIdentity) else {
+                let message = "session snapshot path changed after validation; archived read bytes and left replacement untouched"
+                logger.error("\(message, privacy: .public)")
+                pruneQuarantineArchives(prefix: "session-state.corrupted-")
+                return (archiveURL, message)
+            }
+
+            // Keep the live path in place. POSIX has no conditional unlink that
+            // removes a directory entry only if it still names this descriptor;
+            // a path-based remove after validation can delete a replacement.
+            // The exact opened bytes are archived above, and the recovery
+            // warning blocks the initial save until the user acknowledges it.
             logger.error("archived unreadable session snapshot to \(archiveURL.path, privacy: .public)")
             pruneQuarantineArchives(prefix: "session-state.corrupted-")
             return (archiveURL, nil)
@@ -431,10 +821,11 @@ enum SessionPersistence {
     }
 
     nonisolated private static func archiveSanitizedOriginalSnapshot(
-        _ originalData: Data
+        _ originalData: Data,
+        expectedIdentity: SecureFileIdentity?
     ) -> (url: URL?, error: String?) {
-        if isSnapshotSymlink {
-            let message = "refusing to archive symbolic-link session snapshot"
+        guard let expectedIdentity, snapshotPathMatches(expectedIdentity) else {
+            let message = "session snapshot path changed after opening; left replacement untouched"
             logger.error("\(message, privacy: .public)")
             return (nil, message)
         }
@@ -457,8 +848,16 @@ enum SessionPersistence {
             // and preserve the wrong snapshot, and `copyItem` would follow a
             // symlink at the source. Writing `originalData` guarantees the
             // archive matches the snapshot that produced this sanitized restore.
-            try originalData.write(to: archiveURL, options: [.atomic])
-            setPrivatePermissions(on: archiveURL)
+            try FileManager.default.writeOwnerOnlyFile(
+                at: archiveURL,
+                contents: originalData
+            )
+            guard snapshotPathMatches(expectedIdentity) else {
+                let message = "session snapshot path changed while archiving; archived read bytes and left replacement untouched"
+                logger.error("\(message, privacy: .public)")
+                pruneQuarantineArchives(prefix: "session-state.sanitized-")
+                return (archiveURL, message)
+            }
             logger.error("archived sanitized session snapshot to \(archiveURL.path, privacy: .public)")
             pruneQuarantineArchives(prefix: "session-state.sanitized-")
             return (archiveURL, nil)
@@ -469,8 +868,44 @@ enum SessionPersistence {
         }
     }
 
-    nonisolated private static var isSnapshotSymlink: Bool {
-        ((try? snapshotURL.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink) == true
+    nonisolated private static func archiveConflictedSnapshot(
+        _ openedData: Data
+    ) -> (url: URL?, error: String?) {
+        let archiveURL = supportDirectoryURL.appending(
+            path: "session-state.conflict-\(archiveTimestamp())-\(UUID().uuidString.prefix(8)).json"
+        )
+
+        do {
+            try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
+            try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
+            try FileManager.default.writeOwnerOnlyFile(
+                at: archiveURL,
+                contents: openedData
+            )
+            logger.error("archived conflicted session snapshot to \(archiveURL.path, privacy: .public)")
+            pruneQuarantineArchives(prefix: "session-state.conflict-")
+            return (archiveURL, nil)
+        } catch {
+            let message = error.localizedDescription
+            logger.error("failed to archive conflicted session snapshot: \(message, privacy: .public)")
+            return (nil, message)
+        }
+    }
+
+    nonisolated private static var snapshotPathExists: Bool {
+        var status = stat()
+        return lstat(snapshotURL.path, &status) == 0
+    }
+
+    nonisolated private static func snapshotPathMatches(
+        _ expectedIdentity: SecureFileIdentity
+    ) -> Bool {
+        var status = stat()
+        guard lstat(snapshotURL.path, &status) == 0 else {
+            return false
+        }
+        return UInt64(status.st_dev) == expectedIdentity.device
+            && UInt64(status.st_ino) == expectedIdentity.inode
     }
 
     nonisolated private static func archiveTimestamp() -> String {
@@ -532,6 +967,21 @@ enum SessionPersistence {
         return try operation()
     }
 
+    static func withTemporarySupportDirectoryAsync<T>(
+        _ url: URL,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        let previousEnvironment = readEnvironment()
+        resetWriteState()
+        writeEnvironment(Environment(supportDirectoryURL: url))
+        defer {
+            resetWriteState()
+            writeEnvironment(previousEnvironment)
+            resetWriteState()
+        }
+        return try await operation()
+    }
+
     nonisolated private static func readEnvironment() -> Environment {
         environmentLock.lock()
         defer { environmentLock.unlock() }
@@ -552,16 +1002,7 @@ enum SessionPersistence {
         lastWrittenDigestLock.lock()
         digestWriteGate = StableDataDigestWriteGate()
         lastWrittenDigestLock.unlock()
-    }
-
-    nonisolated private static func setPrivatePermissions(on url: URL) {
-        do {
-            try FileManager.default.setOwnerOnlyPermissions(onFileAt: url)
-        } catch {
-            logger.error(
-                "failed to set private permissions on \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-        }
+        blockedRecoveryWarningID = nil
     }
 
     nonisolated private static var snapshotURL: URL {

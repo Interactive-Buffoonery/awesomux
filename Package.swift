@@ -27,6 +27,7 @@ let package = Package(
                 "AwesoMuxCore",
                 "AwesoMuxConfig",
                 "DesignSystem",
+                "SecureFileIO",
                 "UnicodeHygiene",
                 "GhosttyKit",
                 "GhosttyKitLinker",

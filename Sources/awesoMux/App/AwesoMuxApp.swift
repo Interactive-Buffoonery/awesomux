@@ -76,6 +76,63 @@ private func sanitizeInheritedTerminalContextFromProcessEnvironment() {
     }
 }
 
+enum RecoveryWarningDecision: Equatable {
+    case keepSavedFile
+    case replaceSavedFile
+    case dismissed
+}
+
+enum RecoveryReplacementFailurePresentation: Equatable {
+    case reviewAfterStateChange
+    case retryOrKeep
+}
+
+func recoveryReplacementFailurePresentation(
+    for error: SessionPersistence.RecoverySnapshotReplacementError
+) -> RecoveryReplacementFailurePresentation {
+    error == .snapshotTooLarge ? .reviewAfterStateChange : .retryOrKeep
+}
+
+enum RecoveryWarningPresentationPolicy {
+    static func didPresentAfterReviewRequest(
+        hasWarning: Bool
+    ) -> Bool? {
+        guard hasWarning else { return nil }
+        return false
+    }
+}
+
+func resolveBlockedRecoveryWarningDecision(
+    runModal: () -> NSApplication.ModalResponse,
+    showArchive: () -> Void,
+    copyPath: () -> Void
+) -> RecoveryWarningDecision {
+    // NSAlert exposes constants for only its first three buttons; additional
+    // buttons continue the same sequential response-value convention.
+    let fourthButtonResponse = NSApplication.ModalResponse.alertThirdButtonReturn.rawValue + 1
+    while true {
+        switch runModal() {
+        case .alertFirstButtonReturn:
+            return .keepSavedFile
+        case .alertSecondButtonReturn:
+            return .replaceSavedFile
+        case .alertThirdButtonReturn:
+            showArchive()
+        case let response where response.rawValue == fourthButtonResponse:
+            copyPath()
+        default:
+            return .keepSavedFile
+        }
+    }
+}
+
+func shouldAcknowledgeRecoveryWarning(
+    decision: RecoveryWarningDecision,
+    allowsAutomaticWritesAfterAcknowledgement: Bool
+) -> Bool {
+    decision == .keepSavedFile && allowsAutomaticWritesAfterAcknowledgement
+}
+
 @main
 struct AwesoMuxApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -91,6 +148,8 @@ struct AwesoMuxApp: App {
     @State private var quickSettingsRequest: QuickSettingsRequest?
     @State private var recoveryWarning: SessionPersistence.SessionRecoveryWarning?
     @State private var didPresentRecoveryWarning = false
+    @State private var isRecoveryReplacementInProgress = false
+    @State private var sessionSaveFailure: SessionPersistence.RecoverySnapshotReplacementError?
     @State private var floatingPanelController = TerminalPanelController(mode: .floating)
     @State private var popUpTerminalController = TerminalPanelController(mode: .companion)
     @State private var commandPaletteController = CommandPaletteController()
@@ -211,7 +270,7 @@ struct AwesoMuxApp: App {
         _sessionStore = State(initialValue: loadResult.store)
         if let warning = loadResult.recoveryWarning {
             switch warning.kind {
-            case .archivedSnapshot:
+            case .archivedSnapshot, .snapshotConflict:
                 diagnosticEvents.record(.restoreArchived)
             case .sanitizedRestore:
                 diagnosticEvents.record(.restoreSanitized)
@@ -266,6 +325,10 @@ struct AwesoMuxApp: App {
                 onManagedSSHWorkspaceOffer: requestManagedSSHWorkspaceOffer,
                 onReopenClosedWorkspace: reopenMostRecentlyClosedWorkspace,
                 hasRecoveryWarning: recoveryWarning != nil,
+                isRecoveryReplacementInProgress: isRecoveryReplacementInProgress,
+                onReviewRecoveryWarning: reviewRecoveryWarning,
+                hasSessionSaveFailure: sessionSaveFailure != nil,
+                onRetrySessionSave: saveSessionIfRestoreEnabled,
                 onOpenQuickSettings: requestQuickSettings,
                 onToggleCommandPalette: toggleCommandPalette,
                 onOpenSelectedWorkspaceInIDE: { openSelectedWorkspaceInIDE() },
@@ -4085,8 +4148,23 @@ extension AwesoMuxApp {
     /// onChange would clobber the previous session-state.json and make
     /// re-enabling restore unable to recover the prior state.
     private func saveSessionIfRestoreEnabled() {
-        guard appSettingsStore.general.value.restoreWorkspaces else { return }
-        SessionPersistence.save(sessionStore)
+        guard appSettingsStore.general.value.restoreWorkspaces else {
+            sessionSaveFailure = nil
+            return
+        }
+        SessionPersistence.save(sessionStore, completion: handleSessionSaveResult)
+    }
+
+    private func handleSessionSaveResult(
+        _ result: Result<Void, SessionPersistence.RecoverySnapshotReplacementError>
+    ) {
+        switch result {
+        case .success:
+            sessionSaveFailure = nil
+        case let .failure(error):
+            guard error != .warningNotActive else { return }
+            sessionSaveFailure = error
+        }
     }
 
     private func presentRecoveryWarningIfNeeded() {
@@ -4096,52 +4174,243 @@ extension AwesoMuxApp {
 
         didPresentRecoveryWarning = true
 
+        let decision: RecoveryWarningDecision
         switch warning.kind {
         case .archivedSnapshot:
-            presentArchiveRecoveryWarning(warning)
+            decision = presentArchiveRecoveryWarning(warning)
+        case .snapshotConflict:
+            decision = presentSnapshotConflictWarning(warning)
         case .sanitizedRestore:
-            presentSanitizedRestoreWarning(warning)
+            decision = presentSanitizedRestoreWarning(warning)
         }
+
+        guard decision == .replaceSavedFile else {
+            if shouldAcknowledgeRecoveryWarning(
+                decision: decision,
+                allowsAutomaticWritesAfterAcknowledgement:
+                    warning.allowsAutomaticWritesAfterAcknowledgement
+            ) {
+                if SessionPersistence.acknowledgeRecoveryWarning(warning) {
+                    recoveryWarning = nil
+                }
+            } else if !warning.preventsInitialSave {
+                recoveryWarning = nil
+            }
+            return
+        }
+
+        beginRecoveryReplacement(warning)
+    }
+
+    private func beginRecoveryReplacement(
+        _ warning: SessionPersistence.SessionRecoveryWarning
+    ) {
+        guard !isRecoveryReplacementInProgress else { return }
+        isRecoveryReplacementInProgress = true
+        Task { @MainActor in
+            await completeRecoveryReplacement(warning)
+            isRecoveryReplacementInProgress = false
+        }
+    }
+
+    private func completeRecoveryReplacement(
+        _ warning: SessionPersistence.SessionRecoveryWarning
+    ) async {
+        var replacementDecision = RecoveryWarningDecision.replaceSavedFile
+        while replacementDecision == .replaceSavedFile {
+            switch await SessionPersistence.replaceSnapshotAfterRecovery(
+                with: sessionStore,
+                warning: warning,
+                catchUpSaveCompletion: handleSessionSaveResult
+            ) {
+            case .success:
+                recoveryWarning = nil
+                return
+            case let .failure(error):
+                replacementDecision = presentRecoveryReplacementFailure(error)
+            }
+        }
+    }
+
+    private func presentRecoveryReplacementFailure(
+        _ error: SessionPersistence.RecoverySnapshotReplacementError
+    ) -> RecoveryWarningDecision {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "Couldn't replace saved workspace data",
+            comment: "Title for a failed explicit session recovery replacement"
+        )
+        switch error {
+        case .snapshotTooLarge:
+            alert.informativeText = String(
+                localized:
+                    "The workspaces currently open in awesoMux are too large to save safely. The existing saved file was kept and automatic session saving remains paused. Close or simplify workspaces, then choose Review Recovery Options in the main window to try again.",
+                comment: "Recovery replacement failure shown when current workspace data exceeds the snapshot size limit"
+            )
+        case .warningNotActive, .writeFailed:
+            alert.informativeText = String(
+                localized:
+                    "awesoMux couldn't replace the saved workspace file. The existing file was kept and automatic session saving remains paused.",
+                comment: "Recovery replacement failure shown after an owner-only snapshot write fails"
+            )
+        }
+        if recoveryReplacementFailurePresentation(for: error) == .reviewAfterStateChange {
+            alert.addButton(
+                withTitle: String(
+                    localized: "Keep Saved File",
+                    comment: "Safe action after an oversized session recovery replacement"
+                )
+            )
+            alert.buttons[0].keyEquivalent = "\r"
+            alert.runModal()
+            return .keepSavedFile
+        }
+
+        alert.addButton(
+            withTitle: String(
+                localized: "Keep Saved File",
+                comment: "Safe action after a failed session recovery replacement"
+            )
+        )
+        alert.addButton(
+            withTitle: String(
+                localized: "Try Replace Again",
+                comment: "Retry action after a failed session recovery replacement"
+            )
+        )
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].hasDestructiveAction = true
+
+        switch alert.runModal() {
+        case .alertSecondButtonReturn:
+            return .replaceSavedFile
+        default:
+            return .keepSavedFile
+        }
+    }
+
+    private func reviewRecoveryWarning() {
+        guard
+            !isRecoveryReplacementInProgress,
+            let didPresent = RecoveryWarningPresentationPolicy.didPresentAfterReviewRequest(
+                hasWarning: recoveryWarning != nil
+            )
+        else {
+            return
+        }
+        didPresentRecoveryWarning = didPresent
+        presentRecoveryWarningIfNeeded()
     }
 
     private func presentArchiveRecoveryWarning(
         _ warning: SessionPersistence.SessionRecoveryWarning
-    ) {
+    ) -> RecoveryWarningDecision {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Couldn't reopen your last workspaces"
-        alert.informativeText =
-            "We couldn't read your saved workspace data, so awesoMux opened with fresh workspaces. Your old data is saved as a file in case you want to recover it later."
+        alert.messageText = String(
+            localized: "Couldn't reopen your last workspaces",
+            comment: "Title for the session snapshot recovery warning"
+        )
+        if warning.archivedSnapshotURL != nil, warning.archiveError == nil {
+            alert.informativeText = String(
+                localized:
+                    "We couldn't read your saved workspace data, so awesoMux opened with fresh workspaces. An exact copy was archived for recovery. Automatic session saving is paused so the live saved file is not replaced without your approval.",
+                comment: "Recovery warning shown after unreadable workspace data was archived"
+            )
+        } else {
+            alert.informativeText = String(
+                localized:
+                    "We couldn't read your saved workspace data, so awesoMux opened with fresh workspaces and left the live saved file untouched. Automatic session saving is paused. Keep that file, or explicitly replace it with the workspaces currently open in awesoMux.",
+                comment: "Recovery warning shown when unreadable workspace data could not be archived"
+            )
+        }
 
         alert.accessoryView = recoveryPathAccessoryField(for: warning)
 
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Show in Finder")
-        alert.addButton(withTitle: "Copy Path")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].isEnabled = warning.archivedSnapshotURL != nil
-        alert.buttons[2].isEnabled = warning.archivedSnapshotURL != nil
+        return runBlockedRecoveryAlert(alert, warning: warning)
+    }
 
-        switch alert.runModal() {
-        case .alertSecondButtonReturn:
-            if let url = warning.archivedSnapshotURL,
-                isSafeRecoveryArchiveURL(url)
-            {
+    private func presentSnapshotConflictWarning(
+        _ warning: SessionPersistence.SessionRecoveryWarning
+    ) -> RecoveryWarningDecision {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "Saved workspace data changed during restore",
+            comment: "Title for a session snapshot path-conflict warning"
+        )
+        if warning.archivedSnapshotURL != nil, warning.archiveError == nil {
+            alert.informativeText = String(
+                localized:
+                    "awesoMux reopened the version it had already read and preserved those bytes in a recovery file. The live saved file changed during restore, so automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux.",
+                comment: "Recovery warning shown when saved workspace data changed during restore and the opened bytes were archived"
+            )
+        } else {
+            alert.informativeText = String(
+                localized:
+                    "The live saved file changed while awesoMux was reopening it, and awesoMux could not preserve the version it had already read. Automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux.",
+                comment:
+                    "Recovery warning shown when saved workspace data changed during restore and the opened bytes could not be archived"
+            )
+        }
+        alert.accessoryView = recoveryPathAccessoryField(for: warning)
+
+        return runBlockedRecoveryAlert(alert, warning: warning)
+    }
+
+    private func runBlockedRecoveryAlert(
+        _ alert: NSAlert,
+        warning: SessionPersistence.SessionRecoveryWarning
+    ) -> RecoveryWarningDecision {
+        alert.addButton(
+            withTitle: String(
+                localized: "Keep Saved File",
+                comment: "Safe action that leaves conflicted session snapshot data untouched"
+            )
+        )
+        alert.addButton(
+            withTitle: String(
+                localized: "Replace With Current Workspaces",
+                comment: "Destructive action that replaces conflicted session snapshot data"
+            )
+        )
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].hasDestructiveAction = true
+        if warning.archivedSnapshotURL != nil {
+            alert.addButton(
+                withTitle: String(
+                    localized: "Show in Finder",
+                    comment: "Action that reveals a session snapshot recovery archive"
+                )
+            )
+            alert.addButton(
+                withTitle: String(
+                    localized: "Copy Path",
+                    comment: "Action that copies a session snapshot recovery archive path"
+                )
+            )
+        }
+
+        return resolveBlockedRecoveryWarningDecision(
+            runModal: { alert.runModal() },
+            showArchive: {
+                guard let url = warning.archivedSnapshotURL, isSafeRecoveryArchiveURL(url) else {
+                    return
+                }
                 NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
-        case .alertThirdButtonReturn:
-            if let path = warning.archivedSnapshotURL?.path {
+            },
+            copyPath: {
+                guard let path = warning.archivedSnapshotURL?.path else { return }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(path, forType: .string)
             }
-        default:
-            break
-        }
+        )
     }
 
     private func presentSanitizedRestoreWarning(
         _ warning: SessionPersistence.SessionRecoveryWarning
-    ) {
+    ) -> RecoveryWarningDecision {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Some workspace data was adjusted"
@@ -4159,6 +4428,10 @@ extension AwesoMuxApp {
 
         if warning.archivedSnapshotURL != nil {
             alert.accessoryView = recoveryPathAccessoryField(for: warning)
+        }
+
+        if warning.preventsInitialSave {
+            return runBlockedRecoveryAlert(alert, warning: warning)
         }
 
         alert.addButton(withTitle: "OK")
@@ -4183,6 +4456,7 @@ extension AwesoMuxApp {
         default:
             break
         }
+        return .dismissed
     }
 
     private func recoveryPathAccessoryField(
