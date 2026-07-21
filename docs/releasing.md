@@ -293,21 +293,16 @@ Use a cask, not a formula. awesoMux ships a native `.app` bundle and bundled
 helper executables; Homebrew formulae are for source-built packages, while casks
 install precompiled, upstream-signed app artifacts.
 
-Homebrew is blocked on the signed, notarized, stapled GitHub Release artifact
-from the GitHub Releases path. When release Phase 6 starts, split a dedicated
-GitHub issue for the Homebrew cask rather than keeping cask implementation work
-only inside the general release plan.
+The cask always consumes the signed, notarized, stapled GitHub Release artifact.
+Publishing a stable release triggers `.github/workflows/homebrew-cask.yml`, which
+verifies that artifact and its checksum before opening a pull request in the
+organization tap. Cask updates never push directly to the tap's `main` branch.
 
 ### One-time implementation checklist
 
-- [ ] Create the org tap repository:
-  - [ ] repository name: `Interactive-Buffoonery/homebrew-tap`
-  - [ ] user-facing tap name: `interactive-buffoonery/tap`
-  - [ ] public visibility once the main repo is public
-- [ ] Generate the tap structure:
-  - [ ] `brew tap-new interactive-buffoonery/homebrew-tap`
-  - [ ] push the generated tap to GitHub
-- [ ] Add `Casks/a/awesomux.rb`.
+- [x] Create the public `Interactive-Buffoonery/homebrew-tap` repository.
+- [x] Generate and publish the standard tap structure.
+- [x] Add `Casks/awesomux.rb`.
 - [ ] Prefer generating the initial cask from the release URL:
       `brew create --cask <release-url> --tap interactive-buffoonery/homebrew-tap --set-name awesomux`
 - [ ] Point the cask at the GitHub Release artifact, not at CI artifacts,
@@ -334,11 +329,30 @@ only inside the general release plan.
 - [ ] Run cask hygiene checks:
   - [ ] `HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --cask --new awesomux`
   - [ ] `brew style --fix awesomux`
-- [ ] Decide update automation:
-  - [ ] manually update the tap for the first release
-  - [ ] later, have the GitHub release workflow open or push a tap PR
+- [x] Configure update automation:
+  - [x] trigger only after a stable GitHub Release is published
+  - [x] verify the exact release DMG against its published checksum
+  - [x] open a tap pull request so the cask receives tap CI before merge
+  - [x] never push a cask update directly to the tap's `main` branch
   - [ ] if accepted upstream, use Homebrew's current bump command, for example
         `brew bump --open-pr --version <version> awesomux`
+
+### Automated tap pull requests
+
+Store `HOMEBREW_TAP_TOKEN` in the awesoMux repository's protected `release`
+environment. Use a fine-grained credential limited to
+`Interactive-Buffoonery/homebrew-tap` with repository metadata read access plus
+contents and pull requests read/write access. Do not use a broad personal token.
+
+The automation checks out its helper from awesoMux's default branch rather than
+from release assets or pull-request code. It receives the tap credential only
+after validating the published release metadata and DMG checksum. Drafts,
+prereleases, workflow dispatches, tag pushes, and pull requests cannot trigger
+the tap update workflow.
+
+The generated `chore/awesomux-<version>` branch must pass the tap's ARM64 macOS
+and Ubuntu checks before merge. The tap does not run an Intel lane while the
+cask declares `depends_on arch: :arm64`.
 
 ### Draft cask shape
 
@@ -374,15 +388,12 @@ end
 
 ### Per-Homebrew-release checklist
 
-- [ ] Publish or draft the GitHub Release artifact first.
-- [ ] Download the exact artifact URL that the cask will use.
-- [ ] Compute SHA-256:
-  - [ ] `shasum -a 256 awesoMux-<version>.dmg`
-- [ ] Update the cask:
-  - [ ] `version`
-  - [ ] `sha256`
-  - [ ] `url` if the artifact naming changed
-  - [ ] `depends_on` if macOS/architecture support changed
+- [ ] Publish the stable GitHub Release artifact first.
+- [ ] Confirm the `Update Homebrew cask` workflow verifies the public DMG and
+      opens `chore/awesomux-<version>` in the organization tap.
+- [ ] Review the generated cask diff (`version` and `sha256`; also review `url`
+      or `depends_on` whenever packaging or platform support changes).
+- [ ] Require the tap's ARM64 macOS and Ubuntu checks to pass before merge.
 - [ ] Install from the local tap:
   - [ ] `brew install --cask awesomux`
 - [ ] Confirm install location and launch behavior:
@@ -395,7 +406,7 @@ end
 - [ ] Confirm `brew zap --cask awesomux` removes only intended user data.
 - [ ] Run `brew audit --cask awesomux`.
 - [ ] Run `brew style awesomux`.
-- [ ] Merge/push the tap update.
+- [ ] Merge the tap pull request; never bypass its checks with a direct push.
 - [ ] Add Homebrew install instructions to the GitHub Release notes:
 
 ```sh
@@ -574,11 +585,10 @@ distribution concern at once.
 
 ### Phase 4: Homebrew tap workflow
 
-- [ ] Add or update the org tap repository.
-- [ ] Decide whether the main release workflow opens a tap PR or pushes a tap
-      commit directly after the GitHub Release is published.
-- [ ] Update cask version, URL, and SHA-256 from the published artifact.
-- [ ] Run cask install/uninstall/audit checks in CI where possible.
+- [x] Add the org tap repository.
+- [x] Open a tap PR after a stable GitHub Release is published.
+- [x] Update cask version and SHA-256 from the verified published artifact.
+- [x] Run tap syntax and changed-cask checks in tap CI.
 - [ ] Keep official `Homebrew/homebrew-cask` updates manual until the project is
       accepted there and the bump process is boring.
 
@@ -604,7 +614,7 @@ distribution concern at once.
 - [ ] Homebrew cask updates point only to signed, notarized public release
       artifacts.
 - [ ] Homebrew cask `sha256` matches the exact published artifact.
-- [ ] Homebrew tap automation cannot be triggered from untrusted PR code.
+- [x] Homebrew tap automation cannot be triggered from untrusted PR code.
 - [ ] Notarization logs are reviewed when notarization fails.
 - [ ] Public release notes avoid internal reviewer/persona names.
 
@@ -615,10 +625,10 @@ distribution concern at once.
 - [ ] Create notarized GitHub release workflow.
 - [ ] Add checksum generation and verification docs.
 - [x] Use `.dmg` for the GitHub release artifact.
-- [ ] Create a dedicated GitHub issue for the Homebrew cask when release Phase 6 starts.
-- [ ] Create `Interactive-Buffoonery/homebrew-tap`.
-- [ ] Add initial `awesomux` cask.
-- [ ] Add Homebrew cask release/update workflow.
+- [x] Create a dedicated issue for the Homebrew cask.
+- [x] Create `Interactive-Buffoonery/homebrew-tap`.
+- [x] Add initial `awesomux` cask.
+- [x] Add Homebrew cask release/update workflow.
 - [ ] Decide if/when to submit `awesomux` to `Homebrew/homebrew-cask`.
 - [ ] Create TestFlight App Store Connect app record.
 - [ ] Run TestFlight sandbox/signing feasibility spike.
