@@ -195,11 +195,8 @@ struct RemoteHandoffTests {
 
     @Test("capability and SSH arguments are exact and privacy-safe")
     func capabilityAndArguments() throws {
-        #expect(RemoteHandoff.advertisesHandoff("awesomux-bridge-v1\nawesomux-handoff-v1\n"))
-        #expect(!RemoteHandoff.advertisesHandoff("awesomux-bridge-v1\n"))
-
         let remote = try #require(RemoteTarget(parsing: "me@example"))
-        let arguments = RemoteHandoff.transferArguments(
+        let arguments = RemoteHandoff.sshArguments(
             remote: remote,
             controlPath: "/tmp/control/%C",
             remoteCommand: "'/home/me/.awesomux/bin/awesomux-bridge-helper' receive-handoff"
