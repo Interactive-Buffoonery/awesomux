@@ -152,6 +152,11 @@ struct AwesoMuxApp: App {
         // the documented `SettingsDefault` — see INT-159.
         SettingsDefault.registerInitialValues()
         let runtimeProfile = AppRuntimeProfile.current
+        do {
+            try LegacyAnalyticsCleanup.removeData(in: runtimeProfile.supportDirectoryURL)
+        } catch {
+            Self.logger.error("failed to remove legacy analytics data: \(error)")
+        }
         let diagnosticEvents = LocalDiagnosticEventRecorder()
         let mapDiagnosticTrigger: (AppSettingsDiagnosticTrigger) -> LocalDiagnosticConfigurationTrigger = {
             $0 == .manual ? .manual : .watcher

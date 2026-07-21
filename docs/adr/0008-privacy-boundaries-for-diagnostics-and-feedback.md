@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-05-17
+- **Amended:** 2026-07-21
 - **Deciders:** Sarah
 
 ## Context

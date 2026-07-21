@@ -139,12 +139,13 @@ public struct TOMLConfigCodec: Sendable {
                 commit()
                 let root = inner.split(separator: ".", maxSplits: 1).first.map(String.init) ?? inner
                 let isUnknownRoot = !AwesoMuxConfig.knownTopLevelTableNames.contains(root)
+                let isRetiredRoot = AwesoMuxConfig.retiredTopLevelTableNames.contains(root)
                 // Roots whose bodies are line-preserved are owned; but an
                 // unknown sub-table like `[terminal.cursor]` has no owner and
                 // would be silently dropped, so capture it here keyed by its
                 // full dotted name.
                 let isUnknownOwnedSubtable = Self.linePreservedSectionRoots.contains(root) && inner != root
-                if isUnknownRoot || isUnknownOwnedSubtable {
+                if (isUnknownRoot && !isRetiredRoot) || isUnknownOwnedSubtable {
                     currentName = inner
                 }
             } else if currentName != nil {

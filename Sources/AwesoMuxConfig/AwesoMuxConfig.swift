@@ -155,6 +155,10 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         "workspaces",
         "advanced",
     ]
+
+    /// Tables written by older awesoMux versions that must not be preserved as
+    /// user-authored extensions after their feature is removed.
+    static let retiredTopLevelTableNames: Set<String> = ["analytics"]
 }
 
 enum SectionLineLayout: Equatable, Sendable {
