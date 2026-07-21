@@ -454,7 +454,9 @@ enum AmxBackend {
     /// remote command line; the temp name is a fresh 8-byte-random suffix
     /// per call — never a shared fixed `.tmp` name — so two overlapping
     /// writers for different attaches can never corrupt each other's temp
-    /// file. Returns nil only if `channel.stateFilePath` isn't absolute,
+    /// file. Publication shares a bounded per-state-file lock with guarded
+    /// deletion so a stale cleanup cannot unlink a successor between identity
+    /// check and removal. Returns nil only if `channel.stateFilePath` isn't absolute,
     /// which `BridgeChannel.mint` already guarantees for any channel this
     /// app minted itself.
     static func bridgeStateFileWriteCommand(
@@ -479,33 +481,120 @@ enum AmxBackend {
             return nil
         }
 
+        guard let remoteScript = bridgeStateFileWriteRemoteScript(channel: channel) else {
+            return nil
+        }
+        let tokens =
+            [
+                "ssh",
+                "-S", shellQuote(controlPath),
+            ] + bridgeExecMasterOptionTokens + [
+                // `--` ends option parsing so a destination that begins with `-`
+                // (a hostile saved target like `-oProxyCommand=…`) can never be
+                // read as an ssh option — the ADR-0021 submitted-target lesson.
+                "--",
+                shellQuote(remote.sshDestination),
+                shellQuote(remoteScript),
+            ]
+        return BridgeStateFileWrite(command: tokens.joined(separator: " "), stdinData: stdinData)
+    }
+
+    static func bridgeStateFileWriteRemoteScript(channel: BridgeChannel) -> String? {
+        guard channel.stateFilePath.hasPrefix("/") else { return nil }
         // mkdir targets the state file's own parent, not a `~` respelling:
         // the spec's `~` is display shorthand for the captured absolute home,
-        // and re-expanding `~` remotely could diverge from the captured value
-        // (the state file would land in a directory nobody created).
+        // and re-expanding `~` remotely could diverge from the captured value.
         let bridgeDirectory = (channel.stateFilePath as NSString).deletingLastPathComponent
         let quotedDirectory = shellQuote(bridgeDirectory)
-        let remoteScript = "umask 077; mkdir -p " + quotedDirectory
+        let criticalSection =
+            "bridge_state_lock_tmp=$(mktemp "
+            + shellQuote(bridgeDirectory + "/.bridge-state.XXXXXXXX") + ")"
+            + " && cat > \"$bridge_state_lock_tmp\""
+            + " && chmod 600 \"$bridge_state_lock_tmp\""
+            + " && mv \"$bridge_state_lock_tmp\" " + shellQuote(channel.stateFilePath)
+            + " && bridge_state_lock_tmp="
+        return "umask 077; mkdir -p " + quotedDirectory
             + " && owner=$(stat -f '%u' " + quotedDirectory + ")"
             + " && mode=$(stat -f '%Lp' " + quotedDirectory + ")"
             + " && [ \"$owner\" = \"$(id -u)\" ] && [ \"$mode\" = 700 ]"
-            + " && tmp=$(mktemp " + shellQuote(bridgeDirectory + "/.bridge-state.XXXXXXXX") + ")"
-            + " && trap 'rm -f \"$tmp\"' EXIT HUP INT TERM"
-            + " && cat > \"$tmp\" && chmod 600 \"$tmp\""
-            + " && mv \"$tmp\" " + shellQuote(channel.stateFilePath)
-            + " && trap - EXIT HUP INT TERM"
-        let tokens = [
-            "ssh",
-            "-S", shellQuote(controlPath)
-        ] + bridgeExecMasterOptionTokens + [
-            // `--` ends option parsing so a destination that begins with `-`
-            // (a hostile saved target like `-oProxyCommand=…`) can never be
-            // read as an ssh option — the ADR-0021 submitted-target lesson.
-            "--",
-            shellQuote(remote.sshDestination),
-            shellQuote(remoteScript)
-        ]
-        return BridgeStateFileWrite(command: tokens.joined(separator: " "), stdinData: stdinData)
+            + " && "
+            + bridgeStateFileLockedRemoteScript(
+                stateFilePath: channel.stateFilePath,
+                criticalSection: criticalSection
+            )
+    }
+
+    static func bridgeStateFileLockedRemoteScript(
+        stateFilePath: String,
+        criticalSection: String
+    ) -> String {
+        bridgeStateFileLockPrelude(stateFilePath: stateFilePath)
+            + " && { bridge_state_lock_status=0; { " + criticalSection
+            + "; } || bridge_state_lock_status=$?"
+            + "; trap - EXIT HUP INT TERM"
+            + "; cleanup_bridge_state_lock"
+            + "; [ \"$bridge_state_lock_status\" -eq 0 ]; }"
+    }
+
+    private static func bridgeStateFileLockPrelude(stateFilePath: String) -> String {
+        let lockDirectory = stateFilePath + ".lock"
+        // A newly created parent is briefly ownerless until its lease child is
+        // published. Contenders must treat that state as an in-progress owner,
+        // never remove it: stealing the empty parent can let both writers enter.
+        // If the owner crashes in that instruction window, acquisition fails
+        // closed after the bounded retry budget and requires manual removal of
+        // this session's empty lock directory. The attach then degrades to its
+        // base command instead of risking concurrent state-file mutation. A
+        // live incumbent whose start identity cannot be read is equally
+        // indeterminate and must retain its lease until a later retry.
+        return "{ bridge_state_lock=" + shellQuote(lockDirectory)
+            + "; bridge_state_lock_pid=$$"
+            + "; bridge_state_lock_started=$(LC_ALL=C ps -o lstart= -p \"$bridge_state_lock_pid\" 2>/dev/null)"
+            + "; [ -n \"$bridge_state_lock_started\" ] || exit 1"
+            + "; bridge_state_lock_identity=$(printf '%s' \"$bridge_state_lock_started\""
+            + " | od -An -tx1 | tr -d ' \\n')"
+            + "; [ -n \"$bridge_state_lock_identity\" ] || exit 1"
+            + "; bridge_state_lock_lease=\"$bridge_state_lock/$bridge_state_lock_pid.$bridge_state_lock_identity\""
+            + "; bridge_state_lock_tmp="
+            + "; bridge_state_lock_cleaned=0"
+            + "; cleanup_bridge_state_lock() {"
+            + " [ \"$bridge_state_lock_cleaned\" -eq 0 ] || return 0"
+            + "; bridge_state_lock_cleaned=1"
+            + "; [ -z \"$bridge_state_lock_tmp\" ] || rm -f -- \"$bridge_state_lock_tmp\""
+            + "; rmdir -- \"$bridge_state_lock_lease\" 2>/dev/null"
+            + " && rmdir -- \"$bridge_state_lock\" 2>/dev/null || true; }"
+            + "; bridge_state_lock_signal() {"
+            + " trap - EXIT HUP INT TERM; cleanup_bridge_state_lock; exit 1; }"
+            + "; bridge_state_lock_attempts=0"
+            + "; while ! mkdir -- \"$bridge_state_lock\" 2>/dev/null; do"
+            + " bridge_state_lock_entry=$(ls -1A \"$bridge_state_lock\" 2>/dev/null)"
+            + "; if [ -z \"$bridge_state_lock_entry\" ]; then :"
+            + "; elif printf '%s\\n' \"$bridge_state_lock_entry\""
+            + " | grep -Eq '^[0-9]+[.][0-9a-f]+$'; then"
+            + " bridge_state_lock_owner=$(printf '%s' \"$bridge_state_lock_entry\" | cut -d. -f1)"
+            + "; bridge_state_lock_owner_identity=$(printf '%s' \"$bridge_state_lock_entry\" | cut -d. -f2)"
+            + "; bridge_state_lock_reclaim=0"
+            + "; if kill -0 \"$bridge_state_lock_owner\" 2>/dev/null; then"
+            + " bridge_state_lock_owner_started=$(LC_ALL=C ps -o lstart= -p \"$bridge_state_lock_owner\" 2>/dev/null)"
+            + "; bridge_state_lock_owner_current_identity="
+            + "; if [ -n \"$bridge_state_lock_owner_started\" ]; then"
+            + " bridge_state_lock_owner_current_identity=$(printf '%s' \"$bridge_state_lock_owner_started\""
+            + " | od -An -tx1 | tr -d ' \\n'); fi"
+            + "; if [ -n \"$bridge_state_lock_owner_current_identity\" ]"
+            + " && [ \"$bridge_state_lock_owner_current_identity\" != \"$bridge_state_lock_owner_identity\" ]; then"
+            + " bridge_state_lock_reclaim=1; fi"
+            + "; else bridge_state_lock_reclaim=1; fi"
+            + "; if [ \"$bridge_state_lock_reclaim\" -eq 1 ]; then"
+            + " rmdir -- \"$bridge_state_lock/$bridge_state_lock_entry\" 2>/dev/null"
+            + " && rmdir -- \"$bridge_state_lock\" 2>/dev/null && continue"
+            + "; fi; fi"
+            + "; bridge_state_lock_attempts=$((bridge_state_lock_attempts + 1))"
+            + "; if [ \"$bridge_state_lock_attempts\" -ge 200 ]; then"
+            + " exit 1; fi"
+            + "; sleep 0.05; done"
+            + "; trap bridge_state_lock_signal HUP INT TERM"
+            + "; trap cleanup_bridge_state_lock EXIT"
+            + "; mkdir -- \"$bridge_state_lock_lease\"; }"
     }
 
     /// ssh options for bridge EXEC-channel commands (home resolution,
@@ -775,27 +864,44 @@ enum AmxBackend {
     /// generation's unique socket BASENAME (never the full path: JSONEncoder
     /// escapes `/` as `\/` inside the file, and the basename is slash-free
     /// and per-mint unique) makes the delete a no-op once a successor owns
-    /// the file. The basename is already argv-visible in the cancel/rm
-    /// commands, so the guard leaks nothing new.
+    /// the file. The check and delete share the writer's bounded lock, closing
+    /// the check-then-remove race with a successor's atomic publication. The
+    /// basename is already argv-visible in the cancel/rm commands, so the guard
+    /// leaks nothing new.
     static func bridgeStateFileRemoveCommand(
         controlPath: String,
         remote: RemoteTarget,
         stateFilePath: String,
         remoteSocketPath: String
     ) -> String {
+        let script = bridgeStateFileRemoveRemoteScript(
+            stateFilePath: stateFilePath,
+            remoteSocketPath: remoteSocketPath
+        )
+        let tokens =
+            [
+                "ssh",
+                "-S", shellQuote(controlPath),
+            ] + bridgeExecMasterOptionTokens + [
+                "--",
+                shellQuote(remote.sshDestination),
+                shellQuote(script),
+            ]
+        return tokens.joined(separator: " ")
+    }
+
+    static func bridgeStateFileRemoveRemoteScript(
+        stateFilePath: String,
+        remoteSocketPath: String,
+    ) -> String {
         let socketBasename = (remoteSocketPath as NSString).lastPathComponent
         let quotedState = shellQuote(stateFilePath)
-        let script = "grep -qsF -- \(shellQuote(socketBasename)) \(quotedState)"
-            + " && rm -f -- \(quotedState)"
-        let tokens = [
-            "ssh",
-            "-S", shellQuote(controlPath)
-        ] + bridgeExecMasterOptionTokens + [
-            "--",
-            shellQuote(remote.sshDestination),
-            shellQuote(script)
-        ]
-        return tokens.joined(separator: " ")
+        return "[ ! -e \(quotedState) ] || "
+            + bridgeStateFileLockedRemoteScript(
+                stateFilePath: stateFilePath,
+                criticalSection: "grep -qsF -- \(shellQuote(socketBasename)) \(quotedState)"
+                    + " && rm -f -- \(quotedState)"
+            )
     }
 
     /// Owner-only admission probe (spec attach sequence, step 3): stats the
