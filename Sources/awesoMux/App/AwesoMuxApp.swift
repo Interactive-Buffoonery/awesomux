@@ -153,6 +153,8 @@ struct AwesoMuxApp: App {
         SettingsDefault.registerInitialValues()
         let runtimeProfile = AppRuntimeProfile.current
         let supportDirectoryURL = runtimeProfile.supportDirectoryURL
+        // Detached so synchronous file removal does not inherit MainActor;
+        // capture the actor-isolated static logger first because Logger is Sendable.
         let logger = Self.logger
         Task.detached(priority: .utility) {
             do {
