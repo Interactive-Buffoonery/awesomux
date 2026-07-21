@@ -30,14 +30,14 @@ Locally displayed process metadata and executable paths may still be sensitive.
 The UI must remind users to review screenshots or copied diagnostics before
 sharing them.
 
-### Feedback remains user controlled
+### Feedback remains user-controlled
 
 Any feedback or support-report flow must be initiated by the user and show the
 complete report in an editable draft before anything is sent. Creating a local
 diagnostic summary never authorizes transmission. The app must not submit
 feedback, attachments, or diagnostic data in the background.
 
-### Agent status side channels remain content free
+### Agent status side channels remain content-free
 
 Agent integrations may report only the bounded runtime-state events needed for
 awesoMux UI state. They must not carry instructions, prompts, tool-call content,
