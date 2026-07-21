@@ -90,20 +90,6 @@ struct LocalizedPluralStringsTests {
             ) == "Showing 100 of 125 matching events"
         )
         #expect(
-            LocalizedPluralStrings.diagnosticsShowingRecordedAnalyticsEvents(
-                visible: 1,
-                total: 1,
-                bundle: Self.resourcesBundle
-            ) == "Showing 1 of 1 recorded event"
-        )
-        #expect(
-            LocalizedPluralStrings.diagnosticsShowingRecordedAnalyticsEvents(
-                visible: 100,
-                total: 125,
-                bundle: Self.resourcesBundle
-            ) == "Showing 100 of 125 recorded events"
-        )
-        #expect(
             LocalizedPluralStrings.commandPaletteResults(
                 count: 1,
                 bundle: Self.resourcesBundle

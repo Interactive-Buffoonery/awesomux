@@ -106,9 +106,6 @@ struct AwesoMuxApp: App {
     @State private var openWindowAction: OpenWindowAction?
     @State private var terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache
     @State private var appSettingsStore: AppSettingsStore
-    @State private var analyticsEventLog: AnalyticsEventLogStore
-    @State private var analyticsClient: LocalAnalyticsClient
-    @State private var settingsNavigator = SettingsNavigator()
     @State private var customCommandStore = CustomCommandStore()
     @State private var isCloseConfirmAlertPresented = false
     @State private var sidebarPresentationCommandMailbox = SidebarPresentationCommandMailbox()
@@ -155,6 +152,11 @@ struct AwesoMuxApp: App {
         // the documented `SettingsDefault` — see INT-159.
         SettingsDefault.registerInitialValues()
         let runtimeProfile = AppRuntimeProfile.current
+        do {
+            try LegacyAnalyticsCleanup.removeData(in: runtimeProfile.supportDirectoryURL)
+        } catch {
+            Self.logger.error("failed to remove legacy analytics data: \(error)")
+        }
         let diagnosticEvents = LocalDiagnosticEventRecorder()
         let mapDiagnosticTrigger: (AppSettingsDiagnosticTrigger) -> LocalDiagnosticConfigurationTrigger = {
             $0 == .manual ? .manual : .watcher
@@ -206,17 +208,6 @@ struct AwesoMuxApp: App {
             loadResult = SessionPersistence.LoadResult(store: store, recoveryWarning: nil)
         }
         _appSettingsStore = State(initialValue: appSettingsStore)
-        let analyticsEventLog = AnalyticsEventLogStore(
-            rootDirectoryURL: runtimeProfile.supportDirectoryURL,
-            retainToDisk: { appSettingsStore.analytics.value.retainLocalEventLog }
-        )
-        _analyticsEventLog = State(initialValue: analyticsEventLog)
-        _analyticsClient = State(
-            initialValue: LocalAnalyticsClient(
-                logStore: analyticsEventLog,
-                consent: { appSettingsStore.analytics.value.consentLevel }
-            )
-        )
         _sessionStore = State(initialValue: loadResult.store)
         if let warning = loadResult.recoveryWarning {
             switch warning.kind {
@@ -522,12 +513,6 @@ struct AwesoMuxApp: App {
             }
             .onChange(of: appSettingsStore.general.value.showMenuBarMiniStatus) { _, _ in
                 appDelegate.syncMenuBarMiniStatusItem()
-            }
-            .onChange(of: appSettingsStore.analytics.value.consentLevel, initial: true) { _, level in
-                analyticsClient.reconcileConsent(level: level)
-            }
-            .onChange(of: appSettingsStore.analytics.value.retainLocalEventLog, initial: true) {
-                analyticsEventLog.reconcileRetention()
             }
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
                 appDelegate.evaluateAndPostNotifications()
@@ -1097,9 +1082,6 @@ struct AwesoMuxApp: App {
                 // Notifications pane reads/writes per-workspace mute (INT-598).
                 .environment(sessionStore)
                 .environment(diagnosticsModel)
-                .environment(analyticsEventLog)
-                .environment(analyticsClient)
-                .environment(settingsNavigator)
                 .appearanceBridge(appSettingsStore)
         }
         .defaultSize(AwSettings.preferredWindowSize)

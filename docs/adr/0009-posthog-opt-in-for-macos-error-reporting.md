@@ -1,7 +1,8 @@
 # 0009 — PostHog opt-in for macOS error reporting
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0008](0008-privacy-boundaries-for-diagnostics-and-feedback.md)
 - **Date:** 2026-05-17
+- **Superseded:** 2026-07-21
 - **Deciders:** Sarah
 
 ## Context
@@ -62,3 +63,10 @@ This ADR does not decide the iOS app's analytics behavior. The iOS app may
 reuse the same privacy terms and consent levels later, but it needs its own
 decision once the mobile product surface, App Store privacy labels, onboarding,
 and any mobile-specific PostHog features are understood.
+
+## Supersession
+
+This direction was superseded before external provider delivery shipped.
+ADR 0008 defines the current local-only diagnostics boundary and requires a new
+ADR before any external reporting returns. The retired analytics configuration,
+local event ledger, and analytics identifier are removed during upgrade.

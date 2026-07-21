@@ -19,7 +19,6 @@ enum LocalizedPluralStrings {
     private static let diagnosticsSamplesKey = "accessibility.diagnostics.samples"
     private static let diagnosticsMatchingEventsKey = "accessibility.diagnostics.matchingEvents"
     private static let diagnosticsShowingMatchingEventsKey = "diagnostics.showingMatchingEvents"
-    private static let diagnosticsShowingRecordedAnalyticsEventsKey = "diagnostics.showingRecordedAnalyticsEvents"
     private static let bridgePermissionQueuedCountKey = "accessibility.bridge.permissionQueued"
     private static let commandPaletteResultsKey = "accessibility.commandPalette.results"
     private static let pathbarUncommittedChangesKey = "accessibility.pathbar.uncommittedChanges"
@@ -285,19 +284,6 @@ enum LocalizedPluralStrings {
             for: diagnosticsShowingMatchingEventsKey,
             bundle: bundle,
             comment: "Diagnostics truncation notice; arguments are visible and total matching event counts."
-        )
-        return String.localizedStringWithFormat(format, visible, total)
-    }
-
-    static func diagnosticsShowingRecordedAnalyticsEvents(
-        visible: Int,
-        total: Int,
-        bundle: Bundle = .main
-    ) -> String {
-        let format = format(
-            for: diagnosticsShowingRecordedAnalyticsEventsKey,
-            bundle: bundle,
-            comment: "Analytics truncation notice; arguments are visible and total recorded event counts."
         )
         return String.localizedStringWithFormat(format, visible, total)
     }

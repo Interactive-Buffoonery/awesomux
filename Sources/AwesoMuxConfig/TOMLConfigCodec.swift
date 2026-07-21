@@ -39,7 +39,6 @@ public struct TOMLConfigCodec: Sendable {
         "agents": Set(AgentConfig.CodingKeys.allCases.map(\.rawValue)),
         "workspaces": Set(WorkspaceConfig.CodingKeys.allCases.map(\.rawValue)),
         "advanced": Set(AdvancedConfig.CodingKeys.allCases.map(\.rawValue)),
-        "analytics": Set(AnalyticsConfig.CodingKeys.allCases.map(\.rawValue)),
     ]
 
     public init() {}
@@ -140,12 +139,13 @@ public struct TOMLConfigCodec: Sendable {
                 commit()
                 let root = inner.split(separator: ".", maxSplits: 1).first.map(String.init) ?? inner
                 let isUnknownRoot = !AwesoMuxConfig.knownTopLevelTableNames.contains(root)
+                let isRetiredRoot = AwesoMuxConfig.retiredTopLevelTableNames.contains(root)
                 // Roots whose bodies are line-preserved are owned; but an
                 // unknown sub-table like `[terminal.cursor]` has no owner and
                 // would be silently dropped, so capture it here keyed by its
                 // full dotted name.
                 let isUnknownOwnedSubtable = Self.linePreservedSectionRoots.contains(root) && inner != root
-                if isUnknownRoot || isUnknownOwnedSubtable {
+                if (isUnknownRoot && !isRetiredRoot) || isUnknownOwnedSubtable {
                     currentName = inner
                 }
             } else if currentName != nil {
@@ -689,7 +689,6 @@ public struct TOMLConfigCodec: Sendable {
     private func validate(_ config: AwesoMuxConfig) throws(ConfigLoadError) {
         try config.appearance.validate()
         try config.workspaces.validate()
-        try config.analytics.validate()
 
         let version = config.advanced.configSchemaVersion
         guard version >= AdvancedConfig.minimumConfigSchemaVersion else {

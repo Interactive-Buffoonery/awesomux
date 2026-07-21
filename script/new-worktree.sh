@@ -74,7 +74,7 @@ PRIMARY_ROOT="$(dirname "$COMMON_GIT_DIR")"
 REPOSITORY_NAME="$(basename "$PRIMARY_ROOT")"
 
 if [[ -z "$BRANCH" ]]; then
-  printf 'Branch name (for example, feature/int-768-analytics-core): '
+  printf 'Branch name (for example, feature/int-123-description): '
   IFS= read -r BRANCH || {
     echo >&2
     echo "error: no branch name provided" >&2

@@ -8,7 +8,6 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
     public var terminal: TerminalConfig
     public var workspaces: WorkspaceConfig
     public var advanced: AdvancedConfig
-    public var analytics: AnalyticsConfig
 
     /// Raw text of unknown top-level `[table]` blocks the user has
     /// hand-written into config.toml (e.g. an `[experimental]` block from
@@ -45,8 +44,7 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         keyboard: .defaultValue,
         terminal: .defaultValue,
         workspaces: .defaultValue,
-        advanced: .defaultValue,
-        analytics: .defaultValue
+        advanced: .defaultValue
     )
 
     public init(
@@ -59,7 +57,6 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         terminal: TerminalConfig = AwesoMuxConfig.defaultValue.terminal,
         workspaces: WorkspaceConfig = AwesoMuxConfig.defaultValue.workspaces,
         advanced: AdvancedConfig = AwesoMuxConfig.defaultValue.advanced,
-        analytics: AnalyticsConfig = AwesoMuxConfig.defaultValue.analytics,
         unknownTopLevelTables: [String: String] = [:],
         unknownTerminalTableLines: String = "",
         unknownAppearanceTableLines: String = ""
@@ -73,7 +70,6 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         self.terminal = terminal
         self.workspaces = workspaces
         self.advanced = advanced
-        self.analytics = analytics
         self.unknownTopLevelTables = unknownTopLevelTables
         self.unknownTerminalTableLines = unknownTerminalTableLines
         self.unknownAppearanceTableLines = unknownAppearanceTableLines
@@ -116,10 +112,6 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         let advanced =
             try container.decodeIfPresent(AdvancedConfig.self, forKey: .advanced)
             ?? AwesoMuxConfig.defaultValue.advanced
-        let analytics =
-            try container.decodeIfPresent(AnalyticsConfig.self, forKey: .analytics)
-            ?? AwesoMuxConfig.defaultValue.analytics
-
         self.init(
             general: general,
             appearance: appearance,
@@ -129,8 +121,7 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
             keyboard: keyboard,
             terminal: terminal,
             workspaces: workspaces,
-            advanced: advanced,
-            analytics: analytics
+            advanced: advanced
         )
     }
 
@@ -148,7 +139,6 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         case terminal
         case workspaces
         case advanced
-        case analytics
     }
 
     /// Set of top-level table names the structured decoder recognizes;
@@ -164,8 +154,11 @@ public struct AwesoMuxConfig: Codable, Equatable, Sendable {
         "terminal",
         "workspaces",
         "advanced",
-        "analytics",
     ]
+
+    /// Tables written by older awesoMux versions that must not be preserved as
+    /// user-authored extensions after their feature is removed.
+    static let retiredTopLevelTableNames: Set<String> = ["analytics"]
 }
 
 enum SectionLineLayout: Equatable, Sendable {
