@@ -107,6 +107,8 @@ func resolveBlockedRecoveryWarningDecision(
     showArchive: () -> Void,
     copyPath: () -> Void
 ) -> RecoveryWarningDecision {
+    // NSAlert exposes constants for only its first three buttons; additional
+    // buttons continue the same sequential response-value convention.
     let fourthButtonResponse = NSApplication.ModalResponse.alertThirdButtonReturn.rawValue + 1
     while true {
         switch runModal() {
@@ -122,6 +124,13 @@ func resolveBlockedRecoveryWarningDecision(
             return .keepSavedFile
         }
     }
+}
+
+func shouldAcknowledgeRecoveryWarning(
+    decision: RecoveryWarningDecision,
+    allowsAutomaticWritesAfterAcknowledgement: Bool
+) -> Bool {
+    decision == .keepSavedFile && allowsAutomaticWritesAfterAcknowledgement
 }
 
 @main
@@ -4176,7 +4185,15 @@ extension AwesoMuxApp {
         }
 
         guard decision == .replaceSavedFile else {
-            if !warning.preventsInitialSave {
+            if shouldAcknowledgeRecoveryWarning(
+                decision: decision,
+                allowsAutomaticWritesAfterAcknowledgement:
+                    warning.allowsAutomaticWritesAfterAcknowledgement
+            ) {
+                if SessionPersistence.acknowledgeRecoveryWarning(warning) {
+                    recoveryWarning = nil
+                }
+            } else if !warning.preventsInitialSave {
                 recoveryWarning = nil
             }
             return

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Owner-only posture for locally persisted state: directories are `0o700`,
@@ -5,8 +6,9 @@ import Foundation
 /// state) hold agent-permission posture and tool-trust-adjacent data, so
 /// nothing they write should be readable by other local users — the default
 /// macOS umask would leave directories at `0o755` and files at `0o644`.
-/// New stores adopt these helpers instead of re-implementing the clamp
-/// (INT-859).
+/// New stores adopt these helpers instead of re-implementing the clamp,
+/// and whole-file writes go through `writeOwnerOnlyFile(at:contents:)` so
+/// bytes never sit at umask-default permissions (INT-859).
 extension FileManager {
     /// Creates `url` (and any missing intermediates) as an owner-only
     /// (`0o700`) directory. Like the underlying
@@ -35,4 +37,44 @@ extension FileManager {
         try setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
+    /// Atomically writes `contents` to `url` with the file at exactly `0o600`
+    /// before any bytes land, closing the window a write-then-chmod shape
+    /// leaves open. The parent directory must already exist.
+    public func writeOwnerOnlyFile(at url: URL, contents: Data) throws {
+        let temporaryURL = url.deletingLastPathComponent()
+            .appending(path: ".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        var shouldRemoveTempFile = true
+        defer {
+            if shouldRemoveTempFile { try? removeItem(at: temporaryURL) }
+        }
+
+        let descriptor = Darwin.open(
+            temporaryURL.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+            0o600
+        )
+        guard descriptor >= 0 else {
+            let savedErrno = errno
+            throw POSIXError(POSIXErrorCode(rawValue: savedErrno) ?? .EIO)
+        }
+        guard fchmod(descriptor, 0o600) == 0 else {
+            let savedErrno = errno
+            close(descriptor)
+            throw POSIXError(POSIXErrorCode(rawValue: savedErrno) ?? .EIO)
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: contents)
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
+        }
+
+        guard Darwin.rename(temporaryURL.path, url.path) == 0 else {
+            let savedErrno = errno
+            throw POSIXError(POSIXErrorCode(rawValue: savedErrno) ?? .EIO)
+        }
+        shouldRemoveTempFile = false
+    }
 }

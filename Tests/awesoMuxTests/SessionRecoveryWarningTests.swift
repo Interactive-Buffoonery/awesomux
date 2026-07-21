@@ -58,6 +58,32 @@ struct SessionRecoveryWarningTests {
         #expect(responses.isEmpty)
     }
 
+    @Test("keeping a safely archived snapshot acknowledges the recovery warning")
+    func keepingSafelyArchivedSnapshotAcknowledgesWarning() {
+        #expect(
+            shouldAcknowledgeRecoveryWarning(
+                decision: .keepSavedFile,
+                allowsAutomaticWritesAfterAcknowledgement: true
+            )
+        )
+        #expect(
+            !shouldAcknowledgeRecoveryWarning(
+                decision: .replaceSavedFile,
+                allowsAutomaticWritesAfterAcknowledgement: true
+            )
+        )
+    }
+
+    @Test("keeping an unarchived snapshot leaves automatic writes blocked")
+    func keepingUnarchivedSnapshotDoesNotAcknowledgeWarning() {
+        #expect(
+            !shouldAcknowledgeRecoveryWarning(
+                decision: .keepSavedFile,
+                allowsAutomaticWritesAfterAcknowledgement: false
+            )
+        )
+    }
+
     @Test("archive warnings prevent initial save")
     func archiveWarningsPreventInitialSave() {
         let warning = SessionPersistence.SessionRecoveryWarning(
