@@ -71,9 +71,11 @@ falls back to a local shell, another host, or title-derived identity.
 The local JSONL agent side channel cannot cross SSH: its path, ownership checks,
 and `kqueue` watcher all belong to the local filesystem. The shipped
 authenticated bridge may provide remote agent signals when a compatible helper
-is already available, but provider-specific adapters, helper installation, and
-remote idle detection are outside this architecture's required path. Their
-absence must not prevent an ordinary SSH terminal from working.
+is available. A missing or incompatible helper may be installed only through an
+explicit, user-approved remediation; installation is never an ordinary SSH
+workspace prerequisite. Provider-specific adapters and remote idle detection
+remain outside this architecture's required path. Their absence must not prevent
+an ordinary SSH terminal from working.
 
 ### 5. Remaining file handoff is deliberately small
 
@@ -98,7 +100,8 @@ transport abstraction for hypothetical implementations are non-goals.
 ## Consequences
 
 - Remote SSH workspaces keep the existing local `amx` lifecycle and need no
-  awesoMux-managed remote installation.
+  preinstalled helper. The optional helper installer is user-approved and only
+  remediates rich bridge and file-handoff capabilities.
 - `PaneExecutionPlan` is the single durable authority for remote actions and
   resource identity; runtime SSH observations remain presentation and safety
   heuristics only.
