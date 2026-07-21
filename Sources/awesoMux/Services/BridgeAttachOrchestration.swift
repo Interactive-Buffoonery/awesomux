@@ -59,8 +59,9 @@ enum BridgeAttachDecision {
     /// The remote helper path, resolved against the captured `$HOME` (contributor
     /// ruling): a fixed convention beside the `~/.awesomux/bridge` state dir.
     /// The attach only assumes the convention when a compatible helper is
-    /// already available; awesoMux does not install it. `remoteHome` is already
-    /// an absolute path (helpers never expand `~`), so this is pure string
+    /// already available. A separate user-approved handoff remediation may
+    /// install or update it. `remoteHome` is already an absolute path (helpers
+    /// never expand `~`), so this is pure string
     /// composition with the same
     /// trailing-slash normalization `BridgeChannel.mint` applies to the state
     /// path so `/` (root home) can't bake a `//`.
@@ -375,20 +376,29 @@ extension GhosttyRuntime {
     /// published (forward up, state file written, ledger advanced, trio staged),
     /// so it must be torn down through the registry — the one owner of the
     /// exact-path `-O cancel` + `rm` + trio shutdown — never just dropped.
-    /// Register-then-teardown reuses those paths verbatim; `ifToken` (this
-    /// generation's own token) protects a successor that races in between the
-    /// two steps.
+    /// The stale generation is never installed as the registry's live entry:
+    /// cleanup runs from its captured channel and staged teardown directly, so a
+    /// successor already registered for the same session remains authoritative.
     @MainActor
     func discardCommittedBridgeGeneration(
         session: TerminalSessionID,
         channel: BridgeChannel,
         controlPath: String,
         remote: RemoteTarget
-    ) {
-        promoteBridgeGeneration(session: session, channel: channel, controlPath: controlPath, remote: remote)
-        guard let registry = bridgeGenerationRegistry else { return }
-        let token = channel.token
-        Task { await registry.teardown(for: session, ifToken: token) }
+    ) async {
+        let staged = bridgeCoordinatorStore.takeStaged(token: channel.token)
+        let shutdown: @Sendable () async -> Void = staged?.teardown ?? { @Sendable in }
+        let generation = BridgeGenerationRegistry.Generation(
+            controlPath: controlPath,
+            remote: remote,
+            channel: channel,
+            shutdown: shutdown
+        )
+        guard let registry = bridgeGenerationRegistry else {
+            await generation.shutdown()
+            return
+        }
+        await registry.discardCommitted(generation, for: session)
     }
 
     /// The readiness commit (spec attach step 4+): promote the staged coordinator

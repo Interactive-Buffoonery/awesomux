@@ -120,6 +120,64 @@ struct BridgeAttachTeardownWiringTests {
         #expect(await flag.isSet)
     }
 
+    @Test("genuine close extracts the old generation before a same-session replacement")
+    func genuineCloseExtractsOldGenerationBeforeReplacement() async throws {
+        let fixture = try makeFixture()
+        let registry = BridgeGenerationRegistry(
+            ledger: fixture.runtime.bridgeSocketLedger,
+            execChannel: { _ in Data() },
+            syncExec: { _ in }
+        )
+        fixture.runtime.bridgeGenerationRegistry = registry
+        let old = try #require(
+            BridgeChannel.mint(
+                session: fixture.terminalSessionID,
+                previousGeneration: 0,
+                localSocketPath: "/tmp/old.sock",
+                remoteHome: "/Users/example"
+            ))
+        let shutdownGate = BridgeTeardownGate()
+        registry.register(
+            BridgeGenerationRegistry.Generation(
+                controlPath: "/tmp/old.ctl",
+                remote: Self.remote,
+                channel: old,
+                shutdown: { await shutdownGate.wait() }
+            ),
+            for: fixture.terminalSessionID
+        )
+        fixture.enactor.sessionID = fixture.terminalSessionID
+
+        fixture.enactor.clearStateForLocalShellFallback()
+        guard registry.currentToken(for: fixture.terminalSessionID) == nil else {
+            Issue.record("the closing generation must leave the live slot synchronously")
+            return
+        }
+
+        let replacement = try #require(
+            BridgeChannel.mint(
+                session: fixture.terminalSessionID,
+                previousGeneration: old.gen,
+                localSocketPath: "/tmp/replacement.sock",
+                remoteHome: "/Users/example"
+            ))
+        registry.register(
+            BridgeGenerationRegistry.Generation(
+                controlPath: "/tmp/replacement.ctl",
+                remote: Self.remote,
+                channel: replacement,
+                shutdown: {}
+            ),
+            for: fixture.terminalSessionID
+        )
+
+        await shutdownGate.waitUntilSuspended()
+        #expect(registry.currentToken(for: fixture.terminalSessionID) == replacement.token)
+        await shutdownGate.release()
+        await shutdownGate.waitUntilCompleted()
+        #expect(registry.currentToken(for: fixture.terminalSessionID) == replacement.token)
+    }
+
     // MARK: - Dispose preserves
 
     @Test("notifyNativeSurfaceDisposed PRESERVES the generation (front half of a respawn)")
@@ -236,5 +294,38 @@ actor AsyncFlag {
     func wait() async {
         if flagged { return }
         await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
+private actor BridgeTeardownGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var completed = false
+    private var completionWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            suspensionWaiters.forEach { $0.resume() }
+            suspensionWaiters.removeAll()
+        }
+        completed = true
+        completionWaiters.forEach { $0.resume() }
+        completionWaiters.removeAll()
+    }
+
+    func waitUntilSuspended() async {
+        guard continuation == nil else { return }
+        await withCheckedContinuation { suspensionWaiters.append($0) }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func waitUntilCompleted() async {
+        guard !completed else { return }
+        await withCheckedContinuation { completionWaiters.append($0) }
     }
 }

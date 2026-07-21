@@ -1,6 +1,82 @@
 import AwesoMuxCore
 import Foundation
 
+/// Orders synchronous app-termination cleanup after any remote mutation that
+/// an attach already started, while preventing the attach from starting another
+/// mutation after termination begins. The approved-quit path awaits this
+/// barrier asynchronously before replying to AppKit, so the main thread stays
+/// responsive without allowing process exit ahead of cleanup.
+final class BridgePreflightTerminationBarrier: @unchecked Sendable {
+    enum Terminated: Error {
+        case requested
+    }
+
+    private let condition = NSCondition()
+    private var activeMutationCount = 0
+    private var isTerminationRequested = false
+    private var cancellation: (@Sendable () -> Void)?
+
+    func installCancellation(_ cancellation: @escaping @Sendable () -> Void) {
+        let shouldCancel = condition.withLock {
+            self.cancellation = cancellation
+            return isTerminationRequested
+        }
+        if shouldCancel { cancellation() }
+    }
+
+    func clearCancellation() {
+        condition.withLock { cancellation = nil }
+    }
+
+    func requestTermination() {
+        let cancellation = condition.withLock {
+            isTerminationRequested = true
+            return self.cancellation
+        }
+        cancellation?()
+    }
+
+    func performMutation<T: Sendable>(
+        _ operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        guard beginMutation() else { throw Terminated.requested }
+        defer { finishMutation() }
+        return try await operation()
+    }
+
+    func waitUntilDrained() {
+        condition.lock()
+        while activeMutationCount > 0 {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+
+    func waitUntilDrainedAsync() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                self.waitUntilDrained()
+                continuation.resume()
+            }
+        }
+    }
+
+    private func beginMutation() -> Bool {
+        condition.withLock {
+            guard !isTerminationRequested else { return false }
+            activeMutationCount += 1
+            return true
+        }
+    }
+
+    private func finishMutation() {
+        condition.withLock {
+            activeMutationCount -= 1
+            if activeMutationCount == 0 { condition.broadcast() }
+        }
+    }
+}
+
 /// The async make-before-break state machine for one remote-bridge attach.
 ///
 /// One instance owns the serialized attach lifecycle for a single pane: it
@@ -17,6 +93,34 @@ import Foundation
 /// tears down whatever new resources it had staged and never touches the live
 /// generation.
 actor BridgeAttachPreflight {
+    private actor ReadyCompletion {
+        private var isComplete = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func wait() async {
+            guard !isComplete else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        func complete() {
+            guard !isComplete else { return }
+            isComplete = true
+            waiters.forEach { $0.resume() }
+            waiters.removeAll()
+        }
+    }
+
+    private struct InFlight {
+        let task: Task<Outcome, Never>
+        let readyCompletion: ReadyCompletion?
+    }
+
+    private struct CurrentGeneration {
+        let listener: PreparedListener
+        let remote: RemoteTarget
+        let controlPath: String
+    }
+
     /// A bound local listener as this state machine needs to see it: where to
     /// point the reverse forward, and how to tear it down. Produced by the
     /// `makeListener` seam; the live default wraps a real
@@ -69,18 +173,27 @@ actor BridgeAttachPreflight {
     // Closures with live defaults, not protocols — one real implementation each.
     typealias ExecChannel = @Sendable (_ command: String, _ stdin: Data?) async throws -> Data
     typealias MakeListener = @Sendable (_ token: String, _ session: TerminalSessionID) async throws -> PreparedListener
+    typealias StageGeneration =
+        @Sendable (
+            _ request: Request, _ channel: BridgeChannel, _ listener: PreparedListener,
+            _ terminationBarrier: BridgePreflightTerminationBarrier
+        ) async -> Void
+    typealias UnstageGeneration = @Sendable (_ token: String) async -> Void
 
     private let ledger: BridgeSocketLedger
     private let execChannel: ExecChannel
     private let makeListener: MakeListener
     private let now: @Sendable () -> Date
+    private let stageGeneration: StageGeneration
+    private let unstageGeneration: UnstageGeneration
 
     /// The live generation's listener, retained so the *next* attach can shut
     /// it down after its own publish. The matching remote socket path lives in
-    /// the ledger (the deletion authority); this holds only the local handle
-    /// the ledger cannot.
-    private var current: PreparedListener?
-    private var inFlight: Task<Outcome, Never>?
+    /// the ledger (the deletion authority); this retains the local handle and
+    /// original remote identity the ledger cannot recover.
+    private var current: CurrentGeneration?
+    private var inFlight: InFlight?
+    private var readyCompletions: [String: ReadyCompletion] = [:]
     /// Distinguishes "my run finished and nothing superseded it" from "a newer
     /// attach already replaced me" when clearing `inFlight`, without relying on
     /// `Task` identity (which it does not expose).
@@ -90,12 +203,16 @@ actor BridgeAttachPreflight {
         ledger: BridgeSocketLedger,
         now: @escaping @Sendable () -> Date = Date.init,
         execChannel: @escaping ExecChannel = BridgeAttachPreflight.liveExecChannel,
-        makeListener: @escaping MakeListener = BridgeAttachPreflight.liveMakeListener
+        makeListener: @escaping MakeListener = BridgeAttachPreflight.liveMakeListener,
+        stageGeneration: @escaping StageGeneration = { _, _, _, _ in },
+        unstageGeneration: @escaping UnstageGeneration = { _ in }
     ) {
         self.ledger = ledger
         self.now = now
         self.execChannel = execChannel
         self.makeListener = makeListener
+        self.stageGeneration = stageGeneration
+        self.unstageGeneration = unstageGeneration
     }
 
     /// Runs one attach, serialized against any in-flight attach for this pane.
@@ -103,21 +220,51 @@ actor BridgeAttachPreflight {
     /// resources and resolves `.cancelled`) before this one starts, so two
     /// runs never race on the live generation.
     func attach(_ request: Request) async -> Outcome {
+        await attach(request, requiresReadyCompletion: false)
+    }
+
+    /// Surface-lifecycle attach variant. A committed `.ready` result keeps its
+    /// successor barrier closed until the caller finishes promotion or stale
+    /// teardown and acknowledges the channel token.
+    func attachForSurfaceLifecycle(_ request: Request) async -> Outcome {
+        await attach(request, requiresReadyCompletion: true)
+    }
+
+    private func attach(_ request: Request, requiresReadyCompletion: Bool) async -> Outcome {
+        guard !Task.isCancelled else { return .cancelled }
         requestCounter += 1
         let myID = requestCounter
         let predecessor = inFlight
-        predecessor?.cancel()
+        predecessor?.task.cancel()
+        let readyCompletion = requiresReadyCompletion ? ReadyCompletion() : nil
+        let terminationBarrier = BridgePreflightTerminationBarrier()
 
         let task = Task { [weak self] in
             // Let the predecessor fully unwind first — its rollback touches
             // only its own staged resources, but serializing keeps the command
             // stream and `current` free of interleaving.
-            _ = await predecessor?.value
+            let predecessorOutcome = await predecessor?.task.value
+            if case .ready = predecessorOutcome {
+                await predecessor?.readyCompletion?.wait()
+            }
             guard let self, !Task.isCancelled else { return Outcome.cancelled }
-            return await self.run(request)
+            return await self.run(request, terminationBarrier: terminationBarrier)
         }
-        inFlight = task
-        let outcome = await task.value
+        terminationBarrier.installCancellation { task.cancel() }
+        inFlight = InFlight(task: task, readyCompletion: readyCompletion)
+        let outcome = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        terminationBarrier.clearCancellation()
+        let awaitsReadyCompletion: Bool
+        if case .ready(let channel, _) = outcome, let readyCompletion {
+            readyCompletions[channel.token] = readyCompletion
+            awaitsReadyCompletion = true
+        } else {
+            awaitsReadyCompletion = false
+        }
         // Only the latest requester clears the slot; an older one that a newer
         // attach already superseded must not stomp the newer task's handle.
         guard requestCounter == myID else {
@@ -128,13 +275,45 @@ actor BridgeAttachPreflight {
             // publish (review finding R-2).
             return outcome
         }
-        inFlight = nil
+        if !awaitsReadyCompletion {
+            inFlight = nil
+        }
         return outcome
+    }
+
+    func completeReadyOutcome(token: String) async {
+        guard let completion = readyCompletions.removeValue(forKey: token) else { return }
+        await completion.complete()
+        if inFlight?.readyCompletion === completion {
+            inFlight = nil
+        }
+    }
+
+    /// Cancels the active attach and retires this actor only if no replacement
+    /// attach arrived while cancellation was unwinding. A replacement reuses
+    /// this actor and therefore waits on the predecessor before touching the
+    /// shared per-session ledger or state-file path.
+    func cancelAndRetireIfIdle() async -> Bool {
+        requestCounter += 1
+        let retirementID = requestCounter
+        let entry = inFlight
+        entry?.task.cancel()
+        let outcome = await entry?.task.value
+        if case .ready = outcome {
+            await entry?.readyCompletion?.wait()
+        }
+        guard requestCounter == retirementID else { return false }
+        inFlight = nil
+        current = nil
+        return true
     }
 
     // MARK: - Sequence
 
-    private func run(_ request: Request) async -> Outcome {
+    private func run(
+        _ request: Request,
+        terminationBarrier: BridgePreflightTerminationBarrier
+    ) async -> Outcome {
         // 1. previousGeneration from the ledger (the fresh-epoch 0 → gen 1 case
         //    is exactly a first attach or a post-restart attach).
         let previousGeneration = await ledger.previousGeneration(for: request.session)
@@ -144,12 +323,14 @@ actor BridgeAttachPreflight {
         //    mint cannot perform, and the listener needs this run's token, so
         //    the token must exist first. Nothing external exists yet, so a mint
         //    failure needs no rollback.
-        guard let minted = BridgeChannel.mint(
-            session: request.session,
-            previousGeneration: previousGeneration,
-            localSocketPath: "",
-            remoteHome: request.remoteHome
-        ) else {
+        guard
+            let minted = BridgeChannel.mint(
+                session: request.session,
+                previousGeneration: previousGeneration,
+                localSocketPath: "",
+                remoteHome: request.remoteHome
+            )
+        else {
             return .degraded(.mintFailed)
         }
         if Task.isCancelled { return .cancelled }
@@ -159,7 +340,7 @@ actor BridgeAttachPreflight {
         do {
             listener = try await makeListener(minted.token, request.session)
         } catch {
-            return .degraded(.listenerFailed)
+            return Task.isCancelled ? .cancelled : .degraded(.listenerFailed)
         }
         let channel = BridgeChannel(
             token: minted.token,
@@ -178,14 +359,26 @@ actor BridgeAttachPreflight {
             return .cancelled
         }
 
+        // Make every generation visible to the synchronous app-termination
+        // sweep before the first remote mutation. Promotion later moves this
+        // exact captured generation into the live session slot; failures remove
+        // the staged visibility after rolling their own resources back.
+        await stageGeneration(request, channel, listener, terminationBarrier)
+        if Task.isCancelled {
+            await rollbackNew(request: request, channel: channel, listener: listener)
+            return .cancelled
+        }
+
         // 4. Establish the NEW reverse forward.
         do {
-            _ = try await execChannel(
-                AmxBackend.bridgeReverseForwardCommand(
-                    controlPath: request.controlPath, remote: request.remote, channel: channel
-                ),
-                nil
-            )
+            _ = try await terminationBarrier.performMutation {
+                try await self.execChannel(
+                    AmxBackend.bridgeReverseForwardCommand(
+                        controlPath: request.controlPath, remote: request.remote, channel: channel
+                    ),
+                    nil
+                )
+            }
         } catch {
             // A thrown exec cannot prove the forward never registered: a
             // timeout or cancellation can race a `-O forward` the master
@@ -193,7 +386,7 @@ actor BridgeAttachPreflight {
             // harmless no-op (spec finding 16a), so always attempt the cancel
             // rather than leak a forward on the ambiguous-completion path.
             await rollbackNew(request: request, channel: channel, listener: listener)
-            return .degraded(.forwardFailed)
+            return Task.isCancelled ? .cancelled : .degraded(.forwardFailed)
         }
         if Task.isCancelled {
             await rollbackNew(request: request, channel: channel, listener: listener)
@@ -208,37 +401,44 @@ actor BridgeAttachPreflight {
         //    the worst case stays no-misdelivery.
         let admissionOutput: Data
         do {
-            admissionOutput = try await execChannel(
-                AmxBackend.bridgeRemoteSocketAdmissionCommand(
-                    controlPath: request.controlPath, remote: request.remote,
-                    remoteSocketPath: channel.remoteSocketPath
-                ),
-                nil
-            )
+            admissionOutput = try await terminationBarrier.performMutation {
+                try await self.execChannel(
+                    AmxBackend.bridgeRemoteSocketAdmissionCommand(
+                        controlPath: request.controlPath, remote: request.remote,
+                        remoteSocketPath: channel.remoteSocketPath
+                    ),
+                    nil
+                )
+            }
         } catch {
             await rollbackNew(request: request, channel: channel, listener: listener)
-            return .degraded(.admissionRejected)
-        }
-        guard AmxBackend.bridgeAdmissionPassed(
-            statOutput: String(decoding: admissionOutput, as: UTF8.self)
-        ) else {
-            await rollbackNew(request: request, channel: channel, listener: listener)
-            return .degraded(.admissionRejected)
+            return Task.isCancelled ? .cancelled : .degraded(.admissionRejected)
         }
         if Task.isCancelled {
             await rollbackNew(request: request, channel: channel, listener: listener)
             return .cancelled
         }
-
+        guard
+            AmxBackend.bridgeAdmissionPassed(
+                statOutput: String(decoding: admissionOutput, as: UTF8.self)
+            )
+        else {
+            await rollbackNew(request: request, channel: channel, listener: listener)
+            return .degraded(.admissionRejected)
+        }
         // 6. Atomic state-file publish — the readiness commit.
-        guard let write = AmxBackend.bridgeStateFileWriteCommand(
-            controlPath: request.controlPath, remote: request.remote, channel: channel
-        ) else {
+        guard
+            let write = AmxBackend.bridgeStateFileWriteCommand(
+                controlPath: request.controlPath, remote: request.remote, channel: channel
+            )
+        else {
             await rollbackNew(request: request, channel: channel, listener: listener)
             return .degraded(.publishFailed)
         }
         do {
-            _ = try await execChannel(write.command, write.stdinData)
+            _ = try await terminationBarrier.performMutation {
+                try await self.execChannel(write.command, write.stdinData)
+            }
         } catch {
             // A thrown publish is treated as failed and rolled back to the
             // prior generation (spec step-4 rollback). The one ambiguous case —
@@ -251,7 +451,7 @@ actor BridgeAttachPreflight {
             // re-publishes (the AMX_STATUS_TOKEN self-healing model). Verifying
             // the write would need an extra read the spec does not mandate.
             await rollbackNew(request: request, channel: channel, listener: listener)
-            return .degraded(.publishFailed)
+            return Task.isCancelled ? .cancelled : .degraded(.publishFailed)
         }
 
         // Past the readiness commit the new generation is the published truth;
@@ -268,8 +468,12 @@ actor BridgeAttachPreflight {
         //    best-effort no-ops when the master is already gone or rejects the
         //    cancel (spec finding 16 a/b/c) — a failure here never demotes a
         //    committed `ready`.
-        await breakOldGeneration(request: request, previousEntry: previousEntry)
-        current = listener
+        await breakOldGeneration(previousEntry: previousEntry)
+        current = CurrentGeneration(
+            listener: listener,
+            remote: request.remote,
+            controlPath: request.controlPath
+        )
 
         return .ready(
             channel: channel,
@@ -301,6 +505,7 @@ actor BridgeAttachPreflight {
             nil
         )
         await listener.shutdown()
+        await unstageGeneration(channel.token)
     }
 
     /// Cancels the previous forward, removes its remote socket by the exact
@@ -308,13 +513,13 @@ actor BridgeAttachPreflight {
     /// `current`; the old remote path comes from the ledger entry `commit` just
     /// replaced — the pairing is exact (a live `current` implies a prior commit
     /// for this session in this run). All three steps are best-effort.
-    private func breakOldGeneration(request: Request, previousEntry: BridgeSocketLedger.Entry?) async {
-        guard let oldListener = current else { return }
+    private func breakOldGeneration(previousEntry: BridgeSocketLedger.Entry?) async {
+        guard let oldGeneration = current else { return }
         // Revoke the old token locally at the readiness commit before any slow
         // SSH cleanup. The remote commands use captured paths and do not need a
         // live listener; keeping it open would let a superseded helper continue
         // sending authenticated frames while cancel/rm waits on the network.
-        await oldListener.shutdown()
+        await oldGeneration.listener.shutdown()
         if let previousEntry {
             // Cancel-the-old-forward and rm-the-old-socket act on the same
             // already-known old path, neither reads the other's result, both
@@ -324,12 +529,12 @@ actor BridgeAttachPreflight {
             // which handles concurrent local clients fine.
             let exec = execChannel
             let cancelCommand = AmxBackend.bridgeReverseForwardCancelCommand(
-                controlPath: request.controlPath, remote: request.remote,
+                controlPath: oldGeneration.controlPath, remote: oldGeneration.remote,
                 remoteSocketPath: previousEntry.remoteSocketPath,
-                localSocketPath: oldListener.socketPath
+                localSocketPath: oldGeneration.listener.socketPath
             )
             let removeCommand = AmxBackend.bridgeRemoteSocketRemoveCommand(
-                controlPath: request.controlPath, remote: request.remote,
+                controlPath: oldGeneration.controlPath, remote: oldGeneration.remote,
                 remoteSocketPath: previousEntry.remoteSocketPath
             )
             async let cancel: Void = { _ = try? await exec(cancelCommand, nil) }()

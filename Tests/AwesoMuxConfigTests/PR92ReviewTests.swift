@@ -124,6 +124,27 @@ struct PR92ReviewTests {
         #expect(secondEmit.contains("leader = \"ctrl-b\""))
     }
 
+    @Test("retired analytics table is dropped while unknown tables still round-trip")
+    func retiredAnalyticsTableIsDropped() throws {
+        let source = """
+            [analytics]
+            consent_level = "product_usage"
+            team_handle = "legacy-user"
+
+            [experimental]
+            cool_factor = 11
+            """
+
+        let decoded = try codec.decode(source)
+        #expect(decoded.unknownTopLevelTables["analytics"] == nil)
+        #expect(decoded.unknownTopLevelTables["experimental"]?.contains("cool_factor = 11") == true)
+
+        let reEmitted = try codec.encodeString(decoded)
+        #expect(!reEmitted.contains("[analytics]"))
+        #expect(!reEmitted.contains("legacy-user"))
+        #expect(reEmitted.contains("[experimental]"))
+    }
+
     // MARK: symlink write-through
 
     @Test("save writes through a symlinked config file to its target")

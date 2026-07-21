@@ -1,0 +1,129 @@
+name: Update Homebrew cask
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-cask-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  update-cask:
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Checkout trusted release automation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Validate release metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::stable release tag must be vX.Y.Z, got: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Verify tap credential is present
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$HOMEBREW_TAP_TOKEN" ]]; then
+            echo "::error::missing HOMEBREW_TAP_TOKEN in the release environment" >&2
+            exit 1
+          fi
+
+      - name: Download and verify published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          ASSET_DIR="$RUNNER_TEMP/release-assets"
+          DMG_NAME="awesoMux-$RELEASE_VERSION.dmg"
+          CHECKSUM_NAME="$DMG_NAME.sha256"
+          mkdir -p "$ASSET_DIR"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$ASSET_DIR" \
+            --pattern "$DMG_NAME" \
+            --pattern "$CHECKSUM_NAME"
+
+          if [[ ! -f "$ASSET_DIR/$DMG_NAME" || ! -f "$ASSET_DIR/$CHECKSUM_NAME" ]]; then
+            echo "::error::published release must contain $DMG_NAME and $CHECKSUM_NAME" >&2
+            exit 1
+          fi
+          if [[ "$(wc -l < "$ASSET_DIR/$CHECKSUM_NAME" | tr -d ' ')" -ne 1 ]]; then
+            echo "::error::$CHECKSUM_NAME must contain exactly one checksum entry" >&2
+            exit 1
+          fi
+          read -r DMG_SHA256 CHECKSUM_FILE < "$ASSET_DIR/$CHECKSUM_NAME"
+          CHECKSUM_FILE="${CHECKSUM_FILE#\*}"
+          if [[ ! "$DMG_SHA256" =~ ^[0-9a-f]{64}$ || "$CHECKSUM_FILE" != "$DMG_NAME" ]]; then
+            echo "::error::$CHECKSUM_NAME does not identify the expected release DMG" >&2
+            exit 1
+          fi
+          (
+            cd "$ASSET_DIR"
+            shasum -a 256 -c "$CHECKSUM_NAME"
+          )
+          echo "DMG_SHA256=$DMG_SHA256" >> "$GITHUB_ENV"
+
+      - name: Open Homebrew tap pull request
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          set -euo pipefail
+          TAP_REPOSITORY="Interactive-Buffoonery/homebrew-tap"
+          TAP_DIR="$RUNNER_TEMP/homebrew-tap"
+          BRANCH="chore/awesomux-$RELEASE_VERSION"
+
+          EXISTING_PR="$(gh pr list \
+            --repo "$TAP_REPOSITORY" \
+            --head "$BRANCH" \
+            --state open \
+            --json url \
+            --jq '.[0].url // empty')"
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "Homebrew cask update PR already exists: $EXISTING_PR"
+            exit 0
+          fi
+
+          gh repo clone "$TAP_REPOSITORY" "$TAP_DIR" -- --quiet
+          ./script/update_homebrew_cask.sh \
+            --version "$RELEASE_VERSION" \
+            --sha256 "$DMG_SHA256" \
+            --cask "$TAP_DIR/Casks/awesomux.rb"
+
+          if git -C "$TAP_DIR" diff --quiet -- Casks/awesomux.rb; then
+            echo "Homebrew cask already points at awesoMux $RELEASE_VERSION."
+            exit 0
+          fi
+
+          git -C "$TAP_DIR" switch -c "$BRANCH"
+          git -C "$TAP_DIR" config user.name "awesoMux Release"
+          git -C "$TAP_DIR" config user.email "noreply@interactivebuffoonery.com"
+          git -C "$TAP_DIR" add Casks/awesomux.rb
+          git -C "$TAP_DIR" commit -m "chore(awesomux): bump cask to $RELEASE_VERSION"
+          gh auth setup-git
+          git -C "$TAP_DIR" push --force-with-lease --set-upstream origin "$BRANCH"
+
+          gh pr create \
+            --repo "$TAP_REPOSITORY" \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(awesomux): bump cask to $RELEASE_VERSION" \
+            --body "Automated from published awesoMux release [$RELEASE_TAG]($RELEASE_URL). The release DMG checksum was verified before updating the cask."

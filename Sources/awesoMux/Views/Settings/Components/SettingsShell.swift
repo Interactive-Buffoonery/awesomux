@@ -22,7 +22,6 @@ enum SettingsTitlebarMetrics {
 
 struct SettingsShell<Selection: Hashable, Sidebar: View, Detail: View>: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
-    @Environment(SettingsNavigator.self) private var navigator
     @Binding var selection: Selection
     @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var detail: () -> Detail
@@ -153,44 +152,14 @@ struct SettingsShell<Selection: Hashable, Sidebar: View, Detail: View>: View {
     }
 
     private var detailColumn: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 0) {
-                    detail()
-                }
-                .padding(AwSettings.contentInset)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 0) {
+                detail()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color.aw.surface.window)
-            .onChange(of: navigator.pendingScrollAnchor) {
-                consumeScrollAnchor(proxy)
-            }
-            .onChange(of: navigator.mountedAnchors) {
-                consumeScrollAnchor(proxy)
-            }
-            .onAppear {
-                consumeScrollAnchor(proxy)
-            }
+            .padding(AwSettings.contentInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    // Event-driven, deliberately without a timeout: the anchor's target
-    // pane is usually still mounting when a deep link lands, so consumption
-    // triggers on both anchor changes and mount registrations, and a target
-    // that mounts late — or re-mounts after the user detours through
-    // another pane — still gets its scroll. A timeout would strand the
-    // pending anchor: re-selecting the same deep link re-assigns an equal
-    // value, which `onChange` never reports. Consumption is synchronous;
-    // deferring it through a Task hop loses the scroll when the hop is
-    // starved (and buys nothing — `scrollTo` resolves against identity,
-    // not current layout).
-    private func consumeScrollAnchor(_ proxy: ScrollViewProxy) {
-        guard let anchor = navigator.pendingScrollAnchor,
-            navigator.mountedAnchors.contains(anchor)
-        else { return }
-        proxy.scrollTo(anchor, anchor: .top)
-        navigator.pendingScrollAnchor = nil
-        navigator.scrollDidLand(on: anchor)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.aw.surface.window)
     }
 }
