@@ -18,10 +18,11 @@ struct BridgeGenerationRegistryTests {
     private static func channel(
         session: TerminalSessionID = session,
         gen: Int = 1,
-        remoteSuffix: String = "aaaa"
+        remoteSuffix: String = "aaaa",
+        token: String = "deadbeef"
     ) -> BridgeChannel {
         BridgeChannel(
-            token: "deadbeef",
+            token: token,
             gen: gen,
             localSocketPath: "/tmp/awesomux-local-\(remoteSuffix).sock",
             remoteSocketPath: "/tmp/awesomux-bridge-\(remoteSuffix).sock",
@@ -121,7 +122,7 @@ struct BridgeGenerationRegistryTests {
         await harness.registry.teardown(for: Self.session)
 
         #expect(afterFirst == 3)
-        #expect(harness.execCommands.count == 3) // second call added nothing
+        #expect(harness.execCommands.count == 3)  // second call added nothing
         #expect(harness.shutdownCount == 1)
     }
 
@@ -146,9 +147,117 @@ struct BridgeGenerationRegistryTests {
         // state-file rm carries neither suffix: the state path is per-SESSION,
         // shared by A and its successor — a re-mint overwrites it in place.)
         #expect(cmds.filter { $0.contains(".sock") }.allSatisfy { $0.contains("aaaa") })
-        #expect(cmds.allSatisfy { !$0.contains("bbbb") })          // never the successor's
+        #expect(cmds.allSatisfy { !$0.contains("bbbb") })  // never the successor's
         // The successor's ledger entry survives — its previousGeneration intact.
         #expect(await harness.ledger.previousGeneration(for: Self.session) == 2)
+    }
+
+    @Test("discarding a stale committed generation preserves its successor")
+    func discardCommittedGenerationPreservesSuccessor() async {
+        let harness = Harness()
+        let stale = Self.channel(remoteSuffix: "aaaa", token: "stale-token")
+        let successor = Self.channel(
+            gen: 2,
+            remoteSuffix: "bbbb",
+            token: "successor-token"
+        )
+        await harness.commitLedger(session: Self.session, channel: successor)
+        harness.registry.register(harness.generation(channel: successor), for: Self.session)
+
+        await harness.registry.discardCommitted(
+            harness.generation(channel: stale),
+            for: Self.session
+        )
+
+        #expect(harness.execCommands.filter { $0.contains(".sock") }.allSatisfy { $0.contains("aaaa") })
+        #expect(harness.execCommands.allSatisfy { !$0.contains("bbbb") })
+        #expect(harness.registry.currentToken(for: Self.session) == successor.token)
+        #expect(await harness.ledger.previousGeneration(for: Self.session) == 2)
+    }
+
+    @Test("committed discard stays quit-visible while remote cleanup is blocked")
+    func committedDiscardStaysTerminationVisibleDuringRemoteCleanup() async {
+        let ledger = BridgeSocketLedger()
+        let remoteCleanup = RemoteCleanupGate()
+        let shutdown = CommandRecorder()
+        let terminationCommands = CommandRecorder()
+        let channel = Self.channel(remoteSuffix: "stale")
+        let registry = BridgeGenerationRegistry(
+            ledger: ledger,
+            execChannel: { command in
+                await remoteCleanup.block(command)
+                return Data()
+            },
+            syncExec: { terminationCommands.record($0) }
+        )
+        await ledger.commit(
+            session: Self.session,
+            generation: channel.gen,
+            remoteSocketPath: channel.remoteSocketPath,
+            mintedAt: Date(timeIntervalSince1970: 1_000_000)
+        )
+
+        await registry.discardCommitted(
+            BridgeGenerationRegistry.Generation(
+                controlPath: Self.controlPath,
+                remote: Self.remote,
+                channel: channel,
+                shutdown: { shutdown.recordShutdown() }
+            ),
+            for: Self.session
+        )
+
+        #expect(shutdown.shutdownCount == 1)
+        #expect(await ledger.previousGeneration(for: Self.session) == 0)
+        await remoteCleanup.waitForCount(3)
+        let commands = await remoteCleanup.commands
+        #expect(commands.count == 3)
+        #expect(commands.contains { $0.contains("-O cancel") })
+        #expect(commands.allSatisfy { !$0.contains("*") })
+        #expect(commands.filter { $0.contains(channel.remoteSocketPath) }.count == 2)
+        #expect(
+            commands.contains {
+                $0.contains(channel.stateFilePath)
+                    && $0.contains((channel.remoteSocketPath as NSString).lastPathComponent)
+            }
+        )
+        registry.drainForTermination()
+        #expect(terminationCommands.count == 3)
+        await remoteCleanup.release()
+    }
+
+    @Test("extracted live generation stays quit-visible while teardown is blocked")
+    func extractedGenerationStaysTerminationVisibleDuringTeardown() async throws {
+        let ledger = BridgeSocketLedger()
+        let remoteCleanup = RemoteCleanupGate()
+        let terminationCommands = CommandRecorder()
+        let channel = Self.channel(remoteSuffix: "extracted")
+        let registry = BridgeGenerationRegistry(
+            ledger: ledger,
+            execChannel: { command in
+                await remoteCleanup.block(command)
+                return Data()
+            },
+            syncExec: { terminationCommands.record($0) }
+        )
+        let generation = BridgeGenerationRegistry.Generation(
+            controlPath: Self.controlPath,
+            remote: Self.remote,
+            channel: channel,
+            shutdown: {}
+        )
+        registry.register(generation, for: Self.session)
+
+        let extracted = try #require(registry.takeGeneration(for: Self.session))
+        let teardown = Task {
+            await registry.tearDownExtracted(extracted, for: Self.session)
+        }
+        await remoteCleanup.waitForCount(3)
+
+        registry.drainForTermination()
+        #expect(terminationCommands.count == 3)
+        await remoteCleanup.release()
+        await teardown.value
     }
 
     @Test("teardown of an unknown session is a silent no-op")
@@ -174,7 +283,7 @@ struct BridgeGenerationRegistryTests {
         await harness.awaitSyncDrained(expected: 6)
 
         let cmds = harness.syncCommands
-        #expect(cmds.count == 6) // cancel + socket rm + state-file rm per generation
+        #expect(cmds.count == 6)  // cancel + socket rm + state-file rm per generation
         for suffix in ["aaaa", "bbbb"] {
             #expect(cmds.contains { $0.contains("-O cancel") && $0.contains("awesomux-bridge-\(suffix).sock") })
             #expect(cmds.contains { $0.contains("rm -f") && $0.contains("awesomux-bridge-\(suffix).sock") })
@@ -213,6 +322,75 @@ struct BridgeGenerationRegistryTests {
         harness.registry.drainForTermination(budget: 2)
         #expect(harness.syncCommands.isEmpty)
     }
+
+    @Test("approved termination waits past the old budget for mutation then cleanup")
+    func approvedTerminationWaitsForMutationAndCleanup() async throws {
+        let ledger = BridgeSocketLedger()
+        let mutationGate = RemoteCleanupGate()
+        let cleanup = CommandRecorder()
+        let drainCompletion = CommandRecorder()
+        let barrier = BridgePreflightTerminationBarrier()
+        let channel = Self.channel(remoteSuffix: "termination-barrier")
+        let shutdown = CommandRecorder()
+        let registry = BridgeGenerationRegistry(
+            ledger: ledger,
+            execChannel: { command in
+                cleanup.record(command)
+                return Data()
+            },
+            syncExec: { _ in }
+        )
+        registry.stageForTermination(
+            BridgeGenerationRegistry.Generation(
+                controlPath: Self.controlPath,
+                remote: Self.remote,
+                channel: channel,
+                shutdown: { shutdown.recordShutdown() },
+                terminationBarrier: barrier
+            )
+        )
+        await ledger.commit(
+            session: Self.session,
+            generation: channel.gen,
+            remoteSocketPath: channel.remoteSocketPath,
+            mintedAt: Date(timeIntervalSince1970: 1_000_000)
+        )
+
+        let mutation = Task {
+            try? await barrier.performMutation {
+                await mutationGate.block("mutation")
+                return Data()
+            }
+        }
+        await mutationGate.waitForCount(1)
+        let drain = Task {
+            await registry.drainForTerminationBeforeExit()
+            drainCompletion.record("complete")
+        }
+
+        await Task.yield()
+        registry.register(
+            BridgeGenerationRegistry.Generation(
+                controlPath: Self.controlPath,
+                remote: Self.remote,
+                channel: channel,
+                shutdown: { shutdown.recordShutdown() }
+            ),
+            for: Self.session
+        )
+
+        try await Task.sleep(for: .milliseconds(2_100))
+        #expect(cleanup.commands.isEmpty)
+        #expect(drainCompletion.count == 0)
+
+        await mutationGate.release()
+        _ = await mutation.value
+        await drain.value
+        #expect(cleanup.count == 3)
+        #expect(drainCompletion.count == 1)
+        #expect(shutdown.shutdownCount == 1)
+        #expect(await ledger.previousGeneration(for: Self.session) == 0)
+    }
 }
 
 // MARK: - Test doubles
@@ -242,6 +420,32 @@ private final class CommandRecorder: @unchecked Sendable {
     func recordShutdown() {
         lock.lock(); defer { lock.unlock() }
         _shutdownCount += 1
+    }
+}
+
+private actor RemoteCleanupGate {
+    private(set) var commands: [String] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+    private var countWaiter: (expected: Int, continuation: CheckedContinuation<Void, Never>)?
+
+    func block(_ command: String) async {
+        commands.append(command)
+        if let countWaiter, commands.count >= countWaiter.expected {
+            self.countWaiter = nil
+            countWaiter.continuation.resume()
+        }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func waitForCount(_ expected: Int) async {
+        guard commands.count < expected else { return }
+        await withCheckedContinuation { countWaiter = (expected, $0) }
+    }
+
+    func release() {
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 }
 

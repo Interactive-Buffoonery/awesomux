@@ -156,14 +156,23 @@ final class GhosttyRuntime {
     @ObservationIgnored
     let bridgeCoordinatorStore = BridgeCoordinatorStore()
 
+    private struct BridgeAttachPreflightEntry {
+        let preflight: BridgeAttachPreflight
+        var accessGeneration: UInt64
+    }
+
     /// One long-lived attach preflight per remote bridge session, keyed by the
     /// pane's `TerminalSessionID`. Persisted (not rebuilt per attach) because its
     /// `current` listener is the make-before-break handle a reattach uses to break
     /// the previous generation only after the new one publishes; a fresh preflight
     /// each attach would lose that handle and leak forwards across reattaches.
-    /// Removed on genuine close / session re-point (the teardown-parity paths).
+    /// Genuine close / session re-point retires an entry only after its active
+    /// attach drains; a same-session replacement reuses it during that window.
     @ObservationIgnored
-    private var bridgeAttachPreflights: [TerminalSessionID: BridgeAttachPreflight] = [:]
+    private var bridgeAttachPreflights: [TerminalSessionID: BridgeAttachPreflightEntry] = [:]
+
+    @ObservationIgnored
+    var bridgeAttachPreflightFactoryOverride: (@MainActor (TerminalSessionID) -> BridgeAttachPreflight)?
 
     @ObservationIgnored
     private var agentIntegrationsProvider: @MainActor () -> AgentIntegrationsConfig = { .defaultValue }
@@ -250,6 +259,9 @@ final class GhosttyRuntime {
 
     @ObservationIgnored
     private var commandBridgeEnabledProvider: @MainActor () -> Bool = { false }
+
+    @ObservationIgnored
+    var createSurfaceOverride: ((NSView, String?, [String: String], String?) -> ghostty_surface_t?)?
 
     private(set) var readiness: Readiness = .uninitialized
     private(set) var errorMessage: String?
@@ -566,7 +578,7 @@ final class GhosttyRuntime {
             // Genuine close also drops the session's long-lived attach preflight —
             // a heal keeps it so the successor's re-mint can break the previous
             // generation through its retained listener handle.
-            forgetBridgeAttachPreflight(for: recoverySessionID)
+            retireBridgeAttachPreflightAndGeneration(for: recoverySessionID)
             // Genuine close: break this session's live bridge generation now
             // (cancel the reverse forward, rm the remote socket by exact ledger
             // path, shut the listener). The heal branch deliberately does none of
@@ -574,16 +586,6 @@ final class GhosttyRuntime {
             // the old one only after the successor publishes (the recovery-record
             // survival contract). Fire-and-forget: teardown is async best-effort
             // and must not block the discard, which runs during AppKit layout.
-            if let registry = bridgeGenerationRegistry {
-                // Capture token synchronously so a successor re-mint registered
-                // before the fire-and-forget Task runs is never wrongly torn down
-                // (same shape as CommandBridgeEnactor; review finding R-3).
-                if let token = registry.currentToken(for: recoverySessionID) {
-                    Task { await registry.teardown(for: recoverySessionID, ifToken: token) }
-                } else {
-                    Task { await registry.teardown(for: recoverySessionID) }
-                }
-            }
         }
 #if DEBUG
         logSurfaceCacheEvent("discard", paneID: paneID)
@@ -611,14 +613,7 @@ final class GhosttyRuntime {
         for pane in session.panes {
             discardSurface(for: pane.id)
             discardCommandBridgeRecoveryRecord(for: pane.terminalSessionID)
-            forgetBridgeAttachPreflight(for: pane.terminalSessionID)
-            if let registry = bridgeGenerationRegistry {
-                if let token = registry.currentToken(for: pane.terminalSessionID) {
-                    Task { await registry.teardown(for: pane.terminalSessionID, ifToken: token) }
-                } else {
-                    Task { await registry.teardown(for: pane.terminalSessionID) }
-                }
-            }
+            retireBridgeAttachPreflightAndGeneration(for: pane.terminalSessionID)
         }
 #if DEBUG
         logSurfaceCacheEvent(
@@ -948,27 +943,81 @@ final class GhosttyRuntime {
         workspaceSessionID: TerminalSession.ID,
         sessionStore: SessionStore
     ) -> BridgeAttachPreflight {
-        if let existing = bridgeAttachPreflights[session] {
-            return existing
+        if var existing = bridgeAttachPreflights[session] {
+            existing.accessGeneration &+= 1
+            bridgeAttachPreflights[session] = existing
+            return existing.preflight
         }
-        let preflight = BridgeAttachPreflight(
-            ledger: bridgeSocketLedger,
-            makeListener: makeBridgeListener(
-                paneID: paneID,
-                workspaceSessionID: workspaceSessionID,
-                sessionStore: sessionStore
+
+        let preflight =
+            bridgeAttachPreflightFactoryOverride?(session)
+            ?? BridgeAttachPreflight(
+                ledger: bridgeSocketLedger,
+                makeListener: makeBridgeListener(
+                    paneID: paneID,
+                    workspaceSessionID: workspaceSessionID,
+                    sessionStore: sessionStore
+                ),
+                stageGeneration: { [weak self] request, channel, listener, terminationBarrier in
+                    await self?.bridgeGenerationRegistry?.stageForTermination(
+                        BridgeGenerationRegistry.Generation(
+                            controlPath: request.controlPath,
+                            remote: request.remote,
+                            channel: channel,
+                            shutdown: listener.shutdown,
+                            terminationBarrier: terminationBarrier
+                        )
+                    )
+                },
+                unstageGeneration: { [weak self] token in
+                    await self?.bridgeGenerationRegistry?.discardStaged(token: token)
+                }
             )
+        bridgeAttachPreflights[session] = BridgeAttachPreflightEntry(
+            preflight: preflight,
+            accessGeneration: 1
         )
-        bridgeAttachPreflights[session] = preflight
         return preflight
     }
 
-    /// Drops a session's preflight on genuine close / re-point. The ledger and any
-    /// live generation are torn down separately (the registry); this just stops a
-    /// dead session's preflight from lingering for the app's lifetime.
+    /// Retires a session's preflight on genuine close / re-point. The entry stays
+    /// addressable until cancellation fully unwinds so a same-session recreation
+    /// cannot create a second actor that races the shared ledger/state-file path.
     @MainActor
     func forgetBridgeAttachPreflight(for session: TerminalSessionID) {
-        bridgeAttachPreflights.removeValue(forKey: session)
+        guard let retiring = bridgeAttachPreflights[session] else { return }
+        Task { @MainActor [weak self] in
+            guard
+                let current = self?.bridgeAttachPreflights[session],
+                current.preflight === retiring.preflight,
+                current.accessGeneration == retiring.accessGeneration
+            else {
+                return
+            }
+            let canRemove = await retiring.preflight.cancelAndRetireIfIdle()
+            guard
+                canRemove,
+                let current = self?.bridgeAttachPreflights[session],
+                current.preflight === retiring.preflight,
+                current.accessGeneration == retiring.accessGeneration
+            else {
+                return
+            }
+            self?.bridgeAttachPreflights.removeValue(forKey: session)
+        }
+    }
+
+    /// Removes the live generation synchronously before retiring its preflight.
+    /// The extracted generation remains captured by the asynchronous teardown,
+    /// so a same-session replacement can register without orphaning the old
+    /// listener when the preflight entry retires first.
+    @MainActor
+    func retireBridgeAttachPreflightAndGeneration(for session: TerminalSessionID) {
+        let registry = bridgeGenerationRegistry
+        let generation = registry?.takeGeneration(for: session)
+        forgetBridgeAttachPreflight(for: session)
+        guard let registry, let generation else { return }
+        Task { await registry.tearDownExtracted(generation, for: session) }
     }
 
     /// Registers the closure that `openURL` calls when it detects a
@@ -1012,6 +1061,9 @@ final class GhosttyRuntime {
         environment: [String: String],
         command: String? = nil
     ) -> ghostty_surface_t? {
+        if let createSurfaceOverride {
+            return createSurfaceOverride(view, workingDirectory, environment, command)
+        }
         guard let app else {
             return nil
         }

@@ -112,6 +112,14 @@ final class CommandBridgeEnactor {
     var sessionExistsProvider: @MainActor (TerminalSessionID) async -> Bool = {
         await AmxBackend.sessionExists($0)
     }
+    var attachCommandProvider:
+        (
+            TerminalSessionID,
+            AmxStatusChannel?,
+            RemoteTarget?
+        ) -> String? = { sessionID, status, remote in
+            AmxBackend.attachCommand(for: sessionID, status: status, remote: remote)
+        }
     var announceSessionRespawnedFresh: () -> Void = {
         TerminalAccessibilityAnnouncer.announceSessionRespawnedFresh()
     }
@@ -148,10 +156,7 @@ final class CommandBridgeEnactor {
         let remote = pane.executionPlan.remoteTarget
         let attachCommand: String? = {
             guard bridgeEnabled else { return nil }
-            if let channel {
-                return AmxBackend.attachCommand(for: pane.terminalSessionID, status: channel, remote: remote)
-            }
-            return AmxBackend.attachCommand(for: pane.terminalSessionID, remote: remote)
+            return attachCommandProvider(pane.terminalSessionID, channel, remote)
         }()
         let policyResult = BridgeSurfaceCommandPolicy.command(
             bridgeEnabled: bridgeEnabled,
@@ -265,7 +270,7 @@ final class CommandBridgeEnactor {
 
     /// Break this pane's live bridge generation (INT-698 D4 teardown parity):
     /// cancel the reverse forward, `rm` the remote socket by exact ledger path,
-    /// shut the listener/supervisor/coordinator, and drop the per-session
+    /// shut the listener/supervisor/coordinator, and retire the per-session
     /// preflight. Fire-and-forget (teardown is async best-effort) and idempotent
     /// (the registry no-ops an unknown session). This mirrors the genuine-close
     /// teardown the `discardSurface` hook already runs; the three callers here —
@@ -276,17 +281,7 @@ final class CommandBridgeEnactor {
     /// successor publishes (the recovery-record survival contract).
     private func tearDownBridgeGeneration(for session: TerminalSessionID?) {
         guard let session else { return }
-        runtime.forgetBridgeAttachPreflight(for: session)
-        // Capture the live generation's identity SYNCHRONOUSLY now, then tear
-        // down only that exact generation. A reconnect that re-mints a successor
-        // for the same session between here and the async teardown carries a
-        // different token, so this stale teardown no-ops on it instead of
-        // breaking the successor's live transport.
-        guard let registry = runtime.bridgeGenerationRegistry,
-              let token = registry.currentToken(for: session) else {
-            return
-        }
-        Task { await registry.teardown(for: session, ifToken: token) }
+        runtime.retireBridgeAttachPreflightAndGeneration(for: session)
     }
 
     func clearStateForLocalShellFallback() {

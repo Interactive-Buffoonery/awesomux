@@ -376,20 +376,29 @@ extension GhosttyRuntime {
     /// published (forward up, state file written, ledger advanced, trio staged),
     /// so it must be torn down through the registry — the one owner of the
     /// exact-path `-O cancel` + `rm` + trio shutdown — never just dropped.
-    /// Register-then-teardown reuses those paths verbatim; `ifToken` (this
-    /// generation's own token) protects a successor that races in between the
-    /// two steps.
+    /// The stale generation is never installed as the registry's live entry:
+    /// cleanup runs from its captured channel and staged teardown directly, so a
+    /// successor already registered for the same session remains authoritative.
     @MainActor
     func discardCommittedBridgeGeneration(
         session: TerminalSessionID,
         channel: BridgeChannel,
         controlPath: String,
         remote: RemoteTarget
-    ) {
-        promoteBridgeGeneration(session: session, channel: channel, controlPath: controlPath, remote: remote)
-        guard let registry = bridgeGenerationRegistry else { return }
-        let token = channel.token
-        Task { await registry.teardown(for: session, ifToken: token) }
+    ) async {
+        let staged = bridgeCoordinatorStore.takeStaged(token: channel.token)
+        let shutdown: @Sendable () async -> Void = staged?.teardown ?? { @Sendable in }
+        let generation = BridgeGenerationRegistry.Generation(
+            controlPath: controlPath,
+            remote: remote,
+            channel: channel,
+            shutdown: shutdown
+        )
+        guard let registry = bridgeGenerationRegistry else {
+            await generation.shutdown()
+            return
+        }
+        await registry.discardCommitted(generation, for: session)
     }
 
     /// The readiness commit (spec attach step 4+): promote the staged coordinator

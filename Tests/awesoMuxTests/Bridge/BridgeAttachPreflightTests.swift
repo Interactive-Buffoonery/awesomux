@@ -93,6 +93,38 @@ struct BridgeAttachPreflightTests {
         #expect(cmds.contains { $0.contains("rm -f") && $0.contains(channel1.remoteSocketPath) })
     }
 
+    @Test("retargeting tears the old generation down through its original host")
+    func retargetUsesOriginalGenerationIdentityForTeardown() async {
+        let harness = Harness()
+        guard case let .ready(oldChannel, _) = await harness.preflight.attach(Self.request) else {
+            Issue.record("initial attach should be ready")
+            return
+        }
+        let retargeted = BridgeAttachPreflight.Request(
+            session: Self.session,
+            remote: RemoteTarget(user: "alice", host: "new-box")!,
+            controlPath: "/tmp/new-ctl/%C",
+            remoteHome: "/Users/example",
+            helperPath: "/usr/local/bin/awesomux-remote-helper",
+            commandBuilder: Self.request.commandBuilder
+        )
+
+        guard case .ready = await harness.preflight.attach(retargeted) else {
+            Issue.record("retargeted attach should be ready")
+            return
+        }
+
+        let commands = Self.execCommands(await harness.timeline.events)
+        let cancel = commands.first { $0.contains("-O cancel") }
+        let oldSocketRemove = commands.first {
+            $0.contains("rm -f") && $0.contains(oldChannel.remoteSocketPath)
+        }
+        #expect(cancel?.contains("alice@box") == true)
+        #expect(cancel?.contains("/tmp/ctl/%C") == true)
+        #expect(oldSocketRemove?.contains("alice@box") == true)
+        #expect(oldSocketRemove?.contains("/tmp/ctl/%C") == true)
+    }
+
     @Test("repeated reattaches cancel exactly one prior forward each — no accumulation")
     func repeatedReattachesDoNotAccumulateForwards() async {
         let harness = Harness()
@@ -124,7 +156,7 @@ struct BridgeAttachPreflightTests {
         let outcome = await harness.preflight.attach(Self.request)
         #expect(outcome == .degraded(.listenerFailed))
         let cmds = Self.execCommands(await harness.timeline.events)
-        #expect(cmds.isEmpty) // never reached forward/admission/publish
+        #expect(cmds.isEmpty)  // never reached forward/admission/publish
     }
 
     @Test("a command assembly failure closes the listener before any remote mutation")
@@ -143,10 +175,11 @@ struct BridgeAttachPreflightTests {
         #expect(outcome == .degraded(.commandFailed))
         let events = await harness.timeline.events
         #expect(Self.execCommands(events).isEmpty)
-        #expect(events == [
-            "bind:/tmp/fake-listener-1.sock",
-            "shutdown:/tmp/fake-listener-1.sock"
-        ])
+        #expect(
+            events == [
+                "bind:/tmp/fake-listener-1.sock",
+                "shutdown:/tmp/fake-listener-1.sock",
+            ])
     }
 
     @Test("step 3 forward — a forward failure best-effort cancels the new forward and closes the listener")
@@ -160,7 +193,7 @@ struct BridgeAttachPreflightTests {
         // Cancellation can race a forward the master already accepted, so the
         // rollback always attempts the cancel (a no-op if it never registered).
         #expect(cmds.contains { $0.contains("-O cancel") })
-        #expect(!cmds.contains { $0.contains("cat >") }) // never published
+        #expect(!cmds.contains { $0.contains("cat >") })  // never published
         #expect(events.contains("shutdown:/tmp/fake-listener-1.sock"))
     }
 
@@ -174,8 +207,8 @@ struct BridgeAttachPreflightTests {
         let cmds = Self.execCommands(events)
         #expect(cmds.contains { $0.contains("-O forward") })
         #expect(cmds.contains { $0.contains("stat -c %a") })
-        #expect(cmds.contains { $0.contains("-O cancel") }) // new forward cancelled
-        #expect(!cmds.contains { $0.contains("cat >") })    // never published
+        #expect(cmds.contains { $0.contains("-O cancel") })  // new forward cancelled
+        #expect(!cmds.contains { $0.contains("cat >") })  // never published
         #expect(events.contains("shutdown:/tmp/fake-listener-1.sock"))
     }
 
@@ -235,7 +268,7 @@ struct BridgeAttachPreflightTests {
                 return command.contains(needle)
             }
         })
-        _ = await harness.preflight.attach(Self.request) // gen 1, no teardown yet
+        _ = await harness.preflight.attach(Self.request)  // gen 1, no teardown yet
         let second = await harness.preflight.attach(Self.request)
         guard case .ready = second else {
             Issue.record("teardown failure must not demote a committed ready, got \(second)")
@@ -273,6 +306,383 @@ struct BridgeAttachPreflightTests {
         #expect(await harness.ledger.previousGeneration(for: Self.session) == 1)
     }
 
+    @Test("cancelling the caller cancels and rolls back the in-flight attach")
+    func callerCancellationRollsBackInFlightAttach() async {
+        let harness = Harness()
+        await harness.gate.arm()
+
+        let cancelled = Task { await harness.preflight.attach(Self.request) }
+        await harness.gate.awaitWaiting()
+        cancelled.cancel()
+        await harness.gate.release()
+
+        #expect(await cancelled.value == .cancelled)
+        #expect(await harness.ledger.previousGeneration(for: Self.session) == 0)
+        #expect(await harness.timeline.events.contains("shutdown:/tmp/fake-listener-1.sock"))
+    }
+
+    @Test("a same-session attach after caller cancellation starts from clean state")
+    func sameSessionAttachAfterCancellationStartsClean() async {
+        let harness = Harness()
+        await harness.gate.arm()
+
+        let cancelled = Task { await harness.preflight.attach(Self.request) }
+        await harness.gate.awaitWaiting()
+        cancelled.cancel()
+        await harness.gate.release()
+        #expect(await cancelled.value == .cancelled)
+
+        let replacement = await harness.preflight.attach(Self.request)
+
+        guard case let .ready(channel, _) = replacement else {
+            Issue.record("replacement should be ready, got \(replacement)")
+            return
+        }
+        #expect(channel.gen == 1)
+        #expect(await harness.ledger.previousGeneration(for: Self.session) == 1)
+        let commands = Self.execCommands(await harness.timeline.events)
+        #expect(commands.filter { $0.contains("cat >") }.count == 1)
+    }
+
+    @MainActor
+    @Test("delayed retirement does not cancel an admitted same-session replacement")
+    func delayedRetirementPreservesAdmittedReplacement() async throws {
+        let replacementCommitted = TaskCompletionSignal()
+        let timeline = TimelineLog()
+        let listenerCounter = ListenerCounter()
+        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
+        let ledger = runtime.bridgeSocketLedger
+        runtime.bridgeAttachPreflightFactoryOverride = { _ in
+            BridgeAttachPreflight(
+                ledger: ledger,
+                now: { Date(timeIntervalSince1970: 1_000_000) },
+                execChannel: { command, _ in
+                    if command.contains("stat -c %a") { return Data("600\n".utf8) }
+                    return Data()
+                },
+                makeListener: { _, _ in
+                    let path = "/tmp/delayed-retirement-\(await listenerCounter.next()).sock"
+                    await timeline.record("bind:\(path)")
+                    return BridgeAttachPreflight.PreparedListener(socketPath: path) {
+                        await timeline.record("shutdown:\(path)")
+                    }
+                }
+            )
+        }
+        let pane = TerminalPane(
+            title: "bridge",
+            workingDirectory: "/tmp",
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "session",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "awesoMux", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        _ = runtime.bridgeAttachPreflight(
+            for: Self.session,
+            paneID: pane.id,
+            workspaceSessionID: session.id,
+            sessionStore: store
+        )
+        runtime.forgetBridgeAttachPreflight(for: Self.session)
+        let replacementActor = runtime.bridgeAttachPreflight(
+            for: Self.session,
+            paneID: pane.id,
+            workspaceSessionID: session.id,
+            sessionStore: store
+        )
+        let replacement = Task.detached {
+            let outcome = await replacementActor.attach(Self.request)
+            replacementCommitted.signal()
+            return outcome
+        }
+        try #require(replacementCommitted.wait())
+        guard case .ready = await replacement.value else {
+            Issue.record("an admitted replacement must survive stale retirement")
+            return
+        }
+
+        let retirementQueueDrained = Task { @MainActor in () }
+        await retirementQueueDrained.value
+
+        guard case .ready = await replacementActor.attach(Self.request) else {
+            Issue.record("the replacement actor must remain reusable")
+            return
+        }
+        #expect(
+            await timeline.events.contains(
+                "shutdown:/tmp/delayed-retirement-1.sock"
+            )
+        )
+    }
+
+    @MainActor
+    @Test("quit drains a committed generation before surface promotion")
+    func quitDrainsCommittedGenerationBeforePromotion() async throws {
+        let ledger = BridgeSocketLedger()
+        let commands = TerminationCommandRecorder()
+        let registry = BridgeGenerationRegistry(
+            ledger: ledger,
+            execChannel: { _ in Data() },
+            syncExec: { commands.record($0) }
+        )
+        let preflight = BridgeAttachPreflight(
+            ledger: ledger,
+            now: { Date(timeIntervalSince1970: 1_000_000) },
+            execChannel: { command, _ in
+                if command.contains("stat -c %a") { return Data("600\n".utf8) }
+                return Data()
+            },
+            makeListener: { _, _ in
+                BridgeAttachPreflight.PreparedListener(
+                    socketPath: "/tmp/termination-visible.sock",
+                    shutdown: {}
+                )
+            },
+            stageGeneration: { request, channel, listener, terminationBarrier in
+                await registry.stageForTermination(
+                    BridgeGenerationRegistry.Generation(
+                        controlPath: request.controlPath,
+                        remote: request.remote,
+                        channel: channel,
+                        shutdown: listener.shutdown,
+                        terminationBarrier: terminationBarrier
+                    )
+                )
+            },
+            unstageGeneration: { token in
+                await registry.discardStaged(token: token)
+            }
+        )
+
+        guard case let .ready(channel, _) = await preflight.attach(Self.request) else {
+            Issue.record("the fixture generation must reach its readiness commit")
+            return
+        }
+        #expect(registry.currentToken(for: Self.session) == nil)
+
+        registry.drainForTermination()
+
+        #expect(commands.values.count == 3)
+        #expect(commands.values.contains { $0.contains("-O cancel") })
+        #expect(commands.values.contains { $0.contains(channel.remoteSocketPath) })
+        #expect(commands.values.contains { $0.contains(channel.stateFilePath) })
+    }
+
+    @MainActor
+    @Test("quit cancels a staged preflight before its first remote mutation")
+    func quitCancelsStagedPreflightBeforeMutation() async {
+        let ledger = BridgeSocketLedger()
+        let stageGate = PublishGate()
+        let resources = RemoteMutationRecorder()
+        let registry = BridgeGenerationRegistry(
+            ledger: ledger,
+            execChannel: { _ in Data() },
+            syncExec: { resources.apply($0) }
+        )
+        let preflight = BridgeAttachPreflight(
+            ledger: ledger,
+            execChannel: { command, _ in
+                resources.apply(command)
+                if command.contains("stat -c %a") { return Data("600\n".utf8) }
+                return Data()
+            },
+            makeListener: { _, _ in
+                BridgeAttachPreflight.PreparedListener(
+                    socketPath: "/tmp/termination-before-mutation.sock",
+                    shutdown: {}
+                )
+            },
+            stageGeneration: { request, channel, listener, terminationBarrier in
+                await registry.stageForTermination(
+                    BridgeGenerationRegistry.Generation(
+                        controlPath: request.controlPath,
+                        remote: request.remote,
+                        channel: channel,
+                        shutdown: listener.shutdown,
+                        terminationBarrier: terminationBarrier
+                    )
+                )
+                await stageGate.waitOnce()
+            },
+            unstageGeneration: { token in
+                await registry.discardStaged(token: token)
+            }
+        )
+
+        let attach = Task { await preflight.attach(Self.request) }
+        await stageGate.waitUntilSuspended()
+        registry.drainForTermination()
+        await stageGate.release()
+
+        #expect(await attach.value == .cancelled)
+        #expect(resources.forwardCreationCount == 0)
+        #expect(resources.liveForwardCount == 0)
+    }
+
+    @MainActor
+    @Test("rollback removes a prepared generation from the quit sweep")
+    func rollbackUnstagesGenerationFromTermination() async {
+        let ledger = BridgeSocketLedger()
+        let commands = TerminationCommandRecorder()
+        let registry = BridgeGenerationRegistry(
+            ledger: ledger,
+            execChannel: { _ in Data() },
+            syncExec: { commands.record($0) }
+        )
+        let preflight = BridgeAttachPreflight(
+            ledger: ledger,
+            execChannel: { command, _ in
+                if command.contains("stat -c %a") { return Data("640\n".utf8) }
+                return Data()
+            },
+            makeListener: { _, _ in
+                BridgeAttachPreflight.PreparedListener(
+                    socketPath: "/tmp/termination-rollback.sock",
+                    shutdown: {}
+                )
+            },
+            stageGeneration: { request, channel, listener, terminationBarrier in
+                await registry.stageForTermination(
+                    BridgeGenerationRegistry.Generation(
+                        controlPath: request.controlPath,
+                        remote: request.remote,
+                        channel: channel,
+                        shutdown: listener.shutdown,
+                        terminationBarrier: terminationBarrier
+                    )
+                )
+            },
+            unstageGeneration: { token in
+                await registry.discardStaged(token: token)
+            }
+        )
+
+        #expect(await preflight.attach(Self.request) == .degraded(.admissionRejected))
+        registry.drainForTermination()
+        #expect(commands.values.isEmpty)
+    }
+
+    @MainActor
+    @Test("stale ready local teardown releases a replacement before remote cleanup")
+    func staleReadyLocalTeardownReleasesReplacementBeforeRemoteCleanup() async throws {
+        let timeline = TimelineLog()
+        let publishGate = PublishGate()
+        let teardownGate = PublishGate()
+        let listenerCounter = ListenerCounter()
+        let factoryCounter = FactoryCounter()
+        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
+        let ledger = runtime.bridgeSocketLedger
+        runtime.bridgeAttachPreflightFactoryOverride = { _ in
+            factoryCounter.value += 1
+            return BridgeAttachPreflight(
+                ledger: ledger,
+                now: { Date(timeIntervalSince1970: 1_000_000) },
+                execChannel: { command, _ in
+                    await timeline.record("exec:\(command)")
+                    if command.contains("cat >") {
+                        await publishGate.waitOnce()
+                    }
+                    if command.contains("stat -c %a") { return Data("600\n".utf8) }
+                    return Data()
+                },
+                makeListener: { _, _ in
+                    let path = "/tmp/fake-listener-\(await listenerCounter.next()).sock"
+                    await timeline.record("bind:\(path)")
+                    return BridgeAttachPreflight.PreparedListener(socketPath: path) {
+                        await timeline.record("shutdown:\(path)")
+                    }
+                }
+            )
+        }
+        runtime.bridgeGenerationRegistry = BridgeGenerationRegistry(
+            ledger: ledger,
+            execChannel: { command in
+                await teardownGate.waitOnce()
+                return Data(command.utf8)
+            }
+        )
+        let pane = TerminalPane(
+            title: "bridge",
+            workingDirectory: "/tmp",
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "session",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "awesoMux", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        let originalActor = runtime.bridgeAttachPreflight(
+            for: Self.session,
+            paneID: pane.id,
+            workspaceSessionID: session.id,
+            sessionStore: store
+        )
+        let original = Task { await originalActor.attachForSurfaceLifecycle(Self.request) }
+        await publishGate.waitUntilSuspended()
+
+        runtime.forgetBridgeAttachPreflight(for: Self.session)
+        let replacementActor = runtime.bridgeAttachPreflight(
+            for: Self.session,
+            paneID: pane.id,
+            workspaceSessionID: session.id,
+            sessionStore: store
+        )
+        let replacementFinished = TaskCompletionSignal()
+        let replacement = Task.detached {
+            let outcome = await replacementActor.attachForSurfaceLifecycle(Self.request)
+            replacementFinished.signal()
+            return outcome
+        }
+
+        #expect(factoryCounter.value == 1)
+        #expect(replacementActor === originalActor)
+        #expect(Self.execCommands(await timeline.events).filter { $0.contains("cat >") }.count == 1)
+
+        await publishGate.release()
+        guard case let .ready(channel, _) = await original.value else {
+            Issue.record("cancelled publish should report its committed ready outcome")
+            return
+        }
+        let staleCleanup = Task { @MainActor in
+            await runtime.discardCommittedBridgeGeneration(
+                session: Self.session,
+                channel: channel,
+                controlPath: Self.request.controlPath,
+                remote: Self.request.remote
+            )
+            await originalActor.completeReadyOutcome(token: channel.token)
+        }
+        await teardownGate.waitUntilSuspended()
+
+        let replacementFinishedBeforeRemoteCleanup = replacementFinished.wait()
+        await teardownGate.release()
+        await staleCleanup.value
+        #expect(replacementFinishedBeforeRemoteCleanup)
+        guard case .ready = await replacement.value else {
+            Issue.record("replacement should publish after local cleanup")
+            return
+        }
+
+        let commands = Self.execCommands(await timeline.events)
+        let publishIndices = commands.indices.filter { commands[$0].contains("cat >") }
+        #expect(publishIndices.count == 2)
+        #expect(await ledger.previousGeneration(for: Self.session) == 1)
+    }
+
     // MARK: - Owner-only admission parse
 
     @Test(
@@ -299,6 +709,11 @@ private enum HarnessError: Error { case injected }
 /// nothing; `@unchecked Sendable` documents that the closure captures it.
 private final class FailBox: @unchecked Sendable {
     var active = false
+}
+
+@MainActor
+private final class FactoryCounter {
+    var value = 0
 }
 
 private actor TimelineLog {
@@ -343,10 +758,86 @@ private actor AttachGate {
         while !isWaiting { await Task.yield() }
     }
 
-    private func release() {
+    func release() {
         released = true
         waiter?.resume()
         waiter = nil
+    }
+}
+
+private actor PublishGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var hasWaited = false
+
+    func waitOnce() async {
+        guard !hasWaited else { return }
+        hasWaited = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            suspensionWaiters.forEach { $0.resume() }
+            suspensionWaiters.removeAll()
+        }
+    }
+
+    func waitUntilSuspended() async {
+        guard continuation == nil else { return }
+        await withCheckedContinuation { suspensionWaiters.append($0) }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+private final class TaskCompletionSignal: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    func signal() {
+        semaphore.signal()
+    }
+
+    func wait() -> Bool {
+        semaphore.wait(timeout: .now() + 2) == .success
+    }
+}
+
+private final class TerminationCommandRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var commands: [String] = []
+
+    var values: [String] {
+        lock.withLock { commands }
+    }
+
+    func record(_ command: String) {
+        lock.withLock { commands.append(command) }
+    }
+}
+
+private final class RemoteMutationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var forwardCreations = 0
+    private var liveForwards = 0
+
+    var forwardCreationCount: Int {
+        lock.withLock { forwardCreations }
+    }
+
+    var liveForwardCount: Int {
+        lock.withLock { liveForwards }
+    }
+
+    func apply(_ command: String) {
+        lock.withLock {
+            if command.contains("-O forward") {
+                forwardCreations += 1
+                liveForwards += 1
+            } else if command.contains("-O cancel") {
+                liveForwards = max(0, liveForwards - 1)
+            }
+        }
     }
 }
 
