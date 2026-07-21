@@ -633,7 +633,7 @@ enum SessionPersistence {
         // that newer state through the ordinary coalescing path now that the
         // protected baseline has been replaced successfully.
         save(store, completion: catchUpSaveCompletion)
-        remoteMarkdownPrune(SessionStore(restoring: snapshot))
+        remoteMarkdownPrune(store)
         return .success(())
     }
 

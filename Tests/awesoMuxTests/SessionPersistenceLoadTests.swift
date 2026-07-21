@@ -1123,8 +1123,8 @@ struct SessionPersistenceLoadTests {
         }
     }
 
-    @Test("recovery replacement prunes against the snapshot that became durable")
-    func recoveryReplacementPrunesAgainstDurableSnapshot() async throws {
+    @Test("recovery replacement prunes against the live catch-up store")
+    func recoveryReplacementPrunesAgainstLiveStore() async throws {
         try await Self.withTemporarySupportDirectoryAsync { tempDir in
             try FileManager.default.createDirectory(
                 at: tempDir,
@@ -1146,13 +1146,13 @@ struct SessionPersistenceLoadTests {
                 afterSnapshotCapture: {
                     replacementStore.addSession(groupName: "newer mutation")
                 },
-                remoteMarkdownPrune: { durableStore in
-                    prunedGroupNames = durableStore.groups.map(\.name)
+                remoteMarkdownPrune: { liveStore in
+                    prunedGroupNames = liveStore.groups.map(\.name)
                 }
             )
             .get()
 
-            #expect(prunedGroupNames == ["durable"])
+            #expect(prunedGroupNames == ["durable", "newer mutation"])
         }
     }
 
