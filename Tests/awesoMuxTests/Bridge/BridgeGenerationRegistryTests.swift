@@ -122,7 +122,7 @@ struct BridgeGenerationRegistryTests {
         await harness.registry.teardown(for: Self.session)
 
         #expect(afterFirst == 3)
-        #expect(harness.execCommands.count == 3) // second call added nothing
+        #expect(harness.execCommands.count == 3)  // second call added nothing
         #expect(harness.shutdownCount == 1)
     }
 
@@ -147,7 +147,7 @@ struct BridgeGenerationRegistryTests {
         // state-file rm carries neither suffix: the state path is per-SESSION,
         // shared by A and its successor — a re-mint overwrites it in place.)
         #expect(cmds.filter { $0.contains(".sock") }.allSatisfy { $0.contains("aaaa") })
-        #expect(cmds.allSatisfy { !$0.contains("bbbb") })          // never the successor's
+        #expect(cmds.allSatisfy { !$0.contains("bbbb") })  // never the successor's
         // The successor's ledger entry survives — its previousGeneration intact.
         #expect(await harness.ledger.previousGeneration(for: Self.session) == 2)
     }
@@ -283,7 +283,7 @@ struct BridgeGenerationRegistryTests {
         await harness.awaitSyncDrained(expected: 6)
 
         let cmds = harness.syncCommands
-        #expect(cmds.count == 6) // cancel + socket rm + state-file rm per generation
+        #expect(cmds.count == 6)  // cancel + socket rm + state-file rm per generation
         for suffix in ["aaaa", "bbbb"] {
             #expect(cmds.contains { $0.contains("-O cancel") && $0.contains("awesomux-bridge-\(suffix).sock") })
             #expect(cmds.contains { $0.contains("rm -f") && $0.contains("awesomux-bridge-\(suffix).sock") })
@@ -331,6 +331,7 @@ struct BridgeGenerationRegistryTests {
         let drainCompletion = CommandRecorder()
         let barrier = BridgePreflightTerminationBarrier()
         let channel = Self.channel(remoteSuffix: "termination-barrier")
+        let shutdown = CommandRecorder()
         let registry = BridgeGenerationRegistry(
             ledger: ledger,
             execChannel: { command in
@@ -344,9 +345,15 @@ struct BridgeGenerationRegistryTests {
                 controlPath: Self.controlPath,
                 remote: Self.remote,
                 channel: channel,
-                shutdown: {},
+                shutdown: { shutdown.recordShutdown() },
                 terminationBarrier: barrier
             )
+        )
+        await ledger.commit(
+            session: Self.session,
+            generation: channel.gen,
+            remoteSocketPath: channel.remoteSocketPath,
+            mintedAt: Date(timeIntervalSince1970: 1_000_000)
         )
 
         let mutation = Task {
@@ -361,6 +368,17 @@ struct BridgeGenerationRegistryTests {
             drainCompletion.record("complete")
         }
 
+        await Task.yield()
+        registry.register(
+            BridgeGenerationRegistry.Generation(
+                controlPath: Self.controlPath,
+                remote: Self.remote,
+                channel: channel,
+                shutdown: { shutdown.recordShutdown() }
+            ),
+            for: Self.session
+        )
+
         try await Task.sleep(for: .milliseconds(2_100))
         #expect(cleanup.commands.isEmpty)
         #expect(drainCompletion.count == 0)
@@ -370,6 +388,8 @@ struct BridgeGenerationRegistryTests {
         await drain.value
         #expect(cleanup.count == 3)
         #expect(drainCompletion.count == 1)
+        #expect(shutdown.shutdownCount == 1)
+        #expect(await ledger.previousGeneration(for: Self.session) == 0)
     }
 }
 

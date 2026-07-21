@@ -107,9 +107,10 @@ final class BridgeGenerationRegistry {
     /// same generation forward. The successor owns the break; the registry only
     /// tracks the current handle.
     func register(_ generation: Generation, for session: TerminalSessionID) {
-        stagedGenerations.removeValue(forKey: generation.channel.token)
+        let stagedGeneration = stagedGenerations.removeValue(forKey: generation.channel.token)
         guard !isTerminating else {
-            generation.terminationBarrier?.requestTermination()
+            (generation.terminationBarrier ?? stagedGeneration?.terminationBarrier)?
+                .requestTermination()
             return
         }
         generations[session] = generation
@@ -277,7 +278,7 @@ final class BridgeGenerationRegistry {
                 remote: generation.remote,
                 stateFilePath: generation.channel.stateFilePath,
                 remoteSocketPath: remoteSocketPath
-            )
+            ),
         ]
     }
 
@@ -350,7 +351,7 @@ final class BridgeGenerationRegistry {
                     remote: generation.remote,
                     stateFilePath: generation.channel.stateFilePath,
                     remoteSocketPath: generation.channel.remoteSocketPath
-                )
+                ),
             ]
             return commands.map { ($0, generation.terminationBarrier) }
         }
@@ -394,19 +395,23 @@ final class BridgeGenerationRegistry {
         for generation in visibleGenerations {
             generation.terminationBarrier?.requestTermination()
         }
-        let cleanupEntries = visibleGenerations.map {
-            (remoteTeardownCommands(for: $0), $0.terminationBarrier)
-        }
         generations.removeAll()
         stagedGenerations.removeAll()
         retiringGenerations.removeAll()
 
         let exec = execChannel
         await withTaskGroup(of: Void.self) { group in
-            for (commands, terminationBarrier) in cleanupEntries {
+            for generation in visibleGenerations {
                 group.addTask {
-                    await terminationBarrier?.waitUntilDrainedAsync()
-                    await Self.runRemoteTeardown(commands: commands, exec: exec)
+                    await generation.terminationBarrier?.waitUntilDrainedAsync()
+                    await self.retireLocalAuthority(
+                        generation,
+                        for: generation.channel.session
+                    )
+                    await Self.runRemoteTeardown(
+                        commands: self.remoteTeardownCommands(for: generation),
+                        exec: exec
+                    )
                 }
             }
         }
