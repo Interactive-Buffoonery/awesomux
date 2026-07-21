@@ -80,6 +80,10 @@ struct ContentView: View {
     let onManagedSSHWorkspaceOffer: (TerminalSession.ID, TerminalPane.ID) -> Void
     let onReopenClosedWorkspace: () -> Void
     let hasRecoveryWarning: Bool
+    let isRecoveryReplacementInProgress: Bool
+    let onReviewRecoveryWarning: () -> Void
+    let hasSessionSaveFailure: Bool
+    let onRetrySessionSave: () -> Void
     let onOpenQuickSettings: () -> Void
     let onToggleCommandPalette: () -> Void
     let onOpenSelectedWorkspaceInIDE: () -> Void
@@ -220,6 +224,32 @@ struct ContentView: View {
                 WindowChromeConfigurator(windowRole: .primaryContent)
                     .allowsHitTesting(false)
             )
+            .overlay(alignment: .bottomTrailing) {
+                VStack(alignment: .trailing, spacing: 8) {
+                    if hasSessionSaveFailure {
+                        Button(action: onRetrySessionSave) {
+                            Label("Workspace Saving Paused", systemImage: "externaldrive.badge.exclamationmark")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Retry saving the current workspaces")
+                        .accessibilityHint(
+                            "Workspace changes are not being saved. Close or simplify workspaces, then retry."
+                        )
+                    }
+                    if hasRecoveryWarning {
+                        Button(action: onReviewRecoveryWarning) {
+                            Label("Review Recovery Options", systemImage: "exclamationmark.triangle")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isRecoveryReplacementInProgress)
+                        .help("Review how awesoMux should handle the protected saved workspace file")
+                        .accessibilityHint(
+                            "Choose whether to keep the protected saved file or replace it with current workspaces"
+                        )
+                    }
+                }
+                .padding(16)
+            }
     }
 
     private var applyNativeSidebarVisibility: (Bool) -> SidebarPersistentVisibilityDeliveryResult {

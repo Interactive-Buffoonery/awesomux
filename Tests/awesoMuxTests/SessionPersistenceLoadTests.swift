@@ -1,12 +1,26 @@
 @testable import AwesoMuxCore
 import AwesoMuxTestSupport
+import Darwin
 import Foundation
 import Testing
 @testable import awesoMux
 
 @MainActor
-@Suite("SessionPersistence load")
+@Suite("SessionPersistence load", .serialized)
 struct SessionPersistenceLoadTests {
+    @Test("current valid snapshot loads unchanged")
+    func currentValidSnapshotLoadsUnchanged() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let snapshot = Self.snapshot(groupName: "current")
+            try Self.write(snapshot, to: tempDir)
+
+            let result = SessionPersistence.load()
+
+            #expect(result.recoveryWarning == nil)
+            #expect(result.store.groups.map(\.name) == ["current"])
+        }
+    }
+
     @Test("dirty snapshot returns sanitized warning")
     func dirtySnapshotReturnsSanitizedWarning() throws {
         try Self.withTemporarySupportDirectory { tempDir in
@@ -93,19 +107,19 @@ struct SessionPersistenceLoadTests {
     @Test("sanitized restore archive copy failure still warns")
     func sanitizedRestoreArchiveCopyFailureStillWarns() throws {
         try Self.withTemporarySupportDirectory { tempDir in
-            try FileManager.default.createDirectory(
-                at: tempDir,
-                withIntermediateDirectories: true
-            )
-            let targetURL = tempDir.appending(path: "real-session-state.json")
-            _ = try Self.write(Self.snapshot(groupName: "ops\u{202E}"), to: tempDir, url: targetURL)
             let snapshotURL = tempDir.appending(path: "session-state.json")
-            try FileManager.default.createSymbolicLink(
-                at: snapshotURL,
-                withDestinationURL: targetURL
-            )
+            try Self.write(Self.snapshot(groupName: "ops\u{202E}"), to: tempDir)
+            let targetURL = tempDir.appending(path: "replacement-target.json")
+            let targetData = Data("do not touch".utf8)
+            try targetData.write(to: targetURL)
 
-            let result = SessionPersistence.load()
+            let result = SessionPersistence.load(afterSnapshotOpen: {
+                try FileManager.default.removeItem(at: snapshotURL)
+                try FileManager.default.createSymbolicLink(
+                    at: snapshotURL,
+                    withDestinationURL: targetURL
+                )
+            })
 
             guard case let .sanitizedRestore(summary, archivedSnapshotURL, archiveError) = result.recoveryWarning?.kind else {
                 Issue.record("expected sanitized restore warning")
@@ -115,6 +129,40 @@ struct SessionPersistenceLoadTests {
             #expect(archivedSnapshotURL == nil)
             #expect(archiveError != nil)
             #expect(((try? snapshotURL.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink) == true)
+            #expect(try Data(contentsOf: targetURL) == targetData)
+        }
+    }
+
+    @Test("sanitized restore leaves a regular-file replacement untouched")
+    func sanitizedRestoreLeavesRegularFileReplacementUntouched() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Self.write(Self.snapshot(groupName: "ops\u{202E}"), to: tempDir)
+            let replacementData = try JSONEncoder().encode(
+                Self.snapshot(groupName: "replacement")
+            )
+            var didPruneRemoteMarkdown = false
+
+            let result = SessionPersistence.load(
+                afterSnapshotOpen: {
+                    try FileManager.default.removeItem(at: snapshotURL)
+                    try replacementData.write(to: snapshotURL)
+                },
+                remoteMarkdownPrune: { _ in
+                    didPruneRemoteMarkdown = true
+                }
+            )
+
+            guard case let .sanitizedRestore(summary, archivedSnapshotURL, archiveError) = result.recoveryWarning?.kind else {
+                Issue.record("expected sanitized restore warning")
+                return
+            }
+            #expect(summary.groupNameAdjustments == 1)
+            #expect(archivedSnapshotURL == nil)
+            #expect(archiveError != nil)
+            #expect(result.recoveryWarning?.preventsInitialSave == true)
+            #expect(try Data(contentsOf: snapshotURL) == replacementData)
+            #expect(!didPruneRemoteMarkdown)
         }
     }
 
@@ -450,19 +498,20 @@ struct SessionPersistenceLoadTests {
             #expect(archiveError == nil)
             #expect(archiveURL.lastPathComponent.contains("session-state.corrupted-"))
             #expect(FileManager.default.fileExists(atPath: archiveURL.path))
-            #expect(!FileManager.default.fileExists(atPath: snapshotURL.path))
+            #expect(FileManager.default.fileExists(atPath: snapshotURL.path))
         }
     }
 
-    @Test("corrupted snapshot behavior is unchanged")
-    func corruptedSnapshotBehaviorIsUnchanged() throws {
+    @Test("corrupted snapshot archives exact bytes and keeps the live path protected")
+    func corruptedSnapshotArchivesExactBytesAndKeepsLivePathProtected() throws {
         try Self.withTemporarySupportDirectory { tempDir in
             try FileManager.default.createDirectory(
                 at: tempDir,
                 withIntermediateDirectories: true
             )
             let snapshotURL = tempDir.appending(path: "session-state.json")
-            try Data("{not-json".utf8).write(to: snapshotURL)
+            let corruptedData = Data("{not-json".utf8)
+            try corruptedData.write(to: snapshotURL)
 
             let result = SessionPersistence.load()
 
@@ -474,7 +523,110 @@ struct SessionPersistenceLoadTests {
             #expect(archiveError == nil)
             #expect(archiveURL.lastPathComponent.contains("session-state.corrupted-"))
             #expect(FileManager.default.fileExists(atPath: archiveURL.path))
-            #expect(!FileManager.default.fileExists(atPath: snapshotURL.path))
+            #expect(try Data(contentsOf: archiveURL) == corruptedData)
+            #expect(try Data(contentsOf: snapshotURL) == corruptedData)
+        }
+    }
+
+    @Test("corrupted quarantine leaves a replacement made after validation untouched")
+    func corruptedQuarantineLeavesPostValidationReplacementUntouched() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let corruptedData = Data("{not-json".utf8)
+            try corruptedData.write(to: snapshotURL)
+            let replacementData = try JSONEncoder().encode(
+                Self.snapshot(groupName: "replacement")
+            )
+
+            let result = SessionPersistence.load(afterCorruptedSnapshotValidation: {
+                try FileManager.default.removeItem(at: snapshotURL)
+                try replacementData.write(to: snapshotURL)
+            })
+
+            guard case let .archivedSnapshot(archivedSnapshotURL, archiveError) = result.recoveryWarning?.kind else {
+                Issue.record("expected archived snapshot warning")
+                return
+            }
+            let archiveURL = try #require(archivedSnapshotURL)
+            #expect(archiveError != nil)
+            #expect(result.recoveryWarning?.preventsInitialSave == true)
+            #expect(try Data(contentsOf: archiveURL) == corruptedData)
+            #expect(try Data(contentsOf: snapshotURL) == replacementData)
+
+            SessionPersistence.acknowledgeRecoveryWarning(
+                try #require(result.recoveryWarning)
+            )
+            SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "must stay blocked"))
+            )
+            #expect(try Data(contentsOf: snapshotURL) == replacementData)
+        }
+    }
+
+    @Test("successful archive blocks termination flush until recovery is acknowledged")
+    func successfulArchiveBlocksFlushUntilAcknowledged() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let corruptedData = Data("{not-json".utf8)
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try corruptedData.write(to: snapshotURL)
+
+            let protectedResult = SessionPersistence.load()
+            #expect(protectedResult.recoveryWarning?.preventsInitialSave == true)
+
+            SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "must not overwrite"))
+            )
+            #expect(try Data(contentsOf: snapshotURL) == corruptedData)
+
+            SessionPersistence.acknowledgeRecoveryWarning(
+                try #require(protectedResult.recoveryWarning)
+            )
+
+            SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "after recovery"))
+            )
+            let savedSnapshot = try SessionSnapshot.decode(
+                from: Data(contentsOf: snapshotURL)
+            )
+            #expect(savedSnapshot.groups.map(\.name) == ["after recovery"])
+        }
+    }
+
+    @Test("acknowledgement keeps writes blocked when the archived snapshot path was replaced")
+    func acknowledgementKeepsWritesBlockedAfterPathReplacement() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let corruptedData = Data("{not-json".utf8)
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try corruptedData.write(to: snapshotURL)
+
+            let protectedResult = SessionPersistence.load()
+            let warning = try #require(protectedResult.recoveryWarning)
+            #expect(warning.allowsAutomaticWritesAfterAcknowledgement)
+
+            let replacementData = try JSONEncoder().encode(
+                Self.snapshot(groupName: "replacement")
+            )
+            try FileManager.default.removeItem(at: snapshotURL)
+            try replacementData.write(to: snapshotURL)
+
+            #expect(!SessionPersistence.acknowledgeRecoveryWarning(warning))
+            SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "must stay blocked"))
+            )
+
+            #expect(try Data(contentsOf: snapshotURL) == replacementData)
         }
     }
 
@@ -499,7 +651,508 @@ struct SessionPersistenceLoadTests {
             #expect(archiveURL.lastPathComponent.contains("session-state.corrupted-"))
             #expect(FileManager.default.fileExists(atPath: archiveURL.path))
             #expect((try Data(contentsOf: archiveURL)).isEmpty)
-            #expect(!FileManager.default.fileExists(atPath: snapshotURL.path))
+            #expect(FileManager.default.fileExists(atPath: snapshotURL.path))
+        }
+    }
+
+    @Test("final-component symlink is rejected without touching its target")
+    func finalComponentSymlinkIsRejected() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let targetURL = tempDir.appending(path: "target.json")
+            let targetData = try JSONEncoder().encode(Self.snapshot(groupName: "target"))
+            try targetData.write(to: targetURL)
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try FileManager.default.createSymbolicLink(
+                atPath: snapshotURL.path,
+                withDestinationPath: targetURL.lastPathComponent
+            )
+
+            let result = SessionPersistence.load()
+
+            guard case .archivedSnapshot = result.recoveryWarning?.kind else {
+                Issue.record("expected unsafe snapshot warning")
+                return
+            }
+            #expect(result.store.groups.isEmpty)
+            #expect(try Data(contentsOf: targetURL) == targetData)
+        }
+    }
+
+    @Test("snapshot at the exact byte cap loads")
+    func snapshotAtExactByteCapLoads() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let snapshotData = try JSONEncoder().encode(Self.snapshot(groupName: "exact cap"))
+            let paddingCount = SessionPersistence.maxSnapshotBytes - snapshotData.count
+            try #require(paddingCount > 0)
+            var paddedData = snapshotData
+            paddedData.append(Data(repeating: 0x20, count: paddingCount))
+            #expect(paddedData.count == SessionPersistence.maxSnapshotBytes)
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try paddedData.write(to: tempDir.appending(path: "session-state.json"))
+
+            let result = SessionPersistence.load()
+
+            #expect(result.recoveryWarning == nil)
+            #expect(result.store.groups.map(\.name) == ["exact cap"])
+        }
+    }
+
+    @Test("snapshot one byte above the cap is rejected")
+    func snapshotOneByteAboveCapIsRejected() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            _ = FileManager.default.createFile(atPath: snapshotURL.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: snapshotURL)
+            try handle.truncate(atOffset: UInt64(SessionPersistence.maxSnapshotBytes + 1))
+            try handle.close()
+
+            let result = SessionPersistence.load()
+
+            guard case let .archivedSnapshot(archiveURL, archiveError) = result.recoveryWarning?.kind else {
+                Issue.record("expected oversized snapshot warning")
+                return
+            }
+            #expect(result.store.groups.isEmpty)
+            #expect(archiveURL == nil)
+            #expect(archiveError != nil)
+            #expect(FileManager.default.fileExists(atPath: snapshotURL.path))
+            #expect(try Self.corruptedArchives(in: tempDir).isEmpty)
+            #expect(result.recoveryWarning?.preventsInitialSave == true)
+        }
+    }
+
+    @Test("FIFO snapshot is rejected without waiting for a writer")
+    func fifoSnapshotIsRejectedWithoutBlocking() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try #require(mkfifo(snapshotURL.path, 0o600) == 0)
+
+            let result = SessionPersistence.load()
+
+            guard case .archivedSnapshot = result.recoveryWarning?.kind else {
+                Issue.record("expected unsafe snapshot warning")
+                return
+            }
+            #expect(result.store.groups.isEmpty)
+        }
+    }
+
+    @Test("clean-load path replacement stays protected through mutation and flush")
+    func cleanLoadPathReplacementStaysProtected() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let replacementURL = tempDir.appending(path: "replacement.json")
+            let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            let openedCacheURL = cacheDir.appending(path: "opened.md")
+            let replacementCacheURL = cacheDir.appending(path: "replacement.md")
+            try Data("opened cache".utf8).write(to: openedCacheURL)
+            try Data("replacement cache".utf8).write(to: replacementCacheURL)
+            let openedData = try Self.write(
+                Self.remoteSnapshot(groupName: "opened", cacheURL: openedCacheURL),
+                to: tempDir
+            )
+            let replacementData = try Self.write(
+                Self.remoteSnapshot(groupName: "replacement", cacheURL: replacementCacheURL),
+                to: tempDir,
+                url: replacementURL
+            )
+
+            let result = SessionPersistence.load(
+                afterSnapshotOpen: {
+                    try FileManager.default.removeItem(at: snapshotURL)
+                    try FileManager.default.moveItem(at: replacementURL, to: snapshotURL)
+                },
+                remoteMarkdownPrune: { store in
+                    SessionPersistence.pruneRemoteMarkdownSnapshotsForTesting(keeping: store)
+                }
+            )
+
+            guard case let .snapshotConflict(archiveURL, archiveError) = result.recoveryWarning?.kind else {
+                Issue.record("expected snapshot conflict warning")
+                return
+            }
+            #expect(archiveError == nil)
+            #expect(try Data(contentsOf: #require(archiveURL)) == openedData)
+            #expect(result.store.groups.map(\.name) == ["opened"])
+            result.store.addSession(groupName: "mutated")
+            SessionPersistence.flush(result.store)
+            #expect(try Data(contentsOf: snapshotURL) == replacementData)
+            #expect(FileManager.default.fileExists(atPath: openedCacheURL.path))
+            #expect(FileManager.default.fileExists(atPath: replacementCacheURL.path))
+
+            let replacementResult = await SessionPersistence.replaceSnapshotAfterRecovery(
+                with: result.store,
+                warning: try #require(result.recoveryWarning),
+                remoteMarkdownPrune: { store in
+                    SessionPersistence.pruneRemoteMarkdownSnapshotsForTesting(keeping: store)
+                }
+            )
+            try replacementResult.get()
+
+            #expect(FileManager.default.fileExists(atPath: openedCacheURL.path))
+            #expect(!FileManager.default.fileExists(atPath: replacementCacheURL.path))
+        }
+    }
+
+    @Test("explicit recovery authorization replaces an unsafe snapshot path without following it")
+    func explicitRecoveryAuthorizationReplacesUnsafePath() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let targetURL = tempDir.appending(path: "target.json")
+            let targetData = Data("leave target alone".utf8)
+            try targetData.write(to: targetURL)
+            try FileManager.default.createSymbolicLink(
+                at: snapshotURL,
+                withDestinationURL: targetURL
+            )
+
+            let result = SessionPersistence.load()
+            let warning = try #require(result.recoveryWarning)
+            SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "blocked"))
+            )
+            #expect(try Data(contentsOf: targetURL) == targetData)
+            #expect(((try? snapshotURL.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink) == true)
+
+            try await SessionPersistence.replaceSnapshotAfterRecovery(
+                with: SessionStore(restoring: Self.snapshot(groupName: "authorized")),
+                warning: warning
+            )
+            .get()
+
+            let savedSnapshot = try SessionSnapshot.decode(from: Data(contentsOf: snapshotURL))
+            #expect(savedSnapshot.groups.map(\.name) == ["authorized"])
+            #expect(try Data(contentsOf: targetURL) == targetData)
+        }
+    }
+
+    @Test("failed explicit replacement retains the warning gate and can be retried")
+    func failedExplicitReplacementRetainsGateAndCanRetry() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let corruptedData = Data("{not-json".utf8)
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try corruptedData.write(to: snapshotURL)
+            let loadResult = SessionPersistence.load()
+            let warning = try #require(loadResult.recoveryWarning)
+
+            let oversizedWorkingDirectory = String(
+                repeating: "x",
+                count: SessionPersistence.maxSnapshotBytes
+            )
+            let oversizedPane = TerminalPane(
+                title: "shell",
+                workingDirectory: oversizedWorkingDirectory,
+                executionPlan: .local
+            )
+            let oversizedSession = TerminalSession(
+                title: "shell",
+                workingDirectory: oversizedWorkingDirectory,
+                layout: .pane(oversizedPane),
+                activePaneID: oversizedPane.id
+            )
+            let oversizedStore = SessionStore(
+                groups: [SessionGroup(name: "oversized", sessions: [oversizedSession])]
+            )
+
+            guard
+                case .failure(.snapshotTooLarge) = await SessionPersistence.replaceSnapshotAfterRecovery(
+                    with: oversizedStore,
+                    warning: warning
+                )
+            else {
+                Issue.record("expected an oversized recovery replacement failure")
+                return
+            }
+            SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "must stay blocked"))
+            )
+            #expect(try Data(contentsOf: snapshotURL) == corruptedData)
+
+            try await SessionPersistence.replaceSnapshotAfterRecovery(
+                with: SessionStore(restoring: Self.snapshot(groupName: "retry")),
+                warning: warning
+            )
+            .get()
+            let savedSnapshot = try SessionSnapshot.decode(from: Data(contentsOf: snapshotURL))
+            #expect(savedSnapshot.groups.map(\.name) == ["retry"])
+        }
+    }
+
+    @Test("I/O failure during explicit replacement retains the warning gate")
+    func explicitReplacementIOFailureRetainsGate() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(
+                at: snapshotURL,
+                withIntermediateDirectories: false
+            )
+            let loadResult = SessionPersistence.load()
+            let warning = try #require(loadResult.recoveryWarning)
+            let replacementStore = SessionStore(
+                restoring: Self.snapshot(groupName: "replacement")
+            )
+
+            guard
+                case .failure(.writeFailed) = await SessionPersistence.replaceSnapshotAfterRecovery(
+                    with: replacementStore,
+                    warning: warning
+                )
+            else {
+                Issue.record("expected an I/O recovery replacement failure")
+                return
+            }
+            SessionPersistence.flush(replacementStore)
+            var isDirectory: ObjCBool = false
+            #expect(FileManager.default.fileExists(atPath: snapshotURL.path, isDirectory: &isDirectory))
+            #expect(isDirectory.boolValue)
+
+            try FileManager.default.removeItem(at: snapshotURL)
+            try await SessionPersistence.replaceSnapshotAfterRecovery(
+                with: replacementStore,
+                warning: warning
+            )
+            .get()
+            let savedSnapshot = try SessionSnapshot.decode(from: Data(contentsOf: snapshotURL))
+            #expect(savedSnapshot.groups.map(\.name) == ["replacement"])
+        }
+    }
+
+    @Test("writer preserves the existing snapshot when encoded state exceeds the read cap")
+    func writerPreservesExistingSnapshotWhenStateExceedsCap() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let existingData = try Self.write(Self.snapshot(groupName: "existing"), to: tempDir)
+            let oversizedWorkingDirectory = String(
+                repeating: "x",
+                count: SessionPersistence.maxSnapshotBytes
+            )
+            let pane = TerminalPane(
+                title: "shell",
+                workingDirectory: oversizedWorkingDirectory,
+                executionPlan: .local
+            )
+            let session = TerminalSession(
+                title: "shell",
+                workingDirectory: oversizedWorkingDirectory,
+                layout: .pane(pane),
+                activePaneID: pane.id
+            )
+            let store = SessionStore(
+                groups: [SessionGroup(name: "oversized", sessions: [session])]
+            )
+
+            let writeResult = SessionPersistence.flush(store)
+
+            #expect(try Data(contentsOf: snapshotURL) == existingData)
+            guard case .failure(.snapshotTooLarge) = writeResult else {
+                Issue.record("expected oversized snapshot write failure")
+                return
+            }
+        }
+    }
+
+    @Test("termination flush waits for an explicit recovery replacement write")
+    func terminationFlushWaitsForRecoveryReplacement() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            let loadResult = SessionPersistence.load()
+            let warning = try #require(loadResult.recoveryWarning)
+            let replacementStore = SessionStore(
+                restoring: Self.snapshot(groupName: "durable replacement")
+            )
+            let writerStarted = DispatchSemaphore(value: 0)
+            let permitWriterToFinish = DispatchSemaphore(value: 0)
+
+            let replacementTask = Task {
+                await SessionPersistence.replaceSnapshotAfterRecovery(
+                    with: replacementStore,
+                    warning: warning,
+                    snapshotWriter: { snapshot in
+                        writerStarted.signal()
+                        permitWriterToFinish.wait()
+                        do {
+                            try JSONEncoder().encode(snapshot).write(
+                                to: snapshotURL,
+                                options: .atomic
+                            )
+                            return .success(())
+                        } catch {
+                            return .failure(.writeFailed)
+                        }
+                    }
+                )
+            }
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().async {
+                    writerStarted.wait()
+                    continuation.resume()
+                }
+            }
+
+            _ = SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "quit-time state")),
+                whileWaitingForRecoveryWrite: {
+                    permitWriterToFinish.signal()
+                }
+            )
+
+            let durableSnapshot = try SessionSnapshot.decode(
+                from: Data(contentsOf: snapshotURL)
+            )
+            #expect(durableSnapshot.groups.map(\.name) == ["quit-time state"])
+            try await replacementTask.value.get()
+        }
+    }
+
+    @Test("debounced save reports an oversized snapshot")
+    func debouncedSaveReportsOversizedSnapshot() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { _ in
+            let oversizedWorkingDirectory = String(
+                repeating: "x",
+                count: SessionPersistence.maxSnapshotBytes
+            )
+            let pane = TerminalPane(
+                title: "shell",
+                workingDirectory: oversizedWorkingDirectory,
+                executionPlan: .local
+            )
+            let session = TerminalSession(
+                title: "shell",
+                workingDirectory: oversizedWorkingDirectory,
+                layout: .pane(pane),
+                activePaneID: pane.id
+            )
+            let store = SessionStore(
+                groups: [SessionGroup(name: "oversized", sessions: [session])]
+            )
+
+            let writeResult = await withCheckedContinuation { continuation in
+                SessionPersistence.save(store) { result in
+                    continuation.resume(returning: result)
+                }
+            }
+
+            guard case .failure(.snapshotTooLarge) = writeResult else {
+                Issue.record("expected debounced oversized snapshot failure")
+                return
+            }
+        }
+    }
+
+    @Test("recovery catch-up save reports an oversized newer snapshot")
+    func recoveryCatchUpSaveReportsOversizedNewerSnapshot() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            let loadResult = SessionPersistence.load()
+            let warning = try #require(loadResult.recoveryWarning)
+            let replacementStore = SessionStore(
+                restoring: Self.snapshot(groupName: "durable")
+            )
+            let oversizedWorkingDirectory = String(
+                repeating: "x",
+                count: SessionPersistence.maxSnapshotBytes
+            )
+
+            let catchUpResult:
+                Result<
+                    Void, SessionPersistence.RecoverySnapshotReplacementError
+                > = await withCheckedContinuation { continuation in
+                    Task { @MainActor in
+                        _ = await SessionPersistence.replaceSnapshotAfterRecovery(
+                            with: replacementStore,
+                            warning: warning,
+                            afterSnapshotCapture: {
+                                replacementStore.addSession(
+                                    workingDirectory: oversizedWorkingDirectory,
+                                    groupName: "newer oversized mutation"
+                                )
+                            },
+                            catchUpSaveCompletion: { result in
+                                continuation.resume(returning: result)
+                            }
+                        )
+                    }
+                }
+
+            guard case .failure(.snapshotTooLarge) = catchUpResult else {
+                Issue.record("expected oversized recovery catch-up failure")
+                return
+            }
+            let durableSnapshot = try SessionSnapshot.decode(
+                from: Data(contentsOf: snapshotURL)
+            )
+            #expect(durableSnapshot.groups.map(\.name) == ["durable"])
+        }
+    }
+
+    @Test("recovery replacement prunes against the live catch-up store")
+    func recoveryReplacementPrunesAgainstLiveStore() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try Data("{not-json".utf8).write(
+                to: tempDir.appending(path: "session-state.json")
+            )
+            let loadResult = SessionPersistence.load()
+            let warning = try #require(loadResult.recoveryWarning)
+            let replacementStore = SessionStore(
+                restoring: Self.snapshot(groupName: "durable")
+            )
+            var prunedGroupNames: [String] = []
+
+            try await SessionPersistence.replaceSnapshotAfterRecovery(
+                with: replacementStore,
+                warning: warning,
+                afterSnapshotCapture: {
+                    replacementStore.addSession(groupName: "newer mutation")
+                },
+                remoteMarkdownPrune: { liveStore in
+                    prunedGroupNames = liveStore.groups.map(\.name)
+                }
+            )
+            .get()
+
+            #expect(prunedGroupNames == ["durable", "newer mutation"])
         }
     }
 
@@ -567,7 +1220,7 @@ struct SessionPersistenceLoadTests {
             }
             #expect(archiveError == nil)
             #expect(archivedSnapshotURL?.lastPathComponent.contains("session-state.corrupted-") == true)
-            #expect(!FileManager.default.fileExists(atPath: snapshotURL.path))
+            #expect(try Data(contentsOf: snapshotURL) == data)
         }
     }
 
@@ -703,6 +1356,18 @@ struct SessionPersistenceLoadTests {
         }
     }
 
+    private static func withTemporarySupportDirectoryAsync(
+        _ operation: (URL) async throws -> Void
+    ) async throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-session-persistence")
+        let tempDir = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        try await SessionPersistence.withTemporarySupportDirectoryAsync(tempDir) {
+            try await operation(tempDir)
+        }
+    }
+
     @discardableResult
     private static func write(
         _ snapshot: SessionSnapshot,
@@ -747,6 +1412,36 @@ struct SessionPersistenceLoadTests {
             agentState: .idle,
             layout: .pane(pane),
             activePaneID: pane.id
+        )
+        return SessionSnapshot(
+            groups: [SessionGroup(name: groupName, sessions: [session])],
+            selectedSessionID: session.id
+        )
+    }
+
+    private static func remoteSnapshot(groupName: String, cacheURL: URL) -> SessionSnapshot {
+        let terminal = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
+        let document = DocumentPane(
+            fileURL: cacheURL,
+            title: cacheURL.lastPathComponent,
+            remoteResourceIdentity: ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "devbox")!),
+                path: ResourcePath(rawValue: "/repo/\(cacheURL.lastPathComponent)")
+            )
+        )
+        let session = TerminalSession(
+            title: "shell",
+            workingDirectory: "~",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(terminal),
+                    second: .documentGroup(
+                        DocumentGroup(tabs: [document], selectedTabID: document.id)
+                    )
+                )
+            ),
+            activePaneID: terminal.id
         )
         return SessionSnapshot(
             groups: [SessionGroup(name: groupName, sessions: [session])],

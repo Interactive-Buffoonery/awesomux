@@ -72,6 +72,30 @@ struct SecureFileReaderTests {
         #expect(try handle.read(maximumBytes: 7) == Data("content".utf8))
     }
 
+    @Test("strict policy rejects a final-component symlink without touching its target")
+    func strictPolicyRejectsFinalComponentSymlink() throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-read")
+        let directory = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let target = directory.appending(path: "target.json")
+        let symlink = directory.appending(path: "session-state.json")
+        let targetData = Data("preserve me".utf8)
+        try targetData.write(to: target)
+        try FileManager.default.createSymbolicLink(
+            atPath: symlink.path,
+            withDestinationPath: target.lastPathComponent
+        )
+
+        #expect(throws: SecureFileReadError.unreadable) {
+            _ = try SecureFileReader.open(
+                at: symlink,
+                symlinkPolicy: .rejectFinalComponent
+            )
+        }
+        #expect(try Data(contentsOf: target) == targetData)
+        #expect(FileManager.default.fileExists(atPath: symlink.path))
+    }
+
     @Test("reports close-on-exec as false when descriptor inspection fails")
     func reportsCloseOnExecAsFalseWhenDescriptorInspectionFails() {
         let result = SecureFileReadHandle.isCloseOnExec(
@@ -98,6 +122,22 @@ struct SecureFileReaderTests {
 
         #expect(throws: SecureFileReadError.tooLarge) {
             _ = try SecureFileReader.read(at: file, maximumBytes: 256 * 1024)
+        }
+    }
+
+    @Test("rejects a regular file owned by a different effective user")
+    func rejectsWrongOwner() throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-read")
+        let directory = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let file = directory.appending(path: "session-state.json")
+        try Data("content".utf8).write(to: file)
+
+        #expect(throws: SecureFileReadError.wrongOwner) {
+            _ = try SecureFileReader.open(
+                at: file,
+                effectiveUID: geteuid() + 1
+            )
         }
     }
 

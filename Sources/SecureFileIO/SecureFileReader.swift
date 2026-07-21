@@ -10,6 +10,14 @@ public enum SecureFileReadError: Error, Equatable, Sendable {
     case tooLarge
 }
 
+/// Controls whether a caller deliberately accepts a symlink at the final path
+/// component. Intermediate path components are resolved once and then opened
+/// without following any later replacements.
+public enum SecureFileSymlinkPolicy: Sendable {
+    case resolve
+    case rejectFinalComponent
+}
+
 public struct SecureFileContents: Equatable, Sendable {
     public let resolvedURL: URL
     public let identity: SecureFileIdentity
@@ -79,13 +87,15 @@ public enum SecureFileReader {
     public static func read(
         at url: URL,
         maximumBytes: Int,
-        effectiveUID: uid_t = geteuid()
+        effectiveUID: uid_t = geteuid(),
+        symlinkPolicy: SecureFileSymlinkPolicy = .resolve
     ) throws(SecureFileReadError) -> SecureFileContents {
         do {
             return try read(
                 at: url,
                 maximumBytes: maximumBytes,
                 effectiveUID: effectiveUID,
+                symlinkPolicy: symlinkPolicy,
                 afterOpen: {}
             )
         } catch let error as SecureFileReadError {
@@ -95,18 +105,20 @@ public enum SecureFileReader {
         }
     }
 
-    /// Opens each resolved path component with `O_NOFOLLOW`, then validates the
-    /// final descriptor as a regular file owned by `effectiveUID`.
+    /// Opens each resolved path component with `O_NOFOLLOW`, applies the
+    /// caller's final-component symlink policy, then validates the descriptor
+    /// as a regular file owned by `effectiveUID`.
     public static func open(
         at url: URL,
-        effectiveUID: uid_t = geteuid()
+        effectiveUID: uid_t = geteuid(),
+        symlinkPolicy: SecureFileSymlinkPolicy = .resolve
     ) throws(SecureFileReadError) -> SecureFileReadHandle {
         guard url.isFileURL else {
             throw .unreadable
         }
 
         do {
-            let resolvedURL = try resolvedURL(for: url)
+            let resolvedURL = try resolvedURL(for: url, symlinkPolicy: symlinkPolicy)
             let descriptor = try openWithoutFollowingSymlinks(at: resolvedURL)
 
             var status = stat()
@@ -147,13 +159,18 @@ public enum SecureFileReader {
         at url: URL,
         maximumBytes: Int,
         effectiveUID: uid_t = geteuid(),
+        symlinkPolicy: SecureFileSymlinkPolicy = .resolve,
         afterOpen: () throws -> Void
     ) throws -> SecureFileContents {
         guard url.isFileURL, maximumBytes >= 0 else {
             throw SecureFileReadError.unreadable
         }
 
-        let handle = try open(at: url, effectiveUID: effectiveUID)
+        let handle = try open(
+            at: url,
+            effectiveUID: effectiveUID,
+            symlinkPolicy: symlinkPolicy
+        )
         guard handle.size <= UInt64(maximumBytes) else {
             throw SecureFileReadError.tooLarge
         }
@@ -169,12 +186,30 @@ public enum SecureFileReader {
 
     // MARK: Path opening
 
-    private static func resolvedURL(for url: URL) throws -> URL {
-        guard let resolvedPath = realpath(url.path, nil) else {
+    private static func resolvedURL(
+        for url: URL,
+        symlinkPolicy: SecureFileSymlinkPolicy
+    ) throws -> URL {
+        let pathToResolve: String
+        let finalComponent: String?
+        switch symlinkPolicy {
+        case .resolve:
+            pathToResolve = url.path
+            finalComponent = nil
+        case .rejectFinalComponent:
+            pathToResolve = url.deletingLastPathComponent().path
+            finalComponent = url.lastPathComponent
+        }
+
+        guard let resolvedPath = realpath(pathToResolve, nil) else {
             throw SecureFileReadError.unreadable
         }
         defer { free(resolvedPath) }
-        return URL(fileURLWithPath: String(cString: resolvedPath))
+        let resolvedURL = URL(fileURLWithPath: String(cString: resolvedPath))
+        guard let finalComponent else {
+            return resolvedURL
+        }
+        return resolvedURL.appending(path: finalComponent)
     }
 
     private static func openWithoutFollowingSymlinks(at url: URL) throws -> Int32 {
