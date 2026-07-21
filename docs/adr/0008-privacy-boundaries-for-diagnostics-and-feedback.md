@@ -44,8 +44,9 @@ terminal output, working directories, environment values, file contents, or
 other free-form session data.
 
 Provider installation and runtime-event acceptance remain explicit opt-in
-features. Local side-channel files and sockets must use the repository's
-owner-only storage and validation rules.
+features under [ADR 0010](0010-opencode-pi-opt-in-agent-integrations.md). Local
+side-channel files and sockets must use the repository's owner-only storage and
+validation rules.
 
 ### No external analytics or automatic error reporting
 
