@@ -22,7 +22,6 @@ public final class AppSettingsStore {
     public let terminal: TerminalStore
     public let workspaces: WorkspaceStore
     public let advanced: AdvancedStore
-    public let analytics: AnalyticsStore
 
     public private(set) var loadSource: ConfigLoadSource?
     public private(set) var latestError: AppSettingsStoreError?
@@ -69,7 +68,6 @@ public final class AppSettingsStore {
             terminal: terminal.value,
             workspaces: workspaces.value,
             advanced: advanced.value,
-            analytics: analytics.value,
             unknownTopLevelTables: unknownTopLevelTables,
             unknownTerminalTableLines: unknownTerminalTableLines,
             unknownAppearanceTableLines: unknownAppearanceTableLines
@@ -97,7 +95,6 @@ public final class AppSettingsStore {
         self.terminal = SectionSlice(initialConfig.terminal, keyPath: \.terminal)
         self.workspaces = SectionSlice(initialConfig.workspaces, keyPath: \.workspaces)
         self.advanced = SectionSlice(initialConfig.advanced, keyPath: \.advanced)
-        self.analytics = SectionSlice(initialConfig.analytics, keyPath: \.analytics)
         self.unknownTopLevelTables = initialConfig.unknownTopLevelTables
         self.unknownTerminalTableLines = initialConfig.unknownTerminalTableLines
         self.terminalTableLineLayout = initialConfig.terminalTableLineLayout
@@ -122,7 +119,6 @@ public final class AppSettingsStore {
         self.terminal.coordinator = self
         self.workspaces.coordinator = self
         self.advanced.coordinator = self
-        self.analytics.coordinator = self
     }
 
     deinit {
@@ -293,7 +289,6 @@ public final class AppSettingsStore {
         if terminal.value != newConfig.terminal { terminal.value = newConfig.terminal }
         if workspaces.value != newConfig.workspaces { workspaces.value = newConfig.workspaces }
         if advanced.value != newConfig.advanced { advanced.value = newConfig.advanced }
-        if analytics.value != newConfig.analytics { analytics.value = newConfig.analytics }
         unknownTopLevelTables = newConfig.unknownTopLevelTables
         unknownTerminalTableLines = newConfig.unknownTerminalTableLines
         terminalTableLineLayout = newConfig.terminalTableLineLayout
