@@ -211,10 +211,16 @@ struct AwesoMuxApp: App {
         // the documented `SettingsDefault` — see INT-159.
         SettingsDefault.registerInitialValues()
         let runtimeProfile = AppRuntimeProfile.current
-        do {
-            try LegacyAnalyticsCleanup.removeData(in: runtimeProfile.supportDirectoryURL)
-        } catch {
-            Self.logger.error("failed to remove legacy analytics data: \(error)")
+        let supportDirectoryURL = runtimeProfile.supportDirectoryURL
+        // Detached so synchronous file removal does not inherit MainActor;
+        // capture the actor-isolated static logger first because Logger is Sendable.
+        let logger = Self.logger
+        Task.detached(priority: .utility) {
+            do {
+                try LegacyAnalyticsCleanup.removeData(in: supportDirectoryURL)
+            } catch {
+                logger.error("failed to remove legacy analytics data: \(error)")
+            }
         }
         let diagnosticEvents = LocalDiagnosticEventRecorder()
         let mapDiagnosticTrigger: (AppSettingsDiagnosticTrigger) -> LocalDiagnosticConfigurationTrigger = {
