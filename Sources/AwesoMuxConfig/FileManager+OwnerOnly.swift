@@ -65,6 +65,7 @@ extension FileManager {
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         do {
             try handle.write(contentsOf: contents)
+            try handle.synchronize()
             try handle.close()
         } catch {
             try? handle.close()
