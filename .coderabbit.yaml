@@ -2,7 +2,7 @@ language: en-US
 
 reviews:
   profile: chill
-  commit_status: true
+  commit_status: false
   fail_commit_status: false
 
   high_level_summary: true
