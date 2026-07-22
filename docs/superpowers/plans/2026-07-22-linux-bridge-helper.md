@@ -123,6 +123,7 @@ git commit -m "refactor(bridge): extract AwesoMuxBridgeProtocol target"
 - Modify: `Sources/AwesoMuxBridgeHelperSupport/HandoffReceiver.swift`
 - Modify: `Sources/AwesoMuxBridgeHelperSupport/HelperConnection.swift`
 - Modify: `Sources/AwesoMuxBridgeHelperSupport/BridgeStateFileCustody.swift`
+- Modify: `Sources/awesoMuxBridgeHelper/main.swift`
 - Modify: the 3 files in `Tests/AwesoMuxBridgeHelperSupportTests/` that `import Darwin` (`grep -l "import Darwin" Tests/AwesoMuxBridgeHelperSupportTests/`)
 - Test: `Tests/AwesoMuxBridgeHelperSupportTests/HandoffReceiverTests.swift` (collision coverage)
 
@@ -169,7 +170,7 @@ Check `HandoffReceiverTests.swift` for a test that publishes twice with a fixed 
 
 Adapt fixture setup (home dir with `0700` mode) to whatever pattern the existing tests in that file use — they already create custody-valid homes; mirror them exactly. Run: `swift test --filter HandoffReceiverTests` — must pass on macOS before any seam work.
 
-- [ ] **Step 2: Add the platform import block to all three source files**
+- [ ] **Step 2: Add the platform import block to all three source files, plus `main.swift`**
 
 Replace `import Darwin` with:
 
@@ -182,6 +183,8 @@ import Glibc
 import Musl
 #endif
 ```
+
+`Sources/awesoMuxBridgeHelper/main.swift` calls the C `exit` while importing only Foundation; whether Foundation re-exports it is overlay-dependent. Add the same block there so `exit` resolves on every platform.
 
 - [ ] **Step 3: Seam the atomic publish in `HandoffReceiver.receive`**
 
@@ -197,23 +200,23 @@ let published = temporaryName.withCString { temporary in
 guard published == 0 else { throw ReceiveError.publishFailed }
 shouldRemoveTemporary = false
 #else
-// linkat(2) publishes without overwrite on any POSIX target: link fails
-// with EEXIST when the final name exists (same guarantee as Darwin's
-// RENAME_EXCL) and the deferred unlinkat then drops the temporary name.
-// Requires hard-link support in $HOME's filesystem — every ordinary Linux
-// setup; renameat2(RENAME_NOREPLACE) is the upgrade path if a real
-// hardlink-less host (exotic NFS/FUSE home) ever surfaces.
+// renameat2(RENAME_NOREPLACE): Linux's exact equivalent of Darwin's
+// RENAME_EXCL — atomic no-overwrite publish with the temporary name gone
+// in the same operation, so crash-cleanup semantics match Darwin exactly.
+// The wrapper ships in glibc >= 2.28 and musl >= 1.2.4; both toolchains
+// in play (Ubuntu 24.04 glibc, Static Linux SDK musl) are newer.
 let published = temporaryName.withCString { temporary in
     finalName.withCString { final in
-        linkat(sessionFD, temporary, sessionFD, final, 0)
+        renameat2(sessionFD, temporary, sessionFD, final, UInt32(RENAME_NOREPLACE))
     }
 }
 guard published == 0 else { throw ReceiveError.publishFailed }
-// shouldRemoveTemporary stays true: after a successful link the temporary
-// hard link is surplus and the defer removes exactly it, never the final.
+shouldRemoveTemporary = false
 #endif
 _ = fsync(sessionFD)
 ```
+
+Contingency ladder if an overlay does not expose the wrapper (discovered at the Task 3/Task 4 compile gates): (a) call `syscall(SYS_renameat2, sessionFD, temporary, sessionFD, final, UInt32(RENAME_NOREPLACE))` if `SYS_renameat2` is exposed; (b) only if neither exists in that overlay, fall back to `linkat(…, 0)` + relying on the deferred `unlinkat` — and then comment the weaker crash-cleanup semantics (a hard kill between link and unlink leaves a stale `.handoff-*.tmp` hard link; clutter, not corruption). Do not build the fallback speculatively. If `RENAME_NOREPLACE` the constant is missing from an overlay, define it locally as `UInt32(1)` (kernel ABI, stable).
 
 - [ ] **Step 4: Seam the signal handling in `HandoffSignalCleanup`**
 
@@ -358,6 +361,16 @@ command -v docker >/dev/null && docker run --rm -v "$PWD:/src" -w /src swift:6.3
 ```
 
 Expected: all three test targets pass on Linux. This is the first time the seams from Task 2 compile against Glibc — fix any integer-width/overlay-signature errors HERE (they'll be `mode_t`/`sighandler_t`-shaped; apply the Step 7 / Step 4 patterns from Task 2). If docker is unavailable locally, push the branch and let the Task 5 workflow be the verifier — but do not proceed to Task 4 until a Linux `swift test` run is green somewhere.
+
+Also gate the Musl overlay here, not in Task 4: inside the same container, install the Static Linux SDK (URL/checksum from Task 4 Step 1 — resolve that step's pin first if needed) and confirm the helper cross-compiles against Musl:
+
+```bash
+docker run --rm -v "$PWD:/src" -w /src swift:6.3.3-noble bash -c \
+  'swift sdk install <SDK_URL> --checksum <SDK_CHECKSUM> && \
+   swift build --product awesoMuxBridgeHelper --swift-sdk x86_64-swift-linux-musl'
+```
+
+This surfaces Glibc-vs-Musl overlay differences (optionality, pointer types, missing wrappers like `renameat2`) while the seams are still the active task, instead of during Task 4.
 
 Root caveat: docker/CI containers run `swift test` as root, and root bypasses permission checks (DAC). Inspect the helper test suites for any test asserting an *access-denied* outcome (a failed `open`/`mkdir` due to modes, as opposed to the custody code's explicit mode-bit comparisons, which root does not affect). If any exist, run the container tests as a non-root user (`useradd -m runner` + `su runner -c 'swift test'`); if none, note that in the workflow comment and run as root.
 
@@ -577,6 +590,7 @@ on:
       - "Tests/AwesoMuxTestSupport/**"
       - "Tests/UnicodeHygieneTests/**"
       - "Package.swift"
+      - ".swift-version"
       - "script/build_linux_helper.sh"
       - "script/ci/linux_handoff_smoke.sh"
       - ".github/workflows/linux-helper.yml"
@@ -613,6 +627,12 @@ jobs:
           persist-credentials: false
       - name: Build both architectures
         run: ./script/build_linux_helper.sh
+      - name: Run unit suite against the Musl overlay
+        # x86_64 static binaries run natively on this runner, so the full
+        # receiver suite (incl. the publish-collision test) executes against
+        # the SAME libc the shipped helper links — Glibc coverage alone
+        # would miss Musl overlay divergence.
+        run: swift test --swift-sdk x86_64-swift-linux-musl
       - name: Upload helper artifacts
         uses: actions/upload-artifact@<pinned-sha> # copy pin from release.yml
         with:
@@ -641,7 +661,7 @@ jobs:
           ./script/ci/linux_handoff_smoke.sh dist/linux-helper/awesomux-bridge-helper-linux-x86_64
 ```
 
-Notes for the implementer: verify the `swift:6.3.3-noble` tag exists (`docker manifest inspect swift:6.3.3-noble`); fall back to `swift:6.3.3` if not. The build job re-downloads the Static Linux SDK every run (accepted cost, a few hundred MB — add a comment saying so; actions/cache is the upgrade if it starts hurting). YAML anchors (`&helper-paths`) are not supported by GitHub Actions — inline the path list twice instead (the anchor above is plan shorthand only). The aarch64 binary is build-verified only (no arm64 runner); the x86_64 binary carries the smoke.
+Notes for the implementer: `swift:6.3.3-noble` exists on Docker Hub (verified 2026-07-22 via the tags API). If `swift test --swift-sdk` refuses to execute cross-built tests on some SwiftPM version, fall back to `swift build --build-tests --swift-sdk x86_64-swift-linux-musl` and run the produced `awesoMuxPackageTests.xctest` executable directly. The build job re-downloads the Static Linux SDK every run (accepted cost, a few hundred MB — add a comment saying so; actions/cache is the upgrade if it starts hurting). YAML anchors (`&helper-paths`) are not supported by GitHub Actions — inline the path list twice instead (the anchor above is plan shorthand only). The aarch64 binary is build-verified only (no arm64 runner); the x86_64 binary carries the smoke.
 
 - [ ] **Step 3: Verify workflow hygiene**
 
@@ -710,6 +730,23 @@ Expected: all three jobs green. Iterate here until they are — this is where Li
           path: dist/release/
 ```
 
+- Between download and `gh release create`, assert the exact asset set so a
+  path/name mistake fails HERE, not during a real release:
+
+```yaml
+      - name: Verify Linux helper assets
+        if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          for f in \
+            dist/release/awesomux-bridge-helper-linux-x86_64 \
+            dist/release/awesomux-bridge-helper-linux-x86_64.sha256 \
+            dist/release/awesomux-bridge-helper-linux-aarch64 \
+            dist/release/awesomux-bridge-helper-linux-aarch64.sha256; do
+            [[ -s "$f" ]] || { echo "::error::missing release asset: $f" >&2; exit 1; }
+          done
+```
+
 - Extend the `gh release create` argument list:
 
 ```
@@ -718,6 +755,10 @@ Expected: all three jobs green. Iterate here until they are — this is where Li
             "dist/release/awesomux-bridge-helper-linux-aarch64" \
             "dist/release/awesomux-bridge-helper-linux-aarch64.sha256"
 ```
+
+A full pipeline validation without publishing is available any time via
+`workflow_dispatch` with `create_draft_release: false` — note in the PR that
+the maintainer can run one before the next real release.
 
 - [ ] **Step 3: Update `docs/releasing.md`**
 
@@ -812,10 +853,15 @@ In the version-bump procedure, add a step: "Update the Static Linux SDK pin (URL
 
 In the "Remote SSH workspaces" row, append: "Linux destinations use a manually installed static helper ([`docs/remote-linux-helper.md`](docs/remote-linux-helper.md))."
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Cross-link from README and ADR 0023**
+
+- `README.md`: in whatever section lists docs (or the remote/SSH feature mention if one exists — grep for "remote" / "docs/"), add a one-line pointer to `docs/remote-linux-helper.md` for Linux SSH destinations.
+- `docs/adr/0023-remote-workspace-architecture.md`: append a short dated note (matching the amendment style ADR 0025 used for its supersession note): Linux destinations are supported via a manually installed static helper; see `docs/remote-linux-helper.md`. Do not rewrite the ADR body.
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add docs/remote-linux-helper.md docs/toolchain.md AGENTS.md
+git add docs/remote-linux-helper.md docs/toolchain.md AGENTS.md README.md docs/adr/0023-remote-workspace-architecture.md
 git commit -m "docs(remote): document the linux bridge helper"
 ```
 
