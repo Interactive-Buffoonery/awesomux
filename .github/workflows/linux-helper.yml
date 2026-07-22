@@ -65,13 +65,12 @@ jobs:
       - name: Build both architectures
         # Re-downloads the Static Linux SDK every run (a few hundred MB,
         # accepted cost). Switch to actions/cache if this starts hurting.
+        # The Static Linux SDK ships no Testing module, so `swift test`
+        # can't cross-compile here — Musl-linked behavior (incl. the
+        # publish-collision path) is gated by the sshd smoke below against
+        # the real static binary instead. The portable unit suite still
+        # runs under Glibc in the linux-tests job.
         run: ./script/build_linux_helper.sh
-      - name: Run unit suite against the Musl overlay
-        # x86_64 static binaries run natively on this runner, so the full
-        # receiver suite (incl. the publish-collision test) executes against
-        # the SAME libc the shipped helper links — Glibc coverage alone
-        # would miss Musl overlay divergence.
-        run: swift test --swift-sdk x86_64-swift-linux-musl
       - name: Upload helper artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

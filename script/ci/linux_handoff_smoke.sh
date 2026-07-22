@@ -60,6 +60,10 @@ BYTES="$(printf '%s' "$RECEIPT" | jq -re .bytes)"
 [[ "$("${SSH[@]}" "stat -c '%a' ~/.awesomux/handoffs")" == "700" ]] || fail "handoffs dir mode"
 [[ "$("${SSH[@]}" "stat -c '%a' ~/.awesomux/handoffs/$SID")" == "700" ]] || fail "session dir mode"
 [[ "$("${SSH[@]}" "stat -c '%a' '$REMOTE_PATH'")" == "600" ]] || fail "file mode"
+# Musl-specific: the static binary publishes via linkat + deferred unlinkat,
+# so this catches a surviving .handoff-*.tmp hard link Glibc wouldn't leave.
+ENTRY_COUNT="$("${SSH[@]}" "ls -A ~/.awesomux/handoffs/$SID | wc -l" | tr -d '[:space:]')"
+[[ "$ENTRY_COUNT" == "1" ]] || fail "session dir has $ENTRY_COUNT entries (expected exactly the published file — a leftover .handoff-*.tmp means the musl linkat publish didn't clean its temporary hard link)"
 
 # --- acceptance: early EOF fails without leftovers ------------------------
 SID2="1a2b3c4d-0000-4000-8000-000000000002"
