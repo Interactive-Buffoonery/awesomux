@@ -91,9 +91,11 @@ The permanent host is therefore the **root container**, and the split pane is th
   the titlebar moves or fades during hover-reveal. The settled revealed state
   is unchanged; only the hidden state differs (title sits past the always-
   visible lockup). "Permanent" is scoped to hidden/overlay: persistent mode
-  still mirrors the live column, so dragging below the lockup thresholds
-  degrades the brand exactly as before, and explicit layout changes still
-  reflow the title per platform convention. The move-into-sidebar design and
+  still mirrors the live column — the full lockup above the rail threshold,
+  none at the rail (the traffic lights own that corner; the width policy
+  snaps straight from ≥250pt to the 60pt rail, so no intermediate width
+  renders) — exactly as before, and explicit layout changes still reflow
+  the title per platform convention. The move-into-sidebar design and
   its INT-790 coordinate-mapping risk are retired, not deferred.
 
 - **The test suite was renamed, not rewritten.** Review found the prior
