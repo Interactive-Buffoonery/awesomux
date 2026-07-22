@@ -200,6 +200,9 @@ shouldRemoveTemporary = false
 // linkat(2) publishes without overwrite on any POSIX target: link fails
 // with EEXIST when the final name exists (same guarantee as Darwin's
 // RENAME_EXCL) and the deferred unlinkat then drops the temporary name.
+// Requires hard-link support in $HOME's filesystem — every ordinary Linux
+// setup; renameat2(RENAME_NOREPLACE) is the upgrade path if a real
+// hardlink-less host (exotic NFS/FUSE home) ever surfaces.
 let published = temporaryName.withCString { temporary in
     finalName.withCString { final in
         linkat(sessionFD, temporary, sessionFD, final, 0)
@@ -355,6 +358,8 @@ command -v docker >/dev/null && docker run --rm -v "$PWD:/src" -w /src swift:6.3
 ```
 
 Expected: all three test targets pass on Linux. This is the first time the seams from Task 2 compile against Glibc — fix any integer-width/overlay-signature errors HERE (they'll be `mode_t`/`sighandler_t`-shaped; apply the Step 7 / Step 4 patterns from Task 2). If docker is unavailable locally, push the branch and let the Task 5 workflow be the verifier — but do not proceed to Task 4 until a Linux `swift test` run is green somewhere.
+
+Root caveat: docker/CI containers run `swift test` as root, and root bypasses permission checks (DAC). Inspect the helper test suites for any test asserting an *access-denied* outcome (a failed `open`/`mkdir` due to modes, as opposed to the custody code's explicit mode-bit comparisons, which root does not affect). If any exist, run the container tests as a non-root user (`useradd -m runner` + `su runner -c 'swift test'`); if none, note that in the workflow comment and run as root.
 
 - [ ] **Step 4: Commit**
 
@@ -513,8 +518,10 @@ done
 "${SSH[@]}" true || fail "sshd never came up"
 
 # --- manual install, per docs/remote-linux-helper.md ----------------------
+# Piped over ssh rather than scp: scp's -p means preserve-times (its port
+# flag is -P), so reusing SSH_OPTS with scp silently targets port 22.
 "${SSH[@]}" 'install -d -m 700 ~/.awesomux && install -d -m 755 ~/.awesomux/bin'
-scp "${SSH_OPTS[@]}" "$HELPER" scp://handoff@127.0.0.1/.awesomux/bin/awesomux-bridge-helper
+"${SSH[@]}" 'cat > ~/.awesomux/bin/awesomux-bridge-helper' < "$HELPER"
 "${SSH[@]}" 'chmod 755 ~/.awesomux/bin/awesomux-bridge-helper'
 
 # --- acceptance: --version advertises both protocols ----------------------
@@ -634,7 +641,7 @@ jobs:
           ./script/ci/linux_handoff_smoke.sh dist/linux-helper/awesomux-bridge-helper-linux-x86_64
 ```
 
-Notes for the implementer: verify the `swift:6.3.3-noble` tag exists (`docker manifest inspect swift:6.3.3-noble`); fall back to `swift:6.3.3` if not. YAML anchors (`&helper-paths`) are not supported by GitHub Actions — inline the path list twice instead (the anchor above is plan shorthand only). The aarch64 binary is build-verified only (no arm64 runner); the x86_64 binary carries the smoke.
+Notes for the implementer: verify the `swift:6.3.3-noble` tag exists (`docker manifest inspect swift:6.3.3-noble`); fall back to `swift:6.3.3` if not. The build job re-downloads the Static Linux SDK every run (accepted cost, a few hundred MB — add a comment saying so; actions/cache is the upgrade if it starts hurting). YAML anchors (`&helper-paths`) are not supported by GitHub Actions — inline the path list twice instead (the anchor above is plan shorthand only). The aarch64 binary is build-verified only (no arm64 runner); the x86_64 binary carries the smoke.
 
 - [ ] **Step 3: Verify workflow hygiene**
 
