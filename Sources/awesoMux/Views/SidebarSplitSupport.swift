@@ -39,32 +39,17 @@ enum SidebarHostMode: Equatable {
     case overlay(width: CGFloat)
 }
 
-/// The single host's titlebar-lockstep authority. One permanent host renders the
-/// sidebar (INT-845), so this is now the minimal state the titlebar reads to stay
-/// in step — but "one host" does NOT mean "one translation source". The animator's
-/// presentation layer is nil outside an active animation, so the source is layered:
-///
-/// | state                        | translation source                              |
-/// |------------------------------|-------------------------------------------------|
-/// | overlay animating            | presentation layer, else animator's mapped value |
-/// | settled hidden               | deterministic hidden translation (∓width)       |
-/// | settled overlay (at rest)    | 0                                               |
-/// | persistent                   | 0                                               |
-///
-/// `currentTitlebarTranslationX` therefore keeps a two-layer fallback: the wired
-/// closure resolves the animator (which itself falls back to its settle target),
-/// and `titlebarTranslationX` covers the case where no animator/closure exists yet
-/// — the very first reveal before any presentation layer. Collapsing this to a
-/// single authority was reviewed and rejected; don't.
+/// The single host's presentation state (INT-845): the mode and visible width
+/// the sidebar pane and titlebar read. The titlebar is deliberately STATIC
+/// across hover-reveal (#77): it no longer mirrors the overlay slide, so this
+/// state carries no translation/animation mirror — the CALayer animation in
+/// `SidebarOverlayAnimator` moves only the body. `titlebarReservationWidth` is
+/// the whole mode→titlebar mapping.
 @Observable
 @MainActor
 final class SidebarHostPresentationState {
     private(set) var mode: SidebarHostMode
     private(set) var effectiveVisibleWidth: CGFloat
-    private(set) var titlebarPresentationWidth: CGFloat
-    private(set) var titlebarTranslationX: CGFloat = 0
-    private(set) var isOverlayAnimating = false
-    @ObservationIgnored var overlayPresentationTranslation: (() -> CGFloat?)?
     @ObservationIgnored var onSettleForTesting: (() -> Void)?
 
     init(mode: SidebarHostMode = .persistent(width: SidebarWidthPolicy.expandedWidth)) {
@@ -72,10 +57,8 @@ final class SidebarHostPresentationState {
         switch mode {
         case let .persistent(width), let .overlay(width):
             effectiveVisibleWidth = width
-            titlebarPresentationWidth = width
         case .hidden:
             effectiveVisibleWidth = 0
-            titlebarPresentationWidth = SidebarWidthPolicy.expandedWidth
         }
     }
 
@@ -83,65 +66,24 @@ final class SidebarHostPresentationState {
         // The Observation framework does not dedupe equal writes; `settle` runs per
         // frame during a divider drag, so guard each assignment to avoid spurious
         // observer invalidations of the titlebar and sidebar pane.
-        if case .overlay = mode {
-            // Preserve active compositor sampling across overlay relayouts.
-        } else if isOverlayAnimating {
-            isOverlayAnimating = false
-        }
         if self.mode != mode { self.mode = mode }
         if self.effectiveVisibleWidth != effectiveVisibleWidth {
             self.effectiveVisibleWidth = effectiveVisibleWidth
         }
-        if effectiveVisibleWidth > 0, titlebarPresentationWidth != effectiveVisibleWidth {
-            titlebarPresentationWidth = effectiveVisibleWidth
-        }
-        if case .persistent = mode, titlebarTranslationX != 0 {
-            titlebarTranslationX = 0
-        }
         onSettleForTesting?()
     }
 
-    func beginOverlayTransition(
-        presented: Bool,
-        width: CGFloat,
-        position: AppearanceConfig.SidebarPosition
-    ) {
-        titlebarPresentationWidth = width
-        titlebarTranslationX =
-            presented
-            ? SidebarOverlayAnimator.presentedTranslation
-            : SidebarOverlayAnimator.hiddenTranslation(width: width, position: position)
-    }
-
-    func setOverlayAnimating(_ animating: Bool) {
-        isOverlayAnimating = animating
-    }
-
-    var currentTitlebarTranslationX: CGFloat {
-        guard let translation = overlayPresentationTranslation?(), translation.isFinite else {
-            return titlebarTranslationX
-        }
-        return translation
-    }
-
-    func currentTitlebarVisibleWidth(
-        // Unused: the titlebar's visible width is deliberately position-invariant.
-        // The parameter stays for call-site symmetry with the position-taking
-        // geometry helpers.
-        position _: AppearanceConfig.SidebarPosition,
-        translation: CGFloat? = nil
-    ) -> CGFloat {
-        let width = max(0, titlebarPresentationWidth)
-        guard width.isFinite else { return 0 }
-        return width
-            * currentOverlayVisibleFraction(
-                translation: translation ?? currentTitlebarTranslationX)
-    }
-
-    func currentOverlayVisibleFraction(translation: CGFloat) -> CGFloat {
-        let width = titlebarPresentationWidth
-        guard width.isFinite, width > 0, translation.isFinite else { return 0 }
-        return min(max(0, 1 - abs(translation) / width), 1)
+    /// The titlebar's sidebar-column reservation for the current mode.
+    ///
+    /// Persistent mirrors the live column so the brand tracks the divider
+    /// frame-for-frame. Hidden and overlay share one constant lockup
+    /// reservation, which is what keeps the titlebar static during
+    /// hover-reveal (#77): the workspace-title anchor lands at the same
+    /// boundary whether the sidebar is away or revealed, so nothing up top
+    /// moves while the body slides.
+    var titlebarReservationWidth: CGFloat {
+        if case .persistent = mode { return effectiveVisibleWidth }
+        return AppTitlebarMetrics.brandWithTextMinimumWidth
     }
 }
 
@@ -189,10 +131,7 @@ struct SidebarPresentationLayoutPolicy {
 
     func titlebarGeometry(
         titlebarWidth: CGFloat,
-        visibleSidebarWidth: CGFloat,
-        overlayVisibleFraction: CGFloat? = nil,
-        limitsLeftWorkgroupToLockup: Bool = false,
-        sidebarPresentationWidth: CGFloat? = nil
+        visibleSidebarWidth: CGFloat
     ) -> AppTitlebarLayoutGeometry {
         let width = titlebarWidth.isFinite ? max(0, titlebarWidth) : 0
         let visibleWidth =
@@ -202,24 +141,11 @@ struct SidebarPresentationLayoutPolicy {
         let gutter = min(AppTitlebarMetrics.contentColumnGutter, width - visibleWidth)
         let boundary: CGFloat
         if position == .left {
-            let overlayBoundary =
+            boundary = min(
+                width,
                 visibleWidth + gutter
-                + max(0, AppTitlebarMetrics.trafficLightClearance + 10 - visibleWidth)
-            let presentationWidth = sidebarPresentationWidth ?? visibleWidth
-            let rendersBrandLockup =
-                presentationWidth.isFinite
-                && presentationWidth >= AppTitlebarMetrics.brandWithTextMinimumWidth
-            if limitsLeftWorkgroupToLockup, rendersBrandLockup, let overlayVisibleFraction {
-                let fraction =
-                    overlayVisibleFraction.isFinite
-                    ? min(max(0, overlayVisibleFraction), 1)
-                    : 0
-                let hiddenBoundary = AppTitlebarMetrics.trafficLightClearance + 10 + gutter
-                let shownBoundary = AppTitlebarMetrics.brandWithTextMinimumWidth + gutter
-                boundary = min(width, hiddenBoundary + (shownBoundary - hiddenBoundary) * fraction)
-            } else {
-                boundary = min(width, overlayBoundary)
-            }
+                    + max(0, AppTitlebarMetrics.trafficLightClearance + 10 - visibleWidth)
+            )
         } else {
             boundary = width - visibleWidth - gutter
         }
@@ -233,11 +159,12 @@ struct SidebarPresentationLayoutPolicy {
 
 /// Live sidebar width published on every divider tick (INT-535, A4).
 ///
-/// Scoped deliberately: only the titlebar and the sidebar pane read `value`, so a
-/// drag re-renders just those two — NOT `ContentView`'s body or the terminal pane
-/// (which would re-host per frame). The persisted `sidebarWidth` `@State` updates
-/// only on commit (drag end), so band-derived layout can switch live during a drag
-/// while persistence stays discrete.
+/// Scoped deliberately: only the sidebar pane reads `value`, so a drag
+/// re-renders just that pane — NOT `ContentView`'s body or the terminal pane
+/// (which would re-host per frame). The static titlebar (#77) tracks drags
+/// through `SidebarHostPresentationState` instead. The persisted
+/// `sidebarWidth` `@State` updates only on commit (drag end), so band-derived
+/// layout can switch live during a drag while persistence stays discrete.
 @Observable
 @MainActor
 final class SidebarLiveWidth {

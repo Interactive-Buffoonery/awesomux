@@ -100,8 +100,9 @@ struct ContentView: View {
     @State private var sidebarWidth = SidebarWidthPreferenceStore().width()
     @State private var lastNonCollapsedSidebarWidth =
         SidebarWidthPreferenceStore().lastNonCollapsedWidth()
-    /// Live width published by the native divider; read by the titlebar and the
-    /// sidebar pane (not ContentView's body) so a drag re-renders only those.
+    /// Live width published by the native divider; read only by the sidebar
+    /// pane (not ContentView's body) so a drag re-renders just that pane. The
+    /// titlebar tracks drags through `hostPresentation` instead (#77).
     @State private var sidebarLiveWidth = SidebarLiveWidth(value: SidebarWidthPreferenceStore().width())
     /// Command channel to move the native divider (the `⌘\` toggle).
     @State private var splitProxy = SidebarSplitProxy()
@@ -326,7 +327,6 @@ struct ContentView: View {
             AppTitlebarView(
                 session: sessionStore.selectedSession,
                 onRenameWorkspace: onRenameWorkspace,
-                sidebarLiveWidth: sidebarLiveWidth,
                 sidebarPosition: sidebarPosition,
                 hostPresentation: hostPresentation
             )
@@ -557,14 +557,12 @@ private struct AppTitlebarView: View {
     /// Same rename closure the sidebar tile uses — the titlebar workspace name
     /// invokes it on a double-click (INT-720).
     let onRenameWorkspace: (TerminalSession) -> Void
-    /// Live sidebar width (from the native divider) so the titlebar mirrors the
-    /// body's `[sidebar | content]` column split frame-for-frame during a drag.
-    /// The two zones below are anchored to the column they describe — brand
-    /// over the sidebar, workspace cluster over the content pane — so the
-    /// wide-monitor empty space reads as intentional negative space between
-    /// two anchored elements rather than vacuum around a centered cluster.
-    /// Reading `.value` here re-renders only the titlebar, not `ContentView`.
-    let sidebarLiveWidth: SidebarLiveWidth
+    // The two titlebar zones are anchored to the column they describe — brand
+    // over the sidebar, workspace cluster over the content pane — so the
+    // wide-monitor empty space reads as intentional negative space between
+    // two anchored elements rather than vacuum around a centered cluster.
+    // Persistent-mode divider drags reach the titlebar through
+    // `hostPresentation` (settled per drag frame), not a live-width mirror.
     let sidebarPosition: AppearanceConfig.SidebarPosition
     let hostPresentation: SidebarHostPresentationState
     private var layoutPolicy: SidebarPresentationLayoutPolicy {
@@ -612,83 +610,33 @@ private struct AppTitlebarView: View {
         // tab-edge line that separates panes from the workspace title (#82).
     }
 
-    @ViewBuilder
+    // Static titlebar (#77): hidden and overlay share one constant lockup
+    // reservation via `titlebarReservationWidth`, so hover-reveal moves nothing
+    // up here — the brand stays put and the workspace title keeps its anchor
+    // while the sidebar slides in the body below. Only persistent mode varies,
+    // mirroring the live column during divider drags.
     private func titlebarContent(titlebarWidth: CGFloat) -> some View {
-        switch hostPresentation.mode {
-        case .persistent:
-            let geometry = layoutPolicy.titlebarGeometry(
+        titlebarColumns(
+            geometry: layoutPolicy.titlebarGeometry(
                 titlebarWidth: titlebarWidth,
-                visibleSidebarWidth: hostPresentation.effectiveVisibleWidth
+                visibleSidebarWidth: hostPresentation.titlebarReservationWidth
             )
-            titlebarColumns(geometry: geometry)
-        case .overlay:
-            if hostPresentation.isOverlayAnimating {
-                TimelineView(.animation) { _ in
-                    overlayTitlebar(titlebarWidth: titlebarWidth)
-                }
-            } else {
-                overlayTitlebar(titlebarWidth: titlebarWidth)
-            }
-        case .hidden:
-            let geometry = layoutPolicy.titlebarGeometry(
-                titlebarWidth: titlebarWidth,
-                visibleSidebarWidth: 0
-            )
-            titlebarColumns(geometry: geometry)
-                .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
-                    sidebarColumn(
-                        width: hostPresentation.titlebarPresentationWidth,
-                        isPhysicalLeading: sidebarPosition == .left
-                    )
-                    .offset(x: hostPresentation.titlebarTranslationX)
-                    .accessibilityHidden(true)
-                }
-        }
+        )
     }
 
-    private func overlayTitlebar(titlebarWidth: CGFloat) -> some View {
-        let translation = hostPresentation.currentTitlebarTranslationX
-        let fraction = hostPresentation.currentOverlayVisibleFraction(translation: translation)
-        let visibleWidth = hostPresentation.currentTitlebarVisibleWidth(
-            position: sidebarPosition,
-            translation: translation
-        )
-        let geometry = layoutPolicy.titlebarGeometry(
-            titlebarWidth: titlebarWidth,
-            visibleSidebarWidth: visibleWidth,
-            overlayVisibleFraction: fraction,
-            limitsLeftWorkgroupToLockup: true,
-            sidebarPresentationWidth: hostPresentation.titlebarPresentationWidth
-        )
-        return titlebarColumns(geometry: geometry, rendersSidebarLockup: false)
-            .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
-                sidebarColumn(
-                    width: hostPresentation.titlebarPresentationWidth,
-                    isPhysicalLeading: sidebarPosition == .left
-                )
-                .opacity(fraction)
-                .accessibilityHidden(fraction < 1)
-            }
-    }
-
-    private func titlebarColumns(
-        geometry: AppTitlebarLayoutGeometry,
-        rendersSidebarLockup: Bool = true
-    ) -> some View {
+    private func titlebarColumns(geometry: AppTitlebarLayoutGeometry) -> some View {
         HStack(spacing: 0) {
             if sidebarPosition == .left {
                 sidebarColumn(
                     width: geometry.sidebarReservationWidth,
-                    isPhysicalLeading: true,
-                    rendersLockup: rendersSidebarLockup
+                    isPhysicalLeading: true
                 )
                 contentColumn(geometry: geometry)
             } else {
                 contentColumn(geometry: geometry)
                 sidebarColumn(
                     width: geometry.sidebarReservationWidth,
-                    isPhysicalLeading: false,
-                    rendersLockup: rendersSidebarLockup
+                    isPhysicalLeading: false
                 )
             }
         }
@@ -703,15 +651,14 @@ private struct AppTitlebarView: View {
     /// instead of clipping the brand into the content column.
     private func sidebarColumn(
         width: CGFloat,
-        isPhysicalLeading: Bool,
-        rendersLockup: Bool = true
+        isPhysicalLeading: Bool
     ) -> some View {
         HStack(spacing: 0) {
             if layoutPolicy.titlebarLockupAlignment == .trailing {
                 Spacer(minLength: 0)
-                if rendersLockup { titleLockup(width: width) }
+                titleLockup(width: width)
             } else {
-                if rendersLockup { titleLockup(width: width) }
+                titleLockup(width: width)
                 Spacer(minLength: 0)
             }
         }
