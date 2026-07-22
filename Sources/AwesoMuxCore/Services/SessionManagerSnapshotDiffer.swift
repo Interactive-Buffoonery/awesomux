@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 public struct SessionManagerChange: Equatable, Sendable {
     public enum Kind: Sendable { case activityChanged, lifecycleChanged, appeared, disappeared }
     public let id: TerminalSessionID

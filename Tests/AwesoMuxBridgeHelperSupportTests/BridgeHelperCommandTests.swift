@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 @testable import AwesoMuxBridgeHelperSupport
 
 @Suite

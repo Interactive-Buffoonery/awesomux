@@ -1,7 +1,8 @@
+import AwesoMuxBridgeProtocol
+import AwesoMuxConfig
+import AwesoMuxCore
 import Foundation
 import Observation
-import AwesoMuxCore
-import AwesoMuxConfig
 
 /// Owns the panel-open daemon poll, snapshot diffing → a11y announcements, and
 /// the action surface (pin/unpin, reap, jump). Mirrors `DaemonGarbageCollector`'s

@@ -44,10 +44,15 @@ let package = Package(
         .target(
             name: "AwesoMuxCore",
             dependencies: [
+                "AwesoMuxBridgeProtocol",
                 "SecureFileIO",
                 "UnicodeHygiene",
                 .product(name: "Markdown", package: "swift-markdown"),
             ]
+        ),
+        .target(
+            name: "AwesoMuxBridgeProtocol",
+            dependencies: ["UnicodeHygiene"]
         ),
         .target(
             name: "AwesoMuxAgentHookSupport",
@@ -55,7 +60,7 @@ let package = Package(
         ),
         .target(
             name: "AwesoMuxBridgeHelperSupport",
-            dependencies: ["AwesoMuxCore"]
+            dependencies: ["AwesoMuxBridgeProtocol"]
         ),
         .executableTarget(
             name: "awesoMuxAgentHook",
@@ -64,7 +69,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "awesoMuxBridgeHelper",
-            dependencies: ["AwesoMuxCore", "AwesoMuxBridgeHelperSupport"],
+            dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxBridgeHelperSupport"],
             path: "Sources/awesoMuxBridgeHelper"
         ),
         .target(name: "UnicodeHygiene"),
@@ -128,11 +133,15 @@ let package = Package(
         ),
         .testTarget(
             name: "AwesoMuxAgentHookSupportTests",
-            dependencies: ["AwesoMuxAgentHookSupport", "AwesoMuxCore"]
+            dependencies: ["AwesoMuxAgentHookSupport", "AwesoMuxBridgeProtocol", "AwesoMuxCore"]
         ),
         .testTarget(
             name: "AwesoMuxBridgeHelperSupportTests",
-            dependencies: ["AwesoMuxBridgeHelperSupport", "AwesoMuxCore", "AwesoMuxTestSupport"]
+            dependencies: ["AwesoMuxBridgeHelperSupport", "AwesoMuxBridgeProtocol", "AwesoMuxTestSupport"]
+        ),
+        .testTarget(
+            name: "AwesoMuxBridgeProtocolTests",
+            dependencies: ["AwesoMuxBridgeProtocol"]
         ),
         .testTarget(
             name: "UnicodeHygieneTests",

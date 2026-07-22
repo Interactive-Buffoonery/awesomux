@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// Verified-agent-prompt policy for document-pane handoff (INT-569).

@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 struct WorkspaceAttentionReducer: Sendable {

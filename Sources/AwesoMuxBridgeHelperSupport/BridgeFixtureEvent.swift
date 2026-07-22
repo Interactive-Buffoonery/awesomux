@@ -1,4 +1,4 @@
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 import Foundation
 
 public enum BridgeFixtureEvent {

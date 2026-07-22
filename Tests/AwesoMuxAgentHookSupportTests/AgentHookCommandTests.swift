@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 import Darwin
 import Testing

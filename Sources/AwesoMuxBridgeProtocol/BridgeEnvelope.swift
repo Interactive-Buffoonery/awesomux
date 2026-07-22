@@ -163,8 +163,8 @@ public enum BridgeMessage: Sendable, Equatable {
     /// per-type byte cap (`maximumLineByteCount`, already enforced before
     /// full decode) is the real, spec-mandated bound on those three;
     /// scalar-safety (no NUL/bidi/zero-width) still applies to all of them.
-    enum FieldLimit {
-        static let title = SessionStoreText.maxTitleLength // same semantic field as the local pane title.
+    public enum FieldLimit {
+        public static let title = 200 // same semantic field as the local pane title.
         static let path = 1024 // matches AmxBackend.parseCwdOutput's remote-path bound.
     }
 }

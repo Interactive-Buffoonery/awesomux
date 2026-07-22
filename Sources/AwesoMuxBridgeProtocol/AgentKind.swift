@@ -60,15 +60,6 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
         self == .shell ? localizedShortName(bundle: bundle, locale: locale) : rawValue
     }
 
-    public var initialSessionState: AgentState {
-        switch self {
-        case .claudeCode, .codex, .openCode, .pi, .grok:
-            .running
-        case .shell:
-            .idle
-        }
-    }
-
     /// Whether this kind reports its own lifecycle through the runtime-event
     /// hook side channel. When true, the hook stream is the authoritative state
     /// source and the visible-text scraper must not override it with a scraped

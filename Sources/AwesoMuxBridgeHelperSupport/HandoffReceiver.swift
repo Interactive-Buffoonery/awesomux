@@ -1,7 +1,7 @@
 import Darwin
 import Dispatch
 import Foundation
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 
 /// Receives one bounded handoff into the current user's private session directory.
 public enum HandoffReceiver {

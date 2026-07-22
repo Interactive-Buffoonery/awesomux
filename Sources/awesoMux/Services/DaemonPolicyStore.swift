@@ -1,5 +1,6 @@
-import Foundation
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import Foundation
 
 /// Pins for the session manager: the user "forever" backstop that exempts a
 /// daemon from idle/age reaping. Persisted as app-support JSON — NOT config.toml,

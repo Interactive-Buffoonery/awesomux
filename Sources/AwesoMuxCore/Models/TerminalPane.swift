@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {

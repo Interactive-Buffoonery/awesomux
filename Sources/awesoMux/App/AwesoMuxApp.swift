@@ -1,10 +1,11 @@
 import AppKit
+import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
-import os
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 @preconcurrency import UserNotifications
 
 /// Must run before `GhosttyRuntime.initialize()` (which snapshots the

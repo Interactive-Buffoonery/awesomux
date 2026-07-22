@@ -1,4 +1,4 @@
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 import AwesoMuxTestSupport
 import Darwin
 import Foundation

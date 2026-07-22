@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// Pure-logic helper for seeding a per-workspace floating-panel
