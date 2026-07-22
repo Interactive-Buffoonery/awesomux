@@ -35,12 +35,23 @@
 - Modify: ~20 `Sources/AwesoMuxCore/` files, ~28 `Sources/awesoMux/` files, and test files — add `import AwesoMuxBridgeProtocol` (compiler-driven)
 
 **Interfaces:**
-- Produces: module `AwesoMuxBridgeProtocol` exporting `BridgeEnvelope`, `BridgeMessage`, `PermissionRequest`, `PermissionDecision`, `PermissionResolved`, `BridgeStateFile`, `BridgeFrameReader`, `BridgeHandshake`, `BridgeEpochPolicy`, `BridgePendingRequestMap`, `BridgeTunables`, `TerminalSessionID` — unchanged public API, new home.
+- Produces: module `AwesoMuxBridgeProtocol` exporting `BridgeEnvelope`, `BridgeMessage`, `AgentStatus`, `PermissionRequest`, `PermissionDecision`, `PermissionResolved`, `BridgeStateFile`, `BridgeFrameReader`, `BridgeHandshake`, `BridgeEpochPolicy`, `BridgePendingRequestMap`, `BridgeTunables`, `TerminalSessionID`, and the wire vocabulary `AgentKind`, `AgentExecutionState`, `AttentionReason`, `AgentRuntimeSource`, `AgentRuntimePhase` — unchanged public API, new home (one exception: `BridgeMessage.FieldLimit` becomes `public` so Core can mirror its title limit).
 - Consumes: nothing new.
 
 - [ ] **Step 1: Split `TerminalBackendMetadata` out of `TerminalSessionID.swift`**
 
 `TerminalSessionID.swift` currently holds two types. `TerminalBackendMetadata` is Core-domain (session snapshots) and must NOT move. Create `Sources/AwesoMuxCore/Models/TerminalBackendMetadata.swift` containing the `TerminalBackendMetadata` struct and its doc comment (lines 64–99 of the current file, plus `import Foundation`), and delete it from `TerminalSessionID.swift`.
+
+- [ ] **Step 1b: Move the agent wire-vocabulary enums (discovered at implementation — `BridgeEnvelope.AgentStatus` serializes them)**
+
+`BridgeEnvelope.swift` references five pure raw-string `Codable` enums plus one constant from `AwesoMuxCore`. They are part of the wire contract and move into the protocol target; every display/localization affordance stays behind in Core:
+
+- `AgentKind` (`Sources/AwesoMuxCore/Models/AgentKind.swift`, whole file is clean) → `git mv` to `Sources/AwesoMuxBridgeProtocol/AgentKind.swift`.
+- `AgentExecutionState` and `AttentionReason` → split OUT of `Sources/AwesoMuxCore/Models/AgentState.swift` into `Sources/AwesoMuxBridgeProtocol/AgentWireStates.swift` (verbatim declarations + `import Foundation`). `AgentDisplayState` and all `String(localized:)` material stay in `AgentState.swift`.
+- `AgentRuntimeSource` and `AgentRuntimePhase` → split OUT of `Sources/AwesoMuxCore/Models/AgentRuntimeEvent.swift` (which imports `os` and must stay in Core) into `Sources/AwesoMuxBridgeProtocol/AgentRuntimeWire.swift` (verbatim declarations + `import Foundation`).
+- `BridgeMessage.FieldLimit.title` currently reads `SessionStoreText.maxTitleLength` (internal, Core). Invert ownership: make the protocol side own the literal (`static let title = 200`, keeping the "same semantic field as the local pane title" comment) with `FieldLimit` made `public`, and change `SessionStoreText.maxTitleLength` (`Sources/AwesoMuxCore/Stores/SessionStoreText.swift:5`) to `= BridgeMessage.FieldLimit.title` so the two can never drift.
+
+If any of these types carry extensions elsewhere in Core (`grep -rn "extension AgentKind\|extension AgentExecutionState\|extension AttentionReason\|extension AgentRuntimeSource\|extension AgentRuntimePhase" Sources/`), those extensions STAY in Core — extending a type from another module is fine.
 
 - [ ] **Step 2: Move the files**
 
