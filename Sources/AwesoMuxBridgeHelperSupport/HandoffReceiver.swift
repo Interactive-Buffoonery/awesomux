@@ -9,10 +9,12 @@ import Dispatch
 import Foundation
 import AwesoMuxBridgeProtocol
 
-#if canImport(Glibc) || canImport(Musl)
-    // glibc >= 2.28 and musl >= 1.2.4 ship the renameat2 wrapper, but both
-    // Swift overlays hide its declaration behind _GNU_SOURCE. Bind the libc
-    // symbol directly; the flag value is stable kernel ABI (linux/fs.h).
+#if canImport(Glibc)
+    // glibc >= 2.28 ships the renameat2 wrapper, but the Swift overlay hides
+    // its declaration behind _GNU_SOURCE. Bind the libc symbol directly; the
+    // flag value is stable kernel ABI (linux/fs.h). The Static Linux SDK's
+    // musl does not export this symbol at all, so Musl gets its own publish
+    // path below rather than sharing this bind.
     @_silgen_name("renameat2")
     private func linuxRenameat2(
         _ olddirfd: Int32, _ oldpath: UnsafePointer<CChar>?,
@@ -119,15 +121,13 @@ public enum HandoffReceiver {
             }
             guard published == 0 else { throw ReceiveError.publishFailed }
             shouldRemoveTemporary = false
-        #else
+        #elseif canImport(Glibc)
             // renameat2(RENAME_NOREPLACE): Linux's exact equivalent of Darwin's
             // RENAME_EXCL — atomic no-overwrite publish with the temporary name gone
             // in the same operation, so crash-cleanup semantics match Darwin exactly.
-            // The wrapper ships in glibc >= 2.28 and musl >= 1.2.4 (both toolchains
-            // in play — Ubuntu 24.04 glibc, Static Linux SDK musl — are newer), but
-            // both overlays hide the declaration behind _GNU_SOURCE, so this binds
-            // the symbol directly (see top-of-file). Remaining fallback if that ever
-            // stops resolving at link time: linkat + unlinkat (non-atomic).
+            // The wrapper ships in glibc >= 2.28 (Ubuntu 24.04 glibc is newer), but
+            // the overlay hides the declaration behind _GNU_SOURCE, so this binds
+            // the symbol directly (see top-of-file).
             let published = temporaryName.withCString { temporary in
                 finalName.withCString { final in
                     linuxRenameat2(sessionFD, temporary, sessionFD, final, linuxRenameNoreplace)
@@ -135,6 +135,21 @@ public enum HandoffReceiver {
             }
             guard published == 0 else { throw ReceiveError.publishFailed }
             shouldRemoveTemporary = false
+        #elseif canImport(Musl)
+            // The Static Linux SDK's musl does not export a renameat2 wrapper, so the
+            // static helper publishes via linkat(2): link fails with EEXIST when the
+            // final name exists (same no-overwrite guarantee), and the deferred
+            // unlinkat drops the temporary name. Weaker crash-cleanup than rename:
+            // a hard kill between link and unlink leaves a stale .handoff-*.tmp hard
+            // link to the published file — clutter, not corruption.
+            let published = temporaryName.withCString { temporary in
+                finalName.withCString { final in
+                    linkat(sessionFD, temporary, sessionFD, final, 0)
+                }
+            }
+            guard published == 0 else { throw ReceiveError.publishFailed }
+            // shouldRemoveTemporary stays true: the deferred unlinkat removes exactly
+            // the surplus temporary hard link, never the final name.
         #endif
         _ = fsync(sessionFD)
 

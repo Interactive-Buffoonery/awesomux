@@ -176,7 +176,15 @@ private final class TestUnixServer: @unchecked Sendable {
         path =
             FileManager.default.temporaryDirectory
             .appendingPathComponent("awesomux-helper-\(UUID().uuidString.prefix(8)).sock").path
-        listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        // Glibc's overlay imports SOCK_STREAM as the enum __socket_type, not
+        // Int32; musl's imports it as a plain Int32. Normalize per-platform.
+        #if canImport(Darwin)
+            listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        #elseif canImport(Glibc)
+            listener = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
+        #elseif canImport(Musl)
+            listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        #endif
         guard listener >= 0 else { throw TestSocketError.system }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
