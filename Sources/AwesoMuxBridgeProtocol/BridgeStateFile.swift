@@ -60,9 +60,9 @@ public struct BridgeStateFile: Sendable, Equatable, Codable {
     /// (`containsUnsafePathScalars`) the spec mandates for every path field.
     public static func parse(data: Data) -> BridgeStateFile? {
         guard data.count <= maximumByteCount,
-              let decoded = try? decoder.decode(BridgeStateFile.self, from: data),
-              decoded.socket.hasPrefix("/"),
-              !UnicodeHygiene.containsUnsafePathScalars(decoded.socket)
+            let decoded = try? decoder.decode(BridgeStateFile.self, from: data),
+            decoded.socket.hasPrefix("/"),
+            !UnicodeHygiene.containsUnsafePathScalars(decoded.socket)
         else {
             return nil
         }

@@ -148,8 +148,8 @@ public enum HandoffReceiver {
                 }
             }
             guard published == 0 else { throw ReceiveError.publishFailed }
-            // shouldRemoveTemporary stays true: the deferred unlinkat removes exactly
-            // the surplus temporary hard link, never the final name.
+        // shouldRemoveTemporary stays true: the deferred unlinkat removes exactly
+        // the surplus temporary hard link, never the final name.
         #endif
         _ = fsync(sessionFD)
 

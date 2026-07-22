@@ -27,12 +27,15 @@ public struct TerminalSessionID: RawRepresentable, Codable, Hashable, Sendable {
 
     public static func isValid(_ value: String) -> Bool {
         guard let first = value.unicodeScalars.first,
-              value.utf8.count <= maxAmxSessionNameUTF8Bytes,
-              value.range(of: "\0") == nil else {
+            value.utf8.count <= maxAmxSessionNameUTF8Bytes,
+            value.range(of: "\0") == nil
+        else {
             return false
         }
-        guard (0x61...0x7a).contains(first.value)
-              || (0x30...0x39).contains(first.value) else {
+        guard
+            (0x61...0x7a).contains(first.value)
+                || (0x30...0x39).contains(first.value)
+        else {
             return false
         }
 

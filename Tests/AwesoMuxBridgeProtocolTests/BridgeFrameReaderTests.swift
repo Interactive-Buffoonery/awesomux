@@ -147,8 +147,8 @@ struct BridgeFrameReaderTests {
 
         let result = Self.consume(data)
 
-        #expect(result.frames.isEmpty) // garbage, not valid JSON — dropped
-        #expect(result.action == .none) // but NOT closed: size was within the cap
+        #expect(result.frames.isEmpty)  // garbage, not valid JSON — dropped
+        #expect(result.action == .none)  // but NOT closed: size was within the cap
         #expect(result.tail == .empty)
     }
 
