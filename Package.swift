@@ -2,6 +2,57 @@
 
 import PackageDescription
 
+#if os(Linux)
+// Portable subset — only the bridge helper's dependency graph builds on
+// Linux; the app graph needs AppKit/GhosttyKit. Keep target definitions in
+// sync with the macOS branch below when touching shared targets.
+let package = Package(
+    name: "awesoMux",
+    products: [
+        .executable(name: "awesoMuxBridgeHelper", targets: ["awesoMuxBridgeHelper"])
+    ],
+    targets: [
+        .target(name: "UnicodeHygiene"),
+        .target(
+            name: "AwesoMuxBridgeProtocol",
+            dependencies: ["UnicodeHygiene"]
+        ),
+        .target(
+            name: "AwesoMuxBridgeHelperSupport",
+            dependencies: ["AwesoMuxBridgeProtocol"]
+        ),
+        .executableTarget(
+            name: "awesoMuxBridgeHelper",
+            dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxBridgeHelperSupport"],
+            path: "Sources/awesoMuxBridgeHelper"
+        ),
+        .target(
+            name: "AwesoMuxTestSupport",
+            path: "Tests/AwesoMuxTestSupport",
+            sources: [
+                "AsyncGate.swift",
+                "EventRecorder.swift",
+                "TemporaryDirectory.swift",
+                "TestClock.swift",
+                "TestScheduler.swift",
+                "Wait.swift",
+            ]
+        ),
+        .testTarget(
+            name: "UnicodeHygieneTests",
+            dependencies: ["UnicodeHygiene"]
+        ),
+        .testTarget(
+            name: "AwesoMuxBridgeProtocolTests",
+            dependencies: ["AwesoMuxBridgeProtocol"]
+        ),
+        .testTarget(
+            name: "AwesoMuxBridgeHelperSupportTests",
+            dependencies: ["AwesoMuxBridgeHelperSupport", "AwesoMuxBridgeProtocol", "AwesoMuxTestSupport"]
+        ),
+    ]
+)
+#else
 let package = Package(
     name: "awesoMux",
     defaultLocalization: "en",
@@ -165,3 +216,4 @@ let package = Package(
         ),
     ]
 )
+#endif
