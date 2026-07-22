@@ -194,6 +194,11 @@ only the DMG to Apple's notary service, then staple and validate the DMG. After
 changing packaging or notarization, run the workflow manually without creating
 a draft and verify its downloaded DMG on another Mac before the next tag.
 
+Releases also include static Linux bridge-helper binaries for x86_64 and
+aarch64, built by the `linux-helper` job (`script/build_linux_helper.sh`) and
+attached alongside their `.sha256` checksums. Verification and manual-install
+instructions live in `docs/remote-linux-helper.md`.
+
 - [x] Add a tag-triggered GitHub Actions workflow:
   - [x] only runs on protected `v*` tags or manual maintainer dispatch
         (tag push and `workflow_dispatch` are the only triggers; both gated by
