@@ -52,7 +52,15 @@ public final class HelperConnection {
         session: String,
         monotonicNow: @escaping () -> Date = HelperConnection.defaultMonotonicNow
     ) throws -> HelperConnection {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        // Glibc's overlay imports SOCK_STREAM as the enum __socket_type, not
+        // Int32; musl's imports it as a plain Int32. Normalize per-platform.
+        #if canImport(Darwin)
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        #elseif canImport(Glibc)
+            let fd = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
+        #elseif canImport(Musl)
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        #endif
         guard fd >= 0 else { throw ConnectionError.connectFailed }
 
         do {
@@ -197,8 +205,10 @@ public final class HelperConnection {
             while offset < rawBuffer.count {
                 #if canImport(Darwin)
                     let count = Darwin.write(fd, rawBuffer.baseAddress!.advanced(by: offset), rawBuffer.count - offset)
-                #else
-                    let count = send(fd, rawBuffer.baseAddress!.advanced(by: offset), rawBuffer.count - offset, Int32(MSG_NOSIGNAL))
+                #elseif canImport(Glibc)
+                    let count = Glibc.send(fd, rawBuffer.baseAddress!.advanced(by: offset), rawBuffer.count - offset, Int32(MSG_NOSIGNAL))
+                #elseif canImport(Musl)
+                    let count = Musl.send(fd, rawBuffer.baseAddress!.advanced(by: offset), rawBuffer.count - offset, Int32(MSG_NOSIGNAL))
                 #endif
                 if count < 0 {
                     if errno == EINTR { continue }

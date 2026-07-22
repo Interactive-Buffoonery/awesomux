@@ -9,6 +9,19 @@ import Dispatch
 import Foundation
 import AwesoMuxBridgeProtocol
 
+#if canImport(Glibc) || canImport(Musl)
+    // glibc >= 2.28 and musl >= 1.2.4 ship the renameat2 wrapper, but both
+    // Swift overlays hide its declaration behind _GNU_SOURCE. Bind the libc
+    // symbol directly; the flag value is stable kernel ABI (linux/fs.h).
+    @_silgen_name("renameat2")
+    private func linuxRenameat2(
+        _ olddirfd: Int32, _ oldpath: UnsafePointer<CChar>?,
+        _ newdirfd: Int32, _ newpath: UnsafePointer<CChar>?,
+        _ flags: UInt32
+    ) -> Int32
+    private let linuxRenameNoreplace: UInt32 = 1
+#endif
+
 /// Receives one bounded handoff into the current user's private session directory.
 public enum HandoffReceiver {
     public static let maximumByteCount = 10 * 1024 * 1024
@@ -110,11 +123,14 @@ public enum HandoffReceiver {
             // renameat2(RENAME_NOREPLACE): Linux's exact equivalent of Darwin's
             // RENAME_EXCL — atomic no-overwrite publish with the temporary name gone
             // in the same operation, so crash-cleanup semantics match Darwin exactly.
-            // The wrapper ships in glibc >= 2.28 and musl >= 1.2.4; both toolchains
-            // in play (Ubuntu 24.04 glibc, Static Linux SDK musl) are newer.
+            // The wrapper ships in glibc >= 2.28 and musl >= 1.2.4 (both toolchains
+            // in play — Ubuntu 24.04 glibc, Static Linux SDK musl — are newer), but
+            // both overlays hide the declaration behind _GNU_SOURCE, so this binds
+            // the symbol directly (see top-of-file). Remaining fallback if that ever
+            // stops resolving at link time: linkat + unlinkat (non-atomic).
             let published = temporaryName.withCString { temporary in
                 finalName.withCString { final in
-                    renameat2(sessionFD, temporary, sessionFD, final, UInt32(RENAME_NOREPLACE))
+                    linuxRenameat2(sessionFD, temporary, sessionFD, final, linuxRenameNoreplace)
                 }
             }
             guard published == 0 else { throw ReceiveError.publishFailed }
