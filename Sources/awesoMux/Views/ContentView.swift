@@ -100,8 +100,9 @@ struct ContentView: View {
     @State private var sidebarWidth = SidebarWidthPreferenceStore().width()
     @State private var lastNonCollapsedSidebarWidth =
         SidebarWidthPreferenceStore().lastNonCollapsedWidth()
-    /// Live width published by the native divider; read by the titlebar and the
-    /// sidebar pane (not ContentView's body) so a drag re-renders only those.
+    /// Live width published by the native divider; read only by the sidebar
+    /// pane (not ContentView's body) so a drag re-renders just that pane. The
+    /// titlebar tracks drags through `hostPresentation` instead (#77).
     @State private var sidebarLiveWidth = SidebarLiveWidth(value: SidebarWidthPreferenceStore().width())
     /// Command channel to move the native divider (the `⌘\` toggle).
     @State private var splitProxy = SidebarSplitProxy()

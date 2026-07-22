@@ -159,11 +159,12 @@ struct SidebarPresentationLayoutPolicy {
 
 /// Live sidebar width published on every divider tick (INT-535, A4).
 ///
-/// Scoped deliberately: only the titlebar and the sidebar pane read `value`, so a
-/// drag re-renders just those two — NOT `ContentView`'s body or the terminal pane
-/// (which would re-host per frame). The persisted `sidebarWidth` `@State` updates
-/// only on commit (drag end), so band-derived layout can switch live during a drag
-/// while persistence stays discrete.
+/// Scoped deliberately: only the sidebar pane reads `value`, so a drag
+/// re-renders just that pane — NOT `ContentView`'s body or the terminal pane
+/// (which would re-host per frame). The static titlebar (#77) tracks drags
+/// through `SidebarHostPresentationState` instead. The persisted
+/// `sidebarWidth` `@State` updates only on commit (drag end), so band-derived
+/// layout can switch live during a drag while persistence stays discrete.
 @Observable
 @MainActor
 final class SidebarLiveWidth {
