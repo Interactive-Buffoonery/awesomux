@@ -1,5 +1,11 @@
 import AwesoMuxTestSupport
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 import Foundation
 import Testing
 @testable import AwesoMuxBridgeHelperSupport
@@ -91,6 +97,32 @@ struct HandoffReceiverTests {
 
         #expect(Set(receipts.map(\.path)).count == receipts.count)
         #expect(receipts.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    @Test("second publish under a forced name collision throws publishFailed and leaves no temporary")
+    func secondPublishWithSameNameFailsCleanly() throws {
+        let home = try TemporaryDirectory(prefix: "handoff-home")
+        let fixed = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let payload = Data("hello".utf8)
+
+        func receiveOnce() throws -> HandoffReceiver.Receipt {
+            let input = try inputDescriptor(payload)
+            defer { close(input) }
+            return try HandoffReceiver.receive(
+                session: "session-collision", advisoryName: "note.md", expectedBytes: payload.count,
+                inputDescriptor: input, homeDirectory: home.url, makeUUID: { fixed }
+            )
+        }
+
+        _ = try receiveOnce()
+        #expect(throws: HandoffReceiver.ReceiveError.publishFailed) {
+            _ = try receiveOnce()
+        }
+        let sessionDir = home.url.appendingPathComponent(".awesomux/handoffs/session-collision")
+        let leftovers = try FileManager.default
+            .contentsOfDirectory(atPath: sessionDir.path)
+            .filter { $0.hasPrefix(".handoff-") }
+        #expect(leftovers.isEmpty)
     }
 
     @Test(

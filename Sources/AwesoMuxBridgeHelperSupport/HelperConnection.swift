@@ -1,5 +1,11 @@
 import AwesoMuxBridgeProtocol
-import Darwin
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif canImport(Musl)
+    import Musl
+#endif
 import Foundation
 
 public final class HelperConnection {
@@ -31,12 +37,14 @@ public final class HelperConnection {
         self.session = session
         self.monotonicNow = monotonicNow
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
-        var noSignal: Int32 = 1
-        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout.size(ofValue: noSignal)))
+        #if canImport(Darwin)
+            var noSignal: Int32 = 1
+            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout.size(ofValue: noSignal)))
+        #endif
     }
 
     deinit {
-        Darwin.close(fd)
+        close(fd)
     }
 
     public static func connect(
@@ -48,17 +56,21 @@ public final class HelperConnection {
         guard fd >= 0 else { throw ConnectionError.connectFailed }
 
         do {
-            var noSignal: Int32 = 1
-            guard setsockopt(
-                fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
-                socklen_t(MemoryLayout.size(ofValue: noSignal))
-            ) == 0 else {
-                throw ConnectionError.connectFailed
-            }
+            #if canImport(Darwin)
+                var noSignal: Int32 = 1
+                guard
+                    setsockopt(
+                        fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
+                        socklen_t(MemoryLayout.size(ofValue: noSignal))
+                    ) == 0
+                else {
+                    throw ConnectionError.connectFailed
+                }
+            #endif
             try connect(fd: fd, path: state.socket)
             return HelperConnection(fileDescriptor: fd, token: state.token, session: session, monotonicNow: monotonicNow)
         } catch {
-            Darwin.close(fd)
+            close(fd)
             throw error
         }
     }
@@ -80,7 +92,7 @@ public final class HelperConnection {
             guard case .handshake(let handshake) = frame else { continue }
             switch handshake {
             case .helloAck(let ackSession, let ackProto, _)
-                where ackSession == session && ackProto == proto:
+            where ackSession == session && ackProto == proto:
                 return
             case .helloAck, .helloNack, .hello:
                 throw ConnectionError.protocolViolation
@@ -99,7 +111,8 @@ public final class HelperConnection {
         while monotonicNow() < deadline {
             let frame = try readFrame(deadline: deadline)
             if case .envelope(let envelope) = frame,
-               case .permissionDecision = envelope.message {
+                case .permissionDecision = envelope.message
+            {
                 return envelope
             }
         }
@@ -129,14 +142,15 @@ public final class HelperConnection {
                 // An idle connection can sleep until its real request deadline;
                 // only a partial line needs an earlier wake for the reader's
                 // resource-hostage deadline.
-                let partialRemaining = BridgeFrameReader.partialLineDeadline
+                let partialRemaining =
+                    BridgeFrameReader.partialLineDeadline
                     - monotonicNow().timeIntervalSince(tailStartedAt)
                 pollInterval = min(remaining, max(0.001, partialRemaining + 0.001))
             } else {
                 pollInterval = remaining
             }
             let timeoutMilliseconds = Int32(min(pollInterval * 1_000, Double(Int32.max)).rounded(.up))
-            let pollResult = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            let pollResult = poll(&descriptor, 1, timeoutMilliseconds)
             if pollResult < 0 {
                 if errno == EINTR { continue }
                 throw ConnectionError.closed
@@ -152,7 +166,7 @@ public final class HelperConnection {
             }
 
             var buffer = [UInt8](repeating: 0, count: 8 * 1024)
-            let byteCount = Darwin.read(fd, &buffer, buffer.count)
+            let byteCount = read(fd, &buffer, buffer.count)
             if byteCount < 0 {
                 if errno == EINTR { continue }
                 throw ConnectionError.closed
@@ -181,7 +195,11 @@ public final class HelperConnection {
         try data.withUnsafeBytes { rawBuffer in
             var offset = 0
             while offset < rawBuffer.count {
-                let count = Darwin.write(fd, rawBuffer.baseAddress!.advanced(by: offset), rawBuffer.count - offset)
+                #if canImport(Darwin)
+                    let count = Darwin.write(fd, rawBuffer.baseAddress!.advanced(by: offset), rawBuffer.count - offset)
+                #else
+                    let count = send(fd, rawBuffer.baseAddress!.advanced(by: offset), rawBuffer.count - offset, Int32(MSG_NOSIGNAL))
+                #endif
                 if count < 0 {
                     if errno == EINTR { continue }
                     throw ConnectionError.writeFailed
@@ -208,7 +226,13 @@ public final class HelperConnection {
         let result = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
                 while true {
-                    let result = Darwin.connect(fd, socketAddress, length)
+                    #if canImport(Darwin)
+                        let result = Darwin.connect(fd, socketAddress, length)
+                    #elseif canImport(Glibc)
+                        let result = Glibc.connect(fd, socketAddress, length)
+                    #elseif canImport(Musl)
+                        let result = Musl.connect(fd, socketAddress, length)
+                    #endif
                     if result == 0 || errno != EINTR { return result }
                 }
             }

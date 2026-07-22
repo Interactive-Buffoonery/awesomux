@@ -1,5 +1,11 @@
 import AwesoMuxBridgeProtocol
-import Darwin
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif canImport(Musl)
+    import Musl
+#endif
 import Foundation
 
 /// The remote helper's fd-level custody check on the bridge state file,
@@ -49,17 +55,17 @@ public enum BridgeStateFileCustody {
 
         var st = stat()
         guard fstat(fd, &st) == 0,
-              (st.st_mode & S_IFMT) == S_IFREG,
-              st.st_uid == effectiveUID,
-              // Exactly 0600 across ALL non-file-type mode bits — no
-              // group/world access of any kind (a group-readable file could
-              // leak the token to another local account on a shared host),
-              // and no setuid/setgid/sticky either: masking only the rwx
-              // triads would let an anomalous 04600 pass an "exactly 0600"
-              // check.
-              (st.st_mode & ~mode_t(S_IFMT)) == (S_IRUSR | S_IWUSR),
-              st.st_size >= 0,
-              st.st_size <= off_t(BridgeStateFile.maximumByteCount)
+            (st.st_mode & S_IFMT) == S_IFREG,
+            st.st_uid == effectiveUID,
+            // Exactly 0600 across ALL non-file-type mode bits — no
+            // group/world access of any kind (a group-readable file could
+            // leak the token to another local account on a shared host),
+            // and no setuid/setgid/sticky either: masking only the rwx
+            // triads would let an anomalous 04600 pass an "exactly 0600"
+            // check.
+            (st.st_mode & ~mode_t(S_IFMT)) == (S_IRUSR | S_IWUSR),
+            st.st_size >= 0,
+            st.st_size <= off_t(BridgeStateFile.maximumByteCount)
         else {
             return nil
         }

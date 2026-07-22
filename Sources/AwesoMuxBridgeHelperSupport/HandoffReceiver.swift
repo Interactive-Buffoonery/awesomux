@@ -1,4 +1,10 @@
-import Darwin
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif canImport(Musl)
+    import Musl
+#endif
 import Dispatch
 import Foundation
 import AwesoMuxBridgeProtocol
@@ -92,13 +98,28 @@ public enum HandoffReceiver {
         temporaryIsOpen = false
         guard closeResult == 0 else { throw ReceiveError.syncFailed }
 
-        let published = temporaryName.withCString { temporary in
-            finalName.withCString { final in
-                renameatx_np(sessionFD, temporary, sessionFD, final, UInt32(RENAME_EXCL))
+        #if canImport(Darwin)
+            let published = temporaryName.withCString { temporary in
+                finalName.withCString { final in
+                    renameatx_np(sessionFD, temporary, sessionFD, final, UInt32(RENAME_EXCL))
+                }
             }
-        }
-        guard published == 0 else { throw ReceiveError.publishFailed }
-        shouldRemoveTemporary = false
+            guard published == 0 else { throw ReceiveError.publishFailed }
+            shouldRemoveTemporary = false
+        #else
+            // renameat2(RENAME_NOREPLACE): Linux's exact equivalent of Darwin's
+            // RENAME_EXCL — atomic no-overwrite publish with the temporary name gone
+            // in the same operation, so crash-cleanup semantics match Darwin exactly.
+            // The wrapper ships in glibc >= 2.28 and musl >= 1.2.4; both toolchains
+            // in play (Ubuntu 24.04 glibc, Static Linux SDK musl) are newer.
+            let published = temporaryName.withCString { temporary in
+                finalName.withCString { final in
+                    renameat2(sessionFD, temporary, sessionFD, final, UInt32(RENAME_NOREPLACE))
+                }
+            }
+            guard published == 0 else { throw ReceiveError.publishFailed }
+            shouldRemoveTemporary = false
+        #endif
         _ = fsync(sessionFD)
 
         let path =
@@ -183,14 +204,20 @@ public enum HandoffReceiver {
     }
 }
 
+#if canImport(Darwin)
+    private typealias SignalDisposition = sig_t
+#else
+    private typealias SignalDisposition = @convention(c) (Int32) -> Void
+#endif
+
 private final class HandoffSignalCleanup {
     private let queue = DispatchQueue(label: "com.interactivebuffoonery.awesomux.handoff-signal-cleanup")
     private var sources: [DispatchSourceSignal] = []
-    private var previousHandlers: [(Int32, sig_t?)] = []
+    private var previousHandlers: [(Int32, SignalDisposition?)] = []
 
     init(directoryFD: Int32, temporaryName: String) {
         for signalNumber in [SIGHUP, SIGINT, SIGTERM] {
-            previousHandlers.append((signalNumber, Darwin.signal(signalNumber, SIG_IGN)))
+            previousHandlers.append((signalNumber, signal(signalNumber, SIG_IGN)))
             let source = DispatchSource.makeSignalSource(
                 signal: signalNumber,
                 queue: queue
@@ -209,7 +236,7 @@ private final class HandoffSignalCleanup {
         queue.sync {}
         sources.removeAll()
         for (signalNumber, handler) in previousHandlers {
-            Darwin.signal(signalNumber, handler)
+            signal(signalNumber, handler)
         }
         previousHandlers.removeAll()
     }
