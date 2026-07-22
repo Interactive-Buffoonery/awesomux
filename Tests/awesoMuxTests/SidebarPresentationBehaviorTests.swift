@@ -1698,154 +1698,47 @@ struct SidebarPresentationBehaviorTests {
 
         controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
         let revealCompletion = driver.completions[0]
-        #expect(controller.hostPresentationState.isOverlayAnimating)
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
         #expect(controller.hostPresentationState.effectiveVisibleWidth == 300)
-        #expect(controller.hostPresentationState.titlebarTranslationX == 0)
-        let midReveal: CGFloat = position == .left ? -120 : 120
-        driver.presentationTranslation = midReveal
-        #expect(controller.hostPresentationState.currentTitlebarTranslationX == midReveal)
-        driver.presentationTranslation = nil
         revealCompletion()
-        #expect(!controller.hostPresentationState.isOverlayAnimating)
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
 
         #expect(
             controller.setOverlayPresented(
                 false, transition: .hover, reduceMotion: false))
         let staleHide = driver.completions[1]
-        #expect(controller.hostPresentationState.isOverlayAnimating)
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
-        #expect(
-            controller.hostPresentationState.titlebarTranslationX
-                == SidebarOverlayAnimator.hiddenTranslation(width: 300, position: position))
-        let midHide: CGFloat = position == .left ? -180 : 180
-        driver.presentationTranslation = midHide
-        #expect(controller.hostPresentationState.currentTitlebarTranslationX == midHide)
-        driver.presentationTranslation = nil
         controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
-        #expect(controller.hostPresentationState.isOverlayAnimating)
-        #expect(controller.hostPresentationState.titlebarTranslationX == 0)
+        // The stale hide completion fires after a newer reveal superseded it —
+        // it must not flip the authoritative mode back to hidden.
         staleHide()
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
         driver.completions[2]()
-        #expect(!controller.hostPresentationState.isOverlayAnimating)
         #expect(controller.hostPresentationState.mode == .overlay(width: 300))
 
         controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
         driver.completions[3]()
         #expect(controller.hostPresentationState.mode == .hidden)
         #expect(controller.hostPresentationState.effectiveVisibleWidth == 0)
-        #expect(
-            controller.hostPresentationState.titlebarTranslationX
-                == SidebarOverlayAnimator.hiddenTranslation(width: 300, position: position))
     }
 
-    @Test("titlebar visible width follows presentation translation on both sides")
-    func titlebarVisibleWidthFollowsPresentationTranslation() {
-        let state = SidebarHostPresentationState(mode: .hidden)
-        state.beginOverlayTransition(presented: false, width: 300, position: .left)
-
-        state.overlayPresentationTranslation = { -300 }
-        #expect(state.currentTitlebarVisibleWidth(position: .left) == 0)
-        state.overlayPresentationTranslation = { -180 }
-        #expect(state.currentTitlebarVisibleWidth(position: .left) == 120)
-        state.overlayPresentationTranslation = { 0 }
-        #expect(state.currentTitlebarVisibleWidth(position: .left) == 300)
-        state.overlayPresentationTranslation = { -180 }
-        #expect(state.currentTitlebarVisibleWidth(position: .left) == 120)
-
-        state.overlayPresentationTranslation = { 180 }
-        #expect(state.currentTitlebarVisibleWidth(position: .right) == 120)
-    }
-
-    @Test("titlebar visible width clamps invalid presentation geometry")
-    func titlebarVisibleWidthClampsInvalidPresentationGeometry() {
-        let state = SidebarHostPresentationState(mode: .hidden)
-        state.beginOverlayTransition(presented: true, width: 300, position: .left)
-
-        state.overlayPresentationTranslation = { -600 }
-        #expect(state.currentTitlebarVisibleWidth(position: .left) == 0)
-        #expect(
-            state.currentTitlebarVisibleWidth(position: .left, translation: .infinity) == 0)
-
-        state.beginOverlayTransition(presented: true, width: .infinity, position: .right)
-        state.overlayPresentationTranslation = { 0 }
-        #expect(state.currentTitlebarVisibleWidth(position: .right) == 0)
-    }
-
-    @Test(
-        "titlebar translation falls back to the stored target before any presentation layer",
-        arguments: [AppearanceConfig.SidebarPosition.left, .right]
-    )
-    func firstRevealFallsBackWithoutPresentationLayer(
-        position: AppearanceConfig.SidebarPosition
-    ) {
-        let hidden = SidebarOverlayAnimator.hiddenTranslation(width: 300, position: position)
-        let state = SidebarHostPresentationState(mode: .hidden)
-
-        // Settled hidden with no animator/closure wired yet: the deterministic
-        // stored target is the only source.
-        state.beginOverlayTransition(presented: false, width: 300, position: position)
-        #expect(state.currentTitlebarTranslationX == hidden)
-        #expect(state.currentTitlebarVisibleWidth(position: position) == 0)
-
-        // The very first reveal renders before the presentation layer exists — the
-        // fallback must read the presented target (0), not a live layer.
-        state.beginOverlayTransition(presented: true, width: 300, position: position)
-        #expect(state.currentTitlebarTranslationX == 0)
-        #expect(state.currentTitlebarVisibleWidth(position: position) == 300)
-
-        // A wired-but-empty presentation layer (animator present, layer not yet
-        // sampling / returning non-finite) still falls through to the stored target.
-        state.overlayPresentationTranslation = { nil }
-        #expect(state.currentTitlebarTranslationX == 0)
-        state.overlayPresentationTranslation = { .nan }
-        #expect(state.currentTitlebarTranslationX == 0)
-    }
-
-    @Test(
-        "overlay relayout reframes titlebar presentation width without dropping the animation",
-        arguments: [AppearanceConfig.SidebarPosition.left, .right]
-    )
-    func overlayReframeUpdatesTitlebarPresentationWidth(
-        position: AppearanceConfig.SidebarPosition
-    ) {
-        let state = SidebarHostPresentationState(mode: .overlay(width: 300))
-        state.beginOverlayTransition(presented: true, width: 300, position: position)
-        state.setOverlayAnimating(true)
-
-        // Sample a mid-reveal translation (60% revealed at width 300).
-        let mid: CGFloat = position == .left ? -120 : 120
-        state.overlayPresentationTranslation = { mid }
-        #expect(state.currentTitlebarVisibleWidth(position: position) == 180)
-
-        // A divider drag mid-reveal drives publishOverlayLayout -> settle(.overlay,
-        // newWidth): the width republishes while the overlay keeps animating (the
-        // reframe path). The animating flag must survive the relayout...
-        state.settle(mode: .overlay(width: 500), effectiveVisibleWidth: 500)
-        #expect(state.isOverlayAnimating)
-        #expect(state.titlebarPresentationWidth == 500)
-        // ...and visible width now tracks the new presentation width at the same
-        // sampled translation.
-        #expect(
-            state.currentTitlebarVisibleWidth(position: position, translation: mid)
-                == 500 - abs(mid))
-    }
-
-    @Test("Reduce Motion keeps titlebar and overlay transition targets instant")
+    @Test("Reduce Motion keeps the titlebar reservation static across overlay transitions")
     func reduceMotionTitlebarParity() {
         let (controller, _, _) = makeController(position: .right)
         controller.setSidebarWidth(300)
         controller.setPersistentSidebarVisible(false)
 
+        // The titlebar is static across hover-reveal (#77): hidden and overlay
+        // share one constant lockup reservation, with or without Reduce Motion.
         controller.setOverlayPresented(true, transition: .hover, reduceMotion: true)
-        #expect(controller.hostPresentationState.titlebarTranslationX == 0)
-        #expect(controller.hostPresentationState.currentTitlebarTranslationX == 0)
+        #expect(
+            controller.hostPresentationState.titlebarReservationWidth
+                == AppTitlebarMetrics.brandWithTextMinimumWidth)
 
         controller.setOverlayPresented(false, transition: .hover, reduceMotion: true)
-        #expect(controller.hostPresentationState.titlebarTranslationX == 300)
-        #expect(controller.hostPresentationState.currentTitlebarTranslationX == 300)
+        #expect(
+            controller.hostPresentationState.titlebarReservationWidth
+                == AppTitlebarMetrics.brandWithTextMinimumWidth)
     }
 
     @Test("settled persistent and hidden commands are idempotent")

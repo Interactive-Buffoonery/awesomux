@@ -1601,8 +1601,6 @@ struct SidebarSplitControllerTests {
 
         controller.setSidebarWidth(420)
         #expect(sidebar.view.frame.width == 0)
-        #expect(controller.hostPresentationState.titlebarPresentationWidth == 420)
-        #expect(controller.hostPresentationState.titlebarTranslationX == -420)
         controller.setSidebarHidden(false)
 
         #expect(abs(sidebar.view.frame.width - 420) < 1)

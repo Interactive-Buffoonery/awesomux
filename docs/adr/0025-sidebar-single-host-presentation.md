@@ -75,12 +75,26 @@ The permanent host is therefore the **root container**, and the split pane is th
   pending target, deferred-command persistence across host replacement, and
   rejection semantics that a plain optional cannot represent. Resolved: keep it.
 
-- **Titlebar lockstep stays.** The issue assumed the titlebar brand lockup would
-  "move for free" with the sidebar. Under every candidate design it does not: the
-  lockup is SwiftUI titlebar chrome, not part of the sidebar `NSView`, so it is
-  driven in lockstep rather than carried by the host. Moving the lockup into the
-  sidebar view is deferred future work (~250–400 lines) that re-opens the
-  INT-790 titlebar-inset coordinate mapping; gate it on a control experiment.
+- **Titlebar lockstep stays.** ~~The issue assumed the titlebar brand lockup
+  would "move for free" with the sidebar. Under every candidate design it does
+  not: the lockup is SwiftUI titlebar chrome, not part of the sidebar `NSView`,
+  so it is driven in lockstep rather than carried by the host. Moving the
+  lockup into the sidebar view is deferred future work (~250–400 lines) that
+  re-opens the INT-790 titlebar-inset coordinate mapping; gate it on a control
+  experiment.~~ **Superseded (#77, 2026-07-21): the lockstep is deleted, in the
+  opposite direction.** The requirement was re-examined: the slide-along was
+  never the goal, and the workspace title moving during hover-reveal (an 84pt
+  anchor shift, existing only because the lockup vacated and reclaimed its
+  corner) was the actual irritant. The titlebar is now static: the brand
+  lockup is permanent titlebar chrome, hidden and overlay modes share one
+  constant lockup reservation (`brandWithTextMinimumWidth`), and nothing in
+  the titlebar moves or fades during hover-reveal. The settled revealed state
+  is unchanged; only the hidden state differs (title sits past the always-
+  visible lockup). "Permanent" is scoped to hidden/overlay: persistent mode
+  still mirrors the live column, so dragging below the lockup thresholds
+  degrades the brand exactly as before, and explicit layout changes still
+  reflow the title per platform convention. The move-into-sidebar design and
+  its INT-790 coordinate-mapping risk are retired, not deferred.
 
 - **The test suite was renamed, not rewritten.** Review found the prior
   ~3,968-line suite was roughly 95% behavioral at rewrite time, so the projected
@@ -98,4 +112,6 @@ The permanent host is therefore the **root container**, and the split pane is th
   avoid per-frame terminal rewrap. If a future change makes per-frame terminal
   resize cheap enough, the divider-animation path is available again (Step-0
   proved it is smooth).
-- The titlebar lockup lockstep remains until the deferred move lands.
+- ~~The titlebar lockup lockstep remains until the deferred move lands.~~
+  Resolved by #77: the lockstep is deleted and the titlebar is static across
+  hover-reveal (see the superseded consequence above).
