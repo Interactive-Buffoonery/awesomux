@@ -326,7 +326,6 @@ struct ContentView: View {
             AppTitlebarView(
                 session: sessionStore.selectedSession,
                 onRenameWorkspace: onRenameWorkspace,
-                sidebarLiveWidth: sidebarLiveWidth,
                 sidebarPosition: sidebarPosition,
                 hostPresentation: hostPresentation
             )
@@ -557,14 +556,12 @@ private struct AppTitlebarView: View {
     /// Same rename closure the sidebar tile uses — the titlebar workspace name
     /// invokes it on a double-click (INT-720).
     let onRenameWorkspace: (TerminalSession) -> Void
-    /// Live sidebar width (from the native divider) so the titlebar mirrors the
-    /// body's `[sidebar | content]` column split frame-for-frame during a drag.
-    /// The two zones below are anchored to the column they describe — brand
-    /// over the sidebar, workspace cluster over the content pane — so the
-    /// wide-monitor empty space reads as intentional negative space between
-    /// two anchored elements rather than vacuum around a centered cluster.
-    /// Reading `.value` here re-renders only the titlebar, not `ContentView`.
-    let sidebarLiveWidth: SidebarLiveWidth
+    // The two titlebar zones are anchored to the column they describe — brand
+    // over the sidebar, workspace cluster over the content pane — so the
+    // wide-monitor empty space reads as intentional negative space between
+    // two anchored elements rather than vacuum around a centered cluster.
+    // Persistent-mode divider drags reach the titlebar through
+    // `hostPresentation` (settled per drag frame), not a live-width mirror.
     let sidebarPosition: AppearanceConfig.SidebarPosition
     let hostPresentation: SidebarHostPresentationState
     private var layoutPolicy: SidebarPresentationLayoutPolicy {
