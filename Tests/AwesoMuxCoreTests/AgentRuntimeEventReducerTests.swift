@@ -515,4 +515,134 @@ struct AgentRuntimeEventReducerTests {
                 ) == nil)
         }
     }
+
+    @Test("a different-kind event does not overwrite an established pane identity")
+    func differentKindEventDoesNotOverwriteEstablishedIdentity() throws {
+        // The pane is already established as Claude Code — mirrors a restored
+        // session snapshot where the pane struct already carries its agent kind
+        // while the reducer's own in-memory per-pane lifecycle tracking starts
+        // fresh (defaults to `.active`).
+        let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        var reducer = AgentRuntimeEventReducer()
+
+        // Simulate a `codex exec` subprocess (spawned as a Bash tool call inside
+        // that same pane) whose inherited AWESOMUX_AGENT_EVENT_FILE routes its
+        // own Codex-flavored hook events into this pane's stream (confirmed live
+        // — see Task 2 background).
+        let contaminatingCodexStop = AgentRuntimeEvent(
+            source: .codex,
+            kind: .codex,
+            executionState: .waiting,
+            phase: .stop,
+            eventID: "codex-stop-1",
+            timestamp: Date(timeIntervalSince1970: 101)
+        )
+        let contaminatingDecision = reducer.decision(
+            for: contaminatingCodexStop, currentSession: session, paneID: paneID,
+            terminalIsFocused: false, now: Date(timeIntervalSince1970: 101)
+        )
+        #expect(contaminatingDecision == nil)
+
+        // A later, real Claude Code event must still apply normally afterward —
+        // the rejected Codex event must not have poisoned the staleness watermark.
+        let claudeThinking = AgentRuntimeEvent(
+            source: .claudeCode,
+            kind: .claudeCode,
+            executionState: .thinking,
+            phase: .promptSubmit,
+            eventID: "claude-prompt-1",
+            timestamp: Date(timeIntervalSince1970: 102)
+        )
+        let laterDecision = reducer.decision(
+            for: claudeThinking, currentSession: session, paneID: paneID,
+            terminalIsFocused: false, now: Date(timeIntervalSince1970: 102)
+        )
+        #expect(laterDecision?.update.agentExecutionState == .thinking)
+    }
+
+    @Test("a nested child process's own SessionStart does not take over a pane mid-turn")
+    func nestedSessionStartDuringActiveTurnIsRejected() throws {
+        // The established Claude Code session's turn is still active (no Stop
+        // has landed) when the nested `codex exec` child's OWN SessionStart
+        // hook fires — this is the exact scenario Task 2's background section
+        // confirmed live: Codex's rendered hooks.json registers SessionStart
+        // too, so a bare "SessionStart passes unconditionally" guard would not
+        // actually close the contamination hole.
+        let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        var reducer = AgentRuntimeEventReducer()
+
+        let contaminatingCodexSessionStart = AgentRuntimeEvent(
+            source: .codex,
+            kind: .codex,
+            executionState: .idle,
+            phase: .sessionStart,
+            eventID: "codex-nested-start-1",
+            timestamp: Date(timeIntervalSince1970: 150)
+        )
+        let decision = reducer.decision(
+            for: contaminatingCodexSessionStart, currentSession: session, paneID: paneID,
+            terminalIsFocused: false, now: Date(timeIntervalSince1970: 150)
+        )
+        #expect(decision == nil)
+    }
+
+    @Test("a foreign-kind SessionEnd does not reset an established pane")
+    func foreignSessionEndDoesNotResetEstablishedPane() throws {
+        let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        var reducer = AgentRuntimeEventReducer()
+
+        let contaminatingCodexSessionEnd = AgentRuntimeEvent(
+            source: .codex,
+            kind: .codex,
+            executionState: .idle,
+            phase: .sessionEnd,
+            eventID: "codex-nested-end-1",
+            timestamp: Date(timeIntervalSince1970: 160)
+        )
+        let decision = reducer.decision(
+            for: contaminatingCodexSessionEnd, currentSession: session, paneID: paneID,
+            terminalIsFocused: false, now: Date(timeIntervalSince1970: 160)
+        )
+        #expect(decision == nil)
+    }
+
+    @Test("a genuine SessionStart from a new provider switches the pane once the old agent has stopped")
+    func sessionStartFromNewProviderSwitchesAfterOldAgentStops() throws {
+        let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        var reducer = AgentRuntimeEventReducer()
+
+        // The established Claude Code session reaches a real Stop first — it's
+        // no longer mid-turn, matching what a genuine "user quit, launched a
+        // different agent" sequence looks like.
+        let claudeStop = AgentRuntimeEvent(
+            source: .claudeCode,
+            kind: .claudeCode,
+            executionState: .waiting,
+            phase: .stop,
+            eventID: "claude-stop-2",
+            timestamp: Date(timeIntervalSince1970: 200)
+        )
+        _ = reducer.decision(
+            for: claudeStop, currentSession: session, paneID: paneID,
+            terminalIsFocused: false, now: Date(timeIntervalSince1970: 200)
+        )
+
+        let codexSessionStart = AgentRuntimeEvent(
+            source: .codex,
+            kind: .codex,
+            executionState: .idle,
+            phase: .sessionStart,
+            eventID: "codex-start-1",
+            timestamp: Date(timeIntervalSince1970: 201)
+        )
+        let decision = reducer.decision(
+            for: codexSessionStart, currentSession: session, paneID: paneID,
+            terminalIsFocused: false, now: Date(timeIntervalSince1970: 201)
+        )
+        #expect(decision?.update.agentKind == .codex)
+    }
 }
