@@ -9,19 +9,26 @@ import Dispatch
 import Foundation
 import AwesoMuxBridgeProtocol
 
-#if canImport(Glibc)
-    // glibc >= 2.28 ships the renameat2 wrapper, but the Swift overlay hides
-    // its declaration behind _GNU_SOURCE. Bind the libc symbol directly; the
-    // flag value is stable kernel ABI (linux/fs.h). The Static Linux SDK's
-    // musl does not export this symbol at all, so Musl gets its own publish
-    // path below rather than sharing this bind.
-    @_silgen_name("renameat2")
-    private func linuxRenameat2(
-        _ olddirfd: Int32, _ oldpath: UnsafePointer<CChar>?,
-        _ newdirfd: Int32, _ newpath: UnsafePointer<CChar>?,
-        _ flags: UInt32
-    ) -> Int32
-    private let linuxRenameNoreplace: UInt32 = 1
+#if canImport(Glibc) || canImport(Musl)
+    // Neither Swift libc overlay declares renameat2 (hidden behind _GNU_SOURCE)
+    // and the Static Linux SDK's musl doesn't export the wrapper symbol at all —
+    // but every Linux libc exports syscall(2), and the kernel ABI is stable.
+    // Integer-only arguments make the variadic-vs-fixed call safe on both
+    // x86_64 SysV and aarch64 AAPCS. linkat(2)+unlinkat(2) is the remaining
+    // fallback if this ever breaks (weaker crash-cleanup: a hard kill between
+    // link and unlink would leave a stale temp hard link).
+    #if arch(x86_64)
+        private let sysRenameat2 = 316
+    #elseif arch(arm64)
+        private let sysRenameat2 = 276
+    #endif
+    private let renameNoreplaceFlag: UInt32 = 1  // linux/fs.h RENAME_NOREPLACE
+
+    @_silgen_name("syscall")
+    private func linuxSyscallRenameat2(
+        _ number: Int, _ olddirfd: Int32, _ oldpath: UnsafePointer<CChar>?,
+        _ newdirfd: Int32, _ newpath: UnsafePointer<CChar>?, _ flags: UInt32
+    ) -> Int
 #endif
 
 /// Receives one bounded handoff into the current user's private session directory.
@@ -121,35 +128,20 @@ public enum HandoffReceiver {
             }
             guard published == 0 else { throw ReceiveError.publishFailed }
             shouldRemoveTemporary = false
-        #elseif canImport(Glibc)
+        #elseif canImport(Glibc) || canImport(Musl)
             // renameat2(RENAME_NOREPLACE): Linux's exact equivalent of Darwin's
             // RENAME_EXCL — atomic no-overwrite publish with the temporary name gone
             // in the same operation, so crash-cleanup semantics match Darwin exactly.
-            // The wrapper ships in glibc >= 2.28 (Ubuntu 24.04 glibc is newer), but
-            // the overlay hides the declaration behind _GNU_SOURCE, so this binds
-            // the symbol directly (see top-of-file).
+            // Routed through syscall(2) rather than a direct symbol bind (see
+            // top-of-file) so glibc and musl share one publish path.
             let published = temporaryName.withCString { temporary in
                 finalName.withCString { final in
-                    linuxRenameat2(sessionFD, temporary, sessionFD, final, linuxRenameNoreplace)
+                    linuxSyscallRenameat2(
+                        sysRenameat2, sessionFD, temporary, sessionFD, final, renameNoreplaceFlag)
                 }
             }
             guard published == 0 else { throw ReceiveError.publishFailed }
             shouldRemoveTemporary = false
-        #elseif canImport(Musl)
-            // The Static Linux SDK's musl does not export a renameat2 wrapper, so the
-            // static helper publishes via linkat(2): link fails with EEXIST when the
-            // final name exists (same no-overwrite guarantee), and the deferred
-            // unlinkat drops the temporary name. Weaker crash-cleanup than rename:
-            // a hard kill between link and unlink leaves a stale .handoff-*.tmp hard
-            // link to the published file — clutter, not corruption.
-            let published = temporaryName.withCString { temporary in
-                finalName.withCString { final in
-                    linkat(sessionFD, temporary, sessionFD, final, 0)
-                }
-            }
-            guard published == 0 else { throw ReceiveError.publishFailed }
-            // shouldRemoveTemporary stays true: the deferred unlinkat removes exactly
-            // the surplus temporary hard link, never the final name.
         #endif
         _ = fsync(sessionFD)
 
