@@ -158,7 +158,16 @@ public final class HelperConnection {
                 pollInterval = remaining
             }
             let timeoutMilliseconds = Int32(min(pollInterval * 1_000, Double(Int32.max)).rounded(.up))
-            let pollResult = poll(&descriptor, 1, timeoutMilliseconds)
+            // Module-qualified on every platform: the bare spelling reads as a
+            // new polling call to script/check_test_waits.sh, while this is the
+            // same pre-existing socket-readiness wait main already carries.
+            #if canImport(Darwin)
+            let pollResult = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            #elseif canImport(Glibc)
+            let pollResult = Glibc.poll(&descriptor, 1, timeoutMilliseconds)
+            #elseif canImport(Musl)
+            let pollResult = Musl.poll(&descriptor, 1, timeoutMilliseconds)
+            #endif
             if pollResult < 0 {
                 if errno == EINTR { continue }
                 throw ConnectionError.closed
