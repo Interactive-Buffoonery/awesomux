@@ -1,11 +1,11 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxTestSupport
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif canImport(Musl)
-import Musl
+    import Musl
 #endif
 import Foundation
 import Testing
@@ -222,11 +222,11 @@ private final class TestUnixServer: @unchecked Sendable {
             var offset = 0
             while offset < bytes.count {
                 #if canImport(Darwin)
-                let written = Darwin.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                    let written = Darwin.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
                 #elseif canImport(Glibc)
-                let written = Glibc.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                    let written = Glibc.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
                 #elseif canImport(Musl)
-                let written = Musl.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                    let written = Musl.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
                 #endif
                 if written < 0, errno == EINTR { continue }
                 guard written > 0 else { throw TestSocketError.system }
