@@ -176,11 +176,13 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// newer one (⌘\ pressed twice inside the settle window retargets to the latest).
     private var dividerSettleGeneration: UInt = 0
 
-    /// Pane extent captured when the current settle animation started. The settle
-    /// animates toward an absolute divider coordinate valid only for this extent; a
-    /// later extent change (a real window resize) invalidates it. `nil` when no settle
-    /// is in flight.
-    private var settlePaneExtent: CGFloat?
+    /// `maxSidebarWidth` captured when the current settle animation started. The settle
+    /// animates toward an absolute divider coordinate valid only for that geometry; any
+    /// change to the effective max (a window resize changing the pane extent, or a
+    /// terminal-minimum change) both remaps the coordinate and can starve the terminal.
+    /// Tracking the derived max catches both inputs with one signal. `nil` when no
+    /// settle is in flight.
+    private var settleMaxSidebarWidth: CGFloat?
 
     init(
         sidebar: NSViewController,
@@ -629,11 +631,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var isAnimatingDividerSettleForTesting: Bool { isAnimatingDividerSettle }
     /// Mimic an armed settle animation so the cancel-on-mutation / cancel-on-detach /
     /// resize-gate wiring is testable without a live async NSSplitView animation. Seeds
-    /// `settlePaneExtent` the way a real settle start does (#81).
+    /// `settleMaxSidebarWidth` the way a real settle start does (#81).
     func armDividerSettleForTesting() {
         dividerSettleGeneration &+= 1
         isAnimatingDividerSettle = true
-        settlePaneExtent = paneExtent
+        settleMaxSidebarWidth = maxSidebarWidth
     }
     var sidebarSplitPaneWidthForTesting: CGFloat { sidebarPaneContainer.frame.width }
     func resampleSidebarPointerForTesting() -> Bool? { resampleSidebarPointer() }
@@ -1547,7 +1549,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             dividerSettleGeneration &+= 1
             let generation = dividerSettleGeneration
             isAnimatingDividerSettle = true
-            settlePaneExtent = paneExtent
+            settleMaxSidebarWidth = maxSidebarWidth
             NSAnimationContext.runAnimationGroup(
                 { context in
                     context.duration = Self.dividerSettleDuration
@@ -1562,7 +1564,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     MainActor.assumeIsolated {
                         guard let self, self.dividerSettleGeneration == generation else { return }
                         self.isAnimatingDividerSettle = false
-                        self.settlePaneExtent = nil
+                        self.settleMaxSidebarWidth = nil
                     }
                 })
         } else if isAnimatingDividerSettle {
@@ -1591,7 +1593,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private func stopDividerSettleAnimation(landingAt coordinate: CGFloat) {
         dividerSettleGeneration &+= 1
         isAnimatingDividerSettle = false
-        settlePaneExtent = nil
+        settleMaxSidebarWidth = nil
         let wasSuppressing = isSettingPositionProgrammatically
         isSettingPositionProgrammatically = true
         NSAnimationContext.runAnimationGroup { context in
@@ -1641,14 +1643,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         guard !isSidebarHidden, splitView.bounds.width > 0 else { return }
         // Mid-settle, `sidebarPaneWidth` is an interpolated value, so it must not feed
         // the reclamp decision. The settle animates toward an absolute coordinate valid
-        // only for `settlePaneExtent`; only a real extent change (a window resize, not
-        // an unrelated layout pass — `viewDidLayout` fires for both) invalidates it. On
-        // such a change, re-apply the settle's DESTINATION width (`selectedSidebarWidth`,
-        // not the interpolated pane width) instantly at the new extent — that re-clamps
-        // for a shrink and stops the stale animation via applyPosition's instant path.
-        // With no extent change, leave the ease running (#81).
+        // only for the geometry it started in; only a real geometry change (a window
+        // resize or a terminal-minimum change — both move `maxSidebarWidth`; an
+        // unrelated layout pass does not, and `viewDidLayout` fires for all three)
+        // invalidates it. On such a change, re-apply the settle's DESTINATION width
+        // (`selectedSidebarWidth`, not the interpolated pane width) instantly — that
+        // re-clamps for a shrink (no terminal starvation) and stops the stale animation
+        // via applyPosition's instant path. With no geometry change, leave the ease
+        // running (#81).
         if isAnimatingDividerSettle {
-            if let startExtent = settlePaneExtent, abs(startExtent - paneExtent) > 0.5 {
+            if let startMax = settleMaxSidebarWidth, abs(startMax - maxSidebarWidth) > 0.5 {
                 applyPosition(selectedSidebarWidth)
             }
             return
