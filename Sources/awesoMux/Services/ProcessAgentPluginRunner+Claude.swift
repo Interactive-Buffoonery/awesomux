@@ -386,6 +386,7 @@ struct ClaudePluginListEntry: Decodable, Equatable, Sendable {
     var errors: [String]
 
     enum CodingKeys: String, CodingKey {
+        case id
         case name
         case marketplace
         case enabled
@@ -394,8 +395,33 @@ struct ClaudePluginListEntry: Decodable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decodeIfPresent(String.self, forKey: .name)
-        marketplace = try container.decodeIfPresent(String.self, forKey: .marketplace)
+        // Claude Code 2.1.217+ emits a flat `id: "name@marketplace"` field
+        // instead of separate name/marketplace keys (verified live against
+        // `claude plugin list --json`); split it so `matches(_:)` keeps
+        // working unmodified. Older CLI versions may still emit the split
+        // fields, so prefer them when present and fall back to splitting id.
+        if let rawName = try container.decodeIfPresent(String.self, forKey: .name) {
+            name = rawName
+            marketplace = try container.decodeIfPresent(String.self, forKey: .marketplace)
+        } else if let id = try container.decodeIfPresent(String.self, forKey: .id) {
+            // Require exactly two non-empty parts — omittingEmptySubsequences:
+            // false so a boundary "@" (leading/trailing/doubled) produces an
+            // empty part that fails the count/isEmpty checks instead of
+            // silently misassigning name/marketplace (cross-model review
+            // finding: the default split() drops empty parts, so "@market"
+            // was silently parsed as name="market", marketplace=nil).
+            let parts = id.split(separator: "@", omittingEmptySubsequences: false)
+            if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty {
+                name = String(parts[0])
+                marketplace = String(parts[1])
+            } else {
+                name = nil
+                marketplace = nil
+            }
+        } else {
+            name = nil
+            marketplace = nil
+        }
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         errors = try container.decodeIfPresent([String].self, forKey: .errors) ?? []
     }

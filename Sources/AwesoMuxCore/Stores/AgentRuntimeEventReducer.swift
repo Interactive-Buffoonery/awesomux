@@ -121,6 +121,26 @@ struct AgentRuntimeEventReducer: Sendable {
             return nil
         }
 
+        // A subprocess CLI invocation (e.g. `codex exec` run as a Bash tool call
+        // inside a Claude Code pane) inherits the pane's AWESOMUX_AGENT_EVENT_FILE
+        // and, if it has its own awesoMux status hooks installed, writes its own
+        // lifecycle events into this pane's stream (confirmed live — see Task 2
+        // background). A bare SessionStart is not enough to prove a genuine
+        // foreground handoff: a nested child process fires its own SessionStart
+        // too, while the pane's real established agent is still `.active`
+        // mid-turn. Only trust a different-kind SessionStart once the established
+        // agent's own tracked lifecycle shows it has stopped or fully ended — i.e.
+        // it's between turns or gone, not mid-turn. Everything else from a
+        // different provider is rejected outright, before it can touch dedupe,
+        // staleness, or lifecycle state for the pane's real agent.
+        if let eventKind = event.kind,
+            currentPane.agentKind != .shell,
+            currentPane.agentKind != eventKind,
+            !(event.phase == .sessionStart && (state.lifecycle.isEnded || state.lifecycle.currentIsStopped))
+        {
+            return nil
+        }
+
         if shouldDropGrokChildSessionEvent(event, state: state) {
             return nil
         }
