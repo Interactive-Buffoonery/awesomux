@@ -178,6 +178,15 @@ struct DocumentRevisionMonitorTests {
             #expect(monitor.indicator(for: fixture.tabB) == nil)
             #expect(log.messages.isEmpty)
 
+            // Pin the baseline deterministically before the external edit. Under
+            // contention the self-write's watcher event can be delivered late and
+            // coalesce with the external edit; the coalesced read would then diff
+            // from the pre-self-write baseline (+2) rather than the self-written
+            // source (+1). noteRenderCompleted makes the same baseline transition
+            // the suppressed self-write above performs, so the external edit
+            // counts from the self-written source regardless of delivery timing.
+            monitor.noteRenderCompleted(source: selfWritten, for: fixture.tabB)
+
             // A later external edit counts from the self-written source, not
             // the pre-self-write baseline (+1, not +2).
             try (selfWritten + "\nexternal").write(to: fixture.urlB, atomically: true, encoding: .utf8)
@@ -202,14 +211,17 @@ struct DocumentRevisionMonitorTests {
             monitor.dismiss(for: fixture.tabB)
             #expect(monitor.indicator(for: fixture.tabB) == nil)
 
+            // Advance the baseline through the render/self-write path rather than
+            // a second real watcher event. A disk self-write here can be delivered
+            // late under main-queue starvation and coalesce (debounce) with the
+            // re-edit below, dropping the intermediate baseline advance — the
+            // re-edit would then match a stale baseline and never re-announce.
+            // noteRenderCompleted makes the identical baseline + lastSeenOnDisk
+            // transition a suppressed self-write makes, with no vnode event to
+            // race. Watcher-driven self-write suppression is covered by
+            // `selfWriteSuppressedAndAdvancesBaseline`.
             let selfWritten = Self.baseContent + "\nannotation"
-            monitor.selfWriteContext = { _, onDisk in
-                onDisk == selfWritten
-                    ? MarkdownSelfWriteContext(source: selfWritten, isSelfWrite: true)
-                    : nil
-            }
-            try selfWritten.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            try await Task.sleep(nanoseconds: 700_000_000)
+            monitor.noteRenderCompleted(source: selfWritten, for: fixture.tabB)
             #expect(monitor.indicator(for: fixture.tabB) == nil)
             #expect(log.messages.count == 1)
 
