@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// Lifecycle of a command-bridge daemon as surfaced in the session manager.

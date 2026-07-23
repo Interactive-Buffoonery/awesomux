@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// Pure derivation of session-manager rows from a daemon list + the facts the

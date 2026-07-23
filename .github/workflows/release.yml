@@ -36,8 +36,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  linux-helper:
+    name: Cross-compile Linux helpers
+    runs-on: ubuntu-24.04
+    # Job-level override of the workflow's contents: write — this job only
+    # builds and uploads artifacts, it never touches repo contents.
+    permissions:
+      contents: read
+    # swift:6.3.3-noble matches the pinned toolchain in .swift-version, same
+    # image as .github/workflows/linux-helper.yml.
+    container: swift:6.3.3-noble
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Build both architectures
+        run: ./script/build_linux_helper.sh
+      - name: Upload helper artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-helper
+          path: dist/linux-helper/
+          if-no-files-found: error
+
   release:
     name: Build, sign, and notarize
+    needs: [linux-helper]
     # macos-26, not macos-15: the app icon is an Icon Composer .icon that
     # needs Xcode 26's actool, and Xcode 26 IB tooling crashes (dyld symbol
     # mismatches) on a macOS 15 host — run 29300046831. The OS must match the
@@ -494,6 +520,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Download Linux helper artifacts
+        if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: linux-helper
+          path: dist/release/
+
+      - name: Verify Linux helper assets
+        if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          for f in \
+            dist/release/awesomux-bridge-helper-linux-x86_64 \
+            dist/release/awesomux-bridge-helper-linux-x86_64.sha256 \
+            dist/release/awesomux-bridge-helper-linux-aarch64 \
+            dist/release/awesomux-bridge-helper-linux-aarch64.sha256; do
+            [[ -s "$f" ]] || { echo "::error::missing release asset: $f" >&2; exit 1; }
+          done
+
       - name: Create draft GitHub Release
         if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
         env:
@@ -511,7 +556,11 @@ jobs:
             --title "v$VERSION" \
             --notes "Draft release created by release.yml — review, edit notes, and publish." \
             "dist/release/awesoMux-$VERSION.dmg" \
-            "dist/release/awesoMux-$VERSION.dmg.sha256"
+            "dist/release/awesoMux-$VERSION.dmg.sha256" \
+            "dist/release/awesomux-bridge-helper-linux-x86_64" \
+            "dist/release/awesomux-bridge-helper-linux-x86_64.sha256" \
+            "dist/release/awesomux-bridge-helper-linux-aarch64" \
+            "dist/release/awesomux-bridge-helper-linux-aarch64.sha256"
 
       - name: Clean up signing keychain and temp credentials
         if: always()

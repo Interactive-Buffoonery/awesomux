@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
 import Carbon.HIToolbox
@@ -7,8 +8,8 @@ import DesignSystem
 import Foundation
 import GhosttyKit
 import Observation
-import os
 import SwiftUI
+import os
 
 @MainActor
 @Observable

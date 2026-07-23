@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 // Tests/AwesoMuxCoreTests/QuitRiskPolicyTests.swift
 import Testing
 import Foundation

@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// Pure decision for the passive "agent exited, shell survived" detector

@@ -1,8 +1,9 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 import UnicodeHygiene
 
 enum SessionStoreText: Sendable {
-    static let maxTitleLength = 200
+    static let maxTitleLength = BridgeMessage.FieldLimit.title
     static let maxGroupNameLength = 80
     static let canonicalDefaultGroupName = "awesoMux"
 

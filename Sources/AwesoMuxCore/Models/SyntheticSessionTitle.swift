@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 public struct SyntheticSessionTitle: Codable, Hashable, Sendable {

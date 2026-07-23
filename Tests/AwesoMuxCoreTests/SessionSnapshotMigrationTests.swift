@@ -1,5 +1,6 @@
-import Testing
+import AwesoMuxBridgeProtocol
 import Foundation
+import Testing
 @testable import AwesoMuxCore
 
 @Suite("INT-504 snapshot migration")

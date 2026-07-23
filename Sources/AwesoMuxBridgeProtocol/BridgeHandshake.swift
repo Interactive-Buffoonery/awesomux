@@ -39,7 +39,7 @@ public enum BridgeHandshake: Sendable, Equatable {
         switch wire.type {
         case "hello":
             guard let proto = wire.proto, let token = wire.token, let session = wire.session,
-                  let ts = wire.ts, let helper = wire.helper
+                let ts = wire.ts, let helper = wire.helper
             else { return nil }
             return .hello(proto: proto, token: token, session: session, ts: ts, helper: helper)
 

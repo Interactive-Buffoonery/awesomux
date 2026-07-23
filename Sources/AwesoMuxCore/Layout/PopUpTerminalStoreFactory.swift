@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 public enum PopUpTerminalStoreFactory {
     public static let groupName = "Terminal Companion"
     public static let sessionTitle = "terminal companion"

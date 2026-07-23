@@ -1,5 +1,6 @@
-import Foundation
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import Foundation
 
 public enum AgentHookProvider: String, Sendable {
     case claudeCode = "claude-code"

@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// What reopening a captured leaf requires — the INT-425 pane-level reopen seam.

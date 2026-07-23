@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 public enum SidebarVisibleRowTarget: Equatable, Hashable, Sendable {

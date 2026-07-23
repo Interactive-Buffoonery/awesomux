@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 public struct TerminalSession: Identifiable, Hashable, Sendable {

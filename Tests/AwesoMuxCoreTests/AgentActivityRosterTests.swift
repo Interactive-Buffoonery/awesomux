@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Testing
 @testable import AwesoMuxCore
 import Foundation

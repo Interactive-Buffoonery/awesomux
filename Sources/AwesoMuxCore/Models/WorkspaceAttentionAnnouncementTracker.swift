@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// Tracks per-workspace rollup-state transitions and emits accessibility

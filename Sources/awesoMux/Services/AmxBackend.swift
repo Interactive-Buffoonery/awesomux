@@ -1,6 +1,7 @@
-import Foundation
+import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
+import Foundation
 import os
 
 // MARK: - AmxStatusChannel

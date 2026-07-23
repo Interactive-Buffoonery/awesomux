@@ -1,6 +1,12 @@
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 import AwesoMuxTestSupport
-import Darwin
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif canImport(Musl)
+    import Musl
+#endif
 import Foundation
 import Testing
 @testable import AwesoMuxBridgeHelperSupport
@@ -170,7 +176,15 @@ private final class TestUnixServer: @unchecked Sendable {
         path =
             FileManager.default.temporaryDirectory
             .appendingPathComponent("awesomux-helper-\(UUID().uuidString.prefix(8)).sock").path
-        listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        // Glibc's overlay imports SOCK_STREAM as the enum __socket_type, not
+        // Int32; musl's imports it as a plain Int32. Normalize per-platform.
+        #if canImport(Darwin)
+            listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        #elseif canImport(Glibc)
+            listener = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
+        #elseif canImport(Musl)
+            listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        #endif
         guard listener >= 0 else { throw TestSocketError.system }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -178,14 +192,14 @@ private final class TestUnixServer: @unchecked Sendable {
         withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
         let length = socklen_t(MemoryLayout<sa_family_t>.size + bytes.count + 1)
         let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(listener, $0, length) }
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, length) }
         }
         guard bound == 0, listen(listener, 1) == 0 else { throw TestSocketError.system }
     }
 
     deinit {
-        if connection >= 0 { Darwin.close(connection) }
-        Darwin.close(listener)
+        if connection >= 0 { close(connection) }
+        close(listener)
         unlink(path)
     }
 
@@ -207,7 +221,13 @@ private final class TestUnixServer: @unchecked Sendable {
         try data.withUnsafeBytes { bytes in
             var offset = 0
             while offset < bytes.count {
-                let written = Darwin.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                #if canImport(Darwin)
+                    let written = Darwin.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                #elseif canImport(Glibc)
+                    let written = Glibc.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                #elseif canImport(Musl)
+                    let written = Musl.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                #endif
                 if written < 0, errno == EINTR { continue }
                 guard written > 0 else { throw TestSocketError.system }
                 offset += written
@@ -219,7 +239,7 @@ private final class TestUnixServer: @unchecked Sendable {
         var bytes: [UInt8] = []
         while true {
             var byte: UInt8 = 0
-            let count = Darwin.read(connection, &byte, 1)
+            let count = read(connection, &byte, 1)
             guard count == 1 else { throw TestSocketError.system }
             if byte == 0x0A { return String(decoding: bytes, as: UTF8.self) }
             bytes.append(byte)

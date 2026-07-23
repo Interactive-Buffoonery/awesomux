@@ -1,5 +1,6 @@
-import XCTest
+import AwesoMuxBridgeProtocol
 import Foundation
+import XCTest
 @testable import AwesoMuxCore
 
 final class SessionSnapshotTests: XCTestCase {

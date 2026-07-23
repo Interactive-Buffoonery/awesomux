@@ -1,4 +1,4 @@
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// Entry-point logic for `awesoMuxBridgeHelper`, kept out of main.swift so

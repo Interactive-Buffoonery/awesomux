@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AwesoMuxCore
+@testable import AwesoMuxBridgeProtocol
 
 @Suite
 struct BridgeEnvelopeTests {
@@ -128,7 +128,7 @@ struct BridgeEnvelopeTests {
         PermissionResolved.Reason.expired,
         .agentCancelled,
         .connectionLost,
-        .overflow
+        .overflow,
     ])
     func permissionResolvedReasonVocabularyRoundTrips(reason: PermissionResolved.Reason) throws {
         let envelope = BridgeEnvelope(
@@ -205,19 +205,20 @@ struct BridgeEnvelopeTests {
         let unpaddedBytes = unpadded.utf8.count
         precondition(totalBytes >= unpaddedBytes, "totalBytes too small to fit \(type)'s required fields")
         let padLength = totalBytes - unpaddedBytes
-        return #"{"v":1,"type":"\#(type)","token":"tok","session":"sess","id":"id","ts":1700000000,\#(requiredFields),"pad":"\#(String(repeating: "x", count: padLength))"}"#
+        return
+            #"{"v":1,"type":"\#(type)","token":"tok","session":"sess","id":"id","ts":1700000000,\#(requiredFields),"pad":"\#(String(repeating: "x", count: padLength))"}"#
     }
 
     private static let fourKiBTypes: [(type: String, fields: String)] = [
         ("agent-status", #""source":"claude-code""#),
         ("pane-rename", #""title":"hi""#),
-        ("permission-resolved", #""inReplyTo":"req-1","reason":"expired""#)
+        ("permission-resolved", #""inReplyTo":"req-1","reason":"expired""#),
     ]
 
     private static let eightKiBTypes: [(type: String, fields: String)] = [
         ("handoff-notify", #""path":"/tmp/f","mediaKind":"file""#),
         ("permission-request", #""tool":"Bash","target":"ls","expiresAt":1700000200"#),
-        ("permission-decision", #""inReplyTo":"req-1","decision":"allow","scope":"once","target":"ls""#)
+        ("permission-decision", #""inReplyTo":"req-1","decision":"allow","scope":"once","target":"ls""#),
     ]
 
     @Test(arguments: fourKiBTypes)
@@ -259,7 +260,8 @@ struct BridgeEnvelopeTests {
 
     @Test(arguments: [bidiOverride, zeroWidthSpace])
     func hostilePathIsRejected(hazard: String) {
-        let line = #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"/tmp/evil\#(hazard)path","mediaKind":"file"}"#
+        let line =
+            #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"/tmp/evil\#(hazard)path","mediaKind":"file"}"#
         #expect(BridgeEnvelope.parse(line: line) == nil)
     }
 
@@ -268,37 +270,43 @@ struct BridgeEnvelopeTests {
     /// the identical fence (present-but-hostile drops the whole frame).
     @Test(arguments: [bidiOverride, zeroWidthSpace])
     func hostileNameIsRejected(hazard: String) {
-        let line = #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"/tmp/f","name":"evil\#(hazard)name","mediaKind":"file"}"#
+        let line =
+            #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"/tmp/f","name":"evil\#(hazard)name","mediaKind":"file"}"#
         #expect(BridgeEnvelope.parse(line: line) == nil)
     }
 
     @Test(arguments: [bidiOverride, zeroWidthSpace])
     func hostileToolIsRejected(hazard: String) {
-        let line = #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Ba\#(hazard)sh","target":"ls","expiresAt":1700000200}"#
+        let line =
+            #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Ba\#(hazard)sh","target":"ls","expiresAt":1700000200}"#
         #expect(BridgeEnvelope.parse(line: line) == nil)
     }
 
     @Test(arguments: [bidiOverride, zeroWidthSpace])
     func hostileSummaryIsRejected(hazard: String) {
-        let line = #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Bash","target":"ls","summary":"de\#(hazard)lete","expiresAt":1700000200}"#
+        let line =
+            #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Bash","target":"ls","summary":"de\#(hazard)lete","expiresAt":1700000200}"#
         #expect(BridgeEnvelope.parse(line: line) == nil)
     }
 
     @Test(arguments: [bidiOverride, zeroWidthSpace])
     func hostileTargetIsRejectedInPermissionRequest(hazard: String) {
-        let line = #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Bash","target":"rm \#(hazard)-rf","expiresAt":1700000200}"#
+        let line =
+            #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Bash","target":"rm \#(hazard)-rf","expiresAt":1700000200}"#
         #expect(BridgeEnvelope.parse(line: line) == nil)
     }
 
     @Test(arguments: [bidiOverride, zeroWidthSpace])
     func hostileTargetIsRejectedInPermissionDecision(hazard: String) {
-        let line = #"{"v":1,"type":"permission-decision","token":"tok","session":"sess","id":"id","ts":1700000000,"inReplyTo":"req-1","decision":"allow","scope":"once","target":"rm \#(hazard)-rf"}"#
+        let line =
+            #"{"v":1,"type":"permission-decision","token":"tok","session":"sess","id":"id","ts":1700000000,"inReplyTo":"req-1","decision":"allow","scope":"once","target":"rm \#(hazard)-rf"}"#
         #expect(BridgeEnvelope.parse(line: line) == nil)
     }
 
     @Test
     func nonAbsolutePathIsRejected() {
-        let line = #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"relative/path.png","mediaKind":"image"}"#
+        let line =
+            #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"relative/path.png","mediaKind":"image"}"#
         #expect(BridgeEnvelope.parse(line: line) == nil)
     }
 
@@ -320,7 +328,7 @@ struct BridgeEnvelopeTests {
         ("codex", .codex),
         ("opencode", .openCode),
         ("pi", .pi),
-        ("grok", .grok)
+        ("grok", .grok),
     ])
     func knownAgentStatusSourcesParse(raw: String, expected: AgentRuntimeSource) {
         let line = #"{"v":1,"type":"agent-status","token":"tok","session":"sess","id":"id","ts":1700000000,"source":"\#(raw)"}"#

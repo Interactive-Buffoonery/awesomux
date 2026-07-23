@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// A reusable, serializable description of a workspace's layout STRUCTURE with

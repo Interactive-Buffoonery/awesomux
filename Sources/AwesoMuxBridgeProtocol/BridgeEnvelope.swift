@@ -54,11 +54,11 @@ public struct BridgeEnvelope: Sendable, Equatable {
     /// per-type cap gate.
     public static func parse(data: Data) -> BridgeEnvelope? {
         guard data.count <= BridgeMessage.maximumPossibleLineByteCount,
-              let wire = try? decoder.decode(Wire.self, from: data),
-              wire.v == supportedVersion,
-              let cap = BridgeMessage.maximumLineByteCount(forWireType: wire.type),
-              data.count <= cap,
-              let message = wire.asBridgeMessage
+            let wire = try? decoder.decode(Wire.self, from: data),
+            wire.v == supportedVersion,
+            let cap = BridgeMessage.maximumLineByteCount(forWireType: wire.type),
+            data.count <= cap,
+            let message = wire.asBridgeMessage
         else {
             return nil
         }
@@ -163,9 +163,9 @@ public enum BridgeMessage: Sendable, Equatable {
     /// per-type byte cap (`maximumLineByteCount`, already enforced before
     /// full decode) is the real, spec-mandated bound on those three;
     /// scalar-safety (no NUL/bidi/zero-width) still applies to all of them.
-    enum FieldLimit {
-        static let title = SessionStoreText.maxTitleLength // same semantic field as the local pane title.
-        static let path = 1024 // matches AmxBackend.parseCwdOutput's remote-path bound.
+    public enum FieldLimit {
+        public static let title = 200  // same semantic field as the local pane title.
+        static let path = 1024  // matches AmxBackend.parseCwdOutput's remote-path bound.
     }
 }
 
@@ -389,14 +389,14 @@ extension BridgeEnvelope.Wire {
             // "reset to live terminal title" request, so `nil`-vs-"" is
             // load-bearing and must not collapse to a single default.
             guard let title,
-                  let validated = Self.validatedFreeText(title, maxLength: BridgeMessage.FieldLimit.title)
+                let validated = Self.validatedFreeText(title, maxLength: BridgeMessage.FieldLimit.title)
             else { return nil }
             return .paneRename(title: validated)
 
         case "handoff-notify":
             guard let path,
-                  let validatedPath = Self.validatedRemotePath(path),
-                  let mediaKind
+                let validatedPath = Self.validatedRemotePath(path),
+                let mediaKind
             else { return nil }
             // `name` is advisory display text (a basename), but it's still
             // shown to the user next to the path — a bidi override here is
@@ -415,10 +415,10 @@ extension BridgeEnvelope.Wire {
 
         case "permission-request":
             guard let tool,
-                  let validatedTool = Self.validatedFreeText(tool),
-                  let target,
-                  let validatedTarget = Self.validatedFreeText(target),
-                  let expiresAt
+                let validatedTool = Self.validatedFreeText(tool),
+                let target,
+                let validatedTarget = Self.validatedFreeText(target),
+                let expiresAt
             else { return nil }
             // A present-but-hostile `summary` drops the whole frame rather
             // than silently blanking it: substituting "no summary" for a
@@ -439,10 +439,10 @@ extension BridgeEnvelope.Wire {
 
         case "permission-decision":
             guard let inReplyTo,
-                  let decision,
-                  let scope,
-                  let target,
-                  let validatedTarget = Self.validatedFreeText(target)
+                let decision,
+                let scope,
+                let target,
+                let validatedTarget = Self.validatedFreeText(target)
             else { return nil }
             return .permissionDecision(
                 PermissionDecision(inReplyTo: inReplyTo, decision: decision, scope: scope, target: validatedTarget)

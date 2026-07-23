@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// A closed workspace snapshot for reopening fresh panes with the same layout.

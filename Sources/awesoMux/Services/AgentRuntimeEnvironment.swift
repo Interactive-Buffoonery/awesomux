@@ -1,5 +1,6 @@
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
+import AwesoMuxCore
 import Foundation
 
 struct AgentRuntimeConsent: Equatable, Sendable {
