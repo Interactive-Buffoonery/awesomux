@@ -83,6 +83,15 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
     /// or alternate-bundle scenario can still point the hook elsewhere.
     static let helperPlaceholderToken = "AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-awesoMuxAgentHook};"
 
+    /// Version of the baked hook-command *shape* (not the bundled template
+    /// bytes). The install-record staleness check folds this into the source
+    /// fingerprint so that changing how the command is rendered — while the
+    /// bundled `hooks.json` stays byte-identical — still reads existing installs
+    /// as stale and re-delivers the new command. Bump on any change to
+    /// `helperResolutionSnippet`'s output. `1` introduced the runtime resolution
+    /// ladder (issue #164); prior installs baked a single frozen path.
+    static let renderFormatVersion = "1"
+
     var resourcesDirectoryURL: URL
     var supportDirectoryURL: URL
     var fileManager: FileManager

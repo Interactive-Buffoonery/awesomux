@@ -5,11 +5,14 @@ import Foundation
 /// status can tell when a newer awesoMux ships different hooks than the user
 /// last installed.
 ///
-/// The digest intentionally ignores the helper-path bake step: the baked absolute
-/// path changes when the app moves or a `dist/` build is used, while the event
-/// names and command skeleton are what actually break status when they drift
-/// (e.g. Grok snake_case → CamelCase). `AWESOMUX_AGENT_HOOK` still overrides
-/// the fallback at runtime either way.
+/// The digest intentionally ignores the baked helper *path* (it changes when the
+/// app moves or a `dist/` build is used), but it does fold in the render-format
+/// *version* (`AgentPluginTemplateRenderer.renderFormatVersion`): the event names
+/// and command skeleton are what actually break status when they drift, and the
+/// command skeleton is produced by the renderer, not the bundled bytes. Folding
+/// the version in means a change to how the command is rendered re-delivers to
+/// existing installs even though the bundled `hooks.json` is byte-identical.
+/// `AWESOMUX_AGENT_HOOK` still overrides the fallback at runtime either way.
 enum AgentPluginSourceFingerprint {
     /// Process-lifetime cache: bundled plugin source is immutable for a running
     /// app (tests inject alternate resource roots via the cache key).
@@ -22,9 +25,10 @@ enum AgentPluginSourceFingerprint {
     static func digest(
         provider: AgentPluginProvider,
         resourcesDirectoryURL: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        renderFormatVersion: String = AgentPluginTemplateRenderer.renderFormatVersion
     ) -> String? {
-        let cacheKey = "\(provider.rawValue)\u{1F}\(resourcesDirectoryURL.path)"
+        let cacheKey = "\(provider.rawValue)\u{1F}\(resourcesDirectoryURL.path)\u{1F}\(renderFormatVersion)"
         cacheLock.lock()
         if let cached = digestCache[cacheKey] {
             cacheLock.unlock()
@@ -32,11 +36,14 @@ enum AgentPluginSourceFingerprint {
         }
         cacheLock.unlock()
 
-        guard let computed = computeDigest(
-            provider: provider,
-            resourcesDirectoryURL: resourcesDirectoryURL,
-            fileManager: fileManager
-        ) else {
+        guard
+            let computed = computeDigest(
+                provider: provider,
+                resourcesDirectoryURL: resourcesDirectoryURL,
+                fileManager: fileManager,
+                renderFormatVersion: renderFormatVersion
+            )
+        else {
             return nil
         }
 
@@ -56,17 +63,24 @@ enum AgentPluginSourceFingerprint {
     private static func computeDigest(
         provider: AgentPluginProvider,
         resourcesDirectoryURL: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        renderFormatVersion: String
     ) -> String? {
-        let root = resourcesDirectoryURL
+        let root =
+            resourcesDirectoryURL
             .appending(path: provider.bundledTreeRelativePath, directoryHint: .isDirectory)
         var hasher = SHA256()
+        // Fold in the render-format version so a change to the baked command
+        // shape (bundled bytes unchanged) still shifts the digest and re-delivers
+        // to existing installs. See AgentPluginTemplateRenderer.renderFormatVersion.
+        hasher.update(data: Data("render-format\u{1F}\(renderFormatVersion)".utf8))
+        hasher.update(data: Data([0]))
         var hashedAnyFile = false
 
         for relativePath in contentRelativePaths(for: provider).sorted() {
             let url = root.appending(path: relativePath)
             guard fileManager.fileExists(atPath: url.path),
-                  let data = try? Data(contentsOf: url)
+                let data = try? Data(contentsOf: url)
             else {
                 return nil
             }

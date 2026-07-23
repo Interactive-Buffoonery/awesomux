@@ -43,7 +43,8 @@ struct AgentPluginSourceFingerprintTests {
                 )
             )
 
-            let hooksURL = resources
+            let hooksURL =
+                resources
                 .appending(path: "AgentIntegrations/claude_code/plugins/awesomux-claude-status/hooks/hooks.json")
             var hooks = try String(contentsOf: hooksURL, encoding: .utf8)
             hooks += "\n"
@@ -58,6 +59,28 @@ struct AgentPluginSourceFingerprintTests {
             )
             #expect(before != after)
         }
+    }
+
+    @Test("digest changes when the render-format version changes")
+    func digestChangesWithRenderFormatVersion() {
+        let resources = Self.packageResourcesURL
+        AgentPluginSourceFingerprint.resetDigestCacheForTests()
+        // A record written under an older render format must read as stale after
+        // the command shape changes, even though the bundled tree is untouched —
+        // this is what re-delivers the fix to existing installs (issue #164).
+        let v1 = AgentPluginSourceFingerprint.digest(
+            provider: .grok,
+            resourcesDirectoryURL: resources,
+            renderFormatVersion: "1"
+        )
+        let v0 = AgentPluginSourceFingerprint.digest(
+            provider: .grok,
+            resourcesDirectoryURL: resources,
+            renderFormatVersion: "0"
+        )
+        #expect(v1 != nil)
+        #expect(v0 != nil)
+        #expect(v1 != v0)
     }
 
     @Test("missing tree yields nil rather than a partial digest")
