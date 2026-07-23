@@ -39,6 +39,10 @@ jobs:
   linux-helper:
     name: Cross-compile Linux helpers
     runs-on: ubuntu-24.04
+    # Job-level override of the workflow's contents: write — this job only
+    # builds and uploads artifacts, it never touches repo contents.
+    permissions:
+      contents: read
     # swift:6.3.3-noble matches the pinned toolchain in .swift-version, same
     # image as .github/workflows/linux-helper.yml.
     container: swift:6.3.3-noble

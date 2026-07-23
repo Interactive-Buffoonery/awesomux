@@ -75,6 +75,7 @@ import PackageDescription
             .executableTarget(
                 name: "awesoMux",
                 dependencies: [
+                    "AwesoMuxBridgeProtocol",
                     "AwesoMuxCore",
                     "AwesoMuxConfig",
                     "DesignSystem",
@@ -107,7 +108,7 @@ import PackageDescription
             ),
             .target(
                 name: "AwesoMuxAgentHookSupport",
-                dependencies: ["AwesoMuxCore"]
+                dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxCore"]
             ),
             .target(
                 name: "AwesoMuxBridgeHelperSupport",
@@ -131,7 +132,7 @@ import PackageDescription
             .target(name: "SecureFileIO"),
             .target(
                 name: "AwesoMuxTestSupport",
-                dependencies: ["AwesoMuxCore"],
+                dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxCore"],
                 path: "Tests/AwesoMuxTestSupport"
             ),
             .systemLibrary(
@@ -176,7 +177,7 @@ import PackageDescription
             ),
             .testTarget(
                 name: "AwesoMuxCoreTests",
-                dependencies: ["AwesoMuxCore", "AwesoMuxTestSupport"]
+                dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxTestSupport"]
             ),
             .testTarget(
                 name: "AwesoMuxConfigTests",
@@ -204,7 +205,7 @@ import PackageDescription
             ),
             .testTarget(
                 name: "awesoMuxTests",
-                dependencies: ["awesoMux", "AwesoMuxCore", "AwesoMuxTestSupport", "DesignSystem"]
+                dependencies: ["awesoMux", "AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxTestSupport", "DesignSystem"]
             ),
             .testTarget(
                 name: "AwesoMuxTestSupportTests",
