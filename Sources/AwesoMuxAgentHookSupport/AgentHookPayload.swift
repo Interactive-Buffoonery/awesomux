@@ -39,7 +39,11 @@ struct AgentHookPayload: Decodable {
             try container.decodeIfPresent(String.self, forKey: .sessionID)
             ?? container.decodeIfPresent(String.self, forKey: .legacySessionID)
         reason = try container.decodeIfPresent(String.self, forKey: .reason)
-        toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+        // `try?`, not `try`: a present-but-wrong-type `tool_name` must not throw
+        // out of the whole decode and drop the event's lifecycle transition —
+        // it only gates touched-path forwarding. Same defensive posture as
+        // `tool_input` below.
+        toolName = (try? container.decodeIfPresent(String.self, forKey: .toolName)) ?? nil
         // Only pull `file_path` out of the (otherwise ignored) tool_input object;
         // content and every other tool arg stay unread so no prompt/tool payload
         // leaks through the side channel. A missing/mistyped tool_input (e.g. a

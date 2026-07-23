@@ -109,6 +109,8 @@ struct AgentHookCommandTests {
         "/Users/agent/main.swift",  // non-Markdown extension
         "relative/notes.md",  // not absolute
         "/Users/agent/re\u{202e}port.md",  // bidi-override scalar
+        "/Users/agent/#175.md",  // `#` misparses as a link fragment
+        "/Users/agent/a?b.md",  // `?` misparses as a link query
     ])
     func ineligibleTouchedPathIsDroppedButEventSurvives(filePath: String) throws {
         let temp = try Self.temporaryEventFile()
@@ -160,6 +162,50 @@ struct AgentHookCommandTests {
 
         #expect(status == 0)
         let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.touchedPath == nil)
+    }
+
+    @Test
+    func malformedToolNameDoesNotSinkTheEvent() throws {
+        // A present-but-wrong-type tool_name must not throw out of the payload
+        // decode and drop the event's lifecycle transition — it only gates
+        // touched-path forwarding.
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "claude-code"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Data(
+                #"{"hook_event_name":"PostToolUse","tool_name":123,"tool_input":{"file_path":"/Users/agent/plan.md"}}"#.utf8
+            )
+        )
+
+        #expect(status == 0)
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.phase == .toolEnd)
+        #expect(event.executionState == .thinking)
+        #expect(event.touchedPath == nil)
+    }
+
+    @Test
+    func oversizedTouchedPathDegradesToLifecycleEventOnly() throws {
+        // A path long enough to push the JSONL line past the 4 KiB cap must drop
+        // only the path, not the whole toolEnd event and its transition.
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let longName = String(repeating: "a", count: 4096)
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "claude-code"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Self.postToolUsePayload(toolName: "Write", filePath: "/\(longName).md")
+        )
+
+        #expect(status == 0)
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.phase == .toolEnd)
+        #expect(event.executionState == .thinking)
         #expect(event.touchedPath == nil)
     }
 

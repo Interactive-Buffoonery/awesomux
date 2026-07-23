@@ -125,7 +125,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
             let touchedPath: String?
             if payload.source == .claudeCode,
                 payload.phase == .toolEnd,
-                let rawPath = payload.touchedPath
+                let rawPath = payload.touchedPath?.value
             {
                 touchedPath = validatedTouchedPath(rawPath)
             } else {
@@ -179,7 +179,16 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
     /// later reject never gets recorded in the first place.
     public static func validatedTouchedPath(_ path: String) -> String? {
         guard let validated = validatedDocumentPath(path),
-            !UnicodeHygiene.containsUnsafePathScalars(validated)
+            !UnicodeHygiene.containsUnsafePathScalars(validated),
+            // A literal `#` or `?` is legal in a POSIX filename but the recent-
+            // link open path (`MarkdownLinkIntercept`) parses a bare path as
+            // link syntax: `#` starts a fragment and `?` a query, so e.g.
+            // `/tmp/#175.md` would reduce to `/tmp/` and fail to open. Recording
+            // it would be a dead palette entry — the exact "click looks dead"
+            // symptom this feature avoids — so drop it rather than surface an
+            // un-openable link. Ceiling: revisit if the open path grows raw-path
+            // handling that round-trips these characters.
+            !validated.contains("#"), !validated.contains("?")
         else {
             return nil
         }
@@ -198,8 +207,26 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
         var providerSessionID: String?
         var title: String?
         var documentPath: String?
-        var touchedPath: String?
+        // `touchedPath` rides on a `.toolEnd` event that carries a load-bearing
+        // execution transition, so — unlike `documentPath`, which only appears
+        // on document-only `open-document` events — a wrong-typed value must
+        // strip just the field, never throw and drop the whole event. Lenient
+        // decoding gives it that: a present-but-non-string value (array/number)
+        // decodes to a `LenientString` whose `value` is nil rather than throwing.
+        var touchedPath: LenientString?
         var timestamp: RuntimeTimestamp?
+    }
+
+    /// Decodes a JSON string field without letting a wrong-typed value sink the
+    /// enclosing object's decode. Held as an optional so absent/null keys use
+    /// the synthesized `decodeIfPresent` (→ nil); a present non-string decodes
+    /// to `value == nil` via the `try?` here.
+    private struct LenientString: Decodable {
+        var value: String?
+
+        init(from decoder: Decoder) throws {
+            value = try? decoder.singleValueContainer().decode(String.self)
+        }
     }
 
     private enum RuntimeTimestamp: Decodable {

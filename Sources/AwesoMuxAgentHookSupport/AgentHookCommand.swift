@@ -101,7 +101,19 @@ public enum AgentHookCommand {
         }
 
         do {
-            let line = try event.hookJSONLineData()
+            var line = try event.hookJSONLineData()
+            // A very long touched path can push the line past the JSONL cap. The
+            // path is the droppable extra here; the lifecycle transition is not.
+            // Re-encode without it so an oversized path degrades to "no link",
+            // never to a lost `.toolEnd` (issue #175). `documentPath` is not
+            // retried: an open-document event with no path has nothing to do.
+            if line.count > AgentRuntimeEvent.maximumLineByteCount,
+                event.touchedPath != nil
+            {
+                var trimmed = event
+                trimmed.touchedPath = nil
+                line = try trimmed.hookJSONLineData()
+            }
             guard line.count <= AgentRuntimeEvent.maximumLineByteCount else {
                 log(provider: provider, eventName: eventName, category: "oversized-payload")
                 return 0

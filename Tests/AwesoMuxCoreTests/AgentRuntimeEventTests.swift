@@ -116,6 +116,14 @@ struct AgentRuntimeEventTests {
         #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"notes.md"}"#,  // relative
         #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/notes.txt"}"#,  // non-markdown
         #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/notes.md\u0000x"}"#,  // NUL
+        // `#`/`?` are legal in filenames but the recent-link open path parses
+        // them as fragment/query, so the file could never open — dropped.
+        ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/drafts/#175.md"}"##,
+        ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/a?b.md"}"##,
+        // Wrong-typed touchedPath must strip the field, not throw and drop the
+        // whole (lifecycle-bearing) event.
+        ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":["/tmp/notes.md"]}"##,
+        ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":42}"##,
     ])
     func invalidTouchedPathIsDroppedButEventSurvives(line: String) {
         let event = AgentRuntimeEvent.parse(line: line)
@@ -125,8 +133,11 @@ struct AgentRuntimeEventTests {
 
     @Test
     func touchedPathWithUnsafeScalarsIsDropped() {
+        // JSON \u202e is a right-to-left override; the JSON layer decodes it to
+        // the real scalar, which validatedTouchedPath rejects. Kept as an escape
+        // (not a literal invisible char) so the source stays greppable.
         let event = AgentRuntimeEvent.parse(
-            line: #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/Users/agent/re‮report.md"}"#
+            line: #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/Users/agent/re\u202ereport.md"}"#
         )
         #expect(event?.phase == .toolEnd)
         #expect(event?.touchedPath == nil)
