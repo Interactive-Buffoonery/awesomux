@@ -153,6 +153,7 @@ struct SidebarPresentationBehaviorTests {
 
         init(
             notificationCenter: NotificationCenter = NotificationCenter(),
+            workspaceNotificationCenter: NotificationCenter = NotificationCenter(),
             focusedAccessibilityElement: AccessibilityElementBox? = nil,
             applicationIsActive: @escaping () -> Bool = { true }
         ) {
@@ -208,6 +209,7 @@ struct SidebarPresentationBehaviorTests {
                     focusedAccessibilityElement.element
                 },
                 interactionNotificationCenter: notificationCenter,
+                workspaceNotificationCenter: workspaceNotificationCenter,
                 applicationIsActive: applicationIsActive)
             controller.loadViewIfNeeded()
             controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
@@ -1136,6 +1138,40 @@ struct SidebarPresentationBehaviorTests {
         #expect(fixture.controller.hostModeForTesting == .hidden)
         #expect(fixture.window.firstResponder !== fixture.peerSurface)
         #expect(fixture.sessionStore.selectedSession?.activePaneID == fixture.selectedPane.id)
+
+        let selectedSurface = fixture.mountSelectedSurface()
+        center.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+
+        #expect(fixture.window.firstResponder === selectedSurface)
+        #expect(fixture.sessionStore.selectedSession?.activePaneID == fixture.selectedPane.id)
+    }
+
+    @Test("sleep firing before resignation still captures sidebar focus for wake recovery")
+    func sleepBeforeResignationStillCapturesFocusForRecovery() {
+        let center = NotificationCenter()
+        let workspaceCenter = NotificationCenter()
+        let fixture = ProductionFocusFixture(
+            notificationCenter: center, workspaceNotificationCenter: workspaceCenter)
+        defer { fixture.cleanUp() }
+        _ = fixture.window.makeFirstResponder(nil)
+        #expect(fixture.window.makeFirstResponder(fixture.primarySafeFocus))
+        #expect(fixture.controller.setPersistentSidebarVisible(false))
+        #expect(fixture.controller.setOverlayPresentedImmediately(true))
+        #expect(fixture.window.makeFirstResponder(fixture.sidebarFocus))
+        fixture.controller.onTrackingAvailabilityLost = { [weak controller = fixture.controller] in
+            controller?.setOverlayPresentedImmediately(false)
+        }
+
+        // Sleep, not resignation, is the first thing to settle the overlay
+        // here -- it must be the one to capture what was focused, since
+        // `settleHidden()` redirects focus to the window with no memory of
+        // the target. If sleep settled without capturing, resignation firing
+        // afterward would see nothing left in the sidebar to notice as
+        // focused, and wake recovery below would silently no-op.
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        center.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+
+        #expect(fixture.controller.hostModeForTesting == .hidden)
 
         let selectedSurface = fixture.mountSelectedSurface()
         center.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)

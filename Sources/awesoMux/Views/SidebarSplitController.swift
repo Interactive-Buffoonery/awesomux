@@ -1254,36 +1254,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     guard let self else { return }
                     self.acceptsApplicationPointerEvents = false
                     self.edgeTrackingView.acceptsPointerUpdates = false
-                    if self.isSidebarHidden {
-                        let existingRecovery = self.pendingFocusRepair
-                        let currentAccessibilityFocus =
-                            self.sidebarAccessibilityFocusIsActive
-                        let currentKeyboardFocus =
-                            self.sidebarKeyboardFocusView(
-                                for: self.view.window?.firstResponder) != nil
-                        let requiresKeyboardFocus =
-                            existingRecovery?.request.requiresKeyboardFocus == true
-                            || currentKeyboardFocus
-                        let requiresAccessibilityFocus =
-                            existingRecovery?.request.requiresAccessibilityFocus == true
-                            || currentAccessibilityFocus
-                        if requiresKeyboardFocus || requiresAccessibilityFocus {
-                            let currentSidebarAccessibilityElement =
-                                currentAccessibilityFocus
-                                ? self.focusedSidebarAccessibilityElement : nil
-                            self.pendingFocusRepair = SidebarApplicationFocusRecovery(
-                                request: SidebarFocusHandoffRequest(
-                                    requiresKeyboardFocus: requiresKeyboardFocus,
-                                    requiresAccessibilityFocus: requiresAccessibilityFocus),
-                                sidebarAccessibilityElement: requiresAccessibilityFocus
-                                    ? currentSidebarAccessibilityElement
-                                        ?? existingRecovery?.sidebarAccessibilityElement
-                                    : nil)
-                            _ = self.clearSidebarKeyboardFocusIfNeeded(in: self.view.window)
-                        }
-                    } else {
-                        self.pendingFocusRepair = nil
-                    }
+                    self.captureFocusRepairBeforeSettling()
                     self.settleTransientOverlayIfNeeded()
                 }
             })
@@ -1342,14 +1313,20 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                 }
             })
         if workspaceSleepObserver == nil {
-            // Routed to the same settle-only subset as app resignation
-            // (`settleTransientOverlayIfNeeded`), NOT the full resignation
-            // handler above: sleep isn't app-to-app deactivation, and there is
-            // no `didWakeNotification` observer restoring
-            // `acceptsApplicationPointerEvents`/deferred focus-repair state
-            // afterward. Reusing the pointer-disabling and focus-repair
-            // capture from resignation here would leave hover-reveal
-            // permanently unresponsive after wake with nothing to reverse it.
+            // Shares `captureFocusRepairBeforeSettling()` +
+            // `settleTransientOverlayIfNeeded()` with the resignation handler
+            // above — NOT its pointer-acceptance-disabling: sleep isn't
+            // app-to-app deactivation, and there is no `didWakeNotification`
+            // observer restoring `acceptsApplicationPointerEvents` afterward,
+            // so disabling it here would leave hover-reveal permanently
+            // unresponsive after wake with nothing to reverse it. The focus
+            // capture DOES need to run here too — whichever of sleep or
+            // resignation fires first is the one and only chance to record
+            // what was focused before `settleHidden()` redirects it to the
+            // window with no memory of the target; skipping the capture on
+            // sleep would silently defeat resignation's capture if
+            // resignation fires afterward, since by then there is nothing
+            // left in the sidebar to notice as focused.
             // On its own center (see `workspaceNotificationCenter`'s doc
             // comment), not folded into `applicationActivityObservations`.
             workspaceSleepObserver = workspaceNotificationCenter.addObserver(
@@ -1358,7 +1335,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.settleTransientOverlayIfNeeded()
+                    guard let self else { return }
+                    self.captureFocusRepairBeforeSettling()
+                    self.settleTransientOverlayIfNeeded()
                 }
             }
         }
@@ -1440,12 +1419,53 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// Settle-only subset shared by app resignation and system sleep:
     /// invalidate stale pointer tracking and collapse a presented overlay.
     /// Deliberately excludes resignation-specific bookkeeping (pointer-
-    /// acceptance flags, deferred focus-repair capture) — see the sleep
-    /// observer registration for why.
+    /// acceptance flags) — see the sleep observer registration for why. Does
+    /// NOT exclude focus-repair capture: `settleHidden()` below redirects any
+    /// stranded sidebar focus straight to the window with no memory of what
+    /// was focused, so `captureFocusRepairBeforeSettling()` must always run
+    /// first — whichever of sleep/resignation fires first is the one that
+    /// gets the one chance to capture; if it settles without capturing,
+    /// there is nothing left to capture by the time the other one runs.
     private func settleTransientOverlayIfNeeded() {
         onTrackingAvailabilityLost?()
         if isSidebarHidden {
             settleHidden()
+        }
+    }
+
+    /// Preserves whatever's currently focused inside a hidden-but-overlaid
+    /// sidebar before a settle (`settleHidden()`, called from
+    /// `settleTransientOverlayIfNeeded()`) redirects it to the window with no
+    /// memory of the original target. `didBecomeActiveNotification`/
+    /// `didBecomeKeyNotification`/`GhosttySurfaceFocusReadiness` consume
+    /// `pendingFocusRepair` unconditionally on whatever caused it, so capturing
+    /// here is sufficient — no separate wake-side observer is needed.
+    private func captureFocusRepairBeforeSettling() {
+        if isSidebarHidden {
+            let existingRecovery = pendingFocusRepair
+            let currentAccessibilityFocus = sidebarAccessibilityFocusIsActive
+            let currentKeyboardFocus =
+                sidebarKeyboardFocusView(for: view.window?.firstResponder) != nil
+            let requiresKeyboardFocus =
+                existingRecovery?.request.requiresKeyboardFocus == true || currentKeyboardFocus
+            let requiresAccessibilityFocus =
+                existingRecovery?.request.requiresAccessibilityFocus == true
+                || currentAccessibilityFocus
+            if requiresKeyboardFocus || requiresAccessibilityFocus {
+                let currentSidebarAccessibilityElement =
+                    currentAccessibilityFocus ? focusedSidebarAccessibilityElement : nil
+                pendingFocusRepair = SidebarApplicationFocusRecovery(
+                    request: SidebarFocusHandoffRequest(
+                        requiresKeyboardFocus: requiresKeyboardFocus,
+                        requiresAccessibilityFocus: requiresAccessibilityFocus),
+                    sidebarAccessibilityElement: requiresAccessibilityFocus
+                        ? currentSidebarAccessibilityElement
+                            ?? existingRecovery?.sidebarAccessibilityElement
+                        : nil)
+                _ = clearSidebarKeyboardFocusIfNeeded(in: view.window)
+            }
+        } else {
+            pendingFocusRepair = nil
         }
     }
 
