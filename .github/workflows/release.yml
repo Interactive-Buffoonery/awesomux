@@ -113,7 +113,9 @@ jobs:
           # green => skip and recover next cron.
           # jq --arg (not string interpolation) so the SHA can never be read as
           # jq program text — defense in depth; github.sha is always trusted hex.
-          CONCLUSION="$(gh run list --workflow "Cheap guards" --branch main --event push \
+          # Identify the workflow by its canonical file name, not its display
+          # name, so this does not depend on gh's display-name matching.
+          CONCLUSION="$(gh run list --workflow cheap-guards.yml --branch main --event push \
             --status completed --json headSha,conclusion -L 50 2>/dev/null \
             | jq -r --arg sha "$HEAD_SHA" '[.[] | select(.headSha == $sha)][0].conclusion // ""' 2>/dev/null \
             || echo "")"
@@ -180,7 +182,10 @@ jobs:
     # deployment rule and no required reviewers; then the cron self-approves.
     # A typo'd variable names a nonexistent environment, which GitHub
     # auto-creates empty — the "Verify required release secrets" step then fails
-    # closed before any signing, so a mistake never opens a credential path.
+    # closed before any signing. This fail-closed guarantee holds only while the
+    # five signing secrets stay scoped to the `release` environment (they are
+    # today); if they were ever also defined at repo scope, secrets.* would
+    # resolve them in the typo'd environment and sign without the reviewer gate.
     environment: ${{ github.event_name == 'schedule' && vars.NIGHTLY_ENVIRONMENT != '' && vars.NIGHTLY_ENVIRONMENT || 'release' }}
     # Cold Ghostty rebuild + up to 45m Apple notarization + margin. The 6h
     # GitHub Actions default would hide a hung run for hours before anyone
