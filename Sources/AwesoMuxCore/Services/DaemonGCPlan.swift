@@ -159,9 +159,10 @@ public enum DaemonGCPlan {
         return result
     }
 
-    /// A `*.status.jsonl` file observed in the amx directory, as input to
-    /// `staleStatusFiles`. `modifiedEpoch` is the file's mtime.
-    public struct StatusFileCandidate: Equatable {
+    /// A file observed in an amx directory, as input to a stale-file sweep
+    /// (`staleStatusFiles` for `$TMPDIR/amx/*.status.jsonl`, `staleSessionLogs`
+    /// for `$TMPDIR/amx/logs/<uuid>.log[.old]`). `modifiedEpoch` is the mtime.
+    public struct FileCandidate: Equatable {
         public let filename: String
         public let modifiedEpoch: Int
 
@@ -231,7 +232,7 @@ public enum DaemonGCPlan {
     /// (Interactive-Buffoonery/awesomux#183) are spared too — the safe
     /// direction; their files become collectable once #183 reaps orphans.
     public static func staleStatusFiles(
-        candidates: [StatusFileCandidate],
+        candidates: [FileCandidate],
         attached: Set<TerminalSessionID>,
         gcStart: Int,
         graceSeconds: Int = statusFileGraceSeconds
@@ -243,6 +244,90 @@ public enum DaemonGCPlan {
             else { return nil }
             return candidate.filename
         }
+    }
+
+    /// Session id embedded in a per-session log filename under
+    /// `$TMPDIR/amx/logs/`. zmx writes `<session_name>.log` and rotates it to
+    /// `<session_name>.log.old` at 5 MB (`LogSystem.rotate`), so BOTH shapes
+    /// are attributable to the same session. awesoMux session names are minted
+    /// lowercase UUIDs, so this returns the id only for `<uuid>.log[.old]`.
+    /// Same strict-attribution ceiling as `statusFileSessionID`: the global
+    /// `zmx.log` (non-UUID stem) and hand-named sessions are never candidates,
+    /// so GC only ever deletes a log it can positively attribute to a minted
+    /// session. `.log.old` naturally sorts against the same id, keeping a
+    /// rotated dead session's pair reclaimed together.
+    public static func logFileSessionID(_ filename: String) -> TerminalSessionID? {
+        let stem: Substring
+        if filename.hasSuffix(".log") {
+            stem = filename.dropLast(4)
+        } else if filename.hasSuffix(".log.old") {
+            stem = filename.dropLast(8)
+        } else {
+            return nil
+        }
+        guard stem.count == 36, isUUIDShaped(String(stem)) else { return nil }
+        return TerminalSessionID(rawValue: String(stem))
+    }
+
+    /// Launch-GC sweep for leaked per-session log files: zmx opens the log at
+    /// daemon spawn and only a dead session's file lingers, so orphans pile up
+    /// forever (37 observed, Interactive-Buffoonery/awesomux#184).
+    ///
+    /// Unlike status files (one per attach, so `attached` is the discriminator),
+    /// there is exactly one live log — plus at most one rotated `.old` — per
+    /// session NAME, held open by the daemon regardless of client count. So a
+    /// log is spared unless one of three things protects it:
+    /// - its session has a LIVE daemon (`liveSessionIDs`, any client count):
+    ///   a detached-but-live daemon still holds the log fd and keeps writing.
+    /// - it is inside the grace window. Log-specific rationale (do NOT reuse the
+    ///   status file's): the daemon creates the log at spawn, at the same moment
+    ///   it registers in `amx list`, so the gap is near-zero. Grace only covers
+    ///   a slow launch where we observe the file a beat before the daemon shows
+    ///   up in the list snapshot.
+    /// - its name cannot be positively attributed to a minted session.
+    ///
+    /// Residual (accepted): a daemon RECREATED after the `amx list` snapshot but
+    /// before unlink reopens the same path and seeks to end (`LogSystem.init`);
+    /// this sweep can unlink its just-reopened log, and it keeps writing to the
+    /// unlinked inode until next launch. This is diagnostic-log loss, not data
+    /// loss, and the window is narrow (grace + any write refreshing mtime spares
+    /// it), so it is not fenced with a pre-unlink revalidation.
+    public static func staleSessionLogs(
+        candidates: [FileCandidate],
+        liveSessionIDs: Set<TerminalSessionID>,
+        gcStart: Int,
+        graceSeconds: Int = statusFileGraceSeconds
+    ) -> [String] {
+        candidates.compactMap { candidate in
+            guard let id = logFileSessionID(candidate.filename),
+                !liveSessionIDs.contains(id),
+                candidate.modifiedEpoch < gcStart - graceSeconds
+            else { return nil }
+            return candidate.filename
+        }
+    }
+
+    /// Upper-bound instrumentation for the restore-attach race
+    /// (Interactive-Buffoonery/awesomux#184): among `attached` sessions (the
+    /// ones `staleStatusFiles` spares), how many hold more than one status file,
+    /// and the largest such count. A count > 1 is only an UPPER BOUND on spared
+    /// stale generations — a session can legitimately hold several simultaneous
+    /// live channels (pop-up mirror), which is exactly why no newest-N heuristic
+    /// is safe. "Measure first" (issue): if attached sessions never accumulate
+    /// multiple spared files, the race is not losing and no fix is warranted.
+    public static func attachedStatusFileOccupancy(
+        candidates: [FileCandidate],
+        attached: Set<TerminalSessionID>
+    ) -> (multiFileSessions: Int, maxFilesPerSession: Int) {
+        var perSession: [TerminalSessionID: Int] = [:]
+        for candidate in candidates {
+            guard let id = statusFileSessionID(candidate.filename), attached.contains(id) else {
+                continue
+            }
+            perSession[id, default: 0] += 1
+        }
+        let counts = perSession.values
+        return (counts.filter { $0 > 1 }.count, counts.max() ?? 0)
     }
 
     public static func reapable(

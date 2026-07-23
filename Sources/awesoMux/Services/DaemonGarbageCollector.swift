@@ -101,10 +101,9 @@ enum DaemonGarbageCollector {
         // the sweep nil (abort) on any format drift the tolerant parser
         // would silently skip — a dropped live row must not read as
         // "no attached client, delete its file".
-        sweepStaleStatusFiles(
-            live: DaemonGCPlan.parseAmxListStrict(listOutput),
-            gcStart: gcStart
-        )
+        let strictLive = DaemonGCPlan.parseAmxListStrict(listOutput)
+        sweepStaleStatusFiles(live: strictLive, gcStart: gcStart)
+        sweepSessionLogs(live: strictLive, gcStart: gcStart)
 
         guard !live.isEmpty else { return }
 
@@ -194,29 +193,16 @@ enum DaemonGarbageCollector {
             return
         }
         let attached = Set(live.filter { $0.clients > 0 }.map(\.id))
-        let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
-        guard
-            let entries = try? FileManager.default.contentsOfDirectory(
-                at: directoryURL,
-                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
-                options: []
-            )
-        else { return }
-        let candidates = entries.compactMap { url -> DaemonGCPlan.StatusFileCandidate? in
-            // Resource values come from the same enumeration pass (one stat
-            // per entry) and do not follow symlinks; requiring a regular
-            // file keeps a directory or symlink squatting a status-shaped
-            // name out of candidacy.
-            guard url.lastPathComponent.hasSuffix(".status.jsonl"),
-                let values = try? url.resourceValues(
-                    forKeys: [.isRegularFileKey, .contentModificationDateKey]
-                ),
-                values.isRegularFile == true,
-                let modified = values.contentModificationDate
-            else { return nil }
-            return DaemonGCPlan.StatusFileCandidate(
-                filename: url.lastPathComponent,
-                modifiedEpoch: Int(modified.timeIntervalSince1970)
+        let candidates = candidateFiles(in: directory) { $0.hasSuffix(".status.jsonl") }
+        // Restore-attach race measurement (issue #184, "measure first"): log an
+        // upper bound on stale generations spared by the `attached` gate before
+        // deciding whether the race needs a fix. Zero cost, no behavior change.
+        let occupancy = DaemonGCPlan.attachedStatusFileOccupancy(
+            candidates: candidates, attached: attached
+        )
+        if occupancy.multiFileSessions > 0 {
+            log.info(
+                "status-file GC: \(occupancy.multiFileSessions) attached session(s) hold >1 status file (max \(occupancy.maxFilesPerSession)) — upper bound on spared stale generations"
             )
         }
         let stale = DaemonGCPlan.staleStatusFiles(
@@ -224,6 +210,81 @@ enum DaemonGarbageCollector {
             attached: attached,
             gcStart: gcStart
         )
+        unlinkStale(stale, in: directory, kind: "status file")
+    }
+
+    /// Removes leaked per-session `<uuid>.log[.old]` files under
+    /// `$TMPDIR/amx/logs/` — anything whose session has no live daemon, is past
+    /// the grace window, and is attributable to a minted session
+    /// (Interactive-Buffoonery/awesomux#184). Decision logic lives in
+    /// `DaemonGCPlan.staleSessionLogs`; this is the IO. `live` is nil when the
+    /// session list failed OR parsed non-strictly — both abort. Spares on any
+    /// LIVE daemon (not just attached): a detached-but-live daemon still holds
+    /// the log fd.
+    nonisolated static func sweepSessionLogs(
+        live: [LiveDaemon]?,
+        gcStart: Int,
+        directory: String = AmxBackend.sessionLogDirectory()
+    ) {
+        guard let live else {
+            log.error("log GC skipped: session list unavailable or unparseable")
+            return
+        }
+        let liveSessionIDs = Set(live.map(\.id))
+        let candidates = candidateFiles(in: directory) {
+            $0.hasSuffix(".log") || $0.hasSuffix(".log.old")
+        }
+        let stale = DaemonGCPlan.staleSessionLogs(
+            candidates: candidates,
+            liveSessionIDs: liveSessionIDs,
+            gcStart: gcStart
+        )
+        unlinkStale(stale, in: directory, kind: "log file")
+    }
+
+    /// Enumerates `directory` and returns regular files whose name matches
+    /// `predicate`, paired with mtime. Resource values come from the same
+    /// enumeration pass (one stat per entry) and do not follow symlinks;
+    /// requiring a regular file keeps a directory or symlink squatting a
+    /// matching name out of candidacy. Empty on enumeration failure (a missing
+    /// directory is the normal "nothing to sweep" case).
+    // ponytail: blocking FileManager IO on the cooperative pool — launch-once,
+    // .utility, O(directory entries); hop to a DispatchQueue if the launch
+    // scan ever stalls.
+    nonisolated private static func candidateFiles(
+        in directory: String,
+        matching predicate: (String) -> Bool
+    ) -> [DaemonGCPlan.FileCandidate] {
+        let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+        guard
+            let entries = try? FileManager.default.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+                options: []
+            )
+        else { return [] }
+        return entries.compactMap { url -> DaemonGCPlan.FileCandidate? in
+            guard predicate(url.lastPathComponent),
+                let values = try? url.resourceValues(
+                    forKeys: [.isRegularFileKey, .contentModificationDateKey]
+                ),
+                values.isRegularFile == true,
+                let modified = values.contentModificationDate
+            else { return nil }
+            return DaemonGCPlan.FileCandidate(
+                filename: url.lastPathComponent,
+                modifiedEpoch: Int(modified.timeIntervalSince1970)
+            )
+        }
+    }
+
+    /// Unlinks the planned stale files by name under `directory`. `kind` labels
+    /// the summary/error logs. Shared by the status and log sweeps.
+    nonisolated private static func unlinkStale(
+        _ stale: [String],
+        in directory: String,
+        kind: String
+    ) {
         guard !stale.isEmpty else { return }
         var removed = 0
         for name in stale {
@@ -233,14 +294,14 @@ enum DaemonGarbageCollector {
             if Darwin.unlink(directory + "/" + name) == 0 {
                 removed += 1
             } else if errno != ENOENT {
-                // ENOENT is the benign race: the file's own watcher removed
-                // it first — the desired end state, not an error.
+                // ENOENT is the benign race: the file's own owner removed it
+                // first — the desired end state, not an error.
                 let errnoValue = errno
                 log.error(
-                    "status-file GC unlink failed for \(name, privacy: .public): errno=\(errnoValue)"
+                    "\(kind, privacy: .public) GC unlink failed for \(name, privacy: .public): errno=\(errnoValue)"
                 )
             }
         }
-        log.info("daemon GC: removed \(removed)/\(stale.count) stale status file(s)")
+        log.info("daemon GC: removed \(removed)/\(stale.count) stale \(kind, privacy: .public)(s)")
     }
 }

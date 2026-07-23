@@ -108,6 +108,75 @@ struct DaemonGarbageCollectorTests {
         )
         #expect(!FileManager.default.fileExists(atPath: directory + "/" + file))
     }
+    @Test("log sweep deletes aged dead-session logs and their rotated pair")
+    func logSweepDeletesOrphans() throws {
+        let old = Date(timeIntervalSinceNow: -86_400)
+        let deadLog = "\(Self.orphanUUID).log"
+        let deadRotated = "\(Self.orphanUUID).log.old"
+        let liveUUID = "55555555-5555-4555-8555-555555555555"
+        let liveLog = "\(liveUUID).log"
+        let liveRotated = "\(liveUUID).log.old"
+        let freshOrphanUUID = "66666666-6666-4666-8666-666666666666"
+        let freshOrphan = "\(freshOrphanUUID).log"
+        let directory = try makeStatusDirectory(files: [
+            deadLog: old,  // dead session → stale
+            deadRotated: old,  // dead session's rotated log → stale
+            liveLog: old,  // live daemon → spared however old
+            liveRotated: old,  // live daemon's rotated log → spared
+            freshOrphan: Date(),  // dead session but inside grace window → spared
+            "zmx.log": old,  // global log, unattributable → spared
+            "unrelated.txt": old,
+        ])
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        DaemonGarbageCollector.sweepSessionLogs(
+            live: [LiveDaemon(id: TerminalSessionID(rawValue: liveUUID)!, pid: 1, createdEpoch: 1, clients: 0)],
+            gcStart: Int(Date().timeIntervalSince1970),
+            directory: directory
+        )
+
+        let survivors = try FileManager.default.contentsOfDirectory(atPath: directory).sorted()
+        #expect(survivors == [liveLog, liveRotated, freshOrphan, "unrelated.txt", "zmx.log"])
+    }
+
+    @Test("log sweep deletes nothing when the session list is unavailable")
+    func logSweepAbortsOnNilList() throws {
+        let orphan = "\(Self.orphanUUID).log"
+        let directory = try makeStatusDirectory(files: [
+            orphan: Date(timeIntervalSinceNow: -86_400)
+        ])
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        DaemonGarbageCollector.sweepSessionLogs(
+            live: nil,
+            gcStart: Int(Date().timeIntervalSince1970),
+            directory: directory
+        )
+
+        #expect(FileManager.default.fileExists(atPath: directory + "/" + orphan))
+    }
+
+    @Test("log sweep never removes a directory squatting a log name")
+    func logSweepSparesDirectories() throws {
+        let directory = try makeStatusDirectory(files: [:])
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let squatter = directory + "/\(Self.orphanUUID).log"
+        try FileManager.default.createDirectory(atPath: squatter, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -86_400)], ofItemAtPath: squatter
+        )
+
+        DaemonGarbageCollector.sweepSessionLogs(
+            live: [],
+            gcStart: Int(Date().timeIntervalSince1970),
+            directory: directory
+        )
+
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: squatter, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
+    }
+
     @Test("command bridge enablement is not a launch sweep prerequisite")
     func commandBridgeEnablementIsNotAPrerequisite() {
         let bridgeDisabled = DaemonGarbageCollector.launchSweepConfiguration(

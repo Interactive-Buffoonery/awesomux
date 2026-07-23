@@ -62,6 +62,13 @@ enum AmxBackend {
         cachedSocketDirectory
     }
 
+    /// Where zmx writes per-session logs. Because awesoMux pins `ZMX_DIR` to the
+    /// socket directory, zmx's `logDir` resolves to `ZMX_DIR/logs` (its
+    /// `ZMX_DIR/logs` branch), so this is the sole log location for our daemons.
+    static func sessionLogDirectory() -> String {
+        cachedSocketDirectory + "/logs"
+    }
+
     /// Computed once: `$TMPDIR` is process-stable, so re-deriving the path on
     /// every spawn just churns string work on the bridge hot path.
     private static let cachedSocketDirectory: String = AppRuntimeProfile.current.amxSocketDirectoryPath
