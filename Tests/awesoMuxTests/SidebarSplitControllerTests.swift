@@ -1673,9 +1673,55 @@ struct SidebarSplitControllerTests {
             .appending(path: "Sources/awesoMux/Views/SidebarSplitController.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
-        #expect(source.components(separatedBy: "splitView.setPosition(").count - 1 == 1)
+        // Two divider-move forms now live in the helper: the instant `setPosition`
+        // and the eased `animator().setPosition` (#81). Both must be unique and
+        // both must sit inside the single instrumented boundary.
+        let instant = source.components(separatedBy: "splitView.setPosition(").count - 1
+        let eased = source.components(separatedBy: "splitView.animator().setPosition(").count - 1
+        #expect(instant == 1)
+        #expect(eased == 1)
         let helper = try #require(source.range(of: "private func setDividerPosition"))
-        #expect(source[helper.lowerBound...].contains("splitView.setPosition("))
+        let body = source[helper.lowerBound...]
+        #expect(body.contains("splitView.setPosition("))
+        #expect(body.contains("splitView.animator().setPosition("))
+    }
+
+    // MARK: - Eased settle (#81)
+
+    // The settle eases only for a deliberate command and never when the system asks
+    // for reduced motion — the accessibility contract, pure so it needs no live split.
+    @Test("settle eases only for a deliberate command with motion allowed")
+    func settleAnimationPolicy() {
+        #expect(SidebarSplitController.shouldAnimateSettle(animated: true, reduceMotion: false))
+        #expect(!SidebarSplitController.shouldAnimateSettle(animated: true, reduceMotion: true))
+        #expect(!SidebarSplitController.shouldAnimateSettle(animated: false, reduceMotion: false))
+        #expect(!SidebarSplitController.shouldAnimateSettle(animated: false, reduceMotion: true))
+    }
+
+    // `setPosition` DOES resolve its target through `constrainSplitPosition` (which
+    // snaps the 60..250 dead zone). The eased settle is safe anyway because its
+    // targets are only the rail (60) or an expanded width (>=250) — never a dead-zone
+    // value — so the snap passes every settle target through untouched; only the
+    // geometric interpolation crosses the dead zone. Pin both halves so a settle
+    // target can't drift into the snap band unnoticed. (Left sidebar: divider
+    // coordinate == sidebar width, so widths double as proposed positions here.)
+    @Test("settle targets pass the dead-zone snap through untouched")
+    func settleTargetsSurviveDeadZoneSnap() {
+        let (controller, _, _) = makeController()
+        _ = hostInFixedWindow(controller)
+        let splitView = controller.splitViewForTesting
+
+        for target in [SidebarWidthPolicy.collapsedWidth, SidebarWidthPolicy.railThreshold, 400] {
+            #expect(
+                controller.splitView(splitView, constrainSplitPosition: target, ofSubviewAt: 0)
+                    == target)
+        }
+
+        // A genuine dead-zone position (the drag path) still snaps out.
+        let deadZone: CGFloat = 150
+        #expect(
+            controller.splitView(splitView, constrainSplitPosition: deadZone, ofSubviewAt: 0)
+                != deadZone)
     }
 }
 
