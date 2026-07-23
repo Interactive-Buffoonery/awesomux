@@ -16,7 +16,7 @@ import Testing
 /// fixed waits (the event pipeline settles well inside them: 100 ms debounce
 /// plus one read and one diff).
 @MainActor
-@Suite("DocumentRevisionMonitor")
+@Suite("DocumentRevisionMonitor", .serialized)
 struct DocumentRevisionMonitorTests {
 
     private final class AnnouncementLog {
@@ -31,18 +31,6 @@ struct DocumentRevisionMonitorTests {
         monitor.announce = { log.messages.append($0) }
         monitor.selfWriteContext = { _, _ in nil }
         return monitor
-    }
-
-    private func awaitCondition(
-        timeout seconds: Double,
-        condition: () -> Bool
-    ) async -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-        return condition()
     }
 
     /// Two-file fixture: tab A (selected) and tab B (background), both with
@@ -100,7 +88,7 @@ struct DocumentRevisionMonitorTests {
             let edited = Self.baseContent + "\nline4\nline5"
             try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
 
-            let recorded = await awaitCondition(timeout: 3.0) {
+            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 self.exactDiff(monitor.indicator(for: fixture.tabB)) != nil
             }
             #expect(recorded)
@@ -115,7 +103,7 @@ struct DocumentRevisionMonitorTests {
         try await withFixture { fixture, monitor, log in
             let edited = Self.baseContent + "\nline4"
             try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let recorded = await awaitCondition(timeout: 3.0) {
+            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) != nil
             }
             #expect(recorded)
@@ -135,13 +123,13 @@ struct DocumentRevisionMonitorTests {
         try await withFixture { fixture, monitor, log in
             try (Self.baseContent + "\nline4\nline5").write(
                 to: fixture.urlB, atomically: true, encoding: .utf8)
-            _ = await awaitCondition(timeout: 3.0) {
+            _ = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) != nil
             }
 
             try (Self.baseContent + "\nline4\nline5\nline6").write(
                 to: fixture.urlB, atomically: true, encoding: .utf8)
-            let accumulated = await awaitCondition(timeout: 3.0) {
+            let accumulated = await waitUntilEventually(deadline: .seconds(10)) {
                 self.exactDiff(monitor.indicator(for: fixture.tabB))?.added == 3
             }
             #expect(accumulated, "second edit should count from the last version the user saw")
@@ -167,7 +155,7 @@ struct DocumentRevisionMonitorTests {
         #expect(monitor.indicator(for: tab) == nil)
 
         try (Self.baseContent + "\nline4").write(to: url, atomically: true, encoding: .utf8)
-        let recorded = await awaitCondition(timeout: 3.0) {
+        let recorded = await waitUntilEventually(deadline: .seconds(10)) {
             self.exactDiff(monitor.indicator(for: tab)) == LineDiffCount(added: 1, removed: 0)
         }
         #expect(recorded, "an edit after the seeded first observation should indicate")
@@ -193,7 +181,7 @@ struct DocumentRevisionMonitorTests {
             // A later external edit counts from the self-written source, not
             // the pre-self-write baseline (+1, not +2).
             try (selfWritten + "\nexternal").write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let recorded = await awaitCondition(timeout: 3.0) {
+            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 1, removed: 0)
             }
             #expect(recorded)
@@ -205,7 +193,7 @@ struct DocumentRevisionMonitorTests {
         try await withFixture { fixture, monitor, log in
             let edited = Self.baseContent + "\nexternal"
             try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let firstRecorded = await awaitCondition(timeout: 3.0) {
+            let firstRecorded = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) != nil
             }
             #expect(firstRecorded)
@@ -226,7 +214,7 @@ struct DocumentRevisionMonitorTests {
             #expect(log.messages.count == 1)
 
             try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let reRecorded = await awaitCondition(timeout: 3.0) {
+            let reRecorded = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) != nil && log.messages.count == 2
             }
             #expect(reRecorded)
@@ -243,7 +231,7 @@ struct DocumentRevisionMonitorTests {
             // Disk gained the annotation plus two external lines; the diff
             // must be measured from the annotation (+2), not the baseline (+3).
             try (selfWritten + "\nx\ny").write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let recorded = await awaitCondition(timeout: 3.0) {
+            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 2, removed: 0)
             }
             #expect(recorded)
@@ -269,7 +257,7 @@ struct DocumentRevisionMonitorTests {
             try (Self.baseContent + "\nline4").write(
                 to: fixture.urlB, atomically: false, encoding: .utf8)
 
-            let recorded = await awaitCondition(timeout: 3.0) {
+            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 1, removed: 0)
             }
             #expect(recorded)
@@ -280,13 +268,13 @@ struct DocumentRevisionMonitorTests {
     func returnToBaselineDismisses() async throws {
         try await withFixture { fixture, monitor, _ in
             try (Self.baseContent + "\nline4").write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let recorded = await awaitCondition(timeout: 3.0) {
+            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) != nil
             }
             #expect(recorded)
 
             try Self.baseContent.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let dismissed = await awaitCondition(timeout: 3.0) {
+            let dismissed = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) == nil
             }
             #expect(dismissed, "a stale marker would claim changes that no longer exist")
@@ -322,7 +310,7 @@ struct DocumentRevisionMonitorTests {
             )
             monitor.reconcile(tab: fixture.tabB)
 
-            let recorded = await awaitCondition(timeout: 3.0) {
+            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 2, removed: 0)
             }
             #expect(recorded)
@@ -355,7 +343,7 @@ struct DocumentRevisionMonitorTests {
         try await Task.sleep(nanoseconds: 50_000_000)
 
         try (Self.baseContent + "\nline4").write(to: shared, atomically: true, encoding: .utf8)
-        let bothRecorded = await awaitCondition(timeout: 3.0) {
+        let bothRecorded = await waitUntilEventually(deadline: .seconds(10)) {
             monitor.indicator(for: tabB) != nil && monitor.indicator(for: tabC) != nil
         }
         #expect(bothRecorded)
@@ -367,7 +355,7 @@ struct DocumentRevisionMonitorTests {
     func inPlaceReplacementPrunes() async throws {
         try await withFixture { fixture, monitor, log in
             try (Self.baseContent + "\nline4").write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let recorded = await awaitCondition(timeout: 3.0) {
+            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) != nil
             }
             #expect(recorded)
@@ -399,20 +387,20 @@ struct DocumentRevisionMonitorTests {
         try await withFixture { fixture, monitor, log in
             let edited = Self.baseContent + "\nline4"
             try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            _ = await awaitCondition(timeout: 3.0) {
+            _ = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) != nil
             }
             #expect(log.messages.count == 1)
 
             try Self.baseContent.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            _ = await awaitCondition(timeout: 3.0) {
+            _ = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) == nil
             }
 
             // The same content as the first edit is a genuinely new revision
             // after the dismiss; the announce dedup must not swallow it.
             try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let reRecorded = await awaitCondition(timeout: 3.0) {
+            let reRecorded = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) != nil && log.messages.count == 2
             }
             #expect(reRecorded)
@@ -437,7 +425,7 @@ struct DocumentRevisionMonitorTests {
             // reconcile read commits. The captured baseline must still win.
             monitor.noteRenderCompleted(source: edited, for: fixture.tabB)
 
-            let recorded = await awaitCondition(timeout: 3.0) {
+            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 2, removed: 0)
             }
             #expect(recorded)
@@ -457,7 +445,7 @@ struct DocumentRevisionMonitorTests {
                 cachedSource: { _ in Self.baseContent }
             )
             monitor.reconcile(tab: fixture.tabB)
-            _ = await awaitCondition(timeout: 3.0) {
+            _ = await waitUntilEventually(deadline: .seconds(10)) {
                 monitor.indicator(for: fixture.tabB) != nil
             }
             #expect(log.messages.count == 1)

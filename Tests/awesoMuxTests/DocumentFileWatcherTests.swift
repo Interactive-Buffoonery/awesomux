@@ -13,7 +13,7 @@ import Testing
 /// The suite is @MainActor to give the test body a stable actor context matching
 /// other async test suites in this target (e.g. RemoteConnectivityObserverTests).
 @MainActor
-@Suite("DocumentFileWatcher")
+@Suite("DocumentFileWatcher", .serialized)
 struct DocumentFileWatcherTests {
 
     // MARK: - Helpers
