@@ -156,6 +156,161 @@ struct URLClassifierTests {
         #expect(punycodeHost == "xn--aypal-58d.com")
     }
 
+    // MARK: - blockConfirm/openDirect: TR39 whole-script confusables (#143)
+
+    @Test("verified whole-script attack xn--80ak6aa92e.com blocks with both host forms")
+    func wholeScriptAttackPunycodeBlocks() throws {
+        // xn--80ak6aa92e.com decodes to аррӏе.com — pure Cyrillic that reads
+        // as "apple.com". No label mixes scripts, so the mixed-script gate
+        // waves it through; the whole-script gate must catch it.
+        let url = try #require(URL(string: "https://xn--80ak6aa92e.com/"))
+        let decision = URLClassifier.classify(url)
+        guard case let .blockConfirm(reason, displayHost, punycodeHost) = decision else {
+            Issue.record("Expected blockConfirm, got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+        #expect(displayHost?.unicodeScalars.contains(where: { $0.value > 0x7F }) == true)
+        #expect(punycodeHost?.contains("xn--") == true)
+    }
+
+    @Test("raw-Unicode whole-script host аррӏе.com blocks")
+    func wholeScriptAttackRawUnicodeBlocks() throws {
+        // Same host, delivered already decoded (аррӏе.com).
+        let url = try #require(
+            URL(string: "https://\u{0430}\u{0440}\u{0440}\u{04CF}\u{0435}.com/"))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm, got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
+    @Test("a dangerous label blocks even beside a safe non-confusable sibling label")
+    func wholeScriptConfusableLabelBesideSafeLabelBlocks() throws {
+        // аррӏе.москва — the first label is a whole-script confusable, the
+        // second (москва) is a legitimate Cyrillic word that is NOT all
+        // lookalikes. Detection is per-label: the safe sibling must not
+        // cancel the dangerous one (a whole-host implementation would miss
+        // this because москва bails).
+        let url = try #require(
+            URL(
+                string:
+                    "https://\u{0430}\u{0440}\u{0440}\u{04CF}\u{0435}.\u{043C}\u{043E}\u{0441}\u{043A}\u{0432}\u{0430}/"
+            ))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm, got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
+    @Test(
+        "every lookalike-table entry blocks as a single-label host",
+        arguments: [
+            "\u{0430}",  // а → a
+            "\u{0441}",  // с → c
+            "\u{0501}",  // ԁ → d
+            "\u{0435}",  // е → e
+            "\u{04BB}",  // һ → h
+            "\u{0456}",  // і → i
+            "\u{0458}",  // ј → j
+            "\u{04CF}",  // ӏ → l
+            "\u{043E}",  // о → o
+            "\u{0440}",  // р → p
+            "\u{051B}",  // ԛ → q
+            "\u{0455}",  // ѕ → s
+            "\u{051D}",  // ԝ → w
+            "\u{0445}",  // х → x
+            "\u{0443}",  // у → y
+        ]
+    )
+    func everyLookalikeTableEntryBlocks(lookalike: String) throws {
+        // Independently sourced from each entry's intended Latin twin, so a
+        // wrong or omitted scalar in the classifier's table fails here.
+        let url = try #require(URL(string: "https://\(lookalike).com/"))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm for \(lookalike), got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
+    @Test("all-lookalike Cyrillic label with no brand context still blocks (documents FP policy)")
+    func allLookalikeNonBrandLabelBlocks() throws {
+        // сосо.com — every letter is a lookalike, so it soft-confirms even
+        // though it's not spoofing a known brand. This is the accepted,
+        // brand-list-free policy (issue #143 forbids a curated brand list):
+        // conservative on the character set, not on the domain.
+        let url = try #require(URL(string: "https://\u{0441}\u{043E}\u{0441}\u{043E}.com/"))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm, got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
+    @Test("single-character whole-script confusable label blocks")
+    func singleCharWholeScriptConfusableBlocks() throws {
+        // о.com — one Cyrillic о (looks like Latin o).
+        let url = try #require(URL(string: "https://\u{043E}.com/"))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm, got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
+    @Test("digits and a hyphen do not rescue an all-lookalike label (still blocks)")
+    func digitsAndHyphenInLookalikeLabelStillBlocks() throws {
+        // аре-2.com — а/р/е are lookalikes; the ASCII digit and hyphen are
+        // neutral and must not open the door.
+        let url = try #require(URL(string: "https://\u{0430}\u{0440}\u{0435}-2.com/"))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm, got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
+    @Test("uppercase whole-script confusable host blocks")
+    func uppercaseWholeScriptConfusableBlocks() throws {
+        // АРРӀЕ.com — uppercase Cyrillic. Foundation lowercases the host and
+        // the classifier lowercases the label, so the uppercase spoof lands
+        // on the same lookalike set as its lowercase form.
+        let url = try #require(
+            URL(string: "https://\u{0410}\u{0420}\u{0420}\u{04C0}\u{0415}.com/"))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm, got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
+    @Test("single non-lookalike Cyrillic letter opens direct")
+    func singleNonLookalikeCyrillicLetterOpensDirect() throws {
+        // я.com — я has no convincing Latin lookalike, so it is a real
+        // single-script host, not a spoof.
+        let url = try #require(URL(string: "https://\u{044F}.com/"))
+        #expect(URLClassifier.classify(url) == .openDirect)
+    }
+
+    @Test("legitimate whole-Cyrillic host москва.com opens direct")
+    func legitCyrillicHostMoskvaOpensDirect() throws {
+        // москва.com — м/к/в have no clean lowercase Latin twin, so the label
+        // is a real word, not a homoglyph spelling. Must stay open.
+        let url = try #require(
+            URL(string: "https://\u{043C}\u{043E}\u{0441}\u{043A}\u{0432}\u{0430}.com/"))
+        #expect(URLClassifier.classify(url) == .openDirect)
+    }
+
     // MARK: - blockConfirm: mailtoWithParameters
 
     @Test("mailto with body parameter blocks")

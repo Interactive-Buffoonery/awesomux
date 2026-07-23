@@ -5,10 +5,15 @@ import UnicodeHygiene
 /// block-confirm modal, based on the URL's threat profile.
 ///
 /// v1 posture (INT-16), refined per TR39 in INT-454:
-/// - Block a host only when a DNS label mixes scripts that could be
+/// - Block a host when a DNS label either mixes scripts that could be
 ///   confused for one another (the classic Latin/Cyrillic/Greek homograph
-///   triad — see `UnicodeHygiene.hasSuspiciousScriptMixing`). A pure-script
-///   host (`яндекс.рф`, `日本語.jp`) opens direct even though it isn't ASCII.
+///   triad — see `UnicodeHygiene.hasSuspiciousScriptMixing`) OR is a
+///   whole-script confusable: entirely one non-Latin script whose every
+///   letter is a known Latin lookalike (`аррӏе.com` ≈ "apple.com", pure
+///   Cyrillic — see `hostHasWholeScriptConfusableLabel`). A legitimate
+///   single-script host whose letters aren't all Latin lookalikes
+///   (`яндекс.рф`, `москва.com`, `日本語.jp`) opens direct even though it
+///   isn't ASCII.
 /// - Block any `mailto:` with attacker-controllable prefill parameters
 ///   (`to`, `body`, `cc`, `bcc`, `subject`).
 /// - Block any HTTP(S) URL with embedded `userinfo` — the `user@host`
@@ -32,6 +37,16 @@ import UnicodeHygiene
 ///   recognizes Latin/Cyrillic/Greek, so non-Latin scripts outside that
 ///   triad never register as "mixed" in the first place. Revisit if a
 ///   real confusable combination outside the triad shows up.
+/// - **Whole-script confusables outside the curated Cyrillic table**
+///   (#143). `hostHasWholeScriptConfusableLabel` flags a pure-non-Latin
+///   label only when every letter is in a small hand-audited Cyrillic→Latin
+///   lookalike set, chosen to keep false positives near zero on legitimate
+///   single-script domains. The accepted ceiling: a Latin string needing a
+///   letter with no Cyrillic lowercase twin (g, m, n, k, …) can't be spelled
+///   from the table and isn't caught; Greek and other scripts aren't
+///   covered; and one non-lookalike scalar appended to an otherwise-
+///   confusable label opens it direct (which also degrades the visual
+///   spoof). Widen the table or add scripts when a real miss surfaces.
 /// - **Peek-popover** for safe URLs — preview-before-click is INT-453.
 public enum URLClassifier {
     public enum Decision: Equatable, Sendable {
@@ -40,9 +55,11 @@ public enum URLClassifier {
     }
 
     public enum BlockReason: String, Equatable, Sendable {
-        /// Host has a DNS label mixing scripts that could be confused for
-        /// one another (TR39 homograph risk — `pаypal.com` with a Cyrillic
-        /// `а`), or a punycode label Foundation failed to decode to Unicode
+        /// Host has a DNS label that mixes scripts confusable for one
+        /// another (TR39 homograph risk — `pаypal.com` with a Cyrillic `а`)
+        /// or is a whole-script confusable (`аррӏе.com`, entirely Cyrillic
+        /// yet reads as "apple"), or a punycode label Foundation failed to
+        /// decode to Unicode
         /// (can't verify content, so treated as suspicious). The user
         /// should see what punycode actually resolves to before clicking
         /// through.
@@ -239,7 +256,16 @@ public enum URLClassifier {
         // round-trip Foundation already normalized before we ever see it.
         let hostIsMixedScript = displayHost.map(hostHasMixedScriptLabel) ?? false
 
-        if hostHasUnsafeScalar || hostFailedPunycodeDecode || hostIsMixedScript {
+        // TR39 whole-script confusables (#143): mixed-script leaves a label
+        // that's *entirely* one non-Latin script untouched, so a pure-Cyrillic
+        // label that spells a Latin word in homoglyphs (`аррӏе` ≈ "apple")
+        // reads clean above. Catch it here and route to the same soft confirm.
+        let hostIsWholeScriptConfusable =
+            displayHost.map(hostHasWholeScriptConfusableLabel) ?? false
+
+        if hostHasUnsafeScalar || hostFailedPunycodeDecode || hostIsMixedScript
+            || hostIsWholeScriptConfusable
+        {
             return .blockConfirm(
                 reason: .nonAsciiHost,
                 displayHost: displayHost ?? punycodeHost,
@@ -317,6 +343,77 @@ public enum URLClassifier {
         host.split(separator: ".").contains { label in
             UnicodeHygiene.hasSuspiciousScriptMixing(String(label))
         }
+    }
+
+    /// Cyrillic letters that are convincing *lowercase* Latin homoglyphs —
+    /// the whole-script-confusable alphabet (#143). Values are lowercase and
+    /// `labelIsWholeScriptConfusable` lowercases its input first, so uppercase
+    /// Cyrillic is covered for free (Swift's `String.lowercased()` is
+    /// Unicode-aware: `А` → `а`) without a second table.
+    ///
+    /// INVARIANT — Cyrillic ONLY. This single-script table is exactly what
+    /// makes "the label is 100% one non-Latin script" true by construction: a
+    /// label whose non-ASCII scalars are all in this set can only be Cyrillic.
+    /// Adding another script's letters here silently breaks that guarantee —
+    /// re-audit `labelIsWholeScriptConfusable` before you do. (The sibling
+    /// `UnicodeHygiene.scriptFamily` table was mis-edited three times by
+    /// treating letter *names* as script; verify any addition against
+    /// Unicode's real Script property, not visual resemblance.)
+    ///
+    /// Deliberately small and conservative: letters with no clean lowercase
+    /// Latin twin (`м`, `н`, `к`, `я`, …) are omitted, so `москва`/`яндекс`
+    /// stay open and a spoof needing an absent letter (e.g. "google" — no
+    /// Cyrillic lowercase "g") reads clean. That false-negative ceiling is the
+    /// price of near-zero false positives, and it's a soft confirm, not a
+    /// hard block.
+    private static let cyrillicLatinLookalikes: Set<Unicode.Scalar> = [
+        "\u{0430}",  // а → a
+        "\u{0441}",  // с → c
+        "\u{0501}",  // ԁ → d  (Cyrillic komi de)
+        "\u{0435}",  // е → e
+        "\u{04BB}",  // һ → h  (Cyrillic shha)
+        "\u{0456}",  // і → i  (Cyrillic byelorussian-ukrainian i)
+        "\u{0458}",  // ј → j  (Cyrillic je)
+        "\u{04CF}",  // ӏ → l  (Cyrillic palochka)
+        "\u{043E}",  // о → o
+        "\u{0440}",  // р → p
+        "\u{051B}",  // ԛ → q  (Cyrillic qa)
+        "\u{0455}",  // ѕ → s  (Cyrillic dze)
+        "\u{051D}",  // ԝ → w  (Cyrillic we)
+        "\u{0445}",  // х → x
+        "\u{0443}",  // у → y
+    ]
+
+    /// TR39 whole-script confusable detection (#143), per DNS label — the same
+    /// per-label scoping as `hostHasMixedScriptLabel`, so a dangerous label
+    /// (`аррӏе`) is flagged even when a safe sibling label (`.com`, or a
+    /// non-confusable Cyrillic label) sits beside it.
+    private static func hostHasWholeScriptConfusableLabel(_ host: String) -> Bool {
+        host.split(separator: ".").contains { label in
+            labelIsWholeScriptConfusable(String(label))
+        }
+    }
+
+    /// `true` when `label` is entirely one non-Latin script (Cyrillic, by the
+    /// table's construction) AND every letter is a known Latin lookalike —
+    /// i.e. it spells a plausible Latin string in homoglyphs (`аррӏе` ≈
+    /// "apple"). A single non-lookalike non-ASCII scalar (`я`, `н`, a
+    /// combining mark, …) means it's a real word in that script, not a spoof,
+    /// so we bail and leave it open.
+    ///
+    /// ASCII scalars (digits, hyphens) are neutral and skipped — they can't be
+    /// the non-Latin confusable risk. An ASCII *letter* beside a lookalike is
+    /// mixed-script, already flagged by `hostHasMixedScriptLabel` with the
+    /// identical `.nonAsciiHost` decision; this predicate also returning true
+    /// there is harmless redundancy, never a new false positive.
+    private static func labelIsWholeScriptConfusable(_ label: String) -> Bool {
+        var sawLookalike = false
+        for scalar in label.lowercased().unicodeScalars {
+            if scalar.isASCII { continue }
+            guard cyrillicLatinLookalikes.contains(scalar) else { return false }
+            sawLookalike = true
+        }
+        return sawLookalike
     }
 
     /// Detects invisible / direction-flipping / zero-width codepoints
