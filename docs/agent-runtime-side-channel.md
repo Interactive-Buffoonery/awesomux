@@ -152,7 +152,11 @@ trusting the emitting helper:
   on a `source=claude-code`, `phase=toolEnd` event; on any other source/phase it
   is stripped (the rest of the event still applies), so a same-UID process cannot
   forge one onto another phase. Relative, non-Markdown, NUL-bearing, and
-  bidi/RTL-scalar paths are rejected.
+  bidi/RTL-scalar paths are rejected, as are paths containing `#` (the recent-link
+  open path strips it as a fragment, so the file could never open — a `?` is
+  preserved and allowed). A wrong-typed `touchedPath` (array/number/object) or a
+  too-long path that would exceed the 4 KB line cap strips only the field; the
+  `toolEnd` lifecycle event still applies.
 - **Recorded, not opened.** The path lands in the recent-links ring (session-only,
   not persisted; shared with hover-recorded links); the user decides when to open
   it. A `toolEnd` fires after the tool ran; awesoMux does not inspect the tool

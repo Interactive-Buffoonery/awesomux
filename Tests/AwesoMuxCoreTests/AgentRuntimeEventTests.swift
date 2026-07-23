@@ -116,19 +116,33 @@ struct AgentRuntimeEventTests {
         #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"notes.md"}"#,  // relative
         #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/notes.txt"}"#,  // non-markdown
         #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/notes.md\u0000x"}"#,  // NUL
-        // `#`/`?` are legal in filenames but the recent-link open path parses
-        // them as fragment/query, so the file could never open — dropped.
+        // `#` is legal in a filename but the recent-link open path strips it as a
+        // fragment, reducing the path to its directory, so the file could never
+        // open — dropped. (`?` is preserved and openable; see the valid test.)
         ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/drafts/#175.md"}"##,
-        ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/a?b.md"}"##,
         // Wrong-typed touchedPath must strip the field, not throw and drop the
         // whole (lifecycle-bearing) event.
         ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":["/tmp/notes.md"]}"##,
         ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":42}"##,
+        ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":{"p":"/tmp/notes.md"}}"##,
+        ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":null}"##,
     ])
     func invalidTouchedPathIsDroppedButEventSurvives(line: String) {
         let event = AgentRuntimeEvent.parse(line: line)
         #expect(event?.phase == .toolEnd)
         #expect(event?.touchedPath == nil)
+    }
+
+    @Test(arguments: [
+        // `?` is legal in a filename and preserved by the open path, so it is
+        // retained (unlike `#`).
+        #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/a?b.md"}"#,
+        #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/notes.markdown"}"#,
+    ])
+    func openableTouchedPathIsRetained(line: String) {
+        let event = AgentRuntimeEvent.parse(line: line)
+        #expect(event?.phase == .toolEnd)
+        #expect(event?.touchedPath?.isEmpty == false)
     }
 
     @Test

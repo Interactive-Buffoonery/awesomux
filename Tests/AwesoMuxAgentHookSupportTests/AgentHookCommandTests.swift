@@ -109,8 +109,7 @@ struct AgentHookCommandTests {
         "/Users/agent/main.swift",  // non-Markdown extension
         "relative/notes.md",  // not absolute
         "/Users/agent/re\u{202e}port.md",  // bidi-override scalar
-        "/Users/agent/#175.md",  // `#` misparses as a link fragment
-        "/Users/agent/a?b.md",  // `?` misparses as a link query
+        "/Users/agent/#175.md",  // `#` strips as a link fragment → un-openable
     ])
     func ineligibleTouchedPathIsDroppedButEventSurvives(filePath: String) throws {
         let temp = try Self.temporaryEventFile()
@@ -165,8 +164,12 @@ struct AgentHookCommandTests {
         #expect(event.touchedPath == nil)
     }
 
-    @Test
-    func malformedToolNameDoesNotSinkTheEvent() throws {
+    @Test(arguments: [
+        #"{"hook_event_name":"PostToolUse","tool_name":123,"tool_input":{"file_path":"/Users/agent/plan.md"}}"#,
+        #"{"hook_event_name":"PostToolUse","tool_name":["Write"],"tool_input":{"file_path":"/Users/agent/plan.md"}}"#,
+        #"{"hook_event_name":"PostToolUse","tool_name":{"x":1},"tool_input":{"file_path":"/Users/agent/plan.md"}}"#,
+    ])
+    func malformedToolNameDoesNotSinkTheEvent(payload: String) throws {
         // A present-but-wrong-type tool_name must not throw out of the payload
         // decode and drop the event's lifecycle transition — it only gates
         // touched-path forwarding.
@@ -176,9 +179,7 @@ struct AgentHookCommandTests {
         let status = AgentHookCommand.run(
             arguments: ["--provider", "claude-code"],
             environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
-            stdin: Data(
-                #"{"hook_event_name":"PostToolUse","tool_name":123,"tool_input":{"file_path":"/Users/agent/plan.md"}}"#.utf8
-            )
+            stdin: Data(payload.utf8)
         )
 
         #expect(status == 0)

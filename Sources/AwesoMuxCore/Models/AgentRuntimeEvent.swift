@@ -180,15 +180,16 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
     public static func validatedTouchedPath(_ path: String) -> String? {
         guard let validated = validatedDocumentPath(path),
             !UnicodeHygiene.containsUnsafePathScalars(validated),
-            // A literal `#` or `?` is legal in a POSIX filename but the recent-
-            // link open path (`MarkdownLinkIntercept`) parses a bare path as
-            // link syntax: `#` starts a fragment and `?` a query, so e.g.
-            // `/tmp/#175.md` would reduce to `/tmp/` and fail to open. Recording
-            // it would be a dead palette entry — the exact "click looks dead"
-            // symptom this feature avoids — so drop it rather than surface an
-            // un-openable link. Ceiling: revisit if the open path grows raw-path
-            // handling that round-trips these characters.
-            !validated.contains("#"), !validated.contains("?")
+            // A literal `#` is legal in a POSIX filename but the recent-link open
+            // path (`MarkdownLinkIntercept.documentPathPayload`) parses a bare
+            // path as link syntax and strips everything from the first `#` as a
+            // fragment, so `/tmp/#175.md` reduces to `/tmp/` and fails to open.
+            // Recording it would be a dead palette entry — the exact "click looks
+            // dead" symptom this feature avoids — so drop it. Only `#` is
+            // stripped that way: `?` is preserved by `URL(fileURLWithPath:)` and
+            // opens correctly, so it is intentionally allowed. Ceiling: revisit if
+            // the open path grows raw-path handling that round-trips `#`.
+            !validated.contains("#")
         else {
             return nil
         }
