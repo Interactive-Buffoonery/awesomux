@@ -176,9 +176,9 @@ struct FullCommentPopover: View {
                         Button("Save", action: saveEdit)
                             .buttonStyle(.borderedProminent)
                             .tint(Color.aw.mauve)
-                            // ponytail: matches ⌘Return only, not ⌘-keypad-Enter;
-                            // swap the TextField for the AppKit accept-chord bridge
-                            // if keypad users report it.
+                            // Known ceiling: matches ⌘Return only, not
+                            // ⌘-keypad-Enter; swap the TextField for the AppKit
+                            // accept-chord bridge if keypad users report it.
                             .keyboardShortcut(.return, modifiers: .command)
                             .font(.system(size: 12, weight: .medium))
                             .disabled(
@@ -235,8 +235,8 @@ struct FullCommentPopover: View {
                     .buttonStyle(.plain)
                     // Never active at the same time as the edit-mode Save
                     // button (isEditing gates them), so the chord can't clash.
-                    // ponytail: matches ⌘Return only, not ⌘-keypad-Enter; swap
-                    // the TextField for the AppKit accept-chord bridge if
+                    // Known ceiling: matches ⌘Return only, not ⌘-keypad-Enter;
+                    // swap the TextField for the AppKit accept-chord bridge if
                     // keypad users report it.
                     .keyboardShortcut(.return, modifiers: .command)
                     .frame(width: 24, height: 24)
