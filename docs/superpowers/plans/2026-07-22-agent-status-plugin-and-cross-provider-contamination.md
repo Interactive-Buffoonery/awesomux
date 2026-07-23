@@ -49,11 +49,15 @@ hook config active it writes `kind: "Codex"` events into the *same* per-pane
 event stream as the pane's real, top-level, interactive Claude Code session.
 
 **Accepted residual risk — lost SessionStart hook.** The guard's escape
-hatch (`event.phase == .sessionStart` always passes) means a *genuine* agent
-switch in a pane depends on that SessionStart hook actually landing. If it's
-lost (the `hooks.json` command's own `timeout: 10` firing, a crash before the
-hook subprocess writes) while the *old* agent's process is also still
-technically alive (no SessionEnd), every subsequent real event from the new
+hatch only admits a different-kind `SessionStart` once the established
+agent's own tracked lifecycle already reads stopped or ended
+(`state.lifecycle.isEnded || state.lifecycle.currentIsStopped`) — it does
+not pass unconditionally. A *genuine* agent switch in a pane therefore still
+depends on either that SessionStart hook landing while the old agent is
+between turns, or the old agent's own SessionEnd landing first. If both are
+lost (the `hooks.json` command's own `timeout: 10` firing, a crash before
+the hook subprocess writes) while the *old* agent's process is also still
+technically alive and mid-turn, every subsequent real event from the new
 agent gets rejected as contamination, and the pane sticks on the stale old
 identity until something else untangles it (e.g. the old process eventually
 does exit and post its own SessionEnd, which resets the pane to `.shell` and

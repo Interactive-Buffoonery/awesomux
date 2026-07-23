@@ -20,6 +20,12 @@ struct ClaudePluginListParsingTests {
             """
         let entries = try ClaudePluginList.parse(json)
         #expect(entries.count == 1)
+        // Assert the decoded fields directly, not just matches(_:) — matches
+        // treats a nil marketplace as "compatible with any," so a mis-split
+        // that dropped the marketplace would still pass a matches()-only
+        // assertion (cross-model review finding).
+        #expect(entries[0].name == "awesomux-claude-status")
+        #expect(entries[0].marketplace == "awesomux-claude")
         let ref = AgentPluginMarketplaceRef(
             marketplaceName: "awesomux-claude",
             pluginName: "awesomux-claude-status"
@@ -34,6 +40,8 @@ struct ClaudePluginListParsingTests {
             [{"name": "awesomux-claude-status", "marketplace": "awesomux-claude", "enabled": true, "errors": []}]
             """
         let entries = try ClaudePluginList.parse(json)
+        #expect(entries[0].name == "awesomux-claude-status")
+        #expect(entries[0].marketplace == "awesomux-claude")
         let ref = AgentPluginMarketplaceRef(
             marketplaceName: "awesomux-claude",
             pluginName: "awesomux-claude-status"

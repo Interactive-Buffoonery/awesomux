@@ -649,4 +649,43 @@ struct AgentRuntimeEventReducerTests {
         )
         #expect(decision?.update.agentKind == .codex)
     }
+
+    @Test("a genuine SessionStart from a new provider switches the pane once the old agent has fully ended")
+    func sessionStartFromNewProviderSwitchesAfterOldAgentEnds() throws {
+        let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        var reducer = AgentRuntimeEventReducer()
+
+        // The established Claude Code session posts a real SessionEnd (the
+        // agent quit outright, not just paused between turns) — this is the
+        // `state.lifecycle.isEnded` half of the guard's escape-hatch OR,
+        // distinct from the `.currentIsStopped` half the sibling test above
+        // covers.
+        let claudeSessionEnd = AgentRuntimeEvent(
+            source: .claudeCode,
+            kind: .claudeCode,
+            executionState: .idle,
+            phase: .sessionEnd,
+            eventID: "claude-end-1",
+            timestamp: Date(timeIntervalSince1970: 300)
+        )
+        _ = reducer.decision(
+            for: claudeSessionEnd, currentSession: session, paneID: paneID,
+            terminalIsFocused: false, now: Date(timeIntervalSince1970: 300)
+        )
+
+        let codexSessionStart = AgentRuntimeEvent(
+            source: .codex,
+            kind: .codex,
+            executionState: .idle,
+            phase: .sessionStart,
+            eventID: "codex-start-2",
+            timestamp: Date(timeIntervalSince1970: 301)
+        )
+        let decision = reducer.decision(
+            for: codexSessionStart, currentSession: session, paneID: paneID,
+            terminalIsFocused: false, now: Date(timeIntervalSince1970: 301)
+        )
+        #expect(decision?.update.agentKind == .codex)
+    }
 }
