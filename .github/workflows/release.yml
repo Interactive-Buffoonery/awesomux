@@ -1,13 +1,19 @@
 name: Release
 
-# Two triggers: pushing a v* tag cuts a draft release automatically (the
-# normal path), and workflow_dispatch remains for pipeline iteration and
-# ad-hoc builds. See docs/releasing.md.
+# Three triggers: pushing a v* tag cuts a draft release automatically (the
+# normal path), workflow_dispatch remains for pipeline iteration and ad-hoc
+# builds, and a daily cron publishes a rolling `nightly` prerelease. See
+# docs/releasing.md.
 #
 # script/build_release.sh is the single source of signing/notarization
 # behavior; this workflow only reconstructs the environment it needs
 # (checkout, Zig, Xcode, cached Ghostty artifacts, a temp signing keychain)
 # and calls it. No codesign/notarytool logic is inlined here.
+#
+# The nightly lane reuses the exact release job below — same environment,
+# cache, keychain lifecycle, and fail-closed validation — and only differs in
+# how the version is resolved, a pre-flight gate (nightly-gate), and how the
+# artifact is published (a rolling prerelease instead of a per-version draft).
 
 on:
   push:
@@ -23,12 +29,21 @@ on:
         required: false
         type: boolean
         default: false
+  schedule:
+    # Daily 09:00 UTC nightly. nightly-gate exits early when main is unchanged
+    # since the last nightly or has not passed Cheap guards, so most nights this
+    # cron is cheap.
+    - cron: "0 9 * * *"
 
 permissions:
   contents: write
 
 concurrency:
-  group: release
+  # Nightly runs get their own group so a cold-cache nightly (a full Ghostty
+  # rebuild plus up to 45m notarization) can never queue-block or drop a real
+  # tag/dispatch release — each run has its own $RUNNER_TEMP keychain, so there
+  # is no signing-material reason to serialize the two channels together.
+  group: ${{ github.event_name == 'schedule' && 'release-nightly' || 'release' }}
   # GitHub holds at most one PENDING run per concurrency group — a newer
   # dispatch replaces an older, still-queued one rather than lining up behind
   # it. cancel-in-progress: false only guarantees a RUNNING release is never
@@ -36,8 +51,81 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  nightly-gate:
+    name: Decide whether tonight's nightly should build
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      should_build: ${{ steps.decide.outputs.should_build }}
+    steps:
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Fail-safe: the ONLY path that flips should_build to true is an
+          # affirmative "main changed since the last complete nightly AND this
+          # exact commit passed Cheap guards". Every gh hiccup, missing run, or
+          # non-success conclusion leaves it false — a transient blip just misses
+          # one nightly and the next cron recovers. The gate never signs on
+          # uncertainty. `|| true` on reads keeps a transient error from aborting
+          # the step; the downstream checks then fail closed on the empty value.
+          emit() { echo "should_build=$1" >> "$GITHUB_OUTPUT"; }
+
+          # Skip-if-unchanged. Read the built commit from the `nightly` TAG REF,
+          # never target_commitish (which reads back as the branch name once the
+          # tag exists, so it can never equal a SHA and the guard would no-op).
+          # A partially-published nightly — tag moved but the DMG asset never
+          # uploaded — must NOT count as "already built", or the gate would skip
+          # forever on a broken channel, so the asset presence is required too.
+          # A missing tag (404, e.g. the first-ever nightly) reads as changed.
+          REF_JSON="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/nightly" 2>/dev/null || true)"
+          if [[ -n "$REF_JSON" ]]; then
+            OBJ_TYPE="$(jq -r '.object.type // ""' <<<"$REF_JSON")"
+            OBJ_SHA="$(jq -r '.object.sha // ""' <<<"$REF_JSON")"
+            if [[ "$OBJ_TYPE" == "tag" ]]; then
+              # Annotated tag: deref to the commit it points at.
+              OBJ_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$OBJ_SHA" --jq '.object.sha' 2>/dev/null || echo "")"
+            fi
+            HAS_ASSET="$(gh release view nightly --json assets \
+              --jq '[.assets[].name] | index("awesoMux-nightly.dmg") != null' 2>/dev/null || echo "false")"
+            if [[ -n "$OBJ_SHA" && "$OBJ_SHA" == "$HEAD_SHA" && "$HAS_ASSET" == "true" ]]; then
+              echo "main unchanged since last complete nightly ($HEAD_SHA); skipping."
+              emit false
+              exit 0
+            fi
+          else
+            echo "No prior nightly tag; treating main as changed."
+          fi
+
+          # Skip-if-main-red. Require the exact commit we would sign to have a
+          # COMPLETED, SUCCESSFUL push-triggered Cheap guards run. Native CI does
+          # not run on main pushes (issue_comment/dispatch only; canary not
+          # enabled — docs/ci.md), so Cheap guards is the real per-main-push gate.
+          # No completed run for this SHA (still running, or none) => not proven
+          # green => skip and recover next cron.
+          CONCLUSION="$(gh run list --workflow "Cheap guards" --branch main --event push \
+            --status completed --json headSha,conclusion -L 50 \
+            --jq "[.[] | select(.headSha == \"$HEAD_SHA\")][0].conclusion // \"\"" 2>/dev/null || echo "")"
+          if [[ "$CONCLUSION" != "success" ]]; then
+            echo "Cheap guards for $HEAD_SHA is '${CONCLUSION:-none}', not success; skipping."
+            emit false
+            exit 0
+          fi
+
+          echo "main changed and green at $HEAD_SHA; building nightly."
+          emit true
+
   linux-helper:
     name: Cross-compile Linux helpers
+    # Nightly ships the macOS DMG only; the Linux cross-compile is release/tag
+    # scope, so skip it on the cron lane.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     # Job-level override of the workflow's contents: write — this job only
     # builds and uploads artifacts, it never touches repo contents.
@@ -63,13 +151,32 @@ jobs:
 
   release:
     name: Build, sign, and notarize
-    needs: [linux-helper]
+    needs: [nightly-gate, linux-helper]
+    # Status-check functions (!cancelled/!failure) disable GitHub's default
+    # "skip me if a needed job was skipped" behavior, so the if fully governs:
+    #   - tag/dispatch: nightly-gate is skipped (not a failure), linux-helper
+    #     runs; event != schedule => release runs.
+    #   - schedule + build: linux-helper is skipped (not a failure), gate says
+    #     true => release runs.
+    #   - schedule + skip: gate says false => release is skipped (green run, no
+    #     wasted signed build).
+    # !failure() still lets a real linux-helper failure block a tag/dispatch
+    # release, since that job is required for those lanes' assets.
+    if: ${{ !cancelled() && !failure() && (github.event_name != 'schedule' || needs.nightly-gate.outputs.should_build == 'true') }}
     # macos-26, not macos-15: the app icon is an Icon Composer .icon that
     # needs Xcode 26's actool, and Xcode 26 IB tooling crashes (dyld symbol
     # mismatches) on a macOS 15 host — run 29300046831. The OS must match the
     # Xcode generation the image ships.
     runs-on: macos-26
-    environment: release
+    # Nightly reuses the reviewer-gated `release` environment by default, so a
+    # scheduled run waits for the same manual approval a real release does. To
+    # run nightlies hands-off, set the repo variable NIGHTLY_ENVIRONMENT to a
+    # dedicated environment that holds the same five secrets with a main-only
+    # deployment rule and no required reviewers; then the cron self-approves.
+    # A typo'd variable names a nonexistent environment, which GitHub
+    # auto-creates empty — the "Verify required release secrets" step then fails
+    # closed before any signing, so a mistake never opens a credential path.
+    environment: ${{ github.event_name == 'schedule' && vars.NIGHTLY_ENVIRONMENT != '' && vars.NIGHTLY_ENVIRONMENT || 'release' }}
     # Cold Ghostty rebuild + up to 45m Apple notarization + margin. The 6h
     # GitHub Actions default would hide a hung run for hours before anyone
     # notices.
@@ -86,10 +193,20 @@ jobs:
           VERSION_INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          # Defense in depth on top of the `release` environment's deployment
-          # protection rules: assert the ref ourselves too. Dispatch runs come
+          # Defense in depth on top of the environment's deployment protection
+          # rules: assert the ref ourselves too. Dispatch and schedule runs come
           # from main; tag runs from v* refs only.
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::schedule runs only accept refs/heads/main; got $GITHUB_REF" >&2
+              exit 1
+            fi
+            # Nightly version: numeric X.Y.Z only (CFBundleShortVersionString
+            # rejects prerelease suffixes). 0.0.<YYYYMMDD> is valid, datable, and
+            # clearly a nightly; the monotonic ordering lives in CFBundleVersion
+            # (git commit count, build_release.sh's default).
+            RELEASE_VERSION="0.0.$(date -u +%Y%m%d)"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
               echo "::error::tag runs only accept refs/tags/v*; got $GITHUB_REF" >&2
               exit 1
@@ -561,6 +678,48 @@ jobs:
             "dist/release/awesomux-bridge-helper-linux-x86_64.sha256" \
             "dist/release/awesomux-bridge-helper-linux-aarch64" \
             "dist/release/awesomux-bridge-helper-linux-aarch64.sha256"
+
+      - name: Publish rolling nightly prerelease
+        if: github.event_name == 'schedule' && success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SRC_DMG="dist/release/awesoMux-$RELEASE_VERSION.dmg"
+          [[ -s "$SRC_DMG" ]] || { echo "::error::expected $SRC_DMG from build_release.sh" >&2; exit 1; }
+          # Stable rolling asset names so a download URL / Homebrew livecheck can
+          # pin to `nightly` without chasing the dated version string.
+          ROLL_DMG="dist/release/awesoMux-nightly.dmg"
+          cp "$SRC_DMG" "$ROLL_DMG"
+          (cd dist/release && shasum -a 256 awesoMux-nightly.dmg > awesoMux-nightly.dmg.sha256)
+
+          # Replace-in-place. Delete the prior release together with its
+          # lightweight tag (--cleanup-tag) so `create --target` can re-point the
+          # tag at tonight's commit — nightly-gate reads that tag ref to decide
+          # skip-if-unchanged. Deletion errors are NOT swallowed: a delete that
+          # fails must fail the run, not silently leave a stale channel and let
+          # the next gate skip it forever.
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release delete nightly --yes --cleanup-tag
+          fi
+          # Orphaned tag (a lightweight `nightly` tag with no release, e.g. from a
+          # half-finished prior swap) would make `create` collide, so drop it.
+          # A 404 here is the normal "no tag" case — hence the existence guard
+          # before the delete rather than masking the delete itself.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/nightly" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" >/dev/null
+          fi
+
+          # Swap gap: between the delete above and the create below the channel is
+          # briefly absent; if the API blips mid-swap, the next cron republishes.
+          # Acceptable for a prerelease channel.
+          gh release create nightly \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Nightly $RELEASE_VERSION" \
+            --notes "Rolling nightly build from ${GITHUB_SHA} ($(date -u +%Y-%m-%dT%H:%M:%SZ)). Signed and notarized prerelease; unstable and unsupported." \
+            "$ROLL_DMG" \
+            "$ROLL_DMG.sha256"
 
       - name: Clean up signing keychain and temp credentials
         if: always()
