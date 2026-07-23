@@ -508,7 +508,7 @@ final class TerminalPanelController {
             // Harmless no-op in companion (no pending confirmation there).
             self?.resetDismissConfirmation()
         }
-        // ADR-0023: only floating mode arms Escape smart-dismiss. Companion
+        // ADR-0030: only floating mode arms Escape smart-dismiss. Companion
         // leaves this nil so TerminalPanelWindow delivers Escape to the TUI.
         panel.onEscapeDismiss = mode.interceptsBareEscape
             ? { [weak self] in self?.performEscapeDismiss() }

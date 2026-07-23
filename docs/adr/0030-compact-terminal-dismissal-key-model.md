@@ -1,4 +1,4 @@
-# 0023 — Compact terminal dismissal key model
+# 0030 — Compact terminal dismissal key model
 
 - **Status:** Accepted
 - **Date:** 2026-07-09

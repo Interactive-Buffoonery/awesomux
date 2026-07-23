@@ -121,7 +121,7 @@ The two modes fork on entry path: the companion binds to the parent window,
 installs parent-window observers, and attaches its panel and corner tab as
 child windows; the floating panel stays standalone — never a child window,
 never observing the parent — and instead does a one-shot show that rebinds
-its root view to the active workspace's slot on every summon. Per ADR-0023,
+its root view to the active workspace's slot on every summon. Per ADR-0030,
 floating keeps bare Escape as smart-dismiss while the companion delivers
 Escape to the terminal (TUIs need it); this is now expressed as
 `TerminalPanelMode.interceptsBareEscape` rather than divergent handling per

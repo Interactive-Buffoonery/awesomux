@@ -14,7 +14,7 @@ struct TerminalPanelMode: Equatable {
     }
 
     var anchor: Anchor
-    /// ADR-0023: floating keeps bare Escape as smart-dismiss; companion delivers
+    /// ADR-0030: floating keeps bare Escape as smart-dismiss; companion delivers
     /// Escape to the terminal (TUIs need it) and never intercepts it.
     var interceptsBareEscape: Bool
     var hasCornerTab: Bool
