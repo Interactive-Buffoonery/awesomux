@@ -77,24 +77,32 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
     )
 
     /// The hook command default the bundled templates ship. Rendering replaces
-    /// the assignment fallback with the resolved absolute path, leaving the
-    /// `AWESOMUX_AGENT_HOOK` override intact so a test or alternate-bundle
-    /// scenario can still point the hook elsewhere.
+    /// this assignment fallback with a runtime resolution ladder (see
+    /// `helperResolutionSnippet`) that survives the installing app being moved
+    /// or removed, leaving the `AWESOMUX_AGENT_HOOK` override intact so a test
+    /// or alternate-bundle scenario can still point the hook elsewhere.
     static let helperPlaceholderToken = "AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-awesoMuxAgentHook};"
 
     var resourcesDirectoryURL: URL
     var supportDirectoryURL: URL
     var fileManager: FileManager
+    /// Bundle identifier used to relocate a moved/reinstalled app at hook
+    /// runtime via Spotlight. Defaults to the running (installing) bundle so a
+    /// development or worktree build recovers to itself; falls back to the
+    /// production id under a test host that has no bundle identity.
+    var bundleIdentifier: String
     private let renderLock = NSLock()
 
     init(
         resourcesDirectoryURL: URL = Bundle.main.resourceURL ?? Bundle.main.bundleURL,
         supportDirectoryURL: URL = SessionPersistence.supportDirectoryURL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        bundleIdentifier: String = Bundle.main.bundleIdentifier ?? AppRuntimeProfile.productionBundleIdentifier
     ) {
         self.resourcesDirectoryURL = resourcesDirectoryURL
         self.supportDirectoryURL = supportDirectoryURL
         self.fileManager = fileManager
+        self.bundleIdentifier = bundleIdentifier
     }
 
     var rootDirectoryURL: URL {
@@ -175,11 +183,45 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
         }
         let baked = original.replacingOccurrences(
             of: Self.helperPlaceholderToken,
-            with: try jsonEscapedStringContents(
-                "AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-\(shellSingleQuoted(helperPath))};"
-            )
+            with: try jsonEscapedStringContents(helperResolutionSnippet(helperPath: helperPath))
         )
         try writePrivateFile(Data(baked.utf8), to: fileURL)
+    }
+
+    /// Runtime resolution ladder baked in place of the shipped assignment
+    /// fallback. Plugin hooks are command-type — the provider runs this string
+    /// through a POSIX shell — so the fallback can no longer be one frozen path:
+    /// if the app that performed the install is later moved or removed, the
+    /// baked path execs a missing binary and every tool call errors (issue #164).
+    /// The ladder resolves the helper at hook time instead:
+    ///   1. an `AWESOMUX_AGENT_HOOK` override that still points at an executable
+    ///      (awesoMux sets this per pane; the `-x` guard rejects a stale one so
+    ///      a bundle deleted mid-session falls through instead of erroring),
+    ///   2. the path baked at render time (the common out-of-pane case),
+    ///   3. the app relocated via a Spotlight bundle-id lookup — iterated, not
+    ///      `head -1`, because a lingering stale duplicate can index first and
+    ///      would otherwise strand a valid moved copy behind it (the exact
+    ///      "removed a stale duplicate" scenario in the issue),
+    ///   4. otherwise one hint to stderr and `exit 0` — non-blocking, and
+    ///      strictly safer than the shell's exec-failure 127 the issue already
+    ///      tolerates.
+    /// The bundle id is the installing bundle's own (trusted, `[A-Za-z0-9.-]`),
+    /// so no shell metacharacters reach the single-quoted mdfind query.
+    /// ponytail: the Spotlight branch re-runs on every hook invocation while the
+    /// app stays moved (each provider spawns a fresh shell, nothing caches the
+    /// resolved path); acceptable because it fires only on the already-degraded
+    /// path and is bounded by the hook timeout. Durable fix is launch-time
+    /// self-heal that rewrites the baked path — follow-up, issue #164 option 2.
+    private func helperResolutionSnippet(helperPath: String) -> String {
+        let quotedPath = shellSingleQuoted(helperPath)
+        let name = AgentRuntimeEnvironment.hookExecutableName
+        return """
+            if [ -n "$AWESOMUX_AGENT_HOOK" ] && [ -x "$AWESOMUX_AGENT_HOOK" ]; then :; \
+            elif [ -x \(quotedPath) ]; then AWESOMUX_AGENT_HOOK=\(quotedPath); \
+            else AWESOMUX_AGENT_HOOK="$(mdfind "kMDItemCFBundleIdentifier == '\(bundleIdentifier)'" 2>/dev/null | while IFS= read -r app; do if [ -x "$app/Contents/MacOS/\(name)" ]; then printf '%s' "$app/Contents/MacOS/\(name)"; break; fi; done)"; \
+            if [ -z "$AWESOMUX_AGENT_HOOK" ]; then echo "awesoMux agent hook not found (moved or removed?); reinstall the awesoMux agent integration from Settings." >&2; exit 0; fi; \
+            fi;
+            """
     }
 
     private func shellSingleQuoted(_ value: String) -> String {
