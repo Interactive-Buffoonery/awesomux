@@ -485,6 +485,40 @@ struct QuitRiskTests {
     }
 
     @MainActor
+    @Test("a shared snapshot list containing another store's paneIDs is safely ignored (INT-185)")
+    func sharedSnapshotListIgnoresForeignPaneIDs() {
+        // INT-185: the quit path now computes ONE snapshot list across every
+        // live surface app-wide and fans the SAME list out to the main store,
+        // every floating-slot store, and the pop-up store — instead of each
+        // store triggering its own resample of the shared surface set. That
+        // redesign only holds if a store's `updateTerminalQuitConfirmationRisks`
+        // ignores snapshot entries for paneIDs it doesn't own, rather than
+        // erroring or cross-contaminating another store's session. This is
+        // the load-bearing correctness property for that fix.
+        let ownedRisky = TerminalSession(title: "mine", workingDirectory: "~", agentKind: .shell)
+        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [ownedRisky])])
+
+        let foreignPaneID = TerminalPane.ID()
+        store.updateTerminalQuitConfirmationRisks([
+            TerminalQuitConfirmationSnapshot(
+                sessionID: ownedRisky.id,
+                paneID: ownedRisky.activePaneID,
+                needsConfirmation: true
+            ),
+            // A pane this store has never heard of — as if the shared snapshot
+            // list also included a floating-slot store's surfaces.
+            TerminalQuitConfirmationSnapshot(
+                sessionID: TerminalSession.ID(),
+                paneID: foreignPaneID,
+                needsConfirmation: true
+            ),
+        ])
+
+        #expect(Set(store.sessionsAtRiskOnQuit.map(\.id)) == Set([ownedRisky.id]))
+        #expect(store.sessionsAtRiskOnQuitCount == 1)
+    }
+
+    @MainActor
     @Test("duplicate session IDs fall back to brute-force evaluation instead of under-reporting risk")
     func duplicateSessionIDsFallBackToBruteForce() {
         let sharedID = TerminalSession.ID()
