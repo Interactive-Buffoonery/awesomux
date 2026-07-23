@@ -545,8 +545,9 @@ struct ContentView: View {
                 : sidebarLiveWidth.value,
             lastNonCollapsedWidth: lastNonCollapsedSidebarWidth
         )
-        // Collapse/expand by commanding the native divider directly — instant
-        // (commitSidebarWidth moves the divider).
+        // Collapse/expand by commanding the native divider directly. The settle is
+        // eased (respecting Reduce Motion) since it routes through
+        // `setSelectedWidth` -> the controller's animated command path (#81).
         commitSidebarWidth(targetWidth)
     }
 
