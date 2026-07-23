@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import awesoMux
@@ -61,26 +62,41 @@ struct AgentPluginSourceFingerprintTests {
         }
     }
 
-    @Test("digest changes when the render-format version changes")
-    func digestChangesWithRenderFormatVersion() {
+    @Test("versioned digest differs from a legacy pre-version install record")
+    func versionedDigestDiffersFromLegacyRecord() throws {
         let resources = Self.packageResourcesURL
         AgentPluginSourceFingerprint.resetDigestCacheForTests()
-        // A record written under an older render format must read as stale after
-        // the command shape changes, even though the bundled tree is untouched —
-        // this is what re-delivers the fix to existing installs (issue #164).
-        let v1 = AgentPluginSourceFingerprint.digest(
-            provider: .grok,
-            resourcesDirectoryURL: resources,
-            renderFormatVersion: "1"
+        // The real migration boundary: an install recorded by an app that
+        // computed the digest WITHOUT the render-format prefix must read as stale
+        // against the current default digest, so the fix re-delivers to existing
+        // installs (issue #164). Reproduce that legacy transcript exactly.
+        let legacy = try Self.legacyUnversionedDigest(provider: .grok, resources: resources)
+        let current = try #require(
+            AgentPluginSourceFingerprint.digest(
+                provider: .grok,
+                resourcesDirectoryURL: resources
+            )
         )
-        let v0 = AgentPluginSourceFingerprint.digest(
-            provider: .grok,
-            resourcesDirectoryURL: resources,
-            renderFormatVersion: "0"
-        )
-        #expect(v1 != nil)
-        #expect(v0 != nil)
-        #expect(v1 != v0)
+        #expect(current != legacy)
+    }
+
+    /// The pre-change digest algorithm: file transcript only, no render-format
+    /// prefix. Kept in the test so a regression that drops the prefix (and would
+    /// silently strand existing installs) fails here.
+    private static func legacyUnversionedDigest(
+        provider: AgentPluginProvider,
+        resources: URL
+    ) throws -> String {
+        let root = resources.appending(path: provider.bundledTreeRelativePath, directoryHint: .isDirectory)
+        var hasher = SHA256()
+        for relativePath in AgentPluginSourceFingerprint.contentRelativePaths(for: provider).sorted() {
+            let data = try Data(contentsOf: root.appending(path: relativePath))
+            hasher.update(data: Data(relativePath.utf8))
+            hasher.update(data: Data([0]))
+            hasher.update(data: data)
+            hasher.update(data: Data([0]))
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     @Test("missing tree yields nil rather than a partial digest")
