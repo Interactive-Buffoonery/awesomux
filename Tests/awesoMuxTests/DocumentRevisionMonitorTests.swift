@@ -23,6 +23,16 @@ struct DocumentRevisionMonitorTests {
         var messages: [String] = []
     }
 
+    /// Records that the watcher delivered a self-write and `selfWriteContext`
+    /// took the suppression branch. Read on the MainActor only (the monitor and
+    /// its `selfWriteContext` invocation are `@MainActor`), so a plain flag is
+    /// safe. Lets a test gate on the self-write having actually processed —
+    /// `process()` advances the baseline synchronously right after the closure
+    /// returns — instead of a fixed sleep that can under-wait under contention.
+    private final class SelfWriteProbe {
+        var suppressed = false
+    }
+
     /// Three lines; edits below append so exact +N counts are predictable.
     private static let baseContent = "line1\nline2\nline3"
 
@@ -168,24 +178,20 @@ struct DocumentRevisionMonitorTests {
     func selfWriteSuppressedAndAdvancesBaseline() async throws {
         try await withFixture { fixture, monitor, log in
             let selfWritten = Self.baseContent + "\nannotation"
+            let probe = SelfWriteProbe()
             monitor.selfWriteContext = { _, onDisk in
-                onDisk == selfWritten
-                    ? MarkdownSelfWriteContext(source: selfWritten, isSelfWrite: true)
-                    : nil
+                guard onDisk == selfWritten else { return nil }
+                probe.suppressed = true
+                return MarkdownSelfWriteContext(source: selfWritten, isSelfWrite: true)
             }
             try selfWritten.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            try await Task.sleep(nanoseconds: 700_000_000)
+            // Gate on the suppression branch actually running (event delivered and
+            // baseline advanced) rather than a fixed sleep that under-waits under
+            // contention. This also separates the self-write from the external edit
+            // below so the two watcher events cannot debounce-coalesce.
+            try #require(await waitUntilEventually { probe.suppressed })
             #expect(monitor.indicator(for: fixture.tabB) == nil)
             #expect(log.messages.isEmpty)
-
-            // Pin the baseline deterministically before the external edit. Under
-            // contention the self-write's watcher event can be delivered late and
-            // coalesce with the external edit; the coalesced read would then diff
-            // from the pre-self-write baseline (+2) rather than the self-written
-            // source (+1). noteRenderCompleted makes the same baseline transition
-            // the suppressed self-write above performs, so the external edit
-            // counts from the self-written source regardless of delivery timing.
-            monitor.noteRenderCompleted(source: selfWritten, for: fixture.tabB)
 
             // A later external edit counts from the self-written source, not
             // the pre-self-write baseline (+1, not +2).
@@ -211,17 +217,19 @@ struct DocumentRevisionMonitorTests {
             monitor.dismiss(for: fixture.tabB)
             #expect(monitor.indicator(for: fixture.tabB) == nil)
 
-            // Advance the baseline through the render/self-write path rather than
-            // a second real watcher event. A disk self-write here can be delivered
-            // late under main-queue starvation and coalesce (debounce) with the
-            // re-edit below, dropping the intermediate baseline advance — the
-            // re-edit would then match a stale baseline and never re-announce.
-            // noteRenderCompleted makes the identical baseline + lastSeenOnDisk
-            // transition a suppressed self-write makes, with no vnode event to
-            // race. Watcher-driven self-write suppression is covered by
-            // `selfWriteSuppressedAndAdvancesBaseline`.
             let selfWritten = Self.baseContent + "\nannotation"
-            monitor.noteRenderCompleted(source: selfWritten, for: fixture.tabB)
+            let probe = SelfWriteProbe()
+            monitor.selfWriteContext = { _, onDisk in
+                guard onDisk == selfWritten else { return nil }
+                probe.suppressed = true
+                return MarkdownSelfWriteContext(source: selfWritten, isSelfWrite: true)
+            }
+            try selfWritten.write(to: fixture.urlB, atomically: true, encoding: .utf8)
+            // Gate on the self-write having been delivered and suppressed before
+            // the re-edit, so the two watcher events cannot debounce-coalesce and
+            // drop the intermediate baseline advance (which would leave the re-edit
+            // matching a stale baseline and never re-announcing).
+            try #require(await waitUntilEventually { probe.suppressed })
             #expect(monitor.indicator(for: fixture.tabB) == nil)
             #expect(log.messages.count == 1)
 

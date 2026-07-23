@@ -294,6 +294,9 @@ struct RemoteHandoffTests {
         // spawned, so cancellation would race the launch instead of a running
         // transfer.
         let directory = try TemporaryDirectory(prefix: "handoff-cancel")
+        // TemporaryDirectory deletes its contents (the fake-ssh script) on deinit;
+        // keep it alive until the spawned child has run.
+        defer { withExtendedLifetime(directory) {} }
         let startedMarker = directory.url.appendingPathComponent("started")
         let harness = try await transferHarness(
             directory: directory,
@@ -310,10 +313,13 @@ struct RemoteHandoffTests {
                 timeout: .seconds(2)
             )
         }
-        let started = await waitUntilEventually {
-            FileManager.default.fileExists(atPath: startedMarker.path)
-        }
-        #expect(started)
+        defer { transfer.cancel() }
+        // Gate on the child having spawned (marker touched) before cancelling, so
+        // cancellation targets a running transfer rather than racing the launch.
+        try #require(
+            await waitUntilEventually {
+                FileManager.default.fileExists(atPath: startedMarker.path)
+            })
         transfer.cancel()
         await #expect(throws: CancellationError.self) {
             try await transfer.value
