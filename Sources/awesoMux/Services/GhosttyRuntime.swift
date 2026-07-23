@@ -679,8 +679,15 @@ final class GhosttyRuntime {
         #endif
     }
 
-    func refreshTerminalQuitConfirmationRisks(in sessionStore: SessionStore) {
-        let snapshots = surfaceViews.values.map { surfaceView in
+    /// Samples every cached surface once (libghostty FFI reads +
+    /// `ProcessLivenessProbe` libproc calls per surface — see INT-185
+    /// measurement notes on `refreshTerminalQuitConfirmationRisks`). Exposed
+    /// so a caller juggling several `SessionStore`s (the quit path: main +
+    /// every floating slot + the pop-up store) can sample ONCE and apply the
+    /// same snapshot list to each store, instead of each store triggering
+    /// its own full re-sample of this same shared dictionary.
+    func currentTerminalQuitConfirmationSnapshots() -> [TerminalQuitConfirmationSnapshot] {
+        surfaceViews.values.map { surfaceView in
             let needsConfirmation = surfaceView.promptMarkerIsAwayFromPrompt() ?? false
             return TerminalQuitConfirmationSnapshot(
                 sessionID: surfaceView.sessionID,
@@ -690,7 +697,20 @@ final class GhosttyRuntime {
                 liveness: surfaceView.foregroundProcessLiveness()
             )
         }
-        sessionStore.updateTerminalQuitConfirmationRisks(snapshots)
+    }
+
+    /// INT-185: measured at ~17µs/surface for the libproc component alone
+    /// (idle-shell shape; busier shapes cost more but stay well under
+    /// perceptible). Safe to call once and fan the SAME snapshot list out to
+    /// multiple `SessionStore`s — `updateTerminalQuitConfirmationRisks` maps
+    /// by paneID and ignores entries a given store doesn't own — which is
+    /// exactly what
+    /// `TerminalPanelController.refreshTerminalQuitConfirmationRisks(using:)`
+    /// and `AppDelegate.applicationShouldTerminate` now do instead of each
+    /// store triggering its own full resample (previously O(floating slot
+    /// count) resamples of this same dictionary per quit).
+    func refreshTerminalQuitConfirmationRisks(in sessionStore: SessionStore) {
+        sessionStore.updateTerminalQuitConfirmationRisks(currentTerminalQuitConfirmationSnapshots())
     }
 
     /// One sampler tick sweeps EVERY cached surface (mirrors

@@ -200,8 +200,13 @@ final class TerminalPanelController {
 
     func refreshTerminalQuitConfirmationRisks(using runtime: GhosttyRuntime) {
         if let slots {
+            // INT-185: one shared `GhosttyRuntime` backs every floating slot, so
+            // sampling per-store here used to resample the whole surface
+            // dictionary once per slot (unbounded in floating-slot count).
+            // Sample once, apply the same snapshot to every slot's store.
+            let snapshots = runtime.currentTerminalQuitConfirmationSnapshots()
             for store in slots.allStores {
-                runtime.refreshTerminalQuitConfirmationRisks(in: store)
+                store.updateTerminalQuitConfirmationRisks(snapshots)
             }
             // Preserve the dismiss-confirmation auto-reset + recompute the
             // former floating panel controller ran here.
