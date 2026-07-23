@@ -223,6 +223,21 @@ struct AgentPluginTemplateRendererTests {
         }
     }
 
+    @Test("a bundle identifier with shell metacharacters falls back to the production id")
+    func unsafeBundleIdentifierFallsBack() throws {
+        try Self.withTemporaryDirectory { support in
+            let command = try Self.bakedGrokCommand(
+                support: support,
+                bakedPath: "/abs/awesoMuxAgentHook",
+                bundleIdentifier: "com.evil\"$(touch /tmp/awx-pwn)"
+            )
+            // The injection payload must never reach the baked shell command; the
+            // query falls back to the known-safe production identifier.
+            #expect(!command.contains("touch /tmp/awx-pwn"))
+            #expect(command.contains("kMDItemCFBundleIdentifier == 'com.interactivebuffoonery.awesomux'"))
+        }
+    }
+
     @Test("baked command honors the env override, then the baked path, at runtime")
     func bakedCommandResolvesOverrideThenBakedPath() throws {
         try Self.withTemporaryDirectory { work in

@@ -215,10 +215,21 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
     private func helperResolutionSnippet(helperPath: String) -> String {
         let quotedPath = shellSingleQuoted(helperPath)
         let name = AgentRuntimeEnvironment.hookExecutableName
+        // The id is interpolated into a double-quoted mdfind argument, where a
+        // stray `"`/`$`/backtick would break out or command-substitute. Bundle
+        // identifiers are `[A-Za-z0-9.-]` by construction and ours comes from a
+        // signed Info.plist, so this guard never fires in practice — but the
+        // value is baked into a command that runs on every hook, so a
+        // metacharacter must fall back to the known-safe id rather than reach
+        // the shell.
+        let query =
+            Self.isShellSafeBundleIdentifier(bundleIdentifier)
+            ? bundleIdentifier
+            : AppRuntimeProfile.productionBundleIdentifier
         return """
             if [ -n "$AWESOMUX_AGENT_HOOK" ] && [ -x "$AWESOMUX_AGENT_HOOK" ]; then :; \
             elif [ -x \(quotedPath) ]; then AWESOMUX_AGENT_HOOK=\(quotedPath); \
-            else AWESOMUX_AGENT_HOOK="$(mdfind "kMDItemCFBundleIdentifier == '\(bundleIdentifier)'" 2>/dev/null | while IFS= read -r app; do if [ -x "$app/Contents/MacOS/\(name)" ]; then printf '%s' "$app/Contents/MacOS/\(name)"; break; fi; done)"; \
+            else AWESOMUX_AGENT_HOOK="$(mdfind "kMDItemCFBundleIdentifier == '\(query)'" 2>/dev/null | while IFS= read -r app; do if [ -x "$app/Contents/MacOS/\(name)" ]; then printf '%s' "$app/Contents/MacOS/\(name)"; break; fi; done)"; \
             if [ -z "$AWESOMUX_AGENT_HOOK" ]; then echo "awesoMux agent hook not found (moved or removed?); reinstall the awesoMux agent integration from Settings." >&2; exit 0; fi; \
             fi;
             """
@@ -226,6 +237,19 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
 
     private func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    /// A bundle identifier safe to interpolate into the mdfind shell query: the
+    /// CFBundleIdentifier-legal alphabet with no shell-active characters.
+    static func isShellSafeBundleIdentifier(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.utf8.allSatisfy { byte in
+                (byte >= 0x41 && byte <= 0x5A)  // A-Z
+                    || (byte >= 0x61 && byte <= 0x7A)  // a-z
+                    || (byte >= 0x30 && byte <= 0x39)  // 0-9
+                    || byte == 0x2E  // .
+                    || byte == 0x2D  // -
+            }
     }
 
     private func jsonEscapedStringContents(_ value: String) throws -> String {
