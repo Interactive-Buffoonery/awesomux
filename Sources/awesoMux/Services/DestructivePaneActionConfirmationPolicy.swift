@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
@@ -75,6 +76,34 @@ enum DestructivePaneActionConfirmationPolicy {
             return .proceedWithoutPrompt(action)
         }
         return .prompt(action)
+    }
+
+    /// Body copy for the close-pane confirmation. When the risk is the pane's
+    /// own live agent process, name it — "activity that will be interrupted"
+    /// oversells an agent TUI idling at its input box (issue #190, mechanism 1).
+    /// Every other risk reason keeps the generic phrasing: for those the live
+    /// process is either not an agent or not actually verified.
+    static func closePaneConfirmationBody(
+        displayTitle: String,
+        agentKind: AgentKind?,
+        riskReason: QuitRiskReason?
+    ) -> String {
+        // ponytail: names the pane's *tagged* agent, which can lag reality —
+        // an exited agent whose tag hasn't reset yet makes this claim about
+        // whatever runs now. Gate on a live comm match if that bites in the field.
+        if riskReason == .liveAgentProcess, let agentKind, agentKind != .shell {
+            return String(
+                localized:
+                    "\(agentKind.rawValue) is running in the active pane in \(displayTitle). Closing the pane will terminate \(agentKind.rawValue).",
+                comment:
+                    "Body of the close-pane confirmation dialog when a live agent process is the risk. First and third arguments are the agent name (e.g. Claude Code), second is the bidi-isolated workspace title."
+            )
+        }
+        return String(
+            localized:
+                "The active pane in \(displayTitle) has activity that will be interrupted. Closing the pane will terminate the running process.",
+            comment: "Body of the close-pane confirmation dialog. Argument is the bidi-isolated workspace title."
+        )
     }
 
     static func confirmedCloseAction(

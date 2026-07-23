@@ -256,7 +256,21 @@ public extension TerminalPane {
     /// `isQuitRisk`: bridged panes survive app quit but not a close, which
     /// kills their daemon session too — see `QuitRiskPolicy.closeDecision`.
     func isCloseRisk(at now: Date = Date()) -> Bool {
-        QuitRiskPolicy.closeDecision(quitRiskInputs, at: now).isRisk
+        closeRiskReason(at: now) != nil
+    }
+
+    /// The full close-risk decision — used to log both the warn branch and the
+    /// bridged silent-close branch (issue #190, mechanism 3).
+    func closeRiskDecision(at now: Date = Date()) -> QuitRiskDecision {
+        QuitRiskPolicy.closeDecision(quitRiskInputs, at: now)
+    }
+
+    /// The close-risk reason when `isCloseRisk` is true, nil when safe. Lets
+    /// the confirmation dialog pick honest copy and log WHY it fired instead
+    /// of discarding the reason (issue #190, mechanisms 1 and 3).
+    func closeRiskReason(at now: Date = Date()) -> QuitRiskReason? {
+        let decision = closeRiskDecision(at: now)
+        return decision.isRisk ? decision.reason : nil
     }
 
     private var quitRiskInputs: QuitRiskInputs {

@@ -17,13 +17,17 @@ struct ForegroundProcessLivenessTests {
 
     @Test("non-shell foreground is a live command")
     func liveCommand() {
-        #expect(ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "vim", foregroundHasChildren: false) == .liveCommand)
-        #expect(ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "node", foregroundHasChildren: nil as Bool?) == .liveCommand)
+        #expect(
+            ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "vim", foregroundHasChildren: false) == .liveCommand)
+        #expect(
+            ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "node", foregroundHasChildren: nil as Bool?)
+                == .liveCommand)
     }
 
     @Test("idle shell with no children")
     func idleShell() {
-        #expect(ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "-zsh", foregroundHasChildren: false) == .idleShell)
+        #expect(
+            ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "-zsh", foregroundHasChildren: false) == .idleShell)
     }
 
     @Test("shell with background children is busy (the npm-run-dev & hole)")
@@ -33,7 +37,9 @@ struct ForegroundProcessLivenessTests {
 
     @Test("shell foreground with unresolved child count is indeterminate, not idle")
     func shellUnknownChildren() {
-        #expect(ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "bash", foregroundHasChildren: nil as Bool?) == .indeterminate)
+        #expect(
+            ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "bash", foregroundHasChildren: nil as Bool?)
+                == .indeterminate)
     }
 
     @Test("bridged shell distinguishes idle from child work")
@@ -41,6 +47,13 @@ struct ForegroundProcessLivenessTests {
         #expect(ForegroundProcessLiveness.classifyBridged(rootComm: "-zsh", rootHasChildren: false) == .bridged)
         #expect(ForegroundProcessLiveness.classifyBridged(rootComm: "-zsh", rootHasChildren: true) == .bridgedBusy)
         #expect(ForegroundProcessLiveness.classifyBridged(rootComm: "sleep", rootHasChildren: false) == .bridgedBusy)
+    }
+
+    @Test("bridged root with unresolved comm is unverified, never silently idle")
+    func bridgedUnresolvedComm() {
+        #expect(
+            ForegroundProcessLiveness.classifyBridged(rootComm: nil, rootHasChildren: nil)
+                == .bridgedIndeterminate)
     }
 }
 
@@ -57,7 +70,8 @@ struct AgentLivenessPolicyTests {
     @Test("a shell pane never resets, even over an idle shell")
     func shellKindNeverResets() {
         for liveness: ForegroundProcessLiveness in [
-            .unsampled, .bridged, .bridgedBusy, .exited, .idleShell, .busyShell, .liveCommand, .indeterminate
+            .unsampled, .bridged, .bridgedBusy, .bridgedIndeterminate, .exited, .idleShell,
+            .busyShell, .liveCommand, .indeterminate,
         ] {
             #expect(!AgentLivenessPolicy.shouldResetAgentChrome(agentKind: .shell, liveness: liveness))
         }
@@ -66,8 +80,8 @@ struct AgentLivenessPolicyTests {
     @Test(
         "non-idle-shell liveness never resets an agent pane",
         arguments: [
-            ForegroundProcessLiveness.unsampled, .bridged, .bridgedBusy, .exited,
-            .busyShell, .liveCommand, .indeterminate
+            ForegroundProcessLiveness.unsampled, .bridged, .bridgedBusy, .bridgedIndeterminate,
+            .exited, .busyShell, .liveCommand, .indeterminate,
         ]
     )
     func onlyIdleShellIsPositiveEvidence(liveness: ForegroundProcessLiveness) {

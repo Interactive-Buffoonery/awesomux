@@ -44,6 +44,7 @@ struct ManagedSSHObservationLivenessTests {
             ForegroundProcessLiveness.unsampled,
             .bridged,
             .bridgedBusy,
+            .bridgedIndeterminate,
             .exited,
             .busyShell,
             .liveCommand,
