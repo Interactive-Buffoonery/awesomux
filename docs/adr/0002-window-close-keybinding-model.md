@@ -31,7 +31,7 @@ We adopt the **session-as-window** mental model and lock in iTerm/cmux-parity bi
 | Shell exit / `Ctrl-D` / process crash in the only pane of a session | Close the session/workspace through the same last-pane close path used by pane removal. The closed workspace is eligible for `Cmd-Shift-T` reopen when it passes the recently-closed quality gate. | Ghostty tab close behavior |
 
 The key-window exception for compact terminal surfaces is recorded in
-[ADR-0023](0023-compact-terminal-dismissal-key-model.md): `Cmd-W` hides either
+[ADR-0030](0030-compact-terminal-dismissal-key-model.md): `Cmd-W` hides either
 surface, but Escape is reserved for the terminal in Terminal Companion and
 remains the quick dismiss action for the workspace-scoped Floating Panel.
 

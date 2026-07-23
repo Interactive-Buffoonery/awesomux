@@ -37,7 +37,7 @@ clamps it back on-screen instead of resetting it to the anchor; the flag
 resets on close/dismiss so a fresh summon re-anchors. Each mode remembers its
 size per display bucket via `TerminalPanelSizeStore`.
 
-ADR-0023 remains authoritative for the Escape policy; it is now enforced by
+ADR-0030 remains authoritative for the Escape policy; it is now enforced by
 `TerminalPanelMode.interceptsBareEscape` (companion `false`, floating `true`)
 and guarded by `TerminalPanelModeTests`.
 

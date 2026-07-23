@@ -5,7 +5,7 @@ import AwesoMuxCore
 
 @Suite("Terminal panel mode config")
 struct TerminalPanelModeTests {
-    // ADR-0023 is load-bearing: the companion NEVER intercepts bare Escape (TUIs
+    // ADR-0030 is load-bearing: the companion NEVER intercepts bare Escape (TUIs
     // keep it); the floating panel keeps Escape smart-dismiss. Guard both.
     @Test("companion mode never intercepts bare Escape")
     func companionKeepsEscape() {
