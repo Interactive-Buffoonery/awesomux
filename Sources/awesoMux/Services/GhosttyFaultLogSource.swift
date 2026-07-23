@@ -18,6 +18,11 @@ protocol GhosttyFaultLogSource: Sendable {
 /// confining the cached, non-Sendable store to one executor. Admission remains
 /// held until queued work exits so cancelled watchdogs cannot stack replacements.
 final class OSLogGhosttyFaultSource: GhosttyFaultLogSource, @unchecked Sendable {
+    private static let logger = Logger(
+        subsystem: "awesomux.ghostty",
+        category: "event-loop-watchdog"
+    )
+
     typealias Query =
         @Sendable (
             _ subsystem: String,
@@ -89,11 +94,23 @@ final class OSLogGhosttyFaultSource: GhosttyFaultLogSource, @unchecked Sendable 
         guard let entries = try? store.getEntries(at: position, matching: predicate) else {
             return 0
         }
-        return
+        // The explicit date clamp is not redundant: `position(date:)` is
+        // only a hint, and a stale-leaking position would make the fault
+        // count cumulative-since-launch — permanently over threshold once
+        // the process has logged a few lifetime faults.
+        let matches =
             entries
             .compactMap { $0 as? OSLogEntryLog }
-            .filter { $0.level == .fault || $0.level == .error }
-            .count
+            .filter { ($0.level == .fault || $0.level == .error) && $0.date >= since }
+        if !matches.isEmpty {
+            // Counts and timestamps only — do not add log message content
+            // here without re-checking privacy (libghostty error text can
+            // embed file paths).
+            Self.logger.notice(
+                "counted \(matches.count) fault entries since \(since, privacy: .public); oldest \(matches.first?.date.description ?? "-", privacy: .public) newest \(matches.last?.date.description ?? "-", privacy: .public)"
+            )
+        }
+        return matches.count
     }
 }
 

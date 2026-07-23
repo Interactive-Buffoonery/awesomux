@@ -8,8 +8,8 @@ struct GhosttyRuntimeEventLoopWatchdogWiringTests {
     func tickRecordsHeartbeat() {
         let runtime = GhosttyRuntime()
         defer { runtime.discardAllSurfaces() }
-        let before = runtime.lastEventLoopTickAtForTesting
+        let before = runtime.eventLoopTickGenerationForTesting
         runtime.tick()
-        #expect(runtime.lastEventLoopTickAtForTesting > before)
+        #expect(runtime.eventLoopTickGenerationForTesting > before)
     }
 }

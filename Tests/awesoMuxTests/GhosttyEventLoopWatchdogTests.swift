@@ -17,55 +17,64 @@ struct GhosttyEventLoopWatchdogTests {
         }
     }
 
-    @Test("does not query when the tick is fresh")
-    func doesNotFireWhenTickFresh() async {
+    private static let staleAge = GhosttyEventLoopWatchdog.staleWakeupThreshold + 1
+
+    @Test("does not query when no wakeup is pending")
+    func doesNotFireWhenIdle() async {
         let faultSource = FakeFaultSource()
         faultSource.countToReturn = 10
         var fired = false
-        var clock = Date(timeIntervalSince1970: 1_000)
         let watchdog = GhosttyEventLoopWatchdog(
             faultSource: faultSource,
-            now: { clock },
+            pendingWakeupAge: { nil },
             onWedgeDetected: { fired = true }
         )
-        watchdog.recordTick()
-        clock = clock.addingTimeInterval(2)
 
         #expect(await watchdog.checkForWedge() == false)
         #expect(fired == false)
         #expect(faultSource.capturedSince == nil)
     }
 
-    @Test("fires when the tick is stale and the fault count crosses the threshold")
+    @Test("does not query when the pending wakeup is fresh")
+    func doesNotFireWhenWakeupFresh() async {
+        let faultSource = FakeFaultSource()
+        faultSource.countToReturn = 10
+        var fired = false
+        let watchdog = GhosttyEventLoopWatchdog(
+            faultSource: faultSource,
+            pendingWakeupAge: { 2 },
+            onWedgeDetected: { fired = true }
+        )
+
+        #expect(await watchdog.checkForWedge() == false)
+        #expect(fired == false)
+        #expect(faultSource.capturedSince == nil)
+    }
+
+    @Test("fires when a wakeup is stale and the fault count crosses the threshold")
     func firesWhenStaleAndFaulty() async {
         let faultSource = FakeFaultSource()
         faultSource.countToReturn = GhosttyEventLoopWatchdog.faultCountThreshold
         var fired = false
-        var clock = Date(timeIntervalSince1970: 1_000)
         let watchdog = GhosttyEventLoopWatchdog(
             faultSource: faultSource,
-            now: { clock },
+            pendingWakeupAge: { Self.staleAge },
             onWedgeDetected: { fired = true }
         )
-        watchdog.recordTick()
-        clock = clock.addingTimeInterval(GhosttyEventLoopWatchdog.staleTickThreshold + 1)
 
         #expect(await watchdog.checkForWedge())
         #expect(fired)
     }
 
-    @Test("does not fire when the tick is stale but no faults were observed")
+    @Test("does not fire when a wakeup is stale but no faults were observed")
     func doesNotFireWhenStaleButNoFaults() async {
         let faultSource = FakeFaultSource()
         var fired = false
-        var clock = Date(timeIntervalSince1970: 1_000)
         let watchdog = GhosttyEventLoopWatchdog(
             faultSource: faultSource,
-            now: { clock },
+            pendingWakeupAge: { Self.staleAge },
             onWedgeDetected: { fired = true }
         )
-        watchdog.recordTick()
-        clock = clock.addingTimeInterval(GhosttyEventLoopWatchdog.staleTickThreshold + 5)
 
         #expect(await watchdog.checkForWedge() == false)
         #expect(fired == false)
@@ -76,32 +85,53 @@ struct GhosttyEventLoopWatchdogTests {
         let faultSource = FakeFaultSource()
         faultSource.countToReturn = GhosttyEventLoopWatchdog.faultCountThreshold
         var fireCount = 0
-        var clock = Date(timeIntervalSince1970: 1_000)
         let watchdog = GhosttyEventLoopWatchdog(
             faultSource: faultSource,
-            now: { clock },
+            pendingWakeupAge: { Self.staleAge },
             onWedgeDetected: { fireCount += 1 }
         )
-        watchdog.recordTick()
-        clock = clock.addingTimeInterval(GhosttyEventLoopWatchdog.staleTickThreshold + 1)
 
         #expect(await watchdog.checkForWedge())
         #expect(await watchdog.checkForWedge() == false)
         #expect(fireCount == 1)
     }
 
+    @Test("fires again for a new stall after a recovery tick")
+    func refiresAfterRecoveryAndNewStall() async {
+        let faultSource = FakeFaultSource()
+        faultSource.countToReturn = GhosttyEventLoopWatchdog.faultCountThreshold
+        var fireCount = 0
+        var pendingAge: TimeInterval? = Self.staleAge
+        let watchdog = GhosttyEventLoopWatchdog(
+            faultSource: faultSource,
+            pendingWakeupAge: { pendingAge },
+            onWedgeDetected: { fireCount += 1 }
+        )
+
+        #expect(await watchdog.checkForWedge())
+
+        // Recovery: the wakeup is serviced and a tick lands.
+        pendingAge = nil
+        watchdog.recordTick()
+        #expect(await watchdog.checkForWedge() == false)
+
+        // A later, independent stall must fire again.
+        pendingAge = Self.staleAge
+        #expect(await watchdog.checkForWedge())
+        #expect(fireCount == 2)
+    }
+
     @Test("queries the fault source with a bounded time window")
     func queriesFaultSourceWithCorrectSinceBound() async {
         let faultSource = FakeFaultSource()
         faultSource.countToReturn = GhosttyEventLoopWatchdog.faultCountThreshold
-        var clock = Date(timeIntervalSince1970: 1_000)
+        let clock = Date(timeIntervalSince1970: 1_000)
         let watchdog = GhosttyEventLoopWatchdog(
             faultSource: faultSource,
             now: { clock },
+            pendingWakeupAge: { Self.staleAge },
             onWedgeDetected: {}
         )
-        watchdog.recordTick()
-        clock = clock.addingTimeInterval(GhosttyEventLoopWatchdog.staleTickThreshold + 1)
 
         _ = await watchdog.checkForWedge()
 
@@ -111,14 +141,11 @@ struct GhosttyEventLoopWatchdogTests {
     @Test("a suspended fault query does not block main-actor work")
     func suspendedQueryDoesNotBlockMainActor() async {
         let faultSource = SuspendedFaultSource()
-        var clock = Date(timeIntervalSince1970: 1_000)
         let watchdog = GhosttyEventLoopWatchdog(
             faultSource: faultSource,
-            now: { clock },
+            pendingWakeupAge: { Self.staleAge },
             onWedgeDetected: {}
         )
-        watchdog.recordTick()
-        clock = clock.addingTimeInterval(GhosttyEventLoopWatchdog.staleTickThreshold + 1)
 
         let check = Task { @MainActor in await watchdog.checkForWedge() }
         await faultSource.waitForPendingQuery()
@@ -135,41 +162,61 @@ struct GhosttyEventLoopWatchdogTests {
     func freshTickInvalidatesInFlightResult() async {
         let faultSource = SuspendedFaultSource()
         var fired = false
-        var clock = Date(timeIntervalSince1970: 1_000)
+        var pendingAge: TimeInterval? = Self.staleAge
         let watchdog = GhosttyEventLoopWatchdog(
             faultSource: faultSource,
-            now: { clock },
+            pendingWakeupAge: { pendingAge },
             onWedgeDetected: { fired = true }
         )
-        watchdog.recordTick()
-        clock = clock.addingTimeInterval(GhosttyEventLoopWatchdog.staleTickThreshold + 1)
 
         let check = Task { @MainActor in await watchdog.checkForWedge() }
         await faultSource.waitForPendingQuery()
+        pendingAge = nil
         watchdog.recordTick()
         await faultSource.resume(returning: GhosttyEventLoopWatchdog.faultCountThreshold)
 
         #expect(await check.value == false)
         #expect(fired == false)
 
-        clock = clock.addingTimeInterval(GhosttyEventLoopWatchdog.staleTickThreshold + 1)
+        pendingAge = Self.staleAge
         let nextCheck = Task { @MainActor in await watchdog.checkForWedge() }
         await faultSource.waitForPendingQuery()
         await faultSource.resume(returning: 0)
         #expect(await nextCheck.value == false)
     }
 
+    @Test("a wakeup serviced without a tick does not fire an in-flight result")
+    func servicedWakeupWithoutTickDoesNotFire() async {
+        // tick() clears the coalescer latch before its `guard let app`
+        // check, so a wakeup can be serviced without recordTick ever
+        // running (app nil mid-reload). The generation proxy alone would
+        // miss this; finishCheck must re-read the live staleness signal.
+        let faultSource = SuspendedFaultSource()
+        var fired = false
+        var pendingAge: TimeInterval? = Self.staleAge
+        let watchdog = GhosttyEventLoopWatchdog(
+            faultSource: faultSource,
+            pendingWakeupAge: { pendingAge },
+            onWedgeDetected: { fired = true }
+        )
+
+        let check = Task { @MainActor in await watchdog.checkForWedge() }
+        await faultSource.waitForPendingQuery()
+        pendingAge = nil
+        await faultSource.resume(returning: GhosttyEventLoopWatchdog.faultCountThreshold)
+
+        #expect(await check.value == false)
+        #expect(fired == false)
+    }
+
     @Test("a second check is skipped while a fault query is in flight")
     func overlappingCheckIsSkipped() async {
         let faultSource = SuspendedFaultSource()
-        var clock = Date(timeIntervalSince1970: 1_000)
         let watchdog = GhosttyEventLoopWatchdog(
             faultSource: faultSource,
-            now: { clock },
+            pendingWakeupAge: { Self.staleAge },
             onWedgeDetected: {}
         )
-        watchdog.recordTick()
-        clock = clock.addingTimeInterval(GhosttyEventLoopWatchdog.staleTickThreshold + 1)
 
         let firstCheck = Task { @MainActor in await watchdog.checkForWedge() }
         await faultSource.waitForPendingQuery()

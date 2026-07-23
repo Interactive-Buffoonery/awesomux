@@ -1,16 +1,27 @@
 import Foundation
 
-/// Detects a wedged Ghostty event loop by correlating two signals:
-/// staleness of the wakeup-driven `ghostty_app_tick` heartbeat, and a
-/// burst of fault-level `libxev_kqueue` log entries. Neither signal
-/// alone is reliable — a fault line doesn't always mean a hang
-/// (mitchellh/libxev#122's own reporter saw it recover sometimes), and
-/// tick silence alone is indistinguishable from a legitimately idle
-/// app. See Interactive-Buffoonery/awesomux#562 for the incident this
-/// exists to catch.
+/// Detects a wedged Ghostty event loop by correlating two signals: a
+/// libghostty wakeup that has gone un-serviced by `ghostty_app_tick` for
+/// too long, and a burst of fault-level `libxev_kqueue` log entries.
+///
+/// Staleness is measured from the oldest *pending wakeup*, never from
+/// wall-clock tick age: an idle app produces no wakeups, so it can never
+/// look stale, and the OSLog fault query — expensive enough to drive
+/// OSLogService.xpc to hours of CPU when polled every few seconds on a
+/// busy machine — only runs in the genuinely suspicious case where a
+/// wakeup arrived and no tick followed. The detectable band is narrow
+/// and deliberate: a queued tick Task that cannot run while this
+/// watchdog's main-queue timer still can (a stuck coalescer latch, a
+/// priority inversion pinning the Task). A fully blocked main thread
+/// starves the timer too and is undetectable here, and a merely
+/// backed-up main queue drains the older tick Task before the timer
+/// fires. Neither signal alone fires the alert — a fault line doesn't
+/// always mean a hang (mitchellh/libxev#122's own reporter saw it
+/// recover sometimes). See Interactive-Buffoonery/awesomux#562 for the
+/// incident this exists to catch.
 @MainActor
 final class GhosttyEventLoopWatchdog {
-    static let staleTickThreshold: TimeInterval = 5
+    static let staleWakeupThreshold: TimeInterval = 5
     static let faultWindow: TimeInterval = 30
     static let faultCountThreshold = 3
 
@@ -22,8 +33,8 @@ final class GhosttyEventLoopWatchdog {
 
     private let faultSource: any GhosttyFaultLogSource
     private let now: () -> Date
+    private let pendingWakeupAge: () -> TimeInterval?
     private let onWedgeDetected: () -> Void
-    private var lastTickAt: Date
     private var generation: UInt64 = 0
     private var nextCheckID: UInt64 = 0
     private var activeCheckID: UInt64?
@@ -34,24 +45,26 @@ final class GhosttyEventLoopWatchdog {
     init(
         faultSource: any GhosttyFaultLogSource = OSLogGhosttyFaultSource(),
         now: @escaping () -> Date = Date.init,
+        pendingWakeupAge: @escaping () -> TimeInterval?,
         onWedgeDetected: @escaping () -> Void
     ) {
         self.faultSource = faultSource
         self.now = now
+        self.pendingWakeupAge = pendingWakeupAge
         self.onWedgeDetected = onWedgeDetected
-        self.lastTickAt = now()
     }
 
-    /// Call on every successful `ghostty_app_tick`.
+    /// Call on every successful `ghostty_app_tick`. The generation bump
+    /// invalidates any in-flight fault query, and a serviced tick ends
+    /// the current stall.
     func recordTick() {
-        lastTickAt = now()
         generation &+= 1
         hasFiredForCurrentStall = false
     }
 
-    /// Testing seam only; exposes the heartbeat timestamp so wiring can be
-    /// asserted without reaching into OSLogStore or timers.
-    var lastTickAtForTesting: Date { lastTickAt }
+    /// Testing seam only; exposes the tick generation so runtime wiring
+    /// can assert tick() reaches the watchdog without OSLogStore/timers.
+    var tickGenerationForTesting: UInt64 { generation }
 
     /// Exposed for deterministic policy tests. Production timer checks use the
     /// same begin/finish path without retaining the watchdog across a stalled
@@ -74,8 +87,13 @@ final class GhosttyEventLoopWatchdog {
     func start() {
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        // ponytail: 4s poll against a 5s staleTickThreshold / 30s
-        // faultWindow — sub-5s granularity buys negligible detection latency.
+        // ponytail: 4s poll against a 5s staleWakeupThreshold / 30s
+        // faultWindow — sub-5s granularity buys negligible detection
+        // latency, and beginCheck no-ops without a pending wakeup, so
+        // idle polls cost two lock acquisitions and no OSLog traffic.
+        // No backoff while a stall persists: bounded at one query per
+        // 4s and stalls are assumed rare; add backoff if sustained
+        // stalls show up in the wild.
         timer.schedule(deadline: .now() + 4, repeating: 4)
         timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
@@ -115,8 +133,7 @@ final class GhosttyEventLoopWatchdog {
 
     private func beginCheck() -> CheckRequest? {
         guard !hasFiredForCurrentStall, activeCheckID == nil else { return nil }
-        let current = now()
-        guard current.timeIntervalSince(lastTickAt) >= Self.staleTickThreshold else {
+        guard let age = pendingWakeupAge(), age >= Self.staleWakeupThreshold else {
             return nil
         }
         nextCheckID &+= 1
@@ -124,15 +141,20 @@ final class GhosttyEventLoopWatchdog {
         return CheckRequest(
             id: nextCheckID,
             generation: generation,
-            since: current.addingTimeInterval(-Self.faultWindow)
+            since: now().addingTimeInterval(-Self.faultWindow)
         )
     }
 
     private func finishCheck(_ request: CheckRequest, faults: Int) -> Bool {
         guard activeCheckID == request.id else { return false }
         activeCheckID = nil
+        // Re-read the live staleness signal, not just the generation
+        // proxy: tick() clears the latch before its app guard, so a
+        // wakeup can be serviced (pending nil) without recordTick ever
+        // bumping the generation (app nil mid-reload).
         guard request.generation == generation,
             !hasFiredForCurrentStall,
+            let age = pendingWakeupAge(), age >= Self.staleWakeupThreshold,
             faults >= Self.faultCountThreshold
         else {
             return false
