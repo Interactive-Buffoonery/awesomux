@@ -283,6 +283,10 @@ enum DaemonGarbageCollector {
             )
         else { return nil }
         return entries.compactMap { url -> DaemonGCPlan.FileCandidate? in
+            // A per-entry stat failure (file vanished mid-scan, permissions)
+            // drops just that entry from both the sweep and the race metric —
+            // benign and caught next launch. Deliberately NOT an abort: one
+            // disappearing file must not cancel the whole sweep's deletions.
             guard predicate(url.lastPathComponent),
                 let values = try? url.resourceValues(
                     forKeys: [.isRegularFileKey, .contentModificationDateKey]

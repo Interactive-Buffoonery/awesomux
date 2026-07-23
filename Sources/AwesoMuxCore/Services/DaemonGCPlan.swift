@@ -294,11 +294,15 @@ public enum DaemonGCPlan {
     ///   token), a session dead at the list snapshot but recreated by restore
     ///   before unlink reopens the SAME path (`LogSystem.init` seeks to end
     ///   without touching mtime, so a mtime re-stat would not catch it).
-    ///   `owned` is captured pre-restore, so it already names every id restore
-    ///   can recreate this launch — sparing it fences the race deterministically
-    ///   without a second `amx list`. Cost is bounded: at most the
-    ///   recently-closed cache's worth of reachable dead-session logs wait one
-    ///   more launch, and one live log is a single file, not a growing set.
+    ///   `owned` is captured pre-restore, so it already names every id THIS
+    ///   instance can recreate this launch — sparing it fences the in-process
+    ///   race deterministically without a second `amx list`. (It does not fence
+    ///   a second same-profile instance recreating a session between our list
+    ///   and unlink; like the rest of this subsystem that residual rests on the
+    ///   grace window — see issue #184.) Cost is bounded and not a leak: a log
+    ///   is spared only while its session stays reachable in the workspace tree
+    ///   (≤2 files per id), and becomes collectable the launch after the session
+    ///   leaves `owned`.
     /// - its name cannot be positively attributed to a minted session.
     public static func staleSessionLogs(
         candidates: [FileCandidate],
