@@ -208,17 +208,16 @@ struct URLClassifierTests {
     }
 
     @Test(
-        "known all-Cyrillic brand homograph vectors block (raw + punycode)",
+        "izhitsa brand homograph vector ѵіѕа ≈ \"visa\" blocks (raw + punycode)",
         arguments: [
-            // еьау ≈ "ebay" (soft sign ь → b, izhitsa/others), and its xn-- form.
-            "https://\u{0435}\u{044C}\u{0430}\u{0443}.com/",
-            "https://xn--80aj7b8a.com/",
-            // ѵіѕа ≈ "visa" (izhitsa ѵ → v), and its xn-- form.
+            // ѵіѕа — izhitsa ѵ → v, і → i, ѕ → s, а → a. Archaic izhitsa is a
+            // strong, near-zero-false-positive lookalike (unlike soft sign,
+            // which is deliberately excluded — see the classifier docstring).
             "https://\u{0475}\u{0456}\u{0455}\u{0430}.com/",
             "https://xn--80a7ec7j.com/",
         ]
     )
-    func knownBrandHomographVectorsBlock(rawURL: String) throws {
+    func izhitsaBrandHomographVectorBlocks(rawURL: String) throws {
         let url = try #require(URL(string: rawURL))
         let decision = URLClassifier.classify(url)
         guard case .blockConfirm(let reason, _, _) = decision else {
@@ -228,11 +227,20 @@ struct URLClassifierTests {
         #expect(reason == .nonAsciiHost)
     }
 
+    @Test("legitimate Russian word ось.com opens direct (soft sign kept out of the table)")
+    func legitRussianWordWithSoftSignOpensDirect() throws {
+        // ось ("axis") — о/с are lookalikes but soft sign ь (U+044C) is
+        // deliberately NOT in the table: it's a weak 'b' homoglyph and a
+        // common Russian letter, so including it would soft-confirm ordinary
+        // Russian text. The label bails at ь and opens direct.
+        let url = try #require(URL(string: "https://\u{043E}\u{0441}\u{044C}.com/"))
+        #expect(URLClassifier.classify(url) == .openDirect)
+    }
+
     @Test(
         "every lookalike-table entry blocks as a single-label host",
         arguments: [
             "\u{0430}",  // а → a
-            "\u{044C}",  // ь → b
             "\u{0441}",  // с → c
             "\u{0501}",  // ԁ → d
             "\u{0435}",  // е → e

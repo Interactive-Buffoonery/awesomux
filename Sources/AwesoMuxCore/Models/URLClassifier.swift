@@ -42,11 +42,16 @@ import UnicodeHygiene
 ///   label only when every letter is in a small hand-audited Cyrillic→Latin
 ///   lookalike set, chosen to keep false positives near zero on legitimate
 ///   single-script domains. The accepted ceiling: a Latin string needing a
-///   letter with no Cyrillic lowercase twin (g, m, n, k, …) can't be spelled
-///   from the table and isn't caught; Greek and other scripts aren't
-///   covered; and one non-lookalike scalar appended to an otherwise-
-///   confusable label opens it direct (which also degrades the visual
-///   spoof). Widen the table or add scripts when a real miss surfaces.
+///   letter with no *convincing* Cyrillic lowercase twin isn't caught —
+///   either because none exists (g, m, n, k, …) or because the only
+///   candidate is a weak, high-false-positive homoglyph deliberately left
+///   out of the table (soft sign `ь` ≈ b, whose inclusion would soft-confirm
+///   common Russian words like `ось`). So `еьау` ≈ "ebay" opens direct.
+///   Greek and other scripts aren't covered; and one non-lookalike scalar
+///   appended to an otherwise-confusable label opens it direct (which also
+///   degrades the visual spoof). Widen the table or add scripts when a real
+///   miss surfaces — but weigh each addition's false-positive cost on
+///   legitimate single-script text.
 /// - **Peek-popover** for safe URLs — preview-before-click is INT-453.
 public enum URLClassifier {
     public enum Decision: Equatable, Sendable {
@@ -368,7 +373,6 @@ public enum URLClassifier {
     /// hard block.
     private static let cyrillicLatinLookalikes: Set<Unicode.Scalar> = [
         "\u{0430}",  // а → a
-        "\u{044C}",  // ь → b  (Cyrillic soft sign — closes the еьау≈"ebay" vector)
         "\u{0441}",  // с → c
         "\u{0501}",  // ԁ → d  (Cyrillic komi de)
         "\u{0435}",  // е → e
