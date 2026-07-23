@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import awesoMux
@@ -43,7 +44,8 @@ struct AgentPluginSourceFingerprintTests {
                 )
             )
 
-            let hooksURL = resources
+            let hooksURL =
+                resources
                 .appending(path: "AgentIntegrations/claude_code/plugins/awesomux-claude-status/hooks/hooks.json")
             var hooks = try String(contentsOf: hooksURL, encoding: .utf8)
             hooks += "\n"
@@ -58,6 +60,43 @@ struct AgentPluginSourceFingerprintTests {
             )
             #expect(before != after)
         }
+    }
+
+    @Test("versioned digest differs from a legacy pre-version install record")
+    func versionedDigestDiffersFromLegacyRecord() throws {
+        let resources = Self.packageResourcesURL
+        AgentPluginSourceFingerprint.resetDigestCacheForTests()
+        // The real migration boundary: an install recorded by an app that
+        // computed the digest WITHOUT the render-format prefix must read as stale
+        // against the current default digest, so the fix re-delivers to existing
+        // installs (issue #164). Reproduce that legacy transcript exactly.
+        let legacy = try Self.legacyUnversionedDigest(provider: .grok, resources: resources)
+        let current = try #require(
+            AgentPluginSourceFingerprint.digest(
+                provider: .grok,
+                resourcesDirectoryURL: resources
+            )
+        )
+        #expect(current != legacy)
+    }
+
+    /// The pre-change digest algorithm: file transcript only, no render-format
+    /// prefix. Kept in the test so a regression that drops the prefix (and would
+    /// silently strand existing installs) fails here.
+    private static func legacyUnversionedDigest(
+        provider: AgentPluginProvider,
+        resources: URL
+    ) throws -> String {
+        let root = resources.appending(path: provider.bundledTreeRelativePath, directoryHint: .isDirectory)
+        var hasher = SHA256()
+        for relativePath in AgentPluginSourceFingerprint.contentRelativePaths(for: provider).sorted() {
+            let data = try Data(contentsOf: root.appending(path: relativePath))
+            hasher.update(data: Data(relativePath.utf8))
+            hasher.update(data: Data([0]))
+            hasher.update(data: data)
+            hasher.update(data: Data([0]))
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     @Test("missing tree yields nil rather than a partial digest")
