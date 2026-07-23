@@ -272,10 +272,13 @@ struct DaemonGCPlanTests {
             DaemonGCPlan.FileCandidate(filename: name, modifiedEpoch: mtime)
         }
 
+        let ownedUUID = "77777777-7777-4777-8777-777777777777"
+        let ownedID = TerminalSessionID(rawValue: ownedUUID)!
         let stale = DaemonGCPlan.staleSessionLogs(
             candidates: [
                 candidate("\(uuidA).log"),  // live daemon, however old → spared
                 candidate("\(uuidA).log.old"),  // live daemon's rotated log → spared
+                candidate("\(ownedUUID).log"),  // dead but owned (restore may recreate) → spared
                 candidate("\(uuidB).log"),  // dead session → stale
                 candidate("\(orphanUUID).log.old"),  // dead session's rotated log → stale
                 candidate("\(orphanUUID).log", mtime: gcStart - grace),  // exact boundary → spared
@@ -283,6 +286,7 @@ struct DaemonGCPlanTests {
                 candidate("zmx.log"),  // unattributable → spared
             ],
             liveSessionIDs: [liveID],
+            owned: [ownedID],
             gcStart: gcStart,
             graceSeconds: grace
         )

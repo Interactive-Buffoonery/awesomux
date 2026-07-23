@@ -131,12 +131,36 @@ struct DaemonGarbageCollectorTests {
 
         DaemonGarbageCollector.sweepSessionLogs(
             live: [LiveDaemon(id: TerminalSessionID(rawValue: liveUUID)!, pid: 1, createdEpoch: 1, clients: 0)],
+            owned: [],
             gcStart: Int(Date().timeIntervalSince1970),
             directory: directory
         )
 
         let survivors = try FileManager.default.contentsOfDirectory(atPath: directory).sorted()
         #expect(survivors == [liveLog, liveRotated, freshOrphan, "unrelated.txt", "zmx.log"])
+    }
+
+    @Test("log sweep spares an owned session's log even with no live daemon")
+    func logSweepSparesOwnedForResurrection() throws {
+        // A session dead at the list snapshot but present in `owned` may be
+        // recreated by restore, reopening the same log path mid-sweep — so its
+        // log must survive even though no daemon is live for it.
+        let ownedUUID = "77777777-7777-4777-8777-777777777777"
+        let ownedLog = "\(ownedUUID).log"
+        let orphanLog = "\(Self.orphanUUID).log"
+        let old = Date(timeIntervalSinceNow: -86_400)
+        let directory = try makeStatusDirectory(files: [ownedLog: old, orphanLog: old])
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        DaemonGarbageCollector.sweepSessionLogs(
+            live: [],
+            owned: [TerminalSessionID(rawValue: ownedUUID)!],
+            gcStart: Int(Date().timeIntervalSince1970),
+            directory: directory
+        )
+
+        #expect(FileManager.default.fileExists(atPath: directory + "/" + ownedLog))
+        #expect(!FileManager.default.fileExists(atPath: directory + "/" + orphanLog))
     }
 
     @Test("log sweep deletes nothing when the session list is unavailable")
@@ -149,6 +173,7 @@ struct DaemonGarbageCollectorTests {
 
         DaemonGarbageCollector.sweepSessionLogs(
             live: nil,
+            owned: [],
             gcStart: Int(Date().timeIntervalSince1970),
             directory: directory
         )
@@ -168,6 +193,7 @@ struct DaemonGarbageCollectorTests {
 
         DaemonGarbageCollector.sweepSessionLogs(
             live: [],
+            owned: [],
             gcStart: Int(Date().timeIntervalSince1970),
             directory: directory
         )

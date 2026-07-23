@@ -103,7 +103,12 @@ enum DaemonGarbageCollector {
         // "no attached client, delete its file".
         let strictLive = DaemonGCPlan.parseAmxListStrict(listOutput)
         sweepStaleStatusFiles(live: strictLive, gcStart: gcStart)
-        sweepSessionLogs(live: strictLive, gcStart: gcStart)
+        // Logs (unlike status files) reuse one path per session NAME, so a dead
+        // session's log can be reopened by a daemon restore recreates for the
+        // SAME id between the list snapshot and unlink. `owned` (captured
+        // pre-restore in sweepIfEnabled) is exactly that recreation set, so
+        // sparing it closes the resurrection window without a second list.
+        sweepSessionLogs(live: strictLive, owned: owned, gcStart: gcStart)
 
         guard !live.isEmpty else { return }
 
@@ -193,7 +198,12 @@ enum DaemonGarbageCollector {
             return
         }
         let attached = Set(live.filter { $0.clients > 0 }.map(\.id))
-        let candidates = candidateFiles(in: directory) { $0.hasSuffix(".status.jsonl") }
+        guard let candidates = candidateFiles(in: directory, matching: { $0.hasSuffix(".status.jsonl") })
+        else {
+            // A failed scan must not masquerade as "spared 0": skip the metric.
+            log.error("status-file GC skipped: directory scan unavailable")
+            return
+        }
         // Restore-attach race measurement (issue #184, "measure first"): every
         // sweep, log the upper bound on stale generations the `attached` gate is
         // sparing — emitted INCLUDING zero so a run of zeros is a real
@@ -218,10 +228,14 @@ enum DaemonGarbageCollector {
     /// (Interactive-Buffoonery/awesomux#184). Decision logic lives in
     /// `DaemonGCPlan.staleSessionLogs`; this is the IO. `live` is nil when the
     /// session list failed OR parsed non-strictly — both abort. Spares on any
-    /// LIVE daemon (not just attached): a detached-but-live daemon still holds
-    /// the log fd.
+    /// LIVE daemon (not just attached, since a detached-but-live daemon still
+    /// holds the log fd) and on any `owned` id (restore can recreate that
+    /// session's daemon and reopen the same log path mid-sweep). The logs
+    /// directory is often absent (no daemon has logged) — a nil scan is that
+    /// normal case, so return quietly rather than logging an error.
     nonisolated static func sweepSessionLogs(
         live: [LiveDaemon]?,
+        owned: Set<TerminalSessionID>,
         gcStart: Int,
         directory: String = AmxBackend.sessionLogDirectory()
     ) {
@@ -229,13 +243,17 @@ enum DaemonGarbageCollector {
             log.error("log GC skipped: session list unavailable or unparseable")
             return
         }
-        let liveSessionIDs = Set(live.map(\.id))
-        let candidates = candidateFiles(in: directory) {
-            $0.hasSuffix(".log") || $0.hasSuffix(".log.old")
-        }
+        guard
+            let candidates = candidateFiles(
+                in: directory,
+                matching: {
+                    $0.hasSuffix(".log") || $0.hasSuffix(".log.old")
+                })
+        else { return }
         let stale = DaemonGCPlan.staleSessionLogs(
             candidates: candidates,
-            liveSessionIDs: liveSessionIDs,
+            liveSessionIDs: Set(live.map(\.id)),
+            owned: owned,
             gcStart: gcStart
         )
         unlinkStale(stale, in: directory, kind: "log file")
@@ -245,15 +263,17 @@ enum DaemonGarbageCollector {
     /// `predicate`, paired with mtime. Resource values come from the same
     /// enumeration pass (one stat per entry) and do not follow symlinks;
     /// requiring a regular file keeps a directory or symlink squatting a
-    /// matching name out of candidacy. Empty on enumeration failure (a missing
-    /// directory is the normal "nothing to sweep" case).
+    /// matching name out of candidacy. Returns nil when the directory cannot be
+    /// enumerated (absent or IO error) — distinct from an empty result — so the
+    /// caller can tell "scan failed" from "scanned, found nothing" (the
+    /// restore-race metric must not report a false zero on a failed scan).
     // ponytail: blocking FileManager IO on the cooperative pool — launch-once,
     // .utility, O(directory entries); hop to a DispatchQueue if the launch
     // scan ever stalls.
     nonisolated private static func candidateFiles(
         in directory: String,
         matching predicate: (String) -> Bool
-    ) -> [DaemonGCPlan.FileCandidate] {
+    ) -> [DaemonGCPlan.FileCandidate]? {
         let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
         guard
             let entries = try? FileManager.default.contentsOfDirectory(
@@ -261,7 +281,7 @@ enum DaemonGarbageCollector {
                 includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
                 options: []
             )
-        else { return [] }
+        else { return nil }
         return entries.compactMap { url -> DaemonGCPlan.FileCandidate? in
             guard predicate(url.lastPathComponent),
                 let values = try? url.resourceValues(

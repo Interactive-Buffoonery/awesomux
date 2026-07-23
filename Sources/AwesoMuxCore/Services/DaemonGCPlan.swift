@@ -275,7 +275,7 @@ public enum DaemonGCPlan {
     ///
     /// Unlike status files (one per attach, so `attached` is the discriminator),
     /// there is exactly one live log — plus at most one rotated `.old` — per
-    /// session NAME. So a log is spared unless one of three things protects it:
+    /// session NAME. So a log is spared unless one of these protects it:
     /// - its session has a LIVE daemon (`liveSessionIDs`, any client count).
     ///   The current `<uuid>.log` is held open by the daemon (any client
     ///   count) and actively written; its rotated `<uuid>.log.old` is a closed
@@ -288,23 +288,29 @@ public enum DaemonGCPlan {
     ///   it registers in `amx list`, so the gap is near-zero. Grace only covers
     ///   a slow launch where we observe the file a beat before the daemon shows
     ///   up in the list snapshot.
+    /// - its session is `owned` (a live pane or a restorable/recently-closed
+    ///   entry). Closes the log-path resurrection race: because logs reuse one
+    ///   path per session NAME (status files do not — each attach mints a fresh
+    ///   token), a session dead at the list snapshot but recreated by restore
+    ///   before unlink reopens the SAME path (`LogSystem.init` seeks to end
+    ///   without touching mtime, so a mtime re-stat would not catch it).
+    ///   `owned` is captured pre-restore, so it already names every id restore
+    ///   can recreate this launch — sparing it fences the race deterministically
+    ///   without a second `amx list`. Cost is bounded: at most the
+    ///   recently-closed cache's worth of reachable dead-session logs wait one
+    ///   more launch, and one live log is a single file, not a growing set.
     /// - its name cannot be positively attributed to a minted session.
-    ///
-    /// Residual (accepted): a daemon RECREATED after the `amx list` snapshot but
-    /// before unlink reopens the same path and seeks to end (`LogSystem.init`);
-    /// this sweep can unlink its just-reopened log, and it keeps writing to the
-    /// unlinked inode until next launch. This is diagnostic-log loss, not data
-    /// loss, and the window is narrow (grace + any write refreshing mtime spares
-    /// it), so it is not fenced with a pre-unlink revalidation.
     public static func staleSessionLogs(
         candidates: [FileCandidate],
         liveSessionIDs: Set<TerminalSessionID>,
+        owned: Set<TerminalSessionID>,
         gcStart: Int,
         graceSeconds: Int = statusFileGraceSeconds
     ) -> [String] {
         candidates.compactMap { candidate in
             guard let id = logFileSessionID(candidate.filename),
                 !liveSessionIDs.contains(id),
+                !owned.contains(id),
                 candidate.modifiedEpoch < gcStart - graceSeconds
             else { return nil }
             return candidate.filename
