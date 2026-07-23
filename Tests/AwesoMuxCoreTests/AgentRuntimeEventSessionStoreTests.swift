@@ -59,6 +59,39 @@ struct AgentRuntimeEventSessionStoreTests {
     }
 
     @Test
+    func endedLifecycleToolEndDoesNotRecordTouchedPath() {
+        // The `!state.lifecycle.isEnded` gate: a straggling toolEnd from an
+        // already-quit agent must not seed the palette. Locks the invariant so a
+        // refactor can't silently drop it.
+        let session = makeSession(kind: .claudeCode, state: .running)
+        let store = makeStore(session)
+        let paneID = session.activePaneID
+
+        store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(source: .claudeCode, phase: .sessionStart),
+            to: session.id,
+            paneID: paneID
+        )
+        store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(source: .claudeCode, executionState: .idle, phase: .sessionEnd),
+            to: session.id,
+            paneID: paneID
+        )
+        store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                touchedPath: "/Users/agent/plan.md"
+            ),
+            to: session.id,
+            paneID: paneID
+        )
+
+        #expect(store.session(id: session.id)?.activePane?.recentLinks.values.isEmpty == true)
+    }
+
+    @Test
     func toolEndWithoutTouchedPathLeavesRecentLinksEmpty() {
         let session = makeSession(kind: .claudeCode, state: .running)
         let store = makeStore(session)
