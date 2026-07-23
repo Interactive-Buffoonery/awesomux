@@ -1,5 +1,6 @@
-import Foundation
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import Foundation
 
 public enum AgentHookEventMapper {
     public static func event(

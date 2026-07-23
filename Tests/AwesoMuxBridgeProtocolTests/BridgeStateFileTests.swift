@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AwesoMuxCore
+@testable import AwesoMuxBridgeProtocol
 
 @Suite
 struct BridgeStateFileTests {
@@ -77,7 +77,7 @@ struct BridgeStateFileTests {
 
     @Test
     func missingRequiredFieldIsRejected() {
-        let json = #"{"proto":"awesomux-bridge-v1","gen":1,"socket":"/tmp/s.sock"}"# // no token
+        let json = #"{"proto":"awesomux-bridge-v1","gen":1,"socket":"/tmp/s.sock"}"#  // no token
         #expect(BridgeStateFile.parse(data: Data(json.utf8)) == nil)
     }
 }

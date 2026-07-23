@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// Pure decision logic for launch-time orphan daemon GC (INT-570 / ADR-0011).

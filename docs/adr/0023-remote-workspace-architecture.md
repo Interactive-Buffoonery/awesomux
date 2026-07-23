@@ -120,3 +120,8 @@ transport abstraction for hypothetical implementations are non-goals.
 - A remote process cannot use the Mac-local agent file-drop channel.
 - The remaining handoff supports one confirmed clipboard item, not a general
   remote filesystem workflow.
+
+## Amendment (#87, 2026-07-22): Linux destinations supported via a manual static helper
+
+Linux destinations are supported via a manually installed static helper; see
+[`docs/remote-linux-helper.md`](../remote-linux-helper.md).

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 @testable import AwesoMuxBridgeHelperSupport
 
 @Suite
@@ -27,7 +27,7 @@ struct BridgeHelperCommandTests {
             arguments: ["--self-check"],
             environment: [
                 "AWESOMUX_BRIDGE_STATE": "/missing",
-                "AWESOMUX_BRIDGE_SESSION": "session"
+                "AWESOMUX_BRIDGE_SESSION": "session",
             ],
             readState: { _ in nil },
             output: { _ in Issue.record("unexpected stdout write") },
@@ -57,7 +57,9 @@ struct BridgeHelperCommandTests {
             arguments: ["--self-check"],
             environment: ["AWESOMUX_BRIDGE_STATE": "/state", "AWESOMUX_BRIDGE_SESSION": "session"],
             readState: { _ in BridgeStateFile(proto: proto, gen: 1, socket: "/socket", token: "secret") },
-            connect: { _, _ in connected = true; throw HelperConnection.ConnectionError.connectFailed },
+            connect: { _, _ in
+                connected = true; throw HelperConnection.ConnectionError.connectFailed
+            },
             errorOutput: { errors.append($0) }
         )
         #expect(status == BridgeHelperCommand.SelfCheckExit.incompatibleProtocol)

@@ -1,4 +1,4 @@
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 import Foundation
 
 public struct HelperPermissionRuntime {
@@ -56,8 +56,8 @@ public struct HelperPermissionRuntime {
 
     public mutating func acceptDecision(_ envelope: BridgeEnvelope, now: Date) -> DecisionOutcome? {
         guard case .permissionDecision(let decision) = envelope.message,
-              let entry = pending.peek(id: decision.inReplyTo),
-              entry.target == decision.target
+            let entry = pending.peek(id: decision.inReplyTo),
+            entry.target == decision.target
         else {
             return nil
         }

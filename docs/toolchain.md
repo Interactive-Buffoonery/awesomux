@@ -44,8 +44,12 @@ Treat a toolchain update as a deliberate maintenance change:
 5. Run `./script/check-toolchain.sh` locally.
 6. Run `./script/test-format.sh` and `./script/format.sh --lint` without applying
    a repository-wide reformat.
-7. Run `./script/preflight.sh` before opening the pull request.
-8. Confirm the Cheap guards workflow passes with the same pinned versions.
+7. Update the Static Linux SDK pin (URL + checksum) in
+   `script/build_linux_helper.sh` to the matching release, and the
+   `swift:X.Y.Z-*` container tags in `.github/workflows/linux-helper.yml` and
+   `.github/workflows/release.yml`.
+8. Run `./script/preflight.sh` before opening the pull request.
+9. Confirm the Cheap guards workflow passes with the same pinned versions.
 
 If the new formatter reports existing debt, keep CI scoped to changed lines.
 Do not combine a toolchain bump with whole-codebase formatting unless that

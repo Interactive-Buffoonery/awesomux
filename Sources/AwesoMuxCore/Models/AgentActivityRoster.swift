@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// The sidebar footer's agent roster (INT-722): every non-shell agent pane,

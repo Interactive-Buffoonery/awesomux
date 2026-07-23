@@ -181,8 +181,8 @@ public enum BridgeFrameReader {
             return .handshake(handshake)
         }
         guard let envelope = BridgeEnvelope.parse(data: jsonData),
-              constantTimeEquals(envelope.token, expectedToken),
-              envelope.session == expectedSession
+            constantTimeEquals(envelope.token, expectedToken),
+            envelope.session == expectedSession
         else {
             return nil
         }

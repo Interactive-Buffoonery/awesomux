@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 /// Recognizes foreground process names that identify a live agent CLI.
 ///
 /// `ProcessLivenessProbe` reads macOS `p_comm`, not the full argv. That name is

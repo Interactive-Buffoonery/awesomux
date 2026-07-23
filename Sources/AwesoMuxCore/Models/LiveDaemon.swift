@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// A live `amx` (zmx) session daemon as reported by `amx list`. `createdEpoch`

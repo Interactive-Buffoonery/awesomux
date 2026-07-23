@@ -1,4 +1,4 @@
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
 import Foundation
 
 public enum BridgeFixtureEvent {
@@ -15,7 +15,7 @@ public enum BridgeFixtureEvent {
         now: Date = Date()
     ) -> BridgeEnvelope? {
         guard let data = line.data(using: .utf8),
-              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
             return nil
         }

@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 
 /// Reference semantics are load-bearing. `CommandBridgeEnactor.respawnLedger` is a

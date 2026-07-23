@@ -1,7 +1,28 @@
-import Darwin
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif canImport(Musl)
+    import Musl
+#endif
 import Dispatch
 import Foundation
-import AwesoMuxCore
+import AwesoMuxBridgeProtocol
+
+#if canImport(Glibc)
+    // glibc >= 2.28 ships the renameat2 wrapper, but the Swift overlay hides
+    // its declaration behind _GNU_SOURCE. Bind the libc symbol directly; the
+    // flag value is stable kernel ABI (linux/fs.h). The Static Linux SDK's
+    // musl does not export this symbol at all, so Musl gets its own publish
+    // path below rather than sharing this bind.
+    @_silgen_name("renameat2")
+    private func linuxRenameat2(
+        _ olddirfd: Int32, _ oldpath: UnsafePointer<CChar>?,
+        _ newdirfd: Int32, _ newpath: UnsafePointer<CChar>?,
+        _ flags: UInt32
+    ) -> Int32
+    private let linuxRenameNoreplace: UInt32 = 1
+#endif
 
 /// Receives one bounded handoff into the current user's private session directory.
 public enum HandoffReceiver {
@@ -92,13 +113,44 @@ public enum HandoffReceiver {
         temporaryIsOpen = false
         guard closeResult == 0 else { throw ReceiveError.syncFailed }
 
-        let published = temporaryName.withCString { temporary in
-            finalName.withCString { final in
-                renameatx_np(sessionFD, temporary, sessionFD, final, UInt32(RENAME_EXCL))
+        #if canImport(Darwin)
+            let published = temporaryName.withCString { temporary in
+                finalName.withCString { final in
+                    renameatx_np(sessionFD, temporary, sessionFD, final, UInt32(RENAME_EXCL))
+                }
             }
-        }
-        guard published == 0 else { throw ReceiveError.publishFailed }
-        shouldRemoveTemporary = false
+            guard published == 0 else { throw ReceiveError.publishFailed }
+            shouldRemoveTemporary = false
+        #elseif canImport(Glibc)
+            // renameat2(RENAME_NOREPLACE): Linux's exact equivalent of Darwin's
+            // RENAME_EXCL — atomic no-overwrite publish with the temporary name gone
+            // in the same operation, so crash-cleanup semantics match Darwin exactly.
+            // The wrapper ships in glibc >= 2.28 (Ubuntu 24.04 glibc is newer), but
+            // the overlay hides the declaration behind _GNU_SOURCE, so this binds
+            // the symbol directly (see top-of-file).
+            let published = temporaryName.withCString { temporary in
+                finalName.withCString { final in
+                    linuxRenameat2(sessionFD, temporary, sessionFD, final, linuxRenameNoreplace)
+                }
+            }
+            guard published == 0 else { throw ReceiveError.publishFailed }
+            shouldRemoveTemporary = false
+        #elseif canImport(Musl)
+            // The Static Linux SDK's musl does not export a renameat2 wrapper, so the
+            // static helper publishes via linkat(2): link fails with EEXIST when the
+            // final name exists (same no-overwrite guarantee), and the deferred
+            // unlinkat drops the temporary name. Weaker crash-cleanup than rename:
+            // a hard kill between link and unlink leaves a stale .handoff-*.tmp hard
+            // link to the published file — clutter, not corruption.
+            let published = temporaryName.withCString { temporary in
+                finalName.withCString { final in
+                    linkat(sessionFD, temporary, sessionFD, final, 0)
+                }
+            }
+            guard published == 0 else { throw ReceiveError.publishFailed }
+        // shouldRemoveTemporary stays true: the deferred unlinkat removes exactly
+        // the surplus temporary hard link, never the final name.
+        #endif
         _ = fsync(sessionFD)
 
         let path =
@@ -183,14 +235,20 @@ public enum HandoffReceiver {
     }
 }
 
+#if canImport(Darwin)
+    private typealias SignalDisposition = sig_t
+#else
+    private typealias SignalDisposition = @convention(c) (Int32) -> Void
+#endif
+
 private final class HandoffSignalCleanup {
     private let queue = DispatchQueue(label: "com.interactivebuffoonery.awesomux.handoff-signal-cleanup")
     private var sources: [DispatchSourceSignal] = []
-    private var previousHandlers: [(Int32, sig_t?)] = []
+    private var previousHandlers: [(Int32, SignalDisposition?)] = []
 
     init(directoryFD: Int32, temporaryName: String) {
         for signalNumber in [SIGHUP, SIGINT, SIGTERM] {
-            previousHandlers.append((signalNumber, Darwin.signal(signalNumber, SIG_IGN)))
+            previousHandlers.append((signalNumber, signal(signalNumber, SIG_IGN)))
             let source = DispatchSource.makeSignalSource(
                 signal: signalNumber,
                 queue: queue
@@ -209,7 +267,7 @@ private final class HandoffSignalCleanup {
         queue.sync {}
         sources.removeAll()
         for (signalNumber, handler) in previousHandlers {
-            Darwin.signal(signalNumber, handler)
+            signal(signalNumber, handler)
         }
         previousHandlers.removeAll()
     }

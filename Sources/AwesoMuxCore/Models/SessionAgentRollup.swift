@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// A single pane's agent signal, the input to a session-level rollup. Post

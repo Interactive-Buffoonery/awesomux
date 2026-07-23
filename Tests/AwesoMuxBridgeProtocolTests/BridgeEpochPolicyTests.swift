@@ -1,5 +1,5 @@
 import Testing
-@testable import AwesoMuxCore
+@testable import AwesoMuxBridgeProtocol
 
 @Suite
 struct BridgeEpochPolicyTests {

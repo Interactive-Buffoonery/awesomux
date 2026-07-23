@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import GhosttyKit
 import OSLog

@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import Darwin
 import Dispatch
