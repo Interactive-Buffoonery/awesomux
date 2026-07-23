@@ -382,9 +382,11 @@ enum AmxBackend {
         var resourcesDir = environment["GHOSTTY_RESOURCES_DIR"]
         let shellName = environment["SHELL"].map(ShellRecognition.basename)
         let probeSuffix = shellIntegrationProbeSuffix(forShellNamed: shellName)
-        if let dir = resourcesDir,
-            dir.isEmpty || probeSuffix == nil || !fileExists(dir + probeSuffix!)
-        {
+        let integrationDirExists: Bool = {
+            guard let dir = resourcesDir, !dir.isEmpty, let probeSuffix else { return false }
+            return fileExists(dir + probeSuffix)
+        }()
+        if !integrationDirExists {
             resourcesDir = nil
         }
         return (
