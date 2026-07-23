@@ -298,7 +298,8 @@ struct SidebarPresentationBehaviorTests {
 
     private func makeController(
         position: AppearanceConfig.SidebarPosition = .left,
-        focusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement? = nil
+        focusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement? = nil,
+        workspaceNotificationCenter: NotificationCenter = NotificationCenter()
     ) -> (
         SidebarSplitController, NSViewController, NSViewController
     ) {
@@ -309,6 +310,7 @@ struct SidebarPresentationBehaviorTests {
             sidebar: sidebar,
             detail: detail,
             interactionFocusedAccessibilityElement: focusedAccessibilityElement,
+            workspaceNotificationCenter: workspaceNotificationCenter,
             applicationIsActive: { true })
         controller.setSidebarPosition(position)
         controller.loadViewIfNeeded()
@@ -334,7 +336,8 @@ struct SidebarPresentationBehaviorTests {
 
     private func makeControlledController(
         position: AppearanceConfig.SidebarPosition = .left,
-        driver: AnimationDriver
+        driver: AnimationDriver,
+        workspaceNotificationCenter: NotificationCenter = NotificationCenter()
     ) -> (SidebarSplitController, NSViewController, NSViewController) {
         let sidebar = NSViewController()
         sidebar.view = AccessibilityRecordingView()
@@ -347,6 +350,7 @@ struct SidebarPresentationBehaviorTests {
                 driver.requestCount += 1
                 driver.completions.append(completion)
             },
+            workspaceNotificationCenter: workspaceNotificationCenter,
             applicationIsActive: { true })
         controller.setSidebarPosition(position)
         controller.loadViewIfNeeded()
@@ -1780,6 +1784,73 @@ struct SidebarPresentationBehaviorTests {
         #expect(controller.hostModeForTesting == .hidden)
         #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
         #expect(controller.sidebarHostClipViewForTesting.isHidden)
+    }
+
+    // `NSWorkspace` posts `willSleepNotification` on its own dedicated
+    // `notificationCenter`, never `.default` — the tests below inject a fresh
+    // center standing in for that real one, so a regression that quietly
+    // moves the observer back onto `.default`/`interactionNotificationCenter`
+    // fails loudly instead of just never firing in production.
+    @Test("system sleep mid-reveal settles a presented overlay")
+    func systemSleepMidRevealSettlesOverlay() {
+        let workspaceCenter = NotificationCenter()
+        let driver = AnimationDriver()
+        let (controller, sidebar, _) = makeControlledController(
+            driver: driver, workspaceNotificationCenter: workspaceCenter)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        let staleCompletion = driver.completions[0]
+
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
+
+        // The OS-paused reveal animation resuming post-wake must not
+        // resurrect an overlay the sleep notification already settled.
+        staleCompletion()
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+    }
+
+    @Test("sleep posted on an unrelated center does not settle a presented overlay")
+    func sleepOnWrongCenterDoesNotSettleOverlay() {
+        let workspaceCenter = NotificationCenter()
+        let unrelatedCenter = NotificationCenter()
+        let driver = AnimationDriver()
+        let (controller, _, _) = makeControlledController(
+            driver: driver, workspaceNotificationCenter: workspaceCenter)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+
+        unrelatedCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+
+        #expect(controller.hostModeForTesting == .overlay(width: 300))
+        #expect(!controller.sidebarHostClipViewForTesting.isHidden)
+    }
+
+    @Test("sleep notification is a no-op after detach and resumes after reattach")
+    func sleepObserverLifecycleAcrossDetachReattach() {
+        let workspaceCenter = NotificationCenter()
+        let (controller, _, _) = makeController(workspaceNotificationCenter: workspaceCenter)
+        var availabilityLosses = 0
+        controller.onTrackingAvailabilityLost = { availabilityLosses += 1 }
+        let window = hostInActiveWindow(controller)
+        defer { window.orderOut(nil) }
+
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(availabilityLosses == 1)
+
+        window.contentView = NSView()
+        let lossesAfterDetach = availabilityLosses
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(availabilityLosses == lossesAfterDetach)
+
+        window.contentView = controller.view
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(availabilityLosses == lossesAfterDetach + 1)
     }
 
     @Test("persistent disappearance preserves ownership, hides AX, and restores on attach")

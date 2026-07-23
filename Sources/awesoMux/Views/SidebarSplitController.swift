@@ -120,10 +120,21 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private let removeLocalMouseMovedMonitor: RemoveLocalMouseMovedMonitor
     private let currentMouseLocation: CurrentMouseLocation
     private let applicationIsActive: ApplicationIsActive
+    /// `NSWorkspace` notifications (e.g. `willSleepNotification`) post through
+    /// `NSWorkspace.shared.notificationCenter`, a distinct instance from
+    /// `.default` — NOT `interactionNotificationCenter`, which is correct for
+    /// the `NSApplication`/`NSWindow` notifications below. Injectable so tests
+    /// can post fake sleep notifications without touching the real one.
+    private let workspaceNotificationCenter: NotificationCenter
     private var localMouseMovedMonitor: Any?
     private weak var localMouseMovedWindow: NSWindow?
     private var localMouseMovedWindowPreviouslyAcceptedEvents = false
     private var applicationActivityObservations: [NSObjectProtocol] = []
+    /// Torn down separately from `applicationActivityObservations` — it lives
+    /// on `workspaceNotificationCenter`, a different center instance, and
+    /// `NotificationCenter.removeObserver` silently no-ops for a token issued
+    /// by a different center.
+    private var workspaceSleepObserver: NSObjectProtocol?
     private var acceptsApplicationPointerEvents = true
     /// Single deferred focus-repair record. A hide requested while the primary
     /// window is not key (Settings frontmost, app inactive, or a mid-remount gap)
@@ -171,6 +182,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner? = nil,
         interactionFocusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement? = nil,
         interactionNotificationCenter: NotificationCenter = .default,
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         addLocalMouseMovedMonitor: @escaping AddLocalMouseMovedMonitor = NSEvent.addLocalMonitorForEvents,
         removeLocalMouseMovedMonitor: @escaping RemoveLocalMouseMovedMonitor = NSEvent.removeMonitor,
         currentMouseLocation: @escaping CurrentMouseLocation = { NSEvent.mouseLocation },
@@ -182,6 +194,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         self.overlayAnimationRunner = overlayAnimationRunner
         self.interactionFocusedAccessibilityElement = interactionFocusedAccessibilityElement
         self.interactionNotificationCenter = interactionNotificationCenter
+        self.workspaceNotificationCenter = workspaceNotificationCenter
         self.addLocalMouseMovedMonitor = addLocalMouseMovedMonitor
         self.removeLocalMouseMovedMonitor = removeLocalMouseMovedMonitor
         self.currentMouseLocation = currentMouseLocation
@@ -297,6 +310,16 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         syncSidebarHostFrame()
     }
 
+    // Neither override below gates on `view.window == nil` — unlike
+    // `root.onWindowChanged`, which only settles on an actual detach. Whether
+    // AppKit invokes these during a native fullscreen transition while the
+    // sidebar is hover-revealed (and so silently collapses the reveal) is an
+    // open question a code trace could not resolve (issue #78): a live
+    // `toggleFullScreen()` regression test would be unreliable on the
+    // headless macOS CI runners this repo uses (see docs/ci.md), and gating
+    // these on window-nil without verifying against the real transition
+    // risks breaking whatever other caller currently relies on the
+    // unconditional settle. Left open pending a manual smoke test.
     override func viewWillDisappear() {
         let availabilityLost = onTrackingAvailabilityLost
         settleDetached()
@@ -1261,12 +1284,28 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     } else {
                         self.pendingFocusRepair = nil
                     }
-                    self.onTrackingAvailabilityLost?()
-                    if self.isSidebarHidden {
-                        self.settleHidden()
-                    }
+                    self.settleTransientOverlayIfNeeded()
                 }
             })
+        if workspaceSleepObserver == nil {
+            // Routed to the same settle-only subset as app resignation
+            // (`settleTransientOverlayIfNeeded`), NOT the full resignation
+            // handler above: sleep isn't app-to-app deactivation, and there is
+            // no `didWakeNotification` observer restoring
+            // `acceptsApplicationPointerEvents`/deferred focus-repair state
+            // afterward. Reusing the pointer-disabling and focus-repair
+            // capture from resignation here would leave hover-reveal
+            // permanently unresponsive after wake with nothing to reverse it.
+            workspaceSleepObserver = workspaceNotificationCenter.addObserver(
+                forName: NSWorkspace.willSleepNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.settleTransientOverlayIfNeeded()
+                }
+            }
+        }
         applicationActivityObservations.append(
             interactionNotificationCenter.addObserver(
                 forName: NSApplication.didBecomeActiveNotification,
@@ -1390,6 +1429,22 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private func removeApplicationActivityObservers() {
         applicationActivityObservations.forEach(interactionNotificationCenter.removeObserver)
         applicationActivityObservations.removeAll()
+        if let workspaceSleepObserver {
+            workspaceNotificationCenter.removeObserver(workspaceSleepObserver)
+        }
+        workspaceSleepObserver = nil
+    }
+
+    /// Settle-only subset shared by app resignation and system sleep:
+    /// invalidate stale pointer tracking and collapse a presented overlay.
+    /// Deliberately excludes resignation-specific bookkeeping (pointer-
+    /// acceptance flags, deferred focus-repair capture) — see the sleep
+    /// observer registration for why.
+    private func settleTransientOverlayIfNeeded() {
+        onTrackingAvailabilityLost?()
+        if isSidebarHidden {
+            settleHidden()
+        }
     }
 
     private func invalidateOverlayForDetach() {
