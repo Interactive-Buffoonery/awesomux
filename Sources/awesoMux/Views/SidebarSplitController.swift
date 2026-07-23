@@ -620,6 +620,13 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     var sidebarPaneFrameForTesting: CGRect { sidebarPaneContainer.frame }
     var sidebarHostClipViewForTesting: SidebarHostClipView { sidebarHostClipView }
     var hostModeForTesting: SidebarHostMode { hostMode }
+    var isAnimatingDividerSettleForTesting: Bool { isAnimatingDividerSettle }
+    /// Mimic an armed settle animation so the cancel-on-mutation / cancel-on-detach
+    /// wiring is testable without a live async NSSplitView animation (#81).
+    func armDividerSettleForTesting() {
+        dividerSettleGeneration &+= 1
+        isAnimatingDividerSettle = true
+    }
     var sidebarSplitPaneWidthForTesting: CGFloat { sidebarPaneContainer.frame.width }
     func resampleSidebarPointerForTesting() -> Bool? { resampleSidebarPointer() }
     #if DEBUG
@@ -1139,6 +1146,15 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         edgeTrackingView.invalidatePointer()
         removeInteractionMonitor()
         guard isViewLoaded else { return }
+        // Stop any in-flight settle before teardown hides the clip: a late animation
+        // tick would call `syncSidebarHostFrame`, which un-hides the clip this detach
+        // is about to hide (#81).
+        if isAnimatingDividerSettle {
+            stopDividerSettleAnimation(
+                landingAt: Self.dividerCoordinate(
+                    forSidebarWidth: sidebarPaneWidth, paneExtent: paneExtent,
+                    position: sidebarPosition))
+        }
         overlayAnimator?.cancelAndSettle(
             presented: false,
             width: sidebarHostClipView.bounds.width,
@@ -1539,6 +1555,15 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                         self.isAnimatingDividerSettle = false
                     }
                 })
+        } else if isAnimatingDividerSettle {
+            // An instant correction landing while a settle is in flight (a window
+            // resize/starvation clamp, a sidebar side flip, or a hide) must STOP the
+            // running animation, not just set the model position — a plain setPosition
+            // lets the old implicit animation keep driving stale coordinates to its
+            // original target for the rest of the duration (on a side flip it drives
+            // the wrong edge entirely). Land instantly AND cancel via a zero-duration
+            // animator retarget to the corrected coordinate.
+            stopDividerSettleAnimation(landingAt: coordinate)
         } else {
             splitView.setPosition(coordinate, ofDividerAt: 0)
         }
@@ -1547,6 +1572,22 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // settle. `isAnimatingDividerSettle` (not this flag) gates the bookkeeping.
         isSettingPositionProgrammatically = false
         return willAnimate
+    }
+
+    /// Stop an in-flight settle animation, landing the divider at `coordinate`. A
+    /// zero-duration animator retarget completes the running implicit animation
+    /// immediately (a plain `setPosition` would not interrupt it). Orphans the
+    /// pending completion via the generation bump so it can't clear a later flag.
+    private func stopDividerSettleAnimation(landingAt coordinate: CGFloat) {
+        dividerSettleGeneration &+= 1
+        isAnimatingDividerSettle = false
+        let wasSuppressing = isSettingPositionProgrammatically
+        isSettingPositionProgrammatically = true
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            splitView.animator().setPosition(coordinate, ofDividerAt: 0)
+        }
+        isSettingPositionProgrammatically = wasSuppressing
     }
 
     private func applyPosition(_ width: CGFloat, animated: Bool = false) {

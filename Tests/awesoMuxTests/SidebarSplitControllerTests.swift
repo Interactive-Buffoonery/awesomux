@@ -1673,17 +1673,22 @@ struct SidebarSplitControllerTests {
             .appending(path: "Sources/awesoMux/Views/SidebarSplitController.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
-        // Two divider-move forms now live in the helper: the instant `setPosition`
-        // and the eased `animator().setPosition` (#81). Both must be unique and
-        // both must sit inside the single instrumented boundary.
+        // Divider position writes are confined to two controlled helpers: the
+        // instant `setPosition` (once, in `setDividerPosition`) and the eased
+        // `animator().setPosition` (twice — the settle in `setDividerPosition` and
+        // the zero-duration stop in `stopDividerSettleAnimation`) (#81).
         let instant = source.components(separatedBy: "splitView.setPosition(").count - 1
         let eased = source.components(separatedBy: "splitView.animator().setPosition(").count - 1
         #expect(instant == 1)
-        #expect(eased == 1)
-        let helper = try #require(source.range(of: "private func setDividerPosition"))
-        let body = source[helper.lowerBound...]
-        #expect(body.contains("splitView.setPosition("))
-        #expect(body.contains("splitView.animator().setPosition("))
+        #expect(eased == 2)
+        let settleHelper = try #require(source.range(of: "private func setDividerPosition"))
+        let stopHelper = try #require(source.range(of: "private func stopDividerSettleAnimation"))
+        // The plain setPosition and the settle animator both live in setDividerPosition
+        // (before the stop helper); the stop's animator lives in the stop helper.
+        let settleBody = source[settleHelper.lowerBound..<stopHelper.lowerBound]
+        #expect(settleBody.contains("splitView.setPosition("))
+        #expect(settleBody.contains("splitView.animator().setPosition("))
+        #expect(source[stopHelper.lowerBound...].contains("splitView.animator().setPosition("))
     }
 
     // MARK: - Eased settle (#81)
@@ -1722,6 +1727,37 @@ struct SidebarSplitControllerTests {
         #expect(
             controller.splitView(splitView, constrainSplitPosition: deadZone, ofSubviewAt: 0)
                 != deadZone)
+    }
+
+    // An instant divider correction arriving mid-settle (window resize/starvation
+    // clamp, side flip, hide) must cancel the running animation so it can't keep
+    // driving stale coordinates to its original target (#81).
+    @Test("an instant divider move cancels an in-flight settle")
+    func instantMoveCancelsInFlightSettle() {
+        let (controller, _, _) = makeController()
+        _ = hostInFixedWindow(controller)
+        controller.setSidebarWidth(300)
+        controller.armDividerSettleForTesting()
+        #expect(controller.isAnimatingDividerSettleForTesting)
+
+        controller.setSidebarWidth(280)  // instant (animated defaults false)
+
+        #expect(!controller.isAnimatingDividerSettleForTesting)
+        #expect(abs(controller.sidebarSplitPaneWidthForTesting - 280) < 1)
+    }
+
+    // Detach/finalize must stop an in-flight settle before hiding the clip, or a
+    // late animation tick un-hides what teardown just hid (#81).
+    @Test("detach cancels an in-flight settle")
+    func detachCancelsInFlightSettle() {
+        let (controller, _, _) = makeController()
+        _ = hostInFixedWindow(controller)
+        controller.setSidebarWidth(300)
+        controller.armDividerSettleForTesting()
+
+        controller.settleDetached()
+
+        #expect(!controller.isAnimatingDividerSettleForTesting)
     }
 }
 
