@@ -1760,13 +1760,13 @@ struct SidebarSplitControllerTests {
         #expect(!controller.isAnimatingDividerSettleForTesting)
     }
 
-    // A resize mid-settle (viewDidLayout → reclamp `.none`) must stop the animation:
-    // a right-side sidebar animates toward an ABSOLUTE divider coordinate captured at
-    // the old extent, which a changed extent would remap to the wrong width (#81).
-    // Deterministic on the stop wiring; the anti-remap width itself is smoke-only
-    // since the arm helper does not run a real async animation.
-    @Test("a resize mid-settle stops the animation on the right side")
-    func rightSideResizeMidSettleStopsAnimation() {
+    // A settle must survive an unrelated layout pass (no extent change) but stop on a
+    // real resize, which invalidates the absolute coordinate it animates toward — on a
+    // right-side sidebar a changed extent would remap it to the wrong width (#81).
+    // Deterministic on the gate wiring; the anti-remap width under a real async
+    // animation is smoke-only since the arm helper does not run one.
+    @Test("a settle survives a no-op layout but a real resize stops it")
+    func settleSurvivesLayoutButStopsOnResize() {
         let (controller, _, _) = makeController(width: 1_200)
         let window = hostInFixedWindow(controller)
         controller.setSidebarPosition(.right)
@@ -1774,10 +1774,15 @@ struct SidebarSplitControllerTests {
         controller.armDividerSettleForTesting()
         #expect(controller.isAnimatingDividerSettleForTesting)
 
+        // A forced layout pass with the SAME extent must not kill the ease.
+        controller.view.needsLayout = true
+        controller.view.layoutSubtreeIfNeeded()
+        #expect(controller.isAnimatingDividerSettleForTesting)
+
+        // A real resize (extent change) stops it and lands at the intended width.
         controller.view.frame = CGRect(x: 0, y: 0, width: 1_400, height: 800)
         window.contentView?.frame = controller.view.frame
         controller.view.layoutSubtreeIfNeeded()
-
         #expect(!controller.isAnimatingDividerSettleForTesting)
         #expect(abs(controller.sidebarSplitPaneWidthForTesting - 400) < 1)
     }
