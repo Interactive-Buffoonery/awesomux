@@ -1287,25 +1287,6 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     self.settleTransientOverlayIfNeeded()
                 }
             })
-        if workspaceSleepObserver == nil {
-            // Routed to the same settle-only subset as app resignation
-            // (`settleTransientOverlayIfNeeded`), NOT the full resignation
-            // handler above: sleep isn't app-to-app deactivation, and there is
-            // no `didWakeNotification` observer restoring
-            // `acceptsApplicationPointerEvents`/deferred focus-repair state
-            // afterward. Reusing the pointer-disabling and focus-repair
-            // capture from resignation here would leave hover-reveal
-            // permanently unresponsive after wake with nothing to reverse it.
-            workspaceSleepObserver = workspaceNotificationCenter.addObserver(
-                forName: NSWorkspace.willSleepNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.settleTransientOverlayIfNeeded()
-                }
-            }
-        }
         applicationActivityObservations.append(
             interactionNotificationCenter.addObserver(
                 forName: NSApplication.didBecomeActiveNotification,
@@ -1360,6 +1341,27 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     self.recoverApplicationFocusIfReady(in: window)
                 }
             })
+        if workspaceSleepObserver == nil {
+            // Routed to the same settle-only subset as app resignation
+            // (`settleTransientOverlayIfNeeded`), NOT the full resignation
+            // handler above: sleep isn't app-to-app deactivation, and there is
+            // no `didWakeNotification` observer restoring
+            // `acceptsApplicationPointerEvents`/deferred focus-repair state
+            // afterward. Reusing the pointer-disabling and focus-repair
+            // capture from resignation here would leave hover-reveal
+            // permanently unresponsive after wake with nothing to reverse it.
+            // On its own center (see `workspaceNotificationCenter`'s doc
+            // comment), not folded into `applicationActivityObservations`.
+            workspaceSleepObserver = workspaceNotificationCenter.addObserver(
+                forName: NSWorkspace.willSleepNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.settleTransientOverlayIfNeeded()
+                }
+            }
+        }
     }
 
     private func windowDidBecomeKey(_ window: NSWindow) {
