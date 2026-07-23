@@ -130,11 +130,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private weak var localMouseMovedWindow: NSWindow?
     private var localMouseMovedWindowPreviouslyAcceptedEvents = false
     private var applicationActivityObservations: [NSObjectProtocol] = []
-    /// Torn down separately from `applicationActivityObservations` — it lives
-    /// on `workspaceNotificationCenter`, a different center instance, and
-    /// `NotificationCenter.removeObserver` silently no-ops for a token issued
-    /// by a different center.
+    /// Torn down separately from `applicationActivityObservations` — both
+    /// live on `workspaceNotificationCenter`, a different center instance,
+    /// and `NotificationCenter.removeObserver` silently no-ops for a token
+    /// issued by a different center.
     private var workspaceSleepObserver: NSObjectProtocol?
+    private var workspaceWakeObserver: NSObjectProtocol?
     private var acceptsApplicationPointerEvents = true
     /// Single deferred focus-repair record. A hide requested while the primary
     /// window is not key (Settings frontmost, app inactive, or a mid-remount gap)
@@ -638,6 +639,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         interactionMonitor?.observerCountForTesting ?? 0
     }
     var isFinalizedForTesting: Bool { isFinalized }
+    var pendingFocusRepairIsSetForTesting: Bool { pendingFocusRepair != nil }
     func simulateTrackingAvailabilityLostForTesting() {
         onTrackingAvailabilityLost?()
     }
@@ -1316,17 +1318,14 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             // Shares `captureFocusRepairBeforeSettling()` +
             // `settleTransientOverlayIfNeeded()` with the resignation handler
             // above — NOT its pointer-acceptance-disabling: sleep isn't
-            // app-to-app deactivation, and there is no `didWakeNotification`
-            // observer restoring `acceptsApplicationPointerEvents` afterward,
-            // so disabling it here would leave hover-reveal permanently
-            // unresponsive after wake with nothing to reverse it. The focus
-            // capture DOES need to run here too — whichever of sleep or
-            // resignation fires first is the one and only chance to record
-            // what was focused before `settleHidden()` redirects it to the
-            // window with no memory of the target; skipping the capture on
-            // sleep would silently defeat resignation's capture if
-            // resignation fires afterward, since by then there is nothing
-            // left in the sidebar to notice as focused.
+            // app-to-app deactivation, and `didWakeNotification` below
+            // restores it. The focus capture DOES need to run here too —
+            // whichever of sleep or resignation fires first is the one and
+            // only chance to record what was focused before `settleHidden()`
+            // redirects it to the window with no memory of the target;
+            // skipping the capture on sleep would silently defeat
+            // resignation's capture if resignation fires afterward, since by
+            // then there is nothing left in the sidebar to notice as focused.
             // On its own center (see `workspaceNotificationCenter`'s doc
             // comment), not folded into `applicationActivityObservations`.
             workspaceSleepObserver = workspaceNotificationCenter.addObserver(
@@ -1338,6 +1337,35 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     guard let self else { return }
                     self.captureFocusRepairBeforeSettling()
                     self.settleTransientOverlayIfNeeded()
+                }
+            }
+        }
+        if workspaceWakeObserver == nil {
+            // The ONLY reliable trigger for `recoverApplicationFocusIfReady`
+            // when the app/window were already active and key going into
+            // sleep: a real wake with no intervening app-activation
+            // transition fires neither `didBecomeActiveNotification` nor
+            // `didBecomeKeyNotification` (both are activation-transition
+            // notifications, not wake notifications), which would otherwise
+            // strand a `pendingFocusRepair` captured by the sleep observer
+            // above with nothing left to consume it. Does NOT touch
+            // `acceptsApplicationPointerEvents` — sleep never disabled it
+            // (that stays exclusive to resignation, see above), and forcing
+            // it back on here would be wrong if resignation fired before
+            // sleep and `didBecomeActiveNotification` hasn't happened yet:
+            // the app would still be genuinely inactive.
+            // `recoverApplicationFocusIfReady` is idempotent/safely
+            // re-entrant — every precondition (pending repair, app active,
+            // window key) is re-checked inside it, so a redundant fire
+            // alongside the other three triggers is a no-op.
+            workspaceWakeObserver = workspaceNotificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.view.window else { return }
+                    self.recoverApplicationFocusIfReady(in: window)
                 }
             }
         }
@@ -1414,6 +1442,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             workspaceNotificationCenter.removeObserver(workspaceSleepObserver)
         }
         workspaceSleepObserver = nil
+        if let workspaceWakeObserver {
+            workspaceNotificationCenter.removeObserver(workspaceWakeObserver)
+        }
+        workspaceWakeObserver = nil
     }
 
     /// Settle-only subset shared by app resignation and system sleep:

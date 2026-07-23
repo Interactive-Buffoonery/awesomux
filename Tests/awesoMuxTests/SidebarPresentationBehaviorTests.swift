@@ -1169,15 +1169,69 @@ struct SidebarPresentationBehaviorTests {
         // afterward would see nothing left in the sidebar to notice as
         // focused, and wake recovery below would silently no-op.
         workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+
+        // Asserted here, before resignation and before mounting a surface,
+        // so this is decisive proof sleep itself did the capturing --
+        // `mountSelectedSurface()` below has its own focus-reclaim side
+        // effect (`requestFocusIfWindowHasNoTarget`) that would otherwise
+        // make a later firstResponder-only assertion ambiguous about which
+        // mechanism actually routed focus.
+        #expect(fixture.controller.pendingFocusRepairIsSetForTesting)
+        #expect(fixture.controller.hostModeForTesting == .hidden)
+
         center.post(name: NSApplication.didResignActiveNotification, object: NSApp)
 
-        #expect(fixture.controller.hostModeForTesting == .hidden)
+        // Resignation firing afterward must not clobber what sleep already
+        // captured -- this is the exact interleaving the fix targets.
+        #expect(fixture.controller.pendingFocusRepairIsSetForTesting)
 
         let selectedSurface = fixture.mountSelectedSurface()
         center.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
 
         #expect(fixture.window.firstResponder === selectedSurface)
         #expect(fixture.sessionStore.selectedSession?.activePaneID == fixture.selectedPane.id)
+    }
+
+    @Test("wake alone recovers focus when the app never actually resigned or reactivated")
+    func wakeAloneRecoversFocusWithoutAnyActivationTransition() {
+        // The app/window stay active and key throughout (the fixture
+        // defaults to `applicationIsActive: { true }` and a key window) --
+        // no `didResignActiveNotification`, `didBecomeActiveNotification`,
+        // `didBecomeKeyNotification`, or Ghostty-readiness notification ever
+        // fires in this test. A real sleep/wake with no intervening
+        // app-activation transition looks exactly like this: only
+        // `willSleepNotification` and `didWakeNotification` fire. Without a
+        // dedicated wake observer, `pendingFocusRepair` (captured by sleep)
+        // would have nothing left to consume it.
+        let workspaceCenter = NotificationCenter()
+        let fixture = ProductionFocusFixture(workspaceNotificationCenter: workspaceCenter)
+        defer { fixture.cleanUp() }
+        _ = fixture.window.makeFirstResponder(nil)
+        #expect(fixture.controller.setPersistentSidebarVisible(false))
+        #expect(fixture.controller.setOverlayPresentedImmediately(true))
+        #expect(fixture.window.makeFirstResponder(fixture.sidebarFocus))
+        fixture.controller.onTrackingAvailabilityLost = { [weak controller = fixture.controller] in
+            controller?.setOverlayPresentedImmediately(false)
+        }
+        var handoffRequests: [SidebarFocusHandoffRequest] = []
+        fixture.controller.onSidebarFocusHandoff = { request in
+            handoffRequests.append(request)
+            return fixture.focusPrimaryContent(request)
+        }
+
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(fixture.controller.pendingFocusRepairIsSetForTesting)
+        #expect(fixture.controller.hostModeForTesting == .hidden)
+
+        // No surface mounted yet, so nothing outside the sidebar can look
+        // already-focused (`reduceApplicationFocusRecovery`'s short-circuit
+        // guard can't fire) -- the wake observer calling
+        // `recoverApplicationFocusIfReady` is the only thing that can invoke
+        // the handoff callback here, decisively proving the wake observer
+        // itself did the recovering, not some other mechanism.
+        workspaceCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+
+        #expect(!handoffRequests.isEmpty)
     }
 
     @Test("app resignation clears a hidden search field editor through a remount gap")
