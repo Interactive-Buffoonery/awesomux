@@ -13,19 +13,19 @@ struct DaemonGCPlanTests {
         #expect(DaemonGCPlan.isUUIDShaped(uuidA))
         #expect(DaemonGCPlan.isUUIDShaped(TerminalSessionID.generate().rawValue))
         #expect(!DaemonGCPlan.isUUIDShaped("dev"))
-        #expect(!DaemonGCPlan.isUUIDShaped("11111111-1111-4111-8111-11111111111"))   // short
+        #expect(!DaemonGCPlan.isUUIDShaped("11111111-1111-4111-8111-11111111111"))  // short
         #expect(!DaemonGCPlan.isUUIDShaped("ABCDEFAB-1111-4111-8111-111111111111"))  // uppercase rejected
     }
 
     @Test("amx list parser extracts id/pid/created, skips junk")
     func parseList() {
         let raw = """
-          name=\(uuidA)\tpid=100\tclients=0\tcreated=1782263486\tstart_dir=/x
-          name=\(uuidB)\tpid=200\tclients=1\tcreated=1782263487\tstart_dir=/a b\tended=1782263490\texit_code=0
-          name=dev\tpid=300\tclients=0\tcreated=1782263488\tstart_dir=/y
-          garbage line
-          name=\(uuidA)\tpid=notanint\tcreated=1782263486
-        """
+              name=\(uuidA)\tpid=100\tclients=0\tcreated=1782263486\tstart_dir=/x
+              name=\(uuidB)\tpid=200\tclients=1\tcreated=1782263487\tstart_dir=/a b\tended=1782263490\texit_code=0
+              name=dev\tpid=300\tclients=0\tcreated=1782263488\tstart_dir=/y
+              garbage line
+              name=\(uuidA)\tpid=notanint\tcreated=1782263486
+            """
         let daemons = DaemonGCPlan.parseAmxList(raw)
         #expect(daemons.contains(LiveDaemon(id: TerminalSessionID(rawValue: uuidA)!, pid: 100, createdEpoch: 1782263486, clients: 0)))
         #expect(daemons.contains(LiveDaemon(id: TerminalSessionID(rawValue: uuidB)!, pid: 200, createdEpoch: 1782263487, clients: 1)))
@@ -37,7 +37,7 @@ struct DaemonGCPlanTests {
 
     @Test("amx list: missing/unparseable clients fails safe to in-use (clients=1)")
     func parseListClientsFailSafe() {
-        let raw = "  name=\(uuidA)\tpid=100\tcreated=1782263486\tstart_dir=/x"   // no clients field
+        let raw = "  name=\(uuidA)\tpid=100\tcreated=1782263486\tstart_dir=/x"  // no clients field
         let daemons = DaemonGCPlan.parseAmxList(raw)
         #expect(daemons.first?.clients == 1)
     }
@@ -54,7 +54,7 @@ struct DaemonGCPlanTests {
 
     @Test("idle: daemon -> shell -> no children")
     func idleShell() {
-        let snapshot = [ProcEntry(pid: 100, ppid: 50, command: "zsh")]   // daemon 50 -> shell 100
+        let snapshot = [ProcEntry(pid: 100, ppid: 50, command: "zsh")]  // daemon 50 -> shell 100
         #expect(DaemonGCPlan.isIdle(daemonPID: 50, in: snapshot))
     }
 
@@ -81,7 +81,7 @@ struct DaemonGCPlanTests {
     func busyForeground() {
         let snapshot = [
             ProcEntry(pid: 100, ppid: 50, command: "zsh"),
-            ProcEntry(pid: 200, ppid: 100, command: "make")
+            ProcEntry(pid: 200, ppid: 100, command: "make"),
         ]
         #expect(!DaemonGCPlan.isIdle(daemonPID: 50, in: snapshot))
     }
@@ -99,12 +99,15 @@ struct DaemonGCPlanTests {
 
     @Test("reapable: idle unattached UUID orphan reaped; owned/busy/non-uuid/new/attached spared")
     func reapableMatrix() {
-        let orphan   = LiveDaemon(id: TerminalSessionID(rawValue: uuidA)!, pid: 100, createdEpoch: 10, clients: 0)
-        let owned    = LiveDaemon(id: TerminalSessionID(rawValue: uuidB)!, pid: 200, createdEpoch: 10, clients: 0)
-        let hand     = LiveDaemon(id: TerminalSessionID(rawValue: "dev")!, pid: 300, createdEpoch: 10, clients: 0)
-        let busyD    = LiveDaemon(id: TerminalSessionID(rawValue: "33333333-3333-4333-8333-333333333333")!, pid: 400, createdEpoch: 10, clients: 0)
-        let fresh    = LiveDaemon(id: TerminalSessionID(rawValue: "44444444-4444-4444-8444-444444444444")!, pid: 500, createdEpoch: 99, clients: 0)
-        let attached = LiveDaemon(id: TerminalSessionID(rawValue: "55555555-5555-4555-8555-555555555555")!, pid: 600, createdEpoch: 10, clients: 1)
+        let orphan = LiveDaemon(id: TerminalSessionID(rawValue: uuidA)!, pid: 100, createdEpoch: 10, clients: 0)
+        let owned = LiveDaemon(id: TerminalSessionID(rawValue: uuidB)!, pid: 200, createdEpoch: 10, clients: 0)
+        let hand = LiveDaemon(id: TerminalSessionID(rawValue: "dev")!, pid: 300, createdEpoch: 10, clients: 0)
+        let busyD = LiveDaemon(
+            id: TerminalSessionID(rawValue: "33333333-3333-4333-8333-333333333333")!, pid: 400, createdEpoch: 10, clients: 0)
+        let fresh = LiveDaemon(
+            id: TerminalSessionID(rawValue: "44444444-4444-4444-8444-444444444444")!, pid: 500, createdEpoch: 99, clients: 0)
+        let attached = LiveDaemon(
+            id: TerminalSessionID(rawValue: "55555555-5555-4555-8555-555555555555")!, pid: 600, createdEpoch: 10, clients: 1)
         let plan = DaemonGCPlan.reapable(
             live: [orphan, owned, hand, busyD, fresh, attached],
             owned: [owned.id],
@@ -124,8 +127,9 @@ struct DaemonGCPlanTests {
     @Test("expiredReapable: idle unpinned over-cap orphan reaped; pinned/busy/under-cap spared")
     func expiredReapableMatrix() {
         let expired = LiveDaemon(id: TerminalSessionID(rawValue: uuidA)!, pid: 1, createdEpoch: 0, clients: 0)
-        let pinned  = LiveDaemon(id: TerminalSessionID(rawValue: uuidB)!, pid: 2, createdEpoch: 0, clients: 0)
-        let underCap = LiveDaemon(id: TerminalSessionID(rawValue: "33333333-3333-4333-8333-333333333333")!, pid: 3, createdEpoch: 900, clients: 0)
+        let pinned = LiveDaemon(id: TerminalSessionID(rawValue: uuidB)!, pid: 2, createdEpoch: 0, clients: 0)
+        let underCap = LiveDaemon(
+            id: TerminalSessionID(rawValue: "33333333-3333-4333-8333-333333333333")!, pid: 3, createdEpoch: 900, clients: 0)
         let plan = DaemonGCPlan.expiredReapable(
             live: [expired, pinned, underCap],
             owned: [], busy: [],
@@ -133,15 +137,17 @@ struct DaemonGCPlanTests {
             idleByID: [expired.id: true, pinned.id: true, underCap.id: true],
             capThresholdSeconds: 500, now: 1000, gcStart: 1001
         )
-        #expect(plan == [expired])   // age 1000≥500 idle unpinned; pinned spared; underCap age 100<500 spared
+        #expect(plan == [expired])  // age 1000≥500 idle unpinned; pinned spared; underCap age 100<500 spared
     }
 
     @Test("expiredReapable: cap nil reaps nothing")
     func expiredReapableCapOff() {
         let orphan = LiveDaemon(id: TerminalSessionID(rawValue: uuidA)!, pid: 1, createdEpoch: 0, clients: 0)
-        #expect(DaemonGCPlan.expiredReapable(
-            live: [orphan], owned: [], busy: [], pinned: [], idleByID: [orphan.id: true],
-            capThresholdSeconds: nil, now: 9999, gcStart: 10000).isEmpty)
+        #expect(
+            DaemonGCPlan.expiredReapable(
+                live: [orphan], owned: [], busy: [], pinned: [], idleByID: [orphan.id: true],
+                capThresholdSeconds: nil, now: 9999, gcStart: 10000
+            ).isEmpty)
     }
 
     @Test("reachability splits live-pane ids from restorable-only ids")
@@ -185,6 +191,78 @@ struct DaemonGCPlanTests {
             name: "g",
             sessions: [TerminalSession(title: "ws", workingDirectory: "~", layout: .pane(pane(sessionID)))]
         )
+    }
+
+    @Test("status filename parser accepts minted names only")
+    func statusFilenameParsing() {
+        let minted = "\(uuidA)-0a1b2c3d.status.jsonl"
+        #expect(DaemonGCPlan.statusFileSessionID(minted)?.rawValue == uuidA)
+
+        #expect(DaemonGCPlan.statusFileSessionID("\(uuidA)-0a1b2c3d.status.json") == nil)  // wrong suffix
+        #expect(DaemonGCPlan.statusFileSessionID("\(uuidA).status.jsonl") == nil)  // no token
+        #expect(DaemonGCPlan.statusFileSessionID("\(uuidA)-0a1b2c.status.jsonl") == nil)  // short token
+        #expect(DaemonGCPlan.statusFileSessionID("\(uuidA)-0A1B2C3D.status.jsonl") == nil)  // uppercase token
+        #expect(DaemonGCPlan.statusFileSessionID("\(uuidA)_0a1b2c3d.status.jsonl") == nil)  // wrong separator
+        #expect(DaemonGCPlan.statusFileSessionID("dev-0a1b2c3d.status.jsonl") == nil)  // hand name
+        #expect(
+            DaemonGCPlan.statusFileSessionID(
+                "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA-0a1b2c3d.status.jsonl") == nil)  // uppercase uuid
+    }
+
+    @Test("status-file sweep spares attached, in-grace, and unparseable files")
+    func staleStatusFileSelection() {
+        let gcStart = 10_000
+        let grace = 3_600
+        let attachedID = TerminalSessionID(rawValue: uuidA)!
+        let orphanUUID = "33333333-3333-4333-8333-333333333333"
+        func candidate(_ uuid: String, token: String = "0a1b2c3d", mtime: Int = 500)
+            -> DaemonGCPlan.StatusFileCandidate
+        {
+            DaemonGCPlan.StatusFileCandidate(
+                filename: "\(uuid)-\(token).status.jsonl",
+                modifiedEpoch: mtime
+            )
+        }
+
+        let stale = DaemonGCPlan.staleStatusFiles(
+            candidates: [
+                candidate(uuidA),  // attached client, however old → spared
+                candidate(uuidB),  // stale generation of an unattached session → stale
+                candidate(orphanUUID),  // orphan, pre-fence → stale
+                candidate(orphanUUID, token: "eeeeeeee", mtime: gcStart - grace),  // exact boundary → spared
+                candidate(orphanUUID, token: "ffffffff", mtime: gcStart - 5),  // in-flight attach → spared
+                DaemonGCPlan.StatusFileCandidate(
+                    filename: "not-a-session.status.jsonl", modifiedEpoch: 1
+                ),  // unparseable → spared
+            ],
+            attached: [attachedID],
+            gcStart: gcStart,
+            graceSeconds: grace
+        )
+
+        #expect(
+            stale.sorted() == [
+                "\(uuidB)-0a1b2c3d.status.jsonl",
+                "\(orphanUUID)-0a1b2c3d.status.jsonl",
+            ])
+    }
+
+    @Test("strict list parse rejects any nonblank row the tolerant parser skips")
+    func strictListParse() {
+        let clean = """
+              name=\(uuidA)\tpid=100\tclients=1\tcreated=500\tstart_dir=/tmp
+              name=\(uuidB)\tpid=200\tclients=0\tcreated=600\tstart_dir=/tmp
+            """
+        #expect(DaemonGCPlan.parseAmxListStrict(clean)?.count == 2)
+        #expect(DaemonGCPlan.parseAmxListStrict("")?.isEmpty == true)
+        #expect(DaemonGCPlan.parseAmxListStrict("\n \n")?.isEmpty == true)
+
+        let drifted = clean + "\n  session \(uuidA) attached"
+        #expect(DaemonGCPlan.parseAmxList(drifted).count == 2)  // tolerant skips
+        #expect(DaemonGCPlan.parseAmxListStrict(drifted) == nil)  // strict aborts
+
+        let malformedRow = clean + "\n  name=\(uuidA)\tpid=broken\tcreated=1"
+        #expect(DaemonGCPlan.parseAmxListStrict(malformedRow) == nil)
     }
 
     private static func closed(sessionID: TerminalSessionID) -> RecentlyClosedWorkspace {

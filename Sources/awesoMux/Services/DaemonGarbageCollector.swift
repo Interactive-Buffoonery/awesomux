@@ -1,6 +1,7 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
+import Darwin
 import Foundation
 import os
 
@@ -34,11 +35,13 @@ enum DaemonGarbageCollector {
         hasUnresolvedRecoveryWarning: Bool,
         pinned: Set<TerminalSessionID>
     ) {
-        guard let configuration = launchSweepConfiguration(
-            terminalSettings: terminalSettings,
-            isRestoreEnabled: isRestoreEnabled,
-            hasUnresolvedRecoveryWarning: hasUnresolvedRecoveryWarning
-        ) else { return }
+        guard
+            let configuration = launchSweepConfiguration(
+                terminalSettings: terminalSettings,
+                isRestoreEnabled: isRestoreEnabled,
+                hasUnresolvedRecoveryWarning: hasUnresolvedRecoveryWarning
+            )
+        else { return }
         // Snapshot the owned set on the main actor from the SAME store state that
         // drives restore, BEFORE any restore attach can create new daemons.
         let owned = DaemonGCPlan.reachableSessionIDs(
@@ -83,7 +86,26 @@ enum DaemonGarbageCollector {
         // before the first list, so any daemon a restore-attach creates has
         // created >= gcStart and is fenced out by reapable().
         let gcStart = Int(Date().timeIntervalSince1970)
-        let live = await AmxBackend.listSessions()
+        // Failure must stay distinguishable from "no daemons": treating a
+        // failed list as empty would mark every session's status file stale.
+        guard let listOutput = await AmxBackend.listSessionsRawOutput() else {
+            log.error("daemon GC aborted: session list unavailable")
+            return
+        }
+        let live = DaemonGCPlan.parseAmxList(listOutput)
+
+        // Runs even with zero live daemons — that is exactly the state in
+        // which every leaked status file is orphaned. Files for daemons
+        // reaped later this sweep wait for the next launch; the leak is the
+        // unbounded part, not the one-launch lag. The strict re-parse hands
+        // the sweep nil (abort) on any format drift the tolerant parser
+        // would silently skip — a dropped live row must not read as
+        // "no attached client, delete its file".
+        sweepStaleStatusFiles(
+            live: DaemonGCPlan.parseAmxListStrict(listOutput),
+            gcStart: gcStart
+        )
+
         guard !live.isEmpty else { return }
 
         // A nil snapshot means `ps` failed — we cannot prove anything is idle, so
@@ -110,9 +132,10 @@ enum DaemonGarbageCollector {
         )
         // Union by id (a daemon can satisfy both); the existing revalidation below
         // still guards every kill against a fresh list.
-        let plan = Array(Dictionary(
-            (orphanPlan + expiredPlan).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
-        ).values)
+        let plan = Array(
+            Dictionary(
+                (orphanPlan + expiredPlan).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
+            ).values)
         guard !plan.isEmpty else { return }
 
         // Re-validate against a fresh list right before killing: only reap a
@@ -148,5 +171,76 @@ enum DaemonGarbageCollector {
         let remaining = Set((await AmxBackend.listSessions()).map(\.id))
         let reaped = targets.filter { !remaining.contains($0.id) }.count
         log.info("daemon GC: \(reaped)/\(targets.count) orphan daemon(s) confirmed reaped")
+    }
+
+    /// Removes leaked per-attach `*.status.jsonl` files — anything not
+    /// protected by an attached client, the grace window, or strict name
+    /// attribution (Interactive-Buffoonery/awesomux#184). Decision logic
+    /// lives in `DaemonGCPlan.staleStatusFiles`; this is the IO.
+    /// `live` is nil when the session list failed OR parsed non-strictly —
+    /// both abort, deleting nothing. Internal (not private) with an
+    /// injectable directory so the abort-on-nil and deletion behavior are
+    /// testable against a temp directory.
+    // ponytail: blocking FileManager IO on the cooperative pool — launch-once,
+    // .utility, O(directory entries); hop to a DispatchQueue if the launch
+    // scan ever stalls.
+    nonisolated static func sweepStaleStatusFiles(
+        live: [LiveDaemon]?,
+        gcStart: Int,
+        directory: String = AmxBackend.sessionSocketDirectory()
+    ) {
+        guard let live else {
+            log.error("status-file GC skipped: session list unavailable or unparseable")
+            return
+        }
+        let attached = Set(live.filter { $0.clients > 0 }.map(\.id))
+        let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+        guard
+            let entries = try? FileManager.default.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+                options: []
+            )
+        else { return }
+        let candidates = entries.compactMap { url -> DaemonGCPlan.StatusFileCandidate? in
+            // Resource values come from the same enumeration pass (one stat
+            // per entry) and do not follow symlinks; requiring a regular
+            // file keeps a directory or symlink squatting a status-shaped
+            // name out of candidacy.
+            guard url.lastPathComponent.hasSuffix(".status.jsonl"),
+                let values = try? url.resourceValues(
+                    forKeys: [.isRegularFileKey, .contentModificationDateKey]
+                ),
+                values.isRegularFile == true,
+                let modified = values.contentModificationDate
+            else { return nil }
+            return DaemonGCPlan.StatusFileCandidate(
+                filename: url.lastPathComponent,
+                modifiedEpoch: Int(modified.timeIntervalSince1970)
+            )
+        }
+        let stale = DaemonGCPlan.staleStatusFiles(
+            candidates: candidates,
+            attached: attached,
+            gcStart: gcStart
+        )
+        guard !stale.isEmpty else { return }
+        var removed = 0
+        for name in stale {
+            // unlink(2), not FileManager.removeItem: refuses directories at
+            // the syscall even if the entry changed type after the check
+            // above, and unlinks a symlink itself rather than its target.
+            if Darwin.unlink(directory + "/" + name) == 0 {
+                removed += 1
+            } else if errno != ENOENT {
+                // ENOENT is the benign race: the file's own watcher removed
+                // it first — the desired end state, not an error.
+                let errnoValue = errno
+                log.error(
+                    "status-file GC unlink failed for \(name, privacy: .public): errno=\(errnoValue)"
+                )
+            }
+        }
+        log.info("daemon GC: removed \(removed)/\(stale.count) stale status file(s)")
     }
 }
