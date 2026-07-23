@@ -214,7 +214,7 @@ struct GitStatusResolverTests {
 // MARK: - Command runner drain
 
 @MainActor
-@Suite("Bounded command runner")
+@Suite("Bounded command runner", .serialized)
 struct BoundedCommandRunnerTests {
     @Test("stdout larger than the pipe buffer is fully drained, not deadlocked")
     func drainsLargeStdout() async throws {
@@ -291,7 +291,7 @@ struct BoundedCommandRunnerTests {
             await runner.run(arguments: ["-c", "sleep 3 &"], inDirectory: NSTemporaryDirectory())
         }
 
-        #expect(await waitUntil { scheduler.requestedDurations.contains(.milliseconds(500)) })
+        #expect(await waitUntilEventually { scheduler.requestedDurations.contains(.milliseconds(500)) })
         scheduler.advanceOneCycle()
         #expect(await run.value == nil)  // undrained → unknown, not a partial result
     }
@@ -319,9 +319,9 @@ struct BoundedCommandRunnerTests {
             return result
         }
 
-        #expect(await waitUntil { scheduler.requestedDurations.first == .seconds(60) })
+        #expect(await waitUntilEventually { scheduler.requestedDurations.first == .seconds(60) })
         run.cancel()
-        #expect(await waitUntil { scheduler.requestedDurations.contains(.seconds(1)) })
+        #expect(await waitUntilEventually { scheduler.requestedDurations.contains(.seconds(1)) })
         #expect(await completedRuns.values.isEmpty)
 
         scheduler.advanceOneCycle()
@@ -347,7 +347,7 @@ struct BoundedCommandRunnerTests {
             await runner.run(arguments: ["30"], inDirectory: NSTemporaryDirectory())
         }
 
-        #expect(await waitUntil { scheduler.requestedDurations.first == .seconds(1) })
+        #expect(await waitUntilEventually { scheduler.requestedDurations.first == .seconds(1) })
         scheduler.advanceOneCycle()
         #expect(await run.value == nil)
         scheduler.advanceOneCycle()
