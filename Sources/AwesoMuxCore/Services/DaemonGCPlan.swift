@@ -270,8 +270,9 @@ public enum DaemonGCPlan {
 
     /// A crashed/force-killed app leaves its `amx attach <uuid>` child
     /// orphaned to launchd (macOS reparents to pid 1 — verified empirically,
-    /// not assumed). That child blocks on `poll(-1)` forever, keeping its
-    /// daemon's `clients` count >= 1 and permanently defeating `reapable`.
+    /// not assumed). That child blocks reading stdin forever with no
+    /// timeout, keeping its daemon's `clients` count >= 1 and permanently
+    /// defeating `reapable`.
     ///
     /// Cheap first pass over the `ps` snapshot already fetched for busy/idle
     /// classification (no extra IO). Intentionally a shortlist, not a kill
