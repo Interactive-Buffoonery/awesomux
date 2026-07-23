@@ -289,7 +289,19 @@ struct RemoteHandoffTests {
 
     @Test("transfer terminates on task cancellation")
     func transferCancellation() async throws {
-        let harness = try await transferHarness(scriptBody: "exec sleep 5")
+        // Handshake on a started-marker instead of a blind fixed sleep: under
+        // full-suite contention a fixed delay can fire before the child has
+        // spawned, so cancellation would race the launch instead of a running
+        // transfer.
+        let directory = try TemporaryDirectory(prefix: "handoff-cancel")
+        // TemporaryDirectory deletes its contents (the fake-ssh script) on deinit;
+        // keep it alive until the spawned child has been torn down below.
+        defer { withExtendedLifetime(directory) {} }
+        let startedMarker = directory.url.appendingPathComponent("started")
+        let harness = try await transferHarness(
+            directory: directory,
+            scriptBody: "touch \(shellQuote(startedMarker.path)); exec sleep 5"
+        )
         let transfer = Task {
             try await RemoteHandoff.transfer(
                 source: harness.source,
@@ -301,8 +313,16 @@ struct RemoteHandoffTests {
                 timeout: .seconds(2)
             )
         }
-        try await Task.sleep(for: .milliseconds(50))
+        // Gate on the child having spawned (marker touched) before cancelling, so
+        // cancellation targets a running transfer rather than racing the launch.
+        let started = await waitUntilEventually {
+            FileManager.default.fileExists(atPath: startedMarker.path)
+        }
+        #expect(started, "child did not signal start before cancellation")
         transfer.cancel()
+        // Await the task on every path: cancellation is cooperative and does not
+        // wait, so draining it here terminates the child before the defer releases
+        // the temp directory holding its script.
         await #expect(throws: CancellationError.self) {
             try await transfer.value
         }
@@ -329,14 +349,17 @@ struct RemoteHandoffTests {
         }
     }
 
-    private func transferHarness(scriptBody: String) async throws -> (
+    private func transferHarness(
+        directory: TemporaryDirectory? = nil,
+        scriptBody: String
+    ) async throws -> (
         directory: TemporaryDirectory,
         source: RemoteHandoff.PreparedSource,
         executable: URL,
         remote: RemoteTarget,
         sessionID: TerminalSessionID
     ) {
-        let directory = try TemporaryDirectory(prefix: "handoff-transfer")
+        let directory = try directory ?? TemporaryDirectory(prefix: "handoff-transfer")
         let sourceURL = directory.url.appendingPathComponent("notes.md")
         try Data("abc".utf8).write(to: sourceURL)
         return (

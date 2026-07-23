@@ -1,5 +1,9 @@
 import Dispatch
 
+/// Yield-budget poll for waits that hinge only on scheduler progress (an actor
+/// hop, a queued continuation). Do NOT use it to observe real I/O, child
+/// processes, or OS events: under CPU contention the yield budget can exhaust
+/// before the external event arrives. Use `waitUntilEventually` (wall-clock) for those.
 @MainActor
 public func waitUntil(
     attempts: Int = 10_000,
