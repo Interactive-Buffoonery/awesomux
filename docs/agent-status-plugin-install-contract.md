@@ -325,6 +325,18 @@ that JSON is the only non-interactive status source.
   `GROK_HOME` on every call. Claude: ensure `claude` is resolved on `PATH` (or
   an absolute path); honor `AWESOMUX_AGENT_HOOK` only inside the rendered
   `hooks.json`, not as a runner env.
+- **Hook commands resolve the helper at runtime, not just at install time.**
+  The rendered `hooks.json` command is a POSIX-sh string; instead of a single
+  frozen absolute path it carries a resolution ladder (issue #164): the
+  `AWESOMUX_AGENT_HOOK` override (guarded by an executability test so a stale
+  value is skipped), then the render-time baked path, then the app relocated by
+  Spotlight bundle-id lookup (iterated across candidates so a lingering stale
+  duplicate does not strand a valid moved copy), then a single stderr hint with
+  `exit 0`. The hint path is deliberately non-blocking — `exit 0` is strictly
+  safer than the shell's exec-failure `127` a missing baked path already
+  produced — so a moved/removed install degrades to one clear message rather
+  than a bare error on every tool call. Durable relocation (rewriting the baked
+  path on launch) is follow-up scope, not this contract.
 - **Prefer structured reads.** `claude plugin list --json`, Codex `hooks/list`,
   and `grok plugin list --json` are the parse targets. Treat human-editable
   files (`settings.json`, `config.toml`) as inputs the user may have changed,
