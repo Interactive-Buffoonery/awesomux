@@ -1531,8 +1531,13 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                     splitView.animator().setPosition(coordinate, ofDividerAt: 0)
                 },
                 completionHandler: { [weak self] in
-                    guard let self, self.dividerSettleGeneration == generation else { return }
-                    self.isAnimatingDividerSettle = false
+                    // AppKit invokes animation completions on the main thread; assume
+                    // the isolation the `@Sendable` closure type erases so the flag
+                    // (main-actor state) can be cleared here.
+                    MainActor.assumeIsolated {
+                        guard let self, self.dividerSettleGeneration == generation else { return }
+                        self.isAnimatingDividerSettle = false
+                    }
                 })
         } else {
             splitView.setPosition(coordinate, ofDividerAt: 0)
