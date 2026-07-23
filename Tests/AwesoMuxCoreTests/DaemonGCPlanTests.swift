@@ -331,6 +331,7 @@ struct DaemonGCPlanTests {
         #expect(samples[0].etimeSeconds == 5 * 86400 + 22 * 3600 + 3 * 60 + 16)
         #expect(samples[0].argv0 == "/Applications/awesoMux.app/Contents/MacOS/amx")
         #expect(samples[0].subcommand == "attach")
+        #expect(samples[0].sessionArgument == uuidA)
     }
 
     @Test("attach process sample parser: no subcommand token still parses argv0")
@@ -340,6 +341,7 @@ struct DaemonGCPlanTests {
         #expect(samples.count == 1)
         #expect(samples[0].argv0 == "amx")
         #expect(samples[0].subcommand == nil)
+        #expect(samples[0].sessionArgument == nil)
     }
 
     @Test("attach process sample parser: malformed lines dropped, not crashed on")
@@ -349,10 +351,11 @@ struct DaemonGCPlanTests {
         #expect(DaemonGCPlan.parseAttachProcessSamples("").isEmpty)
     }
 
-    @Test("confirmed orphans: attach subcommand, old enough, unowned daemon pid all required")
+    @Test("confirmed orphans: attach subcommand, old enough, unowned daemon pid, UUID session all required")
     func confirmedOrphanRequiresEveryFence() {
         let old = DaemonGCPlan.AttachProcessSample(
-            pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "/opt/amx", subcommand: "attach")
+            pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "/opt/amx", subcommand: "attach",
+            sessionArgument: uuidA)
         #expect(
             DaemonGCPlan.confirmedOrphanAttachPIDs(samples: [old], daemonPIDs: [], executableName: "amx") == [500])
     }
@@ -360,7 +363,7 @@ struct DaemonGCPlanTests {
     @Test("confirmed orphans: list/kill/send/history one-shots never match, regardless of age")
     func confirmedOrphanExcludesOtherSubcommands() {
         let oneShot = DaemonGCPlan.AttachProcessSample(
-            pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "list")
+            pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "list", sessionArgument: nil)
         #expect(
             DaemonGCPlan.confirmedOrphanAttachPIDs(samples: [oneShot], daemonPIDs: [], executableName: "amx")
                 .isEmpty)
@@ -369,7 +372,7 @@ struct DaemonGCPlanTests {
     @Test("confirmed orphans: too young to rule out a daemon mid-startup is excluded")
     func confirmedOrphanExcludesTooYoung() {
         let justStarted = DaemonGCPlan.AttachProcessSample(
-            pid: 500, ppid: 1, etimeSeconds: 1, argv0: "amx", subcommand: "attach")
+            pid: 500, ppid: 1, etimeSeconds: 1, argv0: "amx", subcommand: "attach", sessionArgument: uuidA)
         #expect(
             DaemonGCPlan.confirmedOrphanAttachPIDs(samples: [justStarted], daemonPIDs: [], executableName: "amx")
                 .isEmpty)
@@ -378,7 +381,7 @@ struct DaemonGCPlanTests {
     @Test("confirmed orphans: still-a-daemon pid excluded even if superficially orphan-shaped")
     func confirmedOrphanExcludesDaemonPID() {
         let sample = DaemonGCPlan.AttachProcessSample(
-            pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach")
+            pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach", sessionArgument: uuidA)
         #expect(
             DaemonGCPlan.confirmedOrphanAttachPIDs(samples: [sample], daemonPIDs: [500], executableName: "amx")
                 .isEmpty)
@@ -387,7 +390,25 @@ struct DaemonGCPlanTests {
     @Test("confirmed orphans: reparented mid-list (ppid != 1) excluded")
     func confirmedOrphanExcludesStillParented() {
         let sample = DaemonGCPlan.AttachProcessSample(
-            pid: 500, ppid: 42, etimeSeconds: 3600, argv0: "amx", subcommand: "attach")
+            pid: 500, ppid: 42, etimeSeconds: 3600, argv0: "amx", subcommand: "attach", sessionArgument: uuidA)
+        #expect(
+            DaemonGCPlan.confirmedOrphanAttachPIDs(samples: [sample], daemonPIDs: [], executableName: "amx")
+                .isEmpty)
+    }
+
+    @Test("confirmed orphans: hand-run session name (non-UUID) is never a candidate, mirroring reapable()")
+    func confirmedOrphanExcludesHandNamedSession() {
+        let sample = DaemonGCPlan.AttachProcessSample(
+            pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach", sessionArgument: "dev")
+        #expect(
+            DaemonGCPlan.confirmedOrphanAttachPIDs(samples: [sample], daemonPIDs: [], executableName: "amx")
+                .isEmpty)
+    }
+
+    @Test("confirmed orphans: missing session argument is never a candidate")
+    func confirmedOrphanExcludesMissingSessionArgument() {
+        let sample = DaemonGCPlan.AttachProcessSample(
+            pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach", sessionArgument: nil)
         #expect(
             DaemonGCPlan.confirmedOrphanAttachPIDs(samples: [sample], daemonPIDs: [], executableName: "amx")
                 .isEmpty)

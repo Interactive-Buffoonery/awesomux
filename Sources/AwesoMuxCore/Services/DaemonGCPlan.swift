@@ -302,27 +302,46 @@ public enum DaemonGCPlan {
     /// confirmed live (a mid-list `comm=` showed `/usr/libexec/log`,
     /// truncated, while the same field last showed the full
     /// `/usr/libexec/logd`). `etime` stays a safe fixed-width middle field.
+    ///
+    /// ponytail: whitespace-splitting `args` cannot unambiguously separate
+    /// argv0 from the subcommand if the exec'd path itself contains a space
+    /// (an install location like `/Applications/awesoMux Dev.app/...`) —
+    /// `argv0` would truncate at the first space and fail the basename
+    /// check in `confirmedOrphanAttachPIDs`, missing that orphan (a false
+    /// negative, the safe direction — never a false-positive kill). Ceiling:
+    /// resolve the executable path via `proc_pidpath()`/libproc instead of
+    /// parsing `args` text if a space-containing install path is ever real.
     public struct AttachProcessSample: Equatable {
         public let pid: Int32
         public let ppid: Int32
         public let etimeSeconds: Int
-        /// `args` split on the first two tokens: argv0 (executable path as
-        /// exec'd) and the subcommand (`attach`, `list`, `kill`, ...).
+        /// `args` split on its first three tokens: argv0 (executable path as
+        /// exec'd), the subcommand (`attach`, `list`, `kill`, ...), and — for
+        /// `attach` — the session id argument, needed to enforce the same
+        /// `isUUIDShaped` fence `reapable()` already applies to daemons (a
+        /// hand-run `amx attach dev` must never be a GC candidate here
+        /// either — see `confirmedOrphanAttachPIDs`).
         public let argv0: String
         public let subcommand: String?
+        public let sessionArgument: String?
 
-        public init(pid: Int32, ppid: Int32, etimeSeconds: Int, argv0: String, subcommand: String?) {
+        public init(
+            pid: Int32, ppid: Int32, etimeSeconds: Int, argv0: String,
+            subcommand: String?, sessionArgument: String?
+        ) {
             self.pid = pid
             self.ppid = ppid
             self.etimeSeconds = etimeSeconds
             self.argv0 = argv0
             self.subcommand = subcommand
+            self.sessionArgument = sessionArgument
         }
     }
 
     /// Parses `ps -p <pids> -o pid=,ppid=,etime=,args=` output. `maxSplits:
-    /// 3` keeps `args`' own internal spaces (`amx attach <uuid>`) intact as
-    /// the trailing element instead of shredding them.
+    /// 3` keeps everything from the session-id argument onward joined as one
+    /// trailing element rather than shredding it — `amx attach <uuid>` has no
+    /// further arguments today, so the third split element IS the session id.
     public static func parseAttachProcessSamples(_ raw: String) -> [AttachProcessSample] {
         var result: [AttachProcessSample] = []
         for line in raw.split(whereSeparator: \.isNewline) {
@@ -335,10 +354,11 @@ public enum DaemonGCPlan {
             let argsTokens = parts[3].split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
             guard let argv0 = argsTokens.first else { continue }
             let subcommand = argsTokens.count > 1 ? String(argsTokens[1]) : nil
+            let sessionArgument = argsTokens.count > 2 ? String(argsTokens[2]) : nil
             result.append(
                 AttachProcessSample(
                     pid: pid, ppid: ppid, etimeSeconds: etime,
-                    argv0: String(argv0), subcommand: subcommand
+                    argv0: String(argv0), subcommand: subcommand, sessionArgument: sessionArgument
                 ))
         }
         return result
@@ -381,8 +401,12 @@ public enum DaemonGCPlan {
     /// would never clear `minAgeSeconds` from a genuine same-instance run,
     /// but a foreign/other-instance one-shot orphaned by an unrelated crash
     /// could; the subcommand check removes that ambiguity entirely rather
-    /// than relying on timing), and old enough to rule out an in-progress
-    /// daemon startup race.
+    /// than relying on timing), old enough to rule out an in-progress daemon
+    /// startup race, AND attached to a UUID-shaped session — the exact same
+    /// fence `reapable()` applies to daemons ("Only these are GC candidates,
+    /// so a hand-run `amx attach dev` is never killed"). Without this fence
+    /// an orphaned hand-run `amx attach dev` would be signaled by this pass
+    /// even though the daemon side of GC always spares it.
     public static func confirmedOrphanAttachPIDs(
         samples: [AttachProcessSample],
         daemonPIDs: Set<Int32>,
@@ -390,7 +414,8 @@ public enum DaemonGCPlan {
         minAgeSeconds: Int = orphanAttachMinAgeSeconds
     ) -> [Int32] {
         samples.compactMap { sample -> Int32? in
-            guard sample.ppid == 1,
+            guard let sessionArgument = sample.sessionArgument, isUUIDShaped(sessionArgument),
+                sample.ppid == 1,
                 ShellRecognition.basename(sample.argv0) == executableName,
                 sample.subcommand == "attach",
                 !daemonPIDs.contains(sample.pid),

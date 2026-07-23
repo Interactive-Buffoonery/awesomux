@@ -116,6 +116,15 @@ enum DaemonGarbageCollector {
             return
         }
 
+        // Independent of the daemon-reap plan below on purpose: the primary
+        // #183 scenario is a daemon PERMANENTLY pinned at clients >= 1 by its
+        // orphaned client, so `reapable`/`expiredReapable` never select it and
+        // `plan`/`targets` below can be empty on every sweep. Gating this
+        // behind either of those guards' early returns would make the orphan
+        // cleanup unreachable in exactly the case it exists to fix — caught
+        // in review before shipping, not discovered live.
+        await reapOrphanAttachClients(live: live, snapshot: snapshot)
+
         var busy = Set<TerminalSessionID>()
         for daemon in live where !AmxBackend.isIdle(daemon, snapshot: snapshot) {
             busy.insert(daemon.id)
@@ -171,8 +180,6 @@ enum DaemonGarbageCollector {
         let remaining = Set((await AmxBackend.listSessions()).map(\.id))
         let reaped = targets.filter { !remaining.contains($0.id) }.count
         log.info("daemon GC: \(reaped)/\(targets.count) orphan daemon(s) confirmed reaped")
-
-        await reapOrphanAttachClients(live: live, snapshot: snapshot)
     }
 
     /// Terminates leaked `amx attach` clients reparented to launchd
@@ -195,11 +202,18 @@ enum DaemonGarbageCollector {
         // Revalidate against fresh daemon + process state right before
         // signaling: closes the pid-reuse race between the snapshot above and
         // the kill below (mirrors the daemon-reap revalidation earlier in
-        // this function). `listSessionsResult()` (nil-on-failure), not
-        // `listSessions()` (empty-on-failure) — a failed lookup must abort,
-        // not silently read as "zero live daemons, safe to kill everything."
-        guard let freshDaemons = await AmxBackend.listSessionsResult() else {
-            log.error("orphan attach GC aborted: fresh daemon list unavailable")
+        // this function). Strict parse (`parseAmxListStrict`), not the
+        // tolerant `parseAmxList` `listSessionsResult()` uses elsewhere —
+        // this is a fail-DANGEROUS spot exactly like the status-file sweep
+        // above: a tolerant parser silently dropping one live daemon's row
+        // would remove that daemon's pid from `freshDaemonPIDs` without any
+        // signal something went wrong, and this pass's whole job is telling
+        // a live daemon apart from an orphaned client sharing its binary.
+        // Format drift must abort the sweep, not fail open into a kill.
+        guard let freshListOutput = await AmxBackend.listSessionsRawOutput(),
+            let freshDaemons = DaemonGCPlan.parseAmxListStrict(freshListOutput)
+        else {
+            log.error("orphan attach GC aborted: fresh daemon list unavailable or unparseable")
             return
         }
         guard let samples = await AmxBackend.attachProcessSamples(forPIDs: candidates) else {
