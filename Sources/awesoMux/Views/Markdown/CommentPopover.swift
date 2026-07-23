@@ -159,7 +159,6 @@ struct FullCommentPopover: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color.aw.mauve.opacity(0.4), lineWidth: 1)
                         )
-                        .onSubmit(saveEdit)
                         .focused($isEditFieldFocused)
                         // Entering edit mode means "type now" — a keyboard
                         // user shouldn't have to Tab into the field.
@@ -177,6 +176,10 @@ struct FullCommentPopover: View {
                         Button("Save", action: saveEdit)
                             .buttonStyle(.borderedProminent)
                             .tint(Color.aw.mauve)
+                            // Known ceiling: matches ⌘Return only, not
+                            // ⌘-keypad-Enter; swap the TextField for the AppKit
+                            // accept-chord bridge if keypad users report it.
+                            .keyboardShortcut(.return, modifiers: .command)
                             .font(.system(size: 12, weight: .medium))
                             .disabled(
                                 !canSubmit
@@ -230,6 +233,12 @@ struct FullCommentPopover: View {
                             .font(.system(size: 13))
                     }
                     .buttonStyle(.plain)
+                    // Never active at the same time as the edit-mode Save
+                    // button (isEditing gates them), so the chord can't clash.
+                    // Known ceiling: matches ⌘Return only, not ⌘-keypad-Enter;
+                    // swap the TextField for the AppKit accept-chord bridge if
+                    // keypad users report it.
+                    .keyboardShortcut(.return, modifiers: .command)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
                     .foregroundStyle(Color.aw.mauve)
@@ -500,6 +509,13 @@ struct ComposeCommentPopover: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                // Same Return contract and hint copy as DocumentNoteSheet, so
+                // the two annotation composers can't teach opposite rules.
+                Text(String(localized: "Return inserts a new line · ⌘Return submits", comment: "Document note editor keyboard help"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.aw.text3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
                 HStack(spacing: 8) {
                     Button(
                         String(localized: "Cancel", comment: "Button to cancel composing an annotation"),
@@ -516,7 +532,9 @@ struct ComposeCommentPopover: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Color.aw.mauve)
-                    .keyboardShortcut(.defaultAction)
+                    // No .defaultAction here: plain Return types a newline in
+                    // the note field; ⌘Return (the AppKit accept-chord bridge)
+                    // is the submit path, popover-wide.
                     .disabled(!canSubmit)
                 }
             }
@@ -597,6 +615,31 @@ private struct AnnotationNoteTextView: View {
     }
 }
 
+/// NSTextView that treats the shared keyboard-accept chord (⌘Return /
+/// ⌘-keypad-Enter, `AwKeyboardAcceptChord`) as "save". The chord has no entry
+/// in the standard key-binding table, so it never reaches the delegate's
+/// `doCommandBy insertNewline` path — it must be claimed at the
+/// key-equivalent stage instead.
+final class AnnotationAcceptChordTextView: NSTextView {
+    var onAcceptChord: () -> Void = {}
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown,
+            !event.isARepeat,
+            isEditable,
+            !hasMarkedText(),
+            AwKeyboardAcceptChord.isKeyboardAcceptKeyDown(
+                keyCode: event.keyCode,
+                modifiers: event.modifierFlags
+            )
+        {
+            onAcceptChord()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
@@ -619,7 +662,12 @@ private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = NSTextView()
+        let textView = AnnotationAcceptChordTextView()
+        // Route through the coordinator, whose onSave updateNSView keeps
+        // fresh — capturing self.onSave here would freeze the make-time copy.
+        textView.onAcceptChord = { [weak coordinator = context.coordinator] in
+            coordinator?.onSave()
+        }
         textView.delegate = context.coordinator
         textView.isRichText = false
         textView.isEditable = true
@@ -702,21 +750,6 @@ private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
-        }
-
-        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
-                return false
-            }
-            guard !textView.hasMarkedText() else { return false }
-
-            switch AnnotationReturnKeyPolicy.outcome(for: NSApp.currentEvent?.modifierFlags ?? []) {
-            case .save:
-                onSave()
-            case .insertNewline:
-                textView.insertNewlineIgnoringFieldEditor(self)
-            }
-            return true
         }
     }
 }
