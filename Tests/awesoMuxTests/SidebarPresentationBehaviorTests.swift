@@ -1223,12 +1223,14 @@ struct SidebarPresentationBehaviorTests {
         #expect(fixture.controller.pendingFocusRepairIsSetForTesting)
         #expect(fixture.controller.hostModeForTesting == .hidden)
 
-        // No surface mounted yet, so nothing outside the sidebar can look
-        // already-focused (`reduceApplicationFocusRecovery`'s short-circuit
-        // guard can't fire) -- the wake observer calling
-        // `recoverApplicationFocusIfReady` is the only thing that can invoke
-        // the handoff callback here, decisively proving the wake observer
-        // itself did the recovering, not some other mechanism.
+        // Sleep's settle already redirected firstResponder to the window
+        // itself (not a view), so `reduceApplicationFocusRecovery`'s
+        // "already focused outside the sidebar" short-circuit can't fire
+        // even though the fixture's peer surface is mounted -- the wake
+        // observer calling `recoverApplicationFocusIfReady` is the only
+        // thing that can invoke the handoff callback here, decisively
+        // proving the wake observer itself did the recovering, not some
+        // other mechanism.
         workspaceCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
 
         #expect(!handoffRequests.isEmpty)
