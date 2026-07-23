@@ -218,7 +218,14 @@ for attempt in 1 2 3; do
     review_payload="$RUNNER_TEMP/opencode-review-payload.json"
     jq -n --arg marker "$review_marker" --rawfile body "$review_file" \
       '{body: ($marker + "\n" + $body)}' > "$review_payload"
-    mapfile -t review_comment_ids < <(gh api --paginate \
+    # while-read instead of `mapfile`: macOS system bash is 3.2, which has no
+    # mapfile. Process substitution keeps the loop in the current shell so the
+    # array persists. IDs are newline-terminated integers, so this is
+    # equivalent to `mapfile -t` here.
+    review_comment_ids=()
+    while IFS= read -r comment_id; do
+      review_comment_ids+=("$comment_id")
+    done < <(gh api --paginate \
       "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments" \
       --jq '.[] | select(
         .user.login == "github-actions[bot]" and
