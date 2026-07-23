@@ -298,8 +298,6 @@ jobs:
       contents: read
     env:
       AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
-    outputs:
-      result: ${{ steps.build.outputs.result }}
     steps:
       - name: Check out captured SHA
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
