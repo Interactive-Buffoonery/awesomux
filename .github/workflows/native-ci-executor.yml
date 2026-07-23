@@ -315,17 +315,24 @@ jobs:
           path: _trusted
           persist-credentials: false
 
+      - name: Initialize release build results
+        run: |
+          set -euo pipefail
+          mkdir -p .build/test-results
+          echo "Native release build started for ${{ needs.resolve.outputs.target-sha }}" > .build/test-results/native-ci.log
+
       - name: Verify captured SHA
         id: verify
         continue-on-error: true
         env:
           EXPECTED_HEAD_SHA: ${{ needs.resolve.outputs.target-sha }}
+          LOG_PATH: .build/test-results/native-ci.log
         run: |
           set -euo pipefail
           actual_sha="$(git rev-parse HEAD)"
           if [[ "$actual_sha" != "$EXPECTED_HEAD_SHA" ]]; then
             printf 'Checked-out HEAD mismatch: expected %s, got %s\n' \
-              "$EXPECTED_HEAD_SHA" "$actual_sha" >&2
+              "$EXPECTED_HEAD_SHA" "$actual_sha" | tee -a "$LOG_PATH" >&2
             exit 1
           fi
 
@@ -343,38 +350,48 @@ jobs:
         env:
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          LOG_PATH: .build/test-results/native-ci.log
         run: |
           set -euo pipefail
           result=success
 
           if [[ "$VERIFY_OUTCOME" != "success" ]]; then
-            echo "Captured SHA verification failed; release build was not executed." >&2
+            echo "Captured SHA verification failed; release build was not executed." | tee -a "$LOG_PATH" >&2
             result=failure
           elif [[ "$PREPARE_OUTCOME" != "success" ]]; then
-            echo "Native preparation failed; release build was not executed." >&2
+            echo "Native preparation failed; release build was not executed." | tee -a "$LOG_PATH" >&2
             result=failure
           else
             set +e
-            ./script/build_and_run.sh --stage-release
-            build_status=$?
+            ./script/build_and_run.sh --stage-release 2>&1 | tee -a "$LOG_PATH"
+            build_status=${PIPESTATUS[0]}
             set -e
             if [[ "$build_status" -ne 0 ]]; then
               result=failure
             else
               set +e
-              codesign --verify --deep --strict --verbose=2 dist/awesoMux.app
-              signature_status=$?
+              codesign --verify --deep --strict --verbose=2 dist/awesoMux.app 2>&1 | tee -a "$LOG_PATH"
+              signature_status=${PIPESTATUS[0]}
               set -e
               signature_info="$(codesign -dv --verbose=4 dist/awesoMux.app 2>&1)"
-              printf '%s\n' "$signature_info"
+              printf '%s\n' "$signature_info" | tee -a "$LOG_PATH"
               if [[ "$signature_status" -ne 0 ]] || ! grep -qx 'Signature=adhoc' <<< "$signature_info"; then
-                echo "Staged app is not validly ad-hoc signed." >&2
+                echo "Staged app is not validly ad-hoc signed." | tee -a "$LOG_PATH" >&2
                 result=failure
               fi
             fi
           fi
 
           echo "result=$result" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release build results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-ci-release-build-${{ needs.resolve.outputs.target-sha }}
+          path: .build/test-results/
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Enforce release build result
         if: always() && steps.build.outputs.result != 'success'
