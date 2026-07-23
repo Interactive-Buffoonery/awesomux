@@ -378,7 +378,16 @@ enum AmxBackend {
     /// commands assemble at surface-creation frequency, not per-frame.
     static func shellIntegrationInputs(
         from environment: [String: String],
-        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        fileExists: (String) -> Bool = { path in
+            // Mirrors ghostty's own probes (setupZsh/setupXdgDataDirs both use
+            // openDirAbsolute, not a plain existence check): a regular file
+            // squatting on the expected directory path should fail the probe,
+            // not silently pass and produce env vars fish/zsh can never load
+            // or clean up.
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            return exists && isDirectory.boolValue
+        }
     ) -> (
         ghosttyResourcesDir: String?,
         inheritedZDOTDIR: String?,

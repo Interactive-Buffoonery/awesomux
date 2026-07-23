@@ -490,6 +490,25 @@ struct AmxBackendShellIntegrationInputsTests {
         )
         #expect(probedPath == "/res/ghostty/shell-integration")
     }
+
+    @Test("the default probe rejects a regular file squatting on the integration path")
+    func defaultProbeRejectsRegularFile() throws {
+        // Mirrors ghostty's own probes (setupZsh/setupXdgDataDirs both use
+        // openDirAbsolute, not a plain existence check) — exercised against
+        // the real FileManager-backed default, not a stub.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("awesoMuxShellIntegrationProbeTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fakeIntegrationFile = tempDir.appendingPathComponent("shell-integration")
+        try Data().write(to: fakeIntegrationFile)
+
+        let inputs = AmxBackend.shellIntegrationInputs(
+            from: ["GHOSTTY_RESOURCES_DIR": tempDir.path, "SHELL": "/usr/local/bin/fish"]
+        )
+        #expect(inputs.ghosttyResourcesDir == nil)
+    }
 }
 
 // MARK: - AmxStatusChannel + status-env attach overload (INT-572)
