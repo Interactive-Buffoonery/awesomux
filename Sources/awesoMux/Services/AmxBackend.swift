@@ -1197,10 +1197,12 @@ enum AmxBackend {
     /// computed column width (`etime=` is a safe fixed-width field to keep
     /// ahead of it). Unlike `currentProcessSnapshot()`, an empty result here
     /// is a real outcome — every candidate already exited between passes —
-    /// not a signal `ps` failed; only a nil run (including `ps -p` exiting
-    /// non-zero when NONE of the pids are still alive, verified live) counts
-    /// as failure, and that case is safe to fail closed on anyway since there
-    /// is nothing left to kill.
+    /// not a signal `ps` failed. Switches on `BoundedCommandResult` directly
+    /// (not `.completeData`) so that real outcome doesn't get logged as a
+    /// failure by the caller: `ps -p` exits non-zero (`.nonZeroExit`,
+    /// verified live) precisely when NONE of the requested pids are still
+    /// alive, which maps to `[]`, not `nil` — `nil` is reserved for genuine
+    /// query failure (timeout, spawn failure, undrained/truncated output).
     static func attachProcessSamples(forPIDs pids: [Int32]) async -> [DaemonGCPlan.AttachProcessSample]? {
         guard !pids.isEmpty else { return [] }
         let runner = BoundedCommandRunner(
@@ -1210,13 +1212,19 @@ enum AmxBackend {
             environment: [:]
         )
         let pidList = pids.map(String.init).joined(separator: ",")
-        guard
-            let data = await runner.runDetailed(
-                arguments: ["-p", pidList, "-o", "pid=,ppid=,etime=,args="],
-                inDirectory: "/"
-            ).completeData, let output = String(data: data, encoding: .utf8)
-        else { return nil }
-        return DaemonGCPlan.parseAttachProcessSamples(output)
+        let result = await runner.runDetailed(
+            arguments: ["-p", pidList, "-o", "pid=,ppid=,etime=,args="],
+            inDirectory: "/"
+        )
+        switch result {
+        case .success(let data):
+            guard let output = String(data: data, encoding: .utf8) else { return nil }
+            return DaemonGCPlan.parseAttachProcessSamples(output)
+        case .nonZeroExit:
+            return []
+        case .executableNotFound, .spawnFailure, .timedOut, .outputTruncated, .outputNotDrained:
+            return nil
+        }
     }
 
     nonisolated private static let killLog = Logger(subsystem: "awesomux.daemon", category: "kill")
