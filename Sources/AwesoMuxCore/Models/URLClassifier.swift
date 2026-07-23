@@ -368,6 +368,7 @@ public enum URLClassifier {
     /// hard block.
     private static let cyrillicLatinLookalikes: Set<Unicode.Scalar> = [
         "\u{0430}",  // а → a
+        "\u{044C}",  // ь → b  (Cyrillic soft sign — closes the еьау≈"ebay" vector)
         "\u{0441}",  // с → c
         "\u{0501}",  // ԁ → d  (Cyrillic komi de)
         "\u{0435}",  // е → e
@@ -379,6 +380,7 @@ public enum URLClassifier {
         "\u{0440}",  // р → p
         "\u{051B}",  // ԛ → q  (Cyrillic qa)
         "\u{0455}",  // ѕ → s  (Cyrillic dze)
+        "\u{0475}",  // ѵ → v  (Cyrillic izhitsa — closes the ѵіѕа≈"visa" vector)
         "\u{051D}",  // ԝ → w  (Cyrillic we)
         "\u{0445}",  // х → x
         "\u{0443}",  // у → y

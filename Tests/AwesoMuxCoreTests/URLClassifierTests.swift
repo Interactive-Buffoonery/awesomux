@@ -208,9 +208,31 @@ struct URLClassifierTests {
     }
 
     @Test(
+        "known all-Cyrillic brand homograph vectors block (raw + punycode)",
+        arguments: [
+            // еьау ≈ "ebay" (soft sign ь → b, izhitsa/others), and its xn-- form.
+            "https://\u{0435}\u{044C}\u{0430}\u{0443}.com/",
+            "https://xn--80aj7b8a.com/",
+            // ѵіѕа ≈ "visa" (izhitsa ѵ → v), and its xn-- form.
+            "https://\u{0475}\u{0456}\u{0455}\u{0430}.com/",
+            "https://xn--80a7ec7j.com/",
+        ]
+    )
+    func knownBrandHomographVectorsBlock(rawURL: String) throws {
+        let url = try #require(URL(string: rawURL))
+        let decision = URLClassifier.classify(url)
+        guard case .blockConfirm(let reason, _, _) = decision else {
+            Issue.record("Expected blockConfirm for \(rawURL), got \(decision)")
+            return
+        }
+        #expect(reason == .nonAsciiHost)
+    }
+
+    @Test(
         "every lookalike-table entry blocks as a single-label host",
         arguments: [
             "\u{0430}",  // а → a
+            "\u{044C}",  // ь → b
             "\u{0441}",  // с → c
             "\u{0501}",  // ԁ → d
             "\u{0435}",  // е → e
@@ -222,6 +244,7 @@ struct URLClassifierTests {
             "\u{0440}",  // р → p
             "\u{051B}",  // ԛ → q
             "\u{0455}",  // ѕ → s
+            "\u{0475}",  // ѵ → v
             "\u{051D}",  // ԝ → w
             "\u{0445}",  // х → x
             "\u{0443}",  // у → y
@@ -229,7 +252,10 @@ struct URLClassifierTests {
     )
     func everyLookalikeTableEntryBlocks(lookalike: String) throws {
         // Independently sourced from each entry's intended Latin twin, so a
-        // wrong or omitted scalar in the classifier's table fails here.
+        // wrong scalar in the classifier's table fails here. This proves the
+        // listed entries are covered; it can't prove the table is *complete*
+        // (that's unbounded) — named brand vectors get their own regression
+        // tests below.
         let url = try #require(URL(string: "https://\(lookalike).com/"))
         let decision = URLClassifier.classify(url)
         guard case .blockConfirm(let reason, _, _) = decision else {
