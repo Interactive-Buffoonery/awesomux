@@ -1318,8 +1318,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             // Shares `captureFocusRepairBeforeSettling()` +
             // `settleTransientOverlayIfNeeded()` with the resignation handler
             // above — NOT its pointer-acceptance-disabling: sleep isn't
-            // app-to-app deactivation, and `didWakeNotification` below
-            // restores it. The focus capture DOES need to run here too —
+            // app-to-app deactivation. Only `didBecomeActiveNotification`
+            // restores `acceptsApplicationPointerEvents` — the
+            // `didWakeNotification` observer below is a guarded recovery
+            // trigger only and deliberately leaves pointer acceptance alone
+            // (see its own comment for why). The focus capture DOES need to
+            // run here too —
             // whichever of sleep or resignation fires first is the one and
             // only chance to record what was focused before `settleHidden()`
             // redirects it to the window with no memory of the target;
@@ -1469,9 +1473,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// sidebar before a settle (`settleHidden()`, called from
     /// `settleTransientOverlayIfNeeded()`) redirects it to the window with no
     /// memory of the original target. `didBecomeActiveNotification`/
-    /// `didBecomeKeyNotification`/`GhosttySurfaceFocusReadiness` consume
-    /// `pendingFocusRepair` unconditionally on whatever caused it, so capturing
-    /// here is sufficient — no separate wake-side observer is needed.
+    /// `didBecomeKeyNotification`/`GhosttySurfaceFocusReadiness`/
+    /// `didWakeNotification` all consume `pendingFocusRepair` unconditionally
+    /// on whatever caused it (via `recoverApplicationFocusIfReady`), so
+    /// capturing here is sufficient — no bespoke wake-side capture logic is
+    /// needed, only the wake-side consumption trigger the sleep observer's
+    /// comment describes.
     private func captureFocusRepairBeforeSettling() {
         if isSidebarHidden {
             let existingRecovery = pendingFocusRepair
