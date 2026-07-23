@@ -275,10 +275,14 @@ public enum DaemonGCPlan {
     ///
     /// Unlike status files (one per attach, so `attached` is the discriminator),
     /// there is exactly one live log — plus at most one rotated `.old` — per
-    /// session NAME, held open by the daemon regardless of client count. So a
-    /// log is spared unless one of three things protects it:
-    /// - its session has a LIVE daemon (`liveSessionIDs`, any client count):
-    ///   a detached-but-live daemon still holds the log fd and keeps writing.
+    /// session NAME. So a log is spared unless one of three things protects it:
+    /// - its session has a LIVE daemon (`liveSessionIDs`, any client count).
+    ///   The current `<uuid>.log` is held open by the daemon (any client
+    ///   count) and actively written; its rotated `<uuid>.log.old` is a closed
+    ///   file (zmx closes it before renaming, `LogSystem.rotate`) but is
+    ///   retained as bounded diagnostic history — at most one per session,
+    ///   reclaimed with the current log once the session dies. Sparing it does
+    ///   not affect rotation: zmx's `rename(2)` replaces any existing `.old`.
     /// - it is inside the grace window. Log-specific rationale (do NOT reuse the
     ///   status file's): the daemon creates the log at spawn, at the same moment
     ///   it registers in `amx list`, so the gap is near-zero. Grace only covers
@@ -307,27 +311,35 @@ public enum DaemonGCPlan {
         }
     }
 
-    /// Upper-bound instrumentation for the restore-attach race
-    /// (Interactive-Buffoonery/awesomux#184): among `attached` sessions (the
-    /// ones `staleStatusFiles` spares), how many hold more than one status file,
-    /// and the largest such count. A count > 1 is only an UPPER BOUND on spared
-    /// stale generations — a session can legitimately hold several simultaneous
-    /// live channels (pop-up mirror), which is exactly why no newest-N heuristic
-    /// is safe. "Measure first" (issue): if attached sessions never accumulate
-    /// multiple spared files, the race is not losing and no fix is warranted.
-    public static func attachedStatusFileOccupancy(
+    /// Instrumentation for the restore-attach race
+    /// (Interactive-Buffoonery/awesomux#184): the status files that would be
+    /// deleted RIGHT NOW if their session were not attached — attributable,
+    /// past the grace window, and spared solely by the `attached` gate — plus
+    /// how many distinct sessions they span. This is the direct measure of what
+    /// the attach gate keeps alive. It is still an UPPER BOUND on leaked stale
+    /// generations: a session's legitimately-current channel that happens to
+    /// have an old mtime also counts, and a session can hold several
+    /// simultaneous live channels (pop-up mirror) — which is exactly why no
+    /// newest-N reclamation is safe. "Measure first" (issue): the caller emits
+    /// this every sweep INCLUDING zero, so a run of zeros is a real observation
+    /// (the race is not losing) rather than an absent, ambiguous log line.
+    public static func attachGateSparedStatusFiles(
         candidates: [FileCandidate],
-        attached: Set<TerminalSessionID>
-    ) -> (multiFileSessions: Int, maxFilesPerSession: Int) {
-        var perSession: [TerminalSessionID: Int] = [:]
+        attached: Set<TerminalSessionID>,
+        gcStart: Int,
+        graceSeconds: Int = statusFileGraceSeconds
+    ) -> (files: Int, sessions: Int) {
+        var sessions = Set<TerminalSessionID>()
+        var files = 0
         for candidate in candidates {
-            guard let id = statusFileSessionID(candidate.filename), attached.contains(id) else {
-                continue
-            }
-            perSession[id, default: 0] += 1
+            guard let id = statusFileSessionID(candidate.filename),
+                attached.contains(id),
+                candidate.modifiedEpoch < gcStart - graceSeconds
+            else { continue }
+            files += 1
+            sessions.insert(id)
         }
-        let counts = perSession.values
-        return (counts.filter { $0 > 1 }.count, counts.max() ?? 0)
+        return (files, sessions.count)
     }
 
     public static func reapable(

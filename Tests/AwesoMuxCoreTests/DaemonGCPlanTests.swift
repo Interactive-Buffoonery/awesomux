@@ -294,33 +294,44 @@ struct DaemonGCPlanTests {
             ])
     }
 
-    @Test("attached status-file occupancy is an upper bound on spared generations")
-    func attachedOccupancy() {
+    @Test("attach-gate spared count measures only aged, attributed, attached files")
+    func attachGateSpared() {
+        let gcStart = 10_000
+        let grace = 3_600
         let idA = TerminalSessionID(rawValue: uuidA)!
-        func candidate(_ uuid: String, token: String) -> DaemonGCPlan.FileCandidate {
-            DaemonGCPlan.FileCandidate(filename: "\(uuid)-\(token).status.jsonl", modifiedEpoch: 1)
+        let idB = TerminalSessionID(rawValue: uuidB)!
+        func candidate(_ uuid: String, token: String, mtime: Int = 500)
+            -> DaemonGCPlan.FileCandidate
+        {
+            DaemonGCPlan.FileCandidate(
+                filename: "\(uuid)-\(token).status.jsonl", modifiedEpoch: mtime)
         }
 
-        let occ = DaemonGCPlan.attachedStatusFileOccupancy(
+        let spared = DaemonGCPlan.attachGateSparedStatusFiles(
             candidates: [
-                candidate(uuidA, token: "00000001"),
-                candidate(uuidA, token: "00000002"),  // idA holds 2 → counted
-                candidate(uuidB, token: "00000003"),  // idB holds 1 → not counted
-                candidate("33333333-3333-4333-8333-333333333333", token: "00000004"),  // unattached → ignored
-                candidate(uuidB, token: "00000005"),  // idB now 2, but not attached below
+                candidate(uuidA, token: "00000001"),  // attached + aged → counted
+                candidate(uuidA, token: "00000002"),  // attached + aged, same session → counted
+                candidate(uuidB, token: "00000003"),  // attached + aged, other session → counted
+                candidate(uuidA, token: "00000004", mtime: gcStart - 5),  // in-grace → not counted
+                candidate("33333333-3333-4333-8333-333333333333", token: "00000005"),  // unattached → not counted
+                DaemonGCPlan.FileCandidate(filename: "junk.status.jsonl", modifiedEpoch: 1),  // unattributable
             ],
-            attached: [idA]
+            attached: [idA, idB],
+            gcStart: gcStart,
+            graceSeconds: grace
         )
-        #expect(occ.multiFileSessions == 1)
-        #expect(occ.maxFilesPerSession == 2)
+        #expect(spared.files == 3)
+        #expect(spared.sessions == 2)
 
-        // No attached sessions → zeros, no false signal.
-        let none = DaemonGCPlan.attachedStatusFileOccupancy(
+        // Nothing attached → a real zero observation.
+        let none = DaemonGCPlan.attachGateSparedStatusFiles(
             candidates: [candidate(uuidA, token: "00000006")],
-            attached: []
+            attached: [],
+            gcStart: gcStart,
+            graceSeconds: grace
         )
-        #expect(none.multiFileSessions == 0)
-        #expect(none.maxFilesPerSession == 0)
+        #expect(none.files == 0)
+        #expect(none.sessions == 0)
     }
 
     @Test("strict list parse rejects any nonblank row the tolerant parser skips")

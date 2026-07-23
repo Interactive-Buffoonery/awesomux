@@ -194,17 +194,16 @@ enum DaemonGarbageCollector {
         }
         let attached = Set(live.filter { $0.clients > 0 }.map(\.id))
         let candidates = candidateFiles(in: directory) { $0.hasSuffix(".status.jsonl") }
-        // Restore-attach race measurement (issue #184, "measure first"): log an
-        // upper bound on stale generations spared by the `attached` gate before
-        // deciding whether the race needs a fix. Zero cost, no behavior change.
-        let occupancy = DaemonGCPlan.attachedStatusFileOccupancy(
-            candidates: candidates, attached: attached
+        // Restore-attach race measurement (issue #184, "measure first"): every
+        // sweep, log the upper bound on stale generations the `attached` gate is
+        // sparing — emitted INCLUDING zero so a run of zeros is a real
+        // observation, not an absent/ambiguous line. No behavior change.
+        let spared = DaemonGCPlan.attachGateSparedStatusFiles(
+            candidates: candidates, attached: attached, gcStart: gcStart
         )
-        if occupancy.multiFileSessions > 0 {
-            log.info(
-                "status-file GC: \(occupancy.multiFileSessions) attached session(s) hold >1 status file (max \(occupancy.maxFilesPerSession)) — upper bound on spared stale generations"
-            )
-        }
+        log.info(
+            "status-file GC: attach gate spared \(spared.files) stale-eligible status file(s) across \(spared.sessions) session(s) — upper bound on restore-attach race leakage"
+        )
         let stale = DaemonGCPlan.staleStatusFiles(
             candidates: candidates,
             attached: attached,
