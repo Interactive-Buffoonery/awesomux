@@ -709,6 +709,13 @@ final class GhosttyRuntime {
     /// and `AppDelegate.applicationShouldTerminate` now do instead of each
     /// store triggering its own full resample (previously O(floating slot
     /// count) resamples of this same dictionary per quit).
+    ///
+    /// Reuse is not just "safe," it's equivalent: this whole scan runs
+    /// synchronously on the main thread with no `await` between the old
+    /// per-store calls, so nothing else could run and mutate `surfaceViews`
+    /// between them anyway. Re-probing per store bought no real freshness —
+    /// microseconds of syscall-observable drift either way — only redundant
+    /// syscalls.
     func refreshTerminalQuitConfirmationRisks(in sessionStore: SessionStore) {
         sessionStore.updateTerminalQuitConfirmationRisks(currentTerminalQuitConfirmationSnapshots())
     }
