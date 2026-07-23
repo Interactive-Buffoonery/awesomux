@@ -1638,9 +1638,21 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // Both cases carry a target width and apply identically; only the pure
         // decision distinguishes restore-on-grow from a starvation clamp.
         case let .restoreExpanded(width), let .clamp(width):
+            // applyPosition's instant path stops any in-flight settle for us.
             applyPosition(width)
         case .none:
-            break
+            // No clamp needed, but a resize still reached here (viewDidLayout). An
+            // in-flight settle animates toward an ABSOLUTE divider coordinate captured
+            // at the old extent; on a right-side sidebar a changed extent remaps that
+            // coordinate to the wrong width. Stop the settle at the correct coordinate
+            // for its target width on the current extent (#81). Left side is immune
+            // (coordinate == width) but stopping there too is harmless.
+            if isAnimatingDividerSettle {
+                stopDividerSettleAnimation(
+                    landingAt: Self.dividerCoordinate(
+                        forSidebarWidth: sidebarPaneWidth, paneExtent: paneExtent,
+                        position: sidebarPosition))
+            }
         }
     }
 
