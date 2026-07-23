@@ -544,19 +544,23 @@ struct AgentRuntimeEventReducerTests {
         )
         #expect(contaminatingDecision == nil)
 
-        // A later, real Claude Code event must still apply normally afterward —
-        // the rejected Codex event must not have poisoned the staleness watermark.
+        // A later, real Claude Code event at the SAME timestamp as the rejected
+        // Codex event must still apply — if the rejected event had poisoned the
+        // staleness watermark to 101, this would be rejected as stale
+        // (timestamp <= lastTimestamp); accepting it proves the watermark was
+        // never advanced (cross-model review: a later timestamp here would pass
+        // either way and wouldn't actually exercise this claim).
         let claudeThinking = AgentRuntimeEvent(
             source: .claudeCode,
             kind: .claudeCode,
             executionState: .thinking,
             phase: .promptSubmit,
             eventID: "claude-prompt-1",
-            timestamp: Date(timeIntervalSince1970: 102)
+            timestamp: Date(timeIntervalSince1970: 101)
         )
         let laterDecision = reducer.decision(
             for: claudeThinking, currentSession: session, paneID: paneID,
-            terminalIsFocused: false, now: Date(timeIntervalSince1970: 102)
+            terminalIsFocused: false, now: Date(timeIntervalSince1970: 101)
         )
         #expect(laterDecision?.update.agentExecutionState == .thinking)
     }
