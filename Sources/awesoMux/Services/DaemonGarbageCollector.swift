@@ -214,13 +214,23 @@ enum DaemonGarbageCollector {
 
         var signaled = 0
         for pid in confirmed {
-            guard Darwin.kill(pid, SIGTERM) == 0 else { continue }
+            guard Darwin.kill(pid, SIGTERM) == 0 else {
+                let errnoValue = errno
+                log.error("orphan attach signal failed for pid=\(pid): errno=\(errnoValue)")
+                continue
+            }
             signaled += 1
             // ponytail: SIGKILL escalation, not a live-process integration
             // test, is the safety net for "does SIGTERM actually reach an
             // orphaned attach client" — matches BoundedProcessRunner's own
-            // terminateThenKill grace. Add a real orphan-and-signal
-            // integration test if orphans are ever observed surviving both.
+            // terminateThenKill grace. Re-checks liveness (not identity) before
+            // escalating: closing the residual pid-reuse window here too would
+            // need a third `ps` round-trip bridged back from this GCD timer for
+            // a compound-unlikely case (SIGTERM already fired; the target would
+            // need to both exit AND have its pid reused by another process
+            // within 1s). Add a real orphan-and-signal integration test, and
+            // revisit the identity re-check, if orphans are ever observed
+            // surviving both signals.
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
                 if Darwin.kill(pid, 0) == 0 {
                     Darwin.kill(pid, SIGKILL)
