@@ -36,14 +36,14 @@ extension GhosttyRuntime {
         switch action.tag {
         case GHOSTTY_ACTION_SECURE_INPUT:
             guard let view = surfaceView(from: target),
-                  let mode = secureInputMode(action.action.secure_input) else {
+                let mode = secureInputMode(action.action.secure_input)
+            else {
                 return false
             }
 
             assert(
                 Thread.isMainThread,
-                "GHOSTTY_ACTION_SECURE_INPUT fired off-main — the " +
-                    "secure_input callback assumption no longer holds"
+                "GHOSTTY_ACTION_SECURE_INPUT fired off-main — the " + "secure_input callback assumption no longer holds"
             )
             onMainThreadSynchronously {
                 view.runtime.applySecureInput(mode, for: view.paneID)
@@ -52,7 +52,8 @@ extension GhosttyRuntime {
 
         case GHOSTTY_ACTION_SET_TITLE, GHOSTTY_ACTION_SET_TAB_TITLE:
             guard let view = surfaceView(from: target),
-                  let titlePointer = action.action.set_title.title else {
+                let titlePointer = action.action.set_title.title
+            else {
                 return false
             }
 
@@ -73,7 +74,8 @@ extension GhosttyRuntime {
 
         case GHOSTTY_ACTION_PWD:
             guard let view = surfaceView(from: target),
-                  let pwdPointer = action.action.pwd.pwd else {
+                let pwdPointer = action.action.pwd.pwd
+            else {
                 return false
             }
 
@@ -303,8 +305,7 @@ extension GhosttyRuntime {
             // lock this hop would contend with).
             assert(
                 Thread.isMainThread,
-                "GHOSTTY_ACTION_PROGRESS_REPORT fired off-main — the " +
-                    "ghostty_app_tick-only assumption above no longer holds"
+                "GHOSTTY_ACTION_PROGRESS_REPORT fired off-main — the " + "ghostty_app_tick-only assumption above no longer holds"
             )
             onMainThreadSynchronously {
                 view.updateProgressReport(progressReport)
@@ -358,8 +359,7 @@ extension GhosttyRuntime {
             let needle = action.action.start_search.needle.map(String.init(cString:))
             assert(
                 Thread.isMainThread,
-                "GHOSTTY_ACTION_START_SEARCH fired off-main — the " +
-                    "start_search binding-action callback assumption no longer holds"
+                "GHOSTTY_ACTION_START_SEARCH fired off-main — the " + "start_search binding-action callback assumption no longer holds"
             )
             onMainThreadSynchronously {
                 view.updateSearchStarted(needle: needle)
@@ -373,8 +373,7 @@ extension GhosttyRuntime {
 
             assert(
                 Thread.isMainThread,
-                "GHOSTTY_ACTION_END_SEARCH fired off-main — the " +
-                    "end_search binding-action callback assumption no longer holds"
+                "GHOSTTY_ACTION_END_SEARCH fired off-main — the " + "end_search binding-action callback assumption no longer holds"
             )
             onMainThreadSynchronously {
                 view.updateSearchEnded()
@@ -389,8 +388,7 @@ extension GhosttyRuntime {
             let total = Int(action.action.search_total.total)
             assert(
                 Thread.isMainThread,
-                "GHOSTTY_ACTION_SEARCH_TOTAL fired off-main — the " +
-                    "ghostty_app_tick-only assumption no longer holds"
+                "GHOSTTY_ACTION_SEARCH_TOTAL fired off-main — the " + "ghostty_app_tick-only assumption no longer holds"
             )
             onMainThreadSynchronously {
                 view.updateSearchTotal(total)
@@ -405,8 +403,7 @@ extension GhosttyRuntime {
             let selected = Int(action.action.search_selected.selected)
             assert(
                 Thread.isMainThread,
-                "GHOSTTY_ACTION_SEARCH_SELECTED fired off-main — the " +
-                    "ghostty_app_tick-only assumption no longer holds"
+                "GHOSTTY_ACTION_SEARCH_SELECTED fired off-main — the " + "ghostty_app_tick-only assumption no longer holds"
             )
             onMainThreadSynchronously {
                 view.updateSearchSelected(selected)
@@ -414,8 +411,8 @@ extension GhosttyRuntime {
             return true
 
         case GHOSTTY_ACTION_RENDERER_HEALTH,
-             GHOSTTY_ACTION_SIZE_LIMIT,
-             GHOSTTY_ACTION_QUIT_TIMER:
+            GHOSTTY_ACTION_SIZE_LIMIT,
+            GHOSTTY_ACTION_QUIT_TIMER:
             return true
 
         default:
@@ -501,9 +498,10 @@ extension GhosttyRuntime {
         // the spoofable form and the resolved form sit side by side.
         let hostComparison: (display: String, punycode: String)? = {
             guard reason == .nonAsciiHost,
-                  let display = displayHost,
-                  let puny = punycodeHost,
-                  display != puny else { return nil }
+                let display = displayHost,
+                let puny = punycodeHost,
+                display != puny
+            else { return nil }
             return (sanitizedForAlertBody(display), sanitizedForAlertBody(puny))
         }()
 
@@ -560,11 +558,13 @@ extension GhosttyRuntime {
             ),
             destructiveAccessibilityLabel: String(
                 localized: "Open URL anyway",
-                comment: "VoiceOver label for the destructive Open button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Open' so a user who tabs to the button still has context."
+                comment:
+                    "VoiceOver label for the destructive Open button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Open' so a user who tabs to the button still has context."
             ),
             cancelAccessibilityLabel: String(
                 localized: "Cancel and do not open URL",
-                comment: "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
+                comment:
+                    "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
             ),
             accessoryView: accessoryView
         )
@@ -590,7 +590,8 @@ extension GhosttyRuntime {
         case .pathHasUnsafeCodepoints:
             String(
                 localized: "Open URL with hidden characters?",
-                comment: "OSC 8 confirmation dialog title segment when the URL path contains bidi-override / zero-width / control codepoints."
+                comment:
+                    "OSC 8 confirmation dialog title segment when the URL path contains bidi-override / zero-width / control codepoints."
             )
         case .mailtoWithParameters:
             String(
@@ -616,19 +617,24 @@ extension GhosttyRuntime {
         switch reason {
         case .nonAsciiHost:
             if let display = displayHost,
-               let puny = punycodeHost,
-               display != puny {
+                let puny = punycodeHost,
+                display != puny
+            {
                 // Skipped when the modal shows the dedicated host
                 // comparison view instead of these text lines.
                 if includeHostLines {
-                    lines.append(String(
-                        localized: "Display: \u{2068}\(Self.sanitizedForAlertBody(display))\u{2069}",
-                        comment: "Line of the OSC 8 confirmation dialog body showing the Unicode form of an IDN host. Argument is bidi-isolated."
-                    ))
-                    lines.append(String(
-                        localized: "Resolves to: \(Self.sanitizedForAlertBody(puny))",
-                        comment: "Line of the OSC 8 confirmation dialog body showing the punycode form an IDN host actually resolves to."
-                    ))
+                    lines.append(
+                        String(
+                            localized: "Display: \u{2068}\(Self.sanitizedForAlertBody(display))\u{2069}",
+                            comment:
+                                "Line of the OSC 8 confirmation dialog body showing the Unicode form of an IDN host. Argument is bidi-isolated."
+                        ))
+                    lines.append(
+                        String(
+                            localized: "Resolves to: \(Self.sanitizedForAlertBody(puny))",
+                            comment:
+                                "Line of the OSC 8 confirmation dialog body showing the punycode form an IDN host actually resolves to."
+                        ))
                 }
             } else if let display = displayHost ?? punycodeHost {
                 lines.append("\u{2068}\(Self.sanitizedForAlertBody(display))\u{2069}")
@@ -659,31 +665,41 @@ extension GhosttyRuntime {
             } else {
                 visiblePrefix = user
             }
-            lines.append(String(
-                localized: "Visible prefix: \u{2068}\(Self.sanitizedForAlertBody(visiblePrefix))\u{2069}",
-                comment: "Line of the OSC 8 confirmation dialog body showing the bidi-isolated `user@` prefix that disguises the real host."
-            ))
-            if let host = displayHost {
-                lines.append(String(
-                    localized: "Actual host: \u{2068}\(Self.sanitizedForAlertBody(host))\u{2069}",
-                    comment: "Line of the OSC 8 confirmation dialog body showing the bidi-isolated real host that NSWorkspace would open."
+            lines.append(
+                String(
+                    localized: "Visible prefix: \u{2068}\(Self.sanitizedForAlertBody(visiblePrefix))\u{2069}",
+                    comment:
+                        "Line of the OSC 8 confirmation dialog body showing the bidi-isolated `user@` prefix that disguises the real host."
                 ))
+            if let host = displayHost {
+                lines.append(
+                    String(
+                        localized: "Actual host: \u{2068}\(Self.sanitizedForAlertBody(host))\u{2069}",
+                        comment:
+                            "Line of the OSC 8 confirmation dialog body showing the bidi-isolated real host that NSWorkspace would open."
+                    ))
             }
         case .missingHost:
-            lines.append(String(
-                localized: "This URL parses but has no host. Likely malformed.",
-                comment: "Body of the OSC 8 confirmation dialog for an http(s) URL with no host component."
-            ))
-        case .pathHasUnsafeCodepoints:
-            lines.append(String(
-                localized: "This URL's path contains invisible or direction-flipping characters that may disguise the file extension or target.",
-                comment: "Body of the OSC 8 confirmation dialog for a URL whose path contains bidi-override, zero-width, or control codepoints."
-            ))
-            if let host = displayHost {
-                lines.append(String(
-                    localized: "Host: \u{2068}\(Self.sanitizedForAlertBody(host))\u{2069}",
-                    comment: "Line of the OSC 8 confirmation dialog body showing the bidi-isolated host of a URL flagged for path-content issues."
+            lines.append(
+                String(
+                    localized: "This URL parses but has no host. Likely malformed.",
+                    comment: "Body of the OSC 8 confirmation dialog for an http(s) URL with no host component."
                 ))
+        case .pathHasUnsafeCodepoints:
+            lines.append(
+                String(
+                    localized:
+                        "This URL's path contains invisible or direction-flipping characters that may disguise the file extension or target.",
+                    comment:
+                        "Body of the OSC 8 confirmation dialog for a URL whose path contains bidi-override, zero-width, or control codepoints."
+                ))
+            if let host = displayHost {
+                lines.append(
+                    String(
+                        localized: "Host: \u{2068}\(Self.sanitizedForAlertBody(host))\u{2069}",
+                        comment:
+                            "Line of the OSC 8 confirmation dialog body showing the bidi-isolated host of a URL flagged for path-content issues."
+                    ))
             }
         case .mailtoWithParameters:
             // Surface the recipient (in URL path OR `to` query param
@@ -694,7 +710,8 @@ extension GhosttyRuntime {
             // that would otherwise inject forged "Full URL:" / "Host:"
             // lines into this dialog. Sanitize before interpolation.
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            let toParams = components?
+            let toParams =
+                components?
                 .queryItems?
                 .filter { $0.name.lowercased() == "to" }
                 .compactMap(\.value)
@@ -706,36 +723,42 @@ extension GhosttyRuntime {
                 .first(where: { $0.name.lowercased() == "subject" })?
                 .value
             if !recipients.isEmpty {
-                lines.append(String(
-                    localized: "To: \u{2068}\(Self.sanitizedForAlertBody(recipients))\u{2069}",
-                    comment: "Line of the OSC 8 confirmation dialog body showing the bidi-isolated mailto recipients."
-                ))
+                lines.append(
+                    String(
+                        localized: "To: \u{2068}\(Self.sanitizedForAlertBody(recipients))\u{2069}",
+                        comment: "Line of the OSC 8 confirmation dialog body showing the bidi-isolated mailto recipients."
+                    ))
             }
             if let subject, !subject.isEmpty {
-                lines.append(String(
-                    localized: "Subject: \u{2068}\(Self.sanitizedForAlertBody(subject))\u{2069}",
-                    comment: "Line of the OSC 8 confirmation dialog body showing the bidi-isolated mailto subject prefill."
-                ))
+                lines.append(
+                    String(
+                        localized: "Subject: \u{2068}\(Self.sanitizedForAlertBody(subject))\u{2069}",
+                        comment: "Line of the OSC 8 confirmation dialog body showing the bidi-isolated mailto subject prefill."
+                    ))
             }
-            lines.append(String(
-                localized: "This link prefills the recipient, body, or subject. Verify before opening.",
-                comment: "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
-            ))
+            lines.append(
+                String(
+                    localized: "This link prefills the recipient, body, or subject. Verify before opening.",
+                    comment: "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
+                ))
         case .disallowedScheme:
-            lines.append(String(
-                localized: "Scheme: \(url.scheme ?? "unknown")",
-                comment: "Line of the OSC 8 confirmation dialog body explicitly calling out the non-standard scheme name."
-            ))
-            lines.append(String(
-                localized: "This URL uses a scheme outside the standard web/mail allowlist.",
-                comment: "Body summary of the OSC 8 confirmation dialog for a non-standard scheme."
-            ))
+            lines.append(
+                String(
+                    localized: "Scheme: \(url.scheme ?? "unknown")",
+                    comment: "Line of the OSC 8 confirmation dialog body explicitly calling out the non-standard scheme name."
+                ))
+            lines.append(
+                String(
+                    localized: "This URL uses a scheme outside the standard web/mail allowlist.",
+                    comment: "Body summary of the OSC 8 confirmation dialog for a non-standard scheme."
+                ))
         }
         lines.append("")
-        lines.append(String(
-            localized: "Full URL: \(truncatedURLString(for: url))",
-            comment: "Line of the OSC 8 confirmation dialog body showing the full (possibly truncated) URL. Argument is the URL string."
-        ))
+        lines.append(
+            String(
+                localized: "Full URL: \(truncatedURLString(for: url))",
+                comment: "Line of the OSC 8 confirmation dialog body showing the full (possibly truncated) URL. Argument is the URL string."
+            ))
         return lines.joined(separator: "\n")
     }
 
@@ -767,8 +790,9 @@ extension GhosttyRuntime {
 
     nonisolated static func surfaceView(from target: ghostty_target_s) -> GhosttySurfaceNSView? {
         guard target.tag == GHOSTTY_TARGET_SURFACE,
-              let surface = target.target.surface,
-              let userdata = ghostty_surface_userdata(surface) else {
+            let surface = target.target.surface,
+            let userdata = ghostty_surface_userdata(surface)
+        else {
             return nil
         }
 
@@ -777,7 +801,6 @@ extension GhosttyRuntime {
             .takeUnretainedValue()
     }
 }
-
 
 /// Latch-style coalescer for libghostty wakeup callbacks. The first wakeup
 /// after a quiet period flips `isPending` and runs `operation`; subsequent
@@ -798,6 +821,25 @@ extension GhosttyRuntime {
 final class GhosttyWakeupCoalescer: @unchecked Sendable {
     private let lock = NSLock()
     private var isPending = false
+    private var pendingSinceUptime: DispatchTime?
+
+    /// Age of the oldest wakeup not yet serviced by a tick, or nil when
+    /// none is outstanding. This is the watchdog's staleness signal: an
+    /// idle app has no pending wakeup and can never look stale, while a
+    /// stuck latch leaves this set and aging. Wakeups dropped by the
+    /// latch don't refresh it — staleness must measure the oldest
+    /// unserviced wakeup, not the newest. Measured on the suspending
+    /// monotonic clock (`DispatchTime`): a wall-clock step can neither
+    /// fake staleness nor hide it, and time asleep doesn't count.
+    var pendingWakeupAge: TimeInterval? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let pendingSinceUptime else { return nil }
+        let elapsed =
+            DispatchTime.now().uptimeNanoseconds
+            - pendingSinceUptime.uptimeNanoseconds
+        return TimeInterval(elapsed) / 1_000_000_000
+    }
 
     func schedule(_ operation: () -> Void) {
         lock.lock()
@@ -806,6 +848,7 @@ final class GhosttyWakeupCoalescer: @unchecked Sendable {
             return
         }
         isPending = true
+        pendingSinceUptime = .now()
         lock.unlock()
 
         operation()
@@ -814,6 +857,7 @@ final class GhosttyWakeupCoalescer: @unchecked Sendable {
     func clearPending() {
         lock.lock()
         isPending = false
+        pendingSinceUptime = nil
         lock.unlock()
     }
 }

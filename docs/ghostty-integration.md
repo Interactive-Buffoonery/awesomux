@@ -196,6 +196,52 @@ older/unconfigured panes, but interpretation lives in `AwesoMuxCore`
 `CommandExitCache` similarly owns cached exit-code freshness for process-exit
 decisions outside the native view.
 
+### Patching a vendored dependency for local diagnostics
+
+If you ever need to add temporary diagnostic instrumentation to a vendored
+Zig dependency (e.g. libxev) to debug it in place, three separate traps stack
+on top of each other — hit all three in one evening (2026-07-22, see
+`Interactive-Buffoonery/awesomux#176`):
+
+1. **Wrong cache location.** `script/build_ghostty_xcframework.sh` fetches
+   dependencies into a **project-local** `ZIG_GLOBAL_CACHE_DIR`
+   (`.build/ghostty/zig-global-cache-<mode>/p/<pkg>-<hash>/`), not the default
+   `~/.cache/zig/p/`. Patch the file under `.build/ghostty/...`, not the user
+   global cache — the latter is never read by this build.
+2. **The build script wipes that exact directory on every invocation**
+   (`rm -rf "$AWESOMUX_ZIG_CACHE_DIR" "$AWESOMUX_ZIG_GLOBAL_CACHE_DIR"`
+   unconditionally). Re-running the script to pick up a patch destroys the
+   patch first. To test a patch: edit the real
+   `script/build_ghostty_xcframework.sh` in place to skip clearing
+   `$AWESOMUX_ZIG_GLOBAL_CACHE_DIR` for that one run, build, then
+   `git checkout -- script/build_ghostty_xcframework.sh` immediately after
+   (confirm clean via `git status --short`). Check `git diff` on the script
+   *before* the temporary edit — `git checkout --` discards ALL local edits
+   to the file, including unrelated ones you had in flight; stash or save
+   those first. Do not copy the script elsewhere
+   to edit it — its `ROOT_DIR` is computed relative to its own location and
+   breaks if run from a different path.
+3. **SwiftPM will not relink against the rebuilt archive.** `Package.swift`
+   links `libghostty-fat.a` via a raw path string inside `GhosttyKitLinker`'s
+   `unsafeFlags` (`-Xlinker -force_load -Xlinker <path>`, matching the
+   `-force_load` link strategy described above). SwiftPM/llbuild treats that
+   as opaque command-line text and never stats the archive — the link step
+   looks "up to date" no matter how many times the archive's *content*
+   changes, so `swift build`/`./script/build_and_run.sh` reports "Build
+   complete!" without actually relinking. Force it by deleting the stale
+   output before rebuilding:
+
+   ```bash
+   rm .build/arm64-apple-macosx/release/awesoMux   # and/or debug/, matching your build config
+   ./script/build_and_run.sh build
+   ```
+
+   Verify with `strings dist/awesoMux.app/Contents/MacOS/awesoMux | grep -q
+   '<your diagnostic string>'` before trusting a rebuild — this is systemic
+   and will recur on every future Ghostty/libxev rebuild until the target
+   moves to a real `binaryTarget` (which SwiftPM does checksum) or the build
+   script gains a staleness guard for the linked archive.
+
 ## Command Surface Policy
 
 The durable decision lives in
