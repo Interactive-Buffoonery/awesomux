@@ -68,7 +68,7 @@ struct AgentRuntimeEventTests {
         #"{"v":1,"source":"codex","phase":"open-document"}"#,
         #"{"v":1,"source":"codex","phase":"open-document","documentPath":"notes.md"}"#,
         #"{"v":1,"source":"codex","phase":"open-document","documentPath":"/tmp/notes.txt"}"#,
-        #"{"v":1,"source":"codex","phase":"open-document","documentPath":"/tmp/notes.md\u0000suffix"}"#
+        #"{"v":1,"source":"codex","phase":"open-document","documentPath":"/tmp/notes.md\u0000suffix"}"#,
     ])
     func invalidOpenDocumentEventsAreRejected(line: String) {
         #expect(AgentRuntimeEvent.parse(line: line) == nil)
@@ -82,6 +82,54 @@ struct AgentRuntimeEventTests {
 
         #expect(event?.phase == .stop)
         #expect(event?.documentPath == nil)
+    }
+
+    // MARK: - Touched path scope enforcement (issue #175)
+
+    @Test
+    func claudeCodeToolEndParsesTouchedPath() {
+        let event = AgentRuntimeEvent.parse(
+            line: #"{"v":1,"source":"claude-code","execution":"thinking","phase":"toolEnd","touchedPath":"/Users/agent/plan.md"}"#
+        )
+
+        #expect(event?.phase == .toolEnd)
+        #expect(event?.executionState == .thinking)
+        #expect(event?.touchedPath == "/Users/agent/plan.md")
+    }
+
+    @Test(arguments: [
+        // Wrong source: only claude-code may carry a touched path today.
+        #"{"v":1,"source":"grok","phase":"toolEnd","touchedPath":"/Users/agent/plan.md"}"#,
+        #"{"v":1,"source":"codex","phase":"toolEnd","touchedPath":"/Users/agent/plan.md"}"#,
+        // Wrong phase: a forged path on any non-toolEnd phase is stripped.
+        #"{"v":1,"source":"claude-code","phase":"stop","touchedPath":"/Users/agent/plan.md"}"#,
+        #"{"v":1,"source":"claude-code","phase":"notification","touchedPath":"/Users/agent/plan.md"}"#,
+    ])
+    func touchedPathStrippedOutsideClaudeToolEndScope(line: String) {
+        let event = AgentRuntimeEvent.parse(line: line)
+        // The event still parses; only the out-of-scope path is dropped.
+        #expect(event != nil)
+        #expect(event?.touchedPath == nil)
+    }
+
+    @Test(arguments: [
+        #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"notes.md"}"#,  // relative
+        #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/notes.txt"}"#,  // non-markdown
+        #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/tmp/notes.md\u0000x"}"#,  // NUL
+    ])
+    func invalidTouchedPathIsDroppedButEventSurvives(line: String) {
+        let event = AgentRuntimeEvent.parse(line: line)
+        #expect(event?.phase == .toolEnd)
+        #expect(event?.touchedPath == nil)
+    }
+
+    @Test
+    func touchedPathWithUnsafeScalarsIsDropped() {
+        let event = AgentRuntimeEvent.parse(
+            line: #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/Users/agent/re‮report.md"}"#
+        )
+        #expect(event?.phase == .toolEnd)
+        #expect(event?.touchedPath == nil)
     }
 
     @Test
@@ -119,7 +167,8 @@ struct AgentRuntimeEventTests {
 
     @Test
     func oversizedLineReturnsNil() {
-        let oversized = #"{"v":1,"source":"claude-code","eventID":""#
+        let oversized =
+            #"{"v":1,"source":"claude-code","eventID":""#
             + String(repeating: "x", count: AgentRuntimeEvent.maximumLineByteCount)
             + #""}"#
 
@@ -158,7 +207,7 @@ struct AgentRuntimeEventTests {
 
     @Test(arguments: [
         ("OpenCode", AgentKind.openCode),
-        ("Pi", .pi)
+        ("Pi", .pi),
     ])
     func localAgentKindsParse(rawKind: String, kind: AgentKind) {
         let event = AgentRuntimeEvent.parse(
@@ -173,7 +222,8 @@ struct AgentRuntimeEventTests {
         // Build a payload whose UTF-8 byte length is exactly maximumLineByteCount.
         let prefix = #"{"v":1,"source":"claude-code","eventID":""#
         let suffix = #""}"#
-        let padding = AgentRuntimeEvent.maximumLineByteCount
+        let padding =
+            AgentRuntimeEvent.maximumLineByteCount
             - prefix.lengthOfBytes(using: .utf8)
             - suffix.lengthOfBytes(using: .utf8)
         let line = prefix + String(repeating: "x", count: padding) + suffix

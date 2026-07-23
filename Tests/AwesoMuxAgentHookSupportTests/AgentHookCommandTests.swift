@@ -61,14 +61,135 @@ struct AgentHookCommandTests {
 
     @Test
     func openDocumentSkipsStandardInputRead() {
-        #expect(AgentHookCommand.shouldReadStandardInput(
-            arguments: ["open-document", "--provider", "codex", "/tmp/notes.md"]
-        ) == false)
+        #expect(
+            AgentHookCommand.shouldReadStandardInput(
+                arguments: ["open-document", "--provider", "codex", "/tmp/notes.md"]
+            ) == false)
+    }
+
+    // MARK: - Touched-path forwarding (issue #175)
+
+    @Test(arguments: ["Write", "Edit", "MultiEdit"])
+    func claudeCodePostToolUseForwardsMarkdownTouchedPath(tool: String) throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "claude-code"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Self.postToolUsePayload(toolName: tool, filePath: "/Users/agent/plan.md")
+        )
+
+        #expect(status == 0)
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.source == .claudeCode)
+        #expect(event.phase == .toolEnd)
+        #expect(event.executionState == .thinking)
+        #expect(event.touchedPath == "/Users/agent/plan.md")
+    }
+
+    @Test
+    func nonMutatingToolDoesNotForwardTouchedPath() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "claude-code"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Self.postToolUsePayload(toolName: "Read", filePath: "/Users/agent/plan.md")
+        )
+
+        #expect(status == 0)
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.phase == .toolEnd)
+        #expect(event.touchedPath == nil)
+    }
+
+    @Test(arguments: [
+        "/Users/agent/main.swift",  // non-Markdown extension
+        "relative/notes.md",  // not absolute
+        "/Users/agent/re\u{202e}port.md",  // bidi-override scalar
+    ])
+    func ineligibleTouchedPathIsDroppedButEventSurvives(filePath: String) throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "claude-code"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Self.postToolUsePayload(toolName: "Write", filePath: filePath)
+        )
+
+        #expect(status == 0)
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        // The state transition still lands; only the path is dropped.
+        #expect(event.phase == .toolEnd)
+        #expect(event.executionState == .thinking)
+        #expect(event.touchedPath == nil)
+    }
+
+    @Test
+    func preToolUseDoesNotForwardTouchedPath() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "claude-code"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Data(
+                #"{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/Users/agent/plan.md"}}"#.utf8
+            )
+        )
+
+        #expect(status == 0)
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.phase == .toolStart)
+        #expect(event.touchedPath == nil)
+    }
+
+    @Test
+    func codexPostToolUseDoesNotForwardTouchedPath() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "codex"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Self.postToolUsePayload(toolName: "Write", filePath: "/Users/agent/plan.md")
+        )
+
+        #expect(status == 0)
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.touchedPath == nil)
+    }
+
+    @Test
+    func largeWritePayloadStillForwardsTouchedPath() throws {
+        // Regression for the 64 KiB cap: a Write embeds the full file content in
+        // tool_input, which for a real doc dwarfs 64 KiB. The path must survive.
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let bigContent = String(repeating: "a", count: 256 * 1024)
+        let payload =
+            #"{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/Users/agent/plan.md","content":"\#(bigContent)"}}"#
+        #expect(payload.utf8.count > 64 * 1024)
+        #expect(payload.utf8.count <= AgentHookCommand.maximumInputByteCount)
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "claude-code"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Data(payload.utf8)
+        )
+
+        #expect(status == 0)
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.touchedPath == "/Users/agent/plan.md")
     }
 
     @Test(arguments: [
         ("opencode", AgentRuntimeSource.openCode, AgentKind.openCode),
-        ("pi", .pi, .pi)
+        ("pi", .pi, .pi),
     ])
     func localAgentProvidersWriteProviderIdentity(
         provider: String,
@@ -98,7 +219,7 @@ struct AgentHookCommandTests {
         ("Notification", Optional("idle_prompt"), Optional(AgentExecutionState.waiting), nil),
         ("Notification", Optional<String>.none, AgentExecutionState?.none, AttentionReason.userInputRequired),
         ("PermissionRequest", Optional<String>.none, AgentExecutionState?.none, AttentionReason.permissionPrompt),
-        ("StopFailure", Optional<String>.none, Optional(AgentExecutionState.error), nil)
+        ("StopFailure", Optional<String>.none, Optional(AgentExecutionState.error), nil),
     ])
     func claudeSpecificHookPayloadsWriteCurrentContract(
         hookEventName: String,
@@ -127,7 +248,7 @@ struct AgentHookCommandTests {
 
     @Test(arguments: [
         ("SubagentStart", AgentRuntimePhase.toolStart),
-        ("SubagentStop", .toolEnd)
+        ("SubagentStop", .toolEnd),
     ])
     func codexSubagentEventsWriteToolPhases(
         hookEventName: String,
@@ -401,9 +522,10 @@ struct AgentHookCommandTests {
         let temp = try Self.temporaryEventFile()
         defer { temp.remove() }
         let eventFile = temp.file
-        let sensitivePayload = Data("""
-        {"hook_event_name":"PreToolUse","prompt":"secret","tool_input":{"path":"/tmp/secret"},"cwd":"/private","transcript_path":"/tmp/transcript","model":"x","cost_usd":12.3,"tokens":99,"assistant_text":"nope","progress":"hidden"}
-        """.utf8)
+        let sensitivePayload = Data(
+            """
+            {"hook_event_name":"PreToolUse","prompt":"secret","tool_input":{"path":"/tmp/secret"},"cwd":"/private","transcript_path":"/tmp/transcript","model":"x","cost_usd":12.3,"tokens":99,"assistant_text":"nope","progress":"hidden"}
+            """.utf8)
 
         _ = AgentHookCommand.run(
             arguments: ["--provider", "claude-code"],
@@ -446,7 +568,7 @@ struct AgentHookCommandTests {
         Data("{}".utf8),
         Data(#"{"hook_event_name":"UnknownEvent"}"#.utf8),
         Data(#"{"hook_event_name":"PreCompact"}"#.utf8),
-        Data(#"{"hook_event_name":"PostCompact"}"#.utf8)
+        Data(#"{"hook_event_name":"PostCompact"}"#.utf8),
     ])
     func invalidOrSilentCodexInputWritesNothing(stdin: Data) throws {
         let temp = try Self.temporaryEventFile()
@@ -535,7 +657,7 @@ struct AgentHookCommandTests {
         ["--provider"],
         ["--provider", "gemini"],
         ["--source", "codex"],
-        ["--provider", "codex", "--phase", "toolStart"]
+        ["--provider", "codex", "--phase", "toolStart"],
     ])
     func invalidArgumentsExitSuccessAndWriteNothing(arguments: [String]) throws {
         let temp = try Self.temporaryEventFile()
@@ -557,7 +679,7 @@ struct AgentHookCommandTests {
         ["open-document", "--provider", "gemini", "/tmp/notes.md"],
         ["open-document", "--source", "codex", "/tmp/notes.md"],
         ["open-document", "--provider", "codex"],
-        ["open-document", "--provider", "codex", "/tmp/notes.md", "extra"]
+        ["open-document", "--provider", "codex", "/tmp/notes.md", "extra"],
     ])
     func invalidOpenDocumentArgumentsWriteNothing(arguments: [String]) throws {
         let temp = try Self.temporaryEventFile()
@@ -577,7 +699,7 @@ struct AgentHookCommandTests {
     @Test(arguments: [
         "notes.md",
         "/tmp/notes.txt",
-        "/tmp/notes.md\u{0}suffix"
+        "/tmp/notes.md\u{0}suffix",
     ])
     func invalidOpenDocumentPathsWriteNothing(path: String) throws {
         let temp = try Self.temporaryEventFile()
@@ -754,6 +876,15 @@ struct AgentHookCommandTests {
         }
         payload += "}"
         return Data(payload.utf8)
+    }
+
+    private static func postToolUsePayload(toolName: String, filePath: String) -> Data {
+        let object: [String: Any] = [
+            "hook_event_name": "PostToolUse",
+            "tool_name": toolName,
+            "tool_input": ["file_path": filePath],
+        ]
+        return try! JSONSerialization.data(withJSONObject: object)
     }
 
     private static func temporaryEventFile(createFile: Bool = true) throws -> TemporaryEventFile {

@@ -3,21 +3,33 @@ import AwesoMuxCore
 import Foundation
 
 public enum AgentHookEventMapper {
+    /// File-mutating Claude Code tools whose PostToolUse `file_path` is worth
+    /// surfacing. Read/Grep/Glob/Bash are deliberately excluded so merely
+    /// *viewing* a file never records it as agent-touched (issue #175).
+    /// NotebookEdit is absent on purpose: it reports `notebook_path`, not
+    /// `file_path`, and `.ipynb` is never Markdown, so it can never produce a
+    /// valid touched path.
+    private static let markdownMutatingTools: Set<String> = ["Write", "Edit", "MultiEdit"]
+
     public static func event(
         provider: AgentHookProvider,
         hookEventName: String,
         notificationType: String? = nil,
         providerSessionID: String? = nil,
         reason: String? = nil,
+        toolName: String? = nil,
+        toolFilePath: String? = nil,
         eventID: String = UUID().uuidString,
         timestamp: Date = Date()
     ) -> AgentRuntimeEvent? {
-        guard let mapping = mapping(
-            provider: provider,
-            hookEventName: hookEventName,
-            notificationType: notificationType,
-            reason: reason
-        ) else {
+        guard
+            let mapping = mapping(
+                provider: provider,
+                hookEventName: hookEventName,
+                notificationType: notificationType,
+                reason: reason
+            )
+        else {
             return nil
         }
 
@@ -29,8 +41,36 @@ public enum AgentHookEventMapper {
             phase: mapping.phase,
             eventID: eventID,
             providerSessionID: providerSessionID,
+            touchedPath: touchedPath(
+                provider: provider,
+                phase: mapping.phase,
+                toolName: toolName,
+                toolFilePath: toolFilePath
+            ),
             timestamp: timestamp
         )
+    }
+
+    /// A touched path rides along only on a Claude Code PostToolUse (`.toolEnd`)
+    /// for a file-mutating tool, and only when the path is an absolute Markdown
+    /// file free of unsafe scalars. Codex/Grok are excluded until their tool
+    /// payload shapes are verified. `parse` re-enforces the source/phase gate
+    /// at the trust boundary, so this helper is the scope's producer, not its
+    /// only guard.
+    private static func touchedPath(
+        provider: AgentHookProvider,
+        phase: AgentRuntimePhase,
+        toolName: String?,
+        toolFilePath: String?
+    ) -> String? {
+        guard provider == .claudeCode,
+            phase == .toolEnd,
+            let toolName, markdownMutatingTools.contains(toolName),
+            let toolFilePath
+        else {
+            return nil
+        }
+        return AgentRuntimeEvent.validatedTouchedPath(toolFilePath)
     }
 
     private static func mapping(
@@ -116,8 +156,8 @@ public enum AgentHookEventMapper {
         case "end_turn":
             EventMapping(executionState: .waiting, phase: .stop)
         case nil, "", "shutdown",
-             "cancel", "cancelled", "canceled", "abort", "aborted",
-             "error", "failed", "failure":
+            "cancel", "cancelled", "canceled", "abort", "aborted",
+            "error", "failed", "failure":
             EventMapping(executionState: .error, phase: .stop)
         default:
             EventMapping(executionState: .error, phase: .stop)
@@ -162,7 +202,7 @@ public enum AgentHookEventMapper {
         // attention/unread, drop the agent kind back to shell) so a quit agent
         // does not leave a stuck peach badge or a lingering agent glyph.
         "SessionEnd": EventMapping(executionState: .idle, phase: .sessionEnd),
-        "StopFailure": EventMapping(executionState: .error, phase: .stop)
+        "StopFailure": EventMapping(executionState: .error, phase: .stop),
     ]) { _, new in new }
 
     private struct EventMapping {
