@@ -86,8 +86,10 @@ jobs:
           # A missing tag (404, e.g. the first-ever nightly) reads as changed.
           REF_JSON="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/nightly" 2>/dev/null || true)"
           if [[ -n "$REF_JSON" ]]; then
-            OBJ_TYPE="$(jq -r '.object.type // ""' <<<"$REF_JSON")"
-            OBJ_SHA="$(jq -r '.object.sha // ""' <<<"$REF_JSON")"
+            # A malformed response leaves these empty and the run falls through to
+            # a rebuild rather than aborting the step — still green-gated below.
+            OBJ_TYPE="$(jq -r '.object.type // ""' <<<"$REF_JSON" 2>/dev/null || echo "")"
+            OBJ_SHA="$(jq -r '.object.sha // ""' <<<"$REF_JSON" 2>/dev/null || echo "")"
             if [[ "$OBJ_TYPE" == "tag" ]]; then
               # Annotated tag: deref to the commit it points at.
               OBJ_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$OBJ_SHA" --jq '.object.sha' 2>/dev/null || echo "")"
@@ -109,9 +111,12 @@ jobs:
           # enabled — docs/ci.md), so Cheap guards is the real per-main-push gate.
           # No completed run for this SHA (still running, or none) => not proven
           # green => skip and recover next cron.
+          # jq --arg (not string interpolation) so the SHA can never be read as
+          # jq program text — defense in depth; github.sha is always trusted hex.
           CONCLUSION="$(gh run list --workflow "Cheap guards" --branch main --event push \
-            --status completed --json headSha,conclusion -L 50 \
-            --jq "[.[] | select(.headSha == \"$HEAD_SHA\")][0].conclusion // \"\"" 2>/dev/null || echo "")"
+            --status completed --json headSha,conclusion -L 50 2>/dev/null \
+            | jq -r --arg sha "$HEAD_SHA" '[.[] | select(.headSha == $sha)][0].conclusion // ""' 2>/dev/null \
+            || echo "")"
           if [[ "$CONCLUSION" != "success" ]]; then
             echo "Cheap guards for $HEAD_SHA is '${CONCLUSION:-none}', not success; skipping."
             emit false
