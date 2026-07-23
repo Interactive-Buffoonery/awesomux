@@ -281,20 +281,26 @@ enum AmxBackend {
             return tokens
         case "fish":
             let integrationDir = ghosttyResourcesDir + "/shell-integration"
-            let xdgDataDirs = integrationDir + ":" + (inheritedXDGDataDirs ?? defaultXDGDataDirs)
             return [
                 shellQuote("GHOSTTY_SHELL_INTEGRATION_XDG_DIR=" + integrationDir),
-                shellQuote("XDG_DATA_DIRS=" + xdgDataDirs),
+                shellQuote("XDG_DATA_DIRS=" + prependedXDGDataDirs(integrationDir, inherited: inheritedXDGDataDirs)),
             ]
         default:
             return []
         }
     }
 
-    /// freedesktop.org base-dir spec fallback ghostty itself uses
-    /// (`internal_os.prependEnv` in shell_integration.zig) when XDG_DATA_DIRS
-    /// is unset, so a default value isn't lost by pinning ours in its place.
-    private static let defaultXDGDataDirs = "/usr/local/share:/usr/share"
+    /// Mirrors ghostty's own `internal_os.prependEnv` exactly
+    /// (vendor/ghostty/src/os/env.zig): an ABSENT XDG_DATA_DIRS falls back to
+    /// the freedesktop base-dir spec default before prepending, but an
+    /// EXPLICITLY EMPTY one is treated as "nothing to prepend onto" and
+    /// returns the new value alone — no trailing delimiter, no default
+    /// substituted. These are different cases (nil vs. "") and ghostty
+    /// itself does not conflate them.
+    private static func prependedXDGDataDirs(_ integrationDir: String, inherited: String?) -> String {
+        let current = inherited ?? "/usr/local/share:/usr/share"
+        return current.isEmpty ? integrationDir : integrationDir + ":" + current
+    }
 
     /// The `ssh` tokens appended after `attach <id>` for a remote pane. Each
     /// token is shell-quoted by the caller. Transport only — no credentials

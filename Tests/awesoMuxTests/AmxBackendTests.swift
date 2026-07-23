@@ -241,9 +241,12 @@ struct AmxBackendAttachCommandTests {
     @Test("distinguishes an absent XDG_DATA_DIRS from an explicitly empty one")
     func distinguishesAbsentFromEmptyXDGDataDirs() throws {
         let id = try #require(TerminalSessionID(rawValue: "abc123-fishxdgempty"))
-        // Explicitly empty (present but ""): ghostty's own orelse-on-nil
-        // semantics only substitute the default when the key is ABSENT, so an
-        // explicit empty value prepends onto nothing rather than the default.
+        // Explicitly empty (present but ""): ghostty's own internal_os.prependEnv
+        // (vendor/ghostty/src/os/env.zig) special-cases a zero-length current
+        // value as "nothing to prepend onto" and returns the new value alone
+        // — no trailing delimiter, no default substituted. That only happens
+        // for an ABSENT XDG_DATA_DIRS (where `orelse` substitutes the
+        // freedesktop default before prependEnv ever sees it).
         let command = try #require(
             AmxBackend.attachCommand(
                 executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
@@ -253,7 +256,8 @@ struct AmxBackendAttachCommandTests {
                 inheritedXDGDataDirs: "",
                 shellPath: "/usr/local/bin/fish"
             ))
-        #expect(command.contains("'XDG_DATA_DIRS=/res/ghostty/shell-integration:'"))
+        #expect(command.contains("'XDG_DATA_DIRS=/res/ghostty/shell-integration'"))
+        #expect(!command.contains("shell-integration:"))
         #expect(!command.contains("/usr/local/share:/usr/share"))
     }
 
