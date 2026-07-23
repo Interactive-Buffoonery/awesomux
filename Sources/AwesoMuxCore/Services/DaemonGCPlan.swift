@@ -13,7 +13,7 @@ public enum DaemonGCPlan {
         func isHex(_ b: UInt8) -> Bool { (0x30...0x39).contains(b) || (0x61...0x66).contains(b) }
         for (index, byte) in bytes.enumerated() {
             if index == 8 || index == 13 || index == 18 || index == 23 {
-                if byte != 0x2d { return false }      // '-'
+                if byte != 0x2d { return false }  // '-'
             } else if !isHex(byte) {
                 return false
             }
@@ -33,10 +33,11 @@ public enum DaemonGCPlan {
                 fields[key] = String(token[token.index(after: eq)...])
             }
             guard let name = fields["name"]?.trimmingCharacters(in: .whitespaces),
-                  let id = TerminalSessionID(rawValue: name),
-                  let pidString = fields["pid"], let pid = Int32(pidString),
-                  let createdString = fields["created"], let created = Int(createdString),
-                  !seen.contains(name) else { continue }
+                let id = TerminalSessionID(rawValue: name),
+                let pidString = fields["pid"], let pid = Int32(pidString),
+                let createdString = fields["created"], let created = Int(createdString),
+                !seen.contains(name)
+            else { continue }
             // Fail safe: if `clients` is absent/unparseable we cannot prove the
             // daemon is unattached, so default to 1 (in use) and spare it.
             let clients = fields["clients"].flatMap(Int.init) ?? 1
@@ -46,12 +47,26 @@ public enum DaemonGCPlan {
         return result
     }
 
+    /// All-or-nothing variant of `parseAmxList` for destructive consumers:
+    /// nil unless every nonblank line yields a distinct daemon. The tolerant
+    /// parser's skip-what-you-can't-read is fail-safe for the daemon reaper
+    /// (an unparsed row just isn't killed) but fail-DANGEROUS for the
+    /// status-file sweep, where a dropped live row reads as "no daemon →
+    /// stale file → delete". Format drift must abort the sweep instead.
+    public static func parseAmxListStrict(_ raw: String) -> [LiveDaemon]? {
+        let nonblankLines = raw.split(whereSeparator: \.isNewline)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let parsed = parseAmxList(raw)
+        return parsed.count == nonblankLines.count ? parsed : nil
+    }
+
     public static func parseProcessSnapshot(_ raw: String) -> [ProcEntry] {
         var result: [ProcEntry] = []
         for line in raw.split(whereSeparator: \.isNewline) {
             let parts = line.split(separator: " ", omittingEmptySubsequences: true)
             guard parts.count >= 3,
-                  let pid = Int32(parts[0]), let ppid = Int32(parts[1]) else { continue }
+                let pid = Int32(parts[0]), let ppid = Int32(parts[1])
+            else { continue }
             let command = parts[2...].joined(separator: " ")
             result.append(ProcEntry(pid: pid, ppid: ppid, command: command))
         }
@@ -70,10 +85,10 @@ public enum DaemonGCPlan {
         let children = snapshot.filter { $0.ppid == daemonPID }
         for child in children {
             guard ShellRecognition.isRecognizedShell(child.command) else {
-                return false            // exec'd over the shell — live work
+                return false  // exec'd over the shell — live work
             }
             if snapshot.contains(where: { $0.ppid == child.pid }) {
-                return false            // shell is running a foreground command
+                return false  // shell is running a foreground command
             }
         }
         return true
@@ -130,17 +145,104 @@ public enum DaemonGCPlan {
         var seen = Set<TerminalSessionID>()
         for daemon in live where !seen.contains(daemon.id) {
             guard isUUIDShaped(daemon.id.rawValue),
-                  daemon.clients == 0,
-                  !owned.contains(daemon.id),
-                  !busy.contains(daemon.id),
-                  !pinned.contains(daemon.id),
-                  idleByID[daemon.id] == true,
-                  daemon.createdEpoch < gcStart,
-                  now - daemon.createdEpoch >= cap else { continue }
+                daemon.clients == 0,
+                !owned.contains(daemon.id),
+                !busy.contains(daemon.id),
+                !pinned.contains(daemon.id),
+                idleByID[daemon.id] == true,
+                daemon.createdEpoch < gcStart,
+                now - daemon.createdEpoch >= cap
+            else { continue }
             seen.insert(daemon.id)
             result.append(daemon)
         }
         return result
+    }
+
+    /// A `*.status.jsonl` file observed in the amx directory, as input to
+    /// `staleStatusFiles`. `modifiedEpoch` is the file's mtime.
+    public struct StatusFileCandidate: Equatable {
+        public let filename: String
+        public let modifiedEpoch: Int
+
+        public init(filename: String, modifiedEpoch: Int) {
+            self.filename = filename
+            self.modifiedEpoch = modifiedEpoch
+        }
+    }
+
+    /// Session id embedded in a per-attach status filename
+    /// (`<lowercase-uuid>-<8 lowercase hex>.status.jsonl`, minted by
+    /// `AmxBackend.makeStatusChannel`), or nil for anything else. Strict on
+    /// purpose: GC must never delete a file it cannot positively attribute
+    /// to a minted session. Deliberate scope ceiling: hand-named sessions
+    /// (`amx attach dev`) also mint status files but are never candidates —
+    /// same sparing rule as the daemon reaper's `isUUIDShaped` gate. Their
+    /// volume is dev-only; widen only with a name-set cross-check. A
+    /// same-UID process can also squat `<live-uuid>-<any hex>` to keep its
+    /// own junk file spared — nuisance only, it already has full
+    /// same-user filesystem access.
+    public static func statusFileSessionID(_ filename: String) -> TerminalSessionID? {
+        let suffix = ".status.jsonl"
+        guard filename.hasSuffix(suffix) else { return nil }
+        let stem = filename.dropLast(suffix.count)
+        guard stem.count == 45 else { return nil }  // uuid(36) + "-" + token(8)
+        let uuid = String(stem.prefix(36))
+        let separatorIndex = stem.index(stem.startIndex, offsetBy: 36)
+        let token = stem[stem.index(after: separatorIndex)...]
+        func isLowercaseHex(_ c: Character) -> Bool {
+            ("0"..."9").contains(c) || ("a"..."f").contains(c)
+        }
+        guard isUUIDShaped(uuid),
+            stem[separatorIndex] == "-",
+            token.allSatisfy(isLowercaseHex)
+        else { return nil }
+        return TerminalSessionID(rawValue: uuid)
+    }
+
+    /// A status file must be at least this old (relative to sweep start)
+    /// before it can be deleted. Another app instance mints its status file
+    /// BEFORE `amx attach` registers the daemon — during a slow (remote)
+    /// preflight that gap is seconds, and such a session is in neither this
+    /// instance's `owned` set nor `amx list` yet. Leaked orphans are hours
+    /// to days old, so a wide grace costs nothing: they're gone next launch.
+    public static let statusFileGraceSeconds = 3600
+
+    /// Launch-GC sweep for leaked per-attach status files: every attach mints
+    /// a fresh file and only a clean `AmxStatusFileWatcher.stop()` removes it,
+    /// so crashes and force-kills accumulate orphans forever — mostly as
+    /// stale GENERATIONS of sessions that are still alive, so sparing by
+    /// session id would keep the actual backlog forever.
+    ///
+    /// A file is deletable unless one of three things protects it:
+    /// - its session has an attached client (`attached`, from `amx list`
+    ///   `clients > 0`): an active status channel can only belong to an
+    ///   attach process, and a quiet long-lived attach's file mtime can be
+    ///   arbitrarily old, so attachment — not recency — is the discriminator
+    ///   for "current channel". One session can hold several simultaneously
+    ///   active channels (pop-up mirror), which is why no newest-N heuristic
+    ///   is safe here.
+    /// - it is inside the grace window (covers an in-flight attach whose
+    ///   daemon/client is not visible in `amx list` yet — including another
+    ///   app instance's).
+    /// - its name cannot be positively attributed to a minted session.
+    ///
+    /// Sessions whose only clients are leaked orphan attach processes
+    /// (Interactive-Buffoonery/awesomux#183) are spared too — the safe
+    /// direction; their files become collectable once #183 reaps orphans.
+    public static func staleStatusFiles(
+        candidates: [StatusFileCandidate],
+        attached: Set<TerminalSessionID>,
+        gcStart: Int,
+        graceSeconds: Int = statusFileGraceSeconds
+    ) -> [String] {
+        candidates.compactMap { candidate in
+            guard let id = statusFileSessionID(candidate.filename),
+                !attached.contains(id),
+                candidate.modifiedEpoch < gcStart - graceSeconds
+            else { return nil }
+            return candidate.filename
+        }
     }
 
     public static func reapable(
@@ -153,10 +255,11 @@ public enum DaemonGCPlan {
         var seen = Set<TerminalSessionID>()
         for daemon in live where !seen.contains(daemon.id) {
             guard isUUIDShaped(daemon.id.rawValue),
-                  daemon.clients == 0,            // never reap a daemon in active use
-                  !owned.contains(daemon.id),
-                  !busy.contains(daemon.id),
-                  daemon.createdEpoch < gcStart else { continue }
+                daemon.clients == 0,  // never reap a daemon in active use
+                !owned.contains(daemon.id),
+                !busy.contains(daemon.id),
+                daemon.createdEpoch < gcStart
+            else { continue }
             seen.insert(daemon.id)
             result.append(daemon)
         }
