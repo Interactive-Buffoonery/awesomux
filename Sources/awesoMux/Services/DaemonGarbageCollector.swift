@@ -171,6 +171,63 @@ enum DaemonGarbageCollector {
         let remaining = Set((await AmxBackend.listSessions()).map(\.id))
         let reaped = targets.filter { !remaining.contains($0.id) }.count
         log.info("daemon GC: \(reaped)/\(targets.count) orphan daemon(s) confirmed reaped")
+
+        await reapOrphanAttachClients(live: live, snapshot: snapshot)
+    }
+
+    /// Terminates leaked `amx attach` clients reparented to launchd
+    /// (Interactive-Buffoonery/awesomux#183): each one pins its daemon's
+    /// `clients` count >= 1 forever, permanently defeating `reapable` above.
+    /// `snapshot` is the one already fetched for busy/idle classification —
+    /// the shortlist pass costs nothing extra; the confirm pass below only
+    /// runs when that shortlist is non-empty (rare — real orphans are
+    /// hours-to-days old per the issue's own observed data).
+    nonisolated private static func reapOrphanAttachClients(
+        live: [LiveDaemon],
+        snapshot: [ProcEntry]
+    ) async {
+        let daemonPIDs = Set(live.map(\.pid))
+        let candidates = DaemonGCPlan.candidateOrphanAttachPIDs(
+            snapshot: snapshot, daemonPIDs: daemonPIDs, executableName: AmxBackend.executableName
+        )
+        guard !candidates.isEmpty else { return }
+
+        // Revalidate against fresh daemon + process state right before
+        // signaling: closes the pid-reuse race between the snapshot above and
+        // the kill below (mirrors the daemon-reap revalidation earlier in
+        // this function). `listSessionsResult()` (nil-on-failure), not
+        // `listSessions()` (empty-on-failure) — a failed lookup must abort,
+        // not silently read as "zero live daemons, safe to kill everything."
+        guard let freshDaemons = await AmxBackend.listSessionsResult() else {
+            log.error("orphan attach GC aborted: fresh daemon list unavailable")
+            return
+        }
+        guard let samples = await AmxBackend.attachProcessSamples(forPIDs: candidates) else {
+            log.error("orphan attach GC aborted: process confirm query unavailable")
+            return
+        }
+        let freshDaemonPIDs = Set(freshDaemons.map(\.pid))
+        let confirmed = DaemonGCPlan.confirmedOrphanAttachPIDs(
+            samples: samples, daemonPIDs: freshDaemonPIDs, executableName: AmxBackend.executableName
+        )
+        guard !confirmed.isEmpty else { return }
+
+        var signaled = 0
+        for pid in confirmed {
+            guard Darwin.kill(pid, SIGTERM) == 0 else { continue }
+            signaled += 1
+            // ponytail: SIGKILL escalation, not a live-process integration
+            // test, is the safety net for "does SIGTERM actually reach an
+            // orphaned attach client" — matches BoundedProcessRunner's own
+            // terminateThenKill grace. Add a real orphan-and-signal
+            // integration test if orphans are ever observed surviving both.
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
+                if Darwin.kill(pid, 0) == 0 {
+                    Darwin.kill(pid, SIGKILL)
+                }
+            }
+        }
+        log.info("daemon GC: signaled \(signaled)/\(confirmed.count) orphan attach client(s)")
     }
 
     /// Removes leaked per-attach `*.status.jsonl` files — anything not

@@ -1191,6 +1191,34 @@ enum AmxBackend {
         DaemonGCPlan.isIdle(daemonPID: daemon.pid, in: snapshot)
     }
 
+    /// Targeted confirm-pass query for orphan attach client GC
+    /// (Interactive-Buffoonery/awesomux#183): `ps -p <pids>` restricted to a
+    /// small candidate set, `args=` last so BSD `ps` doesn't truncate it to a
+    /// computed column width (`etime=` is a safe fixed-width field to keep
+    /// ahead of it). Unlike `currentProcessSnapshot()`, an empty result here
+    /// is a real outcome — every candidate already exited between passes —
+    /// not a signal `ps` failed; only a nil run (including `ps -p` exiting
+    /// non-zero when NONE of the pids are still alive, verified live) counts
+    /// as failure, and that case is safe to fail closed on anyway since there
+    /// is nothing left to kill.
+    static func attachProcessSamples(forPIDs pids: [Int32]) async -> [DaemonGCPlan.AttachProcessSample]? {
+        guard !pids.isEmpty else { return [] }
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/ps"],
+            timeout: .seconds(2),
+            maxOutputBytes: 1024 * 1024,
+            environment: [:]
+        )
+        let pidList = pids.map(String.init).joined(separator: ",")
+        guard
+            let data = await runner.runDetailed(
+                arguments: ["-p", pidList, "-o", "pid=,ppid=,etime=,args="],
+                inDirectory: "/"
+            ).completeData, let output = String(data: data, encoding: .utf8)
+        else { return nil }
+        return DaemonGCPlan.parseAttachProcessSamples(output)
+    }
+
     nonisolated private static let killLog = Logger(subsystem: "awesomux.daemon", category: "kill")
 
     /// Fire-and-forget fan-out kill for daemon ids an explicit destroy just
