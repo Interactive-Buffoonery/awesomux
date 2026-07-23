@@ -164,6 +164,18 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     /// window-widen must NOT auto-expand. Set by every deliberate `setSidebarWidth`.
     private var userChoseRail = false
 
+    /// True while a settle animation drives the divider (#81). Suppresses
+    /// restore-target bookkeeping in `splitViewDidResizeSubviews` so the swept
+    /// intermediate widths (a 400→60 collapse passes through the rail threshold)
+    /// can't clobber the real last-expanded width — the destination is recorded
+    /// up-front in `setSidebarWidth` before the sweep begins.
+    private var isAnimatingDividerSettle = false
+
+    /// Distinguishes overlapping settle animations so a superseded animation's
+    /// completion handler can't clear `isAnimatingDividerSettle` out from under a
+    /// newer one (⌘\ pressed twice inside the settle window retargets to the latest).
+    private var dividerSettleGeneration: UInt = 0
+
     init(
         sidebar: NSViewController,
         detail: NSViewController,
@@ -321,8 +333,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     // MARK: - Public API
 
     /// Move the divider so the sidebar pane is `width` points wide, clamped to
-    /// `[collapsedWidth, maxSidebarWidth]`. Un-animated.
-    func setSidebarWidth(_ width: CGFloat) {
+    /// `[collapsedWidth, maxSidebarWidth]`. Instant by default; `animated: true`
+    /// eases the settle (⌘\ / command-driven width sets — #81).
+    func setSidebarWidth(_ width: CGFloat, animated: Bool = false) {
         selectedSidebarWidth = width
         // A deliberate request decides whether the rail is the user's choice: if
         // they're asking for a rail-band width, honor it and don't auto-expand on a
@@ -331,7 +344,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // Seed the restore target from the *requested* expanded width, not just
         // rendered ones: a cold launch into a too-narrow window clamps the render
         // straight to the rail, so restore-on-grow would otherwise hand back the
-        // policy default instead of the user's persisted width.
+        // policy default instead of the user's persisted width. Recording the
+        // destination here (before any settle animation) is also what lets the
+        // animation ticks skip re-recording swept intermediates.
         recordIfExpanded(width)
         if isSidebarHidden {
             pendingWidth = width
@@ -341,7 +356,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             pendingWidth = width
             return
         }
-        applyPosition(width)
+        // Applied live now — drop any deferred width so a later `viewDidLayout`
+        // can't instant-apply a stale `pendingWidth` and cancel an in-flight settle
+        // animation. Redundant-but-harmless on the instant path.
+        pendingWidth = nil
+        applyPosition(width, animated: animated)
     }
 
     func setSelectedSidebarWidth(_ width: CGFloat) {
@@ -354,7 +373,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             layoutOverlayPreservingAnimation()
             onLiveWidthChange?(selectedSidebarWidth)
         case .persistent:
-            setSidebarWidth(selectedSidebarWidth)
+            setSidebarWidth(selectedSidebarWidth, animated: true)
         case .hidden:
             break
         }
@@ -660,6 +679,18 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     static func clampedWidth(_ proposed: CGFloat, maxWidth: CGFloat) -> CGFloat {
         SidebarWidthPolicy.constrainedLiveWidth(for: proposed, maxWidth: maxWidth)
     }
+
+    /// A settle eases only for a deliberate command settle and never when the
+    /// system asks for reduced motion. Pure, so the accessibility contract is
+    /// unit-testable without a live `NSSplitView` (#81).
+    static func shouldAnimateSettle(animated: Bool, reduceMotion: Bool) -> Bool {
+        animated && !reduceMotion
+    }
+
+    /// Eased divider-settle duration. Matches `SidebarOverlayTransition.hover` so
+    /// sidebar motions read as one system; kept a distinct constant because this is
+    /// an A/B candidate the maintainer may want to tune independently (#81).
+    static let dividerSettleDuration: TimeInterval = 0.140
 
     /// What a layout-pass reclamp should do. Pure, so the drag-gating policy is
     /// unit-testable without a live `NSSplitView`.
@@ -1460,23 +1491,68 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         max(0, splitView.bounds.width - splitView.dividerThickness)
     }
 
-    private func setDividerPosition(_ width: CGFloat) {
+    /// Move the divider to the coordinate for `width`. Returns `true` when the move
+    /// was handed to an eased animation (the async `splitViewDidResizeSubviews` ticks
+    /// then carry the settle), `false` when it landed instantly.
+    @discardableResult
+    private func setDividerPosition(_ width: CGFloat, animated: Bool = false) -> Bool {
         let coordinate = Self.dividerCoordinate(
             forSidebarWidth: width, paneExtent: paneExtent, position: sidebarPosition
         )
+        // A move to (essentially) the current position is the common commit-after-
+        // drag case — `constrainSplitPosition` already snapped the pane live, so the
+        // committed width equals the rendered width. Animating nothing would arm the
+        // suppression flag for the whole duration with no ticks; take the instant
+        // path so a drag immediately after a commit still records normally (#81).
+        let currentCoordinate = Self.dividerCoordinate(
+            forSidebarWidth: sidebarPaneWidth, paneExtent: paneExtent, position: sidebarPosition
+        )
+        let willAnimate =
+            Self.shouldAnimateSettle(
+                animated: animated,
+                reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            && splitView.bounds.width > 0
+            && abs(coordinate - currentCoordinate) > 0.5
         isSettingPositionProgrammatically = true
         #if DEBUG
             if isGeometryInstrumentationArmedForTesting {
                 splitPositionMutationIntentCount += 1
             }
         #endif
-        splitView.setPosition(coordinate, ofDividerAt: 0)
+        if willAnimate {
+            dividerSettleGeneration &+= 1
+            let generation = dividerSettleGeneration
+            isAnimatingDividerSettle = true
+            NSAnimationContext.runAnimationGroup(
+                { context in
+                    context.duration = Self.dividerSettleDuration
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    context.allowsImplicitAnimation = true
+                    splitView.animator().setPosition(coordinate, ofDividerAt: 0)
+                },
+                completionHandler: { [weak self] in
+                    guard let self, self.dividerSettleGeneration == generation else { return }
+                    self.isAnimatingDividerSettle = false
+                })
+        } else {
+            splitView.setPosition(coordinate, ofDividerAt: 0)
+        }
+        // Clear synchronously: the async animation ticks must run with the flag
+        // false so `splitViewDidResizeSubviews` treats them as live and carries the
+        // settle. `isAnimatingDividerSettle` (not this flag) gates the bookkeeping.
         isSettingPositionProgrammatically = false
+        return willAnimate
     }
 
-    private func applyPosition(_ width: CGFloat) {
+    private func applyPosition(_ width: CGFloat, animated: Bool = false) {
         let target = Self.clampedWidth(width, maxWidth: maxSidebarWidth)
-        setDividerPosition(target)
+        let didAnimate = setDividerPosition(target, animated: animated)
+        // When the settle animates, the `splitViewDidResizeSubviews` ticks carry the
+        // live-width/host settle to the true target; a synchronous read of
+        // `sidebarPaneWidth` here would see the pre-animation width. `recordIfExpanded`
+        // for the destination already ran in `setSidebarWidth` (the only animated
+        // caller), and ticks skip re-recording swept intermediates.
+        guard !didAnimate else { return }
         let rendered = sidebarPaneWidth
         hostMode = .persistent(width: rendered)
         recordIfExpanded(rendered)
@@ -1584,8 +1660,14 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         }
         let width = sidebarPaneWidth
         // A user divider drag into expanded territory is the other source of a
-        // restore target, so record it here too.
-        recordIfExpanded(width)
+        // restore target, so record it here too — but NOT while a settle animation
+        // sweeps: those intermediate widths are interpolation, not a destination, and
+        // a 400→60 collapse passing through the rail threshold would otherwise leave
+        // ~250 as the restore target. The real destination was recorded up-front in
+        // `setSidebarWidth` (#81).
+        if !isAnimatingDividerSettle {
+            recordIfExpanded(width)
+        }
         onLiveWidthChange?(width)
         hostMode = .persistent(width: width)
         hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: width)
