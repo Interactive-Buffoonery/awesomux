@@ -35,6 +35,10 @@ check_line() {
     # a gate is exactly what goes missing in awesomux#207.
     [[ "$file" == Tests/AwesoMuxTestSupport/Wait.swift ]] && return
     [[ "$file" == Tests/AwesoMuxTestSupport/ProcessBoundedWait.swift ]] && return
+    # Recursive on purpose, and not obvious: in `[[ ]]` pattern matching `*`
+    # crosses `/`, so this exempts nested directories (`Bridge/`, …) as well as
+    # direct children. That matches the rule's intent — the whole system-test
+    # bucket is exempt — but the line reads as if it were scoped to one level.
     [[ "$file" == Tests/awesoMuxTests/*.swift ]] && return
     if [[ "$content" =~ $wait_pattern ]]; then
         printf '%s:%s:%s\n' "$file" "$line" "$content" >&2

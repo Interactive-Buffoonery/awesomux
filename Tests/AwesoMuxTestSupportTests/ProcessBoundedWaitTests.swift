@@ -32,10 +32,11 @@ struct ProcessBoundedWaitTests {
     @Test("waiting needs no run-loop pumping on the calling thread")
     func exitObservedWithoutRunLoop() throws {
         let process = try Self.startSleep("1")
-        let clock = ContinuousClock()
-        let start = clock.now
-        try process.waitUntilExitEventually(deadline: .seconds(30))
-        #expect(clock.now - start < .seconds(10))
+        // The deadline is the assertion. If observing the exit required pumping
+        // a run loop on this thread, `isRunning` would never flip and this would
+        // throw. A wall-clock margin would instead measure scheduler latency and
+        // flake under exactly the load this change exists to survive.
+        try process.waitUntilExitEventually(deadline: .seconds(10))
         #expect(process.terminationStatus == 0)
     }
 
@@ -66,7 +67,10 @@ struct ProcessBoundedWaitTests {
         #expect(throws: ProcessWaitTimeout.self) {
             try Process.waitForExit(deadline: .milliseconds(200)) { true }
         }
-        #expect(clock.now - start < .seconds(5))
+        // The throw is what proves boundedness. This is only a runaway guard —
+        // 100x the deadline, wide enough that a contended runner cannot trip it
+        // but narrow enough to catch a loop that ignores its deadline entirely.
+        #expect(clock.now - start < .seconds(20))
     }
 
     @Test("an already-exited process returns without polling")
