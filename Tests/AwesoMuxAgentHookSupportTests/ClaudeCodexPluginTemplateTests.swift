@@ -86,7 +86,7 @@ struct ClaudeCodexPluginTemplateTests {
             "Notification",
             "Stop",
             "SessionEnd",
-            "StopFailure"
+            "StopFailure",
         ]
     )
 
@@ -107,7 +107,7 @@ struct ClaudeCodexPluginTemplateTests {
             "SubagentStart",
             "SubagentStop",
             "Stop",
-            "SessionEnd"
+            "SessionEnd",
         ]
     )
 
@@ -186,6 +186,16 @@ struct ClaudeCodexPluginTemplateTests {
                 }
             }
         }
+    }
+
+    @Test("Codex SessionEnd timeout is within the provider limit")
+    func codexSessionEndTimeoutIsWithinProviderLimit() throws {
+        let raw = try Self.contents(of: Self.hooksManifestRelativePath(Self.codex))
+        let manifest = try JSONDecoder().decode(HooksManifest.self, from: Data(raw.utf8))
+        let entry = try #require(manifest.hooks["SessionEnd"]?.first)
+        let command = try #require(entry.hooks.first)
+
+        #expect(command.timeout == 3)
     }
 
     // MARK: - Mapper coverage

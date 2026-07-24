@@ -242,10 +242,47 @@ extension ProcessAgentPluginRunner {
         }
 
         let env = codexEnvironment(home: home)
-        let steps: [MutationStep] = [
-            MutationStep(["plugin", "marketplace", "add", tree.marketplaceRootURL.path]),
-            MutationStep(["plugin", "add", ref.pluginRef]),
-        ]
+        var steps: [MutationStep] = []
+        // `codex plugin add` keeps a same-version cached plugin intact. When the
+        // rendered helper path or bundled source has drifted, remove the recorded
+        // plugin first so Repair actually picks up the freshly rendered hooks.
+        // Target the recorded install's home; the following add steps target the
+        // current settings, which is how Repair deliberately moves an install.
+        if let staleRecord = staleCachedInstallRecord(provider: .codex, tree: tree) {
+            let recordedSetup = effectiveSetupForRecordedInstall(provider: .codex, current: setup)
+            var recordedExecutable = resolvedExecutable(provider: .codex, setup: recordedSetup)
+            let recordedHome = codexHome(setup: recordedSetup)
+            let recordedEnv = codexEnvironment(home: recordedHome)
+            var installed: Bool
+            do {
+                installed = try await codexPluginInstalled(
+                    ref: staleRecord.pluginRef,
+                    executable: recordedExecutable,
+                    env: recordedEnv
+                )
+            } catch {
+                // The recorded binary can disappear after a user updates a
+                // custom Codex path. Retry with the live executable, still
+                // targeting the recorded home where the stale cache resides.
+                recordedExecutable = executable
+                installed =
+                    (try? await codexPluginInstalled(
+                        ref: staleRecord.pluginRef,
+                        executable: executable,
+                        env: recordedEnv
+                    )) ?? true
+            }
+            if installed {
+                steps.append(
+                    MutationStep(
+                        ["plugin", "remove", staleRecord.pluginRef.pluginRef],
+                        executable: recordedExecutable,
+                        env: recordedEnv
+                    ))
+            }
+        }
+        steps.append(MutationStep(["plugin", "marketplace", "add", tree.marketplaceRootURL.path]))
+        steps.append(MutationStep(["plugin", "add", ref.pluginRef]))
         if let failure = await runMutationSteps(
             executable: executable,
             steps: steps,
@@ -339,18 +376,31 @@ extension ProcessAgentPluginRunner {
         }
     }
 
-    func codexCommandLines(_ action: AgentPluginAction, ref: AgentPluginMarketplaceRef, codexHome: String) -> [String] {
+    func codexCommandLines(
+        _ action: AgentPluginAction,
+        ref: AgentPluginMarketplaceRef,
+        codexHome: String,
+        staleRecord: AgentPluginInstallRecord? = nil,
+        staleExecutable: String? = nil
+    ) -> [String] {
         switch action {
         case .enableOrInstall, .repair:
-            [
+            var commands = [
                 "CODEX_HOME=\(codexHome) codex plugin marketplace add [generated awesoMux marketplace path]",
                 "CODEX_HOME=\(codexHome) codex plugin add \(ref.pluginRef)",
                 "config/batchWrite hooks.state[<hook keys>] = { enabled: true } (upsert, reload)",
             ]
+            if let staleRecord {
+                commands.insert(
+                    "CODEX_HOME=\(staleRecord.configHome) \(staleExecutable ?? "codex") plugin remove \(staleRecord.pluginRef.pluginRef) (only when replacing a stale install)",
+                    at: 0
+                )
+            }
+            return commands
         case .disable:
-            ["config/batchWrite hooks.state[<hook keys>] = { enabled: false } (upsert, reload)"]
+            return ["config/batchWrite hooks.state[<hook keys>] = { enabled: false } (upsert, reload)"]
         case .uninstall:
-            [
+            return [
                 "CODEX_HOME=\(codexHome) codex plugin remove \(ref.pluginRef)",
                 "CODEX_HOME=\(codexHome) codex plugin marketplace remove \(ref.marketplaceName)",
             ]
@@ -383,6 +433,34 @@ extension ProcessAgentPluginRunner {
         case .timedOut:
             return .unsupported("codex timed out")
         }
+    }
+
+    /// Read-only presence probe for a stale-cache replacement. An unreadable or
+    /// unparseable list counts as installed: skipping cleanup in that state could
+    /// preserve the stale same-version cache. A definitive empty `installed`
+    /// array means an out-of-band removal already cleaned it up.
+    private func codexPluginInstalled(
+        ref: AgentPluginMarketplaceRef,
+        executable: String,
+        env: [String: String]
+    ) async throws -> Bool {
+        let result: CommandResult
+        do {
+            result = try await commandRunner.run(
+                executable: executable,
+                args: ["plugin", "list", "--json"],
+                env: env,
+                cwd: nil
+            )
+        } catch CommandRunnerError.executableNotFound(let path) {
+            throw CommandRunnerError.executableNotFound(path)
+        } catch {
+            return true
+        }
+        guard result.isSuccess, let plugins = try? CodexPluginList.parse(result.stdout) else {
+            return true
+        }
+        return plugins.contains { $0.matches(ref) }
     }
 
     /// Sets the awesoMux hook's enabled-state by discovering its exact
@@ -432,5 +510,28 @@ extension ProcessAgentPluginRunner {
     private func directoryExists(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         return renderer.fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+}
+
+// MARK: - Codex plugin list parsing
+
+private enum CodexPluginList {
+    static func parse(_ stdout: String) throws -> [Entry] {
+        try JSONDecoder().decode(Response.self, from: Data(stdout.utf8)).installed
+    }
+
+    struct Response: Decodable {
+        var installed: [Entry]
+    }
+
+    struct Entry: Decodable {
+        var pluginId: String?
+        var name: String?
+        var marketplaceName: String?
+
+        func matches(_ ref: AgentPluginMarketplaceRef) -> Bool {
+            pluginId == ref.pluginRef
+                || (name == ref.pluginName && marketplaceName == ref.marketplaceName)
+        }
     }
 }

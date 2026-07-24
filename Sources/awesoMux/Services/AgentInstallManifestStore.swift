@@ -43,6 +43,20 @@ struct AgentInstallManifestStore<Manifest: AgentInstallManifest> {
         }
     }
 
+    /// Reads only the canonical manifest. Confirmation sheets use this path so
+    /// inspecting an action never imports legacy state before user consent. A
+    /// valid legacy manifest is still returned for accurate confirmation copy;
+    /// invalid legacy state remains invisible just as it does to the importer.
+    func loadStateReadOnly() -> AgentInstallManifestLoadState<Manifest> {
+        let canonical = readState(at: manifestURL)
+        guard case .missing = canonical, legacyManifestURL != manifestURL else {
+            return canonical
+        }
+        let legacy = readState(at: legacyManifestURL)
+        guard case .loaded = legacy else { return canonical }
+        return legacy
+    }
+
     func loadCurrent() throws -> Manifest {
         try importLegacyIfNeeded()
         return try loadCurrentAssumingLock()

@@ -318,12 +318,48 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
             )
         case .codex:
             let codexHome = codexHome(setup: setup).path
+            let recordedRecord = installRecordReadOnly(provider: .codex)
+            let staleRecord: AgentPluginInstallRecord?
+            if case .enableOrInstall = action, let helper = helperPathResolver() {
+                staleRecord = staleCachedInstallRecord(
+                    provider: .codex,
+                    record: recordedRecord,
+                    helperPath: helper.path
+                )
+            } else if case .repair = action, let helper = helperPathResolver() {
+                staleRecord = staleCachedInstallRecord(
+                    provider: .codex,
+                    record: recordedRecord,
+                    helperPath: helper.path
+                )
+            } else {
+                staleRecord = nil
+            }
+            let recordedSetup =
+                recordedRecord.map {
+                    AgentIntegrationSetup(
+                        enabled: setup.enabled,
+                        binaryPath: $0.binaryPath,
+                        configHome: $0.configHome
+                    )
+                } ?? setup
+            let recordedExecutable = resolvedExecutable(provider: .codex, setup: recordedSetup)
+            var configTargets = [codexHome.appending("/config.toml")]
+            if let staleRecord, staleRecord.configHome != codexHome {
+                configTargets.insert(staleRecord.configHome.appending("/config.toml"), at: 0)
+            }
             return AgentPluginConfirmation(
                 action: action,
                 title: codexConfirmationTitle(action),
                 executablePath: executable,
-                configTargets: [codexHome.appending("/config.toml")],
-                commandLines: codexCommandLines(action, ref: ref, codexHome: codexHome)
+                configTargets: configTargets,
+                commandLines: codexCommandLines(
+                    action,
+                    ref: ref,
+                    codexHome: codexHome,
+                    staleRecord: staleRecord,
+                    staleExecutable: recordedExecutable
+                )
             )
         case .grok:
             return AgentPluginConfirmation(
@@ -392,10 +428,32 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         provider: AgentPluginProvider,
         tree: AgentPluginRenderedTree
     ) -> AgentPluginInstallRecord? {
-        guard let record = installRecord(provider: provider) else {
+        staleCachedInstallRecord(provider: provider, helperPath: tree.helperPath)
+    }
+
+    /// Pure stale-cache check for confirmation: it mirrors the render-time
+    /// comparison without rendering a plugin tree, so the consent sheet can name
+    /// the recorded profile a conditional clean reinstall will touch.
+    func staleCachedInstallRecord(
+        provider: AgentPluginProvider,
+        helperPath: String
+    ) -> AgentPluginInstallRecord? {
+        staleCachedInstallRecord(
+            provider: provider,
+            record: installRecord(provider: provider),
+            helperPath: helperPath
+        )
+    }
+
+    func staleCachedInstallRecord(
+        provider: AgentPluginProvider,
+        record: AgentPluginInstallRecord?,
+        helperPath: String
+    ) -> AgentPluginInstallRecord? {
+        guard let record else {
             return nil
         }
-        if record.helperPath != tree.helperPath {
+        if record.helperPath != helperPath {
             return record
         }
         if let current = AgentPluginSourceFingerprint.digest(
