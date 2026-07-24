@@ -1760,6 +1760,30 @@ struct SidebarSplitControllerTests {
         #expect(!controller.isAnimatingDividerSettleForTesting)
     }
 
+    // Every settle exit must broadcast the end signal so surfaces flush the reflow
+    // they coalesced during the sweep — a missed end leaves the PTY winsize stale.
+    // The stop path (instant correction / side flip / hide / resize / detach) funnels
+    // through stopDividerSettleAnimation, so any of them must post exactly one end (#81).
+    @Test("stopping an in-flight settle broadcasts exactly one settle-end signal")
+    func stopBroadcastsSettleEnd() {
+        let (controller, _, _) = makeController()
+        _ = hostInFixedWindow(controller)
+        controller.setSidebarWidth(300)
+        controller.armDividerSettleForTesting()
+
+        var ended = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: SidebarSplitController.dividerSettleDidEndNotification,
+            object: nil, queue: nil
+        ) { _ in ended += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        controller.setSidebarWidth(280)  // instant move -> stopDividerSettleAnimation
+
+        #expect(ended == 1)
+        #expect(!controller.isAnimatingDividerSettleForTesting)
+    }
+
     // A settle must survive an unrelated layout pass (no extent change) but stop on a
     // real resize, which invalidates the absolute coordinate it animates toward — on a
     // right-side sidebar a changed extent would remap it to the wrong width (#81).

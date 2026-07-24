@@ -31,6 +31,24 @@ extension GhosttySurfaceNSView {
         updateSurfaceSize(contentSize, creatingIfNeeded: false, forceImmediateApply: true)
     }
 
+    /// An eased sidebar-divider settle started (#81). The animation moves the
+    /// divider programmatically, so AppKit never raises `inLiveResize`; latch this
+    /// so the per-frame reflow coalesces instead of flashing the surface blank.
+    /// Broadcast unscoped: a surface in a window whose sidebar isn't settling sees
+    /// no size change, so latching is a harmless no-op there.
+    @objc func dividerSettleWillBegin(_ notification: Notification) {
+        lifecycleState.isSettlingDividerAnimation = true
+    }
+
+    /// The settle ended (or was cancelled). Mirror `viewDidEndLiveResize`: clear
+    /// the latch and flush the settled geometry exactly once, so the winsize the
+    /// coalescing suppressed can never be left stale.
+    @objc func dividerSettleDidEnd(_ notification: Notification) {
+        guard lifecycleState.isSettlingDividerAnimation else { return }
+        lifecycleState.isSettlingDividerAnimation = false
+        updateSurfaceSize(contentSize, creatingIfNeeded: false, forceImmediateApply: true)
+    }
+
     func updateMouseOverLink(_ link: String?) {
         guard inputState.mouseOverLink != link else {
             return
@@ -661,7 +679,9 @@ extension GhosttySurfaceNSView {
         switch SurfaceResizeUpdatePolicy.decision(
             lastApplied: lifecycleState.lastAppliedSurfaceBackingState,
             next: state,
-            isInLiveResize: forceImmediateApply ? false : inLiveResize
+            isInLiveResize: forceImmediateApply ? false : inLiveResize,
+            isSettlingDividerAnimation: forceImmediateApply
+                ? false : lifecycleState.isSettlingDividerAnimation
         ) {
         case .applyImmediately:
             applySurfaceBackingState(state)
