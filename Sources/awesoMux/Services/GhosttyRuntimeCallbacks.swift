@@ -576,7 +576,8 @@ extension GhosttyRuntime {
         case .nonAsciiHost:
             String(
                 localized: "Open URL with an unverified host?",
-                comment: "OSC 8 dialog title segment when the URL's host mixes confusable scripts or has undecodable punycode."
+                comment:
+                    "OSC 8 dialog title segment when the URL's host mixes confusable scripts, is a whole-script confusable, or has undecodable punycode."
             )
         case .embeddedUserInfo:
             String(
