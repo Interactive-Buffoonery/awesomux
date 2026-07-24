@@ -729,21 +729,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // surface count. The timeout below caps everything after it.
         //
         // INT-185: this used to resample the shared surface dictionary once
-        // per consuming store — O(1 + floating-slot-count + 1), unbounded in
-        // floating-slot count — before `GhosttyRuntime` exposed
-        // `currentTerminalQuitConfirmationSnapshots()` for reuse. Each of the
-        // three calls below now samples internally at most once; the measured
-        // per-surface libproc cost itself (~17µs, idle-shell shape) was never
-        // the multiplier — the redundant resampling was. Libghostty FFI reads,
-        // OSC-133 prompt-marker sampling, and the `SessionPersistence.flush`
-        // below remain unmeasured by this change — if a real report of felt
-        // quit lag shows up, look there next, not back at this probe.
-        if let sessionStore {
-            ghosttyRuntime?.refreshTerminalQuitConfirmationRisks(in: sessionStore)
-        }
+        // per consuming store — main + every floating slot + the pop-up
+        // store, unbounded in floating-slot count. `GhosttyRuntime` now
+        // exposes `currentTerminalQuitConfirmationSnapshots()` so this scan
+        // samples ONCE and fans the same snapshot out to all three — the
+        // measured per-surface libproc cost itself (~17-75µs depending on
+        // shape) was never the multiplier, the redundant resampling was.
+        // Libghostty FFI reads, OSC-133 prompt-marker sampling, and the
+        // `SessionPersistence.flush` below remain unmeasured by this change —
+        // if a real report of felt quit lag shows up, look there next, not
+        // back at this probe.
         if let ghosttyRuntime {
-            floatingPanelController?.refreshTerminalQuitConfirmationRisks(using: ghosttyRuntime)
-            popUpTerminalController?.refreshTerminalQuitConfirmationRisks(using: ghosttyRuntime)
+            let snapshots = ghosttyRuntime.currentTerminalQuitConfirmationSnapshots()
+            sessionStore?.updateTerminalQuitConfirmationRisks(snapshots)
+            floatingPanelController?.applyTerminalQuitConfirmationSnapshots(snapshots)
+            popUpTerminalController?.applyTerminalQuitConfirmationSnapshots(snapshots)
         }
         let riskySessions = (sessionStore?.sessionsAtRiskOnQuit ?? [])
             + (floatingPanelController?.sessionsAtRiskOnQuit ?? [])

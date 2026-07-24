@@ -198,22 +198,33 @@ final class TerminalPanelController {
         })
     }
 
+    /// Standalone entry point: samples via `runtime` internally, unless there
+    /// is nothing to apply the sample to (INT-185 — the common F=0 case,
+    /// floating panel never opened this session, must not pay for a resample
+    /// with no consumer). Callers juggling several `TerminalPanelController`s
+    /// at once (the quit path) should sample ONCE themselves and call
+    /// `applyTerminalQuitConfirmationSnapshots(_:)` on each instead — see
+    /// `AppDelegate.applicationShouldTerminate`.
     func refreshTerminalQuitConfirmationRisks(using runtime: GhosttyRuntime) {
         if let slots {
-            // INT-185: one shared `GhosttyRuntime` backs every floating slot, so
-            // sampling per-store here used to resample the whole surface
-            // dictionary once per slot (unbounded in floating-slot count).
-            // Sample once, apply the same snapshot to every slot's store —
-            // but only if a slot actually exists. The common case is F=0 (the
-            // floating panel was never opened this session); unconditionally
-            // sampling here would regress that case from zero resamples to
-            // one (review finding).
-            let stores = slots.allStores
-            if !stores.isEmpty {
-                let snapshots = runtime.currentTerminalQuitConfirmationSnapshots()
-                for store in stores {
-                    store.updateTerminalQuitConfirmationRisks(snapshots)
-                }
+            let snapshots = slots.allStores.isEmpty ? [] : runtime.currentTerminalQuitConfirmationSnapshots()
+            applyTerminalQuitConfirmationSnapshots(snapshots)
+            return
+        }
+        guard let store else { return }
+        runtime.refreshTerminalQuitConfirmationRisks(in: store)
+    }
+
+    /// INT-185: applies an ALREADY-SAMPLED snapshot list — for a caller
+    /// (the quit path) fanning one shared sample out to several controllers
+    /// instead of each one resampling the shared surface set independently.
+    /// An empty snapshot list is a legitimate input (no floating slot exists
+    /// yet); the recompute side effects below still run in that case, same
+    /// as before this method existed.
+    func applyTerminalQuitConfirmationSnapshots(_ snapshots: [TerminalQuitConfirmationSnapshot]) {
+        if let slots {
+            for store in slots.allStores {
+                store.updateTerminalQuitConfirmationRisks(snapshots)
             }
             // Preserve the dismiss-confirmation auto-reset + recompute the
             // former floating panel controller ran here.
@@ -231,7 +242,7 @@ final class TerminalPanelController {
             return
         }
         guard let store else { return }
-        runtime.refreshTerminalQuitConfirmationRisks(in: store)
+        store.updateTerminalQuitConfirmationRisks(snapshots)
     }
 
     /// Whether the slot targeted by `toggle()` / `show()` has running work

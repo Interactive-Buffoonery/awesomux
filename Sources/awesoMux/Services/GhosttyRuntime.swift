@@ -699,23 +699,27 @@ final class GhosttyRuntime {
         }
     }
 
-    /// INT-185: measured at ~17µs/surface for the libproc component alone
-    /// (idle-shell shape; busier shapes cost more but stay well under
-    /// perceptible). Safe to call once and fan the SAME snapshot list out to
-    /// multiple `SessionStore`s — `updateTerminalQuitConfirmationRisks` maps
-    /// by paneID and ignores entries a given store doesn't own — which is
-    /// exactly what
-    /// `TerminalPanelController.refreshTerminalQuitConfirmationRisks(using:)`
-    /// and `AppDelegate.applicationShouldTerminate` now do instead of each
-    /// store triggering its own full resample (previously O(floating slot
-    /// count) resamples of this same dictionary per quit).
+    /// INT-185: measured at ~17-75µs/surface depending on probe shape (idle
+    /// shell cheapest, bridged daemon tree heaviest — see the benchmark
+    /// suite). This single-store convenience is for standalone callers; a
+    /// caller juggling several `SessionStore`s at once (the quit path:
+    /// main + every floating slot + the pop-up store) should call
+    /// `currentTerminalQuitConfirmationSnapshots()` ONCE itself and fan the
+    /// same list out via `updateTerminalQuitConfirmationRisks`/
+    /// `TerminalPanelController.applyTerminalQuitConfirmationSnapshots(_:)`
+    /// instead of each store triggering its own full resample — see
+    /// `AppDelegate.applicationShouldTerminate`, which used to pay for
+    /// main + floating-slot-count + pop-up full resamples of this same
+    /// dictionary per quit, unbounded in floating-slot count.
     ///
     /// Reuse is not just "safe," it's equivalent: this whole scan runs
     /// synchronously on the main thread with no `await` between the old
     /// per-store calls, so nothing else could run and mutate `surfaceViews`
     /// between them anyway. Re-probing per store bought no real freshness —
     /// microseconds of syscall-observable drift either way — only redundant
-    /// syscalls.
+    /// syscalls. `updateTerminalQuitConfirmationRisks` maps by paneID and
+    /// ignores entries a given store doesn't own, so handing the SAME
+    /// snapshot list to multiple stores is safe.
     func refreshTerminalQuitConfirmationRisks(in sessionStore: SessionStore) {
         sessionStore.updateTerminalQuitConfirmationRisks(currentTerminalQuitConfirmationSnapshots())
     }

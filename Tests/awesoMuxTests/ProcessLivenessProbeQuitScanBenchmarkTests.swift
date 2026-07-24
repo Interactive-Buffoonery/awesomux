@@ -180,13 +180,25 @@ struct ProcessLivenessProbeQuitScanBenchmarkTests {
     /// ponytail: bounded orphan window, not zero-orphan — revisit with
     /// explicit pid capture + individual kills if leaked processes ever
     /// become a real problem (e.g. a much larger stress-count variant).
+    ///
+    /// Blocks on a readiness token written AFTER the inner shell has forked
+    /// `sleep`, so the returned process's tree is guaranteed complete before
+    /// any timed probe touches it (review finding: `Process.run()` returning
+    /// only guarantees the OUTER shell was launched, not that it has reached
+    /// its own `&` yet — a probe racing ahead of that fork would see zero
+    /// daemon children and misreport `.bridged` instead of exercising the
+    /// intended 3-level walk). Nested `sh -c` stdout inherits through to the
+    /// outer redirection — verified empirically — so the inner echo lands in
+    /// the same pipe `availableData` blocks on here.
     private static func spawnBridgedDaemonTree() throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "sh -c 'sleep 5 & wait' & wait"]
-        process.standardOutput = FileHandle.nullDevice
+        process.arguments = ["-c", "sh -c 'sleep 5 & echo ready; wait' & wait"]
+        let stdout = Pipe()
+        process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
         try process.run()
+        _ = stdout.fileHandleForReading.availableData
         return process
     }
 
