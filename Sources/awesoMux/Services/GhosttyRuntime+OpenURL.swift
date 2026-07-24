@@ -182,9 +182,10 @@ extension GhosttyRuntime {
 
     /// Opens an externally-sourced URL through `URLClassifier` — used by OSC 8
     /// hyperlink click-through and by chrome (the Path Bar PR chip). Direct open
-    /// for plain ASCII http/https, pure-single-script IDN hosts, and bare
-    /// `mailto:`; block-confirm modal for mixed-script hosts (TR39 homograph
-    /// risk) or undecodable punycode, embedded userinfo (the classic
+    /// for plain ASCII http/https, non-confusable single-script IDN hosts, and
+    /// bare `mailto:`; block-confirm modal for confusable-script hosts (TR39
+    /// homograph risk — mixed-script or whole-script) or undecodable punycode,
+    /// embedded userinfo (the classic
     /// `user@host` phishing trick), `mailto:` with attacker-controllable
     /// prefill parameters
     /// (`to`/`body`/`cc`/`bcc`/`subject` per RFC 6068), malformed http(s) URLs
