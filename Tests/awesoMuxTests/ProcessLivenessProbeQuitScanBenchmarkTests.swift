@@ -173,11 +173,19 @@ struct ProcessLivenessProbeQuitScanBenchmarkTests {
     /// the shape production actually walks (review finding — verified
     /// empirically with `ps`).
     ///
-    /// Uses a 5s sleep, not 30s: SIGTERM on the outer `sh` does not cascade to
-    /// the inner `sh`/`sleep` (no shared process group set up here), so any
-    /// descendant orphaned by `terminate()` self-reaps within a few seconds
-    /// instead of lingering for a full 30s.
-    /// ponytail: bounded orphan window, not zero-orphan — revisit with
+    /// Uses a 60s sleep: SIGTERM on the outer `sh` does not cascade to the
+    /// inner `sh`/`sleep` (no shared process group set up here), so any
+    /// descendant orphaned by `terminate()` outlives it. 60s is deliberately
+    /// generous, not tight — this test's total work (20 sequential spawns +
+    /// readiness handshakes + the timed sweep itself) finishes in well under
+    /// a second normally; a fixed-duration leaf that could plausibly expire
+    /// mid-benchmark under CI contention was a real review finding, and
+    /// duration-guessing again with a slightly bigger number is the
+    /// proportionate fix — restructuring the leaf to block indefinitely
+    /// (mirroring `spawnIdleShell`'s pattern) hit unexplained nested-stdin
+    /// inheritance behavior in manual testing that wasn't worth chasing
+    /// further for a test fixture.
+    /// ponytail: bounded (60s) orphan window, not zero-orphan — revisit with
     /// explicit pid capture + individual kills if leaked processes ever
     /// become a real problem (e.g. a much larger stress-count variant).
     ///
@@ -193,7 +201,7 @@ struct ProcessLivenessProbeQuitScanBenchmarkTests {
     private static func spawnBridgedDaemonTree() throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "sh -c 'sleep 5 & echo ready; wait' & wait"]
+        process.arguments = ["-c", "sh -c 'sleep 60 & echo ready; wait' & wait"]
         let stdout = Pipe()
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
