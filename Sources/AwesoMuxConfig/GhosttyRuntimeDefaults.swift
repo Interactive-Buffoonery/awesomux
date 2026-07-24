@@ -15,7 +15,11 @@ public enum GhosttyRuntimeDefaults {
     /// growth (IOAccelerator DIRTY+SWAPPED) from scrollback fill at the OLD
     /// cap, and whether that cost scales with the cap is unanswered — re-run
     /// the one-surface Warm-A capture (docs/debugging/perf-traces/) against
-    /// the committed 5MB baselines before raising this further.
+    /// the committed 5MB baselines before raising this further; (3) the
+    /// budget is per surface with no app-level total — N concurrently
+    /// *filled* panes retain N × this cap (8 busy agent panes ≈ 512MB where
+    /// the old cap held ≈ 40MB), so an app-total policy is the upgrade path
+    /// if fleet-scale sessions make that bite.
     public static let scrollbackLimit = 64_000_000
 
     /// Loaded BEFORE `ghostty_config_load_default_files`, so anything the user
