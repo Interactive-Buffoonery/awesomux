@@ -1272,6 +1272,42 @@ enum AmxBackend {
         DaemonGCPlan.isIdle(daemonPID: daemon.pid, in: snapshot)
     }
 
+    /// Targeted confirm-pass query for orphan attach client GC
+    /// (Interactive-Buffoonery/awesomux#183): `ps -p <pids>` restricted to a
+    /// small candidate set, `args=` last so BSD `ps` doesn't truncate it to a
+    /// computed column width (`etime=` is a safe fixed-width field to keep
+    /// ahead of it). Unlike `currentProcessSnapshot()`, an empty result here
+    /// is a real outcome — every candidate already exited between passes —
+    /// not a signal `ps` failed. Switches on `BoundedCommandResult` directly
+    /// (not `.completeData`) so that real outcome doesn't get logged as a
+    /// failure by the caller: `ps -p` exits non-zero (`.nonZeroExit`,
+    /// verified live) precisely when NONE of the requested pids are still
+    /// alive, which maps to `[]`, not `nil` — `nil` is reserved for genuine
+    /// query failure (timeout, spawn failure, undrained/truncated output).
+    static func attachProcessSamples(forPIDs pids: [Int32]) async -> [DaemonGCPlan.AttachProcessSample]? {
+        guard !pids.isEmpty else { return [] }
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/ps"],
+            timeout: .seconds(2),
+            maxOutputBytes: 1024 * 1024,
+            environment: [:]
+        )
+        let pidList = pids.map(String.init).joined(separator: ",")
+        let result = await runner.runDetailed(
+            arguments: ["-p", pidList, "-o", "pid=,ppid=,etime=,args="],
+            inDirectory: "/"
+        )
+        switch result {
+        case .success(let data):
+            guard let output = String(data: data, encoding: .utf8) else { return nil }
+            return DaemonGCPlan.parseAttachProcessSamples(output)
+        case .nonZeroExit:
+            return []
+        case .executableNotFound, .spawnFailure, .timedOut, .outputTruncated, .outputNotDrained:
+            return nil
+        }
+    }
+
     nonisolated private static let killLog = Logger(subsystem: "awesomux.daemon", category: "kill")
 
     /// Fire-and-forget fan-out kill for daemon ids an explicit destroy just
