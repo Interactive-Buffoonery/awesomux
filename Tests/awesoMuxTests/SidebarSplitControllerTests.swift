@@ -1494,7 +1494,7 @@ struct SidebarSplitControllerTests {
 
             controller.view.frame.size.width = 1_200
             controller.view.layoutSubtreeIfNeeded()
-            controller.setSelectedSidebarWidth(720)
+            controller.setSelectedSidebarWidth(720, animated: false)
             #expect(controller.setPersistentSidebarVisible(true))
 
             #expect(controller.dividerThicknessForTesting == nativeDividerThickness)
@@ -1533,7 +1533,7 @@ struct SidebarSplitControllerTests {
         let (controller, sidebar, _) = makeController()
         controller.setSidebarWidth(300)
         #expect(controller.setPersistentSidebarVisible(false))
-        controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
+        controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth, animated: false)
 
         #expect(controller.setPersistentSidebarVisible(true))
         #expect(sidebar.view.frame.width == SidebarWidthPolicy.collapsedWidth)
@@ -1551,7 +1551,7 @@ struct SidebarSplitControllerTests {
         #expect(controller.setPersistentSidebarVisible(false))
         controller.view.frame.size.width = 540
         controller.view.layoutSubtreeIfNeeded()
-        controller.setSelectedSidebarWidth(420)
+        controller.setSelectedSidebarWidth(420, animated: false)
 
         #expect(controller.setPersistentSidebarVisible(true))
         #expect(sidebar.view.frame.width == SidebarWidthPolicy.collapsedWidth)
@@ -1689,6 +1689,35 @@ struct SidebarSplitControllerTests {
         #expect(settleBody.contains("splitView.setPosition("))
         #expect(settleBody.contains("splitView.animator().setPosition("))
         #expect(source[stopHelper.lowerBound...].contains("splitView.animator().setPosition("))
+    }
+
+    // A drag-release commits INSTANTLY (the divider is already at the released
+    // position). Regression for #81 failure mode 2: routing the drag-release through
+    // the eased/animated command path made `applyPosition` skip the synchronous
+    // host/titlebar settle, leaving the titlebar stranded at the pre-commit
+    // (expanded) width after an expand-to-max → rail drag while the pane sat at the
+    // rail. The instant commit must settle host synchronously to the rail.
+    @Test("a drag-release commit settles the titlebar width synchronously")
+    func dragReleaseCommitSettlesTitlebarSynchronously() {
+        let (controller, _, _) = makeController()
+        _ = hostInFixedWindow(controller)
+        let host = controller.hostPresentationState
+        var live: [CGFloat] = []
+        controller.onLiveWidthChange = { live.append($0) }
+
+        // Expanded near the max: the titlebar reserves the wide column.
+        controller.setSelectedSidebarWidth(600, animated: false)
+        #expect(host.effectiveVisibleWidth == 600)
+
+        // Drag-release to the rail (the width `onCommitWidth` commits, instant).
+        controller.setSelectedSidebarWidth(
+            SidebarWidthPolicy.committedWidth(for: SidebarWidthPolicy.collapsedWidth),
+            animated: false)
+
+        #expect(host.effectiveVisibleWidth == SidebarWidthPolicy.collapsedWidth)
+        #expect(host.mode == .persistent(width: SidebarWidthPolicy.collapsedWidth))
+        #expect(live.last == SidebarWidthPolicy.collapsedWidth)
+        #expect(!controller.isAnimatingDividerSettleForTesting)
     }
 
     // MARK: - Eased settle (#81)

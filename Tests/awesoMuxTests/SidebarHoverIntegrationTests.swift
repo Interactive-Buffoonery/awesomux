@@ -141,7 +141,7 @@ struct SidebarHoverIntegrationTests {
             currentWidth: currentWidth,
             lastNonCollapsedWidth: 300
         )
-        proxy.setSelectedWidth?(targetWidth)
+        proxy.setSelectedWidth?(targetWidth, false)
 
         #expect(targetWidth == SidebarWidthPolicy.collapsedWidth)
         #expect(model.proximityState == .dormant)

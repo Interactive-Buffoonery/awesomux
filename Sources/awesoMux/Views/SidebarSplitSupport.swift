@@ -496,7 +496,7 @@ final class SidebarSplitProxy {
 
     /// Set by `SidebarSplitView.makeNSViewController`. Moves the divider so the
     /// sidebar pane is the given width (clamped, un-animated).
-    @ObservationIgnored var setSelectedWidth: ((CGFloat) -> Void)?
+    @ObservationIgnored var setSelectedWidth: ((CGFloat, Bool) -> Void)?
     @ObservationIgnored var setOverlayVisible: ((Bool, SidebarOverlayTransition, Bool) -> Bool)?
     @ObservationIgnored var setPosition: ((AppearanceConfig.SidebarPosition) -> Void)?
     /// Changes only the user's persistent split visibility. Transient hover

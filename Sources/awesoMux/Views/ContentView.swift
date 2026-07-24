@@ -340,7 +340,7 @@ struct ContentView: View {
                 initiallyHidden: !sidebarPresentation.isSidebarVisible,
                 edgeTrackingEnabled: sidebarPresentation.userWantsHidden,
                 onLiveWidthChange: { width in sidebarLiveWidth.value = width },
-                onCommitWidth: { width in commitSidebarWidth(width) },
+                onCommitWidth: { width in commitSidebarWidth(width, animated: false) },
                 onSidebarFocusHandoff: onFocusActiveTerminal,
                 onEdgePointerMove: { x, width in
                     sidebarPresentation.pointerMoved(
@@ -512,8 +512,10 @@ struct ContentView: View {
     }
 
     /// Persist a free-drag width on commit (drag end). Preserves the exact width
-    /// (no snap) and updates the last-non-collapsed restore width.
-    private func commitSidebarWidth(_ width: CGFloat) {
+    /// (no snap) and updates the last-non-collapsed restore width. `animated` eases
+    /// the divider only for a command that jumps it (⌘\); a drag-release passes
+    /// `false` since the divider is already at the committed position (#81).
+    private func commitSidebarWidth(_ width: CGFloat, animated: Bool) {
         let committed = SidebarWidthPolicy.committedWidth(for: width)
         let updatedLastNonCollapsedWidth = SidebarWidthPolicy.updatedLastNonCollapsedWidth(
             currentWidth: committed,
@@ -526,7 +528,7 @@ struct ContentView: View {
         sidebarWidthPreferenceStore.saveLastNonCollapsedWidth(updatedLastNonCollapsedWidth)
         // Move the divider to the committed width: snaps a rail-zone release tight to
         // the collapsed width, and is a no-op when the user released above it.
-        splitProxy.setSelectedWidth?(committed)
+        splitProxy.setSelectedWidth?(committed, animated)
     }
 
     private func toggleSidebarWidth() {
@@ -545,10 +547,10 @@ struct ContentView: View {
                 : sidebarLiveWidth.value,
             lastNonCollapsedWidth: lastNonCollapsedSidebarWidth
         )
-        // Collapse/expand by commanding the native divider directly. The settle is
-        // eased (respecting Reduce Motion) since it routes through
-        // `setSelectedWidth` -> the controller's animated command path (#81).
-        commitSidebarWidth(targetWidth)
+        // Collapse/expand by commanding the native divider directly. This JUMPS the
+        // divider, so ease it (respecting Reduce Motion) via the animated command
+        // path — unlike a drag-release, which is already at its target (#81).
+        commitSidebarWidth(targetWidth, animated: true)
     }
 
 }

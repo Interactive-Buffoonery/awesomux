@@ -209,10 +209,10 @@ final class GhosttySurfaceNSView: NSView {
         GhosttySurfaceMouseFocusMonitor.shared.start()
 
         // Coalesce surface reflow during the eased sidebar-divider settle (#81).
-        // Unscoped (object: nil) on purpose: an unscoped end signal always reaches
-        // this observer, so a mid-settle detach can't strand the latch; a surface in
-        // a non-settling window sees no size change, so latching there is a no-op.
-        // Removed with every other observer in `deinit`'s `removeObserver(self)`.
+        // Registered for any sender (object: nil) — the handlers filter by window so
+        // only the settling window's surfaces react; scoping the registration to a
+        // window would need re-registration on every window change. Removed with every
+        // other observer in `deinit`'s `removeObserver(self)`.
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(dividerSettleWillBegin),

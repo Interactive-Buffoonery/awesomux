@@ -67,10 +67,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     typealias CurrentMouseLocation = () -> NSPoint
     typealias ApplicationIsActive = () -> Bool
 
-    /// Broadcast (unscoped) when an eased divider settle begins/ends so libghostty
-    /// surfaces coalesce per-frame reflow during the animation and flush once at the
-    /// end — the programmatic settle never raises AppKit `inLiveResize`, so surfaces
-    /// can't infer it themselves (#81). Consumed in `GhosttySurfaceLifecycle`.
+    /// Broadcast when an eased divider settle begins/ends so libghostty surfaces
+    /// coalesce per-frame reflow during the animation and flush once at the end — the
+    /// programmatic settle never raises AppKit `inLiveResize`, so surfaces can't infer
+    /// it themselves (#81). Posted with the settling window as `object` so only that
+    /// window's surfaces coalesce (a same-scale programmatic resize in another window
+    /// must not be deferred by an unrelated settle). Consumed in `GhosttySurfaceLifecycle`.
     static let dividerSettleWillBeginNotification = Notification.Name(
         "awesomux.sidebar.dividerSettleWillBegin")
     static let dividerSettleDidEndNotification = Notification.Name(
@@ -380,7 +382,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         applyPosition(width, animated: animated)
     }
 
-    func setSelectedSidebarWidth(_ width: CGFloat) {
+    /// `animated: true` eases the divider to `width` — for a command that *jumps* the
+    /// divider (⌘\ toggle, command-palette width set). A drag-release commit passes
+    /// `false`: the divider is already at the released position, so easing it is wrong
+    /// (and the async settle would skip the synchronous host/titlebar update, leaving
+    /// the titlebar stranded at the pre-commit width — #81 failure mode 2).
+    func setSelectedSidebarWidth(_ width: CGFloat, animated: Bool) {
         selectedSidebarWidth = Self.clampedWidth(width, maxWidth: .greatestFiniteMagnitude)
         userChoseRail = selectedSidebarWidth < SidebarWidthPolicy.railThreshold
         recordIfExpanded(selectedSidebarWidth)
@@ -390,7 +397,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             layoutOverlayPreservingAnimation()
             onLiveWidthChange?(selectedSidebarWidth)
         case .persistent:
-            setSidebarWidth(selectedSidebarWidth, animated: true)
+            setSidebarWidth(selectedSidebarWidth, animated: animated)
         case .hidden:
             break
         }
@@ -581,8 +588,8 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
 
     func installCommandHandlers(on proxy: SidebarSplitProxy) {
         guard !isFinalized else { return }
-        proxy.setSelectedWidth = { [weak self] width in
-            self?.setSelectedSidebarWidth(width)
+        proxy.setSelectedWidth = { [weak self] width, animated in
+            self?.setSelectedSidebarWidth(width, animated: animated)
         }
         proxy.setOverlayVisible = { [weak self] visible, transition, reduceMotion in
             self?.setOverlayPresented(
@@ -1577,6 +1584,11 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                         guard let self, self.dividerSettleGeneration == generation else { return }
                         self.isAnimatingDividerSettle = false
                         self.settleMaxSidebarWidth = nil
+                        // Settle host/titlebar to the landed width once here too: the
+                        // per-tick settle drives it frame-for-frame during the sweep,
+                        // but guaranteeing the final value at completion closes the
+                        // stale-titlebar seam if the last tick is ever missed (#81).
+                        self.settleHostToRenderedWidth()
                         // The final frame was delivered by the last (coalesced) tick;
                         // this flush lands it once. A superseded settle's completion
                         // (generation mismatch) exits above, so only the live settle ends.
@@ -1624,11 +1636,12 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         postDividerSettle(Self.dividerSettleDidEndNotification)
     }
 
-    /// Broadcast a settle begin/end signal to libghostty surfaces. Unscoped
-    /// (`object: nil`) so a mid-settle detach can't strand a surface's coalescing
-    /// latch — see `dividerSettleWillBeginNotification` (#81).
+    /// Broadcast a settle begin/end signal to this window's libghostty surfaces,
+    /// scoped by window so another window's programmatic resize isn't coalesced by an
+    /// unrelated settle (#81). A surface clears its latch on any window change, so a
+    /// mid-settle detach (where `view.window` is already nil here) can't strand it.
     private func postDividerSettle(_ name: Notification.Name) {
-        interactionNotificationCenter.post(name: name, object: nil)
+        interactionNotificationCenter.post(name: name, object: view.window)
     }
 
     private func applyPosition(_ width: CGFloat, animated: Bool = false) {
@@ -1640,12 +1653,17 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         // for the destination already ran in `setSidebarWidth` (the only animated
         // caller), and ticks skip re-recording swept intermediates.
         guard !didAnimate else { return }
+        settleHostToRenderedWidth()
+    }
+
+    /// Publish the rendered pane width to the live-width callback, host mode, and
+    /// host presentation (titlebar). Reports the *rendered* pane width, not just the
+    /// requested target: AppKit can preserve a wider child during first layout or
+    /// constraint pressure, and SwiftUI's sidebar mode must follow what rendered.
+    private func settleHostToRenderedWidth() {
         let rendered = sidebarPaneWidth
         hostMode = .persistent(width: rendered)
         recordIfExpanded(rendered)
-        // Report the rendered pane width, not just the requested target. AppKit
-        // can preserve a wider child during first layout or constraint pressure;
-        // SwiftUI's sidebar mode must follow the pane that actually rendered.
         onLiveWidthChange?(rendered)
         hostPresentationState.settle(mode: hostMode, effectiveVisibleWidth: rendered)
     }

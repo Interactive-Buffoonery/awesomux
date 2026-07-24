@@ -122,7 +122,7 @@ struct SidebarHoverGeometryIsolationTests {
                     == driver.presentationTranslation)
             controller.setOverlayPresented(false, transition: .hover, reduceMotion: false)
             controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
-            controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
+            controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth, animated: false)
             staleReveal?()
             driver.completions.last?()
 
@@ -140,7 +140,7 @@ struct SidebarHoverGeometryIsolationTests {
 
             controller.setOverlayPresentedImmediately(true)
             controller.terminalMinimumWidth = 1_000
-            controller.setSelectedSidebarWidth(SidebarWidthPolicy.expandedWidth)
+            controller.setSelectedSidebarWidth(SidebarWidthPolicy.expandedWidth, animated: false)
 
             #expect(controller.splitPositionMutationIntentCountForTesting == 0)
             #expect(detail.changedSubmittedBackingSizes.isEmpty)
@@ -154,8 +154,8 @@ struct SidebarHoverGeometryIsolationTests {
             let (controller, detail, _) = makeHiddenController(position: position, width: 300)
             let detailFrame = detail.frame
 
-            controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
-            controller.setSelectedSidebarWidth(SidebarWidthPolicy.expandedWidth)
+            controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth, animated: false)
+            controller.setSelectedSidebarWidth(SidebarWidthPolicy.expandedWidth, animated: false)
 
             #expect(controller.splitPositionMutationIntentCountForTesting == 0)
             #expect(detail.changedSubmittedBackingSizes.isEmpty)
