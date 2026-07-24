@@ -1638,6 +1638,17 @@
     "Manual configuration reload was rejected" : {
       "comment" : "Diagnostics event summary"
     },
+    "Match %arg of %arg" : {
+      "comment" : "Spoken find-bar position; arguments are the one-based current match and the match count.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Match %1$arg of %2$arg"
+          }
+        }
+      }
+    },
     "Mauve" : {
       "comment" : "Workspace group tint color",
       "localizations" : {
@@ -1864,6 +1875,9 @@
     },
     "No editors added yet" : {
 
+    },
+    "No matches" : {
+      "comment" : "Spoken find-bar summary when a search finds nothing."
     },
     "No matching diagnostics" : {
 

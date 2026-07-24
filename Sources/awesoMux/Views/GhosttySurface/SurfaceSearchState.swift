@@ -11,13 +11,17 @@ final class SurfaceSearchState {
     var focusRequestSerial = 0
     var scrollbackDumpText: String?
 
+    var matchSummary: SurfaceSearchMatchSummary {
+        SurfaceSearchMatchSummary(selected: selected, total: total)
+    }
+
     var matchCountText: String {
-        let summary = SurfaceSearchMatchSummary(selected: selected, total: total)
-        return "\(summary.currentDisplay) / \(summary.totalDisplay)"
+        let summary = matchSummary
+        return "\(summary.currentDisplayText) / \(summary.totalDisplay)"
     }
 
     var spokenSummary: String {
-        SurfaceSearchMatchSummary(selected: selected, total: total).spokenSummary
+        matchSummary.spokenSummary
     }
 
     func present(needle: String? = nil) {
@@ -46,15 +50,19 @@ final class SurfaceSearchState {
 
     func updateTotal(_ total: Int) {
         guard isPresented else { return }
-        self.total = max(0, total)
-        if self.total == 0 {
+        let clamped = max(0, total)
+        guard clamped != self.total else { return }
+        self.total = clamped
+        if clamped == 0 {
             selected = nil
         }
     }
 
     func updateSelected(_ selected: Int) {
         guard isPresented else { return }
-        self.selected = selected >= 0 ? selected : nil
+        let normalized: Int? = selected >= 0 ? selected : nil
+        guard normalized != self.selected else { return }
+        self.selected = normalized
     }
 
     func presentScrollbackDump(_ text: String) {
@@ -77,14 +85,57 @@ struct SurfaceSearchMatchSummary: Equatable {
         return min(selected + 1, totalDisplay)
     }
 
+    /// libghostty only selects a match once a `navigate_search` binding runs,
+    /// so a fresh search reports matches with no current index. Render that
+    /// state as "–" instead of a false "0", matching upstream ghostty's find
+    /// bar (vendor/ghostty macos SurfaceView.SurfaceSearchOverlay), which
+    /// shows "-/N" when no selection exists. Deliberate deviations: an en
+    /// dash over upstream's hyphen, and "0 / 0" (not "-/0") for zero totals.
+    var currentDisplayText: String {
+        if totalDisplay > 0, !hasSelection {
+            return "–"
+        }
+        return "\(currentDisplay)"
+    }
+
     var totalDisplay: Int {
         max(0, total ?? 0)
     }
 
     var spokenSummary: String {
         guard totalDisplay > 0 else {
-            return "No matches"
+            return String(
+                localized: "No matches",
+                comment: "Spoken find-bar summary when a search finds nothing."
+            )
         }
-        return "Match \(currentDisplay) of \(totalDisplay)"
+        guard hasSelection else {
+            return LocalizedPluralStrings.surfaceSearchMatches(count: totalDisplay)
+        }
+        return String(
+            localized: "Match \(currentDisplay) of \(totalDisplay)",
+            comment:
+                "Spoken find-bar position; arguments are the one-based current match and the match count."
+        )
+    }
+
+    /// libghostty resets the total to zero on every needle change before the
+    /// replacement search reports results, so a fast announcement would speak
+    /// a false "No matches" while a slow search is still running. Zero-total
+    /// summaries therefore wait longer; any result arriving in the interim
+    /// reschedules the announcement with the corrected state.
+    /// ponytail: heuristic settle window — a search still running past this
+    /// delay can announce a false "No matches" that self-corrects on results.
+    /// A true fix needs ghostty's per-search complete event, which is
+    /// unhandled at the vendored apprt boundary today.
+    static let settlingDelay: TimeInterval = 1.0
+
+    var announcementDelay: TimeInterval {
+        totalDisplay > 0 ? 0.2 : Self.settlingDelay
+    }
+
+    private var hasSelection: Bool {
+        guard let selected else { return false }
+        return selected >= 0
     }
 }
