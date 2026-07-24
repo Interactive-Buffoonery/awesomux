@@ -81,14 +81,22 @@ readers which side of the user-config override this capture is on.
 
 ## Warm-A — terminal-only workload
 
-1. Determine the active pane's scrollback budget: the current value of
-   `GhosttyRuntimeDefaults.scrollbackLimit` (64 000 000 bytes / 64 MB
-   since #204; the committed 2026-05 companion captures were taken at
-   the earlier 5 MB default). Generate deterministic output slightly
-   above that limit so the buffer fills fully — with 80-byte lines,
-   `LINES = scrollbackLimit / 80 * 1.2`, e.g. ~960 000 lines at 64 MB:
+1. Determine the active pane's *effective* scrollback budget. For
+   defaults-only runs that is `GhosttyRuntimeDefaults.scrollbackLimit`
+   (64 000 000 bytes / 64 MB since #204; the committed 2026-05 companion
+   captures were taken at the earlier 5 MB default). For user-config
+   runs the user's `scrollback-limit` overrides the compiled default and
+   the startup marker only logs the default — check the user's ghostty
+   config and record the effective value in the companion `.md`.
+   Generate deterministic output slightly above that budget so the
+   buffer fills fully. The limit counts allocated cell memory
+   (~12.5 bytes/cell including blank trailing cells), so a full 80-col
+   row costs ~1 000 bytes regardless of text length:
+   `LINES ≈ budget / (12.5 × cols) × 1.2`, e.g. ~77 000 lines at
+   64 MB / 80 cols. Do not massively overfill — excess streamed output
+   confounds the GPU-buffer measurement with fill throughput:
    ```sh
-   for i in $(seq 1 960000); do printf '%07d %-71s\n' $i "INT-397 scrollback fill line padded with deterministic content"; done
+   for i in $(seq 1 77000); do printf '%07d %-71s\n' $i "INT-397 scrollback fill line padded with deterministic content"; done
    ```
    Paste into the pane and let it run to
    completion.
