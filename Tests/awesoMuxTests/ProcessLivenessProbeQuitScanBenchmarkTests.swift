@@ -38,14 +38,14 @@ struct ProcessLivenessProbeQuitScanBenchmarkTests {
     private static let sessionCount = 20
     private static let sweepIterations = 50
 
-    /// Spawns `sessionCount` real `/bin/sh` processes (no children — the
-    /// idle-at-prompt shape) and times the exact `ProcessLivenessProbe` calls
-    /// `GhosttySurfaceNSView.foregroundProcessLiveness()` makes for a
-    /// non-bridged pane: `foregroundComm`, then `hasChildren` gated on
-    /// `ShellRecognition.isRecognizedShell` (true here — "sh" is recognized).
+    /// Spawns `sessionCount` real `/bin/sh` processes blocked on the `read`
+    /// builtin (no children — the idle-at-prompt shape) and times the exact
+    /// `ProcessLivenessProbe` calls `GhosttySurfaceNSView.foregroundProcessLiveness()`
+    /// makes for a non-bridged pane: `foregroundComm`, then `hasChildren`
+    /// gated on `ShellRecognition.isRecognizedShell`.
     @Test("idle recognized-shell shape stays under the perceptibility budget")
     func idleShellShapeIsCheap() throws {
-        let processes = try (0..<Self.sessionCount).map { _ in try Self.spawnSleepingShell() }
+        let processes = try (0..<Self.sessionCount).map { _ in try Self.spawnIdleShell() }
         defer { processes.forEach { $0.terminate() } }
 
         let avgNanos = Self.timedSweep(pids: processes.map(\.processIdentifier)) { pid in
@@ -83,22 +83,17 @@ struct ProcessLivenessProbeQuitScanBenchmarkTests {
         #expect(avgNanos < Self.sweepThresholdNanos)
     }
 
-    /// Spawns `sessionCount` daemon-shaped process trees (root `sh` + one
-    /// child) and times `ProcessLivenessProbe.bridgedLiveness`, the heavier
-    /// path bridged panes take (walks the daemon's children, then each
-    /// child's own children — two `childPIDs` calls plus a `comm` read per
-    /// bridged pane, vs. one `comm` + one `hasChildren` for a plain pane).
+    /// Spawns `sessionCount` daemon-shaped process trees (daemon → recognized
+    /// shell → child) and times `ProcessLivenessProbe.bridgedLiveness`, the
+    /// heavier path bridged panes take (walks the daemon's children, then
+    /// each child's own children — two `childPIDs` calls plus a `comm` read
+    /// per bridged pane, vs. one `comm` + one `hasChildren` for a plain pane).
     @Test("bridged daemon-tree shape stays under the perceptibility budget")
     func bridgedShapeIsCheap() throws {
-        let processes = try (0..<Self.sessionCount).map { _ in try Self.spawnShellWithChild() }
-        defer {
-            for process in processes {
-                process.parent.terminate()
-                kill(process.childPID, SIGTERM)
-            }
-        }
+        let processes = try (0..<Self.sessionCount).map { _ in try Self.spawnBridgedDaemonTree() }
+        defer { processes.forEach { $0.terminate() } }
 
-        let avgNanos = Self.timedSweep(pids: processes.map { $0.parent.processIdentifier }) { daemonPID in
+        let avgNanos = Self.timedSweep(pids: processes.map(\.processIdentifier)) { daemonPID in
             _ = ProcessLivenessProbe.bridgedLiveness(daemonPID: daemonPID)
         }
 
@@ -147,10 +142,48 @@ struct ProcessLivenessProbeQuitScanBenchmarkTests {
 
     // MARK: - Helpers
 
-    private static func spawnSleepingShell() throws -> Process {
+    /// `/bin/sh -c "read x"`, fed by a pipe we hold open and never write to
+    /// or close — `read` is a shell BUILTIN, so unlike an external command it
+    /// is never eligible for the shell's tail-call exec optimization. Verified
+    /// empirically with `ps`: `/bin/sh -c "sleep 30"` execs INTO `sleep`,
+    /// replacing the shell's process image entirely (comm becomes "sleep",
+    /// not "sh") — a fixture built on that would silently skip the
+    /// `hasChildren` syscall this shape exists to exercise, since "sleep"
+    /// isn't a recognized shell name (review finding). `read x` has no such
+    /// exec path and blocks indefinitely once its stdin pipe's write end
+    /// stays open, with zero children.
+    private static func spawnIdleShell() throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "sleep 30"]
+        process.arguments = ["-c", "read x"]
+        process.standardInput = Pipe()  // never written to or closed — keeps `read` blocked
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        return process
+    }
+
+    /// Verified-shape 3-level daemon → shell → child tree (`sh -c "sh -c
+    /// 'sleep 5 & wait' & wait"`), mirroring what `bridgedLiveness(daemonPID:)`
+    /// actually walks in production: the daemon's child must ITSELF be a
+    /// recognized shell for the walk to reach a second `childPIDs` call. A
+    /// flatter 2-level fixture (daemon directly parenting `sleep`) is wrong —
+    /// "sleep" isn't a recognized shell name, so `bridgedLiveness`
+    /// short-circuits to `.bridgedBusy` at the first hop without exercising
+    /// the shape production actually walks (review finding — verified
+    /// empirically with `ps`).
+    ///
+    /// Uses a 5s sleep, not 30s: SIGTERM on the outer `sh` does not cascade to
+    /// the inner `sh`/`sleep` (no shared process group set up here), so any
+    /// descendant orphaned by `terminate()` self-reaps within a few seconds
+    /// instead of lingering for a full 30s.
+    /// ponytail: bounded orphan window, not zero-orphan — revisit with
+    /// explicit pid capture + individual kills if leaked processes ever
+    /// become a real problem (e.g. a much larger stress-count variant).
+    private static func spawnBridgedDaemonTree() throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sh -c 'sleep 5 & wait' & wait"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()

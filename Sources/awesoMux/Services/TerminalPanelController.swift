@@ -203,10 +203,17 @@ final class TerminalPanelController {
             // INT-185: one shared `GhosttyRuntime` backs every floating slot, so
             // sampling per-store here used to resample the whole surface
             // dictionary once per slot (unbounded in floating-slot count).
-            // Sample once, apply the same snapshot to every slot's store.
-            let snapshots = runtime.currentTerminalQuitConfirmationSnapshots()
-            for store in slots.allStores {
-                store.updateTerminalQuitConfirmationRisks(snapshots)
+            // Sample once, apply the same snapshot to every slot's store —
+            // but only if a slot actually exists. The common case is F=0 (the
+            // floating panel was never opened this session); unconditionally
+            // sampling here would regress that case from zero resamples to
+            // one (review finding).
+            let stores = slots.allStores
+            if !stores.isEmpty {
+                let snapshots = runtime.currentTerminalQuitConfirmationSnapshots()
+                for store in stores {
+                    store.updateTerminalQuitConfirmationRisks(snapshots)
+                }
             }
             // Preserve the dismiss-confirmation auto-reset + recompute the
             // former floating panel controller ran here.
