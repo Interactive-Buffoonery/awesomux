@@ -362,6 +362,30 @@
             <string>Plan revised: +%1$lld / −%2$lld lines</string>
         </dict>
     </dict>
+    <key>accessibility.search.matches</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@matches@</string>
+        <key>matches</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>zero</key>
+            <string>%lld matches</string>
+            <key>one</key>
+            <string>%lld match</string>
+            <key>two</key>
+            <string>%lld matches</string>
+            <key>few</key>
+            <string>%lld matches</string>
+            <key>many</key>
+            <string>%lld matches</string>
+            <key>other</key>
+            <string>%lld matches</string>
+        </dict>
+    </dict>
     <key>accessibility.commandPalette.results</key>
     <dict>
         <key>NSStringLocalizedFormatKey</key>
