@@ -54,7 +54,9 @@ check_unbounded_wait() {
 
     [[ "$file" == Tests/AwesoMuxTestSupport/ProcessBoundedWait.swift ]] && return
     [[ "$file" == Tests/awesoMuxTests/ProcessWaitBoundedGuardTests.swift ]] && return
-    [[ "$file" == Sources/awesoMux/Services/BridgeGenerationRegistry.swift ]] && return
+    # BridgeGenerationRegistry's existing app-quit wait is deliberate and needs
+    # no exemption: this check only sees changed lines, so the untouched call
+    # never trips it — while a NEW bare wait added to that same file still does.
     # Skip comment lines, matching ProcessWaitBoundedGuardTests: prose warning
     # people off the bare call must not itself fail the guard.
     local trimmed="${content#"${content%%[![:space:]]*}"}"

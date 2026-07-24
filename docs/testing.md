@@ -215,7 +215,12 @@ rather than `try?`, so a teardown timeout is still recorded.
 Two independent guards enforce this, because the compiler cannot: an overload
 with a defaulted parameter loses to Foundation's zero-argument original, so a
 bare call still binds to the unbounded method even with `try` in front of it.
-`script/check_test_waits.sh` rejects added lines before `swift test` starts, and
-`ProcessWaitBoundedGuardTests` scans the whole tree. `BridgeGenerationRegistry`'s
-app-quit sweep is the one deliberate exemption — its caller already bounds it
-with `group.wait(timeout:)`.
+`script/check_test_waits.sh` rejects added lines across `Sources/` and `Tests/`
+before `swift test` starts; `ProcessWaitBoundedGuardTests` scans every Swift file
+under `Tests/` as the regression net behind it. `BridgeGenerationRegistry`'s
+app-quit sweep keeps a bare wait deliberately — its caller already bounds it with
+`group.wait(timeout:)`.
+
+Both guards match the call, not the hazard. A blocking pipe read placed *before*
+the wait can still hang forever, because the deadline is never reached. Drain
+pipes concurrently with the wait, or redirect to temporary files.

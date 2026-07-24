@@ -1,8 +1,11 @@
 import Foundation
 import Testing
 
-/// Guard rail for awesomux#207: every test wait on a child process stays
-/// bounded. Foundation's `waitUntilExit()` returns only when it observes the
+/// Guard rail for awesomux#207: no test waits on a child process via
+/// `waitUntilExit()`. That is narrower than "every child wait is bounded" —
+/// a blocking pipe read before the wait can still hang, and those sites are
+/// tracked separately on the pull request.
+/// Foundation's `waitUntilExit()` returns only when it observes the
 /// child's termination event, and macOS drops that event under heavy fork/load
 /// pressure — one run blocked for 15+ hours, pinning a core and holding the
 /// `.build` lock so every later `swift test` queued behind it.
