@@ -266,4 +266,163 @@ public enum DaemonGCPlan {
         return result
     }
 
+    // MARK: - Orphan attach client GC (Interactive-Buffoonery/awesomux#183)
+
+    /// A crashed/force-killed app leaves its `amx attach <uuid>` child
+    /// orphaned to launchd (macOS reparents to pid 1 — verified empirically,
+    /// not assumed). That child blocks reading stdin forever with no
+    /// timeout, keeping its daemon's `clients` count >= 1 and permanently
+    /// defeating `reapable`.
+    ///
+    /// Cheap first pass over the `ps` snapshot already fetched for busy/idle
+    /// classification (no extra IO). Intentionally a shortlist, not a kill
+    /// decision: `comm` alone can't distinguish an attach client from the
+    /// daemon itself (same binary), so a live daemon pid must still be
+    /// excluded via `daemonPIDs`, and `comm` needs basename normalization
+    /// because `ps comm=` reports the full executable path for anything
+    /// outside `/bin`, `/usr/bin` (e.g. a bundled `.../amx`) — confirmed live
+    /// on this machine, not assumed from `/bin/zsh`-shaped test fixtures.
+    public static func candidateOrphanAttachPIDs(
+        snapshot: [ProcEntry],
+        daemonPIDs: Set<Int32>,
+        executableName: String
+    ) -> [Int32] {
+        snapshot.compactMap { entry -> Int32? in
+            guard ShellRecognition.basename(entry.command) == executableName,
+                entry.ppid == 1,
+                !daemonPIDs.contains(entry.pid)
+            else { return nil }
+            return entry.pid
+        }.sorted()
+    }
+
+    /// One `ps -p <pids> -o pid=,ppid=,etime=,args=` row for a candidate
+    /// pid. `args` is deliberately the LAST `-o` field: BSD `ps` truncates a
+    /// text column to a computed width unless it is the final field —
+    /// confirmed live (a mid-list `comm=` showed `/usr/libexec/log`,
+    /// truncated, while the same field last showed the full
+    /// `/usr/libexec/logd`). `etime` stays a safe fixed-width middle field.
+    ///
+    /// ponytail: whitespace-splitting `args` cannot unambiguously separate
+    /// argv0 from the subcommand if the exec'd path itself contains a space
+    /// (an install location like `/Applications/awesoMux Dev.app/...`) —
+    /// `argv0` would truncate at the first space and fail the basename
+    /// check in `confirmedOrphanAttachPIDs`, missing that orphan (a false
+    /// negative, the safe direction — never a false-positive kill). Ceiling:
+    /// resolve the executable path via `proc_pidpath()`/libproc instead of
+    /// parsing `args` text if a space-containing install path is ever real.
+    public struct AttachProcessSample: Equatable {
+        public let pid: Int32
+        public let ppid: Int32
+        public let etimeSeconds: Int
+        /// `args` split on its first three tokens: argv0 (executable path as
+        /// exec'd), the subcommand (`attach`, `list`, `kill`, ...), and — for
+        /// `attach` — the session id argument, needed to enforce the same
+        /// `isUUIDShaped` fence `reapable()` already applies to daemons (a
+        /// hand-run `amx attach dev` must never be a GC candidate here
+        /// either — see `confirmedOrphanAttachPIDs`).
+        public let argv0: String
+        public let subcommand: String?
+        public let sessionArgument: String?
+
+        public init(
+            pid: Int32, ppid: Int32, etimeSeconds: Int, argv0: String,
+            subcommand: String?, sessionArgument: String?
+        ) {
+            self.pid = pid
+            self.ppid = ppid
+            self.etimeSeconds = etimeSeconds
+            self.argv0 = argv0
+            self.subcommand = subcommand
+            self.sessionArgument = sessionArgument
+        }
+    }
+
+    /// Parses `ps -p <pids> -o pid=,ppid=,etime=,args=` output. `maxSplits:
+    /// 3` keeps everything from the session-id argument onward joined as one
+    /// trailing element rather than shredding it — `amx attach <uuid>` has no
+    /// further arguments today, so the third split element IS the session id.
+    public static func parseAttachProcessSamples(_ raw: String) -> [AttachProcessSample] {
+        var result: [AttachProcessSample] = []
+        for line in raw.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+            guard parts.count == 4,
+                let pid = Int32(parts[0]),
+                let ppid = Int32(parts[1]),
+                let etime = parseEtimeSeconds(String(parts[2]))
+            else { continue }
+            let argsTokens = parts[3].split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard let argv0 = argsTokens.first else { continue }
+            let subcommand = argsTokens.count > 1 ? String(argsTokens[1]) : nil
+            let sessionArgument = argsTokens.count > 2 ? String(argsTokens[2]) : nil
+            result.append(
+                AttachProcessSample(
+                    pid: pid, ppid: ppid, etimeSeconds: etime,
+                    argv0: String(argv0), subcommand: subcommand, sessionArgument: sessionArgument
+                ))
+        }
+        return result
+    }
+
+    /// BSD `ps etime=` is `[[dd-]hh:]mm:ss` (e.g. `05-22:03:16`, `01:23`,
+    /// `00:01`). No locale/timezone dependence, unlike `lstart=` — the
+    /// reason this field was chosen for the age fence over parsing a
+    /// multi-token timestamp.
+    static func parseEtimeSeconds(_ etime: String) -> Int? {
+        var daysPart = 0
+        var clock = etime
+        if let dashIndex = etime.firstIndex(of: "-") {
+            guard let days = Int(etime[etime.startIndex..<dashIndex]) else { return nil }
+            daysPart = days
+            clock = String(etime[etime.index(after: dashIndex)...])
+        }
+        let clockTokens = clock.split(separator: ":")
+        let clockParts = clockTokens.compactMap { Int($0) }
+        guard clockParts.count == clockTokens.count, !clockParts.isEmpty else { return nil }
+        var seconds = 0
+        for part in clockParts {
+            seconds = seconds * 60 + part
+        }
+        return daysPart * 86400 + seconds
+    }
+
+    /// A leaked orphan is hours-to-days old (issue's own observed data: one
+    /// spanned 5 days). A daemon mid-double-fork-daemonize is briefly
+    /// `ppid == 1` before it registers in `amx list`, but that transition
+    /// completes in milliseconds — this floor is a wide, cheap grace that
+    /// cannot mistake a just-starting daemon for a leaked orphan (mirrors
+    /// `statusFileGraceSeconds`'s "wide grace costs nothing" reasoning).
+    public static let orphanAttachMinAgeSeconds = 60
+
+    /// Second, narrow confirmation pass — run only when the cheap shortlist
+    /// above is non-empty. Requires every fence at once: still alive, still
+    /// orphaned, still not a daemon, positively an `attach` invocation (not
+    /// `list`/`kill`/`send`/`history` — those exit in well under a second and
+    /// would never clear `minAgeSeconds` from a genuine same-instance run,
+    /// but a foreign/other-instance one-shot orphaned by an unrelated crash
+    /// could; the subcommand check removes that ambiguity entirely rather
+    /// than relying on timing), old enough to rule out an in-progress daemon
+    /// startup race, AND attached to a UUID-shaped session — the exact same
+    /// fence `reapable()` applies to daemons ("Only these are GC candidates,
+    /// so a hand-run `amx attach dev` is never killed"). Without this fence
+    /// an orphaned hand-run `amx attach dev` would be signaled by this pass
+    /// even though the daemon side of GC always spares it.
+    public static func confirmedOrphanAttachPIDs(
+        samples: [AttachProcessSample],
+        daemonPIDs: Set<Int32>,
+        executableName: String,
+        minAgeSeconds: Int = orphanAttachMinAgeSeconds
+    ) -> [Int32] {
+        samples.compactMap { sample -> Int32? in
+            guard let sessionArgument = sample.sessionArgument, isUUIDShaped(sessionArgument),
+                sample.ppid == 1,
+                ShellRecognition.basename(sample.argv0) == executableName,
+                sample.subcommand == "attach",
+                !daemonPIDs.contains(sample.pid),
+                sample.etimeSeconds >= minAgeSeconds
+            else { return nil }
+            return sample.pid
+        }.sorted()
+    }
+
 }
