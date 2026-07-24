@@ -70,6 +70,59 @@ struct NewWorkspaceSplitButtonHitTargetTests {
         #expect(counters.newWorkspaceCount == 2)
     }
 
+    @Test("equatable gate ignores closures but tracks fill and group list")
+    func equatableGateTracksMeaningfulInputsOnly() {
+        let groupID = UUID()
+        let base = NewWorkspaceSplitButton(
+            restFill: .clear,
+            otherGroups: [(id: groupID, name: "Alpha")],
+            onNewWorkspace: {},
+            onNewWorkspaceInGroup: { _ in },
+            onNewWorkspaceGroup: {}
+        )
+
+        // Same values, freshly-allocated closures — this is exactly what
+        // every unrelated SidebarView re-render produces (SidebarView.swift
+        // rebuilds the closures on each body evaluation). Must compare
+        // equal, or the `.equatable()` gate at the call site never actually
+        // suppresses anything.
+        let sameInputsNewClosures = NewWorkspaceSplitButton(
+            restFill: .clear,
+            otherGroups: [(id: groupID, name: "Alpha")],
+            onNewWorkspace: {},
+            onNewWorkspaceInGroup: { _ in },
+            onNewWorkspaceGroup: {}
+        )
+        #expect(base == sameInputsNewClosures)
+
+        let differentFill = NewWorkspaceSplitButton(
+            restFill: .black,
+            otherGroups: [(id: groupID, name: "Alpha")],
+            onNewWorkspace: {},
+            onNewWorkspaceInGroup: { _ in },
+            onNewWorkspaceGroup: {}
+        )
+        #expect(base != differentFill)
+
+        let differentGroupName = NewWorkspaceSplitButton(
+            restFill: .clear,
+            otherGroups: [(id: groupID, name: "Beta")],
+            onNewWorkspace: {},
+            onNewWorkspaceInGroup: { _ in },
+            onNewWorkspaceGroup: {}
+        )
+        #expect(base != differentGroupName)
+
+        let differentGroupCount = NewWorkspaceSplitButton(
+            restFill: .clear,
+            otherGroups: [(id: groupID, name: "Alpha"), (id: UUID(), name: "Gamma")],
+            onNewWorkspace: {},
+            onNewWorkspaceInGroup: { _ in },
+            onNewWorkspaceGroup: {}
+        )
+        #expect(base != differentGroupCount)
+    }
+
     // The 30×30 primary segment sits at the leading edge of the control
     // (HStack(spacing: 0), primary first); (15, 15) is its center. The
     // harness frame below is exactly `30 + 0.5 + 24 = 54.5` wide and `30`

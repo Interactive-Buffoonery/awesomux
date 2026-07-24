@@ -2,7 +2,7 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
-struct NewWorkspaceMenuButton: View {
+struct NewWorkspaceMenuButton: View, Equatable {
     let size: CGFloat
     let cornerRadius: CGFloat
     /// Resting background fill. This component now serves the collapsed rail
@@ -22,6 +22,20 @@ struct NewWorkspaceMenuButton: View {
     /// `addSession(groupName:)`'s create-if-missing fallback.
     let onNewWorkspaceInGroup: (SessionGroup.ID) -> Void
     let onNewWorkspaceGroup: () -> Void
+
+    // Same rationale and same bug class as NewWorkspaceSplitButton's gate
+    // (see that file): this control sits in `collapsedSearchHeader`, outside
+    // SidebarActivitySection's invalidation boundary, so every unrelated
+    // SidebarView re-render reconstructed this Menu too — including while
+    // its own nested "New Workspace in…" submenu might be open. Callbacks
+    // excluded; same capture-stable rationale.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.size == rhs.size
+            && lhs.cornerRadius == rhs.cornerRadius
+            && lhs.restFill == rhs.restFill
+            && lhs.otherGroups.count == rhs.otherGroups.count
+            && zip(lhs.otherGroups, rhs.otherGroups).allSatisfy { $0.id == $1.id && $0.name == $1.name }
+    }
 
     var body: some View {
         // The background lives in a ZStack sibling pinned to an outer
