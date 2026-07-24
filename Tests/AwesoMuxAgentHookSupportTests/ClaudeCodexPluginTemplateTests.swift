@@ -345,6 +345,12 @@ struct ClaudeCodexPluginTemplateTests {
         let stderr: String
     }
 
+    /// Handoff for one pipe's contents from its draining queue back to the
+    /// caller, published by the `DispatchGroup` the reads run under.
+    private final class DataBox: @unchecked Sendable {
+        var value = Data()
+    }
+
     private static func run(
         _ executable: URL,
         arguments: [String],
@@ -361,13 +367,26 @@ struct ClaudeCodexPluginTemplateTests {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         try process.run()
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        // Drain both pipes concurrently. Reading them one after the other
+        // deadlocks if the child fills the second while we are blocked on the
+        // first, and that deadlock sits *before* the bounded wait — so the
+        // deadline below would never be reached and the hang would be exactly
+        // as unbounded as awesomux#207's.
+        let drain = DispatchGroup()
+        let queue = DispatchQueue.global()
+        // Each box is written by exactly one closure and read only after
+        // `drain.wait()`, so the unchecked conformance is carrying a real
+        // handoff, not papering over a race.
+        let out = DataBox()
+        let err = DataBox()
+        queue.async(group: drain) { out.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile() }
+        queue.async(group: drain) { err.value = stderrPipe.fileHandleForReading.readDataToEndOfFile() }
+        drain.wait()
         try process.waitUntilExitEventually()
         return ProcessResult(
             exitCode: process.terminationStatus,
-            stdout: String(decoding: stdoutData, as: UTF8.self),
-            stderr: String(decoding: stderrData, as: UTF8.self)
+            stdout: String(decoding: out.value, as: UTF8.self),
+            stderr: String(decoding: err.value, as: UTF8.self)
         )
     }
 }
