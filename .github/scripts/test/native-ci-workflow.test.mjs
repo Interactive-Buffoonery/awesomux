@@ -256,18 +256,52 @@ test("native CI executes captured PR code with read-only permissions and restore
   assert.doesNotMatch(nativeJob, /uses: \.\/\.github\/actions\/prepare-native/);
   assert.match(nativeJob, /save-cache: "false"/);
 
-  assert.match(nativeJob, /\.\/script\/test\.sh "\$SCOPE" --xunit-output "\$XUNIT_PATH"/);
+  assert.match(nativeJob, /\.\/script\/test\.sh "\$GROUP" --xunit-output "\$XUNIT_PATH"/);
   assert.match(nativeJob, /\.build\/test-results\/native-ci\.xml/);
   assert.match(nativeJob, /\.build\/test-results\/native-ci\.log/);
-  assert.match(nativeJob, /\.\/script\/build_and_run\.sh --stage-release/);
-  assert.match(nativeJob, /codesign --verify --deep --strict/);
-  assert.match(nativeJob, /Signature=adhoc/);
+  assert.doesNotMatch(nativeJob, /\.\/script\/build_and_run\.sh --stage-release/);
   assert.match(nativeJob, /uses: actions\/upload-artifact@[0-9a-f]{40}/);
   assert.match(nativeJob, /if: always\(\)/);
   assert.match(nativeJob, /retention-days: 3/);
-  for (const field of ["Scope", "Exact SHA", "Trigger", "Duration", "Result", "Artifact"]) {
+  for (const field of ["Group", "Exact SHA", "Trigger", "Duration", "Result", "Artifact"]) {
     assert.match(nativeJob, new RegExp(`\\*\\*${field}:\\*\\*`));
   }
+});
+
+test("native CI splits scope=all across isolated timing/nontiming test processes", () => {
+  const workflow = nativeExecutorWorkflow;
+  const resolveJob = workflow.match(/\n  resolve:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
+  const nativeJob = workflow.match(/\n  native:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
+  assert.ok(resolveJob, "native request resolver job must exist");
+  assert.ok(nativeJob, "native execution job must exist");
+
+  // Splitting real-blocking-OS-call suites (sockets, subprocesses, file
+  // watchers/locks) into their own swift test process keeps them from
+  // starving Swift Concurrency's process-wide thread pool for ~4600
+  // unrelated tests on a CPU-constrained hosted runner (issue #162).
+  assert.match(resolveJob, /groups='\["timing","nontiming"\]'/);
+  assert.match(resolveJob, /groups="\[\\"\$SCOPE\\"\]"/);
+  assert.match(nativeJob, /strategy:\n\s+fail-fast: false\n\s+matrix:\n\s+group: \$\{\{ fromJson\(needs\.resolve\.outputs\.groups\) \}\}/);
+  assert.match(nativeJob, /concurrency:\n\s+group: native-pr-.*-\$\{\{ matrix\.group \}\}/);
+  assert.match(nativeJob, /name: native-ci-\$\{\{ matrix\.group \}\}-\$\{\{ needs\.resolve\.outputs\.target-sha \}\}/);
+});
+
+test("native release build runs once for scope=all after both test legs succeed", () => {
+  const workflow = nativeExecutorWorkflow;
+  const releaseJob = workflow.match(
+    /\n  native-release-build:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/,
+  )?.[1];
+  assert.ok(releaseJob, "native release build job must exist");
+
+  assert.match(releaseJob, /needs: \[resolve, native\]/);
+  assert.match(releaseJob, /if: needs\.resolve\.outputs\.scope == 'all' && needs\.native\.result == 'success'/);
+  assert.match(releaseJob, /runs-on: \$\{\{ vars\.NATIVE_CI_RUNNER \|\| 'macos-26' \}\}/);
+  assert.match(releaseJob, /permissions:\n\s+contents: read/);
+  assert.doesNotMatch(releaseJob, /checks: write|issues: write|secrets\./);
+  assert.match(releaseJob, /uses: \.\/_trusted\/\.github\/actions\/prepare-native/);
+  assert.match(releaseJob, /\.\/script\/build_and_run\.sh --stage-release/);
+  assert.match(releaseJob, /codesign --verify --deep --strict/);
+  assert.match(releaseJob, /Signature=adhoc/);
 });
 
 test("native CI never pre-seeds and mistake-preserves an xUnit failure", () => {
@@ -292,13 +326,19 @@ test("native CI reporting is isolated from pull request execution", () => {
   const reportJob = workflow.match(/\n  report:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
   assert.ok(reportJob, "trusted reporting job must exist");
 
-  assert.match(reportJob, /needs: \[resolve, native\]/);
+  assert.match(reportJob, /needs: \[resolve, native, native-release-build\]/);
   assert.match(reportJob, /if: always\(\)/);
   assert.match(reportJob, /permissions:\n\s+checks: write/);
   assert.doesNotMatch(reportJob, /actions\/checkout|\.\/script\/|secrets\.|contents: write|issues: write/);
   assert.match(reportJob, /name="Native CI"/);
   assert.match(reportJob, /EXACT_SHA: \$\{\{ inputs\.target-sha \}\}/);
   assert.match(reportJob, /RESOLVE_JOB_RESULT: \$\{\{ needs\.resolve\.result \}\}/);
+  // Job-level needs.<job>.result aggregates correctly across a matrix's
+  // legs; the per-leg custom `outputs.result` does not (last-writer-wins),
+  // so the pass/fail gate must not depend on needs.native.outputs.result.
+  assert.match(reportJob, /NATIVE_JOB_RESULT: \$\{\{ needs\.native\.result \}\}/);
+  assert.doesNotMatch(reportJob, /\w+: \$\{\{ needs\.native\.outputs\.result \}\}/);
+  assert.match(reportJob, /RELEASE_BUILD_JOB_RESULT: \$\{\{ needs\['native-release-build'\]\.result \}\}/);
   assert.match(reportJob, /head_sha="\$EXACT_SHA"/);
   assert.match(reportJob, /status=completed/);
   assert.match(reportJob, /conclusion="\$conclusion"/);
@@ -311,7 +351,7 @@ test("native CI explicitly dispatches isolated execution-ref cleanup", () => {
   )?.[1];
   assert.ok(cleanupDispatchJob, "trusted cleanup dispatch job must exist");
 
-  assert.match(cleanupDispatchJob, /needs: \[resolve, native, report\]/);
+  assert.match(cleanupDispatchJob, /needs: \[resolve, native, native-release-build, report\]/);
   assert.match(cleanupDispatchJob, /if: always\(\)/);
   assert.match(cleanupDispatchJob, /permissions:\n\s+actions: write/);
   assert.match(cleanupDispatchJob, /native-ci-cleanup\.yml\/dispatches/);

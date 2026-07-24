@@ -69,13 +69,28 @@ Maintainers may also dispatch the workflow manually and select `all`, `unit`,
 SHA. They are restore-only and do not populate caches.
 
 The `all` scope runs the existing interfaces rather than introducing another
-build system:
+build system, split across two parallel jobs plus a release-build job:
 
 ```sh
-./script/test.sh all
-./script/build_and_run.sh --stage-release
+./script/test.sh timing      # one runner, one swift test process
+./script/test.sh nontiming   # a second runner, a second swift test process
+./script/build_and_run.sh --stage-release   # after both test jobs succeed
 codesign --verify --deep --strict --verbose=2 dist/awesoMux.app
 ```
+
+`timing` isolates the suites that make real, synchronous, blocking OS calls
+(Unix-socket handshakes, subprocesses, file watchers, file locks) into their
+own `swift test` process. Swift Testing schedules `@Test`s concurrently within
+one process regardless of the `swift test --parallel` flag; when those
+blocking calls and ~4600 unrelated tests share one process on a
+CPU-constrained hosted runner, the shared Swift Concurrency thread pool starves
+and even unrelated tests can miss real-clock deadlines. Splitting the run in
+two removes that cross-suite contention. `nontiming` is the complement (`all`
+minus the `timing` suites). Local `./script/test.sh all` is unchanged — a
+single full run, since this contention is a hosted-CI symptom, not a local one.
+
+Manual `unit`/`adapter`/`system` dispatches stay single jobs, unaffected by the
+split.
 
 The workflow also confirms that the staged app has an ad-hoc signature. It does
 not launch the GUI, alter release signing, or run the signed/notarized release
