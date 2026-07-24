@@ -41,6 +41,7 @@ jobs:
       target-sha: ${{ steps.target.outputs.target-sha }}
       pr-number: ${{ steps.target.outputs.pr-number }}
       scope: ${{ steps.target.outputs.scope }}
+      groups: ${{ steps.target.outputs.groups }}
       trusted-sha: ${{ steps.target.outputs.trusted-sha }}
       trigger: ${{ steps.target.outputs.trigger }}
     steps:
@@ -110,21 +111,38 @@ jobs:
             exit 1
           fi
 
+          # `all` runs as two independent `swift test` processes (`timing` /
+          # `nontiming`, see script/test.sh) so the suites that make real
+          # blocking OS calls (sockets, subprocesses, file watchers, file
+          # locks) don't share one process-wide Swift Concurrency thread pool
+          # with ~4600 other tests on a CPU-constrained hosted runner (#162).
+          # Single-scope dispatches (unit/adapter/system) stay one job each.
+          if [[ "$SCOPE" == "all" ]]; then
+            groups='["timing","nontiming"]'
+          else
+            groups="[\"$SCOPE\"]"
+          fi
+
           {
             echo "target-sha=$TARGET_SHA"
             echo "pr-number=$PR_NUMBER"
             echo "scope=$SCOPE"
+            echo "groups=$groups"
             echo "trusted-sha=$TRUSTED_SHA"
             echo "trigger=$ORIGINAL_TRIGGER"
           } >> "$GITHUB_OUTPUT"
 
   native:
-    name: Native ${{ needs.resolve.outputs.scope }}
+    name: Native ${{ matrix.group }}
     needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJson(needs.resolve.outputs.groups) }}
     runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
     timeout-minutes: 120
     concurrency:
-      group: native-pr-${{ needs.resolve.outputs.pr-number || github.run_id }}
+      group: native-pr-${{ needs.resolve.outputs.pr-number || github.run_id }}-${{ matrix.group }}
       cancel-in-progress: true
     permissions:
       contents: read
@@ -184,7 +202,7 @@ jobs:
         id: execute
         if: always()
         env:
-          SCOPE: ${{ needs.resolve.outputs.scope }}
+          GROUP: ${{ matrix.group }}
           START_EPOCH: ${{ steps.timing.outputs.started-at }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
@@ -202,32 +220,11 @@ jobs:
             result=failure
           else
             set +e
-            ./script/test.sh "$SCOPE" --xunit-output "$XUNIT_PATH" 2>&1 | tee -a "$LOG_PATH"
+            ./script/test.sh "$GROUP" --xunit-output "$XUNIT_PATH" 2>&1 | tee -a "$LOG_PATH"
             test_status=${PIPESTATUS[0]}
             set -e
             if [[ "$test_status" -ne 0 ]]; then
               result=failure
-            fi
-
-            if [[ "$SCOPE" == "all" && "$result" == "success" ]]; then
-              set +e
-              ./script/build_and_run.sh --stage-release 2>&1 | tee -a "$LOG_PATH"
-              build_status=${PIPESTATUS[0]}
-              set -e
-              if [[ "$build_status" -ne 0 ]]; then
-                result=failure
-              else
-                set +e
-                codesign --verify --deep --strict --verbose=2 dist/awesoMux.app 2>&1 | tee -a "$LOG_PATH"
-                signature_status=${PIPESTATUS[0]}
-                set -e
-                signature_info="$(codesign -dv --verbose=4 dist/awesoMux.app 2>&1)"
-                printf '%s\n' "$signature_info" | tee -a "$LOG_PATH"
-                if [[ "$signature_status" -ne 0 ]] || ! grep -qx 'Signature=adhoc' <<< "$signature_info"; then
-                  echo "Staged app is not validly ad-hoc signed." | tee -a "$LOG_PATH" >&2
-                  result=failure
-                fi
-              fi
             fi
           fi
 
@@ -258,7 +255,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: native-ci-${{ needs.resolve.outputs.scope }}-${{ needs.resolve.outputs.target-sha }}
+          name: native-ci-${{ matrix.group }}-${{ needs.resolve.outputs.target-sha }}
           path: .build/test-results/
           if-no-files-found: error
           retention-days: 3
@@ -266,7 +263,7 @@ jobs:
       - name: Summarize native validation
         if: always()
         env:
-          SCOPE: ${{ needs.resolve.outputs.scope }}
+          GROUP: ${{ matrix.group }}
           EXACT_SHA: ${{ needs.resolve.outputs.target-sha }}
           TRIGGER: ${{ needs.resolve.outputs.trigger }}
           DURATION_SECONDS: ${{ steps.execute.outputs.duration-seconds }}
@@ -274,9 +271,9 @@ jobs:
           ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
         run: |
           {
-            echo "## Native CI"
+            echo "## Native CI (${GROUP})"
             echo
-            echo "- **Scope:** $SCOPE"
+            echo "- **Group:** $GROUP"
             echo "- **Exact SHA:** $EXACT_SHA"
             echo "- **Trigger:** $TRIGGER"
             echo "- **Duration:** ${DURATION_SECONDS:-unknown}s"
@@ -288,9 +285,119 @@ jobs:
         if: always() && steps.execute.outputs.result != 'success'
         run: exit 1
 
+  native-release-build:
+    name: Native release build
+    needs: [resolve, native]
+    if: needs.resolve.outputs.scope == 'all' && needs.native.result == 'success'
+    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
+    timeout-minutes: 60
+    concurrency:
+      group: native-pr-${{ needs.resolve.outputs.pr-number || github.run_id }}-release-build
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    env:
+      AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
+    steps:
+      - name: Check out captured SHA
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.target-sha }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Check out trusted native helper
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.trusted-sha }}
+          path: _trusted
+          persist-credentials: false
+
+      - name: Initialize release build results
+        run: |
+          set -euo pipefail
+          mkdir -p .build/test-results
+          echo "Native release build started for ${{ needs.resolve.outputs.target-sha }}" > .build/test-results/native-ci.log
+
+      - name: Verify captured SHA
+        id: verify
+        continue-on-error: true
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.resolve.outputs.target-sha }}
+          LOG_PATH: .build/test-results/native-ci.log
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_sha" != "$EXPECTED_HEAD_SHA" ]]; then
+            printf 'Checked-out HEAD mismatch: expected %s, got %s\n' \
+              "$EXPECTED_HEAD_SHA" "$actual_sha" | tee -a "$LOG_PATH" >&2
+            exit 1
+          fi
+
+      - name: Prepare native build
+        id: prepare
+        if: steps.verify.outcome == 'success'
+        continue-on-error: true
+        uses: ./_trusted/.github/actions/prepare-native
+        with:
+          save-cache: "false"
+
+      - name: Stage release build and verify signature
+        id: build
+        if: always()
+        env:
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          LOG_PATH: .build/test-results/native-ci.log
+        run: |
+          set -euo pipefail
+          result=success
+
+          if [[ "$VERIFY_OUTCOME" != "success" ]]; then
+            echo "Captured SHA verification failed; release build was not executed." | tee -a "$LOG_PATH" >&2
+            result=failure
+          elif [[ "$PREPARE_OUTCOME" != "success" ]]; then
+            echo "Native preparation failed; release build was not executed." | tee -a "$LOG_PATH" >&2
+            result=failure
+          else
+            set +e
+            ./script/build_and_run.sh --stage-release 2>&1 | tee -a "$LOG_PATH"
+            build_status=${PIPESTATUS[0]}
+            set -e
+            if [[ "$build_status" -ne 0 ]]; then
+              result=failure
+            else
+              set +e
+              codesign --verify --deep --strict --verbose=2 dist/awesoMux.app 2>&1 | tee -a "$LOG_PATH"
+              signature_status=${PIPESTATUS[0]}
+              set -e
+              signature_info="$(codesign -dv --verbose=4 dist/awesoMux.app 2>&1)"
+              printf '%s\n' "$signature_info" | tee -a "$LOG_PATH"
+              if [[ "$signature_status" -ne 0 ]] || ! grep -qx 'Signature=adhoc' <<< "$signature_info"; then
+                echo "Staged app is not validly ad-hoc signed." | tee -a "$LOG_PATH" >&2
+                result=failure
+              fi
+            fi
+          fi
+
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release build results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-ci-release-build-${{ needs.resolve.outputs.target-sha }}
+          path: .build/test-results/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Enforce release build result
+        if: always() && steps.build.outputs.result != 'success'
+        run: exit 1
+
   report:
     name: Report native result
-    needs: [resolve, native]
+    needs: [resolve, native, native-release-build]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -305,21 +412,40 @@ jobs:
           TRIGGER: ${{ inputs.trigger }}
           RESOLVE_JOB_RESULT: ${{ needs.resolve.result }}
           NATIVE_JOB_RESULT: ${{ needs.native.result }}
-          NATIVE_RESULT: ${{ needs.native.outputs.result }}
+          RELEASE_BUILD_JOB_RESULT: ${{ needs['native-release-build'].result }}
           DURATION_SECONDS: ${{ needs.native.outputs.duration-seconds }}
           ARTIFACT_URL: ${{ needs.native.outputs.artifact-url }}
         run: |
           set -euo pipefail
           name="Native CI"
           conclusion=failure
-          if [[ "$RESOLVE_JOB_RESULT" == "success" && "$NATIVE_JOB_RESULT" == "success" && "$NATIVE_RESULT" == "success" ]]; then
+          # `needs.<job>.result` is the built-in job conclusion, which GitHub
+          # Actions aggregates correctly across matrix legs (unlike custom
+          # step `outputs`, which do not reliably survive a multi-leg matrix
+          # — last-writer-wins). Do not reintroduce a dependency on
+          # needs.native.outputs.result here.
+          release_build_ok=true
+          if [[ "$SCOPE" == "all" && "$RELEASE_BUILD_JOB_RESULT" != "success" ]]; then
+            release_build_ok=false
+          fi
+          if [[ "$RESOLVE_JOB_RESULT" == "success" && "$NATIVE_JOB_RESULT" == "success" && "$release_build_ok" == "true" ]]; then
             conclusion=success
-          elif [[ "$NATIVE_JOB_RESULT" == "cancelled" ]]; then
+          elif [[ "$NATIVE_JOB_RESULT" == "cancelled" || "$RELEASE_BUILD_JOB_RESULT" == "cancelled" ]]; then
             conclusion=cancelled
           fi
-          details_url="${ARTIFACT_URL:-https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}}"
+          # A multi-leg matrix (scope=all) does not reliably surface one
+          # leg's artifact/duration as representative of the whole run; point
+          # at the overall workflow run instead. Single-scope dispatches keep
+          # their one leg's own artifact link.
+          if [[ "$SCOPE" == "all" ]]; then
+            details_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            duration_display="see workflow run"
+          else
+            details_url="${ARTIFACT_URL:-https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}}"
+            duration_display="${DURATION_SECONDS:-unknown}s"
+          fi
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          summary="Scope: ${SCOPE}; trigger: ${TRIGGER}; duration: ${DURATION_SECONDS:-unknown}s; result: ${conclusion}; artifact: ${details_url}"
+          summary="Scope: ${SCOPE}; trigger: ${TRIGGER}; duration: ${duration_display}; result: ${conclusion}; artifact: ${details_url}"
 
           gh api --method POST \
             "repos/${GITHUB_REPOSITORY}/check-runs" \
@@ -334,7 +460,7 @@ jobs:
 
   cleanup:
     name: Dispatch native execution-ref cleanup
-    needs: [resolve, native, report]
+    needs: [resolve, native, native-release-build, report]
     if: always()
     runs-on: ubuntu-latest
     permissions:
