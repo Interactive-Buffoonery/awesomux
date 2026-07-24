@@ -495,15 +495,23 @@ struct QuitRiskTests {
         // ignores snapshot entries for paneIDs it doesn't own, rather than
         // erroring or cross-contaminating another store's session. This is
         // the load-bearing correctness property for that fix.
-        let ownedRisky = TerminalSession(title: "mine", workingDirectory: "~", agentKind: .shell)
-        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [ownedRisky])])
+        // The owned session's OWN snapshot is safe and the foreign entry is
+        // risky — the reverse of "both true" would pass whether or not the
+        // foreign entry leaks into the owned store, since either outcome
+        // reports the owned session as risky either way. Only this shape
+        // (owned=safe, foreign=risky) actually distinguishes "ignored" from
+        // "cross-contaminated": cross-contamination would incorrectly flip
+        // the owned session to risky (review finding — the original version
+        // of this test could not fail on the bug it claimed to guard).
+        let ownedSafe = TerminalSession(title: "mine", workingDirectory: "~", agentKind: .shell)
+        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [ownedSafe])])
 
         let foreignPaneID = TerminalPane.ID()
         store.updateTerminalQuitConfirmationRisks([
             TerminalQuitConfirmationSnapshot(
-                sessionID: ownedRisky.id,
-                paneID: ownedRisky.activePaneID,
-                needsConfirmation: true
+                sessionID: ownedSafe.id,
+                paneID: ownedSafe.activePaneID,
+                needsConfirmation: false
             ),
             // A pane this store has never heard of — as if the shared snapshot
             // list also included a floating-slot store's surfaces.
@@ -514,8 +522,8 @@ struct QuitRiskTests {
             ),
         ])
 
-        #expect(Set(store.sessionsAtRiskOnQuit.map(\.id)) == Set([ownedRisky.id]))
-        #expect(store.sessionsAtRiskOnQuitCount == 1)
+        #expect(store.sessionsAtRiskOnQuit.isEmpty)
+        #expect(store.sessionsAtRiskOnQuitCount == 0)
     }
 
     @MainActor

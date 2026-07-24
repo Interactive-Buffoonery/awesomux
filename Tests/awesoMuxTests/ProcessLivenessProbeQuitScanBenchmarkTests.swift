@@ -164,7 +164,7 @@ struct ProcessLivenessProbeQuitScanBenchmarkTests {
     }
 
     /// Verified-shape 3-level daemon → shell → child tree (`sh -c "sh -c
-    /// 'sleep 5 & wait' & wait"`), mirroring what `bridgedLiveness(daemonPID:)`
+    /// 'sleep 60 & echo ready; wait' & wait"`), mirroring what `bridgedLiveness(daemonPID:)`
     /// actually walks in production: the daemon's child must ITSELF be a
     /// recognized shell for the walk to reach a second `childPIDs` call. A
     /// flatter 2-level fixture (daemon directly parenting `sleep`) is wrong —
