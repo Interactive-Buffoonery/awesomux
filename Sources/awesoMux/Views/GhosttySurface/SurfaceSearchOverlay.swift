@@ -74,6 +74,7 @@ private struct SurfaceSearchBar: View {
                 .awFont(AwFont.Mono.kbd)
                 .monospacedDigit()
                 .foregroundStyle(Color.aw.text3)
+                .help(searchState.spokenSummary)
                 .accessibilityLabel(searchState.spokenSummary)
 
             Divider()
@@ -116,10 +117,7 @@ private struct SurfaceSearchBar: View {
         .onChange(of: searchState.focusRequestSerial) { _, _ in
             isSearchFieldFocused = true
         }
-        .onChange(of: searchState.total) { _, _ in
-            scheduleSearchSummaryAnnouncement()
-        }
-        .onChange(of: searchState.selected) { _, _ in
+        .onChange(of: searchState.matchSummary) { _, _ in
             scheduleSearchSummaryAnnouncement()
         }
         .onDisappear {
@@ -148,6 +146,11 @@ private struct SurfaceSearchBar: View {
             .focused($isSearchFieldFocused)
             .focusEffectDisabled()
             .onChange(of: searchState.needle) { _, newValue in
+                // A pending announcement would speak the previous query's
+                // position at fire time (needle debounce is longer than the
+                // announcement delay); results for the new query reschedule it.
+                matchAnnouncementWorkItem?.cancel()
+                matchAnnouncementWorkItem = nil
                 surfaceView.updateSearchNeedle(newValue)
             }
             .onKeyPress(.return, phases: .down) { keyPress in

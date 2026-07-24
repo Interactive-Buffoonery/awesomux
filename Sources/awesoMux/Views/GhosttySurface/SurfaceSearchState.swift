@@ -11,13 +11,17 @@ final class SurfaceSearchState {
     var focusRequestSerial = 0
     var scrollbackDumpText: String?
 
+    var matchSummary: SurfaceSearchMatchSummary {
+        SurfaceSearchMatchSummary(selected: selected, total: total)
+    }
+
     var matchCountText: String {
-        let summary = SurfaceSearchMatchSummary(selected: selected, total: total)
+        let summary = matchSummary
         return "\(summary.currentDisplayText) / \(summary.totalDisplay)"
     }
 
     var spokenSummary: String {
-        SurfaceSearchMatchSummary(selected: selected, total: total).spokenSummary
+        matchSummary.spokenSummary
     }
 
     func present(needle: String? = nil) {
@@ -46,15 +50,19 @@ final class SurfaceSearchState {
 
     func updateTotal(_ total: Int) {
         guard isPresented else { return }
-        self.total = max(0, total)
-        if self.total == 0 {
+        let clamped = max(0, total)
+        guard clamped != self.total else { return }
+        self.total = clamped
+        if clamped == 0 {
             selected = nil
         }
     }
 
     func updateSelected(_ selected: Int) {
         guard isPresented else { return }
-        self.selected = selected >= 0 ? selected : nil
+        let normalized: Int? = selected >= 0 ? selected : nil
+        guard normalized != self.selected else { return }
+        self.selected = normalized
     }
 
     func presentScrollbackDump(_ text: String) {
@@ -79,7 +87,10 @@ struct SurfaceSearchMatchSummary: Equatable {
 
     /// libghostty only selects a match once a `navigate_search` binding runs,
     /// so a fresh search reports matches with no current index. Render that
-    /// state as "–" (upstream ghostty shows "-/N") instead of a false "0".
+    /// state as "–" instead of a false "0", matching upstream ghostty's find
+    /// bar (vendor/ghostty macos SurfaceView.SurfaceSearchOverlay), which
+    /// shows "-/N" when no selection exists. Deliberate deviations: an en
+    /// dash over upstream's hyphen, and "0 / 0" (not "-/0") for zero totals.
     var currentDisplayText: String {
         if totalDisplay > 0, !hasSelection {
             return "–"
@@ -93,12 +104,19 @@ struct SurfaceSearchMatchSummary: Equatable {
 
     var spokenSummary: String {
         guard totalDisplay > 0 else {
-            return "No matches"
+            return String(
+                localized: "No matches",
+                comment: "Spoken find-bar summary when a search finds nothing."
+            )
         }
         guard hasSelection else {
             return LocalizedPluralStrings.surfaceSearchMatches(count: totalDisplay)
         }
-        return "Match \(currentDisplay) of \(totalDisplay)"
+        return String(
+            localized: "Match \(currentDisplay) of \(totalDisplay)",
+            comment:
+                "Spoken find-bar position; arguments are the one-based current match and the match count."
+        )
     }
 
     private var hasSelection: Bool {
