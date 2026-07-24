@@ -40,7 +40,7 @@ public enum BridgeSurfaceCommandPolicy {
         // lives on the far host, so neither the local amx daemon
         // (`attachCommandAvailable`) nor the command bridge (`bridgeEnabled`)
         // has anything to contribute, and neither can make it unreachable.
-        if case .ssh(let execution) = executionPlan, execution.persistenceOwner == .remoteZmx {
+        if executionPlan.remoteOwnedExecution != nil {
             return .remoteOwnedAttach
         }
         if bridgeEnabled, attachCommandAvailable { return .bridgeAttach }

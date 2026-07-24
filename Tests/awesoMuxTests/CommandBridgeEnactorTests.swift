@@ -296,6 +296,178 @@ struct CommandBridgeEnactorTests {
         #expect(pane.agentExecutionState == .error)
     }
 
+    // MARK: - Remote-owned (`.remoteZmx`) panes
+
+    @Test("a remote-owned pane attaches over ssh without minting a status channel")
+    func remoteOwnedPrepareAttachMintsNoStatusChannel() throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        var providedSessionName: RemoteSessionName?
+        var providedExecutablePath: String?
+        enactor.remoteOwnedAttachCommandProvider = { target, sessionName, executablePath in
+            providedSessionName = sessionName
+            providedExecutablePath = executablePath
+            return "ssh \(target.sshDestination) zmx attach \(sessionName.rawValue)"
+        }
+
+        let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
+
+        #expect(launch == .remoteOwnedAttach("ssh ed@example.invalid zmx attach work"))
+        #expect(providedSessionName?.rawValue == "work")
+        #expect(providedExecutablePath == "/opt/homebrew/bin/zmx")
+        // Without the session id, `handleProcessExit` bails at its `sessionID
+        // != nil` guard and the host silently closes a pane whose ssh died.
+        #expect(enactor.sessionID == fixture.sessionID)
+        // The far host reports into no local file: an armed watcher would sit on
+        // a feed nothing ever writes, and the exit path must stay statusless.
+        #expect(enactor.statusChannel == nil)
+        #expect(enactor.statusWatcher == nil)
+        #expect(statusFileNames(for: fixture.sessionID).isEmpty)
+
+        // Control: prove the listing above can actually see a status file, so
+        // the emptiness assertion isn't passing for the wrong reason.
+        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+        #expect(statusFileNames(for: fixture.sessionID).count == 1)
+    }
+
+    @Test("a remote-owned clean exit (code 0) closes the pane like a local shell")
+    func remoteOwnedCleanExitClosesPane() throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.sessionExistsProvider = { _ in
+            Issue.record("a remote-owned pane must never probe the local amx daemon")
+            return true
+        }
+        enactor.sessionID = fixture.sessionID
+
+        // ssh forwards the remote shell's own status, so 0 is a deliberate
+        // `exit` on the far side — INT-769 parity with a local shell.
+        enactor.beginExitSupervision(exitCode: 0)
+
+        #expect(enactor.sessionID == nil)
+        #expect(!enactor.errorLatched)
+        #expect(!enactor.exitProbeInFlight)
+        #expect(fixture.livePane == nil)
+    }
+
+    @Test("a remote-owned abnormal exit latches the disconnected reconnect state")
+    func remoteOwnedAbnormalExitLatchesDisconnected() throws {
+        for exitCode in [Int16(255), nil] {
+            let fixture = try makeRemoteOwnedFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionExistsProvider = { _ in
+                Issue.record("a remote-owned pane must never probe the local amx daemon")
+                return true
+            }
+            enactor.sessionID = fixture.sessionID
+
+            enactor.beginExitSupervision(exitCode: exitCode)
+
+            #expect(enactor.errorLatched)
+            #expect(!enactor.exitProbeInFlight)
+            let pane = try #require(fixture.livePane)
+            #expect(pane.agentExecutionState == .error)
+            #expect(
+                pane.remoteReconnect == .disconnected(.init(target: try remoteOwnedTarget()))
+            )
+        }
+    }
+
+    @Test("a remote-owned exit with the bridge disabled never re-creates the surface")
+    func remoteOwnedExitWithBridgeDisabledDoesNotLoop() throws {
+        // The legacy exit path answers a bridge-disabled clean exit by clearing
+        // state and re-driving surface creation — for a remote-owned pane the
+        // policy would answer that with another remote-owned attach, forever.
+        let fixture = try makeRemoteOwnedFixture(bridgeEnabled: false)
+        let host = TestHost(fixture: fixture)
+        let enactor = CommandBridgeEnactor(host: host)
+        enactor.sessionExistsProvider = { _ in
+            Issue.record("a remote-owned pane must never probe the local amx daemon")
+            return true
+        }
+        enactor.sessionID = fixture.sessionID
+
+        enactor.beginExitSupervision(exitCode: 0)
+
+        #expect(host.closeAfterProcessExitCount == 1)
+        #expect(host.scheduleSurfaceCreationCount == 0)
+        #expect(enactor.sessionID == nil)
+        #expect(!enactor.errorLatched)
+    }
+
+    @Test("a remote-owned spawn confirms a pending manual reconnect without a status event")
+    func remoteOwnedSpawnConfirmsManualReconnect() throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.sessionID = fixture.sessionID
+        enactor.markError()
+        let target = try remoteOwnedTarget()
+        #expect(fixture.livePane?.remoteReconnect == .disconnected(.init(target: target)))
+
+        enactor.beginManualReconnect()
+        #expect(fixture.livePane?.remoteReconnect == .reconnecting(.init(target: target)))
+
+        // The re-spawn's only confirmation signal: there is no `attached` event
+        // to wait for, so the overlay would otherwise stay painted forever.
+        fixture.view.applyPostSpawnPaneState(for: .remoteOwnedAttach("ssh …"))
+
+        #expect(fixture.livePane?.remoteReconnect == nil)
+        #expect(!enactor.errorLatched)
+    }
+
+    @Test("only a local-amx attach stamps established backend metadata")
+    func onlyBridgeAttachStampsEstablishedMetadata() throws {
+        let remoteOwned = try makeRemoteOwnedFixture()
+        // `established` names a LOCAL amx session; stamping it for a remote-owned
+        // pane points the Path Bar's `amx cwd` poll at an id no local daemon has.
+        remoteOwned.view.applyPostSpawnPaneState(for: .remoteOwnedAttach("ssh …"))
+        #expect(remoteOwned.livePane?.terminalBackendMetadata == .empty)
+
+        let bridge = try makeFixture()
+        bridge.store.updateTerminalBackendMetadata(
+            sessionID: bridge.hostSessionID,
+            paneID: bridge.paneID,
+            metadata: .empty
+        )
+        bridge.view.applyPostSpawnPaneState(for: .bridgeAttach("amx attach …"))
+        #expect(bridge.livePane?.terminalBackendMetadata == establishedMetadata)
+    }
+
+    @Test("a remote-owned pane keeps its agent chrome; a plain local shell resets it")
+    func remoteOwnedSpawnKeepsAgentChrome() throws {
+        // A remote-owned attach re-joins a session that survives on the far
+        // host, so a live agent's identity must survive with it — unlike a fresh
+        // local shell, whose restored chrome is definitionally dead.
+        let remoteOwned = try makeRemoteOwnedFixture(agentKind: .codex)
+        remoteOwned.view.applyPostSpawnPaneState(for: .remoteOwnedAttach("ssh …"))
+        #expect(remoteOwned.livePane?.agentKind == AgentKind.codex)
+
+        let local = try makeAgentFixture()
+        local.view.applyPostSpawnPaneState(for: .localShell)
+        #expect(local.livePane?.agentKind == AgentKind.shell)
+    }
+
+    @Test("a remote-owned surface spawns the assembled ssh command, never a local shell")
+    func remoteOwnedSurfaceSpawnsSSHCommand() throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let spawned = SpawnedCommandBox()
+        fixture.runtime.createSurfaceOverride = { _, _, _, command in
+            spawned.record(command)
+            return nil
+        }
+        fixture.view.commandBridgeEnactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
+            "remote-owned-\(sessionName.rawValue)"
+        }
+
+        fixture.view.createSurfaceIfNeeded()
+
+        #expect(spawned.commands == ["remote-owned-work"])
+        #expect(!fixture.view.commandBridgeErrorLatched)
+        #expect(fixture.view.commandBridgeEnactor.statusChannel == nil)
+        #expect(statusFileNames(for: fixture.sessionID).isEmpty)
+    }
+
     @Test("a latched-error pane is inert to a stray attached event")
     func latchedPaneIgnoresStrayAttached() throws {
         let fixture = try makeFixture()
@@ -721,6 +893,77 @@ struct CommandBridgeEnactorTests {
         )
     }
 
+    /// A pane whose persistence the REMOTE host owns (`.remoteZmx`): the far
+    /// side's zmx holds the session, so there is no local daemon, no status
+    /// side channel, and nothing for the command bridge to wrap.
+    private func makeRemoteOwnedFixture(
+        bridgeEnabled: Bool = true,
+        agentKind: AgentKind = .shell
+    ) throws -> Fixture {
+        let sessionID = try #require(
+            TerminalSessionID(
+                rawValue: "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+            ))
+        let remote = try remoteOwnedTarget()
+        let execution = try #require(
+            SSHExecution(
+                target: remote,
+                persistenceOwner: .remoteZmx,
+                sessionName: RemoteSessionName(rawValue: "work"),
+                remoteExecutablePath: "/opt/homebrew/bin/zmx"
+            ))
+        let pane = TerminalPane(
+            terminalSessionID: sessionID,
+            title: "remote-owned",
+            workingDirectory: "/tmp",
+            agentKind: agentKind,
+            executionPlan: .ssh(execution)
+        )
+        let session = TerminalSession(
+            title: "remote-owned session",
+            workingDirectory: pane.workingDirectory,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [
+                SessionGroup(name: "remote group", remote: remote, sessions: [session])
+            ],
+            selectedSessionID: session.id
+        )
+        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: bridgeEnabled)
+        let view = runtime.surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+        return Fixture(
+            sessionID: sessionID,
+            hostSessionID: session.id,
+            paneID: pane.id,
+            session: session,
+            store: store,
+            runtime: runtime,
+            view: view
+        )
+    }
+
+    private func remoteOwnedTarget() throws -> RemoteTarget {
+        try #require(RemoteTarget(user: "ed", host: "example.invalid"))
+    }
+
+    /// Status files are named `<session>-<token prefix>.status.jsonl`, so a
+    /// session-prefixed listing of the socket directory is how "no channel was
+    /// ever minted" is proven — `statusChannel == nil` alone would also hold for
+    /// a channel that was minted and then deleted.
+    private func statusFileNames(for sessionID: TerminalSessionID) -> [String] {
+        let directory = AmxBackend.sessionSocketDirectory()
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+        return names.filter { $0.hasPrefix(sessionID.rawValue) }
+    }
+
     private func makeFixture(sessionID: TerminalSessionID, pane: TerminalPane) throws -> Fixture {
         let session = TerminalSession(
             title: "session",
@@ -786,11 +1029,29 @@ struct CommandBridgeEnactorTests {
             pane = fixture.view.pane
         }
 
+        private(set) var closeAfterProcessExitCount = 0
+        private(set) var scheduleSurfaceCreationCount = 0
+
         func disposeNativeSurface(resetHostedLayer: Bool) {}
         func remountFreshSurfaceAfterCommandBridgeHeal(
             _ recovery: SessionStore.CommandBridgePaneHealResult
         ) {}
-        func closeAfterProcessExit(processAlive: Bool) {}
-        func scheduleSurfaceCreationIfNeeded() {}
+        func closeAfterProcessExit(processAlive: Bool) {
+            closeAfterProcessExitCount += 1
+        }
+        func scheduleSurfaceCreationIfNeeded() {
+            scheduleSurfaceCreationCount += 1
+        }
+    }
+
+    /// Records what `runtime.createSurface` was actually asked to spawn. The
+    /// override returns nil (a fabricated `ghostty_surface_t` would be freed for
+    /// real on view teardown), so this proves the command, not the surface.
+    private final class SpawnedCommandBox {
+        private(set) var commands: [String?] = []
+
+        func record(_ command: String?) {
+            commands.append(command)
+        }
     }
 }
