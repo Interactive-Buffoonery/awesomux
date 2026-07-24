@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 
@@ -366,7 +367,7 @@ struct BuildAndRunScriptTests {
         process.standardOutput = stdout
         process.standardError = stderr
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
 
         return ShellResult(
             exitStatus: process.terminationStatus,
@@ -401,7 +402,7 @@ struct BuildAndRunScriptTests {
         process.standardOutput = stdout
         process.standardError = stderr
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
 
         return ShellResult(
             exitStatus: process.terminationStatus,
@@ -461,7 +462,7 @@ struct BuildAndRunScriptTests {
         process.standardError = stderr
 
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
 
         let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -502,7 +503,7 @@ struct BuildAndRunScriptTests {
         process.standardError = stderr
 
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
 
         let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
