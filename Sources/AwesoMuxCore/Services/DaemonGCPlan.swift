@@ -159,9 +159,10 @@ public enum DaemonGCPlan {
         return result
     }
 
-    /// A `*.status.jsonl` file observed in the amx directory, as input to
-    /// `staleStatusFiles`. `modifiedEpoch` is the file's mtime.
-    public struct StatusFileCandidate: Equatable {
+    /// A file observed in an amx directory, as input to a stale-file sweep
+    /// (`staleStatusFiles` for `$TMPDIR/amx/*.status.jsonl`, `staleSessionLogs`
+    /// for `$TMPDIR/amx/logs/<uuid>.log[.old]`). `modifiedEpoch` is the mtime.
+    public struct FileCandidate: Equatable {
         public let filename: String
         public let modifiedEpoch: Int
 
@@ -231,7 +232,7 @@ public enum DaemonGCPlan {
     /// (Interactive-Buffoonery/awesomux#183) are spared too — the safe
     /// direction; their files become collectable once #183 reaps orphans.
     public static func staleStatusFiles(
-        candidates: [StatusFileCandidate],
+        candidates: [FileCandidate],
         attached: Set<TerminalSessionID>,
         gcStart: Int,
         graceSeconds: Int = statusFileGraceSeconds
@@ -243,6 +244,112 @@ public enum DaemonGCPlan {
             else { return nil }
             return candidate.filename
         }
+    }
+
+    /// Session id embedded in a per-session log filename under
+    /// `$TMPDIR/amx/logs/`. zmx writes `<session_name>.log` and rotates it to
+    /// `<session_name>.log.old` at 5 MB (`LogSystem.rotate`), so BOTH shapes
+    /// are attributable to the same session. awesoMux session names are minted
+    /// lowercase UUIDs, so this returns the id only for `<uuid>.log[.old]`.
+    /// Same strict-attribution ceiling as `statusFileSessionID`: the global
+    /// `zmx.log` (non-UUID stem) and hand-named sessions are never candidates,
+    /// so GC only ever deletes a log it can positively attribute to a minted
+    /// session. `.log.old` naturally sorts against the same id, keeping a
+    /// rotated dead session's pair reclaimed together.
+    public static func logFileSessionID(_ filename: String) -> TerminalSessionID? {
+        let stem: Substring
+        if filename.hasSuffix(".log") {
+            stem = filename.dropLast(4)
+        } else if filename.hasSuffix(".log.old") {
+            stem = filename.dropLast(8)
+        } else {
+            return nil
+        }
+        guard stem.count == 36, isUUIDShaped(String(stem)) else { return nil }
+        return TerminalSessionID(rawValue: String(stem))
+    }
+
+    /// Launch-GC sweep for leaked per-session log files: zmx opens the log at
+    /// daemon spawn and only a dead session's file lingers, so orphans pile up
+    /// forever (37 observed, Interactive-Buffoonery/awesomux#184).
+    ///
+    /// Unlike status files (one per attach, so `attached` is the discriminator),
+    /// there is exactly one live log — plus at most one rotated `.old` — per
+    /// session NAME. So a log is spared unless one of these protects it:
+    /// - its session has a LIVE daemon (`liveSessionIDs`, any client count).
+    ///   The current `<uuid>.log` is held open by the daemon (any client
+    ///   count) and actively written; its rotated `<uuid>.log.old` is a closed
+    ///   file (zmx closes it before renaming, `LogSystem.rotate`) but is
+    ///   retained as bounded diagnostic history — at most one per session,
+    ///   reclaimed with the current log once the session dies. Sparing it does
+    ///   not affect rotation: zmx's `rename(2)` replaces any existing `.old`.
+    /// - it is inside the grace window. Log-specific rationale (do NOT reuse the
+    ///   status file's): the daemon creates the log at spawn, at the same moment
+    ///   it registers in `amx list`, so the gap is near-zero. Grace only covers
+    ///   a slow launch where we observe the file a beat before the daemon shows
+    ///   up in the list snapshot.
+    /// - its session is `owned` (a live pane or a restorable/recently-closed
+    ///   entry). Closes the log-path resurrection race: because logs reuse one
+    ///   path per session NAME (status files do not — each attach mints a fresh
+    ///   token), a session dead at the list snapshot but recreated by restore
+    ///   before unlink reopens the SAME path (`LogSystem.init` seeks to end
+    ///   without touching mtime, so a mtime re-stat would not catch it).
+    ///   `owned` is captured pre-restore, so it already names every id THIS
+    ///   instance can recreate this launch — sparing it fences the in-process
+    ///   race deterministically without a second `amx list`. (It does not fence
+    ///   a second same-profile instance recreating a session between our list
+    ///   and unlink; like the rest of this subsystem that residual rests on the
+    ///   grace window — see issue #184.) Cost is bounded and not a leak: a log
+    ///   is spared only while its session stays reachable in the workspace tree
+    ///   (≤2 files per id), and becomes collectable the launch after the session
+    ///   leaves `owned`.
+    /// - its name cannot be positively attributed to a minted session.
+    public static func staleSessionLogs(
+        candidates: [FileCandidate],
+        liveSessionIDs: Set<TerminalSessionID>,
+        owned: Set<TerminalSessionID>,
+        gcStart: Int,
+        graceSeconds: Int = statusFileGraceSeconds
+    ) -> [String] {
+        candidates.compactMap { candidate in
+            guard let id = logFileSessionID(candidate.filename),
+                !liveSessionIDs.contains(id),
+                !owned.contains(id),
+                candidate.modifiedEpoch < gcStart - graceSeconds
+            else { return nil }
+            return candidate.filename
+        }
+    }
+
+    /// Instrumentation for the restore-attach race
+    /// (Interactive-Buffoonery/awesomux#184): the status files that would be
+    /// deleted RIGHT NOW if their session were not attached — attributable,
+    /// past the grace window, and spared solely by the `attached` gate — plus
+    /// how many distinct sessions they span. This is the direct measure of what
+    /// the attach gate keeps alive. It is still an UPPER BOUND on leaked stale
+    /// generations: a session's legitimately-current channel that happens to
+    /// have an old mtime also counts, and a session can hold several
+    /// simultaneous live channels (pop-up mirror) — which is exactly why no
+    /// newest-N reclamation is safe. "Measure first" (issue): the caller emits
+    /// this every sweep INCLUDING zero, so a run of zeros is a real observation
+    /// (the race is not losing) rather than an absent, ambiguous log line.
+    public static func attachGateSparedStatusFiles(
+        candidates: [FileCandidate],
+        attached: Set<TerminalSessionID>,
+        gcStart: Int,
+        graceSeconds: Int = statusFileGraceSeconds
+    ) -> (files: Int, sessions: Int) {
+        var sessions = Set<TerminalSessionID>()
+        var files = 0
+        for candidate in candidates {
+            guard let id = statusFileSessionID(candidate.filename),
+                attached.contains(id),
+                candidate.modifiedEpoch < gcStart - graceSeconds
+            else { continue }
+            files += 1
+            sessions.insert(id)
+        }
+        return (files, sessions.count)
     }
 
     public static func reapable(
