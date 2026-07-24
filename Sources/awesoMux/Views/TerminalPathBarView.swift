@@ -789,6 +789,9 @@ struct TerminalPathBarView: View {
                             onCopyPath: {
                                 guard let capturedPath = copyPathForOpenMenu else { return }
                                 copyPath(capturedPath)
+                            },
+                            onCopyPathAcknowledged: {
+                                presentedMenu = nil
                             }
                         )
 
