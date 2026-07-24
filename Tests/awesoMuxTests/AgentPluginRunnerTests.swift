@@ -1841,20 +1841,32 @@ struct AgentPluginRunnerTests {
 
     static func startExternalLockHolder(in directory: URL) throws -> Process {
         let readyURL = directory.appending(path: "lock-ready")
+        // Perl, not python3: /usr/bin/python3 resolves to Xcode's
+        // Python.app bundle, which LaunchServices registers as a regular
+        // foreground app — every run flashed an empty window on the desktop.
+        // /usr/bin/perl is a plain executable and has flock built in.
         let script = """
-            import fcntl, os, sys, time
-            os.makedirs(sys.argv[1], exist_ok=True)
-            lock = open(os.path.join(sys.argv[1], ".install-state.lock"), "a+")
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            open(sys.argv[2], "w").close()
-            time.sleep(30)
+            use strict;
+            use warnings;
+            use Fcntl qw(:flock);
+            use File::Path qw(make_path);
+            make_path($ARGV[0]);
+            open(my $lock, ">>", "$ARGV[0]/.install-state.lock") or die $!;
+            flock($lock, LOCK_EX) or die $!;
+            open(my $ready, ">", $ARGV[1]) or die $!;
+            close($ready);
+            sleep 30;
             """
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = ["-c", script, directory.path, readyURL.path]
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        process.arguments = ["-e", script, directory.path, readyURL.path]
         try process.run()
 
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: readyURL.path) {
+        // 30s, matching the async sibling in AgentIntegrationInstallerTests. The
+        // old 1s budget was measured at 0.802s under full-suite load, so it was
+        // one scheduling stall away from flaking. This helper is synchronous, so
+        // the async `waitUntilEventually` is not a drop-in.
+        for _ in 0..<3000 where !FileManager.default.fileExists(atPath: readyURL.path) {
             Thread.sleep(forTimeInterval: 0.01)
         }
         try #require(FileManager.default.fileExists(atPath: readyURL.path))
