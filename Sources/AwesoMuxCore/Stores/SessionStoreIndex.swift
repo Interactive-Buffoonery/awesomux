@@ -32,7 +32,7 @@ struct SessionStoreIndex: Sendable {
         var hasFreshnessCandidate = false
         for pane in session.panes {
             switch pane.foregroundProcessLiveness {
-            case .bridged, .bridgedBusy, .exited:
+            case .bridged, .bridgedBusy, .bridgedIndeterminate, .exited:
                 continue
             default:
                 break
@@ -45,7 +45,8 @@ struct SessionStoreIndex: Sendable {
                 return .durable
             case .idleShell, .unsampled:
                 if pane.agentKind != .shell,
-                   [.running, .thinking, .output].contains(pane.agentExecutionState) {
+                    [.running, .thinking, .output].contains(pane.agentExecutionState)
+                {
                     hasFreshnessCandidate = true
                 }
             default:

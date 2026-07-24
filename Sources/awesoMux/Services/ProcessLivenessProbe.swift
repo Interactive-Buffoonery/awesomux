@@ -159,6 +159,11 @@ enum ProcessLivenessProbe {
         comm: (pid_t) -> String? = { ProcessLivenessProbe.foregroundComm(pid: $0) }
     ) -> ForegroundProcessLiveness {
         guard let daemonChildren = childPIDs(daemonPID) else { return .bridgedBusy }
+        // Zero children is NOT verified-idle: no root shell was identified or
+        // walked (attach/respawn mid-spawn, or a recycled daemon pid). Since
+        // `.bridged` now closes without confirmation (issue #190), the
+        // unwalked state must stay in the warn-until-proven bucket.
+        guard !daemonChildren.isEmpty else { return .bridgedIndeterminate }
         for childPID in daemonChildren {
             guard let childComm = comm(childPID), let children = childPIDs(childPID) else {
                 return .bridgedBusy
