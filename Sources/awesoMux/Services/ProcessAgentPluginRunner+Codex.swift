@@ -381,7 +381,8 @@ extension ProcessAgentPluginRunner {
         ref: AgentPluginMarketplaceRef,
         codexHome: String,
         staleRecord: AgentPluginInstallRecord? = nil,
-        staleExecutable: String? = nil
+        staleExecutable: String? = nil,
+        fallbackExecutable: String? = nil
     ) -> [String] {
         switch action {
         case .enableOrInstall, .repair:
@@ -391,8 +392,15 @@ extension ProcessAgentPluginRunner {
                 "config/batchWrite hooks.state[<hook keys>] = { enabled: true } (upsert, reload)",
             ]
             if let staleRecord {
+                let recordedExecutable = staleExecutable ?? "codex"
+                var removal =
+                    "CODEX_HOME=\(staleRecord.configHome) \(recordedExecutable) plugin remove \(staleRecord.pluginRef.pluginRef)"
+                if let fallbackExecutable, fallbackExecutable != recordedExecutable {
+                    removal += " (falls back to \(fallbackExecutable) if the recorded executable is unavailable)"
+                }
+                removal += " (only when replacing a stale install)"
                 commands.insert(
-                    "CODEX_HOME=\(staleRecord.configHome) \(staleExecutable ?? "codex") plugin remove \(staleRecord.pluginRef.pluginRef) (only when replacing a stale install)",
+                    removal,
                     at: 0
                 )
             }

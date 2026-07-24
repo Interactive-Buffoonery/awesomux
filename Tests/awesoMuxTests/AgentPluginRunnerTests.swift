@@ -1357,6 +1357,12 @@ struct AgentPluginRunnerTests {
                 failure: .executableNotFound("/gone/codex")
             )
 
+            let confirmation = runner.confirmation(for: .repair, provider: .codex, setup: Self.enabled)
+            #expect(
+                confirmation.commandLines.contains(
+                    "CODEX_HOME=\(runner.homeDirectoryURL.appending(path: ".codex").path) /gone/codex plugin remove awesomux-codex-status@awesomux-codex (falls back to codex if the recorded executable is unavailable) (only when replacing a stale install)"
+                ))
+
             let outcome = await runner.enableOrInstall(provider: .codex, setup: Self.enabled)
 
             guard case .needsReview = outcome.status else {

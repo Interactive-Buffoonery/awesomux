@@ -358,7 +358,8 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
                     ref: ref,
                     codexHome: codexHome,
                     staleRecord: staleRecord,
-                    staleExecutable: recordedExecutable
+                    staleExecutable: recordedExecutable,
+                    fallbackExecutable: executable
                 )
             )
         case .grok:
