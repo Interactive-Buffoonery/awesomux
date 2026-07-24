@@ -49,11 +49,100 @@ struct ExecutionIdentityTests {
             #"{"kind":"ssh","target":{"user":"alice","host":""},"persistenceOwner":"localAmx"}"#,
             #"{"kind":"local","target":{"user":"alice","host":"buildbox"}}"#,
             #"{"kind":"future"}"#,
+            // A local-amx plan owns no remote zmx identity.
+            #"{"kind":"ssh","target":{"user":"a","host":"b"},"persistenceOwner":"localAmx","sessionName":"build"}"#,
+            #"{"kind":"ssh","target":{"user":"a","host":"b"},"persistenceOwner":"localAmx","remoteExecutablePath":"/usr/local/bin/zmx"}"#,
+            // A remote-owned plan must name its session.
+            #"{"kind":"ssh","target":{"user":"a","host":"b"},"persistenceOwner":"remoteZmx"}"#,
+            #"{"kind":"ssh","target":{"user":"a","host":"b"},"persistenceOwner":"remoteZmx","sessionName":"bad name"}"#,
+            // The executable path is a path, not a PATH lookup.
+            #"{"kind":"ssh","target":{"user":"a","host":"b"},"persistenceOwner":"remoteZmx","sessionName":"build","remoteExecutablePath":"zmx"}"#,
+            // Local plans stay free of every SSH field.
+            #"{"kind":"local","sessionName":"build"}"#,
+            #"{"kind":"local","remoteExecutablePath":"/usr/local/bin/zmx"}"#,
         ])
     func malformedPlansFail(json: String) {
         #expect(throws: (any Error).self) {
             try JSONDecoder().decode(PaneExecutionPlan.self, from: Data(json.utf8))
         }
+    }
+
+    @Test("remote-owned zmx plans round trip")
+    func remoteZmxPlanRoundTrip() throws {
+        let target = RemoteTarget(user: "alice", host: "buildbox")!
+        let sessionName = RemoteSessionName(rawValue: "build-42")!
+        let plans: [PaneExecutionPlan] = [
+            .ssh(
+                try #require(
+                    SSHExecution(
+                        target: target,
+                        persistenceOwner: .remoteZmx,
+                        sessionName: sessionName,
+                        remoteExecutablePath: "/usr/local/bin/zmx"
+                    ))),
+            .ssh(
+                try #require(
+                    SSHExecution(
+                        target: target,
+                        persistenceOwner: .remoteZmx,
+                        sessionName: sessionName,
+                        remoteExecutablePath: nil
+                    ))),
+        ]
+
+        for plan in plans {
+            let data = try JSONEncoder().encode(plan)
+            #expect(try JSONDecoder().decode(PaneExecutionPlan.self, from: data) == plan)
+        }
+    }
+
+    @Test("a legacy ssh plan without zmx keys still decodes as local-amx")
+    func legacySSHPlanDecodesAsLocalAmx() throws {
+        let json = #"{"kind":"ssh","target":{"user":"alice","host":"buildbox"},"persistenceOwner":"localAmx"}"#
+        let plan = try JSONDecoder().decode(PaneExecutionPlan.self, from: Data(json.utf8))
+
+        guard case .ssh(let execution) = plan else {
+            Issue.record("expected an ssh plan")
+            return
+        }
+        #expect(execution.persistenceOwner == .localAmx)
+        #expect(execution.sessionName == nil)
+        #expect(execution.remoteExecutablePath == nil)
+    }
+
+    @Test("the failable SSH init enforces the persistence-owner invariants")
+    func sshExecutionInvariants() {
+        let target = RemoteTarget(user: "alice", host: "buildbox")!
+        let name = RemoteSessionName(rawValue: "build")!
+
+        #expect(
+            SSHExecution(
+                target: target, persistenceOwner: .localAmx, sessionName: name,
+                remoteExecutablePath: nil) == nil)
+        #expect(
+            SSHExecution(
+                target: target, persistenceOwner: .localAmx, sessionName: nil,
+                remoteExecutablePath: "/usr/local/bin/zmx") == nil)
+        #expect(
+            SSHExecution(
+                target: target, persistenceOwner: .remoteZmx, sessionName: nil,
+                remoteExecutablePath: nil) == nil)
+        #expect(
+            SSHExecution(
+                target: target, persistenceOwner: .remoteZmx, sessionName: name,
+                remoteExecutablePath: "zmx") == nil)
+        #expect(
+            SSHExecution(
+                target: target, persistenceOwner: .remoteZmx, sessionName: name,
+                remoteExecutablePath: "/usr/local/bin/z\u{202E}mx") == nil)
+        #expect(
+            SSHExecution(
+                target: target, persistenceOwner: .localAmx, sessionName: nil,
+                remoteExecutablePath: nil) != nil)
+        #expect(
+            SSHExecution(
+                target: target, persistenceOwner: .remoteZmx, sessionName: name,
+                remoteExecutablePath: "/usr/local/bin/zmx") != nil)
     }
 
     @Test("same path differs across execution locations")
