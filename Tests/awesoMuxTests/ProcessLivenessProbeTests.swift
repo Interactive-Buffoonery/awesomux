@@ -178,12 +178,14 @@ struct ProcessLivenessProbeTests {
                 childPIDs: { _ in nil },
                 comm: { _ in nil }
             ) == .bridgedBusy)
+        // Zero daemon children = no root shell was walked; not verified-idle
+        // now that `.bridged` closes without confirmation (issue #190).
         #expect(
             ProcessLivenessProbe.bridgedLiveness(
                 daemonPID: 50,
                 childPIDs: { $0 == 50 ? [] : nil },
                 comm: { _ in nil }
-            ) == .bridged)
+            ) == .bridgedIndeterminate)
         #expect(
             ProcessLivenessProbe.bridgedLiveness(
                 daemonPID: 50,

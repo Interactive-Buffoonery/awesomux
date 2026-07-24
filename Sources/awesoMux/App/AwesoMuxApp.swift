@@ -1337,9 +1337,17 @@ struct AwesoMuxApp: App {
         defer { isCloseConfirmAlertPresented = false }
 
         let displayTitle = Self.sanitizedAlertTitle(session.title)
-        let atRisk =
-            session.isCloseRisk(at: Date())
-            || floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
+        let now = Date()
+        let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
+        let atRisk = session.isCloseRisk(at: now) || floatingAtRisk
+        if atRisk {
+            logCloseRiskConfirmation(
+                trigger: "clear-workspace",
+                session: session,
+                at: now,
+                floatingPanelAtRisk: floatingAtRisk
+            )
+        }
 
         // One localized string per variant (not concatenated fragments) so
         // translators control the full sentence — mirrors confirmCloseIfNeeded.
@@ -1495,12 +1503,13 @@ struct AwesoMuxApp: App {
     private func confirmCloseGroupIfNeeded(_ group: SessionGroup) -> CloseConfirmDecision {
         let workspaces = appSettingsStore.workspaces.value
         let now = Date()
-        let riskyCount =
+        let riskySessions =
             workspaces.confirmCloseWithRunningAgent
-            ? group.sessions.count(where: {
+            ? group.sessions.filter {
                 $0.isCloseRisk(at: now) || floatingPanelController.hasRiskyFloatingSessionsOnClose(for: $0.id)
-            })
-            : 0
+            }
+            : []
+        let riskyCount = riskySessions.count
         let remoteImpact = SessionGroupRemoteClosePresentation(
             summary: SessionGroupExecutionSummary(group: group),
             isEmpty: false
@@ -1517,6 +1526,17 @@ struct AwesoMuxApp: App {
         guard !isCloseConfirmAlertPresented else { return .suppressed }
         isCloseConfirmAlertPresented = true
         defer { isCloseConfirmAlertPresented = false }
+
+        for session in riskySessions {
+            logCloseRiskConfirmation(
+                trigger: "close-group",
+                session: session,
+                at: now,
+                floatingPanelAtRisk: floatingPanelController.hasRiskyFloatingSessionsOnClose(
+                    for: session.id
+                )
+            )
+        }
 
         let displayName = Self.sanitizedAlertTitle(group.name)
 
@@ -1672,7 +1692,8 @@ struct AwesoMuxApp: App {
         // with an idle sidebar pane but a running agent in its floating slot
         // would otherwise be killed silently. Close-scoped (see doc above),
         // unlike the ⌘Q path's `floatingPanelController.sessionsAtRiskOnQuit`.
-        let mainAtRisk = session.isCloseRisk(at: Date())
+        let now = Date()
+        let mainAtRisk = session.isCloseRisk(at: now)
         let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
         let confirmEnabled =
             workspaces.confirmCloseWithRunningAgent
@@ -1686,6 +1707,13 @@ struct AwesoMuxApp: App {
         guard !isCloseConfirmAlertPresented else { return .suppressed }
         isCloseConfirmAlertPresented = true
         defer { isCloseConfirmAlertPresented = false }
+
+        logCloseRiskConfirmation(
+            trigger: "close-workspace",
+            session: session,
+            at: now,
+            floatingPanelAtRisk: floatingAtRisk
+        )
 
         let displayTitle = Self.sanitizedAlertTitle(session.title)
 
@@ -1714,11 +1742,20 @@ struct AwesoMuxApp: App {
     private func confirmDestructivePaneActionIfNeeded(
         _ action: DestructivePaneActionConfirmationPolicy.Action,
         in session: TerminalSession,
-        atRisk: Bool
+        riskReason: QuitRiskReason?,
+        at now: Date
     ) -> CloseConfirmDecision {
         guard !isCloseConfirmAlertPresented else { return .suppressed }
         isCloseConfirmAlertPresented = true
         defer { isCloseConfirmAlertPresented = false }
+
+        if riskReason != nil {
+            logCloseRiskConfirmation(
+                trigger: action == .closePane ? "close-pane" : "restart-shell",
+                session: session,
+                at: now
+            )
+        }
 
         let displayTitle = Self.sanitizedAlertTitle(session.title)
 
@@ -1737,7 +1774,7 @@ struct AwesoMuxApp: App {
             // old surface: a restart mints a fresh libghostty surface, so scrollback
             // does not carry over.
             body =
-                atRisk
+                riskReason != nil
                 ? String(
                     localized:
                         "\(displayTitle) has activity that will be interrupted. Restarting the shell will terminate the running process.",
@@ -1756,10 +1793,10 @@ struct AwesoMuxApp: App {
                 comment:
                     "Title of the close-pane confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
             )
-            body = String(
-                localized:
-                    "The active pane in \(displayTitle) has activity that will be interrupted. Closing the pane will terminate the running process.",
-                comment: "Body of the close-pane confirmation dialog. Argument is the bidi-isolated workspace title."
+            body = DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
+                displayTitle: displayTitle,
+                agentKind: session.activePane?.agentKind,
+                riskReason: riskReason
             )
         }
 
@@ -1769,6 +1806,57 @@ struct AwesoMuxApp: App {
             keyboardHint: action.keyboardHint,
             destructiveTitle: action.destructiveButtonTitle
         ) ? .proceed : .userCancelled
+    }
+
+    /// Issue #190 mechanism 3: the confirmation chain used to discard WHY a
+    /// pane is close-risky, so a false "activity" warning was unattributable
+    /// in the field. Logs every risky pane's reason plus the raw quit-risk
+    /// inputs at the moment a close-risk dialog fires.
+    private static let closeRiskLogger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "CloseRiskConfirm"
+    )
+
+    /// `now` must be the SAME timestamp the caller's risk gate used — a fresh
+    /// clock read here can disagree with the gate at the 60s agent-staleness
+    /// seam and record "no risky pane" for a dialog that just fired.
+    private func logCloseRiskConfirmation(
+        trigger: String,
+        session: TerminalSession,
+        at now: Date,
+        floatingPanelAtRisk: Bool = false
+    ) {
+        for pane in session.panes {
+            guard let reason = pane.closeRiskReason(at: now) else { continue }
+            Self.closeRiskLogger.info(
+                "close-risk confirm (\(trigger, privacy: .public)): pane \(pane.id.uuidString, privacy: .public) agent=\(pane.agentKind.rawValue, privacy: .public) reason=\(String(describing: reason), privacy: .public) liveness=\(String(describing: pane.foregroundProcessLiveness), privacy: .public) promptObserved=\(pane.terminalPromptObserved, privacy: .public) awayFromPrompt=\(pane.needsTerminalQuitConfirmation, privacy: .public) exec=\(String(describing: pane.agentExecutionState), privacy: .public)"
+            )
+        }
+        if floatingPanelAtRisk {
+            // The floating-slot store isn't enumerable from here; without this
+            // line a floating-panel-only risk would fire the dialog and log
+            // nothing — the exact unattributability #190 mechanism 3 fixes.
+            Self.closeRiskLogger.info(
+                "close-risk confirm (\(trigger, privacy: .public)): session \(session.id.uuidString, privacy: .public) risky floating-panel session (panes not enumerated)"
+            )
+        }
+    }
+
+    /// The flip side of `logCloseRiskConfirmation`: a bridged pane that closes
+    /// WITHOUT a dialog destroys its daemon session on a single probe sample,
+    /// so a misclassification would otherwise leave no forensic trail at all
+    /// (issue #190 security-review follow-through). Non-bridged panes stay
+    /// unlogged — their silent close was always the norm.
+    private func logSilentBridgedCloseIfNeeded(in session: TerminalSession, at now: Date) {
+        guard let pane = session.activePane else { return }
+        switch pane.foregroundProcessLiveness {
+        case .bridged, .bridgedBusy, .bridgedIndeterminate: break
+        default: return
+        }
+        let decision = pane.closeRiskDecision(at: now)
+        Self.closeRiskLogger.debug(
+            "close-pane without confirm: pane \(pane.id.uuidString, privacy: .public) agent=\(pane.agentKind.rawValue, privacy: .public) risk=\(decision.isRisk, privacy: .public) reason=\(String(describing: decision.reason), privacy: .public) liveness=\(String(describing: pane.foregroundProcessLiveness), privacy: .public) promptObserved=\(pane.terminalPromptObserved, privacy: .public) awayFromPrompt=\(pane.needsTerminalQuitConfirmation, privacy: .public)"
+        )
     }
 
     /// Newline-strip + truncate to 60 characters with ellipsis. The
@@ -2414,21 +2502,31 @@ struct AwesoMuxApp: App {
 
         let targetPaneID = session.activePaneID
         let action: DestructivePaneActionConfirmationPolicy.Action
+        // One clock read for the gate, the risk-reason recompute, and the
+        // silent-close log — see `logCloseRiskConfirmation`'s seam warning.
+        let now = Date()
         switch DestructivePaneActionConfirmationPolicy.decision(
             session: session,
-            workspaces: appSettingsStore.workspaces.value
+            workspaces: appSettingsStore.workspaces.value,
+            now: now
         ) {
         case .unavailable:
             return
         case let .proceedWithoutPrompt(resolvedAction):
+            logSilentBridgedCloseIfNeeded(in: session, at: now)
             action = resolvedAction
         case let .prompt(resolvedAction):
             // `.prompt` is only ever returned when the policy already found
             // the active pane at risk (see `DestructivePaneActionConfirmationPolicy.decision`),
             // but recomputing here — rather than hardcoding `true` — keeps this
             // call site honest if that gate ever changes independently.
-            let atRisk = session.activePane?.isCloseRisk(at: Date()) ?? false
-            switch confirmDestructivePaneActionIfNeeded(resolvedAction, in: session, atRisk: atRisk) {
+            let riskReason = session.activePane.flatMap { $0.closeRiskReason(at: now) }
+            switch confirmDestructivePaneActionIfNeeded(
+                resolvedAction,
+                in: session,
+                riskReason: riskReason,
+                at: now
+            ) {
             case .suppressed:
                 return
             case .userCancelled:
@@ -2493,9 +2591,15 @@ struct AwesoMuxApp: App {
         guard let session = sessionStore.selectedSession else { return }
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
         guard let refreshed = sessionStore.session(id: session.id) else { return }
-        let atRisk = refreshed.activePane?.isCloseRisk(at: Date()) ?? false
+        let now = Date()
+        let riskReason = refreshed.activePane.flatMap { $0.closeRiskReason(at: now) }
 
-        switch confirmDestructivePaneActionIfNeeded(.restartShell, in: refreshed, atRisk: atRisk) {
+        switch confirmDestructivePaneActionIfNeeded(
+            .restartShell,
+            in: refreshed,
+            riskReason: riskReason,
+            at: now
+        ) {
         case .suppressed:
             return
         case .userCancelled:

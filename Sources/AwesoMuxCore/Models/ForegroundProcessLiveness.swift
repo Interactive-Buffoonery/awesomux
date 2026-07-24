@@ -13,6 +13,11 @@ public enum ForegroundProcessLiveness: Sendable, Hashable {
     /// Daemon-backed, with live work under the daemon shell. App quit remains
     /// safe because the daemon survives; destroying the pane requires warning.
     case bridgedBusy
+    /// Daemon-backed, but the daemon pid is unknown (no attach recorded yet),
+    /// so the process tree could not be walked. Quit-safe like `.bridged`;
+    /// close-risky until either the tree walk or an OSC-133 prompt marker
+    /// provides idle evidence (issue #190).
+    case bridgedIndeterminate
     /// libghostty reports the surface's child has exited.
     case exited
     /// Foreground is a recognized login shell with no children — idle at prompt.
@@ -55,7 +60,10 @@ public enum ForegroundProcessLiveness: Sendable, Hashable {
         rootComm: String?,
         rootHasChildren: Bool?
     ) -> ForegroundProcessLiveness {
-        guard let rootComm else { return .bridged }
+        // Mirrors `classify()`'s "nil means couldn't determine → never silently
+        // idle" posture: `.bridged` now closes without confirmation, so an
+        // unresolved root comm must not read as verified-idle.
+        guard let rootComm else { return .bridgedIndeterminate }
         guard ShellRecognition.isRecognizedShell(rootComm) else { return .bridgedBusy }
         return rootHasChildren == true ? .bridgedBusy : .bridged
     }

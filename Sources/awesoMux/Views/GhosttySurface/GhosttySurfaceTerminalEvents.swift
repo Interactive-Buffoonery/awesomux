@@ -33,7 +33,10 @@ extension GhosttySurfaceNSView {
                 let rawPID = commandBridgeEnactor.respawnLedger.lastIncarnation?.pid,
                 let daemonPID = pid_t(exactly: rawPID)
             else {
-                return (.bridged, nil)
+                // No attach recorded yet → no daemon pid to walk. Still
+                // quit-safe (daemon-backed), but close-risk stays unproven —
+                // `.bridged` here would read as "verified idle" (issue #190).
+                return (.bridgedIndeterminate, nil)
             }
             return (
                 ProcessLivenessProbe.bridgedLiveness(daemonPID: daemonPID),

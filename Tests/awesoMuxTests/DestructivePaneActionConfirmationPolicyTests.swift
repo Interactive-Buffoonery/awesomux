@@ -156,6 +156,75 @@ struct DestructivePaneActionConfirmationPolicyTests {
         #expect(decision == .unavailable)
     }
 
+    @Test("verified-idle bridged active pane closes without prompt before any prompt marker (#190)")
+    func verifiedBridgedIdlePaneClosesWithoutPrompt() {
+        // The issue #190 repro at the policy-consumer layer: reattached after a
+        // relaunch (promptObserved reset, stale away-marker latched), but the
+        // probe walked the daemon tree and found an idle shell.
+        var bridgedPane = pane(title: "Bridged")
+        bridgedPane.foregroundProcessLiveness = .bridged
+        bridgedPane.terminalPromptObserved = false
+        bridgedPane.needsTerminalQuitConfirmation = true
+        let session = splitSession(activePane: bridgedPane, otherPane: pane(title: "Idle"))
+
+        #expect(
+            DestructivePaneActionConfirmationPolicy.decision(
+                session: session,
+                workspaces: .defaultValue
+            ) == .proceedWithoutPrompt(.closePane)
+        )
+    }
+
+    @Test("unverified bridged active pane still prompts before any prompt marker")
+    func bridgedIndeterminatePanePrompts() {
+        var bridgedPane = pane(title: "Bridged")
+        bridgedPane.foregroundProcessLiveness = .bridgedIndeterminate
+        bridgedPane.terminalPromptObserved = false
+        let session = splitSession(activePane: bridgedPane, otherPane: pane(title: "Idle"))
+
+        #expect(
+            DestructivePaneActionConfirmationPolicy.decision(
+                session: session,
+                workspaces: .defaultValue
+            ) == .prompt(.closePane)
+        )
+    }
+
+    @Test("close-pane body names the live agent when that is the risk (#190)")
+    func closePaneBodyNamesLiveAgent() {
+        let body = DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
+            displayTitle: "Workspace",
+            agentKind: .claudeCode,
+            riskReason: .liveAgentProcess
+        )
+        #expect(body.contains("Claude Code"))
+        // The title must survive too — with three positional placeholders
+        // (agent, title, agent), a mis-mapped middle argument would otherwise
+        // slip past an agent-name-only assertion.
+        #expect(body.contains("Workspace"))
+        #expect(!body.contains("has activity"))
+    }
+
+    @Test("close-pane body stays generic for non-agent risks")
+    func closePaneBodyGenericForOtherRisks() {
+        for reason in [QuitRiskReason.liveForegroundProcess, .terminalAwayFromPrompt, .indeterminate] {
+            let body = DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
+                displayTitle: "Workspace",
+                agentKind: .shell,
+                riskReason: reason
+            )
+            #expect(body.contains("has activity"))
+        }
+        // Agent pane, but the risk isn't its live process — don't claim it is.
+        #expect(
+            DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
+                displayTitle: "Workspace",
+                agentKind: .claudeCode,
+                riskReason: .indeterminate
+            ).contains("has activity")
+        )
+    }
+
     private func pane(
         title: String,
         agentExecutionState: AgentExecutionState = .idle

@@ -141,9 +141,9 @@ struct QuitRiskPolicyTests {
         #expect(d.reason == .liveForegroundProcess)
     }
 
-    @Test("close: a bridged pane stays risky until a prompt marker is observed")
-    func closeBridgedWithoutObservedPrompt() {
-        let d = decideClose(away: true, promptObserved: false, liveness: .bridged)
+    @Test("close: an unverified bridged pane stays risky until a prompt marker is observed")
+    func closeBridgedIndeterminateWithoutObservedPrompt() {
+        let d = decideClose(away: true, promptObserved: false, liveness: .bridgedIndeterminate)
         #expect(d.isRisk)
         #expect(d.reason == .indeterminate)
         #expect(
@@ -153,9 +153,36 @@ struct QuitRiskPolicyTests {
                 changed: fresh(),
                 away: true,
                 promptObserved: false,
-                liveness: .bridged
+                liveness: .bridgedIndeterminate
             ).reason == .activeAgentExecution
         )
+    }
+
+    @Test("close: a verified-idle bridged pane is safe before any prompt marker is observed (#190)")
+    func closeVerifiedBridgedWithoutObservedPrompt() {
+        // The reattach-after-relaunch repro: probe walked the daemon tree and
+        // found an idle shell (`.bridged`), but `terminalPromptObserved` reset
+        // with the app. Tree evidence alone must be enough to close quietly.
+        let d = decideClose(away: true, promptObserved: false, liveness: .bridged)
+        #expect(!d.isRisk)
+        #expect(d.reason == .shellAtPrompt)
+    }
+
+    @Test("close: an unverified bridged pane with an observed at-prompt marker is safe")
+    func closeBridgedIndeterminateAtObservedPrompt() {
+        let d = decideClose(promptObserved: true, liveness: .bridgedIndeterminate)
+        #expect(!d.isRisk)
+        #expect(d.reason == .shellAtPrompt)
+        #expect(
+            decideClose(away: true, promptObserved: true, liveness: .bridgedIndeterminate)
+                .reason == .terminalAwayFromPrompt
+        )
+    }
+
+    @Test("quit: an unverified bridged pane is authoritatively safe like any bridged pane")
+    func quitBridgedIndeterminateIsDaemonBacked() {
+        #expect(!decide(away: true, liveness: .bridgedIndeterminate).isRisk)
+        #expect(decide(liveness: .bridgedIndeterminate).reason == .daemonBacked)
     }
 
     @Test("close: a bridged agent with fresh execution is a risk even at the prompt")

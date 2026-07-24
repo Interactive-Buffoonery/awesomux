@@ -32,9 +32,9 @@ public struct QuitRiskInputs: Sendable, Hashable {
 }
 
 public enum QuitRiskReason: Sendable, Hashable {
-    case daemonBacked, processExited, shellAtPrompt, noLiveProcess          // safe
-    case liveForegroundProcess, backgroundJob, liveAgentProcess             // risk
-    case activeAgentExecution, terminalAwayFromPrompt, indeterminate        // risk
+    case daemonBacked, processExited, shellAtPrompt, noLiveProcess  // safe
+    case liveForegroundProcess, backgroundJob, liveAgentProcess  // risk
+    case activeAgentExecution, terminalAwayFromPrompt, indeterminate  // risk
 }
 
 public struct QuitRiskDecision: Sendable, Hashable {
@@ -55,7 +55,7 @@ public enum QuitRiskPolicy {
     public static func decision(_ inputs: QuitRiskInputs, at now: Date) -> QuitRiskDecision {
         // Authoritative-safe: bridged work survives quit; an exited child is gone.
         switch inputs.liveness {
-        case .bridged, .bridgedBusy: return .safe(.daemonBacked)
+        case .bridged, .bridgedBusy, .bridgedIndeterminate: return .safe(.daemonBacked)
         case .exited: return .safe(.processExited)
         default: break
         }
@@ -80,10 +80,10 @@ public enum QuitRiskPolicy {
                 return .risk(.activeAgentExecution)
             }
             return .safe(inputs.liveness == .idleShell ? .shellAtPrompt : .noLiveProcess)
-        case .bridged, .bridgedBusy:
-            return .safe(.daemonBacked)    // handled in the first switch; correct if reached
+        case .bridged, .bridgedBusy, .bridgedIndeterminate:
+            return .safe(.daemonBacked)  // handled in the first switch; correct if reached
         case .exited:
-            return .safe(.processExited)   // handled in the first switch; correct if reached
+            return .safe(.processExited)  // handled in the first switch; correct if reached
         }
     }
 
@@ -93,8 +93,9 @@ public enum QuitRiskPolicy {
     /// so daemon-backed is not safe here. Bridged panes fall back to the
     /// OSC-133 and agent-freshness signals the quit path would have skipped.
     public static func closeDecision(_ inputs: QuitRiskInputs, at now: Date) -> QuitRiskDecision {
-        guard inputs.liveness == .bridged || inputs.liveness == .bridgedBusy else {
-            return decision(inputs, at: now)
+        switch inputs.liveness {
+        case .bridged, .bridgedBusy, .bridgedIndeterminate: break
+        default: return decision(inputs, at: now)
         }
         if inputs.liveness == .bridgedBusy {
             return .risk(inputs.agentKind == .shell ? .liveForegroundProcess : .liveAgentProcess)
@@ -105,7 +106,13 @@ public enum QuitRiskPolicy {
         if isFreshAgentExecution(inputs, at: now) {
             return .risk(.activeAgentExecution)
         }
-        if !inputs.promptObserved {
+        // Verified `.bridged` (the probe walked the daemon tree and found an
+        // idle shell with no children) is at-prompt-grade evidence on its own —
+        // the same standing `.idleShell` has on the non-bridged path. Only the
+        // unverified case still needs a runtime-observed OSC-133 marker, which
+        // resets on app relaunch and would otherwise nag every reattached idle
+        // pane (issue #190, mechanism 2).
+        if inputs.liveness == .bridgedIndeterminate && !inputs.promptObserved {
             return .risk(.indeterminate)
         }
         return .safe(.shellAtPrompt)

@@ -3034,6 +3034,9 @@
     "The Git repository changed. Reopen Worktree Manager from the active workspace." : {
       "comment" : "Worktree Manager open error when the captured repository is no longer current.\nWorktree Manager refresh error when the captured repository is no longer current."
     },
+    "%arg is running in the active pane in %arg. Closing the pane will terminate %arg." : {
+      "comment" : "Body of the close-pane confirmation dialog when a live agent process is the risk. First and third arguments are the agent name (e.g. Claude Code), second is the bidi-isolated workspace title."
+    },
     "The active pane in %arg has activity that will be interrupted. Closing the pane will terminate the running process." : {
       "comment" : "Body of the close-pane confirmation dialog. Argument is the bidi-isolated workspace title."
     },
