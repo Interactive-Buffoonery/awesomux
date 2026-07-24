@@ -207,7 +207,10 @@ private struct SurfaceSearchBar: View {
             )
         }
         matchAnnouncementWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + searchState.matchSummary.announcementDelay,
+            execute: workItem
+        )
     }
 
     private func navButton(

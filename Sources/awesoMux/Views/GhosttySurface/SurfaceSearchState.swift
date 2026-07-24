@@ -119,6 +119,15 @@ struct SurfaceSearchMatchSummary: Equatable {
         )
     }
 
+    /// libghostty resets the total to zero on every needle change before the
+    /// replacement search reports results, so a fast announcement would speak
+    /// a false "No matches" while a slow search is still running. Zero-total
+    /// summaries therefore wait longer; any result arriving in the interim
+    /// reschedules the announcement with the corrected state.
+    var announcementDelay: TimeInterval {
+        totalDisplay > 0 ? 0.2 : 1.0
+    }
+
     private var hasSelection: Bool {
         guard let selected else { return false }
         return selected >= 0

@@ -26,6 +26,14 @@ struct SurfaceSearchStateTests {
         #expect(state.spokenSummary == "Match 1 of 1")
     }
 
+    @Test("zero-total summaries wait longer before being announced")
+    func zeroTotalSummariesWaitLongerBeforeAnnouncement() {
+        #expect(SurfaceSearchMatchSummary(selected: nil, total: 0).announcementDelay == 1.0)
+        #expect(SurfaceSearchMatchSummary(selected: nil, total: nil).announcementDelay == 1.0)
+        #expect(SurfaceSearchMatchSummary(selected: nil, total: 3).announcementDelay == 0.2)
+        #expect(SurfaceSearchMatchSummary(selected: 0, total: 3).announcementDelay == 0.2)
+    }
+
     @Test("negative selection with matches displays a dash")
     func negativeSelectionWithMatchesDisplaysDash() {
         #expect(SurfaceSearchMatchSummary(selected: -1, total: 7).currentDisplayText == "–")
