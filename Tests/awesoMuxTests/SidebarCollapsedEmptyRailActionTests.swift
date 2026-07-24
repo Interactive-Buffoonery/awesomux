@@ -46,16 +46,20 @@ struct SidebarCollapsedEmptyRailActionTests {
         // all — this coordinate instead lands on real group-row content
         // (header or tile, depending on exact row heights), which selects
         // the session (expected — that's real content, not a phantom
-        // empty-rail button). The invariant this test actually cares about
-        // is narrower: no new workspace got created.
+        // empty-rail button). Wait for that selection before checking the
+        // no-creation invariant below — otherwise every assertion here would
+        // pass identically if the click missed entirely.
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { fixture.store.selectedSession != nil }))
         #expect(fixture.store.groups.count == 1)
         #expect(fixture.store.groups.first?.name == "Project")
         #expect(fixture.store.groups.first?.sessions.count == 1)
     }
 }
 
+// MARK: - Fixture
+
 @MainActor
-private final class SidebarEmptyRailFixture {
+private struct SidebarEmptyRailFixture {
     let store: SessionStore
     private let window: NSWindow
 
