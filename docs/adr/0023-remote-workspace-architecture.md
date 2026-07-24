@@ -125,3 +125,31 @@ transport abstraction for hypothetical implementations are non-goals.
 
 Linux destinations are supported via a manually installed static helper; see
 [`docs/remote-linux-helper.md`](../remote-linux-helper.md).
+
+## Amendment (#214, 2026-07-24): a pane may opt into remote-owned zmx persistence
+
+§2's "the local daemon owns persistence" and "awesoMux does not discover,
+attach, manage, or kill remote zmx sessions" describe the default: a pane
+using local `amx` persistence around an SSH child. That default is now scoped
+to local-amx panes.
+
+A pane may instead declare `PersistenceOwner.remoteZmx`, naming a validated
+session on the remote host (and optionally an absolute path to the remote
+`zmx` binary — a login-shell-only `PATH` does not reach `ssh host cmd`). For
+such a pane, the remote host's zmx owns persistence: opening it runs
+`ssh <host> '<zmx> attach <name>'` directly, with no local daemon, no local
+agent-signaling side channel (§4 does not apply), and no bridge preflight.
+
+Failure is visible and terminal — the disconnected overlay, never a fallback
+to a local shell, another host, or a different persistence owner. Exit code 0
+closes the pane; because the pane runs with a command set rather than a login
+shell, its exit parks behind ghostty's `wait_after_command`
+([ADR-0011](0011-persistent-session-daemon-command-bridge.md)), so the error
+overlay is keypress-deferred.
+
+Remote-owned panes trade away every local-daemon extra: agent status and
+sidebar agent state, path-bar cwd, `amx send`/`amx history` scripted
+automation (see [`docs/amx-automation.md`](../amx-automation.md)), and
+local-socket liveness probing on the quit path. App-relaunch reattach — the
+remote zmx already holds the session when awesoMux next attaches — is the
+promise; recovering a live drop automatically is not.
