@@ -173,6 +173,20 @@ final class CommandBridgeEnactor {
             sessionID = pane.terminalSessionID
             beginStatusWatch(channel: channel)
             return attachCommand
+        case .remoteOwnedAttach:
+            // Not yet enacted: `AmxBackend.remoteOwnedAttachCommand` assembles
+            // the command, but nothing constructs a `.remoteZmx` plan yet, so
+            // this branch is unreachable today. Until the enactor wiring lands it
+            // takes the fail-safe path rather than falling through to a local
+            // shell — an unenacted remote pane must not become a typable local
+            // one (ADR-0022). Replace with the assembled remote-owned attach when
+            // the enactor learns to spawn it.
+            if let channel {
+                try? FileManager.default.removeItem(at: channel.fileURL)
+            }
+            errorLatched = true
+            DispatchQueue.main.async { [weak self] in self?.markError() }
+            return nil
         case .remoteUnavailable:
             // A remote-tagged group whose attach command couldn't be built —
             // bundled `amx` missing, OR the command bridge globally disabled —

@@ -140,7 +140,7 @@ extension GhosttySurfaceNSView {
         if lifecycleState.bridgePreflightTask != nil,
             !BridgeAttachDecision.shouldRunPreflight(
                 bridgeEnabled: commandBridgeEnabled,
-                isRemote: pane.executionPlan.remoteTarget != nil,
+                executionPlan: pane.executionPlan,
                 agentChromeEnabled: runtime.isBridgeChromeEnabled,
                 attachCommandAvailable: true,
                 errorLatched: commandBridgeEnactor.errorLatched
@@ -198,14 +198,14 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        // INT-698 D4: a remote pane with agent chrome on takes the async
-        // make-before-break bridge preflight instead of the synchronous spawn.
-        // Every other pane (local, or bridge chrome off) is byte-identical to
-        // today — the sync `finishSurfaceCreation` below is the untouched path.
-        let isRemote = pane.executionPlan.remoteTarget != nil
+        // INT-698 D4: a local-amx remote pane with agent chrome on takes the
+        // async make-before-break bridge preflight instead of the synchronous
+        // spawn. Every other pane (local, remote-owned, or bridge chrome off) is
+        // byte-identical to today — the sync `finishSurfaceCreation` below is
+        // the untouched path.
         if BridgeAttachDecision.shouldRunPreflight(
             bridgeEnabled: commandBridgeEnabled,
-            isRemote: isRemote,
+            executionPlan: pane.executionPlan,
             agentChromeEnabled: runtime.isBridgeChromeEnabled,
             attachCommandAvailable: bridgeCommand != nil,
             errorLatched: commandBridgeEnactor.errorLatched
