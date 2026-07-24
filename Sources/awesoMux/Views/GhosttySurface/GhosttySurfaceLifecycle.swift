@@ -291,7 +291,7 @@ extension GhosttySurfaceNSView {
         case .remoteOwnedAttach:
             // Deliberately neither of the other two. NOT `established`: that
             // metadata names a LOCAL amx session, and stamping it would point
-            // the Path Bar's `amx cwd` poll (and
+            // the Path Bar's periodic `amx cwd` refresh (and
             // `recoverAttachedRuntimeDeathIfNeeded`) at an id no local daemon
             // has. NOT a chrome reset either: this is a reattach to a session
             // that survives on the far host, so a live agent's identity must
