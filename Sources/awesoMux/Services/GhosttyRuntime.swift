@@ -679,8 +679,15 @@ final class GhosttyRuntime {
         #endif
     }
 
-    func refreshTerminalQuitConfirmationRisks(in sessionStore: SessionStore) {
-        let snapshots = surfaceViews.values.map { surfaceView in
+    /// Samples every cached surface once (libghostty FFI reads +
+    /// `ProcessLivenessProbe` libproc calls per surface — see INT-185
+    /// measurement notes on `refreshTerminalQuitConfirmationRisks`). Exposed
+    /// so a caller juggling several `SessionStore`s (the quit path: main +
+    /// every floating slot + the pop-up store) can sample ONCE and apply the
+    /// same snapshot list to each store, instead of each store triggering
+    /// its own full re-sample of this same shared dictionary.
+    func currentTerminalQuitConfirmationSnapshots() -> [TerminalQuitConfirmationSnapshot] {
+        surfaceViews.values.map { surfaceView in
             let needsConfirmation = surfaceView.promptMarkerIsAwayFromPrompt() ?? false
             return TerminalQuitConfirmationSnapshot(
                 sessionID: surfaceView.sessionID,
@@ -690,7 +697,31 @@ final class GhosttyRuntime {
                 liveness: surfaceView.foregroundProcessLiveness()
             )
         }
-        sessionStore.updateTerminalQuitConfirmationRisks(snapshots)
+    }
+
+    /// INT-185: measured at ~17-75µs/surface depending on probe shape (idle
+    /// shell cheapest, bridged daemon tree heaviest — see the benchmark
+    /// suite). This single-store convenience is for standalone callers; a
+    /// caller juggling several `SessionStore`s at once (the quit path:
+    /// main + every floating slot + the pop-up store) should call
+    /// `currentTerminalQuitConfirmationSnapshots()` ONCE itself and fan the
+    /// same list out via `updateTerminalQuitConfirmationRisks`/
+    /// `TerminalPanelController.applyTerminalQuitConfirmationSnapshots(_:)`
+    /// instead of each store triggering its own full resample — see
+    /// `AppDelegate.applicationShouldTerminate`, which used to pay for
+    /// main + floating-slot-count + pop-up full resamples of this same
+    /// dictionary per quit, unbounded in floating-slot count.
+    ///
+    /// Reuse is not just "safe," it's equivalent: this whole scan runs
+    /// synchronously on the main thread with no `await` between the old
+    /// per-store calls, so nothing else could run and mutate `surfaceViews`
+    /// between them anyway. Re-probing per store bought no real freshness —
+    /// microseconds of syscall-observable drift either way — only redundant
+    /// syscalls. `updateTerminalQuitConfirmationRisks` maps by paneID and
+    /// ignores entries a given store doesn't own, so handing the SAME
+    /// snapshot list to multiple stores is safe.
+    func refreshTerminalQuitConfirmationRisks(in sessionStore: SessionStore) {
+        sessionStore.updateTerminalQuitConfirmationRisks(currentTerminalQuitConfirmationSnapshots())
     }
 
     /// One sampler tick sweeps EVERY cached surface (mirrors

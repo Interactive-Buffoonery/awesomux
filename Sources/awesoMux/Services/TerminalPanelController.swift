@@ -198,10 +198,33 @@ final class TerminalPanelController {
         })
     }
 
+    /// Standalone entry point: samples via `runtime` internally, unless there
+    /// is nothing to apply the sample to (INT-185 — the common F=0 case,
+    /// floating panel never opened this session, must not pay for a resample
+    /// with no consumer). Callers juggling several `TerminalPanelController`s
+    /// at once (the quit path) should sample ONCE themselves and call
+    /// `applyTerminalQuitConfirmationSnapshots(_:)` on each instead — see
+    /// `AppDelegate.applicationShouldTerminate`.
     func refreshTerminalQuitConfirmationRisks(using runtime: GhosttyRuntime) {
         if let slots {
+            let snapshots = slots.allStores.isEmpty ? [] : runtime.currentTerminalQuitConfirmationSnapshots()
+            applyTerminalQuitConfirmationSnapshots(snapshots)
+            return
+        }
+        guard let store else { return }
+        runtime.refreshTerminalQuitConfirmationRisks(in: store)
+    }
+
+    /// INT-185: applies an ALREADY-SAMPLED snapshot list — for a caller
+    /// (the quit path) fanning one shared sample out to several controllers
+    /// instead of each one resampling the shared surface set independently.
+    /// An empty snapshot list is a legitimate input (no floating slot exists
+    /// yet); the recompute side effects below still run in that case, same
+    /// as before this method existed.
+    func applyTerminalQuitConfirmationSnapshots(_ snapshots: [TerminalQuitConfirmationSnapshot]) {
+        if let slots {
             for store in slots.allStores {
-                runtime.refreshTerminalQuitConfirmationRisks(in: store)
+                store.updateTerminalQuitConfirmationRisks(snapshots)
             }
             // Preserve the dismiss-confirmation auto-reset + recompute the
             // former floating panel controller ran here.
@@ -219,7 +242,7 @@ final class TerminalPanelController {
             return
         }
         guard let store else { return }
-        runtime.refreshTerminalQuitConfirmationRisks(in: store)
+        store.updateTerminalQuitConfirmationRisks(snapshots)
     }
 
     /// Whether the slot targeted by `toggle()` / `show()` has running work
