@@ -146,12 +146,14 @@ private struct SurfaceSearchBar: View {
             .focused($isSearchFieldFocused)
             .focusEffectDisabled()
             .onChange(of: searchState.needle) { _, newValue in
-                // A pending announcement would speak the previous query's
-                // position at fire time (needle debounce is longer than the
-                // announcement delay); results for the new query reschedule it.
-                matchAnnouncementWorkItem?.cancel()
-                matchAnnouncementWorkItem = nil
                 surfaceView.updateSearchNeedle(newValue)
+                // Reschedule (not just cancel) past the settle window: the
+                // work item reads state at fire time, so this speaks the new
+                // query's result even when its total equals the old one and
+                // no state change retriggers scheduling.
+                scheduleSearchSummaryAnnouncement(
+                    delay: SurfaceSearchMatchSummary.settlingDelay
+                )
             }
             .onKeyPress(.return, phases: .down) { keyPress in
                 surfaceView.navigateSearch(keyPress.modifiers.contains(.shift) ? .previous : .next)
@@ -180,7 +182,7 @@ private struct SurfaceSearchBar: View {
             )
     }
 
-    private func scheduleSearchSummaryAnnouncement() {
+    private func scheduleSearchSummaryAnnouncement(delay: TimeInterval? = nil) {
         matchAnnouncementWorkItem?.cancel()
         matchAnnouncementWorkItem = nil
 
@@ -208,7 +210,7 @@ private struct SurfaceSearchBar: View {
         }
         matchAnnouncementWorkItem = workItem
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + searchState.matchSummary.announcementDelay,
+            deadline: .now() + (delay ?? searchState.matchSummary.announcementDelay),
             execute: workItem
         )
     }

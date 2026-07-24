@@ -124,8 +124,14 @@ struct SurfaceSearchMatchSummary: Equatable {
     /// a false "No matches" while a slow search is still running. Zero-total
     /// summaries therefore wait longer; any result arriving in the interim
     /// reschedules the announcement with the corrected state.
+    /// ponytail: heuristic settle window — a search still running past this
+    /// delay can announce a false "No matches" that self-corrects on results.
+    /// A true fix needs ghostty's per-search complete event, which is
+    /// unhandled at the vendored apprt boundary today.
+    static let settlingDelay: TimeInterval = 1.0
+
     var announcementDelay: TimeInterval {
-        totalDisplay > 0 ? 0.2 : 1.0
+        totalDisplay > 0 ? 0.2 : Self.settlingDelay
     }
 
     private var hasSelection: Bool {
