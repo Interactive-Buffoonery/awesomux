@@ -56,7 +56,7 @@ The perf-sample log stream runs in the launching terminal. After launch
 you should see, near the top of that stream:
 
 ```text
-GhosttyConfigEnvironment ghostty-config-env default_scrollback_limit_bytes=5000000 user_xdg_config_exists=<bool> user_app_support_config_exists=<bool>
+GhosttyConfigEnvironment ghostty-config-env default_scrollback_limit_bytes=<GhosttyRuntimeDefaults.scrollbackLimit> user_xdg_config_exists=<bool> user_app_support_config_exists=<bool>
 ```
 
 Record those bool values in the companion `.md`. They tell future
@@ -81,13 +81,16 @@ readers which side of the user-config override this capture is on.
 
 ## Warm-A — terminal-only workload
 
-1. Determine the active pane's scrollback budget. Default = 5 000 000
-   bytes (5 MB). Generate ~6 MB of deterministic output (slightly above
-   the limit so the buffer fills fully):
+1. Determine the active pane's scrollback budget: the current value of
+   `GhosttyRuntimeDefaults.scrollbackLimit` (64 000 000 bytes / 64 MB
+   since #204; the committed 2026-05 companion captures were taken at
+   the earlier 5 MB default). Generate deterministic output slightly
+   above that limit so the buffer fills fully — with 80-byte lines,
+   `LINES = scrollbackLimit / 80 * 1.2`, e.g. ~960 000 lines at 64 MB:
    ```sh
-   for i in $(seq 1 75000); do printf '%07d %-71s\n' $i "INT-397 scrollback fill line padded with deterministic content"; done
+   for i in $(seq 1 960000); do printf '%07d %-71s\n' $i "INT-397 scrollback fill line padded with deterministic content"; done
    ```
-   That's ~6 MB of 80-byte lines. Paste into the pane and let it run to
+   Paste into the pane and let it run to
    completion.
 2. Wait for the prompt to return.
 3. Wait for steady-state criterion in the perf-sample stream.
