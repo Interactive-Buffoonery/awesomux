@@ -383,6 +383,7 @@ struct LocalizedPluralStringsTests {
             "accessibility.diagnostics.events",
             "accessibility.diagnostics.samples",
             "accessibility.diagnostics.matchingEvents",
+            "accessibility.search.matches",
             "document.revisionIndicator",
         ] {
             let forms = try Self.pluralForms(in: stringsdict, key: key)
@@ -406,6 +407,22 @@ struct LocalizedPluralStringsTests {
         for specifier in ["%1$@", "%2$@", "%3$lld", "%4$@"] {
             #expect(atRisk["other"]?.contains(specifier) == true)
         }
+    }
+
+    @Test("English surface-search matches plural resolves through stringsdict")
+    func englishSurfaceSearchMatchesPluralResolvesThroughStringsdict() {
+        #expect(
+            LocalizedPluralStrings.surfaceSearchMatches(
+                count: 1,
+                bundle: Self.resourcesBundle
+            ) == "1 match"
+        )
+        #expect(
+            LocalizedPluralStrings.surfaceSearchMatches(
+                count: 14,
+                bundle: Self.resourcesBundle
+            ) == "14 matches"
+        )
     }
 
     @Test("English close-group risky-workspaces plural resolves through stringsdict")

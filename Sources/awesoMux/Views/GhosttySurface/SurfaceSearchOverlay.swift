@@ -119,6 +119,9 @@ private struct SurfaceSearchBar: View {
         .onChange(of: searchState.total) { _, _ in
             scheduleSearchSummaryAnnouncement()
         }
+        .onChange(of: searchState.selected) { _, _ in
+            scheduleSearchSummaryAnnouncement()
+        }
         .onDisappear {
             matchAnnouncementWorkItem?.cancel()
             matchAnnouncementWorkItem = nil
@@ -184,10 +187,11 @@ private struct SurfaceSearchBar: View {
 
         let workItem = DispatchWorkItem { [weak surfaceView, weak searchState] in
             guard let surfaceView,
-                  let searchState,
-                  searchState.isPresented,
-                  !searchState.needle.isEmpty,
-                  let window = surfaceView.window else {
+                let searchState,
+                searchState.isPresented,
+                !searchState.needle.isEmpty,
+                let window = surfaceView.window
+            else {
                 return
             }
             NSAccessibility.post(
@@ -195,7 +199,7 @@ private struct SurfaceSearchBar: View {
                 notification: .announcementRequested,
                 userInfo: [
                     .announcement: searchState.spokenSummary,
-                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue,
                 ]
             )
         }

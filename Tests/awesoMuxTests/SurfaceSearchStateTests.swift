@@ -1,9 +1,62 @@
+import Foundation
 import Testing
 @testable import awesoMux
 
 @MainActor
 @Suite("Surface search state")
 struct SurfaceSearchStateTests {
+    @Test("matches with no selection display a dash, not zero")
+    func matchesWithoutSelectionDisplayDash() {
+        let state = SurfaceSearchState()
+        state.present(needle: "42")
+        state.updateTotal(1)
+
+        #expect(state.selected == nil)
+        #expect(state.matchCountText == "– / 1")
+    }
+
+    @Test("selecting the only match reads one of one")
+    func selectingOnlyMatchReadsOneOfOne() {
+        let state = SurfaceSearchState()
+        state.present(needle: "42")
+        state.updateTotal(1)
+        state.updateSelected(0)
+
+        #expect(state.matchCountText == "1 / 1")
+        #expect(state.spokenSummary == "Match 1 of 1")
+    }
+
+    @Test("negative selection with matches displays a dash")
+    func negativeSelectionWithMatchesDisplaysDash() {
+        #expect(SurfaceSearchMatchSummary(selected: -1, total: 7).currentDisplayText == "–")
+        #expect(SurfaceSearchMatchSummary(selected: nil, total: nil).currentDisplayText == "0")
+    }
+
+    @Test("spoken summary announces the match count before a selection exists")
+    func spokenSummaryAnnouncesCountBeforeSelection() {
+        let state = SurfaceSearchState()
+        state.present(needle: "42")
+        state.updateTotal(3)
+
+        LocalizedPluralStrings.withCanonicalBundle(Self.resourcesBundle) {
+            #expect(state.spokenSummary == "3 matches")
+        }
+
+        state.updateTotal(1)
+        LocalizedPluralStrings.withCanonicalBundle(Self.resourcesBundle) {
+            #expect(state.spokenSummary == "1 match")
+        }
+    }
+
+    private static var resourcesBundle: Bundle {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Resources", directoryHint: .isDirectory)
+        return Bundle(url: url) ?? .main
+    }
+
     @Test("match count displays selected result as one-based")
     func matchCountDisplaysOneBasedSelection() {
         let summary = SurfaceSearchMatchSummary(selected: 1, total: 14)

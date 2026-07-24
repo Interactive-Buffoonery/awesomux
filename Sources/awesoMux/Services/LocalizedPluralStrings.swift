@@ -21,6 +21,7 @@ enum LocalizedPluralStrings {
     private static let diagnosticsShowingMatchingEventsKey = "diagnostics.showingMatchingEvents"
     private static let bridgePermissionQueuedCountKey = "accessibility.bridge.permissionQueued"
     private static let commandPaletteResultsKey = "accessibility.commandPalette.results"
+    private static let surfaceSearchMatchesKey = "accessibility.search.matches"
     private static let pathbarUncommittedChangesKey = "accessibility.pathbar.uncommittedChanges"
     private static let sessionManagerDaemonsKey = "accessibility.sessionManager.daemons"
     private static let sessionManagerSessionsKey = "accessibility.sessionManager.sessions"
@@ -311,6 +312,16 @@ enum LocalizedPluralStrings {
             count: count,
             bundle: bundle,
             comment: "VoiceOver prefix when the command palette announces a selected result; argument is the match count."
+        )
+    }
+
+    static func surfaceSearchMatches(count: Int, bundle: Bundle = .main) -> String {
+        localizedPlural(
+            key: surfaceSearchMatchesKey,
+            count: count,
+            bundle: bundle,
+            comment:
+                "Spoken find-bar summary before any match is selected; argument is the match count."
         )
     }
 

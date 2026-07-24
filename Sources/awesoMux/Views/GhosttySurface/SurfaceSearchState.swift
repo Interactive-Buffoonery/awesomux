@@ -13,7 +13,7 @@ final class SurfaceSearchState {
 
     var matchCountText: String {
         let summary = SurfaceSearchMatchSummary(selected: selected, total: total)
-        return "\(summary.currentDisplay) / \(summary.totalDisplay)"
+        return "\(summary.currentDisplayText) / \(summary.totalDisplay)"
     }
 
     var spokenSummary: String {
@@ -77,6 +77,16 @@ struct SurfaceSearchMatchSummary: Equatable {
         return min(selected + 1, totalDisplay)
     }
 
+    /// libghostty only selects a match once a `navigate_search` binding runs,
+    /// so a fresh search reports matches with no current index. Render that
+    /// state as "–" (upstream ghostty shows "-/N") instead of a false "0".
+    var currentDisplayText: String {
+        if totalDisplay > 0, !hasSelection {
+            return "–"
+        }
+        return "\(currentDisplay)"
+    }
+
     var totalDisplay: Int {
         max(0, total ?? 0)
     }
@@ -85,6 +95,14 @@ struct SurfaceSearchMatchSummary: Equatable {
         guard totalDisplay > 0 else {
             return "No matches"
         }
+        guard hasSelection else {
+            return LocalizedPluralStrings.surfaceSearchMatches(count: totalDisplay)
+        }
         return "Match \(currentDisplay) of \(totalDisplay)"
+    }
+
+    private var hasSelection: Bool {
+        guard let selected else { return false }
+        return selected >= 0
     }
 }
