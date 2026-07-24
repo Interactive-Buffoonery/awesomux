@@ -171,7 +171,8 @@ awesoMux's libghostty config is built in `GhosttyRuntime.makeGhosttyConfig`
 in this order:
 
 1. `GhosttyRuntimeDefaults.defaultConfigContents` (awesoMux suggestions,
-   including `scrollback-limit = 5_000_000`).
+   including `scrollback-limit = 64_000_000`; 5_000_000 at the time the
+   captures in this document were taken).
 2. `ghostty_config_load_default_files` (user's `config.ghostty` or legacy
    `config` in Ghostty's default config locations).
 3. `ghostty_config_load_recursive_files` (user's recursive imports).
@@ -182,7 +183,8 @@ libghostty is last-write-wins, so user config does and SHOULD override
 `scrollback-limit`. This is intentional product behavior — the user is the
 source of truth for their own machine. If your warm-baseline footprint is
 high and you have a user-set `scrollback-limit`, that value is what is in
-effect, not the 5MB default.
+effect, not the awesoMux default (64MB since #204; 5MB before that — the
+committed perf-trace captures record the 5MB era as measured history).
 
 The empirical question — which memory bucket dominates the warm baseline
 (graphics / heap / scrollback / framework caches) — is tracked as a follow-up
