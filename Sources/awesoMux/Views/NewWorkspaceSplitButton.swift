@@ -6,7 +6,7 @@ import SwiftUI
 /// sidebar header only — the collapsed rail keeps the original single-`Menu`
 /// control unchanged, since 60pt of rail width has no room for a second,
 /// honestly-sized hit target next to a 40pt primary segment.
-struct NewWorkspaceSplitButton: View {
+struct NewWorkspaceSplitButton: View, Equatable {
     /// Resting background fill. Matches the search field's own fill it sits
     /// beside — a bordered pill (see the `.overlay` stroke in `body`), not
     /// blended into the sidebar.
@@ -42,6 +42,20 @@ struct NewWorkspaceSplitButton: View {
     @State private var isPrimaryHovering = false
     @State private var isChevronHovering = false
     @State private var lastCreateAt: ContinuousClock.Instant?
+
+    // Without this gate, every unrelated SidebarView re-render (agent-status
+    // polling, terminal output — this view sits outside SidebarActivitySection's
+    // own invalidation boundary) reconstructs the chevron's Menu. When that
+    // lands while the nested "New Workspace in…" submenu is mid-open, AppKit's
+    // menu-tracking session resets: the row highlight flickers and the
+    // submenu never finishes presenting. Callbacks are excluded (same
+    // capture-stable rationale as SidebarActivitySection's invalidation key)
+    // — they wrap stores/actions, not values that need to gate re-render.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.restFill == rhs.restFill
+            && lhs.otherGroups.count == rhs.otherGroups.count
+            && zip(lhs.otherGroups, rhs.otherGroups).allSatisfy { $0.id == $1.id && $0.name == $1.name }
+    }
 
     var body: some View {
         HStack(spacing: 0) {

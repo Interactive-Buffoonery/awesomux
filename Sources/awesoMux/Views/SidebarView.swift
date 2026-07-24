@@ -681,6 +681,7 @@ struct SidebarView: View {
                 onNewWorkspaceInGroup: addWorkspace(inGroupID:),
                 onNewWorkspaceGroup: onNewWorkspaceGroup
             )
+            .equatable()
         }
         .padding(.top, 10)
         .padding(.bottom, 8)
@@ -754,6 +755,7 @@ struct SidebarView: View {
                 onNewWorkspaceInGroup: addWorkspace(inGroupID:),
                 onNewWorkspaceGroup: onNewWorkspaceGroup
             )
+            .equatable()
         }
         .padding(.horizontal, 10)
         .padding(.top, 10)
