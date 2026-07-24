@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 
@@ -148,7 +149,7 @@ struct RuntimeProfileScriptTests {
         process.standardOutput = stdout
         process.standardError = stderr
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
 
         return ShellResult(
             status: process.terminationStatus,
@@ -195,7 +196,7 @@ struct RuntimeProfileScriptTests {
         process.standardOutput = stdout
         process.standardError = stderr
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
         return ShellResult(
             status: process.terminationStatus,
             output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",

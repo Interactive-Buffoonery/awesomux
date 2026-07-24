@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import AwesoMuxConfig
 import Foundation
 import Testing
@@ -436,7 +437,7 @@ struct AgentPluginTemplateRendererTests {
         process.standardOutput = outPipe
         process.standardError = errPipe
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
 
         let out = String(decoding: outPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         let err = String(decoding: errPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)

@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import AwesoMuxConfig
 import Foundation
 import Testing
@@ -1223,7 +1224,7 @@ struct AgentPluginRunnerTests {
         let lockHolder = try Self.startExternalLockHolder(in: installState)
         defer {
             lockHolder.terminate()
-            lockHolder.waitUntilExit()
+            #expect(throws: Never.self) { try lockHolder.waitUntilExitEventually() }
         }
 
         let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)

@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import AwesoMuxAgentHookSupport
@@ -344,29 +345,59 @@ struct ClaudeCodexPluginTemplateTests {
         let stderr: String
     }
 
+    /// Runs `executable` with output captured to files rather than pipes.
+    ///
+    /// Pipes would put an unbounded read in front of the bounded wait: a pipe
+    /// read only returns at EOF, and EOF only arrives once every writer closes.
+    /// A wedged child — or a grandchild that inherited the write end and outlives
+    /// its parent — never delivers it, so the deadline below would never be
+    /// armed and the hang would be as unbounded as awesomux#207's. Draining the
+    /// two pipes concurrently fixes only their mutual deadlock, not this.
+    ///
+    /// Files have no buffer ceiling, so the child never blocks on `write` and
+    /// there is no drain to bound or unwind. The wait is the first thing that
+    /// happens after launch, and the output is read once the child is gone.
+    ///
+    /// On timeout the child is deliberately not signalled, matching
+    /// `waitUntilExitEventually`: the reading that produced the timeout is
+    /// exactly the one that cannot be trusted to still identify our child. The
+    /// capture files are always removed.
     private static func run(
         _ executable: URL,
         arguments: [String],
         environment: [String: String]? = nil
     ) throws -> ProcessResult {
+        let fileManager = FileManager.default
+        let captureDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("awesomux-hook-capture-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: captureDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: captureDirectory) }
+
+        let stdoutURL = captureDirectory.appendingPathComponent("stdout")
+        let stderrURL = captureDirectory.appendingPathComponent("stderr")
+        fileManager.createFile(atPath: stdoutURL.path, contents: nil)
+        fileManager.createFile(atPath: stderrURL.path, contents: nil)
+        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+        defer {
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+        }
+
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
         if let environment {
             process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
         }
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        process.standardOutput = stdoutHandle
+        process.standardError = stderrHandle
         try process.run()
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
         return ProcessResult(
             exitCode: process.terminationStatus,
-            stdout: String(decoding: stdoutData, as: UTF8.self),
-            stderr: String(decoding: stderrData, as: UTF8.self)
+            stdout: String(decoding: try Data(contentsOf: stdoutURL), as: UTF8.self),
+            stderr: String(decoding: try Data(contentsOf: stderrURL), as: UTF8.self)
         )
     }
 }
