@@ -67,6 +67,15 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     typealias CurrentMouseLocation = () -> NSPoint
     typealias ApplicationIsActive = () -> Bool
 
+    /// Broadcast (unscoped) when an eased divider settle begins/ends so libghostty
+    /// surfaces coalesce per-frame reflow during the animation and flush once at the
+    /// end — the programmatic settle never raises AppKit `inLiveResize`, so surfaces
+    /// can't infer it themselves (#81). Consumed in `GhosttySurfaceLifecycle`.
+    static let dividerSettleWillBeginNotification = Notification.Name(
+        "awesomux.sidebar.dividerSettleWillBegin")
+    static let dividerSettleDidEndNotification = Notification.Name(
+        "awesomux.sidebar.dividerSettleDidEnd")
+
     /// Fires on every divider resize tick with the sidebar pane's live width.
     var onLiveWidthChange: ((CGFloat) -> Void)?
 
@@ -1550,6 +1559,9 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             let generation = dividerSettleGeneration
             isAnimatingDividerSettle = true
             settleMaxSidebarWidth = maxSidebarWidth
+            // Tell surfaces to coalesce reflow for the sweep (idempotent across an
+            // overlapping re-settle — the surface latch is a bool).
+            postDividerSettle(Self.dividerSettleWillBeginNotification)
             NSAnimationContext.runAnimationGroup(
                 { context in
                     context.duration = Self.dividerSettleDuration
@@ -1565,6 +1577,10 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                         guard let self, self.dividerSettleGeneration == generation else { return }
                         self.isAnimatingDividerSettle = false
                         self.settleMaxSidebarWidth = nil
+                        // The final frame was delivered by the last (coalesced) tick;
+                        // this flush lands it once. A superseded settle's completion
+                        // (generation mismatch) exits above, so only the live settle ends.
+                        self.postDividerSettle(Self.dividerSettleDidEndNotification)
                     }
                 })
         } else if isAnimatingDividerSettle {
@@ -1601,6 +1617,18 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
             splitView.animator().setPosition(coordinate, ofDividerAt: 0)
         }
         isSettingPositionProgrammatically = wasSuppressing
+        // Post AFTER the final frame is delivered so the surface's end-flush lands the
+        // settled size, not the last interpolated one. Every non-natural settle exit
+        // (instant correction, resize gate, side flip, hide, detach) funnels here, so
+        // this is the single end signal for those paths.
+        postDividerSettle(Self.dividerSettleDidEndNotification)
+    }
+
+    /// Broadcast a settle begin/end signal to libghostty surfaces. Unscoped
+    /// (`object: nil`) so a mid-settle detach can't strand a surface's coalescing
+    /// latch — see `dividerSettleWillBeginNotification` (#81).
+    private func postDividerSettle(_ name: Notification.Name) {
+        interactionNotificationCenter.post(name: name, object: nil)
     }
 
     private func applyPosition(_ width: CGFloat, animated: Bool = false) {

@@ -208,6 +208,24 @@ final class GhosttySurfaceNSView: NSView {
 
         GhosttySurfaceMouseFocusMonitor.shared.start()
 
+        // Coalesce surface reflow during the eased sidebar-divider settle (#81).
+        // Unscoped (object: nil) on purpose: an unscoped end signal always reaches
+        // this observer, so a mid-settle detach can't strand the latch; a surface in
+        // a non-settling window sees no size change, so latching there is a no-op.
+        // Removed with every other observer in `deinit`'s `removeObserver(self)`.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(dividerSettleWillBegin),
+            name: SidebarSplitController.dividerSettleWillBeginNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(dividerSettleDidEnd),
+            name: SidebarSplitController.dividerSettleDidEndNotification,
+            object: nil
+        )
+
         // Accept files/text/URLs dragged in from Finder, Safari, etc. See
         // GhosttySurfaceDragAndDrop.swift for the NSDraggingDestination
         // conformance this registration enables.
