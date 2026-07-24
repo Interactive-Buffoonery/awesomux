@@ -358,6 +358,9 @@
     ", resolved" : {
       "comment" : "Resolved state suffix in an annotation accessibility label"
     },
+    "/usr/local/bin/zmx" : {
+
+    },
     "1 hour" : {
       "comment" : "VoiceOver Diagnostics history window"
     },
@@ -1247,6 +1250,9 @@
     "Enter an SSH alias, hostname, or user@host, not a command option." : {
       "comment" : "Validation message when a managed SSH workspace destination is invalid"
     },
+    "Enter an absolute path to zmx on the remote host." : {
+      "comment" : "Validation message when the remote zmx executable path is not a usable absolute path"
+    },
     "Error" : {
       "comment" : "Agent state label\nDiagnostics event severity",
       "localizations" : {
@@ -1557,6 +1563,9 @@
         }
       }
     },
+    "Leave empty to run zmx from the remote PATH" : {
+
+    },
     "Left" : {
 
     },
@@ -1741,6 +1750,9 @@
     },
     "Name" : {
       "comment" : "Diagnostics process table column"
+    },
+    "Names a zmx session the remote host keeps running" : {
+
     },
     "Needs approval" : {
       "comment" : "Settings label when Open at Login requires approval in System Settings."
@@ -2408,6 +2420,12 @@
     "Remote panes on %arg" : {
       "comment" : "VoiceOver location summary for a group with more than one remote destination.\nVoiceOver location summary for panes that all run on one declared SSH destination."
     },
+    "Remote session name" : {
+
+    },
+    "Remote session name (optional)" : {
+
+    },
     "Remote session on %arg" : {
       "comment" : "Tooltip for the remote host badge in a pane title bar."
     },
@@ -2419,6 +2437,9 @@
     },
     "Remote terminal works; rich agent features are off." : {
       "comment" : "Bridge doctor degradation banner when the bridge is down"
+    },
+    "Remote zmx path" : {
+
     },
     "Remove" : {
       "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command"
@@ -3314,6 +3335,9 @@
     "Use awesoMux shortcuts" : {
 
     },
+    "Use up to 64 letters, numbers, dots, dashes, or underscores." : {
+      "comment" : "Validation message when a remote zmx session name is invalid"
+    },
     "Used across the sidebar, panels, and settings. Unavailable fonts fall back to the system font. Choose System (SF Pro) to restore the standard font." : {
       "comment" : "Settings field hint for the app UI font picker, including how to recover from a missing font"
     },
@@ -3530,6 +3554,9 @@
     "my-server" : {
 
     },
+    "my-session" : {
+
+    },
     "navigate" : {
 
     },
@@ -3641,6 +3668,9 @@
           }
         }
       }
+    },
+    "zmx path (optional)" : {
+
     },
     "· %arg" : {
 
