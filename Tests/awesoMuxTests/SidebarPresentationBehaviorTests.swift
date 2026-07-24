@@ -153,6 +153,7 @@ struct SidebarPresentationBehaviorTests {
 
         init(
             notificationCenter: NotificationCenter = NotificationCenter(),
+            workspaceNotificationCenter: NotificationCenter = NotificationCenter(),
             focusedAccessibilityElement: AccessibilityElementBox? = nil,
             applicationIsActive: @escaping () -> Bool = { true }
         ) {
@@ -208,6 +209,7 @@ struct SidebarPresentationBehaviorTests {
                     focusedAccessibilityElement.element
                 },
                 interactionNotificationCenter: notificationCenter,
+                workspaceNotificationCenter: workspaceNotificationCenter,
                 applicationIsActive: applicationIsActive)
             controller.loadViewIfNeeded()
             controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
@@ -298,7 +300,8 @@ struct SidebarPresentationBehaviorTests {
 
     private func makeController(
         position: AppearanceConfig.SidebarPosition = .left,
-        focusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement? = nil
+        focusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement? = nil,
+        workspaceNotificationCenter: NotificationCenter = NotificationCenter()
     ) -> (
         SidebarSplitController, NSViewController, NSViewController
     ) {
@@ -309,6 +312,7 @@ struct SidebarPresentationBehaviorTests {
             sidebar: sidebar,
             detail: detail,
             interactionFocusedAccessibilityElement: focusedAccessibilityElement,
+            workspaceNotificationCenter: workspaceNotificationCenter,
             applicationIsActive: { true })
         controller.setSidebarPosition(position)
         controller.loadViewIfNeeded()
@@ -334,7 +338,8 @@ struct SidebarPresentationBehaviorTests {
 
     private func makeControlledController(
         position: AppearanceConfig.SidebarPosition = .left,
-        driver: AnimationDriver
+        driver: AnimationDriver,
+        workspaceNotificationCenter: NotificationCenter = NotificationCenter()
     ) -> (SidebarSplitController, NSViewController, NSViewController) {
         let sidebar = NSViewController()
         sidebar.view = AccessibilityRecordingView()
@@ -347,6 +352,7 @@ struct SidebarPresentationBehaviorTests {
                 driver.requestCount += 1
                 driver.completions.append(completion)
             },
+            workspaceNotificationCenter: workspaceNotificationCenter,
             applicationIsActive: { true })
         controller.setSidebarPosition(position)
         controller.loadViewIfNeeded()
@@ -1140,6 +1146,96 @@ struct SidebarPresentationBehaviorTests {
         #expect(fixture.sessionStore.selectedSession?.activePaneID == fixture.selectedPane.id)
     }
 
+    @Test("sleep firing before resignation still captures sidebar focus for wake recovery")
+    func sleepBeforeResignationStillCapturesFocusForRecovery() {
+        let center = NotificationCenter()
+        let workspaceCenter = NotificationCenter()
+        let fixture = ProductionFocusFixture(
+            notificationCenter: center, workspaceNotificationCenter: workspaceCenter)
+        defer { fixture.cleanUp() }
+        _ = fixture.window.makeFirstResponder(nil)
+        #expect(fixture.window.makeFirstResponder(fixture.primarySafeFocus))
+        #expect(fixture.controller.setPersistentSidebarVisible(false))
+        #expect(fixture.controller.setOverlayPresentedImmediately(true))
+        #expect(fixture.window.makeFirstResponder(fixture.sidebarFocus))
+        fixture.controller.onTrackingAvailabilityLost = { [weak controller = fixture.controller] in
+            controller?.setOverlayPresentedImmediately(false)
+        }
+
+        // Sleep, not resignation, is the first thing to settle the overlay
+        // here -- it must be the one to capture what was focused, since
+        // `settleHidden()` redirects focus to the window with no memory of
+        // the target. If sleep settled without capturing, resignation firing
+        // afterward would see nothing left in the sidebar to notice as
+        // focused, and wake recovery below would silently no-op.
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+
+        // Asserted here, before resignation and before mounting a surface,
+        // so this is decisive proof sleep itself did the capturing --
+        // `mountSelectedSurface()` below has its own focus-reclaim side
+        // effect (`requestFocusIfWindowHasNoTarget`) that would otherwise
+        // make a later firstResponder-only assertion ambiguous about which
+        // mechanism actually routed focus.
+        #expect(fixture.controller.pendingFocusRepairIsSetForTesting)
+        #expect(fixture.controller.hostModeForTesting == .hidden)
+
+        center.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+
+        // Resignation firing afterward must not clobber what sleep already
+        // captured -- this is the exact interleaving the fix targets.
+        #expect(fixture.controller.pendingFocusRepairIsSetForTesting)
+
+        let selectedSurface = fixture.mountSelectedSurface()
+        center.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+
+        #expect(fixture.window.firstResponder === selectedSurface)
+        #expect(fixture.sessionStore.selectedSession?.activePaneID == fixture.selectedPane.id)
+    }
+
+    @Test("wake alone recovers focus when the app never actually resigned or reactivated")
+    func wakeAloneRecoversFocusWithoutAnyActivationTransition() {
+        // The app/window stay active and key throughout (the fixture
+        // defaults to `applicationIsActive: { true }` and a key window) --
+        // no `didResignActiveNotification`, `didBecomeActiveNotification`,
+        // `didBecomeKeyNotification`, or Ghostty-readiness notification ever
+        // fires in this test. A real sleep/wake with no intervening
+        // app-activation transition looks exactly like this: only
+        // `willSleepNotification` and `didWakeNotification` fire. Without a
+        // dedicated wake observer, `pendingFocusRepair` (captured by sleep)
+        // would have nothing left to consume it.
+        let workspaceCenter = NotificationCenter()
+        let fixture = ProductionFocusFixture(workspaceNotificationCenter: workspaceCenter)
+        defer { fixture.cleanUp() }
+        _ = fixture.window.makeFirstResponder(nil)
+        #expect(fixture.controller.setPersistentSidebarVisible(false))
+        #expect(fixture.controller.setOverlayPresentedImmediately(true))
+        #expect(fixture.window.makeFirstResponder(fixture.sidebarFocus))
+        fixture.controller.onTrackingAvailabilityLost = { [weak controller = fixture.controller] in
+            controller?.setOverlayPresentedImmediately(false)
+        }
+        var handoffRequests: [SidebarFocusHandoffRequest] = []
+        fixture.controller.onSidebarFocusHandoff = { request in
+            handoffRequests.append(request)
+            return fixture.focusPrimaryContent(request)
+        }
+
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(fixture.controller.pendingFocusRepairIsSetForTesting)
+        #expect(fixture.controller.hostModeForTesting == .hidden)
+
+        // Sleep's settle already redirected firstResponder to the window
+        // itself (not a view), so `reduceApplicationFocusRecovery`'s
+        // "already focused outside the sidebar" short-circuit can't fire
+        // even though the fixture's peer surface is mounted -- the wake
+        // observer calling `recoverApplicationFocusIfReady` is the only
+        // thing that can invoke the handoff callback here, decisively
+        // proving the wake observer itself did the recovering, not some
+        // other mechanism.
+        workspaceCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+
+        #expect(!handoffRequests.isEmpty)
+    }
+
     @Test("app resignation clears a hidden search field editor through a remount gap")
     func appResignationClearsHiddenSearchFieldEditorThroughRemountGap() throws {
         let center = NotificationCenter.default
@@ -1780,6 +1876,73 @@ struct SidebarPresentationBehaviorTests {
         #expect(controller.hostModeForTesting == .hidden)
         #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
         #expect(controller.sidebarHostClipViewForTesting.isHidden)
+    }
+
+    // `NSWorkspace` posts `willSleepNotification` on its own dedicated
+    // `notificationCenter`, never `.default` — the tests below inject a fresh
+    // center standing in for that real one, so a regression that quietly
+    // moves the observer back onto `.default`/`interactionNotificationCenter`
+    // fails loudly instead of just never firing in production.
+    @Test("system sleep mid-reveal settles a presented overlay")
+    func systemSleepMidRevealSettlesOverlay() {
+        let workspaceCenter = NotificationCenter()
+        let driver = AnimationDriver()
+        let (controller, sidebar, _) = makeControlledController(
+            driver: driver, workspaceNotificationCenter: workspaceCenter)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+        let staleCompletion = driver.completions[0]
+
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(controller.sidebarHostClipViewForTesting.isHidden)
+
+        // The OS-paused reveal animation resuming post-wake must not
+        // resurrect an overlay the sleep notification already settled.
+        staleCompletion()
+        #expect(controller.hostModeForTesting == .hidden)
+        #expect(sidebar.view.superview === controller.sidebarHostViewForTesting)
+    }
+
+    @Test("sleep posted on an unrelated center does not settle a presented overlay")
+    func sleepOnWrongCenterDoesNotSettleOverlay() {
+        let workspaceCenter = NotificationCenter()
+        let unrelatedCenter = NotificationCenter()
+        let driver = AnimationDriver()
+        let (controller, _, _) = makeControlledController(
+            driver: driver, workspaceNotificationCenter: workspaceCenter)
+        controller.setSidebarWidth(300)
+        controller.setSidebarHidden(true)
+        controller.setOverlayPresented(true, transition: .hover, reduceMotion: false)
+
+        unrelatedCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+
+        #expect(controller.hostModeForTesting == .overlay(width: 300))
+        #expect(!controller.sidebarHostClipViewForTesting.isHidden)
+    }
+
+    @Test("sleep notification is a no-op after detach and resumes after reattach")
+    func sleepObserverLifecycleAcrossDetachReattach() {
+        let workspaceCenter = NotificationCenter()
+        let (controller, _, _) = makeController(workspaceNotificationCenter: workspaceCenter)
+        var availabilityLosses = 0
+        controller.onTrackingAvailabilityLost = { availabilityLosses += 1 }
+        let window = hostInActiveWindow(controller)
+        defer { window.orderOut(nil) }
+
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(availabilityLosses == 1)
+
+        window.contentView = NSView()
+        let lossesAfterDetach = availabilityLosses
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(availabilityLosses == lossesAfterDetach)
+
+        window.contentView = controller.view
+        workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(availabilityLosses == lossesAfterDetach + 1)
     }
 
     @Test("persistent disappearance preserves ownership, hides AX, and restores on attach")
