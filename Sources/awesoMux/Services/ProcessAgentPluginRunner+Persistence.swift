@@ -29,6 +29,18 @@ extension ProcessAgentPluginRunner {
         }
     }
 
+    /// A canonical-state read for consent copy. Unlike `loadInstallManifest`, it
+    /// intentionally leaves a legacy record in place until an approved mutation
+    /// imports it under the install-state lock.
+    func loadInstallManifestReadOnly() -> AgentPluginInstallManifest {
+        switch pluginManifestStore.loadStateReadOnly() {
+        case .missing, .failed:
+            return .empty
+        case .loaded(let manifest):
+            return manifest
+        }
+    }
+
     func installManifestLoadWarning() -> String? {
         switch pluginManifestStore.loadState() {
         case .failed(.unreadable):
@@ -142,6 +154,10 @@ extension ProcessAgentPluginRunner {
 
     func installRecord(provider: AgentPluginProvider) -> AgentPluginInstallRecord? {
         loadInstallManifest().record(for: provider)
+    }
+
+    func installRecordReadOnly(provider: AgentPluginProvider) -> AgentPluginInstallRecord? {
+        loadInstallManifestReadOnly().record(for: provider)
     }
 
     func effectiveSetupForRecordedInstall(

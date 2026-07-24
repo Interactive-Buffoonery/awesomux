@@ -1130,6 +1130,32 @@ struct AgentPluginRunnerTests {
         #expect(runner.installRecord(provider: .claudeCode) == nil)
     }
 
+    @Test("Codex repair confirmation reads legacy install state without importing it")
+    func codexRepairConfirmationDoesNotImportLegacyInstallState() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "awesomux-plugin-confirmation-legacy-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let canonical = directory.appending(path: "canonical", directoryHint: .isDirectory)
+        let legacy = directory.appending(path: "legacy", directoryHint: .isDirectory)
+        let legacyRunner = Self.makeRunner(renderedSupport: directory.appending(path: "legacy-rendered"), installState: legacy)
+        let tree = try legacyRunner.renderedTree(provider: .codex, setup: Self.enabled)
+        try legacyRunner.recordInstall(provider: .codex, setup: Self.enabled, tree: tree, ref: Self.codexRef)
+        try Self.rewriteInstallRecordDigest(runner: legacyRunner, provider: .codex, digest: "deadbeef")
+
+        let runner = Self.makeRunner(
+            renderedSupport: directory.appending(path: "current-rendered"),
+            installState: canonical,
+            legacyInstallState: legacy
+        )
+        let confirmation = runner.confirmation(for: .repair, provider: .codex, setup: Self.enabled)
+
+        #expect(!FileManager.default.fileExists(atPath: runner.pluginManifestURL.path))
+        #expect(
+            confirmation.commandLines.contains(
+                "CODEX_HOME=\(legacyRunner.homeDirectoryURL.appending(path: ".codex").path) codex plugin remove awesomux-codex-status@awesomux-codex (only when replacing a stale install)"
+            ))
+    }
+
     @Test("invalid legacy plugin state does not poison canonical state")
     func invalidLegacyPluginManifestIsIgnored() throws {
         let directory = FileManager.default.temporaryDirectory
@@ -1217,6 +1243,136 @@ struct AgentPluginRunnerTests {
     static let freshHelperPath = "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook"
     static let claudeUninstallArgvExpected =
         ["plugin", "uninstall", "awesomux-claude-status@awesomux-claude", "--scope", "user"]
+    static let codexRemoveArgvExpected =
+        ["plugin", "remove", "awesomux-codex-status@awesomux-codex"]
+
+    @Test("Codex: a stale recorded digest forces removal before reinstall")
+    func codexStaleDigestCleanReinstall() async throws {
+        try await Self.withRunner { runner, command, codex in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
+            _ = await runner.enableOrInstall(provider: .codex, setup: Self.enabled)
+            try Self.rewriteInstallRecordDigest(runner: runner, provider: .codex, digest: "deadbeef")
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(stdout: #"{"installed":[{"pluginId":"awesomux-codex-status@awesomux-codex"}]}"#)
+            )
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .codex, setup: Self.enabled)
+
+            guard case .needsReview = outcome.status else {
+                Issue.record("expected needsReview, got \(outcome.status)")
+                return
+            }
+            let argvs = command.invocations.dropFirst(before).map(\.args)
+            guard argvs.count == 4 else {
+                Issue.record("expected four commands, got \(argvs.count)")
+                return
+            }
+            #expect(argvs[0] == ["plugin", "list", "--json"])
+            #expect(argvs[1] == Self.codexRemoveArgvExpected)
+            #expect(Array(argvs[2].prefix(3)) == ["plugin", "marketplace", "add"])
+            #expect(argvs[3] == ["plugin", "add", "awesomux-codex-status@awesomux-codex"])
+        }
+    }
+
+    @Test("Codex: stale repair names the recorded and live config homes")
+    func codexStaleRepairConfirmationNamesBothHomes() async throws {
+        try await Self.withRunner { runner, command, codex in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
+            let recordedHome = FileManager.default.temporaryDirectory
+                .appending(path: "awesomux-codex-recorded-\(UUID().uuidString)", directoryHint: .isDirectory)
+            let liveHome = FileManager.default.temporaryDirectory
+                .appending(path: "awesomux-codex-live-\(UUID().uuidString)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: recordedHome, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: liveHome, withIntermediateDirectories: true)
+            defer {
+                try? FileManager.default.removeItem(at: recordedHome)
+                try? FileManager.default.removeItem(at: liveHome)
+            }
+            _ = await runner.enableOrInstall(
+                provider: .codex,
+                setup: AgentIntegrationSetup(enabled: true, configHome: recordedHome.path)
+            )
+            try Self.rewriteInstallRecordDigest(runner: runner, provider: .codex, digest: "deadbeef")
+
+            let confirmation = runner.confirmation(
+                for: .repair,
+                provider: .codex,
+                setup: AgentIntegrationSetup(enabled: true, configHome: liveHome.path)
+            )
+
+            #expect(confirmation.configTargets.contains(recordedHome.appending(path: "config.toml").path))
+            #expect(confirmation.configTargets.contains(liveHome.appending(path: "config.toml").path))
+            #expect(
+                confirmation.commandLines.contains(
+                    "CODEX_HOME=\(recordedHome.path) codex plugin remove awesomux-codex-status@awesomux-codex (only when replacing a stale install)"
+                ))
+        }
+    }
+
+    @Test("Codex: stale repair skips removal when the old plugin is absent")
+    func codexStaleRepairSkipsRemovalWhenPluginIsAbsent() async throws {
+        try await Self.withRunner { runner, command, codex in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
+            _ = await runner.enableOrInstall(provider: .codex, setup: Self.enabled)
+            try Self.rewriteInstallRecordDigest(runner: runner, provider: .codex, digest: "deadbeef")
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: #"{"installed":[]}"#))
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .codex, setup: Self.enabled)
+
+            guard case .needsReview = outcome.status else {
+                Issue.record("expected needsReview, got \(outcome.status)")
+                return
+            }
+            let argvs = command.invocations.dropFirst(before).map(\.args)
+            guard argvs.count == 3 else {
+                Issue.record("expected three commands, got \(argvs.count)")
+                return
+            }
+            #expect(argvs[0] == ["plugin", "list", "--json"])
+            #expect(!argvs.contains(Self.codexRemoveArgvExpected))
+            #expect(Array(argvs[1].prefix(3)) == ["plugin", "marketplace", "add"])
+            #expect(argvs[2] == ["plugin", "add", "awesomux-codex-status@awesomux-codex"])
+        }
+    }
+
+    @Test("Codex: stale repair uses the live binary when the recorded binary vanished")
+    func codexStaleRepairDeadRecordedBinaryFallsBack() async throws {
+        try await Self.withRunner { runner, command, codex in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
+            _ = await runner.enableOrInstall(
+                provider: .codex,
+                setup: AgentIntegrationSetup(enabled: true, binaryPath: "/gone/codex")
+            )
+            try Self.rewriteInstallRecordDigest(runner: runner, provider: .codex, digest: "deadbeef")
+            command.stub(
+                executable: "/gone/codex",
+                args: ["plugin", "list", "--json"],
+                failure: .executableNotFound("/gone/codex")
+            )
+
+            let confirmation = runner.confirmation(for: .repair, provider: .codex, setup: Self.enabled)
+            #expect(
+                confirmation.commandLines.contains(
+                    "CODEX_HOME=\(runner.homeDirectoryURL.appending(path: ".codex").path) /gone/codex plugin remove awesomux-codex-status@awesomux-codex (falls back to codex if the recorded executable is unavailable) (only when replacing a stale install)"
+                ))
+
+            let outcome = await runner.enableOrInstall(provider: .codex, setup: Self.enabled)
+
+            guard case .needsReview = outcome.status else {
+                Issue.record("expected needsReview, got \(outcome.status)")
+                return
+            }
+            let removal = try #require(command.invocations.last { $0.args == Self.codexRemoveArgvExpected })
+            #expect(removal.executable == "codex")
+        }
+    }
 
     @Test("Claude: a stale recorded helper path forces uninstall before reinstall")
     func claudeStaleHelperPathCleanReinstall() async throws {
