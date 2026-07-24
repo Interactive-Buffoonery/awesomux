@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import DesignSystem
 import SwiftUI
 import Testing
 @testable import awesoMux
@@ -76,5 +77,36 @@ struct NewWorkspaceMenuButtonTests {
             onNewWorkspaceGroup: {}
         )
         #expect(base != differentGroupCount)
+    }
+
+    @Test("equatable gate holds for the real production fill color")
+    func equatableGateHoldsForProductionFill() {
+        // The trivial static colors above (.clear/.black) don't prove the
+        // gate survives the actual call site's dynamic, opacity-derived
+        // fill (SidebarView.swift's collapsedSearchHeader passes
+        // Color.aw.surface.elevated.opacity(0.6)) — confirm two
+        // independently-constructed views with that real color still
+        // compare equal, the property the whole gate depends on.
+        let productionFill = Color.aw.surface.elevated.opacity(0.6)
+        let groupID = UUID()
+        let first = NewWorkspaceMenuButton(
+            size: 40,
+            cornerRadius: 7,
+            restFill: productionFill,
+            otherGroups: [(id: groupID, name: "Alpha")],
+            onNewWorkspace: {},
+            onNewWorkspaceInGroup: { _ in },
+            onNewWorkspaceGroup: {}
+        )
+        let second = NewWorkspaceMenuButton(
+            size: 40,
+            cornerRadius: 7,
+            restFill: productionFill,
+            otherGroups: [(id: groupID, name: "Alpha")],
+            onNewWorkspace: {},
+            onNewWorkspaceInGroup: { _ in },
+            onNewWorkspaceGroup: {}
+        )
+        #expect(first == second)
     }
 }
