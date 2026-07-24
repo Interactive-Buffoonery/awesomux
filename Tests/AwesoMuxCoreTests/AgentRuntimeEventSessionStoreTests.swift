@@ -27,6 +27,85 @@ struct AgentRuntimeEventSessionStoreTests {
     }
 
     @Test
+    func claudeToolEndRecordsTouchedPathIntoRecentLinks() {
+        // issue #175: an agent-written Markdown path reaches the recent-links
+        // surface via the side channel even though the console output was
+        // hard-wrapped and un-clickable. End-to-end through the reducer + facade.
+        let session = makeSession(kind: .claudeCode, state: .running)
+        let store = makeStore(session)
+        let paneID = session.activePaneID
+
+        store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(source: .claudeCode, phase: .sessionStart),
+            to: session.id,
+            paneID: paneID
+        )
+        let applied = store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                touchedPath: "/Users/agent/plan.md"
+            ),
+            to: session.id,
+            paneID: paneID
+        )
+
+        #expect(applied)
+        #expect(
+            store.session(id: session.id)?.activePane?.recentLinks.values
+                == ["/Users/agent/plan.md"]
+        )
+    }
+
+    @Test
+    func endedLifecycleToolEndDoesNotRecordTouchedPath() {
+        // The `!state.lifecycle.isEnded` gate: a straggling toolEnd from an
+        // already-quit agent must not seed the palette. Locks the invariant so a
+        // refactor can't silently drop it.
+        let session = makeSession(kind: .claudeCode, state: .running)
+        let store = makeStore(session)
+        let paneID = session.activePaneID
+
+        store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(source: .claudeCode, phase: .sessionStart),
+            to: session.id,
+            paneID: paneID
+        )
+        store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(source: .claudeCode, executionState: .idle, phase: .sessionEnd),
+            to: session.id,
+            paneID: paneID
+        )
+        store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                touchedPath: "/Users/agent/plan.md"
+            ),
+            to: session.id,
+            paneID: paneID
+        )
+
+        #expect(store.session(id: session.id)?.activePane?.recentLinks.values.isEmpty == true)
+    }
+
+    @Test
+    func toolEndWithoutTouchedPathLeavesRecentLinksEmpty() {
+        let session = makeSession(kind: .claudeCode, state: .running)
+        let store = makeStore(session)
+
+        store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(source: .claudeCode, executionState: .thinking, phase: .toolEnd),
+            to: session.id,
+            paneID: session.activePaneID
+        )
+
+        #expect(store.session(id: session.id)?.activePane?.recentLinks.values.isEmpty == true)
+    }
+
+    @Test
     func updatesAgentKindFromEvent() {
         let session = makeSession()
         let store = makeStore(session)
@@ -369,7 +448,7 @@ struct AgentRuntimeEventSessionStoreTests {
     @Test(arguments: [
         "notes.md",
         "/tmp/notes.txt",
-        "/tmp/notes.md\u{0}suffix"
+        "/tmp/notes.md\u{0}suffix",
     ])
     func invalidOpenDocumentEventDoesNotOpenPane(path: String) {
         let session = makeSession(kind: .codex, state: .waiting)
@@ -520,7 +599,7 @@ struct AgentRuntimeEventSessionStoreTests {
         let session = makeSession(kind: .claudeCode)
         let store = makeStore(session)
 
-        let farFuture = Date().addingTimeInterval(60 * 60 * 24 * 365 * 10) // +10y
+        let farFuture = Date().addingTimeInterval(60 * 60 * 24 * 365 * 10)  // +10y
         store.applyAgentRuntimeEvent(
             AgentRuntimeEvent(source: .claudeCode, state: .needsAttention, timestamp: farFuture),
             to: session.id,

@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import Foundation
+import UnicodeHygiene
 import os
 
 public struct AgentRuntimeEvent: Equatable, Sendable {
@@ -24,6 +25,13 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
     public var title: String?
     /// The absolute local Markdown path for an `.openDocument` phase event.
     public var documentPath: String?
+    /// An absolute local Markdown file the agent just wrote/edited, forwarded so
+    /// it can be surfaced (recorded into the pane's recent links) even when its
+    /// console output was hard-wrapped and un-clickable (issue #175). Only
+    /// meaningful on a Claude Code `.toolEnd` event; `parse` nils it out on any
+    /// other source/phase so the declared scope is enforced at the trust
+    /// boundary, not just by the helper that happens to emit it.
+    public var touchedPath: String?
     public var timestamp: Date?
 
     /// Whether this event itself asserts the fully receptive `.waiting`
@@ -59,6 +67,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
         providerSessionID: String? = nil,
         title: String? = nil,
         documentPath: String? = nil,
+        touchedPath: String? = nil,
         timestamp: Date? = nil
     ) {
         self.version = version
@@ -72,6 +81,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
         self.providerSessionID = providerSessionID
         self.title = title
         self.documentPath = documentPath
+        self.touchedPath = touchedPath
         self.timestamp = timestamp
     }
 
@@ -104,6 +114,24 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
                 documentPath = nil
             }
 
+            // Scope enforcement at the trust boundary: `touchedPath` only means
+            // "a Claude Code tool just wrote this Markdown file" (issue #175).
+            // The bundled helper only sets it on a claude-code PostToolUse
+            // (`.toolEnd`) event, but the event file is same-UID-writable, so a
+            // forged event on another source/phase must not smuggle a path into
+            // the recent-links surface. An invalid path is dropped without
+            // dropping the whole event, since a real `.toolEnd` still carries a
+            // load-bearing execution transition.
+            let touchedPath: String?
+            if payload.source == .claudeCode,
+                payload.phase == .toolEnd,
+                let rawPath = payload.touchedPath?.value
+            {
+                touchedPath = validatedTouchedPath(rawPath)
+            } else {
+                touchedPath = nil
+            }
+
             return AgentRuntimeEvent(
                 version: payload.v,
                 source: payload.source,
@@ -116,6 +144,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
                 providerSessionID: payload.providerSessionID,
                 title: payload.title,
                 documentPath: documentPath,
+                touchedPath: touchedPath,
                 timestamp: payload.timestamp?.date
             )
         } catch {
@@ -142,6 +171,31 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
         return path
     }
 
+    /// A touched path must clear the same absolute-Markdown gate as an
+    /// open-document path AND be free of bidi/RTL-override scalars. The extra
+    /// scalar check (which `validatedDocumentPath` leaves to open time) matters
+    /// here because a recorded-but-unopenable link is exactly the "click looks
+    /// dead" symptom issue #175 is about — so a path that the open path would
+    /// later reject never gets recorded in the first place.
+    public static func validatedTouchedPath(_ path: String) -> String? {
+        guard let validated = validatedDocumentPath(path),
+            !UnicodeHygiene.containsUnsafePathScalars(validated),
+            // A literal `#` is legal in a POSIX filename but the recent-link open
+            // path (`MarkdownLinkIntercept.documentPathPayload`) parses a bare
+            // path as link syntax and strips everything from the first `#` as a
+            // fragment, so `/tmp/#175.md` reduces to `/tmp/` and fails to open.
+            // Recording it would be a dead palette entry — the exact "click looks
+            // dead" symptom this feature avoids — so drop it. Only `#` is
+            // stripped that way: `?` is preserved by `URL(fileURLWithPath:)` and
+            // opens correctly, so it is intentionally allowed. Ceiling: revisit if
+            // the open path grows raw-path handling that round-trips `#`.
+            !validated.contains("#")
+        else {
+            return nil
+        }
+        return validated
+    }
+
     private struct Payload: Decodable {
         var v: Int
         var source: AgentRuntimeSource
@@ -154,7 +208,26 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
         var providerSessionID: String?
         var title: String?
         var documentPath: String?
+        // `touchedPath` rides on a `.toolEnd` event that carries a load-bearing
+        // execution transition, so — unlike `documentPath`, which only appears
+        // on document-only `open-document` events — a wrong-typed value must
+        // strip just the field, never throw and drop the whole event. Lenient
+        // decoding gives it that: a present-but-non-string value (array/number)
+        // decodes to a `LenientString` whose `value` is nil rather than throwing.
+        var touchedPath: LenientString?
         var timestamp: RuntimeTimestamp?
+    }
+
+    /// Decodes a JSON string field without letting a wrong-typed value sink the
+    /// enclosing object's decode. Held as an optional so absent/null keys use
+    /// the synthesized `decodeIfPresent` (→ nil); a present non-string decodes
+    /// to `value == nil` via the `try?` here.
+    private struct LenientString: Decodable {
+        var value: String?
+
+        init(from decoder: Decoder) throws {
+            value = try? decoder.singleValueContainer().decode(String.self)
+        }
     }
 
     private enum RuntimeTimestamp: Decodable {

@@ -36,6 +36,7 @@ Payload fields:
 | `phase` | No | `sessionStart`, `promptSubmit`, `toolStart`, `toolEnd`, `notification`, `stop`, `sessionEnd`, `rename`, `open-document` |
 | `title` | No | Pane title for a `phase=rename` event. A non-empty value pins the pane's title; an empty string resets it to the live terminal title; an absent `title` on a rename event is dropped. Only consumed for `phase=rename`. |
 | `documentPath` | No | Absolute local Markdown path for a `phase=open-document` event. Only `.md` and `.markdown` paths are accepted. Relative paths, paths containing NUL, and events over the 4 KB line cap are dropped. |
+| `touchedPath` | No | Absolute local Markdown file a Claude Code tool just wrote/edited, forwarded so it can be recorded into the pane's recent links (issue #175). Retained only on a `source=claude-code`, `phase=toolEnd` event; the parser strips it on any other source or phase, and on relative, non-Markdown, NUL-bearing, or bidi/RTL-scalar paths. Unlike `documentPath` it does not open a pane — it records a link the user can open from the palette. |
 | `eventID` | No | Adapter-defined identifier, paired with `timestamp` for dedupe |
 | `providerSessionID` | No | Provider-native session id, currently used to keep Grok child-agent lifecycle events from driving the parent tile |
 | `timestamp` | No | ISO-8601 string or numeric Unix seconds (integer or float). Helper-generated timestamps are numeric Unix seconds with fractional precision; consumers should not require nanosecond precision. |
@@ -123,6 +124,48 @@ new panes.
 Only absolute local `.md` and `.markdown` paths are accepted at the event layer.
 The eventual document read still goes through `DocumentURLValidator`, including
 the 10 MB file-size cap.
+
+### Touched path (`touchedPath` on `phase=toolEnd`)
+
+Agent TUIs hard-wrap long file paths with real CR/LF, so a path printed to the
+console can be split across grid rows that no link matcher can rejoin — the path
+is un-hoverable and un-clickable (issue #175). To give an agent-written file a
+route that does not depend on console text, the bundled helper reads
+`tool_input.file_path` from a Claude Code `PostToolUse` payload and, for the
+file-mutating tools `Write` / `Edit` / `MultiEdit`, forwards it as `touchedPath`
+on the emitted `toolEnd` event. The app records that path into the pane's recent
+links, where the command palette's **Open Recent Link** surfaces it and routes
+Markdown to a document pane — the same path a hovered link would take.
+
+Scope is deliberately narrow, and enforced at the trust boundary rather than
+trusting the emitting helper:
+
+- **Markdown only.** awesoMux's link-open routing is Markdown-only by design (a
+  security fence so an OSC-8 link cannot launch a local executable), so only
+  paths awesoMux can actually act on are surfaced. Non-Markdown agent-written
+  files are out of scope until an "open non-Markdown files" capability lands.
+- **Mutating tools only.** Files merely read (`Read` / `Grep` / `Glob`) are never
+  recorded — only files a tool wrote or edited.
+- **Claude Code only.** Codex and Grok are deferred until their tool payload
+  shapes are verified.
+- **Re-validated in `AgentRuntimeEvent.parse`.** A `touchedPath` is retained only
+  on a `source=claude-code`, `phase=toolEnd` event; on any other source/phase it
+  is stripped (the rest of the event still applies), so a same-UID process cannot
+  forge one onto another phase. Relative, non-Markdown, NUL-bearing, and
+  bidi/RTL-scalar paths are rejected, as are paths containing `#` (the recent-link
+  open path strips it as a fragment, so the file could never open — a `?` is
+  preserved and allowed). A wrong-typed `touchedPath` (array/number/object) or a
+  too-long path that would exceed the 4 KB line cap strips only the field; the
+  `toolEnd` lifecycle event still applies.
+- **Recorded, not opened.** The path lands in the recent-links ring (session-only,
+  not persisted; shared with hover-recorded links); the user decides when to open
+  it. A `toolEnd` fires after the tool ran; awesoMux does not inspect the tool
+  result, so the path reflects an attempted mutation.
+
+A Claude Code `PostToolUse` payload embeds the full `tool_input` (a `Write`
+carries the entire file `content`) plus `tool_response`, so the helper's stdin
+cap is 1 MiB. A single write whose payload exceeds that is dropped whole (the
+pre-existing oversized-input behavior); its path is not surfaced.
 
 ## App-Bundled Hook Helper
 

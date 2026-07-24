@@ -3,7 +3,14 @@ import Foundation
 import os
 
 public enum AgentHookCommand {
-    public static let maximumInputByteCount = 64 * 1024
+    // 1 MiB: a Claude Code PostToolUse payload embeds the full `tool_input`
+    // (a Write carries the entire file `content`) plus `tool_response`, so a
+    // 64 KiB cap dropped the whole event — and with it the touched-path
+    // surfacing (issue #175) — for any moderately large Markdown write. This is
+    // a one-shot hook process reading one payload, so a larger bound costs
+    // nothing. Ceiling: a >1 MiB write still drops; raise again only if real
+    // agent writes routinely exceed it.
+    public static let maximumInputByteCount = 1024 * 1024
 
     private static let eventFileEnvironmentKey = AgentRuntimeEnvironmentKey.eventFile
     private static let decoder = JSONDecoder()
@@ -35,7 +42,8 @@ public enum AgentHookCommand {
         let provider = invocation.provider
 
         guard let eventFilePath = environment[eventFileEnvironmentKey],
-              !eventFilePath.isEmpty else {
+            !eventFilePath.isEmpty
+        else {
             log(provider: provider, eventName: nil, category: "missing-event-file")
             return 0
         }
@@ -59,13 +67,17 @@ public enum AgentHookCommand {
                 return 0
             }
 
-            guard let mappedEvent = AgentHookEventMapper.event(
-                provider: provider,
-                hookEventName: hookEventName,
-                notificationType: payload.notificationType,
-                providerSessionID: provider == .grok ? payload.providerSessionID : nil,
-                reason: payload.reason
-            ) else {
+            guard
+                let mappedEvent = AgentHookEventMapper.event(
+                    provider: provider,
+                    hookEventName: hookEventName,
+                    notificationType: payload.notificationType,
+                    providerSessionID: provider == .grok ? payload.providerSessionID : nil,
+                    reason: payload.reason,
+                    toolName: payload.toolName,
+                    toolFilePath: payload.toolFilePath
+                )
+            else {
                 log(provider: provider, eventName: hookEventName, category: "unknown-event")
                 return 0
             }
@@ -89,7 +101,19 @@ public enum AgentHookCommand {
         }
 
         do {
-            let line = try event.hookJSONLineData()
+            var line = try event.hookJSONLineData()
+            // A very long touched path can push the line past the JSONL cap. The
+            // path is the droppable extra here; the lifecycle transition is not.
+            // Re-encode without it so an oversized path degrades to "no link",
+            // never to a lost `.toolEnd` (issue #175). `documentPath` is not
+            // retried: an open-document event with no path has nothing to do.
+            if line.count > AgentRuntimeEvent.maximumLineByteCount,
+                event.touchedPath != nil
+            {
+                var trimmed = event
+                trimmed.touchedPath = nil
+                line = try trimmed.hookJSONLineData()
+            }
             guard line.count <= AgentRuntimeEvent.maximumLineByteCount else {
                 log(provider: provider, eventName: eventName, category: "oversized-payload")
                 return 0
@@ -105,16 +129,18 @@ public enum AgentHookCommand {
     private static func parseInvocation(arguments: [String]) -> Invocation? {
         if arguments.first == "open-document" {
             guard arguments.count == 4,
-                  arguments[1] == "--provider",
-                  let provider = AgentHookProvider(rawValue: arguments[2]) else {
+                arguments[1] == "--provider",
+                let provider = AgentHookProvider(rawValue: arguments[2])
+            else {
                 return nil
             }
             return .openDocument(provider: provider, documentPath: arguments[3])
         }
 
         guard arguments.count == 2,
-              arguments[0] == "--provider",
-              let provider = AgentHookProvider(rawValue: arguments[1]) else {
+            arguments[0] == "--provider",
+            let provider = AgentHookProvider(rawValue: arguments[1])
+        else {
             return nil
         }
 

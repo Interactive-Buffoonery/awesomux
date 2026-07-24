@@ -70,22 +70,29 @@ struct AgentRuntimeEventReducer: Sendable {
         case open(URL)
     }
 
+    enum RecentLinkAction: Sendable, Equatable {
+        case record(String)
+    }
+
     struct Decision: Sendable {
         var update: WorkspaceAttentionReducer.SessionUpdate
         var appliesPaneUpdate: Bool
         var paneTitleAction: PaneTitleAction?
         var documentPaneAction: DocumentPaneAction?
+        var recentLinkAction: RecentLinkAction?
 
         init(
             update: WorkspaceAttentionReducer.SessionUpdate,
             appliesPaneUpdate: Bool = true,
             paneTitleAction: PaneTitleAction? = nil,
-            documentPaneAction: DocumentPaneAction? = nil
+            documentPaneAction: DocumentPaneAction? = nil,
+            recentLinkAction: RecentLinkAction? = nil
         ) {
             self.update = update
             self.appliesPaneUpdate = appliesPaneUpdate
             self.paneTitleAction = paneTitleAction
             self.documentPaneAction = documentPaneAction
+            self.recentLinkAction = recentLinkAction
         }
     }
 
@@ -336,6 +343,18 @@ struct AgentRuntimeEventReducer: Sendable {
         recordApplied(dedupeKey: dedupeKey, timestamp: event.timestamp, now: now, into: &state)
         stateByPaneID[paneID] = state
 
+        // A Claude Code tool just wrote/edited a Markdown file (issue #175).
+        // Surfacing it here — on the post-guard main return, so it inherits the
+        // dedupe/staleness/lifecycle drops above — records the untruncated path
+        // into the pane's recent links even though the agent's own console
+        // output hard-wrapped it beyond any link matcher's reach. Suppressed
+        // once the lifecycle has ended so a straggling tool event from a quit
+        // agent cannot seed the palette.
+        let recentLinkAction: RecentLinkAction? =
+            !state.lifecycle.isEnded
+            ? event.touchedPath.map { .record($0) }
+            : nil
+
         return Decision(
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentKind: resolvedKind,
@@ -343,7 +362,8 @@ struct AgentRuntimeEventReducer: Sendable {
                 attentionReason: eventAttentionReason,
                 clearsAttention: clearsAttention,
                 unreadNotificationDelta: unreadDelta
-            ))
+            ),
+            recentLinkAction: recentLinkAction)
     }
 
     /// Records an applied event into the per-pane state: appends its dedupe key
