@@ -228,39 +228,78 @@ enum AmxBackend {
     }
 
     /// Shell-integration env tokens for the daemon-spawned shell (INT close-risk
-    /// fix): libghostty's own zsh injection never fires for the bridge because
+    /// fix): libghostty's own shell injection never fires for the bridge because
     /// the surface child is `env … amx attach`, not a recognized shell, so the
-    /// daemon's zsh starts without ghostty integration and never emits OSC-133
+    /// daemon's shell starts without ghostty integration and never emits OSC-133
     /// prompt marks — leaving `needs_confirm_quit` conservatively true forever.
-    /// Mirror ghostty's `setupZsh` (vendor/ghostty/src/termio/shell_integration.zig):
-    /// point ZDOTDIR at the bundled integration dir and preserve any pre-existing
-    /// ZDOTDIR via GHOSTTY_ZSH_ZDOTDIR so the integration .zshenv can chain back.
+    /// Mirrors ghostty's own per-shell mechanisms
+    /// (vendor/ghostty/src/termio/shell_integration.zig):
+    /// - zsh (`setupZsh`): point ZDOTDIR at the bundled integration dir and
+    ///   preserve any pre-existing ZDOTDIR via GHOSTTY_ZSH_ZDOTDIR so the
+    ///   integration .zshenv can chain back.
+    /// - fish (`setupXdgDataDirs`): prepend the bundled integration dir to
+    ///   XDG_DATA_DIRS; fish auto-loads `vendor_conf.d/*.fish` files found on
+    ///   that path on startup, and the bundled script self-cleans both
+    ///   XDG_DATA_DIRS and GHOSTTY_SHELL_INTEGRATION_XDG_DIR once loaded
+    ///   (verified in vendor/ghostty/src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish),
+    ///   so this carries the same no-leak-into-a-differently-typed-nested-shell
+    ///   property the zsh gate below relies on.
     /// Every attach carries these, not just the first: a reattach that finds a
     /// stale socket forks a REPLACEMENT daemon from its own environment (zmx
     /// ensureSession recovery path), so the attach env is load-bearing there
-    /// too. Gated on the effective $SHELL being zsh — a ZDOTDIR left in a
-    /// bash/fish daemon's environment would leak into any nested zsh launched
-    /// later. Local attaches only: a remote session's daemon spawns `ssh`, and
-    /// the resources path doesn't exist on the far host.
-    /// deliberate scope ceiling — zsh only — bash/nu need argv rewriting zmx doesn't support;
-    /// add fish/elvish via XDG_DATA_DIRS if a non-zsh user reports the warning.
+    /// too. Gated on the effective $SHELL matching exactly — env left in a
+    /// daemon of a DIFFERENT shell type would leak into any nested shell of
+    /// the targeted type launched later (e.g. ZDOTDIR in a bash daemon leaking
+    /// into a nested zsh). Local attaches only: a remote session's daemon
+    /// spawns `ssh`, and the resources path doesn't exist on the far host.
+    /// deliberate scope ceiling: bash/nu need argv rewriting zmx doesn't
+    /// support (`--posix`+`ENV` / `--execute`); elvish is NOT the same shape as
+    /// fish despite also using XDG_DATA_DIRS — per ghostty's own docs
+    /// (vendor/ghostty/src/shell-integration/README.md, "Elvish" section),
+    /// elvish does not auto-source its integration file the way fish does, the
+    /// user must explicitly `use ghostty-integration` themselves, so env-only
+    /// injection here would neither activate it nor get cleaned up.
     private static func shellIntegrationEnvTokens(
         remote: RemoteTarget?,
         ghosttyResourcesDir: String?,
         inheritedZDOTDIR: String?,
+        inheritedXDGDataDirs: String?,
         shellPath: String?
     ) -> [String] {
         guard remote == nil,
             let ghosttyResourcesDir, !ghosttyResourcesDir.isEmpty,
-            let shellPath, ShellRecognition.basename(shellPath) == "zsh"
+            let shellPath
         else { return [] }
-        var tokens = [
-            shellQuote("ZDOTDIR=" + ghosttyResourcesDir + "/shell-integration/zsh")
-        ]
-        if let inheritedZDOTDIR {
-            tokens.append(shellQuote("GHOSTTY_ZSH_ZDOTDIR=" + inheritedZDOTDIR))
+        switch ShellRecognition.basename(shellPath) {
+        case "zsh":
+            var tokens = [
+                shellQuote("ZDOTDIR=" + ghosttyResourcesDir + "/shell-integration/zsh")
+            ]
+            if let inheritedZDOTDIR {
+                tokens.append(shellQuote("GHOSTTY_ZSH_ZDOTDIR=" + inheritedZDOTDIR))
+            }
+            return tokens
+        case "fish":
+            let integrationDir = ghosttyResourcesDir + "/shell-integration"
+            return [
+                shellQuote("GHOSTTY_SHELL_INTEGRATION_XDG_DIR=" + integrationDir),
+                shellQuote("XDG_DATA_DIRS=" + prependedXDGDataDirs(integrationDir, inherited: inheritedXDGDataDirs)),
+            ]
+        default:
+            return []
         }
-        return tokens
+    }
+
+    /// Mirrors ghostty's own `internal_os.prependEnv` exactly
+    /// (vendor/ghostty/src/os/env.zig): an ABSENT XDG_DATA_DIRS falls back to
+    /// the freedesktop base-dir spec default before prepending, but an
+    /// EXPLICITLY EMPTY one is treated as "nothing to prepend onto" and
+    /// returns the new value alone — no trailing delimiter, no default
+    /// substituted. These are different cases (nil vs. "") and ghostty
+    /// itself does not conflate them.
+    private static func prependedXDGDataDirs(_ integrationDir: String, inherited: String?) -> String {
+        let current = inherited ?? "/usr/local/share:/usr/share"
+        return current.isEmpty ? integrationDir : integrationDir + ":" + current
     }
 
     /// The `ssh` tokens appended after `attach <id>` for a remote pane. Each
@@ -313,22 +352,61 @@ enum AmxBackend {
         return url
     }()
 
+    /// Which integration-tree probe path gates injection for a given `$SHELL`
+    /// basename. zsh probes its own subdirectory directly (matches ghostty's
+    /// `setupZsh`); fish probes the shell-integration parent dir — NOT a
+    /// per-shell subdir — because fish applies its own `vendor_conf.d`
+    /// subpath convention when scanning `XDG_DATA_DIRS` entries (matches
+    /// ghostty's `setupXdgDataDirs`, which never probes a per-shell path
+    /// either). Any other shell (including elvish — see the scope-ceiling
+    /// note on `shellIntegrationEnvTokens`) returns nil: no injection, no
+    /// probe.
+    private static func shellIntegrationProbeSuffix(forShellNamed shellName: String?) -> String? {
+        switch shellName {
+        case "zsh": return "/shell-integration/zsh"
+        case "fish": return "/shell-integration"
+        default: return nil
+        }
+    }
+
     /// Env-derived inputs for shellIntegrationEnvTokens, resolved at attach
     /// time (post app-init sanitization). The resources dir is forwarded only
-    /// when its zsh integration subdirectory actually exists — ghostty's own
-    /// setupZsh probes the directory before pinning ZDOTDIR, and pointing
+    /// when the integration subtree for the effective $SHELL actually exists
+    /// — ghostty's own setup routines probe before pinning, and pointing e.g.
     /// ZDOTDIR at a missing dir makes zsh skip the user's dotfiles entirely
     /// (a silently worse failure than missing OSC-133). Not cached: attach
     /// commands assemble at surface-creation frequency, not per-frame.
     static func shellIntegrationInputs(
         from environment: [String: String],
-        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
-    ) -> (ghosttyResourcesDir: String?, inheritedZDOTDIR: String?, shellPath: String?) {
+        fileExists: (String) -> Bool = { path in
+            // Mirrors ghostty's own probes (setupZsh/setupXdgDataDirs both use
+            // openDirAbsolute, not a plain existence check): a regular file
+            // squatting on the expected directory path should fail the probe,
+            // not silently pass and produce env vars fish/zsh can never load
+            // or clean up.
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            return exists && isDirectory.boolValue
+        }
+    ) -> (
+        ghosttyResourcesDir: String?,
+        inheritedZDOTDIR: String?,
+        inheritedXDGDataDirs: String?,
+        shellPath: String?
+    ) {
         var resourcesDir = environment["GHOSTTY_RESOURCES_DIR"]
-        if let dir = resourcesDir, dir.isEmpty || !fileExists(dir + "/shell-integration/zsh") {
+        let shellName = environment["SHELL"].map(ShellRecognition.basename)
+        let probeSuffix = shellIntegrationProbeSuffix(forShellNamed: shellName)
+        let integrationDirExists: Bool = {
+            guard let dir = resourcesDir, !dir.isEmpty, let probeSuffix else { return false }
+            return fileExists(dir + probeSuffix)
+        }()
+        if !integrationDirExists {
             resourcesDir = nil
         }
-        return (resourcesDir, environment["ZDOTDIR"], environment["SHELL"])
+        return (
+            resourcesDir, environment["ZDOTDIR"], environment["XDG_DATA_DIRS"], environment["SHELL"]
+        )
     }
 
     static func attachCommand(
@@ -348,6 +426,7 @@ enum AmxBackend {
             remote: remote,
             ghosttyResourcesDir: inputs.ghosttyResourcesDir,
             inheritedZDOTDIR: inputs.inheritedZDOTDIR,
+            inheritedXDGDataDirs: inputs.inheritedXDGDataDirs,
             shellPath: inputs.shellPath
         )
     }
@@ -367,6 +446,7 @@ enum AmxBackend {
         remote: RemoteTarget? = nil,
         ghosttyResourcesDir: String? = nil,
         inheritedZDOTDIR: String? = nil,
+        inheritedXDGDataDirs: String? = nil,
         shellPath: String? = nil
     ) -> String? {
         guard TerminalSessionID.isValid(sessionID.rawValue) else {
@@ -390,6 +470,7 @@ enum AmxBackend {
             remote: remote,
             ghosttyResourcesDir: ghosttyResourcesDir,
             inheritedZDOTDIR: inheritedZDOTDIR,
+            inheritedXDGDataDirs: inheritedXDGDataDirs,
             shellPath: shellPath
         )
         tokens += [
