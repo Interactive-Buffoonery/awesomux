@@ -53,4 +53,27 @@ git -C "$ROOT_DIR" add -N "$SYSTEM_FIXTURE"
 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.noprefix GIT_CONFIG_VALUE_0=true \
     TEST_WAIT_BASE=HEAD "$ROOT_DIR/script/check_test_waits.sh" >/dev/null
 
+# awesomux#207: unbounded waitUntilExit() is rejected everywhere, including the
+# system-test directory that the sleep rule exempts. The bounded
+# waitUntilExitEventually() and an implicit-self call must be told apart.
+git -C "$ROOT_DIR" reset --quiet -- "$SYSTEM_FIXTURE"
+printf 'func a(p: Process) { p.waitUntilExit() }\nfunc b(p: Process) { waitUntilExit() }\n' \
+    > "$SYSTEM_FIXTURE"
+git -C "$ROOT_DIR" add -N "$SYSTEM_FIXTURE"
+if output="$(TEST_WAIT_BASE=HEAD "$ROOT_DIR/script/check_test_waits.sh" 2>&1)"; then
+    echo "error: test wait guard accepted an unbounded waitUntilExit" >&2
+    exit 1
+fi
+expected=$'Tests/awesoMuxTests/TestWaitGuardFixture.swift:1:func a(p: Process) { p.waitUntilExit() }\nTests/awesoMuxTests/TestWaitGuardFixture.swift:2:func b(p: Process) { waitUntilExit() }'
+if [[ "$(printf '%s\n' "$output" | head -n 2)" != "$expected" ]]; then
+    echo "error: test wait guard missed an unbounded waitUntilExit diagnostic" >&2
+    exit 1
+fi
+
+git -C "$ROOT_DIR" reset --quiet -- "$SYSTEM_FIXTURE"
+printf 'func ok(p: Process) throws { try p.waitUntilExitEventually() }\n' \
+    > "$SYSTEM_FIXTURE"
+git -C "$ROOT_DIR" add -N "$SYSTEM_FIXTURE"
+TEST_WAIT_BASE=HEAD "$ROOT_DIR/script/check_test_waits.sh" >/dev/null
+
 echo "Test wait guard tests passed"

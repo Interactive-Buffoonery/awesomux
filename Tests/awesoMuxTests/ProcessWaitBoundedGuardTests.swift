@@ -13,51 +13,78 @@ import Testing
 /// still compiles and silently binds to the unbounded Foundation method — even
 /// with `try` written in front of it, which only earns a warning. Nothing but a
 /// scan stops the next call site from reintroducing the hang.
+///
+/// `script/check_test_waits.sh` enforces the same rule on changed lines so cheap
+/// CI rejects a bare call before `swift test` starts. This suite is the
+/// whole-tree regression net behind it.
+///
+/// Scope is `Tests/` only. `Sources/awesoMux/Services/BridgeGenerationRegistry`
+/// keeps a bare wait on the app-quit path deliberately: its caller fans out
+/// under a `DispatchGroup` with `group.wait(timeout:)`, so quit stays bounded
+/// and killing the child mid-cleanup is explicitly not wanted there.
 @Suite("Bounded process-wait guard (awesomux#207)")
 struct ProcessWaitBoundedGuardTests {
     private static let testsRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()  // awesoMuxTests
         .deletingLastPathComponent()  // Tests
 
-    /// This file necessarily spells the banned pattern, so it exempts itself.
-    private static let exemptFileNames: Set<String> = [
-        URL(fileURLWithPath: #filePath).lastPathComponent
-    ]
+    /// Exempted by exact path, not basename: a second file sharing this name
+    /// elsewhere under `Tests/` must still be scanned.
+    private static let exemptPath = URL(fileURLWithPath: #filePath).standardized.path
 
-    private static let swiftSources: [(path: String, contents: String)] = {
+    private static let scan: (sources: [(path: String, contents: String)], unreadable: [String]) = {
         let enumerator = FileManager.default.enumerator(
             at: testsRoot,
             includingPropertiesForKeys: nil
         )
-        var results: [(String, String)] = []
+        var sources: [(String, String)] = []
+        var unreadable: [String] = []
         while let url = enumerator?.nextObject() as? URL {
             guard url.pathExtension == "swift",
-                !exemptFileNames.contains(url.lastPathComponent),
-                let contents = try? String(contentsOf: url, encoding: .utf8)
+                url.standardized.path != exemptPath
             else { continue }
-            results.append((url.path, contents))
+            // A file that cannot be read must be reported, never skipped: a
+            // guard that quietly shrinks its own input reports clean without
+            // having looked.
+            if let contents = try? String(contentsOf: url, encoding: .utf8) {
+                sources.append((url.path, contents))
+            } else {
+                unreadable.append(url.path)
+            }
         }
-        return results
+        return (sources, unreadable)
     }()
-
-    private static func codeLines(_ contents: String) -> [Substring] {
-        contents.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-    }
 
     @Test("no test spawns a child and waits on it unbounded")
     func noBareWaitUntilExit() throws {
-        try #require(!Self.swiftSources.isEmpty, "source scan found no Swift files")
+        try #require(!Self.scan.sources.isEmpty, "source scan found no Swift files")
+        try #require(
+            Self.testsRoot.lastPathComponent == "Tests",
+            "scan root drifted to \(Self.testsRoot.path); it must be the Tests directory"
+        )
+        #expect(Self.scan.unreadable.isEmpty, "unreadable sources: \(Self.scan.unreadable)")
 
-        // Matches the zero-argument call specifically, so the bounded
-        // `waitUntilExitEventually(deadline:)` and prose mentioning the API in
-        // comments do not trip the guard. Local because `Regex` is not Sendable.
-        let bareCall = /\.waitUntilExit\s*\(\s*\)/
+        // No leading dot, so an implicit-self call inside a `Process` extension
+        // is caught too — this module adds exactly such an extension, which
+        // makes that the natural next thing to write. `waitUntilExitEventually`
+        // cannot match: the bounded name has no `(` after `waitUntilExit`.
+        //
+        // Deliberately no `\b` and no lookbehind. `\b` does not match between
+        // `.` and `w`, so it silently misses `process.waitUntilExit()` — the
+        // primary case — and Swift Regex rejects lookbehind outright. The only
+        // thing this over-matches is an identifier ending in a lowercase
+        // `waitUntilExit`, which is not a name anyone writes.
+        let bareCall = /waitUntilExit\s*\(\s*\)/
 
         var offenders: [String] = []
-        for (path, contents) in Self.swiftSources {
-            for (index, line) in Self.codeLines(contents).enumerated()
-            where line.contains(bareCall) {
+        for (path, contents) in Self.scan.sources {
+            // Enumerate the real line sequence and filter inside the `where`,
+            // so reported line numbers stay true to the file.
+            for (index, line) in contents.split(separator: "\n", omittingEmptySubsequences: false)
+                .enumerated()
+            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                && line.contains(bareCall)
+            {
                 offenders.append("\(path):\(index + 1)")
             }
         }

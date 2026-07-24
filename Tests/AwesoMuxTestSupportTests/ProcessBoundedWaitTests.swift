@@ -44,7 +44,9 @@ struct ProcessBoundedWaitTests {
         let process = try Self.startSleep("30")
         defer {
             process.terminate()
-            try? process.waitUntilExitEventually(deadline: .seconds(10))
+            #expect(throws: Never.self) {
+                try process.waitUntilExitEventually(deadline: .seconds(10))
+            }
         }
         #expect(throws: ProcessWaitTimeout.self) {
             try process.waitUntilExitEventually(deadline: .milliseconds(200))
@@ -62,7 +64,7 @@ struct ProcessBoundedWaitTests {
         let clock = ContinuousClock()
         let start = clock.now
         #expect(throws: ProcessWaitTimeout.self) {
-            try waitForExit(deadline: .milliseconds(200)) { true }
+            try Process.waitForExit(deadline: .milliseconds(200)) { true }
         }
         #expect(clock.now - start < .seconds(5))
     }
