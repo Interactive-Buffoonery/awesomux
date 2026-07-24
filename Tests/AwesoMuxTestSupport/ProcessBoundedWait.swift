@@ -16,15 +16,16 @@ public struct ProcessWaitTimeout: Error, CustomStringConvertible {
         self.command = command
     }
 
-    /// States the observation, not a diagnosis. A dropped termination event is
-    /// only one way to get here: a child blocked writing to a pipe nobody has
-    /// drained yet produces exactly the same symptom, and naming #207 outright
-    /// would send the next investigator after a phantom OS bug.
+    /// States the observation and lists causes without ruling any out. All three
+    /// are reachable and indistinguishable from here: the child may simply still
+    /// be working, it may be blocked writing to a pipe nobody has drained yet,
+    /// or it may be long gone with its termination event dropped. Asserting any
+    /// single one would send the next investigator down the wrong path.
     public var description: String {
         let subject = command.map { "`\($0)`" } ?? "child process"
-        return "\(subject) did not report exit within \(deadline). Either its"
-            + " termination event was dropped (awesomux#207) or it is blocked"
-            + " writing to an undrained pipe."
+        return "\(subject) did not report exit within \(deadline). It may still"
+            + " be running, be blocked writing to an undrained pipe, or have"
+            + " exited with its termination event dropped (awesomux#207)."
     }
 }
 

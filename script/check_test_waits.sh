@@ -55,6 +55,10 @@ check_unbounded_wait() {
     [[ "$file" == Tests/AwesoMuxTestSupport/ProcessBoundedWait.swift ]] && return
     [[ "$file" == Tests/awesoMuxTests/ProcessWaitBoundedGuardTests.swift ]] && return
     [[ "$file" == Sources/awesoMux/Services/BridgeGenerationRegistry.swift ]] && return
+    # Skip comment lines, matching ProcessWaitBoundedGuardTests: prose warning
+    # people off the bare call must not itself fail the guard.
+    local trimmed="${content#"${content%%[![:space:]]*}"}"
+    [[ "$trimmed" == //* ]] && return
     if [[ "$content" =~ $unbounded_wait_pattern ]]; then
         printf '%s:%s:%s\n' "$file" "$line" "$content" >&2
         found_unbounded=1

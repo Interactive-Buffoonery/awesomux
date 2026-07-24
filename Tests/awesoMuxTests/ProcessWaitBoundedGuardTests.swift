@@ -74,6 +74,12 @@ struct ProcessWaitBoundedGuardTests {
         // primary case — and Swift Regex rejects lookbehind outright. The only
         // thing this over-matches is an identifier ending in a lowercase
         // `waitUntilExit`, which is not a name anyone writes.
+        //
+        // ponytail: line-at-a-time, so `waitUntilExit(\n)` and a stored method
+        // reference (`let f = p.waitUntilExit`) both slip through, as they do in
+        // `check_test_waits.sh`. Neither is a shape anyone writes by accident,
+        // and closing them means a real Swift parser. Reach for SwiftSyntax only
+        // if one ever actually lands on main.
         let bareCall = /waitUntilExit\s*\(\s*\)/
 
         var offenders: [String] = []

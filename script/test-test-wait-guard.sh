@@ -71,7 +71,7 @@ if [[ "$(printf '%s\n' "$output" | head -n 2)" != "$expected" ]]; then
 fi
 
 git -C "$ROOT_DIR" reset --quiet -- "$SYSTEM_FIXTURE"
-printf 'func ok(p: Process) throws { try p.waitUntilExitEventually() }\n' \
+printf 'func ok(p: Process) throws { try p.waitUntilExitEventually() }\n// never call p.waitUntilExit() directly\n' \
     > "$SYSTEM_FIXTURE"
 git -C "$ROOT_DIR" add -N "$SYSTEM_FIXTURE"
 TEST_WAIT_BASE=HEAD "$ROOT_DIR/script/check_test_waits.sh" >/dev/null
