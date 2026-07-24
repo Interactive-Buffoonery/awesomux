@@ -31,12 +31,13 @@ extension GhosttySurfaceNSView {
         updateSurfaceSize(contentSize, creatingIfNeeded: false, forceImmediateApply: true)
     }
 
-    /// An eased sidebar-divider settle started (#81). The animation moves the
-    /// divider programmatically, so AppKit never raises `inLiveResize`; latch this
-    /// so the per-frame reflow coalesces instead of flashing the surface blank.
-    /// Broadcast unscoped: a surface in a window whose sidebar isn't settling sees
-    /// no size change, so latching is a harmless no-op there.
+    /// An eased sidebar-divider settle started in this surface's window (#81). The
+    /// animation moves the divider programmatically, so AppKit never raises
+    /// `inLiveResize`; latch this so the per-frame reflow coalesces instead of
+    /// flashing the surface blank. Scoped to the settling window so a settle in
+    /// another window never defers this surface's own programmatic resizes.
     @objc func dividerSettleWillBegin(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
         lifecycleState.isSettlingDividerAnimation = true
     }
 
@@ -44,7 +45,9 @@ extension GhosttySurfaceNSView {
     /// the latch and flush the settled geometry exactly once, so the winsize the
     /// coalescing suppressed can never be left stale.
     @objc func dividerSettleDidEnd(_ notification: Notification) {
-        guard lifecycleState.isSettlingDividerAnimation else { return }
+        guard notification.object as? NSWindow === window,
+            lifecycleState.isSettlingDividerAnimation
+        else { return }
         lifecycleState.isSettlingDividerAnimation = false
         updateSurfaceSize(contentSize, creatingIfNeeded: false, forceImmediateApply: true)
     }
@@ -983,6 +986,12 @@ extension GhosttySurfaceNSView {
     }
 
     func updateWindowObservation() {
+        // A window change ends any settle this surface was coalescing for its old
+        // window: clear the latch so a scoped settle-end that no longer matches
+        // (detach mid-settle → the controller posts end with a nil/other window)
+        // can't strand it deferring forever (#81).
+        lifecycleState.isSettlingDividerAnimation = false
+
         // Scope removal to the previously-observed window so we don't sweep
         // away unrelated occlusion observers if any are added later.
         if let observedWindow = lifecycleState.observedWindow {

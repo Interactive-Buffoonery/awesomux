@@ -429,7 +429,7 @@ struct SidebarPresentationBehaviorTests {
         var liveWidths: [CGFloat] = []
         controller.onLiveWidthChange = { liveWidths.append($0) }
 
-        controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth)
+        controller.setSelectedSidebarWidth(SidebarWidthPolicy.collapsedWidth, animated: false)
 
         // The terminal pane frame is the end-state proxy for "no divider geometry
         // moved": an overlay width change is compositor-only, so the split's panes
@@ -452,7 +452,7 @@ struct SidebarPresentationBehaviorTests {
         controller.view.layoutSubtreeIfNeeded()
         let detailFrame = detail.view.frame
 
-        controller.setSelectedSidebarWidth(300)
+        controller.setSelectedSidebarWidth(300, animated: false)
         controller.setOverlayPresentedImmediately(true)
 
         #expect(controller.sidebarHostClipViewForTesting.frame.width == 300)
@@ -498,7 +498,7 @@ struct SidebarPresentationBehaviorTests {
         let (controller, _, _) = makeController()
         controller.setPersistentSidebarVisible(false)
 
-        controller.setSelectedSidebarWidth(width)
+        controller.setSelectedSidebarWidth(width, animated: false)
         controller.setOverlayPresentedImmediately(true)
 
         #expect(
