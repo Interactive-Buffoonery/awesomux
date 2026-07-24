@@ -451,22 +451,26 @@ struct AwesoMuxApp: App {
                     groupName: request.action.groupName,
                     initialDestination: request.initialDestination,
                     onCancel: { sshWorkspaceConnectRequest = nil },
-                    onConnect: { target in
+                    onConnect: { execution in
                         switch request.action {
                         case .convertPane(let sessionID, let paneID):
                             guard
                                 let discardedPaneID = sessionStore.convertPaneToManagedSSH(
                                     sessionID: sessionID,
                                     paneID: paneID,
-                                    target: target
+                                    target: execution.target,
+                                    sessionName: execution.sessionName,
+                                    remoteExecutablePath: execution.remoteExecutablePath
                                 )
                             else { return false }
                             ghosttyRuntime.discardSurface(for: discardedPaneID)
                         case .addToGroup(let groupID, _):
                             guard
                                 sessionStore.addSSHSession(
-                                    target: target,
-                                    toGroupID: groupID
+                                    target: execution.target,
+                                    toGroupID: groupID,
+                                    sessionName: execution.sessionName,
+                                    remoteExecutablePath: execution.remoteExecutablePath
                                 ) != nil
                             else { return false }
                         }
