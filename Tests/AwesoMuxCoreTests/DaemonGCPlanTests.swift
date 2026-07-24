@@ -216,9 +216,9 @@ struct DaemonGCPlanTests {
         let attachedID = TerminalSessionID(rawValue: uuidA)!
         let orphanUUID = "33333333-3333-4333-8333-333333333333"
         func candidate(_ uuid: String, token: String = "0a1b2c3d", mtime: Int = 500)
-            -> DaemonGCPlan.StatusFileCandidate
+            -> DaemonGCPlan.FileCandidate
         {
-            DaemonGCPlan.StatusFileCandidate(
+            DaemonGCPlan.FileCandidate(
                 filename: "\(uuid)-\(token).status.jsonl",
                 modifiedEpoch: mtime
             )
@@ -231,7 +231,7 @@ struct DaemonGCPlanTests {
                 candidate(orphanUUID),  // orphan, pre-fence → stale
                 candidate(orphanUUID, token: "eeeeeeee", mtime: gcStart - grace),  // exact boundary → spared
                 candidate(orphanUUID, token: "ffffffff", mtime: gcStart - 5),  // in-flight attach → spared
-                DaemonGCPlan.StatusFileCandidate(
+                DaemonGCPlan.FileCandidate(
                     filename: "not-a-session.status.jsonl", modifiedEpoch: 1
                 ),  // unparseable → spared
             ],
@@ -245,6 +245,97 @@ struct DaemonGCPlanTests {
                 "\(uuidB)-0a1b2c3d.status.jsonl",
                 "\(orphanUUID)-0a1b2c3d.status.jsonl",
             ])
+    }
+
+    @Test("log filename parser accepts <uuid>.log and rotated .log.old only")
+    func logFilenameParsing() {
+        #expect(DaemonGCPlan.logFileSessionID("\(uuidA).log")?.rawValue == uuidA)
+        #expect(DaemonGCPlan.logFileSessionID("\(uuidA).log.old")?.rawValue == uuidA)
+
+        #expect(DaemonGCPlan.logFileSessionID("zmx.log") == nil)  // global log, non-UUID stem
+        #expect(DaemonGCPlan.logFileSessionID("dev.log") == nil)  // hand name
+        #expect(DaemonGCPlan.logFileSessionID("\(uuidA).log.new") == nil)  // unknown rotation suffix
+        #expect(DaemonGCPlan.logFileSessionID("\(uuidA)-0a1b2c3d.status.jsonl") == nil)  // status file
+        #expect(DaemonGCPlan.logFileSessionID("\(uuidA)x.log") == nil)  // stem too long
+        #expect(
+            DaemonGCPlan.logFileSessionID(
+                "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA.log") == nil)  // uppercase uuid
+    }
+
+    @Test("log sweep spares live daemons, in-grace, and unattributable files")
+    func staleSessionLogSelection() {
+        let gcStart = 10_000
+        let grace = 3_600
+        let liveID = TerminalSessionID(rawValue: uuidA)!
+        let orphanUUID = "33333333-3333-4333-8333-333333333333"
+        func candidate(_ name: String, mtime: Int = 500) -> DaemonGCPlan.FileCandidate {
+            DaemonGCPlan.FileCandidate(filename: name, modifiedEpoch: mtime)
+        }
+
+        let ownedUUID = "77777777-7777-4777-8777-777777777777"
+        let ownedID = TerminalSessionID(rawValue: ownedUUID)!
+        let stale = DaemonGCPlan.staleSessionLogs(
+            candidates: [
+                candidate("\(uuidA).log"),  // live daemon, however old → spared
+                candidate("\(uuidA).log.old"),  // live daemon's rotated log → spared
+                candidate("\(ownedUUID).log"),  // dead but owned (restore may recreate) → spared
+                candidate("\(uuidB).log"),  // dead session → stale
+                candidate("\(orphanUUID).log.old"),  // dead session's rotated log → stale
+                candidate("\(orphanUUID).log", mtime: gcStart - grace),  // exact boundary → spared
+                candidate("\(orphanUUID).log", mtime: gcStart - 5),  // in-grace → spared
+                candidate("zmx.log"),  // unattributable → spared
+            ],
+            liveSessionIDs: [liveID],
+            owned: [ownedID],
+            gcStart: gcStart,
+            graceSeconds: grace
+        )
+
+        #expect(
+            stale.sorted() == [
+                "\(uuidB).log",
+                "\(orphanUUID).log.old",
+            ])
+    }
+
+    @Test("attach-gate spared count measures only aged, attributed, attached files")
+    func attachGateSpared() {
+        let gcStart = 10_000
+        let grace = 3_600
+        let idA = TerminalSessionID(rawValue: uuidA)!
+        let idB = TerminalSessionID(rawValue: uuidB)!
+        func candidate(_ uuid: String, token: String, mtime: Int = 500)
+            -> DaemonGCPlan.FileCandidate
+        {
+            DaemonGCPlan.FileCandidate(
+                filename: "\(uuid)-\(token).status.jsonl", modifiedEpoch: mtime)
+        }
+
+        let spared = DaemonGCPlan.attachGateSparedStatusFiles(
+            candidates: [
+                candidate(uuidA, token: "00000001"),  // attached + aged → counted
+                candidate(uuidA, token: "00000002"),  // attached + aged, same session → counted
+                candidate(uuidB, token: "00000003"),  // attached + aged, other session → counted
+                candidate(uuidA, token: "00000004", mtime: gcStart - 5),  // in-grace → not counted
+                candidate("33333333-3333-4333-8333-333333333333", token: "00000005"),  // unattached → not counted
+                DaemonGCPlan.FileCandidate(filename: "junk.status.jsonl", modifiedEpoch: 1),  // unattributable
+            ],
+            attached: [idA, idB],
+            gcStart: gcStart,
+            graceSeconds: grace
+        )
+        #expect(spared.files == 3)
+        #expect(spared.sessions == 2)
+
+        // Nothing attached → a real zero observation.
+        let none = DaemonGCPlan.attachGateSparedStatusFiles(
+            candidates: [candidate(uuidA, token: "00000006")],
+            attached: [],
+            gcStart: gcStart,
+            graceSeconds: grace
+        )
+        #expect(none.files == 0)
+        #expect(none.sessions == 0)
     }
 
     @Test("strict list parse rejects any nonblank row the tolerant parser skips")
