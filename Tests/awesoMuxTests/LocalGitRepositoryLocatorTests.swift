@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -116,7 +117,7 @@ private final class GitRepositoryFixture {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
         guard process.terminationStatus == 0 else {
             throw FixtureError.gitFailed(arguments, process.terminationStatus)
         }

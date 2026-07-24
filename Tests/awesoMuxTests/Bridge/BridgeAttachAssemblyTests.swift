@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import Foundation
@@ -391,8 +392,8 @@ struct BridgeAttachAssemblyTests {
         )
         let successorFinishedBeforeDelete = successorCompletion.wait(timeout: 0.3)
         try Data().write(to: releaseURL)
-        staleDelete.waitUntilExit()
-        successorWriteProcess.waitUntilExit()
+        try staleDelete.waitUntilExitEventually()
+        try successorWriteProcess.waitUntilExitEventually()
 
         #expect(!successorFinishedBeforeDelete)
         #expect(staleDelete.terminationStatus == 0)
@@ -443,13 +444,13 @@ struct BridgeAttachAssemblyTests {
 
         first.terminate()
         try #require(await Self.waitForFile(secondEnteredURL))
-        first.waitUntilExit()
+        try first.waitUntilExitEventually()
         #expect(first.terminationStatus != 0)
         #expect(fileManager.fileExists(atPath: lockURL.path))
         #expect(second.isRunning)
 
         try Data().write(to: secondReleaseURL)
-        second.waitUntilExit()
+        try second.waitUntilExitEventually()
         #expect(second.terminationStatus == 0)
         #expect(!fileManager.fileExists(atPath: lockURL.path))
     }
@@ -508,7 +509,7 @@ struct BridgeAttachAssemblyTests {
         let parentPublished = await Self.waitForFile(parentPublishedURL)
         if !parentPublished {
             try Data().write(to: releasePublisherURL)
-            first.waitUntilExit()
+            try first.waitUntilExitEventually()
         }
         try #require(parentPublished)
 
@@ -523,8 +524,8 @@ struct BridgeAttachAssemblyTests {
         let secondFinishedBeforePublication = secondCompletion.wait(timeout: 0.3)
         let secondEnteredBeforePublication = fileManager.fileExists(atPath: secondEnteredURL.path)
         try Data().write(to: releasePublisherURL)
-        first.waitUntilExit()
-        second.waitUntilExit()
+        try first.waitUntilExitEventually()
+        try second.waitUntilExitEventually()
 
         #expect(!secondFinishedBeforePublication)
         #expect(!secondEnteredBeforePublication)
@@ -563,7 +564,7 @@ struct BridgeAttachAssemblyTests {
         )
         let finishedWithinBound = completion.wait(timeout: 45)
         if !finishedWithinBound { process.terminate() }
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
 
         #expect(finishedWithinBound)
         #expect(process.terminationStatus != 0)
@@ -602,7 +603,7 @@ struct BridgeAttachAssemblyTests {
         let firstEntered = await Self.waitForFile(firstEnteredURL)
         if !firstEntered {
             try Data().write(to: releaseFirstURL)
-            first.waitUntilExit()
+            try first.waitUntilExitEventually()
         }
         try #require(firstEntered)
 
@@ -633,8 +634,8 @@ struct BridgeAttachAssemblyTests {
         let lookupAttempted = await Self.waitForFile(lookupAttemptedURL)
         let secondEnteredWhileFirstHeldLease = fileManager.fileExists(atPath: secondEnteredURL.path)
         try Data().write(to: releaseFirstURL)
-        first.waitUntilExit()
-        second.waitUntilExit()
+        try first.waitUntilExitEventually()
+        try second.waitUntilExitEventually()
 
         #expect(lookupAttempted)
         #expect(!secondEnteredWhileFirstHeldLease)
@@ -913,7 +914,7 @@ struct BridgeAttachAssemblyTests {
 
     private static func runShell(_ script: String, stdin: Data? = nil) throws {
         let process = try startShell(script, stdin: stdin)
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
         guard process.terminationStatus == 0 else {
             throw ShellRaceError.failed(process.terminationStatus)
         }

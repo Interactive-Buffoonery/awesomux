@@ -19,7 +19,7 @@ struct ProcessBoundedWaitTests {
     @Test("a child that exits normally is waited out and leaves its status readable")
     func normalExitSucceeds() throws {
         let process = try Self.startSleep("0")
-        try process.waitUntilExit(deadline: .seconds(30))
+        try process.waitUntilExitEventually(deadline: .seconds(30))
         #expect(!process.isRunning)
         // Reading this at all is the point: it raises an uncatchable ObjC
         // exception unless Foundation has actually observed the exit.
@@ -34,7 +34,7 @@ struct ProcessBoundedWaitTests {
         let process = try Self.startSleep("1")
         let clock = ContinuousClock()
         let start = clock.now
-        try process.waitUntilExit(deadline: .seconds(30))
+        try process.waitUntilExitEventually(deadline: .seconds(30))
         #expect(clock.now - start < .seconds(10))
         #expect(process.terminationStatus == 0)
     }
@@ -44,10 +44,10 @@ struct ProcessBoundedWaitTests {
         let process = try Self.startSleep("30")
         defer {
             process.terminate()
-            try? process.waitUntilExit(deadline: .seconds(10))
+            try? process.waitUntilExitEventually(deadline: .seconds(10))
         }
         #expect(throws: ProcessWaitTimeout.self) {
-            try process.waitUntilExit(deadline: .milliseconds(200))
+            try process.waitUntilExitEventually(deadline: .milliseconds(200))
         }
         // The helper must leave the child alone — signalling a possibly-recycled
         // PID after a stale reading is exactly what it refuses to do.
@@ -70,7 +70,7 @@ struct ProcessBoundedWaitTests {
     @Test("an already-exited process returns without polling")
     func alreadyExitedReturnsImmediately() throws {
         let process = try Self.startSleep("0")
-        try process.waitUntilExit(deadline: .seconds(30))
-        try process.waitUntilExit(deadline: .zero)
+        try process.waitUntilExitEventually(deadline: .seconds(30))
+        try process.waitUntilExitEventually(deadline: .zero)
     }
 }
