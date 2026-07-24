@@ -5,7 +5,7 @@ extension AgentRuntimeEvent {
     func hookJSONLineData() throws -> Data {
         var payload: [String: Any] = [
             "v": version,
-            "source": source.rawValue
+            "source": source.rawValue,
         ]
 
         if let kind {
@@ -34,6 +34,10 @@ extension AgentRuntimeEvent {
 
         if let documentPath {
             payload["documentPath"] = documentPath
+        }
+
+        if let touchedPath {
+            payload["touchedPath"] = touchedPath
         }
 
         if let providerSessionID {

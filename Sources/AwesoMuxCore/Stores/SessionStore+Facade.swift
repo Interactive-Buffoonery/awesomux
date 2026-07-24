@@ -678,6 +678,24 @@ extension SessionStore {
         case nil:
             break
         }
+
+        // ponytail: agent-touched paths share the same 20-slot recent-links ring
+        // as pointer-hover links, so a burst of edits can evict hovered links.
+        // Deliberate reuse — it inherits the palette surface and Markdown open
+        // routing for free. Give them their own store only if the eviction
+        // proves annoying in practice.
+        switch decision.recentLinkAction {
+        case .record(let value):
+            if let session = PaneLayoutReducer.recordRecentTerminalLink(
+                in: _groups[position.groupIndex].sessions[position.sessionIndex],
+                paneID: paneID,
+                value: value
+            ) {
+                _groups[position.groupIndex].sessions[position.sessionIndex] = session
+            }
+        case nil:
+            break
+        }
         commit(
             WorkspaceMutationEffect(riskSessionIDs: [sessionID]),
             now: now
