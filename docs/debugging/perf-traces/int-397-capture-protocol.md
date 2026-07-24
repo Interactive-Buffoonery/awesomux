@@ -90,13 +90,16 @@ readers which side of the user-config override this capture is on.
    config and record the effective value in the companion `.md`.
    Generate deterministic output slightly above that budget so the
    buffer fills fully. The limit counts allocated cell memory
-   (~12.5 bytes/cell including blank trailing cells), so a full 80-col
-   row costs ~1 000 bytes regardless of text length:
-   `LINES ≈ budget / (12.5 × cols) × 1.2`, e.g. ~77 000 lines at
-   64 MB / 80 cols. Do not massively overfill — excess streamed output
-   confounds the GPU-buffer measurement with fill throughput:
+   (~12.5 bytes/cell, blank trailing cells included), so one row costs
+   ~12.5 × pane-columns bytes regardless of text length. Compute the
+   line count from the effective budget and the live pane width, in the
+   pane itself (requires a pane ≥ 80 columns so each printf line stays
+   one physical row; do not overfill — excess streamed output confounds
+   the GPU-buffer measurement with fill throughput):
    ```sh
-   for i in $(seq 1 77000); do printf '%07d %-71s\n' $i "INT-397 scrollback fill line padded with deterministic content"; done
+   BUDGET=64000000   # effective scrollback-limit for THIS run (see step 1)
+   LINES=$(( BUDGET * 96 / (1000 * $(tput cols)) ))   # budget/(12.5*cols) * 1.2
+   for i in $(seq 1 $LINES); do printf '%07d %-71s\n' $i "INT-397 scrollback fill line padded with deterministic content"; done
    ```
    Paste into the pane and let it run to
    completion.
