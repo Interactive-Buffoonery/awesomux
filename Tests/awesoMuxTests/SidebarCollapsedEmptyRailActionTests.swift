@@ -43,10 +43,11 @@ struct SidebarCollapsedEmptyRailActionTests {
         fixture.clickActionPoint()
 
         // With a group present, CollapsedEmptySidebarAction doesn't render at
-        // all — this coordinate instead lands on the group's existing
-        // session tile, which selects it (expected — that's a real tile, not
-        // a phantom empty-rail button). The invariant this test actually
-        // cares about is narrower: no new workspace got created.
+        // all — this coordinate instead lands on real group-row content
+        // (header or tile, depending on exact row heights), which selects
+        // the session (expected — that's real content, not a phantom
+        // empty-rail button). The invariant this test actually cares about
+        // is narrower: no new workspace got created.
         #expect(fixture.store.groups.count == 1)
         #expect(fixture.store.groups.first?.name == "Project")
         #expect(fixture.store.groups.first?.sessions.count == 1)
