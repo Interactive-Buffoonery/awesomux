@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 
@@ -86,7 +87,7 @@ struct PublicSeedSourceScriptTests {
         process.standardOutput = stdout
         process.standardError = stderr
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
         return ShellResult(
             status: process.terminationStatus,
             output: String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),

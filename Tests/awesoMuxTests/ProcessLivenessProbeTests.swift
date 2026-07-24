@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import AwesoMuxCore
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ struct ProcessLivenessProbeTests {
         p.executableURL = URL(fileURLWithPath: "/bin/sleep")
         p.arguments = ["0"]
         try p.run()
-        p.waitUntilExit()  // process exits AND is reaped → pid invalid
+        try p.waitUntilExitEventually()  // process exits AND is reaped → pid invalid
         #expect(ProcessLivenessProbe.hasChildren(pid: p.processIdentifier) == nil)
     }
 
@@ -43,7 +44,7 @@ struct ProcessLivenessProbeTests {
         reaped.executableURL = URL(fileURLWithPath: "/bin/sleep")
         reaped.arguments = ["0"]
         try reaped.run()
-        reaped.waitUntilExit()
+        try reaped.waitUntilExitEventually()
         #expect(ProcessLivenessProbe.processStartTime(pid: reaped.processIdentifier) == nil)
     }
 
@@ -55,7 +56,7 @@ struct ProcessLivenessProbeTests {
         p.executableURL = URL(fileURLWithPath: "/bin/sleep")
         p.arguments = ["0"]
         try p.run()
-        p.waitUntilExit()
+        try p.waitUntilExitEventually()
         #expect(ProcessLivenessProbe.terminalForegroundProcessGroup(pid: p.processIdentifier) == nil)
     }
 

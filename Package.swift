@@ -185,7 +185,7 @@ import PackageDescription
             ),
             .testTarget(
                 name: "AwesoMuxAgentHookSupportTests",
-                dependencies: ["AwesoMuxAgentHookSupport", "AwesoMuxBridgeProtocol", "AwesoMuxCore"]
+                dependencies: ["AwesoMuxAgentHookSupport", "AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxTestSupport"]
             ),
             .testTarget(
                 name: "AwesoMuxBridgeHelperSupportTests",

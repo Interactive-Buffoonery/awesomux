@@ -52,12 +52,12 @@ extension Process {
     /// in-process condition. Every child in the suite exits promptly once
     /// released, and the test job's own timeout is 120 minutes, so the deadline
     /// has room above the slowest legitimate child and far below CI's ceiling.
-    public func waitUntilExit(deadline: Duration = .seconds(30)) throws {
+    public func waitUntilExitEventually(deadline: Duration = .seconds(30)) throws {
         try waitForExit(deadline: deadline) { self.isRunning }
     }
 }
 
-/// Deadline loop behind ``Process/waitUntilExit(deadline:)``, split out so the
+/// Deadline loop behind ``Process/waitUntilExitEventually(deadline:)``, split out so the
 /// stuck-forever case (`isRunning` permanently `true`) is directly testable —
 /// a dropped termination event cannot be provoked on demand.
 ///

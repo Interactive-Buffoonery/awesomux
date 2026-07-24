@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 
@@ -99,7 +100,7 @@ struct BuildScriptHelpTests {
         process.standardError = stderr
 
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
 
         let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
             + stderr.fileHandleForReading.readDataToEndOfFile()

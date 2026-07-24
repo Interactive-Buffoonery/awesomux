@@ -178,7 +178,7 @@ struct AgentIntegrationInstallerTests {
             let lockHolder = try await Self.startExternalLockHolder(in: installState)
             defer {
                 lockHolder.terminate()
-                lockHolder.waitUntilExit()
+                #expect(throws: Never.self) { try lockHolder.waitUntilExitEventually() }
             }
             let home = directory.appending(path: "home", directoryHint: .isDirectory)
 
@@ -520,7 +520,7 @@ struct AgentIntegrationInstallerTests {
             let lockHolder = try await Self.startExternalLockHolder(in: canonical)
             defer {
                 lockHolder.terminate()
-                lockHolder.waitUntilExit()
+                #expect(throws: Never.self) { try lockHolder.waitUntilExitEventually() }
             }
 
             guard case .failed(.busy) = installer.loadManifestState() else {

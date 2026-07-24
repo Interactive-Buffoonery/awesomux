@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import AwesoMuxAgentHookSupport
@@ -362,7 +363,7 @@ struct ClaudeCodexPluginTemplateTests {
         try process.run()
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
         return ProcessResult(
             exitCode: process.terminationStatus,
             stdout: String(decoding: stdoutData, as: UTF8.self),
