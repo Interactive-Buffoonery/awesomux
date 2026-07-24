@@ -73,6 +73,18 @@ public enum PaneExecutionPlan: Hashable, Sendable {
         case .ssh(let execution): execution.target
         }
     }
+
+    /// The SSH execution whose session the REMOTE host owns, when this plan
+    /// declares one. Nil for local panes and for local-amx SSH panes — i.e.
+    /// non-nil exactly when there is no local `amx` daemon in front of the pane.
+    /// Single definition so the surface-command policy, the preflight gate, and
+    /// the enactor cannot drift on what "remote-owned" means.
+    public var remoteOwnedExecution: SSHExecution? {
+        guard case .ssh(let execution) = self, execution.persistenceOwner == .remoteZmx else {
+            return nil
+        }
+        return execution
+    }
 }
 
 extension PaneExecutionPlan: Codable {
