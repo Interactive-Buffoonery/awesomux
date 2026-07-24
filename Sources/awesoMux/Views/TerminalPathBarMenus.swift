@@ -51,7 +51,8 @@ struct BranchListMenu: View {
                 // passes, so `currentBranch` is unreachable as nil in
                 // practice — kept so this arm degrades safely instead of
                 // assuming that caller invariant holds forever.
-                || currentBranch == nil {
+                || currentBranch == nil
+            {
                 // nil = git failed (tool missing / timeout) → say so, distinct
                 // from "genuinely the only branch". An empty list under a pinned
                 // current row gets NO placeholder — the single row already says
@@ -153,13 +154,16 @@ struct BranchListMenu: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PathBarMenuRowButtonStyle(tone: Color.aw.text3, filled: false))
-        .help(canInsertCheckout
-            ? "Insert `git checkout \(branch)` at the prompt"
-            : "Copy branch name")
+        .help(
+            canInsertCheckout
+                ? "Insert `git checkout \(branch)` at the prompt"
+                : "Copy branch name"
+        )
         .accessibilityLabel(branch)
-        .accessibilityHint(canInsertCheckout
-            ? "Inserts the checkout command at the prompt."
-            : "Copies the branch name.")
+        .accessibilityHint(
+            canInsertCheckout
+                ? "Inserts the checkout command at the prompt."
+                : "Copies the branch name.")
     }
 }
 
@@ -171,11 +175,18 @@ struct OpenTargetMenu: View {
     let onOpenInIDEWithApp: (InstalledIDE) -> Void
     let onOpenInFinder: () -> Void
     let onCopyPath: () -> Void
+    /// Called once the "Copied" acknowledgement has been visible long enough
+    /// to register — the other rows close the menu immediately, but this one
+    /// needs a beat first so the green wash is actually seen.
+    let onCopyPathAcknowledged: () -> Void
+
+    @State private var didCopyPath = false
 
     private static let maxVisibleRows = 8
     private static let rowHeight: CGFloat = 30
     private static let minMenuWidth: CGFloat = 180
     private static let maxMenuWidth: CGFloat = 260
+    private static let copyAcknowledgementDelay = Duration.milliseconds(500)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -193,17 +204,7 @@ struct OpenTargetMenu: View {
                     .frame(width: 14, height: 14)
                     .accessibilityHidden(true)
             }
-            menuRow(
-                title: "Copy Path",
-                tone: Color.aw.text3,
-                isDefault: false,
-                action: onCopyPath
-            ) {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 12))
-                    .frame(width: 14, height: 14)
-                    .accessibilityHidden(true)
-            }
+            copyPathRow
         }
         .padding(6)
         .frame(minWidth: Self.minMenuWidth, maxWidth: Self.maxMenuWidth, alignment: .leading)
@@ -281,6 +282,54 @@ struct OpenTargetMenu: View {
         }
         .buttonStyle(PathBarMenuRowButtonStyle(tone: tone, filled: isDefault))
         .accessibilityLabel(isDefault ? "\(title), default editor" : title)
+    }
+
+    /// Green wash + checkmark on copy, then a brief hold before the menu
+    /// closes — every other row here closes the menu instantly, but a copy
+    /// with no visible confirmation reads as "did that work?"
+    private var copyPathRow: some View {
+        // Text-safe green, not the raw palette token: `Color.aw.green` alone
+        // (`#40a02b`) only clears ~2.75:1 against this menu's Latte chrome —
+        // under the WCAG 1.4.3 4.5:1 floor for normal-weight text.
+        // `accentOnChrome` is this design system's existing chrome-text-safe
+        // resolution (darkens per theme via `AwAccent.chromeTextHex()`).
+        let ackTone = Color.aw.accentOnChrome(.green)
+        return Button {
+            onCopyPath()
+            didCopyPath = true
+            TerminalAccessibilityAnnouncer.announce(
+                String(localized: "Path copied.", comment: "VoiceOver announcement after Copy Path succeeds"))
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: didCopyPath ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 12))
+                    .frame(width: 14, height: 14)
+                    .accessibilityHidden(true)
+                Text(didCopyPath ? "Copied" : "Copy Path")
+                    .awFont(AwFont.UI.label)
+                    .foregroundStyle(didCopyPath ? ackTone : Color.aw.text)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(didCopyPath ? ackTone : Color.aw.text3)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PathBarMenuRowButtonStyle(tone: didCopyPath ? ackTone : Color.aw.text3, filled: didCopyPath))
+        .disabled(didCopyPath)
+        .accessibilityLabel(didCopyPath ? "Copied" : "Copy Path")
+        .task(id: didCopyPath) {
+            guard didCopyPath else { return }
+            do {
+                try await Task.sleep(for: Self.copyAcknowledgementDelay)
+            } catch {
+                // Cancelled because the menu was torn down for another reason
+                // (Escape, a pane switch, reopening a different menu) — don't
+                // let a stale completion close whatever's presented now.
+                return
+            }
+            onCopyPathAcknowledged()
+        }
     }
 }
 
