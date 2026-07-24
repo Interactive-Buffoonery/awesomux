@@ -181,12 +181,16 @@ struct OpenTargetMenu: View {
     let onCopyPathAcknowledged: () -> Void
 
     @State private var didCopyPath = false
+    /// Cancelled in `.onDisappear` so a menu torn down mid-acknowledgement
+    /// (Escape, a pane switch, reopening a different menu) can never fire
+    /// `onCopyPathAcknowledged` against whatever's presented afterward.
+    @State private var acknowledgementWorkItem: DispatchWorkItem?
 
     private static let maxVisibleRows = 8
     private static let rowHeight: CGFloat = 30
     private static let minMenuWidth: CGFloat = 180
     private static let maxMenuWidth: CGFloat = 260
-    private static let copyAcknowledgementDelay = Duration.milliseconds(500)
+    private static let copyAcknowledgementDelay: TimeInterval = 0.5
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -299,6 +303,9 @@ struct OpenTargetMenu: View {
             didCopyPath = true
             TerminalAccessibilityAnnouncer.announce(
                 String(localized: "Path copied.", comment: "VoiceOver announcement after Copy Path succeeds"))
+            let workItem = DispatchWorkItem { onCopyPathAcknowledged() }
+            acknowledgementWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.copyAcknowledgementDelay, execute: workItem)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: didCopyPath ? "checkmark" : "doc.on.doc")
@@ -318,17 +325,8 @@ struct OpenTargetMenu: View {
         .buttonStyle(PathBarMenuRowButtonStyle(tone: didCopyPath ? ackTone : Color.aw.text3, filled: didCopyPath))
         .disabled(didCopyPath)
         .accessibilityLabel(didCopyPath ? "Copied" : "Copy Path")
-        .task(id: didCopyPath) {
-            guard didCopyPath else { return }
-            do {
-                try await Task.sleep(for: Self.copyAcknowledgementDelay)
-            } catch {
-                // Cancelled because the menu was torn down for another reason
-                // (Escape, a pane switch, reopening a different menu) — don't
-                // let a stale completion close whatever's presented now.
-                return
-            }
-            onCopyPathAcknowledged()
+        .onDisappear {
+            acknowledgementWorkItem?.cancel()
         }
     }
 }
