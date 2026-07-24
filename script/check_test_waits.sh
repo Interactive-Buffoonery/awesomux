@@ -25,7 +25,12 @@ check_line() {
     local line="$2"
     local content="$3"
 
+    # The sanctioned bounded-wait primitives themselves. ProcessBoundedWait polls
+    # a monotonic clock deliberately: a child's exit is only observable through
+    # Foundation's own state, and the termination event that would let us wait on
+    # a gate is exactly what goes missing in awesomux#207.
     [[ "$file" == Tests/AwesoMuxTestSupport/Wait.swift ]] && return
+    [[ "$file" == Tests/AwesoMuxTestSupport/ProcessBoundedWait.swift ]] && return
     [[ "$file" == Tests/awesoMuxTests/*.swift ]] && return
     if [[ "$content" =~ $wait_pattern ]]; then
         printf '%s:%s:%s\n' "$file" "$line" "$content" >&2
