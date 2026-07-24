@@ -198,6 +198,10 @@ struct DestructivePaneActionConfirmationPolicyTests {
             riskReason: .liveAgentProcess
         )
         #expect(body.contains("Claude Code"))
+        // The title must survive too — with three positional placeholders
+        // (agent, title, agent), a mis-mapped middle argument would otherwise
+        // slip past an agent-name-only assertion.
+        #expect(body.contains("Workspace"))
         #expect(!body.contains("has activity"))
     }
 

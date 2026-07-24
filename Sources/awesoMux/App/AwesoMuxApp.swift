@@ -1847,13 +1847,13 @@ struct AwesoMuxApp: App {
     /// so a misclassification would otherwise leave no forensic trail at all
     /// (issue #190 security-review follow-through). Non-bridged panes stay
     /// unlogged — their silent close was always the norm.
-    private func logSilentBridgedCloseIfNeeded(in session: TerminalSession) {
+    private func logSilentBridgedCloseIfNeeded(in session: TerminalSession, at now: Date) {
         guard let pane = session.activePane else { return }
         switch pane.foregroundProcessLiveness {
         case .bridged, .bridgedBusy, .bridgedIndeterminate: break
         default: return
         }
-        let decision = pane.closeRiskDecision(at: Date())
+        let decision = pane.closeRiskDecision(at: now)
         Self.closeRiskLogger.debug(
             "close-pane without confirm: pane \(pane.id.uuidString, privacy: .public) agent=\(pane.agentKind.rawValue, privacy: .public) risk=\(decision.isRisk, privacy: .public) reason=\(String(describing: decision.reason), privacy: .public) liveness=\(String(describing: pane.foregroundProcessLiveness), privacy: .public) promptObserved=\(pane.terminalPromptObserved, privacy: .public) awayFromPrompt=\(pane.needsTerminalQuitConfirmation, privacy: .public)"
         )
@@ -2502,21 +2502,24 @@ struct AwesoMuxApp: App {
 
         let targetPaneID = session.activePaneID
         let action: DestructivePaneActionConfirmationPolicy.Action
+        // One clock read for the gate, the risk-reason recompute, and the
+        // silent-close log — see `logCloseRiskConfirmation`'s seam warning.
+        let now = Date()
         switch DestructivePaneActionConfirmationPolicy.decision(
             session: session,
-            workspaces: appSettingsStore.workspaces.value
+            workspaces: appSettingsStore.workspaces.value,
+            now: now
         ) {
         case .unavailable:
             return
         case let .proceedWithoutPrompt(resolvedAction):
-            logSilentBridgedCloseIfNeeded(in: session)
+            logSilentBridgedCloseIfNeeded(in: session, at: now)
             action = resolvedAction
         case let .prompt(resolvedAction):
             // `.prompt` is only ever returned when the policy already found
             // the active pane at risk (see `DestructivePaneActionConfirmationPolicy.decision`),
             // but recomputing here — rather than hardcoding `true` — keeps this
             // call site honest if that gate ever changes independently.
-            let now = Date()
             let riskReason = session.activePane.flatMap { $0.closeRiskReason(at: now) }
             switch confirmDestructivePaneActionIfNeeded(
                 resolvedAction,
