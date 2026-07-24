@@ -198,3 +198,24 @@ changes them.
 - `script/check_test_waits.sh` checks added Swift lines for direct sleeps,
   `poll`, and `eventually` calls. Existing occurrences are baseline debt and do
   not fail the guard until changed.
+
+### Waiting on a child process
+
+Never call `Process.waitUntilExit()` in a test. It returns only once Foundation
+observes the child's termination event, and macOS drops that event under heavy
+fork/load pressure — a run once blocked on it for 15+ hours, pinning a core and
+holding the `.build` lock so every later `swift test` queued behind it
+([#207](https://github.com/Interactive-Buffoonery/awesomux/issues/207)).
+
+Use `try process.waitUntilExitEventually()` from `AwesoMuxTestSupport`, which
+polls a monotonic clock and throws `ProcessWaitTimeout` on a 30s deadline. In a
+`defer` — which cannot propagate — wrap it in `#expect(throws: Never.self)`
+rather than `try?`, so a teardown timeout is still recorded.
+
+Two independent guards enforce this, because the compiler cannot: an overload
+with a defaulted parameter loses to Foundation's zero-argument original, so a
+bare call still binds to the unbounded method even with `try` in front of it.
+`script/check_test_waits.sh` rejects added lines before `swift test` starts, and
+`ProcessWaitBoundedGuardTests` scans the whole tree. `BridgeGenerationRegistry`'s
+app-quit sweep is the one deliberate exemption — its caller already bounds it
+with `group.wait(timeout:)`.
