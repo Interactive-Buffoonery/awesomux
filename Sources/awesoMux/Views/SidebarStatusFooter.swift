@@ -78,23 +78,13 @@ struct SidebarStatusFooter: View {
             Button {
                 onToggleActivityPanel(nil)
             } label: {
-                HStack(spacing: 4) {
-                    Text(LocalizedPluralStrings.footerAgentsTotal(count: total))
-                        .monospacedDigit()
-                    // The panel slides in directly above the footer, so the
-                    // disclosure points up when closed and down when open.
-                    Image(systemName: activityPanelOpen ? "chevron.down" : "chevron.up")
-                        .font(.system(size: 8, weight: .semibold))
-                        .accessibilityHidden(true)
+                // Degrade "19 agents" to "19" rather than wrapping to two lines.
+                // The full plural stays on the Button's accessibilityLabel below,
+                // so VoiceOver output is identical at every width.
+                ViewThatFits(in: .horizontal) {
+                    totalLabel(LocalizedPluralStrings.footerAgentsTotal(count: total))
+                    totalLabel("\(total)")
                 }
-                .awFont(AwFont.Mono.meta)
-                .foregroundStyle(Color.aw.textFaint)
-                // Match the chips' hit target — this is the panel's only
-                // guaranteed entry point, so bare text height is too small
-                // a target (WCAG 2.5.8).
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(LocalizedPluralStrings.footerAgentsTotal(count: total))
@@ -196,6 +186,32 @@ struct SidebarStatusFooter: View {
 
     private func openFeedbackForm() {
         openURL(Self.feedbackURL)
+    }
+
+    /// One rendering of the total label, so both `ViewThatFits` candidates keep
+    /// identical styling and chevron direction and can't drift apart.
+    @ViewBuilder
+    private func totalLabel(_ text: String) -> some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .monospacedDigit()
+                // Load-bearing, not decoration: `ViewThatFits` falls back to its
+                // LAST candidate unconditionally when none fit, so without this
+                // a narrow enough rail still wraps — just with the bare count.
+                .lineLimit(1)
+            // The panel slides in directly above the footer, so the disclosure
+            // points up when closed and down when open.
+            Image(systemName: activityPanelOpen ? "chevron.down" : "chevron.up")
+                .font(.system(size: 8, weight: .semibold))
+                .accessibilityHidden(true)
+        }
+        .awFont(AwFont.Mono.meta)
+        .foregroundStyle(Color.aw.textFaint)
+        // Match the chips' hit target — this is the panel's only guaranteed
+        // entry point, so bare text height is too small a target (WCAG 2.5.8).
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 
