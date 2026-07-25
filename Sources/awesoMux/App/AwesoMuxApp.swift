@@ -2950,13 +2950,14 @@ struct AwesoMuxApp: App {
         // managed-SSH offer (the setter consumed it from the store before the
         // sheet failed to mount); acceptable and logged — re-parking the offer
         // needs store support that doesn't exist yet.
-        if keys.contains("workspaceEdit") { workspaceEditRequest = nil }
-        if keys.contains("paneEdit") { paneEditRequest = nil }
-        if keys.contains("workspaceGroupCreate") { workspaceGroupCreateRequest = nil }
-        if keys.contains("remoteWorkspaceGroupCreate") { remoteWorkspaceGroupCreateRequest = nil }
-        if keys.contains("sshWorkspaceConnect") { sshWorkspaceConnectRequest = nil }
-        if keys.contains("workspaceGroupRename") { workspaceGroupRenameRequest = nil }
-        if keys.contains("quickSettings") { quickSettingsRequest = nil }
+        typealias Key = SheetWedgeRecoveryPolicy.RequestKey
+        if keys.contains(Key.workspaceEdit) { workspaceEditRequest = nil }
+        if keys.contains(Key.paneEdit) { paneEditRequest = nil }
+        if keys.contains(Key.workspaceGroupCreate) { workspaceGroupCreateRequest = nil }
+        if keys.contains(Key.remoteWorkspaceGroupCreate) { remoteWorkspaceGroupCreateRequest = nil }
+        if keys.contains(Key.sshWorkspaceConnect) { sshWorkspaceConnectRequest = nil }
+        if keys.contains(Key.workspaceGroupRename) { workspaceGroupRenameRequest = nil }
+        if keys.contains(Key.quickSettings) { quickSettingsRequest = nil }
         for paneID in scrollbackPaneIDs {
             ghosttyRuntime.healScrollbackDumpSheetFlag(for: paneID)
         }

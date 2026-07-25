@@ -113,6 +113,25 @@ struct SheetWedgeRecoveryPolicyTests {
         )
     }
 
+    @Test("every request key is producible by the snapshot mapping")
+    func everyRequestKeyIsProducible() {
+        // Guards the snapshot/heal coupling: a key added to RequestKey.all
+        // without a corresponding branch in pendingRequestKeys (or vice versa)
+        // fails here instead of silently logging heals that clear nothing.
+        #expect(
+            SheetWedgeRecoveryPolicy.pendingRequestKeys(
+                workspaceEdit: true,
+                paneEdit: true,
+                workspaceGroupCreate: true,
+                remoteWorkspaceGroupCreate: true,
+                sshWorkspaceConnect: true,
+                workspaceGroupRename: true,
+                quickSettings: true
+            ) == SheetWedgeRecoveryPolicy.RequestKey.all
+        )
+        #expect(SheetWedgeRecoveryPolicy.RequestKey.all.count == 7)
+    }
+
     @Test("pending request keys map each var to its stable key")
     func pendingRequestKeysMapping() {
         #expect(

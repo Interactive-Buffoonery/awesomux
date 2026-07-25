@@ -28,6 +28,26 @@ enum SheetWedgeRecoveryPolicy {
     /// being one of the seven request vars.
     static let scrollbackDumpKey = "scrollbackDump"
 
+    /// Stable keys for the seven request vars — shared by snapshot
+    /// construction and heal application so the two can never drift apart
+    /// (a key present in one but not the other would log a heal without
+    /// clearing anything, or never heal at all).
+    enum RequestKey {
+        static let workspaceEdit = "workspaceEdit"
+        static let paneEdit = "paneEdit"
+        static let workspaceGroupCreate = "workspaceGroupCreate"
+        static let remoteWorkspaceGroupCreate = "remoteWorkspaceGroupCreate"
+        static let sshWorkspaceConnect = "sshWorkspaceConnect"
+        static let workspaceGroupRename = "workspaceGroupRename"
+        static let quickSettings = "quickSettings"
+
+        static let all: Set<String> = [
+            workspaceEdit, paneEdit, workspaceGroupCreate,
+            remoteWorkspaceGroupCreate, sshWorkspaceConnect,
+            workspaceGroupRename, quickSettings,
+        ]
+    }
+
     struct Snapshot: Equatable {
         /// Stable key per non-nil sheet-request var (e.g. "workspaceEdit").
         var pendingRequestKeys: Set<String>
@@ -57,13 +77,13 @@ enum SheetWedgeRecoveryPolicy {
         quickSettings: Bool
     ) -> Set<String> {
         var keys: Set<String> = []
-        if workspaceEdit { keys.insert("workspaceEdit") }
-        if paneEdit { keys.insert("paneEdit") }
-        if workspaceGroupCreate { keys.insert("workspaceGroupCreate") }
-        if remoteWorkspaceGroupCreate { keys.insert("remoteWorkspaceGroupCreate") }
-        if sshWorkspaceConnect { keys.insert("sshWorkspaceConnect") }
-        if workspaceGroupRename { keys.insert("workspaceGroupRename") }
-        if quickSettings { keys.insert("quickSettings") }
+        if workspaceEdit { keys.insert(RequestKey.workspaceEdit) }
+        if paneEdit { keys.insert(RequestKey.paneEdit) }
+        if workspaceGroupCreate { keys.insert(RequestKey.workspaceGroupCreate) }
+        if remoteWorkspaceGroupCreate { keys.insert(RequestKey.remoteWorkspaceGroupCreate) }
+        if sshWorkspaceConnect { keys.insert(RequestKey.sshWorkspaceConnect) }
+        if workspaceGroupRename { keys.insert(RequestKey.workspaceGroupRename) }
+        if quickSettings { keys.insert(RequestKey.quickSettings) }
         return keys
     }
 
