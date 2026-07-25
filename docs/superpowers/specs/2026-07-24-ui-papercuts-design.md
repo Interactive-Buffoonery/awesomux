@@ -1,6 +1,6 @@
 # UI papercuts — footer wrap, drop targets, in-group new-workspace row, inline workspace rename — design
 
-- **Status:** Draft
+- **Status:** Approved
 - **Date:** 2026-07-24
 - **Issue:** [#220](https://github.com/Interactive-Buffoonery/awesomux/issues/220)
 
