@@ -1,9 +1,19 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
 
 @Suite("Localized plural strings")
 struct LocalizedPluralStringsTests {
+    /// Owns the throwaway bundles `emptyBundle()` builds. They were previously
+    /// minted straight into `$TMPDIR` with no owner and never removed — 135 had
+    /// accumulated. Same ownership fix as `DocumentLoaderTests`.
+    private let temporaryDirectory: TemporaryDirectory
+
+    init() throws {
+        temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-empty-bundle")
+    }
+
     @Test("English accessibility plurals resolve through stringsdict")
     func englishAccessibilityPluralsResolveThroughStringsdict() {
         #expect(
@@ -225,7 +235,7 @@ struct LocalizedPluralStringsTests {
 
     @Test("missing bundle re-resolves through the canonical stringsdict bundle")
     func missingBundleFallsBackToEnglishAccessibilityPlurals() throws {
-        let bundle = try Self.emptyBundle()
+        let bundle = try emptyBundle()
 
         LocalizedPluralStrings.withCanonicalBundle(Self.resourcesBundle) {
             #expect(
@@ -336,7 +346,7 @@ struct LocalizedPluralStringsTests {
             ) == "3 agents"
         )
 
-        let empty = try Self.emptyBundle()
+        let empty = try emptyBundle()
         LocalizedPluralStrings.withCanonicalBundle(Self.resourcesBundle) {
             #expect(
                 LocalizedPluralStrings.footerAgentsInState(
@@ -444,7 +454,7 @@ struct LocalizedPluralStringsTests {
 
     @Test("missing bundle re-resolves the close-group plural through the canonical bundle")
     func missingBundleFallsBackToEnglishCloseGroupPlural() throws {
-        let bundle = try Self.emptyBundle()
+        let bundle = try emptyBundle()
         LocalizedPluralStrings.withCanonicalBundle(Self.resourcesBundle) {
             #expect(
                 LocalizedPluralStrings.closeGroupRiskyWorkspaces(
@@ -476,7 +486,7 @@ struct LocalizedPluralStringsTests {
                 bundle: Self.resourcesBundle
             ) == "Closed 2 workspaces in the group"
         )
-        let empty = try Self.emptyBundle()
+        let empty = try emptyBundle()
         LocalizedPluralStrings.withCanonicalBundle(Self.resourcesBundle) {
             #expect(
                 LocalizedPluralStrings.closeGroupWorkspacesClosed(
@@ -517,7 +527,7 @@ struct LocalizedPluralStringsTests {
 
     @Test("missing bundle re-resolves quit-dialog plurals through the canonical bundle")
     func missingBundleFallsBackToEnglishQuitDialogPlurals() throws {
-        let bundle = try Self.emptyBundle()
+        let bundle = try emptyBundle()
         LocalizedPluralStrings.withCanonicalBundle(Self.resourcesBundle) {
             #expect(
                 LocalizedPluralStrings.quitOverflowSuffix(
@@ -549,9 +559,9 @@ struct LocalizedPluralStringsTests {
         Bundle(url: packageResourcesURL) ?? .main
     }
 
-    private static func emptyBundle() throws -> Bundle {
-        let url = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-empty-\(UUID().uuidString)", directoryHint: .isDirectory)
+    private func emptyBundle() throws -> Bundle {
+        let url = temporaryDirectory.url
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
             .appendingPathExtension("bundle")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return try #require(Bundle(url: url))

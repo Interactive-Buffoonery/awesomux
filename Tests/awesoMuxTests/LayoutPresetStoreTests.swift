@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -6,10 +7,21 @@ import Testing
 @Suite struct LayoutPresetStoreTests {
     private let fileManager = FileManager.default
 
+    /// Owns every directory this suite creates. Previously each
+    /// `makeProjectRoot()` minted a `NSTemporaryDirectory()` root that nothing
+    /// ever removed — 4,140 of them had accumulated in one `$TMPDIR`, the
+    /// largest single leaker in the test suite. Roots stay UUID-suffixed
+    /// underneath it because several tests need two distinct roots at once.
+    private let temporaryDirectory: TemporaryDirectory
+
+    init() throws {
+        temporaryDirectory = try TemporaryDirectory(prefix: "layout-preset-tests")
+    }
+
     /// A fresh fake project root; `git: true` plants a `.git` directory.
     private func makeProjectRoot(git: Bool = true) throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("layout-preset-tests-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryDirectory.url
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         if git {
             try fileManager.createDirectory(
@@ -98,8 +110,8 @@ import Testing
         // must stop at the worktree's own root — the preset belongs to the
         // checkout the user is working in, never silently to the main repo.
         let mainRepo = try makeProjectRoot()
-        let worktree = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("layout-preset-wt-\(UUID().uuidString)", isDirectory: true)
+        let worktree = temporaryDirectory.url
+            .appendingPathComponent("wt-\(UUID().uuidString)", isDirectory: true)
         let nested = worktree.appendingPathComponent("src", isDirectory: true)
         try fileManager.createDirectory(at: nested, withIntermediateDirectories: true)
         try Data("gitdir: \(mainRepo.path)/.git/worktrees/wt\n".utf8)

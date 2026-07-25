@@ -76,4 +76,45 @@ printf 'func ok(p: Process) throws { try p.waitUntilExitEventually() }\n// never
 git -C "$ROOT_DIR" add -N "$SYSTEM_FIXTURE"
 TEST_WAIT_BASE=HEAD "$ROOT_DIR/script/check_test_waits.sh" >/dev/null
 
+# An unbounded shell fixture wait orphans a busy-loop to launchd. Every spelling
+# below is the SAME defect; the first rule shipped catching only the first one,
+# so each alternative gets a case. The last is the loop assembled across Swift
+# string-concatenation lines, which no single line renders as `while [ ! -e`.
+while IFS= read -r spelling; do
+    [[ -z "$spelling" ]] && continue
+    git -C "$ROOT_DIR" reset --quiet -- "$SYSTEM_FIXTURE"
+    printf 'let script = "%s"\n' "$spelling" > "$SYSTEM_FIXTURE"
+    git -C "$ROOT_DIR" add -N "$SYSTEM_FIXTURE"
+    if TEST_WAIT_BASE=HEAD "$ROOT_DIR/script/check_test_waits.sh" >/dev/null 2>&1; then
+        echo "error: test wait guard accepted an unbounded shell wait: $spelling" >&2
+        exit 1
+    fi
+done <<'SPELLINGS'
+while [ ! -e $s ]; do sleep 0.01; done
+until [ -e $s ]; do sleep 0.01; done
+while [[ ! -e $s ]]; do sleep 0.01; done
+while ! [ -e $s ]; do sleep 0.01; done
+while test ! -e $s; do sleep 0.01; done
+do sleep 0.01; done
+SPELLINGS
+
+# The counter-name-only bypass: a copied helper body with the -lt comparison
+# trimmed off. This is the most likely regression, and the first version of the
+# rule exempted it because the line still mentioned the counter.
+git -C "$ROOT_DIR" reset --quiet -- "$SYSTEM_FIXTURE"
+printf 'let s = "amx_wait_i=0; while [ ! -e $x ]; do sleep 0.01; amx_wait_i=1; done"\n' \
+    > "$SYSTEM_FIXTURE"
+git -C "$ROOT_DIR" add -N "$SYSTEM_FIXTURE"
+if TEST_WAIT_BASE=HEAD "$ROOT_DIR/script/check_test_waits.sh" >/dev/null 2>&1; then
+    echo "error: test wait guard accepted a counter-named but unbounded shell wait" >&2
+    exit 1
+fi
+
+# The sanctioned emitter must pass — both by call and by the bound it emits.
+git -C "$ROOT_DIR" reset --quiet -- "$SYSTEM_FIXTURE"
+printf 'let a = ShellWait.untilExists(path: p)\nlet b = ShellWait.untilExists(variable: "R")\n' \
+    > "$SYSTEM_FIXTURE"
+git -C "$ROOT_DIR" add -N "$SYSTEM_FIXTURE"
+TEST_WAIT_BASE=HEAD "$ROOT_DIR/script/check_test_waits.sh" >/dev/null
+
 echo "Test wait guard tests passed"
