@@ -52,7 +52,16 @@ private struct SurfaceSearchBar: View {
                         surfaceView.dismissScrollbackDump()
                     }
                 }
-            )
+            ),
+            onDismiss: {
+                // Replays a queued managed-SSH offer at the app root; fires
+                // only for a sheet that genuinely presented, unlike the old
+                // aggregate isAnySheetPresented onChange (issue #202).
+                NotificationCenter.default.post(
+                    name: .awesoMuxManagedSSHOfferReplayRequested,
+                    object: nil
+                )
+            }
         ) {
             ScrollbackDumpSheet(
                 text: searchState.scrollbackDumpText ?? "",
