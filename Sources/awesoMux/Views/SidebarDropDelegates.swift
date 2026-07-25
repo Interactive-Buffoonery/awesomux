@@ -471,6 +471,13 @@ struct SidebarPinnedReorderDropDelegate: DropDelegate {
 }
 
 struct NewWorkspaceInGroupRow: View {
+    /// SidebarGroupView's only call site already unmounts this row entirely
+    /// while filtering (`!isFiltering` on the `if` around it), so this
+    /// property — and the `.sidebarDrop(enabled:)` term and `.onChange`
+    /// below that key off it — are currently unreachable. Kept as
+    /// belt-and-braces: this is a reusable row, and a future call site that
+    /// doesn't gate on `!isFiltering` shouldn't have to rediscover why a
+    /// filtered drag can still create a workspace.
     let isFiltering: Bool
     /// Renamed from `canRemoveGroup`: the value passed in is now a presentation
     /// decision (`NewWorkspaceInGroupRowPolicy.showsRemoveButton`), not the

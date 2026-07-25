@@ -327,7 +327,6 @@ struct ContentView: View {
             AppTitlebarView(
                 session: sessionStore.selectedSession,
                 sessionStore: sessionStore,
-                onRenameWorkspace: onRenameWorkspace,
                 sidebarPosition: sidebarPosition,
                 hostPresentation: hostPresentation
             )
@@ -556,9 +555,6 @@ struct ContentView: View {
 struct AppTitlebarView: View {
     let session: TerminalSession?
     let sessionStore: SessionStore
-    /// Same rename closure the sidebar tile uses — the titlebar workspace name
-    /// invokes it on a double-click (INT-720).
-    let onRenameWorkspace: (TerminalSession) -> Void
     // The two titlebar zones are anchored to the column they describe — brand
     // over the sidebar, workspace cluster over the content pane — so the
     // wide-monitor empty space reads as intentional negative space between
@@ -754,7 +750,35 @@ struct AppTitlebarView: View {
         }
     }
 
+    @ViewBuilder
     private func workspaceCluster(_ session: TerminalSession) -> some View {
+        let cluster = clusterBody(session)
+        // `.combine` while idle flattens folder icon + label into one
+        // VoiceOver stop; while editing that same flattening would swallow the
+        // live TextField into the element, leaving nothing focusable and the
+        // label frozen to the pre-edit title (mirrors PaneTitleBarView's
+        // `.contain`, which documents the same trap).
+        if isEditingTitle {
+            cluster
+                .accessibilityElement(children: .contain)
+                .accessibilityAction(named: "Rename Workspace") {
+                    beginEditingTitle(session)
+                }
+        } else {
+            cluster
+                .help("Drag to move window · double-click to rename")
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(session.title)
+                // Double-click is pointer-only; expose the same rename as a
+                // named action so assistive-tech users reach it too (mirrors
+                // the sidebar tile).
+                .accessibilityAction(named: "Rename Workspace") {
+                    beginEditingTitle(session)
+                }
+        }
+    }
+
+    private func clusterBody(_ session: TerminalSession) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "folder.fill")
                 .font(.system(size: 13, weight: .medium))
@@ -809,14 +833,6 @@ struct AppTitlebarView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityHidden(true)
             }
-        }
-        .help("Drag to move window · double-click to rename")
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(session.title)
-        // Double-click is pointer-only; expose the same rename as a named
-        // action so assistive-tech users reach it too (mirrors the sidebar tile).
-        .accessibilityAction(named: "Rename Workspace") {
-            beginEditingTitle(session)
         }
     }
 }

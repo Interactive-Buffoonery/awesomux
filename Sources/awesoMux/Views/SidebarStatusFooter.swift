@@ -83,7 +83,10 @@ struct SidebarStatusFooter: View {
                 // so VoiceOver output is identical at every width.
                 ViewThatFits(in: .horizontal) {
                     totalLabel(LocalizedPluralStrings.footerAgentsTotal(count: total))
-                    totalLabel("\(total)")
+                    // Bare interpolation emits ASCII digits; `.formatted()`
+                    // renders through the user's locale like the wide
+                    // candidate's stringsdict plural does.
+                    totalLabel(total.formatted())
                 }
             }
             .buttonStyle(.plain)

@@ -10,13 +10,12 @@ import Testing
 @MainActor
 struct AppTitlebarInlineRenameTests {
     /// Double-clicking the titlebar workspace name must edit in place, not ask
-    /// the app to present `WorkspaceEditSheet`. `onRenameWorkspace` is the sheet
-    /// request, so it staying at zero is the observable proof the modal path is
-    /// gone. (The sidebar context-menu path still uses that closure — this test
-    /// only pins the titlebar caller.)
+    /// the app to present `WorkspaceEditSheet`. A live text field appearing is
+    /// the observable proof the inline path ran; the sheet path never mounts
+    /// one. (The sidebar context-menu path still uses `onRenameWorkspace` to
+    /// open the sheet — this test only pins the titlebar caller.)
     @Test("titlebar double-click edits inline instead of requesting the sheet")
     func titlebarDoubleClickDoesNotRequestSheet() throws {
-        let renameRequests = ToggleCounter()
         let session = TerminalSession(
             id: UUID(uuidString: "F2F1D0C9-4A21-4C0E-9E3B-7B4A2D6E5F10")!,
             title: "Original title",
@@ -31,7 +30,6 @@ struct AppTitlebarInlineRenameTests {
             rootView: AppTitlebarView(
                 session: session,
                 sessionStore: store,
-                onRenameWorkspace: { _ in renameRequests.increment() },
                 sidebarPosition: .left,
                 hostPresentation: SidebarHostPresentationState()
             )
@@ -53,8 +51,12 @@ struct AppTitlebarInlineRenameTests {
             at: CGPoint(x: dragRegion.bounds.midX, y: dragRegion.bounds.midY),
             in: hosted.window
         )
+        SidebarHostedTestHarness.settleMainRunLoop()
 
-        #expect(renameRequests.count == 0)
+        _ = try #require(
+            SidebarHostedTestHarness.firstDescendant(of: NSTextField.self, in: hosted.hostingView),
+            "double-click did not enter edit mode; the sheet path (or nothing) ran instead"
+        )
     }
 
     /// Closing a workspace mid-rename must not strand a live draft that then
@@ -141,17 +143,8 @@ private struct TitlebarRenameHarness: View {
         AppTitlebarView(
             session: sessionStore.selectedSession,
             sessionStore: sessionStore,
-            onRenameWorkspace: { _ in },
             sidebarPosition: .left,
             hostPresentation: SidebarHostPresentationState()
         )
-    }
-}
-
-private final class ToggleCounter {
-    private(set) var count = 0
-
-    func increment() {
-        count += 1
     }
 }

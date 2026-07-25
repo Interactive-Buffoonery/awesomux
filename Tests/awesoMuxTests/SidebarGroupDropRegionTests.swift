@@ -41,6 +41,20 @@ struct SidebarGroupDropRegionTests {
                     - (tileStackContentHeight + newRowContribution + density.groupStackSpacing)
             ) < 0.5
         )
+
+        // `max()` above always resolves to the tile stack's registrant (far
+        // taller), so it can't see the header's own bracket. The header
+        // registers a SECOND, smaller drop target — pin it directly against
+        // the header's bare fitting height (rendered standalone, with no
+        // bracket) plus exactly the one padding line that grows it, so
+        // deleting that `.padding(.bottom, density.sessionStackSpacing)`
+        // (SidebarGroupView.swift:182) is caught even though it never moves
+        // the tallest registrant.
+        let headerFittingHeight = Self.measuredHeaderFittingHeight(density: density)
+        let shortestRegistrant = registrantHeights.min() ?? 0
+        #expect(
+            abs(shortestRegistrant - (headerFittingHeight + density.sessionStackSpacing)) < 0.5
+        )
     }
 
     /// `.padding(.bottom, -density.groupStackSpacing)` reclaims what the
@@ -73,6 +87,17 @@ struct SidebarGroupDropRegionTests {
         #expect(
             abs(tileStackSectionContribution - (tileStackContentHeight + newRowContribution)) < 0.5
         )
+
+        // The subtraction above cancels the header's bracket by construction
+        // (it contributes identically to both operands), so it can't catch
+        // the reclaim itself going missing. Pin `collapsed`'s total directly
+        // against the header rendered standalone: the doc comment above
+        // already assumes they're equal ("nets to zero"); this is that
+        // assumption made falsifiable, and it's the only assertion in this
+        // file that would notice `.padding(.bottom, -density.sessionStackSpacing)`
+        // (SidebarGroupView.swift:206) being deleted.
+        let headerFittingHeight = Self.measuredHeaderFittingHeight(density: density)
+        #expect(abs(collapsed.hostingView.fittingSize.height - headerFittingHeight) < 0.5)
     }
 
     /// Renders `NewWorkspaceInGroupRow` in isolation, exactly as a populated
@@ -136,11 +161,11 @@ struct SidebarGroupDropRegionTests {
         let rowFrames: [TerminalSession.ID: CGRect]
     }
 
-    private static func makeHarness(
-        density: SidebarDensity,
-        isCollapsed: Bool,
-        activeDragID: UUID?
-    ) -> Harness {
+    /// Shared by `makeHarness` and `measuredHeaderFittingHeight` — the header
+    /// standalone measurement is only a valid stand-in for the header AS
+    /// RENDERED inside `SidebarGroupView` if both see the identical group
+    /// (same name/count driving the header's badge and title width).
+    private static func makeGroupAndEntries() -> (SessionGroup, [SidebarSessionEntry]) {
         let groupID = UUID(uuidString: "3E9E6E0B-2E9D-4F0B-9A3E-8C2C2E7B9A31")!
         let sessionA = TerminalSession(
             id: UUID(uuidString: "8B7C1D3E-1B0A-4B2E-9C3D-1A2B3C4D5E6F")!,
@@ -158,7 +183,32 @@ struct SidebarGroupDropRegionTests {
             sessions: [sessionA, sessionB]
         )
         let entries = group.sessions.map { SidebarSessionEntry(session: $0, match: nil) }
+        return (group, entries)
+    }
 
+    /// Renders `SidebarGroupHeaderRow` alone, mirroring how
+    /// `measuredNewWorkspaceRowContribution` isolates the new-workspace row —
+    /// live geometry for the header's OWN size, with no bracket applied, so
+    /// it can be compared against the bracketed sizes measured elsewhere.
+    private static func measuredHeaderFittingHeight(density: SidebarDensity) -> CGFloat {
+        let (group, entries) = Self.makeGroupAndEntries()
+        let hosted = SidebarHostedTestHarness.makeWindow(
+            rootView: HeaderOnlyHarnessView(group: group, entries: entries, density: density),
+            frame: NSRect(x: 0, y: 0, width: 260, height: 80)
+        )
+        defer { hosted.window.close() }
+        hosted.hostingView.layoutSubtreeIfNeeded()
+        SidebarHostedTestHarness.settleMainRunLoop()
+
+        return hosted.hostingView.fittingSize.height
+    }
+
+    private static func makeHarness(
+        density: SidebarDensity,
+        isCollapsed: Bool,
+        activeDragID: UUID?
+    ) -> Harness {
+        let (group, entries) = Self.makeGroupAndEntries()
         var capturedRowFrames: [TerminalSession.ID: CGRect] = [:]
 
         let rootView = DropRegionHarnessView(
@@ -260,6 +310,51 @@ private struct DropRegionHarnessView: View {
         // read ancestor environment objects in production (ContentView
         // supplies them) — the hosted test must mirror that boundary or
         // the read is fatal.
+        .environment(SidebarPeekModel())
+        .environment(AppSettingsStore(legacySnapshotProvider: { nil }))
+    }
+}
+
+/// The header alone, with no bracket — same group/entries and structural
+/// params (`currentGroupIndex`, `totalGroupCount`, `displayMode`, etc.) as
+/// `DropRegionHarnessView` passes into `SidebarGroupView`, so its fitting
+/// height is comparable to the header's height when it's measured through
+/// that wrapper.
+private struct HeaderOnlyHarnessView: View {
+    let group: SessionGroup
+    let entries: [SidebarSessionEntry]
+    let density: SidebarDensity
+
+    @State private var isKeyboardNavigating = false
+    @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
+
+    var body: some View {
+        SidebarGroupHeaderRow(
+            group: group,
+            entries: entries,
+            density: density,
+            tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
+            isCollapsed: false,
+            isFiltering: false,
+            displayMode: .expanded,
+            selectedSessionID: nil,
+            currentGroupIndex: 0,
+            totalGroupCount: 1,
+            isDragActive: false,
+            onToggle: {},
+            onNewSessionInGroup: {},
+            onConnectViaSSH: { _ in },
+            onNewGroup: {},
+            onRenameGroup: {},
+            onSetGroupColor: { _ in },
+            onCloseGroup: {},
+            onMoveGroup: { _, _ in },
+            onGroupDragStarted: { _ in UUID() },
+            focusedRowTarget: $focusedRowTarget,
+            isKeyboardNavigating: $isKeyboardNavigating
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 260, alignment: .topLeading)
         .environment(SidebarPeekModel())
         .environment(AppSettingsStore(legacySnapshotProvider: { nil }))
     }
