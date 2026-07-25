@@ -56,7 +56,7 @@ The perf-sample log stream runs in the launching terminal. After launch
 you should see, near the top of that stream:
 
 ```text
-GhosttyConfigEnvironment ghostty-config-env default_scrollback_limit_bytes=5000000 user_xdg_config_exists=<bool> user_app_support_config_exists=<bool>
+GhosttyConfigEnvironment ghostty-config-env default_scrollback_limit_bytes=<GhosttyRuntimeDefaults.scrollbackLimit> user_xdg_config_exists=<bool> user_app_support_config_exists=<bool>
 ```
 
 Record those bool values in the companion `.md`. They tell future
@@ -81,13 +81,27 @@ readers which side of the user-config override this capture is on.
 
 ## Warm-A — terminal-only workload
 
-1. Determine the active pane's scrollback budget. Default = 5 000 000
-   bytes (5 MB). Generate ~6 MB of deterministic output (slightly above
-   the limit so the buffer fills fully):
+1. Determine the active pane's *effective* scrollback budget. For
+   defaults-only runs that is `GhosttyRuntimeDefaults.scrollbackLimit`
+   (64 000 000 bytes / 64 MB since #204; the committed 2026-05 companion
+   captures were taken at the earlier 5 MB default). For user-config
+   runs the user's `scrollback-limit` overrides the compiled default and
+   the startup marker only logs the default — check the user's ghostty
+   config and record the effective value in the companion `.md`.
+   Generate deterministic output slightly above that budget so the
+   buffer fills fully. The limit counts allocated cell memory
+   (~12.5 bytes/cell, blank trailing cells included), so one row costs
+   ~12.5 × pane-columns bytes regardless of text length. Compute the
+   line count from the effective budget and the live pane width, in the
+   pane itself (requires a pane ≥ 80 columns so each printf line stays
+   one physical row; do not overfill — excess streamed output confounds
+   the GPU-buffer measurement with fill throughput):
    ```sh
-   for i in $(seq 1 75000); do printf '%07d %-71s\n' $i "INT-397 scrollback fill line padded with deterministic content"; done
+   BUDGET=64000000   # effective scrollback-limit for THIS run (see step 1)
+   LINES=$(( BUDGET * 96 / (1000 * $(tput cols)) ))   # budget/(12.5*cols) * 1.2
+   for i in $(seq 1 $LINES); do printf '%07d %-71s\n' $i "INT-397 scrollback fill line padded with deterministic content"; done
    ```
-   That's ~6 MB of 80-byte lines. Paste into the pane and let it run to
+   Paste into the pane and let it run to
    completion.
 2. Wait for the prompt to return.
 3. Wait for steady-state criterion in the perf-sample stream.
