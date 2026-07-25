@@ -51,13 +51,20 @@ extension GhosttySurfaceNSView {
     }
 
     func navigateSearch(_ direction: SurfaceSearchNavigationDirection) {
-        performBindingAction("navigate_search:\(direction.bindingValue)")
+        if performBindingAction("navigate_search:\(direction.bindingValue)") {
+            // A manual navigation owns the current search's position: without
+            // consuming the one-shot, a total arriving after the user's
+            // navigate but before its SEARCH_SELECTED returns would
+            // auto-navigate a second time and land on match 2.
+            didAutoSelectCurrentSearch = true
+        }
     }
 
     func endSearch() {
         searchNeedleWorkItem?.cancel()
         searchNeedleWorkItem = nil
         lastSearchedNeedle = nil
+        didAutoSelectCurrentSearch = false
         performBindingAction("end_search")
         searchState.hide()
         window?.makeFirstResponder(self)
@@ -65,6 +72,44 @@ extension GhosttySurfaceNSView {
 
     func updateSearchTotal(_ total: Int) {
         searchState.updateTotal(total)
+        autoSelectFirstMatchIfNeeded()
+    }
+
+    /// macOS find bars (Safari, Terminal) select the first match as you type;
+    /// libghostty only selects on an explicit `navigate_search`, so issue one
+    /// when fresh results arrive with no selection. Re-entrant binding action
+    /// from inside the SEARCH_TOTAL callback follows the `updateSearchStarted`
+    /// precedent (ghostty's navigate only pushes to the search-thread
+    /// mailbox). The one-shot is consumed only when ghostty accepts the
+    /// action, so a rejected binding (surface gone, search already ended)
+    /// cannot burn the attempt. A stale total from a superseded query can
+    /// trigger this early for the new query — every such race converges to
+    /// selecting the new query's first match or a no-op (navigate with no
+    /// results returns without emitting a selection).
+    private func autoSelectFirstMatchIfNeeded() {
+        guard
+            Self.shouldAutoSelectFirstMatch(
+                total: searchState.total,
+                selected: searchState.selected,
+                alreadyRequested: didAutoSelectCurrentSearch
+            )
+        else { return }
+        if performBindingAction(
+            "navigate_search:\(SurfaceSearchNavigationDirection.next.bindingValue)"
+        ) {
+            didAutoSelectCurrentSearch = true
+        }
+    }
+
+    static func shouldAutoSelectFirstMatch(
+        total: Int?,
+        selected: Int?,
+        alreadyRequested: Bool
+    ) -> Bool {
+        guard !alreadyRequested, selected == nil, let total, total > 0 else {
+            return false
+        }
+        return true
     }
 
     func updateSearchSelected(_ selected: Int) {
@@ -91,12 +136,14 @@ extension GhosttySurfaceNSView {
         searchNeedleWorkItem?.cancel()
         searchNeedleWorkItem = nil
         lastSearchedNeedle = nil
+        didAutoSelectCurrentSearch = false
         searchState.hide()
     }
 
     func presentScrollbackDump() {
         guard searchState.scrollbackDumpText == nil,
-              !runtime.isScrollbackDumpSheetPresented else {
+            !runtime.isScrollbackDumpSheetPresented
+        else {
             return
         }
         searchState.presentScrollbackDump(fullScrollbackText())
@@ -112,6 +159,7 @@ extension GhosttySurfaceNSView {
         searchNeedleWorkItem?.cancel()
         searchNeedleWorkItem = nil
         lastSearchedNeedle = nil
+        didAutoSelectCurrentSearch = false
         if searchState.scrollbackDumpText != nil {
             dismissScrollbackDump()
         }
@@ -150,6 +198,9 @@ extension GhosttySurfaceNSView {
     private func performSearchBinding(needle: String) {
         guard needle != lastSearchedNeedle else { return }
         lastSearchedNeedle = needle
+        // Reset AFTER the dedupe guard: only a genuinely issued search re-arms
+        // the auto-select one-shot (a duplicate needle echo must not).
+        didAutoSelectCurrentSearch = false
         performBindingAction("search:\(needle)")
     }
 }

@@ -26,6 +26,24 @@ struct SurfaceSearchStateTests {
         #expect(state.spokenSummary == "Match 1 of 1")
     }
 
+    @Test("auto-select fires exactly once, on fresh results with no selection")
+    func autoSelectDecisionTruthTable() {
+        typealias Decide = (Int?, Int?, Bool) -> Bool
+        let decide: Decide = GhosttySurfaceNSView.shouldAutoSelectFirstMatch
+
+        #expect(decide(1, nil, false))
+        #expect(decide(14, nil, false))
+        // Already selected: the user (or a prior auto-select) owns position.
+        #expect(!decide(14, 0, false))
+        // One-shot spent: a second total before SEARCH_SELECTED returns must
+        // not navigate again and land on match 2.
+        #expect(!decide(14, nil, true))
+        // No results, unknown results, or hidden bar (total nil when the bar
+        // is closed): nothing to select.
+        #expect(!decide(0, nil, false))
+        #expect(!decide(nil, nil, false))
+    }
+
     @Test("zero-total summaries wait longer before being announced")
     func zeroTotalSummariesWaitLongerBeforeAnnouncement() {
         #expect(SurfaceSearchMatchSummary(selected: nil, total: 0).announcementDelay == 1.0)
