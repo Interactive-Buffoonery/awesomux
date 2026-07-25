@@ -2895,8 +2895,17 @@ struct AwesoMuxApp: App {
         guard !initial.pendingRequestKeys.isEmpty || !initial.scrollbackDumpPaneIDs.isEmpty
         else { return }
         sheetWedgeReconciliationWorkItem?.cancel()
+        // Dispatched to the main queue, but the closure is not statically
+        // MainActor-isolated — assert it so the contract survives a future
+        // refactor, matching the work-item convention elsewhere in the app.
         let workItem = DispatchWorkItem {
-            performSheetWedgeHeal(initial: initial, recheck: sheetWedgeSnapshot, trigger: trigger)
+            MainActor.assumeIsolated {
+                performSheetWedgeHeal(
+                    initial: initial,
+                    recheck: sheetWedgeSnapshot,
+                    trigger: trigger
+                )
+            }
         }
         sheetWedgeReconciliationWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
@@ -2924,7 +2933,7 @@ struct AwesoMuxApp: App {
         // carries only fixed keys/booleans/counts, and is most needed in
         // shipped builds where the diagnostics env var is never set.
         Self.sheetWedgeLogger.notice(
-            "sheetWedgeHeal trigger=\(trigger, privacy: .public) keys=\(keys.sorted().joined(separator: ","), privacy: .public) modalWindow=\(recheck.hasModalWindow) primarySheet=\(recheck.primaryWindowSheetAttached) anySheet=\(recheck.anyWindowSheetAttached) selectedSession=\(sessionStore.selectedSessionID != nil) scrollbackPanes=\(recheck.scrollbackDumpPaneIDs.count)"
+            "sheetWedgeHeal trigger=\(trigger, privacy: .public) keys=\(keys.sorted().joined(separator: ","), privacy: .public) modalWindow=\(recheck.hasModalWindow, privacy: .public) primarySheet=\(recheck.primaryWindowSheetAttached, privacy: .public) anySheet=\(recheck.anyWindowSheetAttached, privacy: .public) selectedSession=\(sessionStore.selectedSessionID != nil, privacy: .public) scrollbackPanes=\(recheck.scrollbackDumpPaneIDs.count, privacy: .public)"
         )
         healWedgedSheetRequests(
             keys,
