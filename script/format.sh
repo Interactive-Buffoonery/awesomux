@@ -11,9 +11,12 @@ Usage:
   ./script/format.sh FILE.swift [FILE.swift ...]
   ./script/format.sh --lint
 
-Write mode formats only the explicitly named, first-party Swift files.
+Write mode formats the explicitly named, first-party Swift files, restricted to
+the lines they changed from main — matching what lint mode judges. A file with
+no tracked history is formatted whole; a file with no changed lines is skipped.
 Lint mode checks formatter findings on Swift lines changed from main without
-modifying the working tree. Set FORMAT_LINT_BASE to override the comparison ref.
+modifying the working tree. Set FORMAT_LINT_BASE to override the comparison ref
+for either mode.
 EOF
 }
 
@@ -80,37 +83,7 @@ relative_swift_path() {
     esac
 }
 
-format_explicit_files() {
-    if [[ "$#" -eq 0 ]]; then
-        echo "error: write mode requires at least one explicit .swift file" >&2
-        usage >&2
-        exit 2
-    fi
-
-    local files=()
-    local supplied_path relative_path
-    for supplied_path in "$@"; do
-        if [[ ! -f "$supplied_path" || -L "$supplied_path" || "$supplied_path" != *.swift ]]; then
-            echo "error: not a Swift source file: $supplied_path" >&2
-            exit 2
-        fi
-        if ! relative_path="$(relative_swift_path "$supplied_path")"; then
-            echo "error: format only Package.swift or files under Sources/ and Tests/: $supplied_path" >&2
-            exit 2
-        fi
-        files+=("$ROOT_DIR/$relative_path")
-    done
-
-    run_formatter format --in-place --parallel --configuration "$CONFIG_PATH" "${files[@]}"
-}
-
-lint_changed_lines() {
-    cd "$ROOT_DIR"
-
-    # Parse the configuration even when a change contains no Swift files.
-    printf 'struct FormatterConfigurationProbe {}\n' \
-        | run_formatter lint --strict --configuration "$CONFIG_PATH" - >/dev/null
-
+resolve_base_ref() {
     local base_ref="${FORMAT_LINT_BASE:-}"
     if [[ -z "$base_ref" ]]; then
         if git show-ref --verify --quiet refs/remotes/origin/main; then
@@ -123,6 +96,149 @@ lint_changed_lines() {
         echo "error: FORMAT_LINT_BASE is not a commit: $base_ref" >&2
         exit 2
     fi
+    printf '%s\n' "$base_ref"
+}
+
+# `start-end` line ranges this file gained or changed since the base ref, one
+# per line. Same `--unified=0` hunk-header parse lint mode uses, so both modes
+# agree on what "changed" means.
+changed_line_ranges() {
+    local base_ref="$1"
+    local relative_path="$2"
+
+    git diff --unified=0 --no-ext-diff --diff-filter=ACMR "$base_ref" -- "$relative_path" \
+        | awk '
+            /^@@ / {
+                header = $0
+                sub(/^@@ -[^ ]+ \+/, "", header)
+                sub(/ @@.*/, "", header)
+                split(header, range, ",")
+                start = range[1] + 0
+                count = (range[2] == "" ? 1 : range[2] + 0)
+                if (count > 0) print start "-" start + count - 1
+            }
+        '
+}
+
+# swift-format's `--offsets` takes UTF-8 BYTE offsets, not line numbers, so the
+# ranges have to be converted against the file's actual bytes.
+#
+# LC_ALL=C pins awk's length() to bytes. This is a no-op on macOS — BSD awk
+# counts bytes in every locale — but GNU awk in a UTF-8 locale counts
+# CHARACTERS, so on the Linux lane any line holding a multi-byte glyph (this
+# repo has plenty: `—`, `→`, `naïve`) would shift every subsequent offset and
+# the formatter would rewrite the wrong region. Do not drop it because the
+# macOS tests still pass without it; they cannot exercise this.
+line_ranges_to_byte_offsets() {
+    local file="$1"
+    shift
+
+    LC_ALL=C awk -v spec="$*" '
+        BEGIN {
+            count = split(spec, items, " ")
+            for (i = 1; i <= count; i++) {
+                split(items[i], bounds, "-")
+                first[i] = bounds[1] + 0
+                last[i] = bounds[2] + 0
+            }
+        }
+        {
+            line_start = offset
+            offset += length($0) + 1
+            for (i = 1; i <= count; i++) {
+                if (NR == first[i]) { start_byte[i] = line_start; seen[i] = 1 }
+                # End at the last CONTENT byte, excluding the line terminator.
+                # Including it makes swift-format consume the trailing newline
+                # outright when the range reaches EOF, which then trips its own
+                # [AddLines] rule: the formatter emits a file that its own
+                # linter rejects. Verified on a 70-byte fixture — end offset 70
+                # (past the newline) strips it, 69 does not.
+                # NOTE: no apostrophes in this awk body; it is single-quoted.
+                if (NR == last[i]) end_byte[i] = line_start + length($0)
+            }
+        }
+        END {
+            for (i = 1; i <= count; i++) {
+                if (!seen[i]) continue
+                # A range naming lines past EOF never sets end_byte; clamp.
+                print start_byte[i] ":" (i in end_byte ? end_byte[i] : offset)
+            }
+        }
+    ' "$file"
+}
+
+format_explicit_files() {
+    if [[ "$#" -eq 0 ]]; then
+        echo "error: write mode requires at least one explicit .swift file" >&2
+        usage >&2
+        exit 2
+    fi
+
+    cd "$ROOT_DIR"
+
+    local paths=()
+    local supplied_path relative_path
+    for supplied_path in "$@"; do
+        if [[ ! -f "$supplied_path" || -L "$supplied_path" || "$supplied_path" != *.swift ]]; then
+            echo "error: not a Swift source file: $supplied_path" >&2
+            exit 2
+        fi
+        if ! relative_path="$(relative_swift_path "$supplied_path")"; then
+            echo "error: format only Package.swift or files under Sources/ and Tests/: $supplied_path" >&2
+            exit 2
+        fi
+        paths+=("$relative_path")
+    done
+
+    local base_ref
+    base_ref="$(resolve_base_ref)"
+
+    # Formatted one file at a time rather than `--parallel`: each file carries
+    # its own byte offsets, and `--offsets` applies to every path in the
+    # invocation. Write mode takes explicitly named files, so the batch is small.
+    local formatted=0 skipped=0 whole=0
+    for relative_path in "${paths[@]}"; do
+        if ! git ls-files --error-unmatch -- "$relative_path" >/dev/null 2>&1; then
+            # No tracked history to diff against — the whole file is new.
+            run_formatter format --in-place --configuration "$CONFIG_PATH" "$relative_path"
+            whole=$((whole + 1))
+            continue
+        fi
+
+        local ranges
+        ranges="$(changed_line_ranges "$base_ref" "$relative_path" | tr '\n' ' ')"
+        if [[ -z "${ranges// /}" ]]; then
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        local offset_args=() offset
+        while IFS= read -r offset; do
+            [[ -n "$offset" ]] && offset_args+=(--offsets "$offset")
+        done < <(line_ranges_to_byte_offsets "$relative_path" $ranges)
+
+        if [[ "${#offset_args[@]}" -eq 0 ]]; then
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        run_formatter format --in-place --configuration "$CONFIG_PATH" \
+            "${offset_args[@]}" "$relative_path"
+        formatted=$((formatted + 1))
+    done
+
+    echo "Swift format: $formatted changed-range, $whole whole-file, $skipped unchanged"
+}
+
+lint_changed_lines() {
+    cd "$ROOT_DIR"
+
+    # Parse the configuration even when a change contains no Swift files.
+    printf 'struct FormatterConfigurationProbe {}\n' \
+        | run_formatter lint --strict --configuration "$CONFIG_PATH" - >/dev/null
+
+    local base_ref
+    base_ref="$(resolve_base_ref)"
 
     local ranges_file diagnostics_file
     ranges_file="$(mktemp "${TMPDIR:-/tmp}/awesomux-format-ranges.XXXXXX")"
