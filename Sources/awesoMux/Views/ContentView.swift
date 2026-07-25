@@ -326,6 +326,7 @@ struct ContentView: View {
         return VStack(spacing: 0) {
             AppTitlebarView(
                 session: sessionStore.selectedSession,
+                sessionStore: sessionStore,
                 onRenameWorkspace: onRenameWorkspace,
                 sidebarPosition: sidebarPosition,
                 hostPresentation: hostPresentation
@@ -552,8 +553,9 @@ struct ContentView: View {
 
 }
 
-private struct AppTitlebarView: View {
+struct AppTitlebarView: View {
     let session: TerminalSession?
+    let sessionStore: SessionStore
     /// Same rename closure the sidebar tile uses — the titlebar workspace name
     /// invokes it on a double-click (INT-720).
     let onRenameWorkspace: (TerminalSession) -> Void
@@ -577,6 +579,10 @@ private struct AppTitlebarView: View {
     // once a workspace switch forced AppTitlebarView to re-render (INT-712).
     @Environment(\.awAccent) private var accentResolver
 
+    @State private var isEditingTitle = false
+    @State private var titleDraft = ""
+    @FocusState private var isTitleFieldFocused: Bool
+
     private static let brandWithTextMinimumWidth = AppTitlebarMetrics.brandWithTextMinimumWidth
     private static let brandIconMinimumWidth = AppTitlebarMetrics.trafficLightClearance + 28
 
@@ -591,6 +597,15 @@ private struct AppTitlebarView: View {
         // Inner labels use `.lineLimit(1)` and truncate at extreme sizes.
         // Tracked: INT-237 (AwFont call-site Dynamic Type audit).
         .frame(height: AwSpacing.titlebar)
+        // Keyed on the OPTIONAL id, and on `body` rather than inside
+        // `workspaceCluster`: that function only renders under `if let session`,
+        // so a guard placed there is torn down by the very nil transition it
+        // needs to catch — leaving a live draft to commit against whichever
+        // workspace is selected next.
+        .onChange(of: session?.id) { _, _ in
+            isEditingTitle = false
+            titleDraft = ""
+        }
         .background {
             ZStack {
                 LinearGradient(
@@ -718,6 +733,27 @@ private struct AppTitlebarView: View {
         )
     }
 
+    private func beginEditingTitle(_ session: TerminalSession) {
+        titleDraft = session.title
+        isEditingTitle = true
+    }
+
+    private func commitTitle(for session: TerminalSession) {
+        // Guard so the focus-loss `onChange` and ⏎ can't double-commit: the
+        // first to fire flips the flag and the rest no-op.
+        guard isEditingTitle else { return }
+        defer { isEditingTitle = false }
+        switch WorkspaceTitleCommit.resolveWorkspaceTitleCommit(
+            input: titleDraft,
+            current: session.title
+        ) {
+        case let .rename(title):
+            sessionStore.renameSession(id: session.id, title: title)
+        case .noChange:
+            break
+        }
+    }
+
     private func workspaceCluster(_ session: TerminalSession) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "folder.fill")
@@ -725,10 +761,32 @@ private struct AppTitlebarView: View {
                 .foregroundStyle(Color.aw.accent(accentResolver.accent))
                 .accessibilityHidden(true)
 
-            Text(session.title)
-                .awFont(AwFont.UI.label)
-                .foregroundStyle(Color.aw.text)
-                .lineLimit(1)
+            if isEditingTitle {
+                TextField("Workspace name", text: $titleDraft)
+                    .textFieldStyle(.plain)
+                    .awFont(AwFont.UI.label)
+                    .foregroundStyle(Color.aw.text)
+                    .focused($isTitleFieldFocused)
+                    .lineLimit(1)
+                    // A content-sized field jitters wider on every keystroke;
+                    // the cap keeps it from reaching for the window edge.
+                    .frame(minWidth: 160, idealWidth: 280, maxWidth: 420)
+                    .onSubmit { commitTitle(for: session) }
+                    .onExitCommand { isEditingTitle = false }
+                    // Clicking away commits rather than stranding the titlebar
+                    // in edit mode with the window-drag handle suppressed.
+                    // `commitTitle` guards on `isEditingTitle`, so the focus loss
+                    // that ⏎/esc themselves cause cannot double-fire.
+                    .onChange(of: isTitleFieldFocused) { _, focused in
+                        if !focused { commitTitle(for: session) }
+                    }
+                    .onAppear { isTitleFieldFocused = true }
+            } else {
+                Text(session.title)
+                    .awFont(AwFont.UI.label)
+                    .foregroundStyle(Color.aw.text)
+                    .lineLimit(1)
+            }
         }
         // A tightly-scoped AppKit overlay owns the cluster's mouse events: a
         // stationary double-click renames, a press-drag moves the window. The
@@ -740,12 +798,17 @@ private struct AppTitlebarView: View {
         // not a documented contract, so an explicit `clickCount` branch is used
         // instead — same disambiguation the pane title bar's drag source makes.
         .overlay {
-            WindowDragRenameHandle(onDoubleClick: { onRenameWorkspace(session) })
-                // Fill the cluster: an NSViewRepresentable in an `.overlay` can
-                // otherwise collapse to its (zero) intrinsic size, leaving the
-                // name non-interactive (the proven PaneTitleBarView placement).
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityHidden(true)
+            // Suppressed while editing so the TextField keeps first responder —
+            // the handle is the hit-test winner and would otherwise swallow
+            // clicks meant for the field (same gating as PaneTitleBarView).
+            if !isEditingTitle {
+                WindowDragRenameHandle(onDoubleClick: { beginEditingTitle(session) })
+                    // Fill the cluster: an NSViewRepresentable in an `.overlay` can
+                    // otherwise collapse to its (zero) intrinsic size, leaving the
+                    // name non-interactive (the proven PaneTitleBarView placement).
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityHidden(true)
+            }
         }
         .help("Drag to move window · double-click to rename")
         .accessibilityElement(children: .combine)
@@ -753,7 +816,7 @@ private struct AppTitlebarView: View {
         // Double-click is pointer-only; expose the same rename as a named
         // action so assistive-tech users reach it too (mirrors the sidebar tile).
         .accessibilityAction(named: "Rename Workspace") {
-            onRenameWorkspace(session)
+            beginEditingTitle(session)
         }
     }
 }
@@ -763,7 +826,7 @@ private struct AppTitlebarView: View {
 /// window-move handle. `WindowDragGesture` is opaque with no documented movement
 /// threshold, so an explicit `mouseDown` `clickCount` branch is the reliable
 /// contract here rather than SwiftUI gesture arbitration (INT-720).
-private struct WindowDragRenameHandle: NSViewRepresentable {
+struct WindowDragRenameHandle: NSViewRepresentable {
     var onDoubleClick: () -> Void
 
     func makeNSView(context: Context) -> DragRegionView {
