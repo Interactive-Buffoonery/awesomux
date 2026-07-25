@@ -121,10 +121,10 @@ private struct SurfaceSearchBar: View {
         .padding(.trailing, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         .onAppear {
-            isSearchFieldFocused = true
+            focusSearchField()
         }
         .onChange(of: searchState.focusRequestSerial) { _, _ in
-            isSearchFieldFocused = true
+            focusSearchField()
         }
         .onChange(of: searchState.matchSummary) { _, _ in
             scheduleSearchSummaryAnnouncement()
@@ -189,6 +189,17 @@ private struct SurfaceSearchBar: View {
             .accessibilityValue(
                 searchState.needle.isEmpty ? "No search" : searchState.spokenSummary
             )
+    }
+
+    /// The terminal NSView is the window's first responder when ⌘F fires;
+    /// claiming SwiftUI focus in the same runloop turn loses that race and
+    /// leaves the field needing a manual click. Release AppKit focus to the
+    /// window first, then claim on the next turn.
+    private func focusSearchField() {
+        surfaceView.window?.makeFirstResponder(nil)
+        DispatchQueue.main.async {
+            isSearchFieldFocused = true
+        }
     }
 
     private func scheduleSearchSummaryAnnouncement(delay: TimeInterval? = nil) {

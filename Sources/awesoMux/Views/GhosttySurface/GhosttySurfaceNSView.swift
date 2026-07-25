@@ -54,6 +54,11 @@ final class GhosttySurfaceNSView: NSView {
     /// (e.g. `search_selection`) and then echoed by the field's own
     /// `onChange` doesn't issue the same `search:<needle>` binding twice.
     var lastSearchedNeedle: String?
+    /// One-shot per issued search: SEARCH_TOTAL fires repeatedly as the
+    /// history scan feeds, and a second positive total arriving before the
+    /// first SEARCH_SELECTED returns must not navigate twice (which would
+    /// land on match 2 instead of match 1).
+    var didAutoSelectCurrentSearch = false
     var commandExitCache = CommandExitCache()
     var shellCommandFinishedIdleLatched = false
     var terminalPromptObserved = false
