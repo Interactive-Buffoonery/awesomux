@@ -35,10 +35,19 @@ the same range lint mode judges. A file with no tracked history is formatted
 whole; a file with no changed lines is left untouched. Set `FORMAT_LINT_BASE`
 to override the comparison ref for either mode.
 
-This scoping matters because roughly a third of the tree carries whole-file
-formatting drift that changed-lines lint cannot see. Formatting those files
-end-to-end would bury a small edit under hundreds of unrelated lines and
-rewrite `git blame` for code the change never touched.
+This scoping matters because roughly a third of *sampled* files carry
+whole-file formatting drift that changed-lines lint cannot see (34 of 109
+checked on 2026-07-24). Formatting those files end-to-end would bury a small
+edit under hundreds of unrelated lines and rewrite `git blame` for code the
+change never touched.
+
+Two consequences worth expecting. A formatted line in a drift-carrying file
+will not visually match its unformatted neighbours — that mismatch is correct,
+and hand-matching the neighbours will fail lint, because the formatted line is
+the canonical one. And the base ref is `merge-base origin/main HEAD`, falling
+back to `HEAD` when `origin/main` is absent; on a fork without that remote,
+"changed" therefore means "uncommitted", so committing your work removes it
+from both modes. Set `FORMAT_LINT_BASE` to widen the range.
 
 ## Updating Swift
 
