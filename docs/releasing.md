@@ -46,6 +46,7 @@ compatibility spike proves otherwise.
 | Lane | Audience | Artifact | Signing | Distribution |
 | --- | --- | --- | --- | --- |
 | GitHub Release | Public stable and public prerelease users | `.dmg` plus checksum | Developer ID Application, hardened runtime, notarized and stapled | GitHub Releases |
+| Nightly | Testers tracking `main` | Rolling `awesoMux-nightly.dmg` plus checksum | Same Developer ID signed/notarized artifact | Rolling `nightly` GitHub prerelease |
 | Homebrew cask | Users who install apps from the terminal | Same public GitHub Release `.dmg` | Same Developer ID signed/notarized artifact | org tap first; optional `Homebrew/homebrew-cask` later |
 | TestFlight | Internal and external beta testers | App Store Connect macOS build | App Store distribution signing and provisioning profile | TestFlight |
 
@@ -247,6 +248,45 @@ has no resume path; re-dispatch from scratch. Checking an orphaned
 submission's status requires a local `xcrun notarytool store-credentials`
 run with the same three notary secrets (`NOTARY_KEY_P8`, `NOTARY_KEY_ID`,
 `NOTARY_ISSUER_ID`).
+
+### Nightly lane
+
+`release.yml` also runs on a daily `schedule` (09:00 UTC) to publish a rolling
+`nightly` GitHub **prerelease**. It reuses the exact release job — same
+environment, cache, keychain lifecycle, and fail-closed validation — and only
+differs in three places: version resolution, a pre-flight gate, and how the
+artifact is published.
+
+- **Gate (`nightly-gate`).** Runs first, on Ubuntu, and decides `should_build`
+  fail-safe (default: skip). It builds only when main *changed* since the last
+  complete nightly **and** the exact commit passed Cheap guards:
+  - *Skip-if-unchanged* compares `github.sha` to the commit the `nightly` tag
+    ref points at (not `target_commitish`, which reads back as `main` once the
+    tag exists), and also requires the `awesoMux-nightly.dmg` asset to be
+    present so a half-published channel is rebuilt rather than skipped forever.
+  - *Skip-if-main-red* requires a completed, successful push-triggered
+    `Cheap guards` run for that exact SHA. Native CI does not run on main
+    pushes (see `docs/ci.md`), so Cheap guards is the real per-main-push gate.
+  - Any transient `gh` error leaves `should_build` false; the next cron
+    recovers. The gate never signs on uncertainty.
+- **Version.** `CFBundleShortVersionString` is `0.0.<YYYYMMDD>` (numeric X.Y.Z;
+  the string rejects suffixes). `CFBundleVersion` stays the commit count, which
+  is monotonic along main. Because nightlies replace the stable app in place
+  (single bundle id), the build number is monotonic *within* the nightly
+  channel but is not globally ordered against a stable release cut from an older
+  commit — acceptable only while there is no auto-update framework.
+- **Publish.** A rolling `nightly` prerelease carries stable-named assets
+  `awesoMux-nightly.dmg` + `.sha256`. Each run deletes the prior release and its
+  tag, then recreates both at the new commit, so the tag always points at the
+  built commit. The Linux bridge helpers are release/tag scope and are not
+  attached to nightlies.
+- **Unattended operation.** By default the nightly reuses the reviewer-gated
+  `release` environment, so each cron waits for the same manual approval a real
+  release does. To run nightlies hands-off, create a dedicated environment
+  holding the same five secrets with a main-only deployment rule and **no**
+  required reviewers, then set the repo variable `NIGHTLY_ENVIRONMENT` to its
+  name. That is a deliberate trust-boundary choice: every merged main commit can
+  then reach the signing/notary secrets automatically.
 
 ### Per-release checklist
 
