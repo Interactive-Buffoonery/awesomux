@@ -10,20 +10,25 @@ struct DocumentLoaderTests {
 
     // MARK: Helpers
 
+    /// One `TemporaryDirectory` per test instance rather than one per helper
+    /// call: swift-testing builds a fresh suite value for every `@Test`, so the
+    /// directory is removed by `deinit` when that test finishes. The previous
+    /// per-call `UUID()` directories had no owner and were never deleted —
+    /// 2,156 of them had accumulated in `$TMPDIR` by the time this was found.
+    private let temporaryDirectory: TemporaryDirectory
+
+    init() throws {
+        temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-document-loader-tests")
+    }
+
     private func writeTempFile(name: String, content: String) throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("awesomux-document-loader-tests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent(name)
+        let url = temporaryDirectory.url.appendingPathComponent(name)
         try content.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 
     private func writeTempData(name: String, size: Int) throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("awesomux-document-loader-tests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent(name)
+        let url = temporaryDirectory.url.appendingPathComponent(name)
         let data = Data(repeating: 0x61 /* 'a' */, count: size)
         try data.write(to: url)
         return url
@@ -115,7 +120,7 @@ struct DocumentLoaderTests {
     @Test("bounded source read rejects a file over the size cap")
     func boundedSourceReadRejectsOversizedFile() throws {
         let url = try writeTempData(
-            name: "watched.md",
+            name: "oversized-watched.md",
             size: DocumentURLValidator.maxFileSizeBytes + 1
         )
 
@@ -229,10 +234,8 @@ struct DocumentLoaderTests {
     /// reject immediately when the type is anything else.
     @Test("rejects a FIFO — non-regular file must not be read")
     func rejectsFIFO() throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("awesomux-fifo-test-\(UUID().uuidString)")
+        let dir = temporaryDirectory.url.appendingPathComponent("fifo", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
 
         let fifoPath = dir.appendingPathComponent("pipe.md").path
         guard mkfifo(fifoPath, 0o600) == 0 else {
@@ -254,10 +257,8 @@ struct DocumentLoaderTests {
     /// The fix resolves symlinks BEFORE validation, exposing the real extension.
     @Test("rejects a .md symlink whose target is a .txt file")
     func rejectsMdSymlinkToTxtTarget() throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("awesomux-symlink-test-\(UUID().uuidString)")
+        let dir = temporaryDirectory.url.appendingPathComponent("symlink", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
 
         // Create a real .txt file.
         let target = dir.appendingPathComponent("real.txt")
@@ -289,10 +290,9 @@ struct DocumentLoaderTests {
 
     @Test("invalid UTF-8 returns a deterministic read error")
     func invalidUTF8ReturnsDeterministicReadError() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-invalid-utf8-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let directory = temporaryDirectory.url
+            .appending(path: "invalid-utf8", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "invalid.md")
         try Data([0xFF]).write(to: file)
 

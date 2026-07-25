@@ -224,3 +224,34 @@ app-quit sweep keeps a bare wait deliberately — its caller already bounds it w
 Both guards match the call, not the hazard. A blocking pipe read placed *before*
 the wait can still hang forever, because the deadline is never reached. Drain
 pipes concurrently with the wait, or redirect to temporary files.
+
+### Waiting on a sentinel file from a shell fixture
+
+Never write a bare spin in a fixture script:
+
+```sh
+while [ ! -e "$SENTINEL" ]; do sleep 0.01; done   # rejected by the guard
+```
+
+When the sentinel never arrives — the test aborts before writing it, or its own
+`defer { removeItem(at: root) }` deletes the directory the sentinel would live
+in — the shell reparents to launchd and spins at 100 Hz with nothing left to
+kill it. Six such orphans were once found alive on a dev machine, two of them 24
+hours old, burning 26% CPU between them. Bounding the Swift waiter does not
+cover this: that fix deliberately never calls `terminate()` on timeout, so the
+child outliving its waiter is the expected path.
+
+Use `ShellWait.untilExists(path:)` or `ShellWait.untilExists(variable:)` from
+`AwesoMuxTestSupport`. It bounds the loop at 15s — deliberately under
+`waitUntilExitEventually`'s 30s, so the shell dies *before* its supervisor stops
+watching — and ends with a `[ -e … ]` test so expiry exits non-zero. Without
+that trailing test a `while` loop that gives up exits 0, and a timeout is
+indistinguishable from the sentinel arriving.
+
+`check_test_waits.sh` enforces this with two patterns: one for the loop
+condition in any of its spellings (`while [`, `until [`, `[[ ]]`, `while !`,
+`while test`) and one for the payload (a sub-second `sleep` inside a loop). The
+second exists because a loop assembled across several Swift
+string-concatenation lines never shows its condition on any single line. A line
+is exempt only if it carries a visible bound (`-lt`) or calls the sanctioned
+emitter — never merely because it mentions the counter's name.
