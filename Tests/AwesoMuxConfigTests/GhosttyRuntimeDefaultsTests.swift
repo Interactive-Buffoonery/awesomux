@@ -5,10 +5,11 @@ import Testing
 struct GhosttyRuntimeDefaultsTests {
     @Test("defaults set a bounded scrollback without enabling SSH helpers")
     func defaultsSetBoundedScrollbackWithoutEnablingSSHHelpers() {
-        #expect(GhosttyRuntimeDefaults.defaultConfigContents == """
-        scrollback-limit = 5000000
+        #expect(
+            GhosttyRuntimeDefaults.defaultConfigContents == """
+                scrollback-limit = 64000000
 
-        """)
+                """)
         #expect(!GhosttyRuntimeDefaults.defaultConfigContents.contains("ssh-env"))
     }
 
