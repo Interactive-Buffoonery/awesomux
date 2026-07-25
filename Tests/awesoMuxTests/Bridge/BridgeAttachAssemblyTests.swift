@@ -361,7 +361,7 @@ struct BridgeAttachAssemblyTests {
             for argument in "$@"; do
                 if [ "$argument" = "$RACE_TARGET" ]; then
                     : > "$RACE_ENTERED"
-                    while [ ! -e "$RACE_RELEASE" ]; do sleep 0.01; done
+                    \(ShellWait.untilExists(variable: "RACE_RELEASE")) || exit 97
                     break
                 fi
             done
@@ -428,8 +428,13 @@ struct BridgeAttachAssemblyTests {
             AmxBackend.bridgeStateFileLockedRemoteScript(
                 stateFilePath: stateURL.path,
                 criticalSection: ": > \(Self.shellQuote(firstEnteredURL.path));"
-                    + " while [ ! -e \(Self.shellQuote(root.appendingPathComponent("never-release").path)) ];"
-                    + " do sleep 0.01; done"
+                    // Sentinel is never written by design — the test terminates
+                    // this shell explicitly below. The bound is the backstop for
+                    // when it doesn't get that far.
+                    + " "
+                    + ShellWait.untilExists(
+                        path: root.appendingPathComponent("never-release").path
+                    )
             )
         )
         try #require(await Self.waitForFile(firstEnteredURL))
@@ -437,8 +442,8 @@ struct BridgeAttachAssemblyTests {
             AmxBackend.bridgeStateFileLockedRemoteScript(
                 stateFilePath: stateURL.path,
                 criticalSection: ": > \(Self.shellQuote(secondEnteredURL.path));"
-                    + " while [ ! -e \(Self.shellQuote(secondReleaseURL.path)) ];"
-                    + " do sleep 0.01; done"
+                    + " "
+                    + ShellWait.untilExists(path: secondReleaseURL.path)
             )
         )
 
@@ -485,7 +490,7 @@ struct BridgeAttachAssemblyTests {
                 for argument in "$@"; do
                     if [ "$argument" = "$RACE_LOCK" ]; then
                         : > "$RACE_PARENT_PUBLISHED"
-                        while [ ! -e "$RACE_RELEASE_PUBLISHER" ]; do sleep 0.01; done
+                        \(ShellWait.untilExists(variable: "RACE_RELEASE_PUBLISHER")) || exit 97
                         break
                     fi
                 done
@@ -596,8 +601,8 @@ struct BridgeAttachAssemblyTests {
             AmxBackend.bridgeStateFileLockedRemoteScript(
                 stateFilePath: stateURL.path,
                 criticalSection: ": > \(Self.shellQuote(firstEnteredURL.path));"
-                    + " while [ ! -e \(Self.shellQuote(releaseFirstURL.path)) ];"
-                    + " do sleep 0.01; done"
+                    + " "
+                    + ShellWait.untilExists(path: releaseFirstURL.path)
             )
         )
         let firstEntered = await Self.waitForFile(firstEnteredURL)
@@ -961,6 +966,7 @@ struct BridgeAttachAssemblyTests {
     private static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+
 }
 
 private enum ShellRaceError: Error {
