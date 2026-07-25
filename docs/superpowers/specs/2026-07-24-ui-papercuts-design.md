@@ -152,13 +152,20 @@ a bottom edge has to sit above the expansion.
 
 The header's insertion indicator is
 `.overlay(alignment: .bottom) { SidebarInsertionIndicator(...).offset(y: height / 2) }`
-(`SidebarGroupView.swift:188-194`). Today it anchors to the header's real bottom.
-If the expansion were applied first — the natural reading order, since
-`.sidebarDrop` currently comes *before* the overlay at lines 165-194 — the
-overlay would anchor to the padded bottom and the indicator would render
-`sessionStackSpacing` too low. Moving the overlay above the padding keeps it on
-the real edge. This reorders two existing modifiers relative to each other and is
-the one non-obvious edit in this papercut.
+(`SidebarGroupView.swift:188-194`), and it is the **only** bottom-anchored
+modifier in that chain — the tile stack's is explicitly `.topLeading`
+(`SidebarGroupView.swift:332`). Today it anchors to the header's real bottom.
+Placed *between* the two paddings it would anchor to the padded bottom and render
+`sessionStackSpacing` too low — the trap being that `.sidebarDrop` currently sits
+*before* the overlay at lines 165-194, so natural reading order reproduces exactly
+that mistake.
+
+Hoisting the overlay above the bracket is **sufficient and least ambiguous**
+rather than strictly necessary: placing it after the negative reclaim would also
+anchor to the restored frame and be correct. Hoisting is preferred because it
+stops the indicator's position depending on the reclaim being present — so
+temporarily deleting the reclaim line (which the plan asks for, to prove the
+geometry guard is live) cannot silently move the indicator at the same time.
 
 The tile stack's indicator is `.overlay(alignment: .topLeading)` with an explicit
 `insertionY` offset, so it anchors to the top-left and is unaffected by bottom

@@ -30,11 +30,24 @@ This plan was revised after an architecture review. Findings folded in, so a fre
 | Finding | Severity | Resolution |
 |---|---|---|
 | Papercut 2's padding-bracket technique was asserted as fact but never verified | Blocker | Falsified empirically before approval. Evidence recorded in Task 2's preamble; the technique holds. Task 2 Step 7 adds a permanent guard against the real view. |
-| Stale draft could rename the wrong workspace when one closes mid-rename | Major (writes wrong data) | Guard moved to `AppTitlebarView.body` keyed on `session?.id` — Task 5 Steps 6b/6c, with a red-first regression test. |
+| Stale draft could rename the wrong workspace when one closes mid-rename | Major (writes wrong data) | Guard moved to `AppTitlebarView.body` keyed on `session?.id` — Task 5 Steps 8/9, with a red-first regression test. |
 | New-workspace row's behavior under an active filter was undecided | Major | Decided: hidden while filtering. A create button whose result instantly fails the filter reads as a broken click. Task 3 Step 8. |
 | Row's `canRemoveGroup` parameter now carries a presentation value | Minor | Renamed `showsRemoveButton`. Task 3 Step 6. |
 | Plan over-claimed that existing hit-target tests would catch a failed reclaim | Minor | Claim softened; the real detector is the new Task 2 Step 7 guard. |
-| Commit can revert a concurrent agent retitle | Minor | Documented, not fixed — `PaneTitleBarView` has the same shape, so a fix belongs in a change covering both. Task 5 Step 10, item 8c. |
+| Commit can revert a concurrent agent retitle | Minor | Documented, not fixed — `PaneTitleBarView` has the same shape, so a fix belongs in a change covering both. Task 5 Step 12, item 8c. |
+
+Second pass, cross-model adversarial review (`gpt-5.6-sol`, read-only, against frozen commit `4bc3ac9`). It found two blockers the in-model pass missed:
+
+| Finding | Severity | Resolution |
+|---|---|---|
+| Task 5 could not compile in step order — Step 7's field called `commitTitle`/`beginEditingTitle` and Step 9's test passed `sessionStore:`, but both were introduced two steps later | **Blocker** | Store property, call-site update and both methods hoisted into Step 6, ahead of every consumer. Task 5 renumbered 1–14. |
+| The stale-edit regression test was **not red** — it entered edit mode and switched selection but never triggered a commit, so workspace B was untouched with or without the guard | **Blocker** | Step 9 now proves edit mode engaged via `#require`, then drives a real commit (resign first responder + Return) before asserting, and instructs the implementer to comment out the guard and watch it fail first. |
+| Task 2's reclaim oracle derived an absolute height from `SidebarDensity`, which holds only spacing — header height comes from scaled typography, and Task 3 adds another intrinsic-height row that would invalidate the number | Major | Replaced with a measured-geometry invariant (`groupContainerFrame.maxY - tileStackFrame.maxY == 0`), which survives Task 3, density changes and type scaling. |
+| Task 2's mandated commit text still said "resolver characterization test only" after Step 7 added an automated guard | Minor | Coverage sentence corrected to name both, and to state plainly that there is no delivered-drag coverage. |
+| Task 3's hosted fixture would render a tile whose session was absent from its own group — a state the real projection cannot produce | Minor | `group.sessions` now derived from `entries.map(\.session)`, with a fallback preserving every existing call site. |
+| Hoisting the header overlay was described as necessary; placing it after the reclaim would also be correct | Minor | Reworded to "sufficient and least ambiguous", with the actual reason: it keeps the indicator independent of the reclaim line that Step 7 temporarily deletes. |
+
+Four claims came back CONFIRMED with evidence: the entire compile surface (every type, initializer and token the plan names), `SessionStore` observability re-rendering a hosted view without `@Bindable`, the populated row not corrupting `SidebarRowFramePreferenceKey` or `insertionY`, and Task 1's `ViewThatFits` + `fittingSize` semantics.
 
 ## Coverage honesty requirement
 
@@ -292,9 +305,11 @@ Reorder so the overlay precedes the padding bracket, and wrap only `.sidebarDrop
 
 ```swift
             SidebarGroupHeaderRow(...)
-                // Indicator first: it anchors to the header's REAL bottom edge.
-                // Below the padding it would anchor to the padded bottom and
-                // draw `sessionStackSpacing` too low.
+                // Indicator above the bracket so it anchors to the header's real
+                // bottom edge. BETWEEN the two paddings it would anchor to the
+                // padded bottom and draw `sessionStackSpacing` too low; after
+                // the reclaim it would also be correct, but this placement makes
+                // the intent unambiguous without depending on reclaim order.
                 .overlay(alignment: .bottom) {
                     if activeDragKind == .workspace && !isFiltering && headerWorkspaceDropTargeted {
                         SidebarInsertionIndicator(tint: tint.hue)
@@ -415,7 +430,19 @@ Create `Tests/awesoMuxTests/SidebarGroupDropRegionTests.swift`. Build the group 
 Assert two things:
 
 1. **The region extends.** With a workspace drag active (`activeDragKind: .workspace`, non-nil `activeDragID` — the `.sidebarDrop` modifier is gated on those, so a registrant only exists while a drag is live), the tallest drag registrant must exceed the tile stack's own content height by `density.groupStackSpacing`. Derive the expected value from the harness's density rather than hardcoding 14.
-2. **The space is reclaimed.** The hosting view's `fittingSize.height` must equal the height measured with the bracket's two padding lines removed. Since you cannot have both trees in one test, assert against an explicit expected total instead: header height + tile heights + stack spacings, with **no** `groupStackSpacing` term. Compute it from the same density constants the view uses so the number is derived, not magic.
+2. **The space is reclaimed.** Assert this from **measured child geometry**, never from a derived absolute total.
+
+   Do not compute an expected "header height + tile heights + spacings" number. `SidebarDensity` holds only padding and spacing values (`SidebarSupport.swift:25-31`) — the header's height comes from scaled typography (`SidebarGroupHeaderView.swift:124`), so any total derived from density is a guess. Worse, Task 3 adds another intrinsic-height row plus one more `sessionStackSpacing` to every populated stack, which would silently invalidate a hardcoded total and leave this test asserting a stale number that happens to still pass.
+
+   Measure instead: capture the tile stack's own frame and the group container's frame in the same coordinate space (a `GeometryReader` preference in the test harness, or `firstDescendant` + `convert(_:to:)` on the hosted `NSView` tree), then assert:
+
+   ```
+   groupContainerFrame.maxY - tileStackFrame.maxY  ==  0   (within 0.5pt)
+   ```
+
+   i.e. the tile stack ends flush with its container despite the bracket. That relation is invariant under Task 3's added row, under density changes, and under typography scaling — it only breaks if the reclaim itself stops working, which is exactly what this guard is for.
+
+Both assertions must be derived from live geometry, so this test stays valid after Task 3 lands. If you cannot obtain both frames in one coordinate space, assert **only** claim 1 and say so in the commit body rather than substituting a hardcoded height.
 
 Run: `./script/swift-test.sh --filter SidebarGroupDropRegion`
 Expected: PASS. Then temporarily delete the `.padding(.bottom, -density.groupStackSpacing)` line, re-run, and confirm assertion 2 FAILS — that proves the guard is live rather than vacuously true. Restore the line.
@@ -433,7 +460,9 @@ git add Sources/awesoMux/Views/SidebarGroupView.swift Tests/awesoMuxTests/Sideba
 git commit -m "fix(sidebar): reclaim dead bands so cross-group drags stay on target"
 ```
 
-Include in the commit body: the manual verification results from Step 6, and the sentence "Automated coverage is the resolver characterization test only — SidebarHostedTestHarness has no synthetic drag support."
+Include in the commit body: the manual verification results from Step 6, and this coverage sentence — accurate as of Step 7 existing:
+
+> Automated coverage is the resolver characterization test plus a drag-registrant geometry proxy on the real view. There is no delivered-drag end-to-end coverage: `SidebarHostedTestHarness` has no synthetic drag-session support.
 
 ---
 
@@ -701,6 +730,21 @@ private struct SidebarGroupHitTargetHarness: View {
 ```
 
 and in `body`, change `entries: []` to `entries: entries`.
+
+**Threading `entries` through is not sufficient on its own.** `makeWindow` independently constructs its own `session` and puts it in `group.sessions` (`SidebarGroupHeaderHitTargetTests.swift:188-197`). Passing an `entries` array built from a *different* session would render a tile whose session is absent from its own group — a state the production projection can never produce, so the fixture would be testing an impossible tree. Derive the group's sessions from the entries instead, so the two cannot diverge:
+
+```swift
+        let group = SessionGroup(
+            id: UUID(uuidString: "8B10C4F3-3905-4C67-A6F6-C7EB11F03D5B")!,
+            name: "Workspace group",
+            // Keep the group and the rendered entries in sync — a tile whose
+            // session isn't in its own group is a state the real projection
+            // cannot produce.
+            sessions: isGroupEmpty ? [] : (entries.isEmpty ? [session] : entries.map(\.session))
+        )
+```
+
+The `entries.isEmpty ? [session]` fallback preserves the current behavior for every existing call site, which passes no `entries` and relies on `group.sessions == [session]`.
 
 Then in the private `makeWindow` helper, add a parameter defaulting to the current behavior so **no existing call site changes**:
 
@@ -1076,7 +1120,66 @@ Add beside the existing `@Environment(\.awAccent)` declaration (around line 578)
     @FocusState private var isTitleFieldFocused: Bool
 ```
 
-- [ ] **Step 6: Swap the label for a field while editing**
+- [ ] **Step 6: Add the store property and the begin/commit methods FIRST**
+
+**Ordering matters — this step must precede Step 7.** Step 7's field calls `commitTitle` / `beginEditingTitle`, and Step 9's test passes `sessionStore:`. If the methods and the property arrive later, Steps 7–9 do not compile and a subagent working in order stalls on an error the plan caused.
+
+`AppTitlebarView` has no `sessionStore` today. `ContentView` holds it as `@Bindable var sessionStore: SessionStore` (`ContentView.swift:68`) and passes it explicitly into children (`sessionStore: sessionStore` at lines 359 and 393), so follow that. Add a stored property beside `session`:
+
+```swift
+    let sessionStore: SessionStore
+```
+
+Pass it at the call site (`ContentView.swift:327-332`):
+
+```swift
+            AppTitlebarView(
+                session: sessionStore.selectedSession,
+                sessionStore: sessionStore,
+                onRenameWorkspace: onRenameWorkspace,
+                sidebarPosition: sidebarPosition,
+                hostPresentation: hostPresentation
+            )
+```
+
+Add the two methods beside `workspaceCluster`:
+
+```swift
+    private func beginEditingTitle(_ session: TerminalSession) {
+        titleDraft = session.title
+        isEditingTitle = true
+    }
+
+    private func commitTitle(for session: TerminalSession) {
+        // Guard so the focus-loss `onChange` and ⏎ can't double-commit: the
+        // first to fire flips the flag and the rest no-op.
+        guard isEditingTitle else { return }
+        defer { isEditingTitle = false }
+        switch WorkspaceTitleCommit.resolveWorkspaceTitleCommit(
+            input: titleDraft,
+            current: session.title
+        ) {
+        case let .rename(title):
+            sessionStore.renameSession(id: session.id, title: title)
+        case .noChange:
+            break
+        }
+    }
+```
+
+Then update the Step 3 test to construct a store, matching `SidebarSearchInteractionTests.swift:239`, and pass `sessionStore: store` into `AppTitlebarView` in its `rootView`:
+
+```swift
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Results", sessions: [session])],
+            selectedSessionID: session.id,
+            pinnedSessionIDs: []
+        )
+```
+
+Re-run `./script/swift-test.sh --filter AppTitlebarInlineRename` and confirm it still FAILS for the original reason (`renameRequests.count == 1`), not a compile error. The double-click still routes to the sheet until Step 7.
+
+- [ ] **Step 7: Swap the label for a field while editing**
 
 Replace `workspaceCluster`'s `Text(session.title)` (line 728) with a conditional, and gate the drag handle overlay so the field keeps first responder:
 
@@ -1139,9 +1242,9 @@ Replace `workspaceCluster`'s `Text(session.title)` (line 728) with a conditional
     }
 ```
 
-**The stale-edit guard does NOT go here.** See Step 6b — putting it inside `workspaceCluster` is a data-corruption bug, not a style preference.
+**The stale-edit guard does NOT go here.** See Step 8 — putting it inside `workspaceCluster` is a data-corruption bug, not a style preference.
 
-- [ ] **Step 6b: Put the stale-edit guard on the BODY, keyed on the optional**
+- [ ] **Step 8: Put the stale-edit guard on the BODY, keyed on the optional**
 
 `workspaceCluster` renders only under `if let session` (`ContentView.swift:697`). A guard placed inside it is destroyed the moment `session` becomes nil — so it cannot fire on the one transition that matters. Meanwhile `isEditingTitle` and `titleDraft` live on `AppTitlebarView` and survive. The sequence that corrupts data:
 
@@ -1166,7 +1269,9 @@ Attach the guard to `AppTitlebarView`'s body instead, keyed on the optional so a
 
 Clearing `titleDraft` too is belt-and-braces: `beginEditingTitle` always reseeds it, but leaving another workspace's text in state is exactly the condition this guard exists to eliminate.
 
-- [ ] **Step 6c: Write the regression test for it**
+- [ ] **Step 9: Write the regression test for it**
+
+**This test only works if it actually triggers a commit.** Entering edit mode merely seeds `titleDraft` and flips `isEditingTitle`; nothing is written to the store until ⏎ or focus loss fires `commitTitle`. A test that double-clicks, switches selection, and then inspects workspace B **passes on the buggy code** — B is untouched either way, because no commit ever ran. That is the same vacuous-green trap Task 1 Step 2 warns about, so the sequence below drives a real commit after the switch.
 
 Add to `Tests/awesoMuxTests/AppTitlebarInlineRenameTests.swift`:
 
@@ -1212,17 +1317,43 @@ Add to `Tests/awesoMuxTests/AppTitlebarInlineRenameTests.swift`:
             at: CGPoint(x: dragRegion.bounds.midX, y: dragRegion.bounds.midY),
             in: hosted.window
         )
+        SidebarHostedTestHarness.settleMainRunLoop()
 
-        // Simulate the workspace closing, then a different one being selected.
+        // Confirm edit mode actually engaged — otherwise the rest of this test
+        // proves nothing, and it would still go green on the buggy code.
+        let field = try #require(
+            SidebarHostedTestHarness.firstDescendant(of: NSTextField.self, in: hosted.hostingView),
+            "double-click did not enter edit mode; the rest of this test would be vacuous"
+        )
+
+        // Workspace A closes, then a DIFFERENT workspace is selected.
         store.selectedSessionID = nil
         SidebarHostedTestHarness.settleMainRunLoop()
         store.selectedSessionID = workspaceB.id
         SidebarHostedTestHarness.settleMainRunLoop()
 
+        // Drive an actual commit. Without this the store is never written and
+        // the assertion below passes with or without the Step 8 guard.
+        // Return via the field's window; if the field is already torn down by
+        // the guard, resigning first responder is a no-op, which is the pass.
+        hosted.window.makeFirstResponder(nil)
+        SidebarHostedTestHarness.settleMainRunLoop()
+        SidebarHostedTestHarness.sendKey(
+            to: hosted.window,
+            keyCode: 36, // Return
+            characters: "\r"
+        )
+        SidebarHostedTestHarness.settleMainRunLoop()
+
         // B must keep its own name — neither A's title nor A's draft.
         #expect(store.session(id: workspaceB.id)?.title == "Workspace B")
+        // A must be untouched too: the edit was abandoned, not applied.
+        #expect(store.session(id: workspaceA.id)?.title == "Workspace A")
+        _ = field
     }
 ```
+
+If `NSTextField` turns out not to be what SwiftUI renders for this `TextField` (it is not a documented contract), replace the `#require` with any other positive proof that edit mode engaged — e.g. assert `firstDescendant` finds a view whose `toolTip` is no longer `WindowDragRenameHandle.tooltip`, since Step 7 suppresses the handle while editing. **Do not drop the check.** It is what keeps the test from being vacuous, which is the whole reason this step exists.
 
 `TitlebarRenameHarness` is a small wrapper that reads `sessionStore.selectedSession` so the `session` parameter tracks store mutations (`AppTitlebarView` takes a plain value, so the test cannot mutate it directly):
 
@@ -1242,76 +1373,23 @@ private struct TitlebarRenameHarness: View {
 }
 ```
 
-Run it against the Step 6a code **before** adding the Step 6b guard and confirm it FAILS (B renamed to A's draft, or an unexpected title). Then add the guard and confirm it PASSES. If it passes before the guard exists, the test is not reproducing the sequence — check that `selectedSession` actually returns nil for a nil `selectedSessionID` and that the settle calls let SwiftUI re-render between mutations.
+**Verify it is red before you rely on it.** Comment out the Step 8 guard, run, and confirm it FAILS with B renamed to `"Workspace A"` (A's seeded draft). Then restore the guard and confirm it PASSES.
 
-- [ ] **Step 7: Add the begin/commit methods**
+If it passes with the guard commented out, the test is not reproducing the sequence. In order, check: (a) the `#require` for edit mode succeeded — if not, nothing was ever in flight; (b) `selectedSession` returns nil for a nil `selectedSessionID`; (c) the commit trigger actually fired — add a temporary `print` in `commitTitle` to confirm it runs at all. Do not proceed on a green you have not seen fail.
 
-Add to `AppTitlebarView`, beside `workspaceCluster`:
+Store observability is not the risk here: `SessionStore` is `@Observable` and `selectedSession` reads the tracked `selectedSessionID` getter, so a plain stored reference re-renders the hosted view without `@Bindable` (that is only needed for projected bindings). If this test misbehaves, suspect the missing commit action, not re-render delivery.
 
-```swift
-    private func beginEditingTitle(_ session: TerminalSession) {
-        titleDraft = session.title
-        isEditingTitle = true
-    }
-
-    private func commitTitle(for session: TerminalSession) {
-        // Guard so the focus-loss `onChange` and ⏎ can't double-commit: the
-        // first to fire flips the flag and the rest no-op.
-        guard isEditingTitle else { return }
-        defer { isEditingTitle = false }
-        switch WorkspaceTitleCommit.resolveWorkspaceTitleCommit(
-            input: titleDraft,
-            current: session.title
-        ) {
-        case let .rename(title):
-            sessionStore.renameSession(id: session.id, title: title)
-        case .noChange:
-            break
-        }
-    }
-```
-
-`AppTitlebarView` has no `sessionStore` today. `ContentView` holds it as `@Bindable var sessionStore: SessionStore` (`ContentView.swift:68`) and passes it explicitly into children (`sessionStore: sessionStore` at lines 359 and 393), so follow that: add a stored property to `AppTitlebarView` beside `session`,
-
-```swift
-    let sessionStore: SessionStore
-```
-
-and pass it at the call site (`ContentView.swift:327-332`):
-
-```swift
-            AppTitlebarView(
-                session: sessionStore.selectedSession,
-                sessionStore: sessionStore,
-                onRenameWorkspace: onRenameWorkspace,
-                sidebarPosition: sidebarPosition,
-                hostPresentation: hostPresentation
-            )
-```
-
-Then update the Step 3 test to construct one, matching `SidebarSearchInteractionTests.swift:239`:
-
-```swift
-        let store = SessionStore(
-            groups: [SessionGroup(name: "Results", sessions: [session])],
-            selectedSessionID: session.id,
-            pinnedSessionIDs: []
-        )
-```
-
-and pass `sessionStore: store` into `AppTitlebarView` in the test's `rootView`.
-
-- [ ] **Step 8: Run the test to verify it passes**
+- [ ] **Step 10: Run the test to verify it passes**
 
 Run: `./script/swift-test.sh --filter AppTitlebarInlineRename`
 Expected: PASS
 
-- [ ] **Step 9: Run the full suite**
+- [ ] **Step 11: Run the full suite**
 
 Run: `./script/swift-test.sh`
 Expected: PASS. `ContentView` is widely referenced, so a signature change to `AppTitlebarView` can break other hosted tests — fix any call sites the compiler flags.
 
-- [ ] **Step 10: Build and verify manually — the two risk items**
+- [ ] **Step 12: Build and verify manually — the two risk items**
 
 Run: `./script/build_and_run.sh`
 
@@ -1328,25 +1406,25 @@ Then:
 6. Clicking the empty titlebar space beside the field starts a window drag and commits.
 7. Blank the field and press ⏎ — the original title must remain, not an empty name.
 8. Enter edit mode, then switch workspaces via the sidebar — no stale draft lands on the new workspace.
-8b. Enter edit mode, then **close that workspace** and select a different one. The new workspace must keep its own name. This is the Step 6b/6c path; verify it by hand as well as in the test.
+8b. Enter edit mode, then **close that workspace** and select a different one. The new workspace must keep its own name. This is the Step 8/9 path; verify it by hand as well as in the test.
 8c. Known and accepted (documented, not fixed): enter edit mode, type nothing, let an agent retitle the workspace via OSC, then click away. The commit compares the pre-edit draft against the new title and reverts the agent's retitle. `PaneTitleBarView` has the same shape today, so this is consistent rather than a new defect — but note it in the PR body so it isn't discovered as a surprise.
 9. Sidebar context-menu "Rename" still opens `WorkspaceEditSheet` (that path is unchanged).
 10. VoiceOver: the "Rename Workspace" rotor action still enters edit mode.
 
-- [ ] **Step 11: Lint the touched files**
+- [ ] **Step 13: Lint the touched files**
 
 Run: `script/format.sh --lint Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/SidebarHostedTestHarness.swift Tests/awesoMuxTests/AppTitlebarInlineRenameTests.swift`
 
 Expected: no findings. `ContentView.swift` is a large file — do **not** run `script/format.sh` on it without `--lint`; whole-file formatting explodes diffs in this repo.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 14: Commit**
 
 ```bash
 git add Sources/awesoMux/Views/ContentView.swift Tests/awesoMuxTests/SidebarHostedTestHarness.swift Tests/awesoMuxTests/AppTitlebarInlineRenameTests.swift
 git commit -m "feat(titlebar): rename a workspace inline instead of in a sheet"
 ```
 
-Include the Step 10 results in the commit body, especially the focus-behavior outcome.
+Include the Step 12 results in the commit body, especially the focus-behavior outcome.
 
 ---
 
