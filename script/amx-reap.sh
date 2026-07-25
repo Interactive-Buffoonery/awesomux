@@ -100,13 +100,18 @@ STATE="$HOME/Library/Application Support/$SUPPORT_NAME/session-state.json"
 owned_ids() {
   [[ -f "$STATE" ]] || return 0
   # Every terminalSessionID in the persisted layout = a pane that can reattach.
-  # Path goes in via argv, not interpolated into the Python source — a quote in
+  # Path goes in via argv, not interpolated into the script source — a quote in
   # $HOME would otherwise break out of the string literal.
-  /usr/bin/python3 -c '
-import sys,re
-try: raw = open(sys.argv[1]).read()
-except OSError: sys.exit(0)
-print("\n".join(sorted(set(re.findall(r"\"terminalSessionID\"\s*:\s*\"([^\"]+)\"", raw)))))
+  # Perl, not python3: /usr/bin/python3 resolves to Xcode's Python.app bundle,
+  # which LaunchServices registers as a regular foreground app — the test suite
+  # calls this script repeatedly and each call flashed an empty desktop window.
+  /usr/bin/perl -e '
+use strict; use warnings;
+open(my $fh, "<", $ARGV[0]) or exit 0;
+my $raw = do { local $/; <$fh> };
+my %seen;
+$seen{$1} = 1 while $raw =~ /"terminalSessionID"\s*:\s*"([^"]+)"/g;
+print "$_\n" for sort keys %seen;
 ' "$STATE"
 }
 
