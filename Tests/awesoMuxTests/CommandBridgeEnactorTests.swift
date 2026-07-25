@@ -158,6 +158,26 @@ struct CommandBridgeEnactorTests {
         #expect(enactor.statusChannel == nil)
     }
 
+    @Test("a bridge attach whose command can't carry the status channel arms no watcher")
+    func bridgeAttachWithoutChannelBearingCommandArmsNoWatcher() throws {
+        let fixture = try makeFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        // The availability probe (`status == nil`) succeeds while the
+        // channel-bearing rebuild fails. Arming off the mint alone would leave a
+        // watcher on a file the spawned command never names, and the exit path
+        // would then trust that permanently empty feed.
+        enactor.attachCommandProvider = { sessionID, status, _ in
+            status == nil ? "amx attach \(sessionID.rawValue)" : nil
+        }
+
+        let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
+
+        #expect(launch == .bridgeAttach("amx attach \(fixture.sessionID.rawValue)"))
+        #expect(enactor.statusWatcher == nil)
+        #expect(enactor.statusChannel == nil)
+        #expect(statusFileNames(for: fixture.sessionID).isEmpty)
+    }
+
     @Test("foreground executable probe uses only the current daemon")
     func foregroundExecutableProbeUsesCurrentDaemon() throws {
         let fixture = try makeFixture()
@@ -329,6 +349,56 @@ struct CommandBridgeEnactorTests {
         let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
         defer { try? FileManager.default.removeItem(at: channel.fileURL) }
         #expect(statusFileNames(for: fixture.sessionID).count == 1)
+    }
+
+    @Test("a remote-owned attach drops a status watcher a previous bridge attach armed")
+    func remoteOwnedAttachDropsStaleStatusWatcher() throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+
+        // Models a pane re-pointed from a bridge session to a remote-owned one
+        // without `handleSessionRepoint` having run first: the far host writes
+        // nothing to this feed, so the arm must not survive the attach.
+        enactor.beginStatusWatch(channel: channel)
+        let staleWatcher = try #require(enactor.statusWatcher)
+        #expect(staleWatcher.isArmed)
+
+        _ = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
+
+        #expect(!staleWatcher.isArmed)
+        #expect(enactor.statusWatcher == nil)
+        #expect(enactor.statusChannel == nil)
+    }
+
+    @Test("a bridge-disabled remote-owned pane keeps its session across surface re-entry")
+    func remoteOwnedKeepsSessionAcrossReentryWithBridgeDisabled() throws {
+        let fixture = try makeRemoteOwnedFixture(bridgeEnabled: false)
+        let enactor = fixture.view.commandBridgeEnactor
+        let spawned = SpawnedCommandBox()
+        fixture.runtime.createSurfaceOverride = { _, _, _, command in
+            spawned.record(command)
+            return nil
+        }
+        enactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
+            "remote-owned-\(sessionName.rawValue)"
+        }
+
+        fixture.view.createSurfaceIfNeeded()
+        #expect(enactor.sessionID == fixture.sessionID)
+        let record = try #require(enactor.recoveryRecord)
+
+        // `surface` stays nil here, exactly as it does while a real spawn is
+        // pending, so later layout passes re-enter. The bridge-disabled
+        // pre-clear says nothing about a pane whose session lives on the far
+        // host and must leave it alone. The identity check is the assertion that
+        // bites: a clear discards the record and mints a replacement.
+        fixture.view.createSurfaceIfNeeded()
+
+        #expect(enactor.sessionID == fixture.sessionID)
+        #expect(enactor.recoveryRecord === record)
+        #expect(spawned.commands == ["remote-owned-work", "remote-owned-work"])
     }
 
     @Test("a remote-owned clean exit (code 0) closes the pane like a local shell")

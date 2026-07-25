@@ -147,6 +147,11 @@ shell, its exit parks behind ghostty's `wait_after_command`
 ([ADR-0011](0011-persistent-session-daemon-command-bridge.md)), so the error
 overlay is keypress-deferred.
 
+Accepted cost: a snapshot containing a `.remoteZmx` pane does not decode on a
+pre-#214 build, and a snapshot fails to restore as a whole rather than per
+pane — so downgrading loses the restore. Accepted pre-1.0; no compatibility
+shim.
+
 Remote-owned panes trade away every local-daemon extra: agent status and
 sidebar agent state, path-bar cwd, `amx send`/`amx history` scripted
 automation (see [`docs/amx-automation.md`](../amx-automation.md)), and

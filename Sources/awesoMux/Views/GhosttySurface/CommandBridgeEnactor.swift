@@ -188,12 +188,29 @@ final class CommandBridgeEnactor {
             // we attach WITHOUT `AMX_STATUS_FILE`/`AMX_STATUS_TOKEN` and the
             // exit handler degrades to its legacy exitCode + `amx list` probe.
             let channel = AmxBackend.makeStatusChannel(for: pane.terminalSessionID)
-            beginStatusWatch(channel: channel)
-            let command = channel.flatMap {
-                attachCommandProvider(pane.terminalSessionID, $0, remote)
+            // Arm only once the command is known to CARRY the channel. Arming
+            // first would leave a watcher sitting on a file the spawned command
+            // never names, so `beginExitSupervision` would trust an empty feed
+            // instead of falling back to the legacy exitCode probe.
+            if let channel,
+                let command = attachCommandProvider(pane.terminalSessionID, channel, remote)
+            {
+                beginStatusWatch(channel: channel)
+                return .bridgeAttach(command)
             }
-            return .bridgeAttach(command ?? baseAttachCommand)
+            // No usable channel: drop any file we just minted (nothing will ever
+            // write it) and attach statusless, with the stale watcher cleared.
+            if let channel {
+                try? FileManager.default.removeItem(at: channel.fileURL)
+            }
+            beginStatusWatch(channel: nil)
+            return .bridgeAttach(baseAttachCommand)
         case .remoteOwnedAttach:
+            // A pane re-pointed from a bridge session to a remote-owned one
+            // reaches here with the previous attach's watcher still armed on a
+            // feed the far host writes nothing to. Drop it before anything else
+            // rather than relying on `handleSessionRepoint` having run first.
+            beginStatusWatch(channel: nil)
             guard let execution = pane.executionPlan.remoteOwnedExecution,
                 let sessionName = execution.sessionName
             else {
