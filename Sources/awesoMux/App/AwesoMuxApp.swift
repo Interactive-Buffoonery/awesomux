@@ -649,8 +649,21 @@ struct AwesoMuxApp: App {
                 NSWorkspace.shared.notificationCenter.publisher(
                     for: NSWorkspace.didWakeNotification
                 )
+                // Workspace notifications deliver on the posting thread;
+                // the reconciler reads AppKit and SwiftUI state.
+                .receive(on: DispatchQueue.main)
             ) { _ in
                 scheduleSheetWedgeReconciliation()
+            }
+            // Arm on intent transitions too: a wedge that forms with no
+            // later activation signal (e.g. a view-state task setting a
+            // request) would otherwise wait for a keypress on a gated
+            // command. A legitimate mount attaches its sheet well inside
+            // the beat and vetoes itself at recheck.
+            .onChange(of: isAnySheetPresented) { wasPresented, isPresented in
+                if !wasPresented, isPresented {
+                    scheduleSheetWedgeReconciliation()
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
@@ -2920,6 +2933,13 @@ struct AwesoMuxApp: App {
                 recheck: recheck
             )
         )
+        // An offer that arrived while the wedge gated its setter was never
+        // consumed, and nothing else re-triggers it (the pane's task ID is
+        // unchanged and the presented-mark suppresses the dismiss replay).
+        // Replay on the next turn, once the cleared state has settled.
+        DispatchQueue.main.async {
+            replayQueuedManagedSSHOffer()
+        }
     }
 
     private func healWedgedSheetRequests(
