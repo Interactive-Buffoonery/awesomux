@@ -41,16 +41,21 @@ struct SheetWedgeRecoveryPolicyTests {
         #expect(keys.isEmpty)
     }
 
-    @Test("a primary-window sheet vetoes request-var healing only")
-    func primarySheetVetoesRequestVarsOnly() {
+    @Test("a primary-window sheet vetoes all healing")
+    func primarySheetVetoesAllHealing() {
+        // A primary-window attached sheet is also an app-wide attached sheet,
+        // so both flags travel together in production; the per-class scoping
+        // only diverges when a NON-primary window holds the sheet (covered by
+        // the any-window test below).
         let initial = snapshot(keys: ["workspaceEdit"], scrollbackPanes: [Self.paneA])
         let recheck = snapshot(
             keys: ["workspaceEdit"],
             scrollbackPanes: [Self.paneA],
-            primarySheet: true
+            primarySheet: true,
+            anySheet: true
         )
         let keys = SheetWedgeRecoveryPolicy.keysToHeal(initial: initial, recheck: recheck)
-        #expect(keys == [SheetWedgeRecoveryPolicy.scrollbackDumpKey])
+        #expect(keys.isEmpty)
     }
 
     @Test("any-window sheet vetoes scrollback healing but not request vars")

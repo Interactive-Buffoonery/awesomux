@@ -662,7 +662,7 @@ struct AwesoMuxApp: App {
             // the beat and vetoes itself at recheck.
             .onChange(of: isAnySheetPresented) { wasPresented, isPresented in
                 if !wasPresented, isPresented {
-                    scheduleSheetWedgeReconciliation()
+                    scheduleSheetWedgeReconciliation(trigger: "intentTransition")
                 }
             }
             .onReceive(
@@ -2845,7 +2845,7 @@ struct AwesoMuxApp: App {
         // that coexisted with a live sheet would otherwise persist until the
         // next activation signal, which a continuous foreground session may
         // never produce.
-        scheduleSheetWedgeReconciliation()
+        scheduleSheetWedgeReconciliation(trigger: "sheetDismiss")
         guard activeSheetDidPresent else { return }
         activeSheetDidPresent = false
         replayQueuedManagedSSHOffer()
@@ -2890,13 +2890,13 @@ struct AwesoMuxApp: App {
     /// occurrence names its trigger. The policy's recheck is the single veto
     /// point — no early modal bail, so a modal closing inside the beat does
     /// not forfeit the healing opportunity.
-    private func scheduleSheetWedgeReconciliation() {
+    private func scheduleSheetWedgeReconciliation(trigger: String = "activation") {
         let initial = sheetWedgeSnapshot
         guard !initial.pendingRequestKeys.isEmpty || !initial.scrollbackDumpPaneIDs.isEmpty
         else { return }
         sheetWedgeReconciliationWorkItem?.cancel()
         let workItem = DispatchWorkItem {
-            performSheetWedgeHeal(initial: initial, recheck: sheetWedgeSnapshot, trigger: "activation")
+            performSheetWedgeHeal(initial: initial, recheck: sheetWedgeSnapshot, trigger: trigger)
         }
         sheetWedgeReconciliationWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
