@@ -96,8 +96,9 @@ function hasValidationEvidence(text) {
 }
 
 function hasValidAssistanceLevel(text) {
+  // Emphasis is stripped first so `**substantial**` reads the same as `substantial`.
   return /assistance level:\s*(none|light|moderate|substantial)\b/i.test(
-    text.replace(/<!--[\s\S]*?-->/g, ""),
+    text.replace(/<!--[\s\S]*?-->/g, "").replace(/[*_`]/g, ""),
   );
 }
 
