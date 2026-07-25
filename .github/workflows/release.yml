@@ -35,8 +35,11 @@ on:
     # cron is cheap.
     - cron: "0 9 * * *"
 
+# Read by default so a new job can't silently inherit write. Only the release
+# job creates/deletes releases and the rolling nightly tag ref, and it grants
+# itself contents: write.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   # Nightly runs get their own group so a cold-cache nightly (a full Ghostty
@@ -134,8 +137,8 @@ jobs:
     # scope, so skip it on the cron lane.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
-    # Job-level override of the workflow's contents: write — this job only
-    # builds and uploads artifacts, it never touches repo contents.
+    # Stated explicitly, not left to the workflow default: this job only builds
+    # and uploads artifacts, and should stay read-only even if that default moves.
     permissions:
       contents: read
     # swift:6.3.3-noble matches the pinned toolchain in .swift-version, same
@@ -175,6 +178,10 @@ jobs:
     # mismatches) on a macOS 15 host — run 29300046831. The OS must match the
     # Xcode generation the image ships.
     runs-on: macos-26
+    # The only job that needs write: it creates draft releases, replaces stale
+    # drafts, and deletes/recreates the rolling `nightly` release and tag ref.
+    permissions:
+      contents: write
     # Nightly reuses the reviewer-gated `release` environment by default, so a
     # scheduled run waits for the same manual approval a real release does. To
     # run nightlies hands-off, set the repo variable NIGHTLY_ENVIRONMENT to a
