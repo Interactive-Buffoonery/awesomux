@@ -23,6 +23,19 @@
 - Conventional Commits: `<type>(<scope>): <lowercase imperative>`, subject ≤72 chars, no period.
 - Known constants used below: `AwSpacing.footerChrome == 38`, `AwSpacing.titlebar == 38`, `SessionStore.appendIndex == Int.max`. Density: comfortable `groupStackSpacing 14` / `sessionStackSpacing 5`; compact `8` / `3`.
 
+## Review gate outcomes (2026-07-24)
+
+This plan was revised after an architecture review. Findings folded in, so a fresh implementer doesn't rediscover them:
+
+| Finding | Severity | Resolution |
+|---|---|---|
+| Papercut 2's padding-bracket technique was asserted as fact but never verified | Blocker | Falsified empirically before approval. Evidence recorded in Task 2's preamble; the technique holds. Task 2 Step 7 adds a permanent guard against the real view. |
+| Stale draft could rename the wrong workspace when one closes mid-rename | Major (writes wrong data) | Guard moved to `AppTitlebarView.body` keyed on `session?.id` — Task 5 Steps 6b/6c, with a red-first regression test. |
+| New-workspace row's behavior under an active filter was undecided | Major | Decided: hidden while filtering. A create button whose result instantly fails the filter reads as a broken click. Task 3 Step 8. |
+| Row's `canRemoveGroup` parameter now carries a presentation value | Minor | Renamed `showsRemoveButton`. Task 3 Step 6. |
+| Plan over-claimed that existing hit-target tests would catch a failed reclaim | Minor | Claim softened; the real detector is the new Task 2 Step 7 guard. |
+| Commit can revert a concurrent agent retitle | Minor | Documented, not fixed — `PaneTitleBarView` has the same shape, so a fix belongs in a change covering both. Task 5 Step 10, item 8c. |
+
 ## Coverage honesty requirement
 
 `SidebarHostedTestHarness` has **no synthetic drag-session support** — `sendClick` hardcodes `clickCount: 1` and there is no drag helper. Papercut 2's behavior change is therefore **not** covered end-to-end by any automated test in this plan. Task 2 ships a characterization test that documents the resolver contract the geometry change depends on, plus a manual verification script. The PR body must state this limitation in those terms. Do not describe Task 2 as "tested" without that qualifier.
@@ -194,6 +207,17 @@ git commit -m "fix(sidebar): stop the footer agent total wrapping to two lines"
 
 **Read first:** the "Modifier order" section of the spec. The one non-obvious edit is that two *existing* modifiers swap relative order.
 
+**Technique already validated — do not re-derive it.** The padding bracket rests on an undocumented SwiftUI hit-testing behavior, so it was falsified empirically before this plan was approved, using a throwaway probe inside the real container shape (`ScrollView` + `LazyVStack`, 50pt rows, 40pt spacing). The probe walked the hosted `NSView` tree for views with non-empty `registeredDraggedTypes` and compared bounds:
+
+| | drop-registrant height | `NSHostingView.fittingSize.height` |
+|---|---|---|
+| control — `.onDrop` with no padding | **50.0** (= row height) | 140.0 |
+| bracketed — `.padding(.bottom, 40)` → `.onDrop` → `.padding(.bottom, -40)` | **90.0** (= row + gap) | 140.0 |
+
+Both halves hold: the drop region extends the full gap past the row, and the negative padding reclaims the layout space exactly (identical `fittingSize`, so siblings do not move). The probe was deleted rather than committed — it tested SwiftUI, not awesoMux. Step 9 below adds the equivalent guard against the *real* view instead.
+
+Caveat to keep in mind: the probe measured the registered drag-destination view's bounds, not a delivered drag session. AppKit resolves drag destinations by hit-testing views with registered types, so a registrant spanning the gap is what "the region extends" means — but it is a proxy. The manual drag walk in Step 6 is not optional.
+
 - [ ] **Step 1: Write the characterization test**
 
 This test **passes on `main`** — that is expected and correct. `SidebarInsertionResolver` is already right; the bug is region geometry. This test pins the contract the geometry change depends on, so a future resolver change can't silently break it.
@@ -343,7 +367,9 @@ Do **not** change `LazyVStack(spacing: density.groupStackSpacing)` in `SidebarVi
 - [ ] **Step 5: Run the sidebar suite**
 
 Run: `./script/swift-test.sh --filter Sidebar`
-Expected: PASS. In particular `SidebarGroupHeaderHitTargetTests` must still pass — its click points are absolute window coordinates, so any accidental layout shift shows up there as a failure. If one of those fails, the negative padding is not fully reclaiming; re-check that both `.padding(.bottom, -…)` calls are present and sit *after* `.sidebarDrop`.
+Expected: PASS, including `SidebarGroupHeaderHitTargetTests`.
+
+Do **not** treat those hit-target tests as the detector for a failed reclaim. They pass `entries: []` and assert points on a header anchored at the *top* of the group, so a downward overflow may move nothing they measure. They are a guard against gross breakage only. Step 9 adds the real detector.
 
 - [ ] **Step 6: Build and verify manually**
 
@@ -360,16 +386,50 @@ Walk this script and record the result in the commit body:
 7. Drag a group header to reorder groups. Confirm the flip points feel unchanged.
 8. Repeat step 2 in compact density (8pt gutter) to confirm both density values work.
 
-- [ ] **Step 7: Lint the touched files**
+- [ ] **Step 7: Add the geometry regression guard**
 
-Run: `script/format.sh --lint Sources/awesoMux/Views/SidebarGroupView.swift Tests/awesoMuxTests/SidebarInsertionResolverTests.swift`
+Nothing automated currently proves either half of the bracket against the real view. The padding bracket depends on undocumented SwiftUI behavior, so a future macOS or Swift toolchain could silently revert papercut 2 with a green suite. Guard the actual `SidebarGroupView`, not a synthetic stand-in.
+
+Create `Tests/awesoMuxTests/SidebarGroupDropRegionTests.swift`. Build the group via the same `SidebarGroupHitTargetHarness`-style construction used in `SidebarGroupHeaderHitTargetTests` (populate `entries` with two sessions so the tile stack has real frames), host it, then walk for drag registrants:
+
+```swift
+    /// Papercut 2 (#220) extends the tile stack's drop region down through the
+    /// inter-group gutter using a padding bracket around `.sidebarDrop`, then
+    /// reclaims the layout space with negative padding. Both halves rest on
+    /// undocumented SwiftUI hit-testing behavior, so assert them directly: a
+    /// toolchain change that clips the overflow, or drops the reclaim, would
+    /// otherwise revert the fix with a green suite.
+    private static func dropRegistrantHeights(in root: NSView) -> [CGFloat] {
+        var heights: [CGFloat] = []
+        func walk(_ view: NSView) {
+            if !view.registeredDraggedTypes.isEmpty {
+                heights.append(view.bounds.height)
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        return heights
+    }
+```
+
+Assert two things:
+
+1. **The region extends.** With a workspace drag active (`activeDragKind: .workspace`, non-nil `activeDragID` — the `.sidebarDrop` modifier is gated on those, so a registrant only exists while a drag is live), the tallest drag registrant must exceed the tile stack's own content height by `density.groupStackSpacing`. Derive the expected value from the harness's density rather than hardcoding 14.
+2. **The space is reclaimed.** The hosting view's `fittingSize.height` must equal the height measured with the bracket's two padding lines removed. Since you cannot have both trees in one test, assert against an explicit expected total instead: header height + tile heights + stack spacings, with **no** `groupStackSpacing` term. Compute it from the same density constants the view uses so the number is derived, not magic.
+
+Run: `./script/swift-test.sh --filter SidebarGroupDropRegion`
+Expected: PASS. Then temporarily delete the `.padding(.bottom, -density.groupStackSpacing)` line, re-run, and confirm assertion 2 FAILS — that proves the guard is live rather than vacuously true. Restore the line.
+
+- [ ] **Step 8: Lint the touched files**
+
+Run: `script/format.sh --lint Sources/awesoMux/Views/SidebarGroupView.swift Tests/awesoMuxTests/SidebarInsertionResolverTests.swift Tests/awesoMuxTests/SidebarGroupDropRegionTests.swift`
 
 Expected: no findings. Read the output — `--lint` exits 0 with warnings.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add Sources/awesoMux/Views/SidebarGroupView.swift Tests/awesoMuxTests/SidebarInsertionResolverTests.swift
+git add Sources/awesoMux/Views/SidebarGroupView.swift Tests/awesoMuxTests/SidebarInsertionResolverTests.swift Tests/awesoMuxTests/SidebarGroupDropRegionTests.swift
 git commit -m "fix(sidebar): reclaim dead bands so cross-group drags stay on target"
 ```
 
@@ -525,12 +585,19 @@ In `Sources/awesoMux/Views/SidebarDropDelegates.swift`, rename `struct EmptyGrou
 ```swift
 struct NewWorkspaceInGroupRow: View {
     let isFiltering: Bool
-    let canRemoveGroup: Bool
+    /// Renamed from `canRemoveGroup`: the value passed in is now a presentation
+    /// decision (`NewWorkspaceInGroupRowPolicy.showsRemoveButton`), not the
+    /// store's removal capability. Keeping the old name would invite a future
+    /// caller to pass the raw capability and reintroduce a second X on
+    /// populated groups, which already have the header's hover X.
+    let showsRemoveButton: Bool
     /// False for a populated group — see `NewWorkspaceInGroupRowPolicy`.
     let showsRestingBorder: Bool
     let activeDragKind: SidebarDragKind?
     // ...remaining properties unchanged...
 ```
+
+Update the two `if canRemoveGroup` uses inside the view's body (the trailing-space reservation at line 506 and the sibling X overlay at line 534) to `if showsRemoveButton`.
 
 Change the `.overlay` stroke (currently lines 515-526) so the resting stroke can be suppressed while the drag-targeted stroke is untouched:
 
@@ -580,11 +647,17 @@ Update every hit to `NewWorkspaceInGroupRow`. There is a prose reference in `Sou
 In `Sources/awesoMux/Views/SidebarGroupView.swift`, replace the conditional mount (lines 288-305) with:
 
 ```swift
-                    if displayMode != .collapsed {
+                    // Hidden while filtering: the row's drop delegate already
+                    // refuses filtered drags, but its BUTTON would still fire —
+                    // creating a workspace that instantly fails the active
+                    // filter and vanishes, which reads as a broken click. A
+                    // create affordance that produces invisible results is
+                    // worse than no affordance.
+                    if displayMode != .collapsed, !isFiltering {
                         let isGroupEmpty = sessions.isEmpty
                         NewWorkspaceInGroupRow(
                             isFiltering: isFiltering,
-                            canRemoveGroup: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
+                            showsRemoveButton: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
                                 isGroupEmpty: isGroupEmpty,
                                 canRemoveGroup: canRemoveGroup
                             ),
@@ -1063,13 +1136,113 @@ Replace `workspaceCluster`'s `Text(session.title)` (line 728) with a conditional
         .accessibilityAction(named: "Rename Workspace") {
             beginEditingTitle(session)
         }
-        // A workspace switch mid-edit must not let a stale draft commit against
-        // the newly selected workspace.
-        .onChange(of: session.id) { _, _ in
-            isEditingTitle = false
-        }
     }
 ```
+
+**The stale-edit guard does NOT go here.** See Step 6b — putting it inside `workspaceCluster` is a data-corruption bug, not a style preference.
+
+- [ ] **Step 6b: Put the stale-edit guard on the BODY, keyed on the optional**
+
+`workspaceCluster` renders only under `if let session` (`ContentView.swift:697`). A guard placed inside it is destroyed the moment `session` becomes nil — so it cannot fire on the one transition that matters. Meanwhile `isEditingTitle` and `titleDraft` live on `AppTitlebarView` and survive. The sequence that corrupts data:
+
+1. User double-clicks workspace A's title, types a new name.
+2. Workspace A closes (or all workspaces close) → `session` becomes nil → `workspaceCluster` unmounts, taking any guard inside it with it.
+3. Workspace B is selected → the cluster remounts with `isEditingTitle == true` and `titleDraft` still holding A's text, and `.onAppear` focuses the field.
+4. The user presses ⏎ or clicks away → **workspace B is renamed to A's draft.**
+
+Attach the guard to `AppTitlebarView`'s body instead, keyed on the optional so a nil transition also cancels. Add it to the `GeometryReader` chain in `body` (around line 593, beside `.frame(height: AwSpacing.titlebar)`):
+
+```swift
+        // Keyed on the OPTIONAL id, and on `body` rather than inside
+        // `workspaceCluster`: that function only renders under `if let session`,
+        // so a guard placed there is torn down by the very nil transition it
+        // needs to catch — leaving a live draft to commit against whichever
+        // workspace is selected next.
+        .onChange(of: session?.id) { _, _ in
+            isEditingTitle = false
+            titleDraft = ""
+        }
+```
+
+Clearing `titleDraft` too is belt-and-braces: `beginEditingTitle` always reseeds it, but leaving another workspace's text in state is exactly the condition this guard exists to eliminate.
+
+- [ ] **Step 6c: Write the regression test for it**
+
+Add to `Tests/awesoMuxTests/AppTitlebarInlineRenameTests.swift`:
+
+```swift
+    /// Closing a workspace mid-rename must not strand a live draft that then
+    /// commits against the NEXT workspace. `isEditingTitle` lives on
+    /// AppTitlebarView while the field lives inside `workspaceCluster`, which
+    /// only renders under `if let session` — so the cancel has to be keyed on
+    /// the optional at body level to survive a nil transition.
+    @Test("a workspace closing mid-rename does not rename the next one")
+    func closingWorkspaceMidRenameDoesNotRenameTheNext() throws {
+        let workspaceA = TerminalSession(
+            id: UUID(uuidString: "AA000000-0000-4000-8000-000000000001")!,
+            title: "Workspace A",
+            workingDirectory: "~"
+        )
+        let workspaceB = TerminalSession(
+            id: UUID(uuidString: "BB000000-0000-4000-8000-000000000002")!,
+            title: "Workspace B",
+            workingDirectory: "~"
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Group", sessions: [workspaceA, workspaceB])],
+            selectedSessionID: workspaceA.id,
+            pinnedSessionIDs: []
+        )
+        let hosted = SidebarHostedTestHarness.makeWindow(
+            rootView: TitlebarRenameHarness(sessionStore: store)
+                .environment(AppSettingsStore(legacySnapshotProvider: { nil })),
+            frame: NSRect(x: 0, y: 0, width: 900, height: AwSpacing.titlebar)
+        )
+        defer { hosted.window.close() }
+
+        let dragRegion = try #require(
+            SidebarHostedTestHarness.firstDescendant(
+                of: NSView.self,
+                in: hosted.hostingView,
+                where: { $0.toolTip == WindowDragRenameHandle.tooltip }
+            )
+        )
+        SidebarHostedTestHarness.sendDoubleClick(
+            to: dragRegion,
+            at: CGPoint(x: dragRegion.bounds.midX, y: dragRegion.bounds.midY),
+            in: hosted.window
+        )
+
+        // Simulate the workspace closing, then a different one being selected.
+        store.selectedSessionID = nil
+        SidebarHostedTestHarness.settleMainRunLoop()
+        store.selectedSessionID = workspaceB.id
+        SidebarHostedTestHarness.settleMainRunLoop()
+
+        // B must keep its own name — neither A's title nor A's draft.
+        #expect(store.session(id: workspaceB.id)?.title == "Workspace B")
+    }
+```
+
+`TitlebarRenameHarness` is a small wrapper that reads `sessionStore.selectedSession` so the `session` parameter tracks store mutations (`AppTitlebarView` takes a plain value, so the test cannot mutate it directly):
+
+```swift
+private struct TitlebarRenameHarness: View {
+    let sessionStore: SessionStore
+
+    var body: some View {
+        AppTitlebarView(
+            session: sessionStore.selectedSession,
+            sessionStore: sessionStore,
+            onRenameWorkspace: { _ in },
+            sidebarPosition: .left,
+            hostPresentation: SidebarHostPresentationState()
+        )
+    }
+}
+```
+
+Run it against the Step 6a code **before** adding the Step 6b guard and confirm it FAILS (B renamed to A's draft, or an unexpected title). Then add the guard and confirm it PASSES. If it passes before the guard exists, the test is not reproducing the sequence — check that `selectedSession` actually returns nil for a nil `selectedSessionID` and that the settle calls let SwiftUI re-render between mutations.
 
 - [ ] **Step 7: Add the begin/commit methods**
 
@@ -1155,6 +1328,8 @@ Then:
 6. Clicking the empty titlebar space beside the field starts a window drag and commits.
 7. Blank the field and press ⏎ — the original title must remain, not an empty name.
 8. Enter edit mode, then switch workspaces via the sidebar — no stale draft lands on the new workspace.
+8b. Enter edit mode, then **close that workspace** and select a different one. The new workspace must keep its own name. This is the Step 6b/6c path; verify it by hand as well as in the test.
+8c. Known and accepted (documented, not fixed): enter edit mode, type nothing, let an agent retitle the workspace via OSC, then click away. The commit compares the pre-edit draft against the new title and reverts the agent's retitle. `PaneTitleBarView` has the same shape today, so this is consistent rather than a new defect — but note it in the PR body so it isn't discovered as a surprise.
 9. Sidebar context-menu "Rename" still opens `WorkspaceEditSheet` (that path is unchanged).
 10. VoiceOver: the "Rename Workspace" rotor action still enters edit mode.
 
