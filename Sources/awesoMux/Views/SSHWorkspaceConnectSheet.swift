@@ -86,21 +86,21 @@ struct SSHWorkspaceConnectSheet: View {
             Text("Remote session name (optional)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            TextField("my-session", text: $sessionName)
+            TextField(Self.sessionNamePlaceholder, text: $sessionName)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled(true)
                 .accessibilityLabel("Remote session name")
-                .accessibilityHint("Names a zmx session the remote host keeps running")
+                .accessibilityHint("Optional. Names a zmx session the remote host keeps running")
                 .onSubmit { connect(execution) }
             if declaresRemoteSession {
                 Text("zmx path (optional)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField("/usr/local/bin/zmx", text: $remoteExecutablePath)
+                TextField(Self.remoteExecutablePathPlaceholder, text: $remoteExecutablePath)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled(true)
                     .accessibilityLabel("Remote zmx path")
-                    .accessibilityHint("Leave empty to run zmx from the remote PATH")
+                    .accessibilityHint("Optional. Leave empty to run zmx from the remote PATH")
                     .onSubmit { connect(execution) }
             }
             if let message = validationMessage ?? settingsErrorMessage ?? submission.errorMessage {
@@ -145,7 +145,19 @@ struct SSHWorkspaceConnectSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(sheetTitle)
         .onAppear { isFocused = true }
+        // Clearing the session name hides the path field; its text would
+        // otherwise survive unseen and either revive on re-entry or be silently
+        // dropped by `execution(...)` on submit.
+        .onChange(of: declaresRemoteSession) { _, declares in
+            if !declares { remoteExecutablePath = "" }
+        }
     }
+
+    /// Placeholder examples, deliberately not localized: a session name is
+    /// restricted to `[A-Za-z0-9._-]` and a path is a path, so neither example
+    /// changes by language.
+    private static let sessionNamePlaceholder = "my-session"
+    private static let remoteExecutablePathPlaceholder = "/usr/local/bin/zmx"
 
     private func connect(_ execution: SSHExecution?) {
         submission.submit(

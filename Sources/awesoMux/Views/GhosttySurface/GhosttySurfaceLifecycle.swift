@@ -154,7 +154,15 @@ extension GhosttySurfaceNSView {
         // passes (cold-start settle, resize) re-enter here; an unconditional clear
         // would reset `errorLatched`, re-run prepareAttach, and schedule a second
         // markError() — a duplicate "Session error" VoiceOver announcement.
-        if !commandBridgeEnabled, !commandBridgeEnactor.errorLatched {
+        //
+        // Nor for a remote-owned pane at all: its session lives on the far host,
+        // so the global bridge toggle says nothing about it, and the clear would
+        // discard the session id (plus its recovery record and progress) that
+        // `handleProcessExit` needs to treat a dropped ssh as an error instead of
+        // a silent close.
+        if !commandBridgeEnabled, !commandBridgeEnactor.errorLatched,
+            pane.executionPlan.remoteOwnedExecution == nil
+        {
             clearCommandBridgeStateForLocalShellFallback()
         }
 
@@ -188,9 +196,11 @@ extension GhosttySurfaceNSView {
         if commandBridgeEnactor.errorLatched {
             // The entry guard above already required `errorLatched == false` to
             // reach `prepareAttach`, so a true value here can only have come
-            // from THIS call — `.remoteUnavailable` (ADR-0022 trust boundary):
-            // a remote-tagged pane whose attach command couldn't be built. Must
-            // not fall through to `createSurface(command: nil)`, which would
+            // from THIS call: `.remoteUnavailable` (ADR-0022 trust boundary — a
+            // remote-tagged pane whose attach command couldn't be built), or the
+            // defensive nameless-plan guard in the `.remoteOwnedAttach` arm.
+            // Either way this must not fall through to
+            // `createSurface(command: nil)`, which would
             // spawn a silent, typable LOCAL shell masquerading as the remote
             // host. Leave the pane blank + latched; the top-of-function guard
             // blocks re-creation until the latch clears.

@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import Foundation
 import UnicodeHygiene
 
 /// Resolves the Connect via SSH sheet's fields into the execution they declare.
@@ -37,12 +38,17 @@ enum SSHWorkspaceConnectFields {
         !sessionName.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
+    /// Both validation messages name their field: they share one message slot in
+    /// the sheet, so heard out of visual context an unprefixed message would not
+    /// say which field it is about.
     static func sessionNameMessage(for text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, RemoteSessionName(rawValue: trimmed) == nil else { return nil }
         return String(
-            localized: "Use up to 64 letters, numbers, dots, dashes, or underscores.",
-            comment: "Validation message when a remote zmx session name is invalid"
+            localized:
+                "Session name: use up to \(RemoteSessionName.maxLength) letters, numbers, dots, dashes, or underscores. It can’t start with a dash or be “.” or “..”.",
+            comment:
+                "Validation message when a remote zmx session name is invalid. The argument is the maximum number of characters."
         )
     }
 
@@ -56,7 +62,7 @@ enum SSHWorkspaceConnectFields {
             return nil
         }
         return String(
-            localized: "Enter an absolute path to zmx on the remote host.",
+            localized: "Remote zmx path: enter an absolute path to zmx on the remote host.",
             comment: "Validation message when the remote zmx executable path is not a usable absolute path"
         )
     }
