@@ -146,7 +146,7 @@ test("accepts an assistance level wrapped in markdown emphasis", () => {
   }
 });
 
-test("still rejects a missing assistance level", () => {
+test("still rejects an invalid assistance level", () => {
   const result = validatePullRequest({
     body: fullBody.replace("- Assistance level: moderate", "- Assistance level: **maybe**"),
     files: ["Sources/App.swift"],
