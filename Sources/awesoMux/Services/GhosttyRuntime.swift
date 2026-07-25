@@ -502,15 +502,14 @@ final class GhosttyRuntime {
     /// Sheet-wedge heal (issue #202): the dump flag is raised at request time,
     /// so a sheet that never mounts leaves it latched — which disables the
     /// find/scrollback command surface app-wide AND blocks `presentSearch`'s
-    /// own guard. Clear every raised flag, dismissing the backing sheet state
-    /// on panes that still have a surface view so the two stay coherent.
-    func healScrollbackDumpSheetFlags() {
-        for paneID in scrollbackDumpSheetPaneIDsSnapshot {
-            if let surfaceView = surfaceViews[paneID] {
-                surfaceView.dismissScrollbackDump()
-            } else {
-                setScrollbackDumpSheetPresented(false, for: paneID)
-            }
+    /// own guard. Per-pane so a heal never touches a sibling pane's live dump;
+    /// dismiss through the surface view when one exists so flag and sheet
+    /// state stay coherent.
+    func healScrollbackDumpSheetFlag(for paneID: TerminalPane.ID) {
+        if let surfaceView = surfaceViews[paneID] {
+            surfaceView.dismissScrollbackDump()
+        } else {
+            setScrollbackDumpSheetPresented(false, for: paneID)
         }
     }
 

@@ -152,6 +152,7 @@ struct AwesoMuxApp: App {
     // mounted are unverified, and a wedge-heal that nils a request must never
     // count as a dismissal (issue #202).
     @State private var activeSheetDidPresent = false
+    @State private var sheetWedgeReconciliationWorkItem: DispatchWorkItem?
     @State private var recoveryWarning: SessionPersistence.SessionRecoveryWarning?
     @State private var didPresentRecoveryWarning = false
     @State private var isRecoveryReplacementInProgress = false
@@ -183,6 +184,11 @@ struct AwesoMuxApp: App {
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
         category: "sidebar"
+    )
+
+    private static let sheetWedgeLogger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "SheetWedgeRecovery"
     )
 
     private var preferredScheme: ColorScheme? {
@@ -645,6 +651,13 @@ struct AwesoMuxApp: App {
                 )
             ) { _ in
                 scheduleSheetWedgeReconciliation()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: .awesoMuxManagedSSHOfferReplayRequested
+                )
+            ) { _ in
+                replayQueuedManagedSSHOffer()
             }
             .onReceive(NotificationCenter.default.publisher(for: .awesoMuxFocusSidebarRequested)) { _ in
                 requestSidebarFocus()
@@ -2417,6 +2430,7 @@ struct AwesoMuxApp: App {
     }
 
     private func closeActivePaneOrWindow() {
+        healSheetWedgeBeforeGatedCommand()
         if sessionManagerController.hideIfKeyWindow() {
             return
         }
@@ -2814,8 +2828,17 @@ struct AwesoMuxApp: App {
     /// wedge heal (or an item that never mounted) from replaying the queued
     /// managed-SSH offer during a dismissal that never visually happened.
     private func handleRequestSheetDismiss() {
+        // Every genuine sheet close is also a reconciliation trigger: a wedge
+        // that coexisted with a live sheet would otherwise persist until the
+        // next activation signal, which a continuous foreground session may
+        // never produce.
+        scheduleSheetWedgeReconciliation()
         guard activeSheetDidPresent else { return }
         activeSheetDidPresent = false
+        replayQueuedManagedSSHOffer()
+    }
+
+    private func replayQueuedManagedSSHOffer() {
         guard let session = sessionStore.selectedSession,
             let paneID = session.activePane?.id
         else { return }
@@ -2823,19 +2846,25 @@ struct AwesoMuxApp: App {
     }
 
     private var sheetWedgeSnapshot: SheetWedgeRecoveryPolicy.Snapshot {
-        var keys: Set<String> = []
-        if workspaceEditRequest != nil { keys.insert("workspaceEdit") }
-        if paneEditRequest != nil { keys.insert("paneEdit") }
-        if workspaceGroupCreateRequest != nil { keys.insert("workspaceGroupCreate") }
-        if remoteWorkspaceGroupCreateRequest != nil { keys.insert("remoteWorkspaceGroupCreate") }
-        if sshWorkspaceConnectRequest != nil { keys.insert("sshWorkspaceConnect") }
-        if workspaceGroupRenameRequest != nil { keys.insert("workspaceGroupRename") }
-        if quickSettingsRequest != nil { keys.insert("quickSettings") }
+        let primaryWindow = AwesoMuxWindowRole.primaryContentWindow(
+            mainWindow: NSApp.mainWindow,
+            keyWindow: NSApp.keyWindow,
+            windows: NSApp.windows
+        )
         return .init(
-            pendingRequestKeys: keys,
-            scrollbackDumpPaneCount: ghosttyRuntime.scrollbackDumpSheetPaneIDsSnapshot.count,
-            hasNativeModalPresentation: NSApp.modalWindow != nil
-                || NSApp.windows.contains { $0.attachedSheet != nil }
+            pendingRequestKeys: SheetWedgeRecoveryPolicy.pendingRequestKeys(
+                workspaceEdit: workspaceEditRequest != nil,
+                paneEdit: paneEditRequest != nil,
+                workspaceGroupCreate: workspaceGroupCreateRequest != nil,
+                remoteWorkspaceGroupCreate: remoteWorkspaceGroupCreateRequest != nil,
+                sshWorkspaceConnect: sshWorkspaceConnectRequest != nil,
+                workspaceGroupRename: workspaceGroupRenameRequest != nil,
+                quickSettings: quickSettingsRequest != nil
+            ),
+            scrollbackDumpPaneIDs: Set(ghosttyRuntime.scrollbackDumpSheetPaneIDsSnapshot),
+            hasModalWindow: NSApp.modalWindow != nil,
+            primaryWindowSheetAttached: primaryWindow?.attachedSheet != nil,
+            anyWindowSheetAttached: NSApp.windows.contains { $0.attachedSheet != nil }
         )
     }
 
@@ -2845,28 +2874,58 @@ struct AwesoMuxApp: App {
     /// `isAnySheetPresented`. On every activation signal, compare request
     /// intent against AppKit presentation truth across a stabilization beat
     /// and clear what is genuinely wedged, logging the operands so the next
-    /// occurrence names its trigger.
+    /// occurrence names its trigger. The policy's recheck is the single veto
+    /// point — no early modal bail, so a modal closing inside the beat does
+    /// not forfeit the healing opportunity.
     private func scheduleSheetWedgeReconciliation() {
         let initial = sheetWedgeSnapshot
-        guard !initial.hasNativeModalPresentation,
-            !initial.pendingRequestKeys.isEmpty || initial.scrollbackDumpPaneCount > 0
+        guard !initial.pendingRequestKeys.isEmpty || !initial.scrollbackDumpPaneIDs.isEmpty
         else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            let recheck = sheetWedgeSnapshot
-            let keys = SheetWedgeRecoveryPolicy.keysToHeal(initial: initial, recheck: recheck)
-            guard !keys.isEmpty else { return }
-            ShortcutDiagnostics.log(
-                "stage=sheetWedgeHeal keys=\(keys.sorted().joined(separator: ","))"
-                    + " modalWindow=\(NSApp.modalWindow != nil)"
-                    + " attachedSheets=\(NSApp.windows.filter { $0.attachedSheet != nil }.count)"
-                    + " selectedSession=\(sessionStore.selectedSessionID != nil)"
-                    + " scrollbackPanes=\(recheck.scrollbackDumpPaneCount)"
-            )
-            healWedgedSheetRequests(keys)
+        sheetWedgeReconciliationWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            performSheetWedgeHeal(initial: initial, recheck: sheetWedgeSnapshot, trigger: "activation")
         }
+        sheetWedgeReconciliationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
     }
 
-    private func healWedgedSheetRequests(_ keys: Set<String>) {
+    /// A keypress on a gated command is unambiguous user intent: heal
+    /// synchronously (same snapshot both sides — the stabilization grace is
+    /// traded for the certainty that the user is staring at a dead command),
+    /// so the very press that found the command dead un-wedges it. Activation
+    /// notifications never fire for a keypress in an already-active key
+    /// window, which is exactly the reported repro state.
+    private func healSheetWedgeBeforeGatedCommand() {
+        let snapshot = sheetWedgeSnapshot
+        performSheetWedgeHeal(initial: snapshot, recheck: snapshot, trigger: "gatedCommand")
+    }
+
+    private func performSheetWedgeHeal(
+        initial: SheetWedgeRecoveryPolicy.Snapshot,
+        recheck: SheetWedgeRecoveryPolicy.Snapshot,
+        trigger: String
+    ) {
+        let keys = SheetWedgeRecoveryPolicy.keysToHeal(initial: initial, recheck: recheck)
+        guard !keys.isEmpty else { return }
+        // Unconditional logger, not ShortcutDiagnostics: a wedge heal is rare,
+        // carries only fixed keys/booleans/counts, and is most needed in
+        // shipped builds where the diagnostics env var is never set.
+        Self.sheetWedgeLogger.notice(
+            "sheetWedgeHeal trigger=\(trigger, privacy: .public) keys=\(keys.sorted().joined(separator: ","), privacy: .public) modalWindow=\(recheck.hasModalWindow) primarySheet=\(recheck.primaryWindowSheetAttached) anySheet=\(recheck.anyWindowSheetAttached) selectedSession=\(sessionStore.selectedSessionID != nil) scrollbackPanes=\(recheck.scrollbackDumpPaneIDs.count)"
+        )
+        healWedgedSheetRequests(
+            keys,
+            scrollbackPaneIDs: SheetWedgeRecoveryPolicy.scrollbackPaneIDsToHeal(
+                initial: initial,
+                recheck: recheck
+            )
+        )
+    }
+
+    private func healWedgedSheetRequests(
+        _ keys: Set<String>,
+        scrollbackPaneIDs: Set<TerminalPane.ID>
+    ) {
         // ponytail: healing sshWorkspaceConnect discards an already-consumed
         // managed-SSH offer (the setter consumed it from the store before the
         // sheet failed to mount); acceptable and logged — re-parking the offer
@@ -2878,8 +2937,8 @@ struct AwesoMuxApp: App {
         if keys.contains("sshWorkspaceConnect") { sshWorkspaceConnectRequest = nil }
         if keys.contains("workspaceGroupRename") { workspaceGroupRenameRequest = nil }
         if keys.contains("quickSettings") { quickSettingsRequest = nil }
-        if keys.contains(SheetWedgeRecoveryPolicy.scrollbackDumpKey) {
-            ghosttyRuntime.healScrollbackDumpSheetFlags()
+        for paneID in scrollbackPaneIDs {
+            ghosttyRuntime.healScrollbackDumpSheetFlag(for: paneID)
         }
     }
 
@@ -3057,6 +3116,7 @@ struct AwesoMuxApp: App {
     }
 
     private func presentFindInActivePane() {
+        healSheetWedgeBeforeGatedCommand()
         guard !isAnySheetPresented,
             let session = sessionStore.selectedSession
         else {
@@ -3066,6 +3126,7 @@ struct AwesoMuxApp: App {
     }
 
     private func presentScrollbackDumpForActivePane() {
+        healSheetWedgeBeforeGatedCommand()
         guard !isAnySheetPresented,
             let session = sessionStore.selectedSession
         else {

@@ -52,7 +52,16 @@ private struct SurfaceSearchBar: View {
                         surfaceView.dismissScrollbackDump()
                     }
                 }
-            )
+            ),
+            onDismiss: {
+                // Replays a queued managed-SSH offer at the app root; fires
+                // only for a sheet that genuinely presented, unlike the old
+                // aggregate isAnySheetPresented onChange (issue #202).
+                NotificationCenter.default.post(
+                    name: .awesoMuxManagedSSHOfferReplayRequested,
+                    object: nil
+                )
+            }
         ) {
             ScrollbackDumpSheet(
                 text: searchState.scrollbackDumpText ?? "",
@@ -184,10 +193,11 @@ private struct SurfaceSearchBar: View {
 
         let workItem = DispatchWorkItem { [weak surfaceView, weak searchState] in
             guard let surfaceView,
-                  let searchState,
-                  searchState.isPresented,
-                  !searchState.needle.isEmpty,
-                  let window = surfaceView.window else {
+                let searchState,
+                searchState.isPresented,
+                !searchState.needle.isEmpty,
+                let window = surfaceView.window
+            else {
                 return
             }
             NSAccessibility.post(
@@ -195,7 +205,7 @@ private struct SurfaceSearchBar: View {
                 notification: .announcementRequested,
                 userInfo: [
                     .announcement: searchState.spokenSummary,
-                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue,
                 ]
             )
         }
