@@ -29,12 +29,12 @@ extension EnvironmentValues {
 /// Group" disables on. Empty groups among others DO get the X (INT-770):
 /// closing routes through `closeWorkspaceGroup`, which skips the confirm
 /// dialog when there is no remote impact but still confirms loss of an SSH
-/// creation default. `EmptyGroupDropTarget`'s persistent remove
-/// button stays as the always-visible removal path; this X is the hover
-/// shortcut consistent with non-empty groups, and the only pointer path
-/// while the group's own rows are collapsed (`isCollapsed` hides that
-/// body row — distinct from the rail-collapsed `displayMode`, which
-/// suppresses the X entirely).
+/// creation default. `NewWorkspaceInGroupRow`'s persistent remove button stays
+/// as the always-visible removal path for an EMPTY group; a populated group's
+/// row omits it so this X is the sole pointer path there. This X is also the
+/// only pointer path while the group's own rows are collapsed (`isCollapsed`
+/// hides that body row — distinct from the rail-collapsed `displayMode`,
+/// which suppresses the X entirely).
 enum SidebarGroupClosePolicy {
     static let actionLabel = String(
         localized: "Close Group",

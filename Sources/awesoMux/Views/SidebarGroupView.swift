@@ -28,7 +28,7 @@ struct SidebarGroupView: View {
     let onNewGroup: () -> Void
     let onRenameGroup: () -> Void
     let onSetGroupColor: (WorkspaceGroupColor?) -> Void
-    /// Still used by `EmptyGroupDropTarget`'s persistent remove button; the
+    /// Still used by `NewWorkspaceInGroupRow`'s persistent remove button; the
     /// header context menu itself now routes through `onCloseGroup`.
     let canRemoveGroup: Bool
     let onRemoveGroup: () -> Void
@@ -297,10 +297,23 @@ struct SidebarGroupView: View {
                         )
                     }
 
-                    if sessions.isEmpty && displayMode != .collapsed {
-                        EmptyGroupDropTarget(
+                    // Hidden while filtering: the row's drop delegate already
+                    // refuses filtered drags, but its BUTTON would still fire —
+                    // creating a workspace that instantly fails the active
+                    // filter and vanishes, which reads as a broken click. A
+                    // create affordance that produces invisible results is
+                    // worse than no affordance.
+                    if displayMode != .collapsed, !isFiltering {
+                        let isGroupEmpty = sessions.isEmpty
+                        NewWorkspaceInGroupRow(
                             isFiltering: isFiltering,
-                            canRemoveGroup: canRemoveGroup,
+                            showsRemoveButton: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
+                                isGroupEmpty: isGroupEmpty,
+                                canRemoveGroup: canRemoveGroup
+                            ),
+                            showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(
+                                isGroupEmpty: isGroupEmpty
+                            ),
                             activeDragKind: activeDragKind,
                             activeDragID: activeDragID,
                             activeDragSourceIsPinned: activeDragSourceIsPinned,
@@ -311,7 +324,13 @@ struct SidebarGroupView: View {
                             onDragEnded: onDragEnded,
                             onDragExited: onDragExited,
                             onAcceptDrop: { sessionID in
-                                onMoveSession(sessionID, group.id, 0)
+                                onMoveSession(
+                                    sessionID,
+                                    group.id,
+                                    NewWorkspaceInGroupRowPolicy.dropInsertionIndex(
+                                        isGroupEmpty: isGroupEmpty
+                                    )
+                                )
                             }
                         )
                     }

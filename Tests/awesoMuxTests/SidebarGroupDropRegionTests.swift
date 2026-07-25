@@ -23,10 +23,23 @@ struct SidebarGroupDropRegionTests {
         let registrantHeights = Self.dropRegistrantHeights(in: harness.window.contentView!)
         let tallestRegistrant = registrantHeights.max() ?? 0
         let tileStackContentHeight = harness.rowFrames.values.map(\.maxY).max() ?? 0
+        // `SidebarRowFramePreferenceKey` is keyed by `TerminalSession.ID`, so
+        // `NewWorkspaceInGroupRow` (task 3, #220) — mounted unconditionally as
+        // the tile stack's last child — has no session identity to report
+        // through it. `tileStackContentHeight` above stops at the last real
+        // tile, undercounting the live content by the row's own height plus
+        // the one `sessionStackSpacing` gap above it. Measure that
+        // contribution from the row's own rendering rather than hardcoding
+        // it, so a future visual change to the row still keeps this guard
+        // honest.
+        let newRowContribution = Self.measuredNewWorkspaceRowContribution(density: density)
 
         #expect(!registrantHeights.isEmpty)
         #expect(
-            abs(tallestRegistrant - (tileStackContentHeight + density.groupStackSpacing)) < 0.5
+            abs(
+                tallestRegistrant
+                    - (tileStackContentHeight + newRowContribution + density.groupStackSpacing)
+            ) < 0.5
         )
     }
 
@@ -54,8 +67,51 @@ struct SidebarGroupDropRegionTests {
             expanded.hostingView.fittingSize.height
             - collapsed.hostingView.fittingSize.height
             - density.sessionStackSpacing
+        // Same undercount as above — see that test's comment.
+        let newRowContribution = Self.measuredNewWorkspaceRowContribution(density: density)
 
-        #expect(abs(tileStackSectionContribution - tileStackContentHeight) < 0.5)
+        #expect(
+            abs(tileStackSectionContribution - (tileStackContentHeight + newRowContribution)) < 0.5
+        )
+    }
+
+    /// Renders `NewWorkspaceInGroupRow` in isolation, exactly as a populated
+    /// group configures it (`NewWorkspaceInGroupRowPolicy` with
+    /// `isGroupEmpty: false`), and measures its real height plus the one
+    /// `sessionStackSpacing` gap the tile stack's `VStack` inserts above it.
+    /// Live geometry, not a hardcoded constant — a font or padding change to
+    /// the row keeps this guard's expectation in sync automatically.
+    private static func measuredNewWorkspaceRowContribution(density: SidebarDensity) -> CGFloat {
+        let row = NewWorkspaceInGroupRow(
+            isFiltering: false,
+            showsRemoveButton: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
+                isGroupEmpty: false,
+                canRemoveGroup: false
+            ),
+            showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(isGroupEmpty: false),
+            activeDragKind: nil,
+            activeDragID: nil,
+            activeDragSourceIsPinned: false,
+            verticalPadding: density.emptyGroupVerticalPadding,
+            onNewSessionInGroup: {},
+            onRemoveGroup: {},
+            onDragRefreshed: { _ in },
+            onDragEnded: {},
+            onDragExited: {},
+            onAcceptDrop: { _ in }
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 260, alignment: .topLeading)
+
+        let hosted = SidebarHostedTestHarness.makeWindow(
+            rootView: row,
+            frame: NSRect(x: 0, y: 0, width: 260, height: 80)
+        )
+        defer { hosted.window.close() }
+        hosted.hostingView.layoutSubtreeIfNeeded()
+        SidebarHostedTestHarness.settleMainRunLoop()
+
+        return hosted.hostingView.fittingSize.height + density.sessionStackSpacing
     }
 
     /// Walks the hosted `NSView` tree for views with registered drag types —
