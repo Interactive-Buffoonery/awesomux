@@ -139,6 +139,22 @@ test("accepts validation that was not run with a reason", () => {
   assert.equal(validatePullRequest({ body, files: [".github/workflows/check.yml"] }).valid, true);
 });
 
+test("accepts an assistance level wrapped in markdown emphasis", () => {
+  for (const level of ["**substantial**", "_light_", "`none`"]) {
+    const body = fullBody.replace("- Assistance level: moderate", `- Assistance level: ${level}`);
+    assert.equal(validatePullRequest({ body, files: ["Sources/App.swift"] }).valid, true, level);
+  }
+});
+
+test("still rejects an invalid assistance level", () => {
+  const result = validatePullRequest({
+    body: fullBody.replace("- Assistance level: moderate", "- Assistance level: **maybe**"),
+    files: ["Sources/App.swift"],
+  });
+  assert.equal(result.valid, false);
+  assert(result.errors.some((error) => error.includes("AI assistance level")));
+});
+
 test("formats one managed marker comment", () => {
   const message = formatFailure(["Add the `Why` section."]);
   assert.match(message, /^<!-- awesomux-pr-template-validation -->/);
