@@ -846,6 +846,40 @@ enum AmxBackend {
         )
     }
 
+    /// Pure assembly of the ssh command for a pane whose persistence the REMOTE
+    /// host owns: the far side's `zmx` holds the session, so this command
+    /// bypasses the local `amx` daemon entirely — there is no local session to
+    /// attach to and nothing for the command bridge to wrap.
+    ///
+    /// That is why none of the local-daemon apparatus appears here. `ZMX_DIR` /
+    /// `ZMX_DIR_MODE` pin the LOCAL socket directory and are meaningless to a
+    /// zmx running on another machine; the `AMX_STATUS_*` channel reports into a
+    /// local file no remote process can write; the shell-integration env points
+    /// at a bundled ghostty resources dir that does not exist on the far host.
+    /// The `env -u` prefix stays, and is the whole reason this still routes
+    /// through `env`: it strips the pane-scoped agent keys and the status pair
+    /// from the ssh CLIENT, so a promiscuous `SendEnv`/`AcceptEnv` pair can
+    /// never carry this instance's side channel across (ADR-0022).
+    static func remoteOwnedAttachCommand(
+        remote: RemoteTarget,
+        sessionName: RemoteSessionName,
+        executablePath: String? = nil
+    ) -> String {
+        // Quoted for the REMOTE shell; `sshTailTokens`' caller then quotes the
+        // whole composed string for the local one, the same two-layer shape
+        // `bridgeAttachCommand` uses for `"$SHELL" -l`.
+        let remoteCommand = [
+            shellQuote(executablePath ?? "zmx"),
+            "attach",
+            shellQuote(sessionName.rawValue),
+        ].joined(separator: " ")
+        let tokens =
+            [shellQuote(envExecutablePath)]
+            + environmentScrubTokens(remote: remote)
+            + sshTailTokens(for: remote, remoteCommand: remoteCommand).map(shellQuote)
+        return tokens.joined(separator: " ")
+    }
+
     /// Establishes the per-attach reverse forward against the shared
     /// ControlMaster (spec "Socket lifecycle": `-O forward` is unambiguous
     /// about master ownership, unlike a slave-side `-R`). Pairs with

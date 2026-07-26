@@ -64,6 +64,17 @@ extension RemoteTarget: Codable {
                 debugDescription: "A remote target host cannot be empty."
             )
         }
+        // Every create path gates on `isSafeSSHDestination`, so a persisted
+        // destination that fails it was tampered with rather than typed. Reject
+        // it here too: without this, a restored snapshot is the one way a
+        // `-oProxyCommand=…` destination reaches `ssh`.
+        guard target.isSafeSSHDestination else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .host,
+                in: container,
+                debugDescription: "A remote target destination cannot start with “-”."
+            )
+        }
         self = target
     }
 

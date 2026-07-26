@@ -16,44 +16,90 @@ struct BridgeAttachDecisionTests {
 
     // MARK: - Enable gate
 
+    private static let localAmxPlan = PaneExecutionPlan.ssh(SSHExecution(target: remote))
+    private static let remoteOwnedPlan = PaneExecutionPlan.ssh(
+        SSHExecution(
+            target: remote,
+            persistenceOwner: .remoteZmx,
+            sessionName: RemoteSessionName(rawValue: "dev")!,
+            remoteExecutablePath: nil
+        )!)
+
     @Test("gate on only when remote AND agent chrome AND a base attach command, un-latched")
     func gateAllPreconditions() {
-        #expect(BridgeAttachDecision.shouldRunPreflight(
-            bridgeEnabled: true, isRemote: true, agentChromeEnabled: true,
-            attachCommandAvailable: true, errorLatched: false
-        ))
+        #expect(
+            BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                attachCommandAvailable: true, errorLatched: false
+            ))
     }
 
     @Test("gate off for a local pane")
     func gateOffLocal() {
-        #expect(!BridgeAttachDecision.shouldRunPreflight(
-            bridgeEnabled: true, isRemote: false, agentChromeEnabled: true,
-            attachCommandAvailable: true, errorLatched: false
-        ))
+        #expect(
+            !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: true, executionPlan: .local, agentChromeEnabled: true,
+                attachCommandAvailable: true, errorLatched: false
+            ))
     }
 
     @Test("gate off when the agent-integrations master switch is off")
     func gateOffAgentChromeDisabled() {
-        #expect(!BridgeAttachDecision.shouldRunPreflight(
-            bridgeEnabled: true, isRemote: true, agentChromeEnabled: false,
-            attachCommandAvailable: true, errorLatched: false
-        ))
+        #expect(
+            !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: false,
+                attachCommandAvailable: true, errorLatched: false
+            ))
     }
 
     @Test("gate off with the command bridge master toggle off, no attach command, or latched")
     func gateOffOtherPreconditions() {
-        #expect(!BridgeAttachDecision.shouldRunPreflight(
-            bridgeEnabled: false, isRemote: true, agentChromeEnabled: true,
-            attachCommandAvailable: true, errorLatched: false
-        ))
-        #expect(!BridgeAttachDecision.shouldRunPreflight(
-            bridgeEnabled: true, isRemote: true, agentChromeEnabled: true,
-            attachCommandAvailable: false, errorLatched: false
-        ))
-        #expect(!BridgeAttachDecision.shouldRunPreflight(
-            bridgeEnabled: true, isRemote: true, agentChromeEnabled: true,
-            attachCommandAvailable: true, errorLatched: true
-        ))
+        #expect(
+            !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: false, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                attachCommandAvailable: true, errorLatched: false
+            ))
+        #expect(
+            !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                attachCommandAvailable: false, errorLatched: false
+            ))
+        #expect(
+            !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                attachCommandAvailable: true, errorLatched: true
+            ))
+    }
+
+    @Test("gate off for a remote-OWNED pane under inputs that gate a bridge pane on")
+    func gateOffRemoteOwned() {
+        // The far host owns the session: the pane is a plain ssh child with no
+        // local amx in front of it, so a preflight would bind a socket, publish a
+        // state file, and stand up a forward around a command that reads none of
+        // them. Same inputs, same target, only the persistence owner differs.
+        #expect(
+            BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                attachCommandAvailable: true, errorLatched: false
+            ))
+        #expect(
+            !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: true, executionPlan: Self.remoteOwnedPlan, agentChromeEnabled: true,
+                attachCommandAvailable: true, errorLatched: false
+            ))
+        // Both call-site input shapes: `createSurfaceIfNeeded`'s invalidation
+        // check passes a hardcoded `attachCommandAvailable: true`, its gate passes
+        // the real `bridgeCommand != nil`. Neither may re-open the gate.
+        #expect(
+            !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: true, executionPlan: Self.remoteOwnedPlan, agentChromeEnabled: true,
+                attachCommandAvailable: false, errorLatched: false
+            ))
+        #expect(
+            !BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: false, executionPlan: Self.remoteOwnedPlan, agentChromeEnabled: false,
+                attachCommandAvailable: true, errorLatched: true
+            ))
     }
 
     @Test("anyProviderEnabled tracks the master agent-integrations switch")
@@ -67,10 +113,11 @@ struct BridgeAttachDecisionTests {
     // MARK: - Final command selection (fail-open posture)
 
     private func channel() throws -> BridgeChannel {
-        try #require(BridgeChannel.mint(
-            session: Self.session, previousGeneration: 0,
-            localSocketPath: "/tmp/l.sock", remoteHome: "/Users/example"
-        ))
+        try #require(
+            BridgeChannel.mint(
+                session: Self.session, previousGeneration: 0,
+                localSocketPath: "/tmp/l.sock", remoteHome: "/Users/example"
+            ))
     }
 
     @Test("ready spawns the preflight's env-prefixed command")
@@ -85,7 +132,7 @@ struct BridgeAttachDecisionTests {
         let base = "env -u AMX_STATUS_FILE ZMX_DIR=/tmp amx attach x ssh -o ControlMaster=auto alice@box"
         for reason in [
             BridgeAttachPreflight.DegradedReason.mintFailed,
-            .listenerFailed, .commandFailed, .forwardFailed, .admissionRejected, .publishFailed
+            .listenerFailed, .commandFailed, .forwardFailed, .admissionRejected, .publishFailed,
         ] {
             let command = BridgeAttachDecision.finalCommand(for: .degraded(reason), baseCommand: base)
             #expect(command == base)
@@ -104,13 +151,16 @@ struct BridgeAttachDecisionTests {
 
     @Test("helper path is the fixed convention beside the bridge state dir")
     func helperPathConvention() {
-        #expect(BridgeAttachDecision.helperPath(remoteHome: "/Users/example")
-            == "/Users/example/.awesomux/bin/awesomux-bridge-helper")
+        #expect(
+            BridgeAttachDecision.helperPath(remoteHome: "/Users/example")
+                == "/Users/example/.awesomux/bin/awesomux-bridge-helper")
         // Trailing-slash / root-home normalization so no `//` is baked in.
-        #expect(BridgeAttachDecision.helperPath(remoteHome: "/home/ed/")
-            == "/home/ed/.awesomux/bin/awesomux-bridge-helper")
-        #expect(BridgeAttachDecision.helperPath(remoteHome: "/")
-            == "/.awesomux/bin/awesomux-bridge-helper")
+        #expect(
+            BridgeAttachDecision.helperPath(remoteHome: "/home/ed/")
+                == "/home/ed/.awesomux/bin/awesomux-bridge-helper")
+        #expect(
+            BridgeAttachDecision.helperPath(remoteHome: "/")
+                == "/.awesomux/bin/awesomux-bridge-helper")
     }
 
     // MARK: - Respawn re-mints a fresh token
@@ -118,10 +168,11 @@ struct BridgeAttachDecisionTests {
     @Test("each mint produces a distinct forgery token (a respawn re-mints)")
     func mintReMintsFreshToken() throws {
         let first = try channel()
-        let second = try #require(BridgeChannel.mint(
-            session: Self.session, previousGeneration: first.gen,
-            localSocketPath: "/tmp/l.sock", remoteHome: "/Users/example"
-        ))
+        let second = try #require(
+            BridgeChannel.mint(
+                session: Self.session, previousGeneration: first.gen,
+                localSocketPath: "/tmp/l.sock", remoteHome: "/Users/example"
+            ))
         #expect(first.token != second.token)
         #expect(second.gen == first.gen + 1)
     }
@@ -171,6 +222,6 @@ struct BridgeAttachDecisionTests {
         #expect(pulled?.coordinator === coordinator)
         // Promotion won; the trio's own rollback discard now finds nothing.
         #expect(store.takeStaged(token: "tokA") == nil)
-        store.discardStaged(token: "tokA") // no crash, no-op
+        store.discardStaged(token: "tokA")  // no crash, no-op
     }
 }
