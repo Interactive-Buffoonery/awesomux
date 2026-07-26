@@ -86,37 +86,6 @@ import Testing
         #expect(restoredTab.remoteResourceIdentity?.remoteTarget?.host == "example.com")
     }
 
-    @Test func remoteOwnedZmxPlanSurvivesSnapshotRoundTrip() throws {
-        let plan = PaneExecutionPlan.ssh(
-            try #require(
-                SSHExecution(
-                    target: RemoteTarget(user: "ed", host: "box")!,
-                    persistenceOwner: .remoteZmx,
-                    sessionName: RemoteSessionName(rawValue: "build-42")!,
-                    remoteExecutablePath: "/usr/local/bin/zmx"
-                )))
-        let terminal = TerminalPane(
-            title: "build",
-            workingDirectory: "/work",
-            executionPlan: plan
-        )
-        let session = TerminalSession(
-            title: "build",
-            workingDirectory: "/work",
-            layout: .pane(terminal),
-            activePaneID: terminal.id
-        )
-        let snapshot = SessionSnapshot(
-            groups: [SessionGroup(name: "One", sessions: [session])],
-            selectedSessionID: session.id
-        )
-
-        let decoded = try SessionSnapshot.decode(from: JSONEncoder().encode(snapshot))
-        let restored = try #require(
-            decoded.groups.first?.sessions.first?.layout.pane(id: terminal.id))
-        #expect(restored.executionPlan == plan)
-    }
-
     @Test func malformedRemotePlanFailsLoudNeverDegradesToLocal() throws {
         // INT-775 contract preserved: a plan tagged ssh but missing its target
         // must throw, not silently decode as a local pane.

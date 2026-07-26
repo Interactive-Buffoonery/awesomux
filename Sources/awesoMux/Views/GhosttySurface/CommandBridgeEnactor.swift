@@ -121,18 +121,6 @@ final class CommandBridgeEnactor {
         ) -> String? = { sessionID, status, remote in
             AmxBackend.attachCommand(for: sessionID, status: status, remote: remote)
         }
-    var remoteOwnedAttachCommandProvider:
-        (
-            RemoteTarget,
-            RemoteSessionName,
-            String?
-        ) -> String = { target, sessionName, executablePath in
-            AmxBackend.remoteOwnedAttachCommand(
-                remote: target,
-                sessionName: sessionName,
-                executablePath: executablePath
-            )
-        }
     var announceSessionRespawnedFresh: () -> Void = {
         TerminalAccessibilityAnnouncer.announceSessionRespawnedFresh()
     }
@@ -151,153 +139,81 @@ final class CommandBridgeEnactor {
 
     // MARK: - Attach / local-shell fork
 
-    /// Decide what a surface creation should spawn and, on `.bridgeAttach`, mint
-    /// the status channel, arm the watcher, and record the bridge session.
-    /// Returns the launch the host passes to `runtime.createSurface`. Called
-    /// from `createSurfaceIfNeeded`.
-    func prepareAttach(for pane: TerminalPane, bridgeEnabled: Bool) -> SurfaceLaunchCommand {
-        let remote = pane.executionPlan.remoteTarget
-        // Availability probe only, deliberately built WITHOUT a status channel:
-        // `attachCommand` fails solely on a missing bundled `amx` (or an invalid
-        // id), never on the channel, so the policy can be decided before any
-        // channel exists. That ordering is what keeps a `.status.jsonl` from
-        // being created for a pane that will never write one — a remote-owned
-        // attach has no local process to report into it, and the fallback arms
-        // would only have to delete it again.
-        let baseAttachCommand: String? =
-            bridgeEnabled
-            ? attachCommandProvider(pane.terminalSessionID, nil, remote)
+    /// Decide attach-vs-local-shell for a surface creation and, on `.bridgeAttach`,
+    /// mint the status channel, arm the watcher, and record the bridge session.
+    /// Returns the command string the host passes to `runtime.createSurface`
+    /// (nil = plain local shell). Called from `createSurfaceIfNeeded`.
+    func prepareAttach(for pane: TerminalPane, bridgeEnabled: Bool) -> String? {
+        // Mint the per-attach status channel up front so the attach command
+        // carries `AMX_STATUS_FILE`/`AMX_STATUS_TOKEN`. A fresh channel per
+        // surface creation guarantees a respawn never reads a stale feed.
+        // `makeStatusChannel` is optional: a failed secure pre-create (file
+        // squat, EACCES) returns nil, in which case we attach WITHOUT a status
+        // channel and the exit handler degrades to its legacy exitCode + `amx
+        // list` probe (its `statusChannel == nil` path).
+        let channel: AmxStatusChannel? = bridgeEnabled
+            ? AmxBackend.makeStatusChannel(for: pane.terminalSessionID)
             : nil
+        let remote = pane.executionPlan.remoteTarget
+        let attachCommand: String? = {
+            guard bridgeEnabled else { return nil }
+            return attachCommandProvider(pane.terminalSessionID, channel, remote)
+        }()
         let policyResult = BridgeSurfaceCommandPolicy.command(
             bridgeEnabled: bridgeEnabled,
-            attachCommandAvailable: baseAttachCommand != nil,
+            attachCommandAvailable: attachCommand != nil,
             executionPlan: pane.executionPlan
         )
         switch policyResult {
         case .bridgeAttach:
-            // The policy gated this arm on availability, so this is non-nil.
-            guard let baseAttachCommand else { return .localShell }
             // No pre-attach existence check: `amx attach` recreates a dead
             // daemon (zmx ensureSession), so an established-but-dead session
             // respawns a fresh shell silently instead of latching to blank
             // (INT-571). A live daemon reconnects with full scrollback.
             sessionID = pane.terminalSessionID
-            // A fresh channel per surface creation guarantees a respawn never
-            // reads a stale feed. `makeStatusChannel` is optional: a failed
-            // secure pre-create (file squat, EACCES) returns nil, in which case
-            // we attach WITHOUT `AMX_STATUS_FILE`/`AMX_STATUS_TOKEN` and the
-            // exit handler degrades to its legacy exitCode + `amx list` probe.
-            let channel = AmxBackend.makeStatusChannel(for: pane.terminalSessionID)
-            // Arm only once the command is known to CARRY the channel. Arming
-            // first would leave a watcher sitting on a file the spawned command
-            // never names, so `beginExitSupervision` would trust an empty feed
-            // instead of falling back to the legacy exitCode probe.
-            if let channel,
-                let command = attachCommandProvider(pane.terminalSessionID, channel, remote)
-            {
-                beginStatusWatch(channel: channel)
-                return .bridgeAttach(command)
-            }
-            // No usable channel: drop any file we just minted (nothing will ever
-            // write it) and attach statusless, with the stale watcher cleared.
-            if let channel {
-                try? FileManager.default.removeItem(at: channel.fileURL)
-            }
-            beginStatusWatch(channel: nil)
-            return .bridgeAttach(baseAttachCommand)
-        case .remoteOwnedAttach:
-            // A pane re-pointed from a bridge session to a remote-owned one
-            // reaches here with the previous attach's watcher still armed on a
-            // feed the far host writes nothing to. Drop it before anything else
-            // rather than relying on `handleSessionRepoint` having run first.
-            beginStatusWatch(channel: nil)
-            guard let execution = pane.executionPlan.remoteOwnedExecution,
-                let sessionName = execution.sessionName
-            else {
-                // `SSHExecution`'s failable init and its decode-time re-check
-                // make a nameless `.remoteZmx` plan unrepresentable, so this is
-                // dead today — but a nameless remote pane has nothing to attach
-                // to, and ADR-0022 says such a pane errors rather than falls
-                // through to a typable local shell. Fail safe, don't trap.
-                latchErrorDeferringChrome()
-                return .localShell
-            }
-            // REQUIRED: `handleProcessExit` returns early (letting the host
-            // silently close the pane) unless a session id is recorded, so
-            // without this a dropped ssh would vanish instead of latching.
-            sessionID = pane.terminalSessionID
-            return .remoteOwnedAttach(
-                remoteOwnedAttachCommandProvider(
-                    execution.target,
-                    sessionName,
-                    execution.remoteExecutablePath
-                )
-            )
+            beginStatusWatch(channel: channel)
+            return attachCommand
         case .remoteUnavailable:
             // A remote-tagged group whose attach command couldn't be built —
             // bundled `amx` missing, OR the command bridge globally disabled —
             // must never fall through to a local shell: the user could type
             // secrets into what looks like the remote host but is actually
-            // their own machine. Surface a visible error latch instead.
-            latchErrorDeferringChrome()
-            return .localShell
+            // their own machine. Same orphaned-status-channel cleanup as
+            // `.localShell` below, but surface a visible error latch instead of
+            // a plain shell.
+            if let channel {
+                try? FileManager.default.removeItem(at: channel.fileURL)
+            }
+            // Latch synchronously so `createSurfaceIfNeeded`'s post-return guard
+            // blocks the local-shell fallthrough (ADR-0022 trust boundary — a
+            // remote-tagged pane must never spawn a typable LOCAL shell). But
+            // DEFER `markError`'s @Observable store writes: `prepareAttach` runs
+            // inside `createSurfaceIfNeeded`, which runs inside SwiftUI's layout
+            // pass. Mutating observed state there re-enters the sidebar hosting
+            // controller's `rootView` update mid-layout and trips AppKit's "more
+            // Update Constraints passes than views" runaway guard — an uncaught
+            // NSException that beachballs then kills the app. One runloop hop
+            // lands the error chrome in a fresh, non-reentrant layout pass.
+            errorLatched = true
+            DispatchQueue.main.async { [weak self] in self?.markError() }
+            return nil
         case .localShell:
-            // Non-remote panes only (a remote group routes to
-            // `.remoteUnavailable`/`.remoteOwnedAttach` above whether or not the
-            // bridge is on). Two sub-cases land here: (a) the bridge is disabled
-            // — already cleared by the pre-guard in `createSurfaceIfNeeded`; or
-            // (b) the bridge is on but no attach command could be built (bundled
-            // `amx` missing). Only (b) is worth a diagnostic, which the host emits.
+            // Non-remote panes only (a remote group now routes to
+            // `.remoteUnavailable` above whether or not the bridge is on). Two
+            // sub-cases land here: (a) the bridge is disabled — already cleared
+            // by the pre-guard in `createSurfaceIfNeeded`; or (b) the bridge is
+            // on but no attach command could be built (bundled `amx` missing).
+            // Only (b) is worth a diagnostic, which the host emits.
+            // The status channel was pre-created above, but this branch never
+            // arms a watcher, so its `stop()` cleanup never fires. Remove the
+            // orphaned file here so the degraded sub-case doesn't leak one
+            // `.status.jsonl` per surface create.
+            if let channel {
+                try? FileManager.default.removeItem(at: channel.fileURL)
+            }
             clearStateForLocalShellFallback()
-            return .localShell
+            return nil
         }
-    }
-
-    /// Latch synchronously so `createSurfaceIfNeeded`'s post-return guard blocks
-    /// the local-shell fallthrough (ADR-0022 trust boundary — a remote-tagged
-    /// pane must never spawn a typable LOCAL shell). But DEFER `markError`'s
-    /// @Observable store writes: `prepareAttach` runs inside
-    /// `createSurfaceIfNeeded`, which runs inside SwiftUI's layout pass. Mutating
-    /// observed state there re-enters the sidebar hosting controller's `rootView`
-    /// update mid-layout and trips AppKit's "more Update Constraints passes than
-    /// views" runaway guard — an uncaught NSException that beachballs then kills
-    /// the app. One runloop hop lands the error chrome in a fresh, non-reentrant
-    /// layout pass.
-    private func latchErrorDeferringChrome() {
-        errorLatched = true
-        DispatchQueue.main.async { [weak self] in self?.markError() }
-    }
-
-    /// Confirm a pending manual reconnect on a remote-owned pane. That pane
-    /// never sees an `attached` status event — the far host's zmx reports into
-    /// no local side channel — so a successful spawn is the only confirmation
-    /// signal there is, and without this the disconnected/reconnecting overlay
-    /// would stay painted forever after a successful reconnect. Optimistic by
-    /// construction: an ssh that dies a moment later re-latches through
-    /// `markError`, which re-arms the overlay. No-ops for every ordinary spawn.
-    func confirmRemoteOwnedAttach() {
-        // Read the payload BEFORE confirm clears it so the announcement names
-        // the host that was actually dialed (same ordering as the `attached`
-        // path in `handleStatusEvents`).
-        let reconnectState = sessionStore.session(id: hostSessionID)?
-            .layout.pane(id: paneID)?.remoteReconnect
-        guard
-            sessionStore.confirmPaneRemoteReconnected(
-                sessionID: hostSessionID,
-                paneID: paneID
-            )
-        else {
-            return
-        }
-        TerminalAccessibilityAnnouncer.announceRemoteReconnected(
-            host: reconnectState.flatMap {
-                $0.context.dialedLocalRestart ? nil : $0.context.target.host
-            },
-            paneDescriptor: TerminalAccessibilityAnnouncer.paneDescriptor(
-                for: paneID,
-                in: sessionStore.session(id: hostSessionID)
-            )
-        )
     }
 
     /// Current local process evidence only. It may deny a safety-sensitive
@@ -727,33 +643,6 @@ final class CommandBridgeEnactor {
         // for an unpatched amx / missing status file / failed arm.
         if statusFeedWasArmed {
             decideExitFromStatus()
-            return
-        }
-
-        // Remote-owned pane: no status feed is ever armed for it, so it would
-        // otherwise fall into the legacy path below — and both halves of that
-        // path are wrong here. `sessionExists` probes the LOCAL `amx list`,
-        // which can never contain a session living on another host (a
-        // guaranteed false "session is gone" error), and the bridge-disabled
-        // arm clears state and re-creates, which the policy would answer with
-        // another remote-owned attach: a silent infinite re-attach loop. The
-        // ssh child's exit code is the whole signal available, and it is
-        // enough: ssh forwards the remote shell's own status and reserves 255
-        // for its transport failures, so a 0 is a deliberate `exit` (close the
-        // pane exactly like a local shell — INT-769) and anything else,
-        // including an unknown code, is a failure worth surfacing.
-        if host.pane.executionPlan.remoteOwnedExecution != nil {
-            if exitCode == 0 {
-                // Clear BEFORE closing — the recursion floor in
-                // `handleProcessExit` (see the `.markExited` arm).
-                clearStateForLocalShellFallback()
-                host.closeAfterProcessExit(processAlive: false)
-            } else {
-                // Clears the in-flight flag itself, and (remoteTarget being
-                // non-nil) latches `remoteReconnect = .disconnected` for the
-                // reconnect overlay.
-                markError()
-            }
             return
         }
 

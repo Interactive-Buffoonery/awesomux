@@ -2020,12 +2020,6 @@
     "Opens the run in your browser." : {
 
     },
-    "Optional. Leave empty to run zmx from the remote PATH" : {
-      "comment" : "Accessibility hint for the optional remote zmx executable path field in the Connect via SSH sheet"
-    },
-    "Optional. Names a zmx session the remote host keeps running" : {
-      "comment" : "Accessibility hint for the optional remote session name field in the Connect via SSH sheet"
-    },
     "Optional retro overlay on the terminal pane." : {
       "comment" : "CRT effect section subtitle"
     },
@@ -2428,12 +2422,6 @@
     "Remote panes on %arg" : {
       "comment" : "VoiceOver location summary for a group with more than one remote destination.\nVoiceOver location summary for panes that all run on one declared SSH destination."
     },
-    "Remote session name" : {
-      "comment" : "Accessibility label for the remote session name field in the Connect via SSH sheet"
-    },
-    "Remote session name (optional)" : {
-      "comment" : "Field caption above the optional remote session name field in the Connect via SSH sheet"
-    },
     "Remote session on %arg" : {
       "comment" : "Tooltip for the remote host badge in a pane title bar."
     },
@@ -2445,12 +2433,6 @@
     },
     "Remote terminal works; rich agent features are off." : {
       "comment" : "Bridge doctor degradation banner when the bridge is down"
-    },
-    "Remote zmx path" : {
-      "comment" : "Accessibility label for the remote zmx executable path field in the Connect via SSH sheet"
-    },
-    "Remote zmx path: enter an absolute path to zmx on the remote host." : {
-      "comment" : "Validation message when the remote zmx executable path is not a usable absolute path"
     },
     "Remove" : {
       "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command"
@@ -2780,9 +2762,6 @@
     },
     "Session ended" : {
       "comment" : "Corner tab label when the companion shell has exited while minimized."
-    },
-    "Session name: use up to %arg letters, numbers, dots, dashes, or underscores. It can’t start with a dash or be “.” or “..”." : {
-      "comment" : "Validation message when a remote zmx session name is invalid. The argument is the maximum number of characters."
     },
     "Sessions idle longer than this threshold are cleaned up at launch." : {
 
@@ -3676,9 +3655,6 @@
           }
         }
       }
-    },
-    "zmx path (optional)" : {
-      "comment" : "Field caption above the optional remote zmx executable path field in the Connect via SSH sheet"
     },
     "· %arg" : {
 

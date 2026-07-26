@@ -23,26 +23,14 @@ enum BridgeAttachDecision {
     /// today's attach already requires — a preflight over a pane that has no
     /// attach command, or one already latched to error, would have nothing to
     /// wrap.
-    ///
-    /// Takes the whole execution plan rather than an `isRemote` flag because
-    /// "remote" alone is no longer the gate: a `.remoteZmx` pane's session lives
-    /// on the far host with no local `amx` in front of it, so the preflight
-    /// would bind a socket and publish a state file around a command that never
-    /// reads them. A boolean would leave every call site free to get that
-    /// distinction wrong; the plan makes it unrepresentable.
     static func shouldRunPreflight(
         bridgeEnabled: Bool,
-        executionPlan: PaneExecutionPlan,
+        isRemote: Bool,
         agentChromeEnabled: Bool,
         attachCommandAvailable: Bool,
         errorLatched: Bool
     ) -> Bool {
-        guard case .ssh(let execution) = executionPlan,
-            execution.persistenceOwner == .localAmx
-        else {
-            return false
-        }
-        return bridgeEnabled && agentChromeEnabled && attachCommandAvailable && !errorLatched
+        bridgeEnabled && isRemote && agentChromeEnabled && attachCommandAvailable && !errorLatched
     }
 
     /// The command the pane is actually spawned with, given a preflight outcome

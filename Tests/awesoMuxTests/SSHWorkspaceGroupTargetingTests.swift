@@ -66,21 +66,17 @@ struct SSHWorkspaceGroupTargetingTests {
     @Test("connect submission blocks duplicates")
     func connectSubmissionBlocksDuplicates() throws {
         var submission = SSHWorkspaceConnectionSubmission()
-        let execution = try #require(localAmxExecution())
+        let target = try #require(RemoteTarget(parsing: "my-server"))
         var attempts = 0
 
         submission.submit(
-            execution: execution,
-            isCommandBridgeEnabled: true,
-            enableCommandBridge: { true },
+            target: target,
             connect: { _ in
                 attempts += 1
                 return true
             }, announce: { _ in })
         submission.submit(
-            execution: execution,
-            isCommandBridgeEnabled: true,
-            enableCommandBridge: { true },
+            target: target,
             connect: { _ in
                 attempts += 1
                 return true
@@ -93,14 +89,12 @@ struct SSHWorkspaceGroupTargetingTests {
     @Test("rejected connect submissions show and announce an error, then allow retry")
     func rejectedConnectSubmissionRecovers() throws {
         var submission = SSHWorkspaceConnectionSubmission()
-        let execution = try #require(localAmxExecution())
+        let target = try #require(RemoteTarget(parsing: "my-server"))
         var attempts = 0
         var announcements: [String] = []
 
         submission.submit(
-            execution: execution,
-            isCommandBridgeEnabled: true,
-            enableCommandBridge: { true },
+            target: target,
             connect: { _ in
                 attempts += 1
                 return false
@@ -112,9 +106,7 @@ struct SSHWorkspaceGroupTargetingTests {
         #expect(announcements.first == submission.errorMessage)
 
         submission.submit(
-            execution: execution,
-            isCommandBridgeEnabled: true,
-            enableCommandBridge: { true },
+            target: target,
             connect: { _ in
                 attempts += 1
                 return true
@@ -123,160 +115,5 @@ struct SSHWorkspaceGroupTargetingTests {
         #expect(attempts == 2)
         #expect(submission.isConnecting)
         #expect(submission.errorMessage == nil)
-    }
-
-    // MARK: - Remote-owned session declaration
-
-    @Test("a session name declares a remote-owned execution with its zmx path")
-    func remoteOwnedFieldsResolve() throws {
-        let execution = try #require(
-            SSHWorkspaceConnectFields.execution(
-                destination: "my-server",
-                sessionName: "  my-session  ",
-                remoteExecutablePath: " /opt/zmx/bin/zmx "
-            ))
-
-        #expect(execution.target.sshDestination == "my-server")
-        #expect(execution.persistenceOwner == .remoteZmx)
-        #expect(execution.sessionName?.rawValue == "my-session")
-        #expect(execution.remoteExecutablePath == "/opt/zmx/bin/zmx")
-    }
-
-    @Test("an empty zmx path leaves the remote host to resolve zmx from PATH")
-    func remoteOwnedWithoutExplicitPath() throws {
-        let execution = try #require(
-            SSHWorkspaceConnectFields.execution(
-                destination: "my-server",
-                sessionName: "my-session",
-                remoteExecutablePath: ""
-            ))
-
-        #expect(execution.persistenceOwner == .remoteZmx)
-        #expect(execution.remoteExecutablePath == nil)
-    }
-
-    @Test("no session name keeps the local-amx execution unchanged")
-    func noSessionNameStaysLocalAmx() throws {
-        let execution = try #require(
-            SSHWorkspaceConnectFields.execution(
-                destination: "my-server",
-                sessionName: "  ",
-                // Ignored: the path field is only shown once a name is entered.
-                remoteExecutablePath: "/opt/zmx/bin/zmx"
-            ))
-
-        #expect(execution == SSHExecution(target: try #require(RemoteTarget(parsing: "my-server"))))
-        #expect(execution.persistenceOwner == .localAmx)
-        #expect(execution.sessionName == nil)
-        #expect(execution.remoteExecutablePath == nil)
-    }
-
-    @Test("invalid fields resolve to no execution and explain themselves")
-    func invalidFieldsAreRejected() {
-        #expect(
-            SSHWorkspaceConnectFields.execution(
-                destination: "my-server",
-                sessionName: "bad name",
-                remoteExecutablePath: ""
-            ) == nil)
-        #expect(
-            SSHWorkspaceConnectFields.execution(
-                destination: "my-server",
-                sessionName: "my-session",
-                remoteExecutablePath: "relative/zmx"
-            ) == nil)
-        #expect(
-            SSHWorkspaceConnectFields.execution(
-                destination: "-oProxyCommand=example",
-                sessionName: "my-session",
-                remoteExecutablePath: ""
-            ) == nil)
-
-        #expect(SSHWorkspaceConnectFields.sessionNameMessage(for: "") == nil)
-        #expect(SSHWorkspaceConnectFields.sessionNameMessage(for: " my-session ") == nil)
-        #expect(SSHWorkspaceConnectFields.sessionNameMessage(for: "bad name") != nil)
-        #expect(SSHWorkspaceConnectFields.sessionNameMessage(for: "-flag") != nil)
-        #expect(SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: "") == nil)
-        #expect(SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: " /usr/bin/zmx ") == nil)
-        #expect(SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: "relative/zmx") != nil)
-        #expect(SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: "/usr/bin/\u{202E}zmx") != nil)
-    }
-
-    // MARK: - Command bridge gate
-
-    @Test("a remote-owned submission connects without the local command bridge")
-    func remoteOwnedSubmissionSkipsCommandBridge() throws {
-        var submission = SSHWorkspaceConnectionSubmission()
-        let execution = try #require(
-            SSHWorkspaceConnectFields.execution(
-                destination: "my-server",
-                sessionName: "my-session",
-                remoteExecutablePath: ""
-            ))
-        var enableAttempts = 0
-        var connected = false
-
-        submission.submit(
-            execution: execution,
-            isCommandBridgeEnabled: false,
-            enableCommandBridge: {
-                enableAttempts += 1
-                return true
-            },
-            connect: { _ in
-                connected = true
-                return true
-            }, announce: { _ in })
-
-        #expect(connected)
-        #expect(enableAttempts == 0)
-        #expect(submission.isConnecting)
-    }
-
-    @Test("a local-amx submission still gates on the local command bridge")
-    func localAmxSubmissionGatesOnCommandBridge() throws {
-        var submission = SSHWorkspaceConnectionSubmission()
-        let execution = try #require(localAmxExecution())
-        var enableAttempts = 0
-        var connected = false
-
-        submission.submit(
-            execution: execution,
-            isCommandBridgeEnabled: false,
-            enableCommandBridge: {
-                enableAttempts += 1
-                return false
-            },
-            connect: { _ in
-                connected = true
-                return true
-            }, announce: { _ in })
-
-        #expect(!connected)
-        #expect(enableAttempts == 1)
-        #expect(!submission.isConnecting)
-
-        submission.submit(
-            execution: execution,
-            isCommandBridgeEnabled: false,
-            enableCommandBridge: {
-                enableAttempts += 1
-                return true
-            },
-            connect: { _ in
-                connected = true
-                return true
-            }, announce: { _ in })
-
-        #expect(connected)
-        #expect(enableAttempts == 2)
-    }
-
-    private func localAmxExecution() -> SSHExecution? {
-        SSHWorkspaceConnectFields.execution(
-            destination: "my-server",
-            sessionName: "",
-            remoteExecutablePath: ""
-        )
     }
 }
