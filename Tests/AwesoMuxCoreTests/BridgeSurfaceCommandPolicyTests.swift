@@ -52,17 +52,17 @@ struct BridgeSurfaceCommandPolicyTests {
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: true, attachCommandAvailable: false, executionPlan: remotePlan
-            ) == .remoteUnavailable)
+        ) == .remoteUnavailable)
         // Local group unchanged: still falls back to a local shell.
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: true, attachCommandAvailable: false, executionPlan: .local
-            ) == .localShell)
+        ) == .localShell)
         // Happy path unchanged.
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: true, attachCommandAvailable: true, executionPlan: remotePlan
-            ) == .bridgeAttach)
+        ) == .bridgeAttach)
     }
 
     @Test("a remote group with the bridge globally disabled errors, never a local shell")
@@ -78,82 +78,12 @@ struct BridgeSurfaceCommandPolicyTests {
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: false, attachCommandAvailable: false, executionPlan: remotePlan
-            ) == .remoteUnavailable)
+        ) == .remoteUnavailable)
         // Even if some attach command were somehow available, a disabled
         // bridge can't use it for a remote group — still unavailable.
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: false, attachCommandAvailable: true, executionPlan: remotePlan
-            ) == .remoteUnavailable)
-    }
-
-    // MARK: - Remote-owned persistence
-
-    private static func remoteOwnedPlan() -> PaneExecutionPlan {
-        .ssh(
-            SSHExecution(
-                target: RemoteTarget(user: "ed", host: "box")!,
-                persistenceOwner: .remoteZmx,
-                sessionName: RemoteSessionName(rawValue: "dev")!,
-                remoteExecutablePath: nil
-            )!)
-    }
-
-    @Test("a remote-owned pane attaches on the host regardless of bridge or amx availability")
-    func remoteOwnedAttachWinsOverEveryOtherInput() {
-        let plan = Self.remoteOwnedPlan()
-        // The remote host owns the session: no local amx daemon is involved and
-        // there is no bridge to wrap, so neither toggle can change the outcome
-        // — and neither can make the pane unavailable.
-        #expect(
-            BridgeSurfaceCommandPolicy.command(
-                bridgeEnabled: true, attachCommandAvailable: true, executionPlan: plan
-            ) == .remoteOwnedAttach)
-        #expect(
-            BridgeSurfaceCommandPolicy.command(
-                bridgeEnabled: false, attachCommandAvailable: true, executionPlan: plan
-            ) == .remoteOwnedAttach)
-        #expect(
-            BridgeSurfaceCommandPolicy.command(
-                bridgeEnabled: true, attachCommandAvailable: false, executionPlan: plan
-            ) == .remoteOwnedAttach)
-        #expect(
-            BridgeSurfaceCommandPolicy.command(
-                bridgeEnabled: false, attachCommandAvailable: false, executionPlan: plan
-            ) == .remoteOwnedAttach)
-    }
-
-    @Test("local-amx ssh and local plans keep their pre-existing selections")
-    func remoteOwnedCaseLeavesEveryOtherPlanUnchanged() {
-        let localAmxPlan = PaneExecutionPlan.ssh(
-            SSHExecution(
-                target: RemoteTarget(user: "ed", host: "box")!
-            ))
-        for available in [true, false] {
-            for enabled in [true, false] {
-                let sshCommand = BridgeSurfaceCommandPolicy.command(
-                    bridgeEnabled: enabled,
-                    attachCommandAvailable: available,
-                    executionPlan: localAmxPlan
-                )
-                #expect(sshCommand == (enabled && available ? .bridgeAttach : .remoteUnavailable))
-                // No ssh plan of any persistence owner may ever spawn a local
-                // shell wearing the remote host's face (ADR-0022).
-                #expect(sshCommand != .localShell)
-                #expect(
-                    BridgeSurfaceCommandPolicy.command(
-                        bridgeEnabled: enabled,
-                        attachCommandAvailable: available,
-                        executionPlan: Self.remoteOwnedPlan()
-                    ) != .localShell)
-
-                #expect(
-                    BridgeSurfaceCommandPolicy.command(
-                        bridgeEnabled: enabled,
-                        attachCommandAvailable: available,
-                        executionPlan: .local
-                    ) == (enabled && available ? .bridgeAttach : .localShell))
-            }
-        }
+        ) == .remoteUnavailable)
     }
 }

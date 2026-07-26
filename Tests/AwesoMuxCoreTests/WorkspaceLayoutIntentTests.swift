@@ -179,7 +179,6 @@ import Testing
             "workingDirectory", "fileURL", "url", "remoteResourceIdentity",
             "remoteTarget", "target", "agentKind", "agentExecutionState",
             "associatedTerminalPaneID", "persistenceOwner", "host", "user", "path",
-            "sessionName", "remoteExecutablePath",
         ]
         #expect(keys.isDisjoint(with: forbiddenExact))
 

@@ -140,7 +140,7 @@ extension GhosttySurfaceNSView {
         if lifecycleState.bridgePreflightTask != nil,
             !BridgeAttachDecision.shouldRunPreflight(
                 bridgeEnabled: commandBridgeEnabled,
-                executionPlan: pane.executionPlan,
+                isRemote: pane.executionPlan.remoteTarget != nil,
                 agentChromeEnabled: runtime.isBridgeChromeEnabled,
                 attachCommandAvailable: true,
                 errorLatched: commandBridgeEnactor.errorLatched
@@ -154,15 +154,7 @@ extension GhosttySurfaceNSView {
         // passes (cold-start settle, resize) re-enter here; an unconditional clear
         // would reset `errorLatched`, re-run prepareAttach, and schedule a second
         // markError() — a duplicate "Session error" VoiceOver announcement.
-        //
-        // Nor for a remote-owned pane at all: its session lives on the far host,
-        // so the global bridge toggle says nothing about it, and the clear would
-        // discard the session id (plus its recovery record and progress) that
-        // `handleProcessExit` needs to treat a dropped ssh as an error instead of
-        // a silent close.
-        if !commandBridgeEnabled, !commandBridgeEnactor.errorLatched,
-            pane.executionPlan.remoteOwnedExecution == nil
-        {
+        if !commandBridgeEnabled, !commandBridgeEnactor.errorLatched {
             clearCommandBridgeStateForLocalShellFallback()
         }
 
@@ -186,21 +178,19 @@ extension GhosttySurfaceNSView {
         // with the bridge enabled means the bundled `amx` was missing — the one
         // fallback sub-case worth a diagnostic (bridge-disabled fallback is
         // expected and silent).
-        let launch = commandBridgeEnactor.prepareAttach(
+        let bridgeCommand = commandBridgeEnactor.prepareAttach(
             for: pane,
             bridgeEnabled: commandBridgeEnabled
         )
-        if commandBridgeEnabled, launch.command == nil {
+        if commandBridgeEnabled, bridgeCommand == nil {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-command-missing")
         }
         if commandBridgeEnactor.errorLatched {
             // The entry guard above already required `errorLatched == false` to
             // reach `prepareAttach`, so a true value here can only have come
-            // from THIS call: `.remoteUnavailable` (ADR-0022 trust boundary — a
-            // remote-tagged pane whose attach command couldn't be built), or the
-            // defensive nameless-plan guard in the `.remoteOwnedAttach` arm.
-            // Either way this must not fall through to
-            // `createSurface(command: nil)`, which would
+            // from THIS call — `.remoteUnavailable` (ADR-0022 trust boundary):
+            // a remote-tagged pane whose attach command couldn't be built. Must
+            // not fall through to `createSurface(command: nil)`, which would
             // spawn a silent, typable LOCAL shell masquerading as the remote
             // host. Leave the pane blank + latched; the top-of-function guard
             // blocks re-creation until the latch clears.
@@ -208,34 +198,33 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        // INT-698 D4: a local-amx remote pane with agent chrome on takes the
-        // async make-before-break bridge preflight instead of the synchronous
-        // spawn. Every other pane (local, remote-owned, or bridge chrome off) is
-        // byte-identical to today — the sync `finishSurfaceCreation` below is
-        // the untouched path.
+        // INT-698 D4: a remote pane with agent chrome on takes the async
+        // make-before-break bridge preflight instead of the synchronous spawn.
+        // Every other pane (local, or bridge chrome off) is byte-identical to
+        // today — the sync `finishSurfaceCreation` below is the untouched path.
+        let isRemote = pane.executionPlan.remoteTarget != nil
         if BridgeAttachDecision.shouldRunPreflight(
             bridgeEnabled: commandBridgeEnabled,
-            executionPlan: pane.executionPlan,
+            isRemote: isRemote,
             agentChromeEnabled: runtime.isBridgeChromeEnabled,
-            attachCommandAvailable: launch.command != nil,
+            attachCommandAvailable: bridgeCommand != nil,
             errorLatched: commandBridgeEnactor.errorLatched
-        ), case .bridgeAttach(let baseCommand) = launch {
+        ), let baseCommand = bridgeCommand {
             beginBridgePreflight(baseCommand: baseCommand)
             return
         }
 
-        finishSurfaceCreation(launch: launch)
+        finishSurfaceCreation(command: bridgeCommand)
     }
 
     /// The synchronous spawn + post-create bookkeeping, shared by the local /
     /// bridge-off path (called inline from `createSurfaceIfNeeded`) and the async
-    /// bridge preflight's ready/degraded completion. `launch` carries the exact
-    /// spawn string — the D1 env-prefixed remote command on a live bridge, the
-    /// bare attach command on a degraded/no-bridge attach, the ssh `zmx attach`
-    /// on a remote-owned pane, or nothing for a plain local shell — plus which
-    /// kind it is, which is what `applyPostSpawnPaneState` forks on.
+    /// bridge preflight's ready/degraded completion. `command` is the exact
+    /// attach string: the D1 env-prefixed remote command on a live bridge, the
+    /// bare attach command on a degraded/no-bridge attach, or nil for a plain
+    /// local shell.
     @discardableResult
-    func finishSurfaceCreation(launch: SurfaceLaunchCommand) -> Bool {
+    func finishSurfaceCreation(command: String?) -> Bool {
         terminalPromptObserved = false
         var environment = runtime.agentRuntimeEnvironment(
             sessionID: sessionID,
@@ -253,7 +242,7 @@ extension GhosttySurfaceNSView {
             attachedTo: self,
             workingDirectory: pane.workingDirectory,
             environment: environment,
-            command: launch.command
+            command: command
         )
         if let createdSurface {
             commandBridgeEnactor.errorLatched = false
@@ -271,53 +260,31 @@ extension GhosttySurfaceNSView {
             if windowIsVisible {
                 runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
             }
-            applyPostSpawnPaneState(for: launch)
+            if command != nil {
+                // Write-only breadcrumb for now: INT-571 removed the preflight
+                // that read this (`hasEstablishedSessionMetadata`), so nothing in
+                // the bridge path consumes `established` today. Retained — not
+                // removed — because the deferred create-vs-reattach signal (the
+                // zmx session-end-reason follow-up) will read it to tell a fresh
+                // respawn from a live reconnect. Don't build on its value until
+                // that lands; don't delete it before then.
+                sessionStore.updateTerminalBackendMetadata(
+                    sessionID: sessionID,
+                    paneID: paneID,
+                    metadata: AmxBackend.establishedSessionMetadata
+                )
+            } else {
+                // Fresh local shell, no bridge reattach: any restored `.waiting`
+                // is dead and nothing else clears it (non-bridged panes have no
+                // attach hook). No-ops for a genuinely fresh pane (INT-672).
+                sessionStore.resetPaneAgentChromeToShell(sessionID: sessionID, paneID: paneID)
+            }
         }
         logSurfaceGeometryDiagnostics(event: "surface-create-after")
         runtime.refreshShellActivity(in: sessionStore)
         sizeDidChange(contentSize)
         needsDisplay = true
         return createdSurface != nil
-    }
-
-    /// Store-side bookkeeping for a surface that actually spawned. Split from
-    /// `finishSurfaceCreation` so the per-launch fork is unit-testable without a
-    /// real libghostty surface handle.
-    func applyPostSpawnPaneState(for launch: SurfaceLaunchCommand) {
-        switch launch {
-        case .bridgeAttach:
-            // Write-only breadcrumb for now: INT-571 removed the preflight
-            // that read this (`hasEstablishedSessionMetadata`), so nothing in
-            // the bridge path consumes `established` today. Retained — not
-            // removed — because the deferred create-vs-reattach signal (the
-            // zmx session-end-reason follow-up) will read it to tell a fresh
-            // respawn from a live reconnect. Don't build on its value until
-            // that lands; don't delete it before then.
-            sessionStore.updateTerminalBackendMetadata(
-                sessionID: sessionID,
-                paneID: paneID,
-                metadata: AmxBackend.establishedSessionMetadata
-            )
-        case .remoteOwnedAttach:
-            // Deliberately neither of the other two. NOT `established`: that
-            // metadata names a LOCAL amx session, and stamping it would point
-            // the Path Bar's periodic `amx cwd` refresh (and
-            // `recoverAttachedRuntimeDeathIfNeeded`) at an id no local daemon
-            // has. NOT a chrome reset either: this is a reattach to a session
-            // that survives on the far host, so a live agent's identity must
-            // survive with it, exactly as a bridge reattach preserves it.
-            //
-            // Ceiling: if the remote session was gone and zmx created a fresh
-            // one, restored chrome stays stale until the pane produces new
-            // agent output — there is no `created` signal to read without a
-            // remote status channel. Revisit if remote-owned grows one.
-            commandBridgeEnactor.confirmRemoteOwnedAttach()
-        case .localShell:
-            // Fresh local shell, no bridge reattach: any restored `.waiting`
-            // is dead and nothing else clears it (non-bridged panes have no
-            // attach hook). No-ops for a genuinely fresh pane (INT-672).
-            sessionStore.resetPaneAgentChromeToShell(sessionID: sessionID, paneID: paneID)
-        }
     }
 
     /// Kicks the async bridge attach preflight (INT-698 D4 item A). Sets the
@@ -331,7 +298,7 @@ extension GhosttySurfaceNSView {
     private func beginBridgePreflight(baseCommand: String) {
         guard let remote = pane.executionPlan.remoteTarget else {
             // Lost the remote target between the gate and here — fail open.
-            finishSurfaceCreation(launch: .bridgeAttach(baseCommand))
+            finishSurfaceCreation(command: baseCommand)
             return
         }
         invalidateBridgePreflight()
@@ -600,7 +567,7 @@ extension GhosttySurfaceNSView {
 
         guard let outcome else {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-failed")
-            finishSurfaceCreation(launch: .bridgeAttach(baseCommand))
+            finishSurfaceCreation(command: baseCommand)
             return
         }
         guard let command = BridgeAttachDecision.finalCommand(for: outcome, baseCommand: baseCommand) else {
@@ -610,7 +577,7 @@ extension GhosttySurfaceNSView {
         }
         if case .ready(let channel, _) = outcome {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-ready")
-            if finishSurfaceCreation(launch: .bridgeAttach(command)) {
+            if finishSurfaceCreation(command: command) {
                 runtime.promoteBridgeGeneration(
                     session: expectedTerminalSessionID,
                     channel: channel,
@@ -638,7 +605,7 @@ extension GhosttySurfaceNSView {
                 event: "surface-create-bridge-preflight-degraded-\(reason)"
             )
         }
-        finishSurfaceCreation(launch: .bridgeAttach(command))
+        finishSurfaceCreation(command: command)
     }
 
     func clearCommandBridgeStateForLocalShellFallback() {

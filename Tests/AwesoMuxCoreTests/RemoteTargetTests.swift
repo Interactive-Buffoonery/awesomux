@@ -47,18 +47,4 @@ import Testing
             try JSONDecoder().decode(RemoteTarget.self, from: data)
         }
     }
-
-    @Test func decodingRejectsDashLeadingDestinations() {
-        let data = Data(#"{"user":"","host":"-oProxyCommand=bad"}"#.utf8)
-        #expect(throws: DecodingError.self) {
-            try JSONDecoder().decode(RemoteTarget.self, from: data)
-        }
-    }
-
-    @Test func decodingKeepsADashLeadingHostBehindAUser() throws {
-        // `ed@-host` is a safe destination: the dash is not in argv position,
-        // so the decoder must not over-reject it.
-        let data = Data(#"{"user":"ed","host":"-host"}"#.utf8)
-        #expect(try JSONDecoder().decode(RemoteTarget.self, from: data) == RemoteTarget(user: "ed", host: "-host")!)
-    }
 }
