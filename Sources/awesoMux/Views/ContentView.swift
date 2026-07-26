@@ -578,6 +578,12 @@ struct AppTitlebarView: View {
     @State private var isEditingTitle = false
     @State private var titleDraft = ""
     @FocusState private var isTitleFieldFocused: Bool
+    /// Guards the blur-commit `onChange` below against the synthetic
+    /// false→true edge `onAppear` forces to work around `@FocusState` not
+    /// re-firing `makeFirstResponder` for a same-value write (#220) — without
+    /// this, that synthetic transition reads as a user click-away and
+    /// prematurely commits/dismisses the field it just opened.
+    @State private var isSuppressingTitleBlurCommit = false
 
     private static let brandWithTextMinimumWidth = AppTitlebarMetrics.brandWithTextMinimumWidth
     private static let brandIconMinimumWidth = AppTitlebarMetrics.trafficLightClearance + 28
@@ -730,7 +736,11 @@ struct AppTitlebarView: View {
     }
 
     private func beginEditingTitle(_ session: TerminalSession) {
-        titleDraft = session.title
+        // Seed empty for an auto-derived (directory-based) title so the
+        // placeholder shows instead of text nobody actually typed — only a
+        // title the user set themselves is worth pre-filling (mirrors
+        // `PaneTitleBarView.beginEditing`, #220).
+        titleDraft = session.isTitleUserEdited ? session.title : ""
         isEditingTitle = true
     }
 
@@ -802,21 +812,43 @@ struct AppTitlebarView: View {
                     // `commitTitle` guards on `isEditingTitle`, so the focus loss
                     // that ⏎/esc themselves cause cannot double-fire.
                     .onChange(of: isTitleFieldFocused) { _, focused in
-                        if !focused { commitTitle(for: session) }
+                        guard !focused else { return }
+                        if isSuppressingTitleBlurCommit {
+                            isSuppressingTitleBlurCommit = false
+                            return
+                        }
+                        commitTitle(for: session)
                     }
                     .onAppear {
-                        isTitleFieldFocused = true
-                        // Seed the real title (not a blank field, unlike the pane
-                        // title bar — a workspace name is always meaningful, so
-                        // clearing it on every double-click would hide info) but
-                        // select it all so one double-click is enough to overtype,
-                        // matching Finder/Xcode rename. Deferred: the field editor
-                        // isn't first responder until after SwiftUI installs focus.
+                        // `@FocusState` won't re-fire (won't re-run AppKit's
+                        // `makeFirstResponder`) if it already reads `true` —
+                        // e.g. a prior edit's teardown hasn't propagated the
+                        // reset yet when this field reappears. Force a
+                        // genuine false→true edge, the same fix already
+                        // proven for the sidebar search field
+                        // (`SidebarView.focusRequestID` handler) — otherwise
+                        // the field renders but keystrokes keep going to the
+                        // terminal surface (#220).
+                        if isTitleFieldFocused {
+                            isSuppressingTitleBlurCommit = true
+                            isTitleFieldFocused = false
+                        }
                         DispatchQueue.main.async {
-                            guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else {
-                                return
+                            isTitleFieldFocused = true
+                            // Select-all only makes sense when there's
+                            // pre-filled text to overtype (a user-set title —
+                            // an auto-derived title now seeds empty, so
+                            // there's nothing to select in the common case).
+                            // Matching Finder/Xcode rename. Deferred again:
+                            // the field editor isn't first responder until
+                            // after SwiftUI installs focus from this pass.
+                            guard session.isTitleUserEdited else { return }
+                            DispatchQueue.main.async {
+                                guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else {
+                                    return
+                                }
+                                editor.selectAll(nil)
                             }
-                            editor.selectAll(nil)
                         }
                     }
             } else {
