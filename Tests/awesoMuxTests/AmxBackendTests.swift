@@ -758,3 +758,102 @@ struct AmxBackendSshControlPathTests {
         #expect(directory.utf8.count + 1 + 40 + 17 + 1 <= 104)
     }
 }
+
+// A remote-owned pane's zmx lives on the far host, so its command is assembled
+// WITHOUT the local-daemon apparatus every other attach carries. These assert the
+// exact full string: the hard fence is that `ZMX_DIR`, `AMX_STATUS_*`, and the
+// shell-integration env can never appear, and a substring check can't prove an
+// absence the way a whole-string equality can.
+@Suite("AmxBackend remote-owned attach-command assembly")
+struct AmxBackendRemoteOwnedAttachCommandTests {
+    private static let remote = RemoteTarget(user: "alice", host: "box")!
+    private static let sessionName = RemoteSessionName(rawValue: "dev")!
+
+    /// Everything before the composed remote command. The ControlPath embeds the
+    /// invoking user's home directory, so it is interpolated rather than
+    /// literal — the same accommodation the local-amx ssh-tail tests make.
+    private static var expectedPrefix: String {
+        "'/usr/bin/env' "
+            + "-u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
+            + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN "
+            + "-u AWESOMUX_AGENT_EVENT_PROTOCOL -u AWESOMUX_SESSION_ID -u AWESOMUX_PANE_ID "
+            + "-u AWESOMUX_AGENT_EVENT_FILE -u AWESOMUX_AGENT_HOOK "
+            + "-u AWESOMUX_AGENT_ENABLED_SOURCES -u AWESOMUX_AMX -u AWESOMUX_PROFILE "
+            + "'ssh' '-o' 'ControlMaster=auto' "
+            + "'-o' 'ControlPath=\(AmxBackend.sshControlPath())' "
+            + "'-o' 'ControlPersist=60' '-o' 'ConnectTimeout=10' '-o' 'ServerAliveInterval=15' "
+            + "'-t' '--' 'alice@box' "
+    }
+
+    @Test("defaults to bare `zmx` on the remote PATH")
+    func assemblesDefaultCommand() {
+        let command = AmxBackend.remoteOwnedAttachCommand(
+            remote: Self.remote,
+            sessionName: Self.sessionName
+        )
+        #expect(command == Self.expectedPrefix + "''\\''zmx'\\'' attach '\\''dev'\\'''")
+    }
+
+    @Test("uses an absolute remote executable path when one is declared")
+    func assemblesWithAbsoluteExecutablePath() {
+        let command = AmxBackend.remoteOwnedAttachCommand(
+            remote: Self.remote,
+            sessionName: Self.sessionName,
+            executablePath: "/usr/local/bin/zmx"
+        )
+        #expect(
+            command == Self.expectedPrefix
+                + "''\\''/usr/local/bin/zmx'\\'' attach '\\''dev'\\'''")
+    }
+
+    @Test("escapes a single quote in the remote executable path through both quoting layers")
+    func escapesSingleQuoteInExecutablePath() {
+        // `RemoteSessionName` forbids a quote by construction, so the executable
+        // path is the only input that can carry one. It has to survive the
+        // remote-shell quoting AND the local re-quoting of the whole command
+        // without breaking out of either.
+        let command = AmxBackend.remoteOwnedAttachCommand(
+            remote: Self.remote,
+            sessionName: Self.sessionName,
+            executablePath: "/opt/o'brien/zmx"
+        )
+        #expect(
+            command == Self.expectedPrefix
+                + "''\\''/opt/o'\\''\\'\\'''\\''brien/zmx'\\'' attach '\\''dev'\\'''")
+    }
+
+    @Test("forces a remote PTY")
+    func forcesRemotePTY() {
+        let command = AmxBackend.remoteOwnedAttachCommand(
+            remote: Self.remote,
+            sessionName: Self.sessionName
+        )
+        #expect(command.contains(" '-t' "))
+    }
+
+    @Test("carries no local-daemon state: no ZMX_DIR, no status channel, no shell integration")
+    func carriesNoLocalDaemonState() {
+        for path in [nil, "/usr/local/bin/zmx"] {
+            let command = AmxBackend.remoteOwnedAttachCommand(
+                remote: Self.remote,
+                sessionName: Self.sessionName,
+                executablePath: path
+            )
+            // The local socket directory is meaningless to a zmx on another host.
+            #expect(!command.contains("ZMX_DIR"))
+            #expect(!command.contains("ZMX_DIR_MODE"))
+            // The status channel writes to a local file no remote process can reach.
+            // Assignments only — the `-u` scrub tokens legitimately name these.
+            #expect(!command.contains("AMX_STATUS_FILE="))
+            #expect(!command.contains("AMX_STATUS_TOKEN="))
+            // The bundled ghostty resources dir does not exist on the far host.
+            #expect(!command.contains("ZDOTDIR"))
+            #expect(!command.contains("XDG_DATA_DIRS"))
+            #expect(!command.contains("GHOSTTY_"))
+            // Nothing local is bridged, so no bridge env crosses either.
+            #expect(!command.contains("AWESOMUX_BRIDGE_"))
+            // No local `amx` in the picture at all.
+            #expect(!command.contains("/amx"))
+        }
+    }
+}

@@ -346,7 +346,7 @@ open -n dist/awesoMux.app
 | Semantic waiting agent state | [0007 - Agent waiting semantic state](adr/0007-agent-waiting-semantic-state.md) |
 | OpenCode and Pi provider opt-in | [0010 - OpenCode and Pi opt-in agent integrations](adr/0010-opencode-pi-opt-in-agent-integrations.md) |
 | Ghostty app actions and awesoMux command ownership | [0020 - Ghostty app actions are not an awesoMux command surface](adr/0020-ghostty-app-actions-are-not-an-awesomux-command-surface.md) |
-| Remote SSH workspaces: local `amx`, declared execution identity, SSH composition | [0023 - Remote workspace architecture](adr/0023-remote-workspace-architecture.md) |
+| Remote SSH workspaces: local `amx` by default or opt-in remote-owned zmx, declared execution identity, SSH composition | [0023 - Remote workspace architecture](adr/0023-remote-workspace-architecture.md) |
 | Sidebar single-host presentation | [0025 - Sidebar single-host presentation](adr/0025-sidebar-single-host-presentation.md) |
 | Typed workspace-pane model, capabilities, live-vs-intent seam | [0026 - Typed workspace-pane foundation](adr/0026-typed-workspace-pane-foundation.md) |
 | Ghostty submodule, XCFramework, linker, resources | [`docs/ghostty-integration.md`](ghostty-integration.md) |

@@ -463,9 +463,18 @@ public final class SessionStore {
     @discardableResult
     public func addSSHSession(
         target: RemoteTarget,
-        toGroupID groupID: SessionGroup.ID
+        toGroupID groupID: SessionGroup.ID,
+        sessionName: RemoteSessionName? = nil,
+        remoteExecutablePath: String? = nil
     ) -> TerminalSession.ID? {
         guard target.isSafeSSHDestination else { return nil }
+        guard
+            let execution = Self.sshExecution(
+                target: target,
+                sessionName: sessionName,
+                remoteExecutablePath: remoteExecutablePath
+            )
+        else { return nil }
         guard
             let sessionID = WorkspaceTreeReducer.addSession(
                 to: &_groups,
@@ -473,7 +482,7 @@ public final class SessionStore {
                 title: nil,
                 workingDirectory: nil,
                 groupID: groupID,
-                executionPlan: .ssh(SSHExecution(target: target))
+                executionPlan: .ssh(execution)
             )
         else { return nil }
         commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
@@ -1250,18 +1259,45 @@ public final class SessionStore {
     public func convertPaneToManagedSSH(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
-        target: RemoteTarget
+        target: RemoteTarget,
+        sessionName: RemoteSessionName? = nil,
+        remoteExecutablePath: String? = nil
     ) -> TerminalPane.ID? {
         guard target.isSafeSSHDestination,
             let pane = session(id: sessionID)?.activePane,
             pane.id == paneID,
-            pane.executionPlan == .local
+            pane.executionPlan == .local,
+            let execution = Self.sshExecution(
+                target: target,
+                sessionName: sessionName,
+                remoteExecutablePath: remoteExecutablePath
+            )
         else {
             return nil
         }
         return recycleActivePane(
             in: sessionID,
-            executionPlan: .ssh(SSHExecution(target: target))
+            executionPlan: .ssh(execution)
+        )
+    }
+
+    /// Nil only when the remote fields contradict each other — a path with no
+    /// session name to own it, or a name the model rejects. The sheets validate
+    /// before they call, so this failing means a caller skipped that gate.
+    private static func sshExecution(
+        target: RemoteTarget,
+        sessionName: RemoteSessionName?,
+        remoteExecutablePath: String?
+    ) -> SSHExecution? {
+        guard let sessionName else {
+            guard remoteExecutablePath == nil else { return nil }
+            return SSHExecution(target: target)
+        }
+        return SSHExecution(
+            target: target,
+            persistenceOwner: .remoteZmx,
+            sessionName: sessionName,
+            remoteExecutablePath: remoteExecutablePath
         )
     }
 

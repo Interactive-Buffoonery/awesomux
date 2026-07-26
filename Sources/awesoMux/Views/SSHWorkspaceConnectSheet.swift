@@ -7,15 +7,24 @@ struct SSHWorkspaceConnectionSubmission {
     private(set) var isConnecting = false
     private(set) var errorMessage: String?
 
+    /// `isCommandBridgeEnabled` / `enableCommandBridge` gate local-amx
+    /// submissions only. A remote-owned session runs with no local `amx` daemon
+    /// in front of it, so it must neither require the global command-bridge
+    /// setting nor turn it on behind the user's back.
     mutating func submit(
-        target: RemoteTarget?,
-        connect: (RemoteTarget) -> Bool,
+        execution: SSHExecution?,
+        isCommandBridgeEnabled: Bool,
+        enableCommandBridge: () -> Bool,
+        connect: (SSHExecution) -> Bool,
         announce: (String) -> Void
     ) {
-        guard !isConnecting, let target else { return }
+        guard !isConnecting, let execution else { return }
+        if execution.persistenceOwner == .localAmx, !isCommandBridgeEnabled, !enableCommandBridge() {
+            return
+        }
         isConnecting = true
         errorMessage = nil
-        guard connect(target) else {
+        guard connect(execution) else {
             isConnecting = false
             let message = String(
                 localized: "Couldn’t connect. The workspace is no longer available.",
@@ -32,10 +41,12 @@ struct SSHWorkspaceConnectSheet: View {
     let groupName: String?
     let initialDestination: String?
     let onCancel: () -> Void
-    let onConnect: (RemoteTarget) -> Bool
+    let onConnect: (SSHExecution) -> Bool
 
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var destination: String
+    @State private var sessionName = ""
+    @State private var remoteExecutablePath = ""
     @State private var submission = SSHWorkspaceConnectionSubmission()
     @FocusState private var isFocused: Bool
 
@@ -43,7 +54,7 @@ struct SSHWorkspaceConnectSheet: View {
         groupName: String?,
         initialDestination: String? = nil,
         onCancel: @escaping () -> Void,
-        onConnect: @escaping (RemoteTarget) -> Bool
+        onConnect: @escaping (SSHExecution) -> Bool
     ) {
         self.groupName = groupName
         self.initialDestination = initialDestination
@@ -53,8 +64,12 @@ struct SSHWorkspaceConnectSheet: View {
     }
 
     var body: some View {
-        let target = SSHWorkspaceDestinationValidation.target(from: destination)
-        let validationMessage = SSHWorkspaceDestinationValidation.message(for: destination)
+        let execution = SSHWorkspaceConnectFields.execution(
+            destination: destination,
+            sessionName: sessionName,
+            remoteExecutablePath: remoteExecutablePath
+        )
+        let validationMessage = fieldValidationMessage
         VStack(alignment: .leading, spacing: 16) {
             Text(sheetTitle)
                 .font(.headline)
@@ -67,7 +82,27 @@ struct SSHWorkspaceConnectSheet: View {
                 .autocorrectionDisabled(true)
                 .focused($isFocused)
                 .accessibilityLabel("SSH destination")
-                .onSubmit { connect(target) }
+                .onSubmit { connect(execution) }
+            Text("Remote session name (optional)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField(Self.sessionNamePlaceholder, text: $sessionName)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled(true)
+                .accessibilityLabel("Remote session name")
+                .accessibilityHint("Optional. Names a zmx session the remote host keeps running")
+                .onSubmit { connect(execution) }
+            if declaresRemoteSession {
+                Text("zmx path (optional)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField(Self.remoteExecutablePathPlaceholder, text: $remoteExecutablePath)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled(true)
+                    .accessibilityLabel("Remote zmx path")
+                    .accessibilityHint("Optional. Leave empty to run zmx from the remote PATH")
+                    .onSubmit { connect(execution) }
+            }
             if let message = validationMessage ?? settingsErrorMessage ?? submission.errorMessage {
                 Text(message)
                     .font(.caption)
@@ -77,7 +112,7 @@ struct SSHWorkspaceConnectSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if !backgroundSessionsEnabled {
+            if !backgroundSessionsEnabled, !declaresRemoteSession {
                 Label(
                     "Managed SSH requires background terminal sessions. awesoMux will turn them on when you connect.",
                     systemImage: "info.circle"
@@ -91,17 +126,17 @@ struct SSHWorkspaceConnectSheet: View {
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
                 Button(primaryButtonLabel) {
-                    connect(target)
+                    connect(execution)
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(target == nil || submission.isConnecting)
+                .disabled(execution == nil || submission.isConnecting)
                 .accessibilityHint(
                     validationMessage
                         ?? String(
                             localized: "Enter a destination to enable Connect",
                             comment: "Accessibility hint for the disabled Connect button in the Connect via SSH sheet"
                         ),
-                    isEnabled: target == nil
+                    isEnabled: execution == nil
                 )
             }
         }
@@ -110,13 +145,25 @@ struct SSHWorkspaceConnectSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(sheetTitle)
         .onAppear { isFocused = true }
+        // Clearing the session name hides the path field; its text would
+        // otherwise survive unseen and either revive on re-entry or be silently
+        // dropped by `execution(...)` on submit.
+        .onChange(of: declaresRemoteSession) { _, declares in
+            if !declares { remoteExecutablePath = "" }
+        }
     }
 
-    private func connect(_ target: RemoteTarget?) {
-        guard let target else { return }
-        guard backgroundSessionsEnabled || enableBackgroundSessions() else { return }
+    /// Placeholder examples, deliberately not localized: a session name is
+    /// restricted to `[A-Za-z0-9._-]` and a path is a path, so neither example
+    /// changes by language.
+    private static let sessionNamePlaceholder = "my-session"
+    private static let remoteExecutablePathPlaceholder = "/usr/local/bin/zmx"
+
+    private func connect(_ execution: SSHExecution?) {
         submission.submit(
-            target: target,
+            execution: execution,
+            isCommandBridgeEnabled: backgroundSessionsEnabled,
+            enableCommandBridge: enableBackgroundSessions,
             connect: onConnect,
             announce: {
                 TerminalAccessibilityAnnouncer.announce($0, priority: .high)
@@ -124,13 +171,26 @@ struct SSHWorkspaceConnectSheet: View {
         )
     }
 
+    private var declaresRemoteSession: Bool {
+        SSHWorkspaceConnectFields.declaresRemoteSession(sessionName: sessionName)
+    }
+
+    private var fieldValidationMessage: String? {
+        SSHWorkspaceDestinationValidation.message(for: destination)
+            ?? SSHWorkspaceConnectFields.sessionNameMessage(for: sessionName)
+            ?? (declaresRemoteSession
+                ? SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: remoteExecutablePath) : nil)
+    }
+
     private var backgroundSessionsEnabled: Bool {
         appSettingsStore.terminal.value.commandBridgeEnabled
     }
 
+    /// A remote-owned session never turns background sessions on, so its button
+    /// must not promise to.
     private var primaryButtonLabel: String {
         if initialDestination != nil {
-            if backgroundSessionsEnabled {
+            if backgroundSessionsEnabled || declaresRemoteSession {
                 return String(
                     localized: "Reconnect as Managed",
                     comment: "Button that reconnects an ordinary SSH pane as managed"
@@ -141,7 +201,7 @@ struct SSHWorkspaceConnectSheet: View {
                 comment: "Button that enables background sessions and reconnects an SSH pane as managed"
             )
         }
-        if backgroundSessionsEnabled {
+        if backgroundSessionsEnabled || declaresRemoteSession {
             return String(localized: "Connect", comment: "Button that creates a managed SSH workspace")
         }
         return String(
@@ -176,7 +236,7 @@ struct SSHWorkspaceConnectSheet: View {
     }
 
     private var settingsErrorMessage: String? {
-        backgroundSessionsEnabled ? nil : appSettingsStore.latestError?.displayText
+        backgroundSessionsEnabled || declaresRemoteSession ? nil : appSettingsStore.latestError?.displayText
     }
 
     private func enableBackgroundSessions() -> Bool {
