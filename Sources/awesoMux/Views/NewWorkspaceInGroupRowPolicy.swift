@@ -33,4 +33,15 @@ enum NewWorkspaceInGroupRowPolicy {
     static func dropInsertionIndex(isGroupEmpty: Bool) -> Int {
         isGroupEmpty ? 0 : SessionStore.appendIndex
     }
+
+    /// Whether the row carries its OWN drop delegate.
+    ///
+    /// Empty groups must: with no tiles, the list delegate's resolver returns nil
+    /// and deliberately holds the drop, so the row is the group's only drop target.
+    /// Populated groups must not: the row sits below the last tile, where the list
+    /// delegate already resolves to append, and a nested delegate there produces two
+    /// competing affordances that flip-flop as the pointer crosses the boundary.
+    static func ownsDropDelegate(isGroupEmpty: Bool) -> Bool {
+        isGroupEmpty
+    }
 }

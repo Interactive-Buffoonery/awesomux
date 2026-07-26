@@ -52,4 +52,16 @@ struct NewWorkspaceInGroupRowPolicyTests {
                 == SessionStore.appendIndex
         )
     }
+
+    /// An empty group has no tiles, so the list delegate's resolver returns
+    /// nil and deliberately holds the drop — the row must own a delegate or
+    /// nothing in the group accepts. A populated group's list delegate
+    /// already resolves anything below the last tile to append, which is
+    /// exactly where the row sits; a second delegate there would fight the
+    /// first for the same drop and flip-flop the insertion feedback.
+    @Test("only an empty group's row owns its own drop delegate")
+    func onlyEmptyGroupOwnsDropDelegate() {
+        #expect(NewWorkspaceInGroupRowPolicy.ownsDropDelegate(isGroupEmpty: true))
+        #expect(!NewWorkspaceInGroupRowPolicy.ownsDropDelegate(isGroupEmpty: false))
+    }
 }

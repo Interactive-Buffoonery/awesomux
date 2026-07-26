@@ -804,7 +804,21 @@ struct AppTitlebarView: View {
                     .onChange(of: isTitleFieldFocused) { _, focused in
                         if !focused { commitTitle(for: session) }
                     }
-                    .onAppear { isTitleFieldFocused = true }
+                    .onAppear {
+                        isTitleFieldFocused = true
+                        // Seed the real title (not a blank field, unlike the pane
+                        // title bar — a workspace name is always meaningful, so
+                        // clearing it on every double-click would hide info) but
+                        // select it all so one double-click is enough to overtype,
+                        // matching Finder/Xcode rename. Deferred: the field editor
+                        // isn't first responder until after SwiftUI installs focus.
+                        DispatchQueue.main.async {
+                            guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else {
+                                return
+                            }
+                            editor.selectAll(nil)
+                        }
+                    }
             } else {
                 Text(session.title)
                     .awFont(AwFont.UI.label)

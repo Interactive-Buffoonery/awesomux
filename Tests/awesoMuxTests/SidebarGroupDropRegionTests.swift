@@ -114,6 +114,7 @@ struct SidebarGroupDropRegionTests {
                 canRemoveGroup: false
             ),
             showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(isGroupEmpty: false),
+            ownsDropDelegate: NewWorkspaceInGroupRowPolicy.ownsDropDelegate(isGroupEmpty: false),
             activeDragKind: nil,
             activeDragID: nil,
             activeDragSourceIsPinned: false,

@@ -487,6 +487,12 @@ struct NewWorkspaceInGroupRow: View {
     let showsRemoveButton: Bool
     /// False for a populated group — see `NewWorkspaceInGroupRowPolicy`.
     let showsRestingBorder: Bool
+    /// False for a populated group: the enclosing `SidebarWorkspaceListDropDelegate`
+    /// already resolves anything below the last tile to append, exactly where this
+    /// row sits, so a second delegate here would fight it for the same drop — see
+    /// `NewWorkspaceInGroupRowPolicy.ownsDropDelegate`. When false, `isDropTargeted`
+    /// can never flip true; the list's insertion line is the only feedback.
+    let ownsDropDelegate: Bool
     let activeDragKind: SidebarDragKind?
     let activeDragID: UUID?
     let activeDragSourceIsPinned: Bool
@@ -571,7 +577,7 @@ struct NewWorkspaceInGroupRow: View {
             }
         }
         .sidebarDrop(
-            enabled: activeDragKind == .workspace && !isFiltering,
+            enabled: ownsDropDelegate && activeDragKind == .workspace && !isFiltering,
             delegate: SidebarEmptyWorkspaceDropDelegate(
                 isFiltering: isFiltering,
                 activeDragKind: activeDragKind,

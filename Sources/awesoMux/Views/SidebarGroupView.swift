@@ -314,6 +314,9 @@ struct SidebarGroupView: View {
                             showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(
                                 isGroupEmpty: isGroupEmpty
                             ),
+                            ownsDropDelegate: NewWorkspaceInGroupRowPolicy.ownsDropDelegate(
+                                isGroupEmpty: isGroupEmpty
+                            ),
                             activeDragKind: activeDragKind,
                             activeDragID: activeDragID,
                             activeDragSourceIsPinned: activeDragSourceIsPinned,
