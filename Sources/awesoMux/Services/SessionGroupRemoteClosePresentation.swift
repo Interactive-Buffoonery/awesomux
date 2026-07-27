@@ -6,31 +6,30 @@ struct SessionGroupRemoteClosePresentation {
 
     var requiresConfirmation: Bool { lossText != nil }
 
+    /// Closing a group soft-closes its workspaces: it never kills the local
+    /// `amx` daemons, but reopening mints fresh session ids, so the panes those
+    /// daemons hold are gone for the user either way. Panes the far host owns
+    /// are the exception — their session keeps running under its declared name
+    /// (ADR-0023 amendment #214), so the copy must not sweep them into the same
+    /// sentence.
     init(summary: SessionGroupExecutionSummary, isEmpty: Bool) {
-        let activeRemoteText: String?
-        switch summary.contents {
-        case .empty, .localOnly:
-            activeRemoteText = nil
-        case .singleRemote(let target):
-            activeRemoteText = String(
-                localized: "Closing this group terminates remote panes on \(target.sshDestination).",
-                comment: "Remote-impact line in the close-group confirmation for one SSH destination."
+        let localAmxDestinations = ListFormatter.localizedString(
+            byJoining: summary.localAmxTargets.map(\.sshDestination)
+        )
+        let localAmxText: String? =
+            summary.localAmxTargets.isEmpty
+            ? nil
+            : String(
+                localized:
+                    "Closing this group closes remote panes on \(localAmxDestinations); awesoMux can't reattach them.",
+                comment:
+                    "Remote-impact line in the close-group confirmation for panes a local daemon keeps alive. The argument is a list of SSH destinations."
             )
-        case .mixed(let targets, let includesLocal):
-            let destinations = ListFormatter.localizedString(
-                byJoining: targets.map(\.sshDestination)
-            )
-            activeRemoteText =
-                includesLocal
-                ? String(
-                    localized: "Closing this group terminates local panes and remote panes on \(destinations).",
-                    comment: "Remote-impact line in the close-group confirmation for mixed local and remote panes."
-                )
-                : String(
-                    localized: "Closing this group terminates remote panes on \(destinations).",
-                    comment: "Remote-impact line in the close-group confirmation for multiple SSH destinations."
-                )
-        }
+        let remoteLines = [
+            localAmxText,
+            DestructiveCloseCopy.remoteOwnedSurvivalLine(targets: summary.remoteOwnedTargets),
+        ].compactMap { $0 }
+        let activeRemoteText: String? = remoteLines.isEmpty ? nil : remoteLines.joined(separator: " ")
 
         guard let defaultTarget = summary.defaultTarget?.sshDestination else {
             lossText = activeRemoteText

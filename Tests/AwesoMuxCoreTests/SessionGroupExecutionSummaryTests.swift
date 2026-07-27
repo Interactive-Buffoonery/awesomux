@@ -138,6 +138,57 @@ struct SessionGroupExecutionSummaryTests {
         )
     }
 
+    @Test("persistence ownership splits the destinations a close can reach")
+    func persistenceOwnerBuckets() throws {
+        let remoteOwned = try #require(
+            SSHExecution(
+                target: zeta,
+                persistenceOwner: .remoteZmx,
+                sessionName: RemoteSessionName(rawValue: "work"),
+                remoteExecutablePath: nil
+            )
+        )
+        let group = SessionGroup(
+            name: "Mixed",
+            sessions: [session([.ssh(SSHExecution(target: alpha)), .ssh(remoteOwned)])]
+        )
+
+        let summary = SessionGroupExecutionSummary(group: group)
+
+        #expect(summary.localAmxTargets == [alpha])
+        #expect(summary.remoteOwnedTargets == [zeta])
+        #expect(summary.includesLocallyOwnedSessions)
+    }
+
+    @Test("an all-remote-owned group has no session this Mac can end")
+    func remoteOwnedOnlyHasNoLocallyOwnedSession() throws {
+        let remoteOwned = try #require(
+            SSHExecution(
+                target: alpha,
+                persistenceOwner: .remoteZmx,
+                sessionName: RemoteSessionName(rawValue: "work"),
+                remoteExecutablePath: nil
+            )
+        )
+        let summary = SessionGroupExecutionSummary(
+            group: SessionGroup(name: "Remote", sessions: [session([.ssh(remoteOwned)])])
+        )
+
+        #expect(summary.localAmxTargets.isEmpty)
+        #expect(summary.remoteOwnedTargets == [alpha])
+        #expect(!summary.includesLocallyOwnedSessions)
+    }
+
+    @Test("a local-only group owns its sessions locally")
+    func localOnlyOwnsItsSessionsLocally() {
+        let summary = SessionGroupExecutionSummary(
+            group: SessionGroup(name: "Local", sessions: [session([.local])])
+        )
+
+        #expect(summary.includesLocallyOwnedSessions)
+        #expect(summary.remoteOwnedTargets.isEmpty)
+    }
+
     @Test("a remote pane moved into a local-default group keeps remote close safety")
     func movedRemotePane() {
         let group = SessionGroup(
