@@ -80,6 +80,24 @@ struct SidebarInsertionResolverTests {
         )
     }
 
+    /// An empty group holds too, and this is a deliberate architectural
+    /// choice rather than a side effect of having no frames to inspect.
+    /// `NewWorkspaceInGroupRowPolicy.ownsDropDelegate` gives an empty group's
+    /// row its own drop delegate precisely *because* this resolver holds; if
+    /// this ever resolved (say to 0, which looks unambiguous for an empty
+    /// list) the list delegate would start competing with that row delegate,
+    /// producing the flip-flopping affordances the policy exists to prevent.
+    @Test("an empty group holds the drop so its row delegate can own it")
+    func emptyGroupReturnsNil() {
+        #expect(
+            SidebarInsertionResolver.insertionIndex(
+                forDropY: 10,
+                orderedIDs: [String](),
+                frames: [:]
+            ) == nil
+        )
+    }
+
     @Test("a single real frame is enough to resolve (not held)")
     func oneRealFrameResolves() {
         let frames: [String: CGRect] = [
