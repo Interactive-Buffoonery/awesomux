@@ -251,7 +251,6 @@ struct BridgeAttachAssemblyTests {
         // mkdir targets the state file's own (absolute, quoted) parent — the
         // captured home, never a remote-side `~` re-expansion of it.
         #expect(write.command.contains("umask 077; mkdir -p '\\''/Users/example/.awesomux/bridge'\\''"))
-        #expect(write.command.contains("stat -f"))
         #expect(write.command.contains("mktemp"))
         #expect(write.command.contains("cat > \"$bridge_state_lock_tmp\""))
         #expect(write.command.contains(" && mv "))
@@ -273,6 +272,44 @@ struct BridgeAttachAssemblyTests {
         ))
         #expect(first.command.contains(".bridge-state.XXXXXXXX"))
         #expect(!first.command.contains(".json.tmp"))
+    }
+
+    /// The directory gate runs on whatever `stat` the remote has, so it is
+    /// exercised against both dialects rather than asserted as a spelling: a
+    /// shim that answers only GNU `-c` stands in for a Linux destination, one
+    /// that answers only BSD `-f` for a macOS one.
+    @Test("state-file write's directory gate behaves identically under GNU and BSD stat")
+    func stateFileWriteDirectoryGateIsPortable() throws {
+        let uid = String(getuid())
+        let cases: [(owner: String, mode: String, publishes: Bool, expectation: String)] = [
+            (uid, "700", true, "an owner-only 0700 directory publishes"),
+            ("4294967294", "700", false, "a directory owned by another user is rejected"),
+            (uid, "755", false, "a group/world-accessible directory is rejected"),
+            ("", "", false, "empty stat output fails closed"),
+            ("drwx------", "drwx------", false, "malformed stat output fails closed"),
+        ]
+        for dialect in Self.statDialects {
+            for probe in cases {
+                let published = try Self.publishesUnderStatGate(
+                    dialect: dialect, owner: probe.owner, mode: probe.mode
+                )
+                #expect(
+                    published == probe.publishes,
+                    "\(dialect.name) stat: \(probe.expectation)"
+                )
+            }
+        }
+
+        // Neither spelling understood: the capture's own non-zero exit has to
+        // break the `&&` chain, since there is no output to compare at all.
+        let unusable = StatDialect(name: "unusable", script: "#!/bin/sh\nexit 1\n")
+        let publishedWithoutStat = try Self.publishesUnderStatGate(
+            dialect: unusable, owner: uid, mode: "700"
+        )
+        #expect(
+            !publishedWithoutStat,
+            "unusable stat: an otherwise correct directory still fails closed"
+        )
     }
 
     @Test("state-file write command rejects a non-absolute stateFilePath")
@@ -915,6 +952,92 @@ struct BridgeAttachAssemblyTests {
         #expect(!command.contains("rm -rf *"))
         #expect(!command.contains("bridge/*"))
         #expect(!command.contains("find "))
+    }
+
+    private struct StatDialect {
+        let name: String
+        let script: String
+    }
+
+    private static let statDialects = [
+        StatDialect(
+            name: "GNU",
+            script: """
+                #!/bin/sh
+                [ "$1" = "-c" ] || { echo "stat: invalid option" >&2; exit 1; }
+                case "$2" in
+                %u) printf '%s\\n' "$FAKE_STAT_OWNER" ;;
+                %a) printf '%s\\n' "$FAKE_STAT_MODE" ;;
+                *) exit 1 ;;
+                esac
+                """
+        ),
+        StatDialect(
+            name: "BSD",
+            script: """
+                #!/bin/sh
+                [ "$1" = "-f" ] || { echo "stat: illegal option" >&2; exit 1; }
+                case "$2" in
+                %u) printf '%s\\n' "$FAKE_STAT_OWNER" ;;
+                %Lp) printf '%s\\n' "$FAKE_STAT_MODE" ;;
+                *) exit 1 ;;
+                esac
+                """
+        ),
+    ]
+
+    /// Runs the real remote script with `stat` shimmed to one dialect, and
+    /// reports whether the state file actually landed.
+    private static func publishesUnderStatGate(
+        dialect: StatDialect,
+        owner: String,
+        mode: String
+    ) throws -> Bool {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("awesomux-stat-gate-\(UUID().uuidString)", isDirectory: true)
+        let bridgeDirectory = root.appendingPathComponent("bridge", isDirectory: true)
+        let shimDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(
+            at: bridgeDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let shim = shimDirectory.appendingPathComponent("stat")
+        try Data(dialect.script.utf8).write(to: shim)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shim.path)
+
+        let stateURL = bridgeDirectory.appendingPathComponent("abc123-bridge.json")
+        let channel = BridgeChannel(
+            token: "stat-gate-token",
+            gen: 1,
+            localSocketPath: "/tmp/local.sock",
+            remoteSocketPath: "/tmp/awesomux-bridge-statgate.sock",
+            stateFilePath: stateURL.path,
+            session: Self.sessionID
+        )
+        guard
+            let write = AmxBackend.bridgeStateFileWriteCommand(
+                controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: channel
+            ),
+            let remoteScript = AmxBackend.bridgeStateFileWriteRemoteScript(channel: channel)
+        else {
+            throw ShellRaceError.failed(-1)
+        }
+        let process = try startShell(
+            remoteScript,
+            stdin: write.stdinData,
+            environment: [
+                "PATH": shimDirectory.path + ":/usr/bin:/bin",
+                "FAKE_STAT_OWNER": owner,
+                "FAKE_STAT_MODE": mode,
+            ]
+        )
+        try process.waitUntilExitEventually()
+        return process.terminationStatus == 0 && fileManager.fileExists(atPath: stateURL.path)
     }
 
     private static func runShell(_ script: String, stdin: Data? = nil) throws {
