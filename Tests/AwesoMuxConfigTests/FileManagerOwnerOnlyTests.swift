@@ -91,22 +91,46 @@ struct FileManagerOwnerOnlyTests {
         }
     }
 
-    @Test("writes a new file at 0600 under a permissive umask")
+    @Test("writes a new file at 0600 without inheriting the ambient umask")
     func writesNewOwnerOnlyFileAtExactMode() throws {
         let scratch = try makeScratchDirectory()
         defer { try? fileManager.removeItem(at: scratch) }
         let file = scratch.appending(path: "state.json")
-        // 0o022 is the macOS default, so a write-then-chmod shape would land
-        // these bytes at 0o644 first. Restored immediately — umask is process
-        // global, and this value is what a concurrent test would see anyway.
-        let previousUmask = umask(0o022)
-        defer { _ = umask(previousUmask) }
+
+        // Deliberately does NOT call `umask()`. That is process-global, and
+        // this suite runs in parallel with every other — a temporarily
+        // widened mask would leak into unrelated tests' file creation, and
+        // `defer` cannot close that window because the race is *inside* it.
+        //
+        // Instead, prove the ambient mask is permissive enough for the
+        // assertion below to mean anything: a plainly-written sibling must
+        // NOT already be 0600. Under the usual 0o022 it lands at 0644, so the
+        // real assertion can distinguish a correct write from a
+        // write-then-chmod one. Under a restrictive ambient mask (0o077) it
+        // would land at 0600 on its own and the real assertion would pass for
+        // the wrong reason — this control fails loudly instead of quietly
+        // becoming vacuous.
+        let control = scratch.appending(path: "control.json")
+        try Data("{}".utf8).write(to: control)
+        #expect(
+            try permissions(atPath: control.path) != 0o600,
+            """
+            ambient umask is too restrictive for this test to be meaningful — \
+            a plain write already produced 0600, so the assertion below cannot \
+            tell a correct implementation from a write-then-chmod one
+            """
+        )
 
         try fileManager.writeOwnerOnlyFile(at: file, contents: Data("{}".utf8))
 
         #expect(try permissions(atPath: file.path) == 0o600)
         #expect(try Data(contentsOf: file) == Data("{}".utf8))
-        #expect(try fileManager.contentsOfDirectory(atPath: scratch.path) == ["state.json"])
+        // Exactly the control and the written file — still proves the
+        // temporary file was renamed away rather than left behind.
+        #expect(
+            try fileManager.contentsOfDirectory(atPath: scratch.path).sorted()
+                == ["control.json", "state.json"]
+        )
     }
 
     @Test("replacing an existing file swaps its contents and re-clamps the mode")
