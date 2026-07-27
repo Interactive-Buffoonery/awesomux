@@ -470,9 +470,29 @@ struct SidebarPinnedReorderDropDelegate: DropDelegate {
     }
 }
 
-struct EmptyGroupDropTarget: View {
+struct NewWorkspaceInGroupRow: View {
+    /// SidebarGroupView's only call site already unmounts this row entirely
+    /// while filtering (`!isFiltering` on the `if` around it), so this
+    /// property — and the `.sidebarDrop(enabled:)` term and `.onChange`
+    /// below that key off it — are currently unreachable. Kept as
+    /// belt-and-braces: this is a reusable row, and a future call site that
+    /// doesn't gate on `!isFiltering` shouldn't have to rediscover why a
+    /// filtered drag can still create a workspace.
     let isFiltering: Bool
-    let canRemoveGroup: Bool
+    /// Renamed from `canRemoveGroup`: the value passed in is now a presentation
+    /// decision (`NewWorkspaceInGroupRowPolicy.showsRemoveButton`), not the
+    /// store's removal capability. Keeping the old name would invite a future
+    /// caller to pass the raw capability and reintroduce a second X on
+    /// populated groups, which already have the header's hover X.
+    let showsRemoveButton: Bool
+    /// False for a populated group — see `NewWorkspaceInGroupRowPolicy`.
+    let showsRestingBorder: Bool
+    /// False for a populated group: the enclosing `SidebarWorkspaceListDropDelegate`
+    /// already resolves anything below the last tile to append, exactly where this
+    /// row sits, so a second delegate here would fight it for the same drop — see
+    /// `NewWorkspaceInGroupRowPolicy.ownsDropDelegate`. When false, `isDropTargeted`
+    /// can never flip true; the list's insertion line is the only feedback.
+    let ownsDropDelegate: Bool
     let activeDragKind: SidebarDragKind?
     let activeDragID: UUID?
     let activeDragSourceIsPinned: Bool
@@ -503,7 +523,7 @@ struct EmptyGroupDropTarget: View {
 
                     // Reserve trailing space for the sibling remove button so
                     // hit-test routing isn't ambiguous with the row tap.
-                    if canRemoveGroup {
+                    if showsRemoveButton {
                         Color.clear.frame(width: 18, height: 18)
                     }
                 }
@@ -513,25 +533,32 @@ struct EmptyGroupDropTarget: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.aw.surface.elevated.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 7)
-                        .stroke(
-                            activeDragKind == .workspace && isDropTargeted
-                                ? Color.aw.mauve.opacity(0.90)
-                                : Color.aw.border2.opacity(0.75),
-                            style: StrokeStyle(
-                                lineWidth: activeDragKind == .workspace && isDropTargeted ? 1.25 : 0.75,
-                                dash: [3, 3]
+                    let isDropLit = activeDragKind == .workspace && isDropTargeted
+                    if isDropLit || showsRestingBorder {
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(
+                                isDropLit
+                                    ? Color.aw.mauve.opacity(0.90)
+                                    : Color.aw.border2.opacity(0.75),
+                                style: StrokeStyle(
+                                    lineWidth: isDropLit ? 1.25 : 0.75,
+                                    dash: [3, 3]
+                                )
                             )
-                        )
+                    }
                 }
             }
             .buttonStyle(.plain)
             .help("New Workspace in Group")
-            .accessibilityLabel("New workspace in empty group")
+            .accessibilityLabel(
+                String(
+                    localized: "New workspace in group",
+                    comment: "VoiceOver label for the row that creates a workspace in a sidebar group."
+                ))
 
             // Sibling overlay (mirrors SidebarSessionTile.closeButton pattern)
             // so nested Buttons don't confuse hit-test routing.
-            if canRemoveGroup {
+            if showsRemoveButton {
                 HStack {
                     Spacer()
                     Button(role: .destructive) {
@@ -550,7 +577,7 @@ struct EmptyGroupDropTarget: View {
             }
         }
         .sidebarDrop(
-            enabled: activeDragKind == .workspace && !isFiltering,
+            enabled: ownsDropDelegate && activeDragKind == .workspace && !isFiltering,
             delegate: SidebarEmptyWorkspaceDropDelegate(
                 isFiltering: isFiltering,
                 activeDragKind: activeDragKind,

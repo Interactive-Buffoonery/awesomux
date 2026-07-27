@@ -106,6 +106,28 @@ enum SidebarHostedTestHarness {
         }
     }
 
+    /// A single `mouseDown` carrying `clickCount: 2`. AppKit views that branch
+    /// on `clickCount` (the titlebar rename handle, the pane drag source) read
+    /// the count off the event, so one event is enough — no inter-click timing
+    /// to reproduce.
+    static func sendDoubleClick(to view: NSView, at location: CGPoint, in window: NSWindow) {
+        guard
+            let event = NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: location,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 3,
+                clickCount: 2,
+                pressure: 1
+            )
+        else { return }
+        view.mouseDown(with: event)
+        settleMainRunLoop()
+    }
+
     static func sendKey(
         to window: NSWindow,
         keyCode: UInt16,

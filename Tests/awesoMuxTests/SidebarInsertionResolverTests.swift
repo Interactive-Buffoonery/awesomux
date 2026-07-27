@@ -83,7 +83,7 @@ struct SidebarInsertionResolverTests {
     @Test("a single real frame is enough to resolve (not held)")
     func oneRealFrameResolves() {
         let frames: [String: CGRect] = [
-            "b": CGRect(x: 0, y: 20, width: 100, height: 10),
+            "b": CGRect(x: 0, y: 20, width: 100, height: 10)
         ]
 
         #expect(
@@ -191,6 +191,42 @@ struct SidebarInsertionResolverTests {
         )
 
         #expect(target == nil)
+    }
+
+    /// The inter-group gutter is reclaimed into the tile stack's drop region
+    /// (SidebarGroupView's bottom padding bracket), so a drop y inside that
+    /// gutter is resolved by the LIST delegate and must land as append. This is
+    /// the contract that lets the geometry change need no index math.
+    @Test("a drop y in the reclaimed inter-group gutter appends to the group")
+    func gutterDropYAppendsToGroup() {
+        // Two 30pt tiles with the comfortable 5pt stack spacing between them.
+        let frames: [String: CGRect] = [
+            "a": CGRect(x: 0, y: 0, width: 260, height: 30),
+            "b": CGRect(x: 0, y: 35, width: 260, height: 30),
+        ]
+        let ids = ["a", "b"]
+        let lastTileMaxY: CGFloat = 65
+        let comfortableGroupStackSpacing: CGFloat = 14
+
+        // Anywhere in the reclaimed gutter resolves to append (index 2).
+        for offset in stride(from: CGFloat(1), through: comfortableGroupStackSpacing, by: 1) {
+            #expect(
+                SidebarInsertionResolver.insertionIndex(
+                    forDropY: lastTileMaxY + offset,
+                    orderedIDs: ids,
+                    frames: frames
+                ) == ids.count
+            )
+        }
+
+        // The compact gutter is narrower but behaves identically.
+        #expect(
+            SidebarInsertionResolver.insertionIndex(
+                forDropY: lastTileMaxY + 8,
+                orderedIDs: ids,
+                frames: frames
+            ) == ids.count
+        )
     }
 
     @Test("workspace post-removal target handles cross-group and same-group moves")
