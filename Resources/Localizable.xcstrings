@@ -3373,6 +3373,17 @@
     "To: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated mailto recipients."
     },
+    "Too large to open, %arg, over the %arg MB limit, %arg" : {
+      "comment" : "VoiceOver label for a Markdown file the viewer can't open; placeholders are the file size, the cap in whole megabytes, and the path",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Too large to open, %1$arg, over the %2$arg MB limit, %3$arg"
+          }
+        }
+      }
+    },
     "Transfer" : {
       "comment" : "Approve remote clipboard handoff button"
     },

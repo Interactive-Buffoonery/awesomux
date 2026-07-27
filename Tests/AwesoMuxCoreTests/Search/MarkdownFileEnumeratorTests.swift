@@ -63,6 +63,48 @@ import Testing
         }
     }
 
+    /// The browser marks over-cap rows off `fileSizeBytes`, so the walk has to
+    /// carry the size it already stats for. Without it every entry looks
+    /// openable and the user only learns otherwise after the click has already
+    /// replaced their tab.
+    @Test func reportsFileSizeAndFlagsEntriesOverTheViewerCap() throws {
+        try withTemporaryDirectory { root in
+            let small = root.appendingPathComponent("small.md")
+            try writeFile("tiny", at: small)
+            let big = root.appendingPathComponent("big.md")
+            try writeFile("", at: big)
+            let handle = try FileHandle(forWritingTo: big)
+            defer { try? handle.close() }
+            // Sparse: the cap is a size check, so no bytes need to exist.
+            try handle.truncate(atOffset: UInt64(DocumentURLValidator.maxFileSizeBytes + 1))
+            try handle.close()
+
+            let entries = MarkdownFileEnumerator.enumerate(root: root)
+            let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.fileName, $0) })
+
+            #expect(byName["small.md"]?.fileSizeBytes == 4)
+            #expect(byName["small.md"]?.exceedsSizeCap == false)
+            #expect(byName["big.md"]?.fileSizeBytes == DocumentURLValidator.maxFileSizeBytes + 1)
+            #expect(byName["big.md"]?.exceedsSizeCap == true)
+        }
+    }
+
+    /// A file exactly at the cap opens, so it must not be marked.
+    @Test func doesNotFlagAFileExactlyAtTheCap() throws {
+        try withTemporaryDirectory { root in
+            let atCap = root.appendingPathComponent("at-cap.md")
+            try writeFile("", at: atCap)
+            let handle = try FileHandle(forWritingTo: atCap)
+            try handle.truncate(atOffset: UInt64(DocumentURLValidator.maxFileSizeBytes))
+            try handle.close()
+
+            let entry = try #require(MarkdownFileEnumerator.enumerate(root: root).first)
+
+            #expect(entry.fileSizeBytes == DocumentURLValidator.maxFileSizeBytes)
+            #expect(entry.exceedsSizeCap == false)
+        }
+    }
+
     @Test func nonDirectoryRootReturnsEmptyList() throws {
         try withTemporaryDirectory { root in
             let file = root.appendingPathComponent("README.md")

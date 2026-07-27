@@ -4,15 +4,28 @@ public struct MarkdownFileEntry: Equatable, Identifiable, Sendable {
     public let url: URL
     public let relativePath: String
     public let fileName: String
+    /// Size at enumeration time; `nil` when the walk could not stat the file.
+    public let fileSizeBytes: Int?
 
     public var id: String {
         url.standardizedFileURL.path
     }
 
-    public init(url: URL, relativePath: String) {
+    /// Whether opening this entry would be rejected for size.
+    ///
+    /// Opening replaces the document tab in place, so an unmarked over-cap
+    /// entry costs the user the document they were reading before the error
+    /// page explains why. A `nil` size reads as openable — the click-time
+    /// re-stat is the authority, this is only the advance warning.
+    public var exceedsSizeCap: Bool {
+        DocumentURLValidator.reject(url, fileSize: fileSizeBytes) == .tooLarge
+    }
+
+    public init(url: URL, relativePath: String, fileSizeBytes: Int? = nil) {
         self.url = url
         self.relativePath = relativePath
         self.fileName = url.lastPathComponent
+        self.fileSizeBytes = fileSizeBytes
     }
 }
 
@@ -69,10 +82,13 @@ public enum MarkdownFileEnumerator {
     ) {
         guard entries.count < options.maxCount else { return }
 
+        // `.fileSizeKey` rides along on the stat this walk already performs for
+        // every child, so the browser can mark over-cap files for free.
         let resourceKeys: Set<URLResourceKey> = [
             .isDirectoryKey,
             .isRegularFileKey,
             .isSymbolicLinkKey,
+            .fileSizeKey,
         ]
         let children = (try? fileManager.contentsOfDirectory(
             at: directory,
@@ -111,10 +127,12 @@ public enum MarkdownFileEnumerator {
                 continue
             }
 
-            entries.append(MarkdownFileEntry(
-                url: child.standardizedFileURL,
-                relativePath: relativePath(for: child.standardizedFileURL, root: root)
-            ))
+            entries.append(
+                MarkdownFileEntry(
+                    url: child.standardizedFileURL,
+                    relativePath: relativePath(for: child.standardizedFileURL, root: root),
+                    fileSizeBytes: values?.fileSize
+                ))
         }
     }
 
