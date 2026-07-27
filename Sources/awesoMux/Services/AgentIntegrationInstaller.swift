@@ -588,14 +588,7 @@ struct AgentIntegrationInstaller {
     }
 
     private func writePrivateFile(_ data: Data, to url: URL) throws {
-        try data.write(to: url, options: [.atomic])
-        do {
-            try fileManager.setOwnerOnlyPermissions(onFileAt: url)
-        } catch {
-            Self.logger.error(
-                "failed to set private permissions on \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-        }
+        try fileManager.writeOwnerOnlyFile(at: url, contents: data)
     }
 
     private func clampOwnerOnly(directoryAt url: URL) {
