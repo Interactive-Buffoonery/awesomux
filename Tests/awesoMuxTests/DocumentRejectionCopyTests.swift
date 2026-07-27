@@ -61,4 +61,35 @@ struct DocumentRejectionCopyTests {
             #expect(message.contains(ext), "expected \(ext) in: \(message)")
         }
     }
+
+    /// `.readError` frames a reason produced by `DocumentLoader`. Both halves
+    /// are localized, and the risk is that they drift — a localized frame
+    /// wrapping an English payload reads worse than leaving both alone.
+    @Test("a read failure names the file and carries the reason through intact")
+    func readErrorCarriesTheReason() {
+        let reason = DocumentLoader.LoadResult.readError("REASON-SENTINEL")
+        guard case let .readError(text) = reason else { return }
+        let message = DocumentPaneView.readErrorMessage(text, pane: pane)
+
+        #expect(message.contains(pane.title), "should name the file: \(message)")
+        #expect(message.contains("REASON-SENTINEL"), "should carry the reason: \(message)")
+        #expect(!message.contains("%arg"), "placeholder marker leaked: \(message)")
+    }
+
+    /// The reasons `DocumentLoader` actually produces must themselves resolve —
+    /// if one were left as a raw literal it would still render, so assert they
+    /// are non-empty and free of markers rather than assuming.
+    @Test("the loader's own read-failure reasons render as text")
+    func loaderReasonsRender() throws {
+        let url = URL(fileURLWithPath: "/tmp/awesomux-not-utf8.md")
+        try Data([0xFF]).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        guard case let .readError(reason) = DocumentLoader.load(url) else {
+            Issue.record("expected a read error for non-UTF-8 content")
+            return
+        }
+        #expect(!reason.isEmpty)
+        #expect(!reason.contains("%arg"), "placeholder marker leaked: \(reason)")
+    }
 }

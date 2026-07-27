@@ -21,6 +21,17 @@
     "A native terminal for agents" : {
 
     },
+    "Couldn't read “%arg”: %arg" : {
+      "comment" : "Document pane error; first placeholder is the quoted file name, second is the localized reason",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't read “%1$arg”: %2$arg"
+          }
+        }
+      }
+    },
     "Version" : {
 
     },
@@ -3185,6 +3196,12 @@
     },
     "The edited document would exceed the %arg MB size limit." : {
       "comment" : "Save failure alert body when the edit would push the file over the cap; %lld is whole megabytes"
+    },
+    "The file couldn’t be opened because it isn’t in the correct format." : {
+      "comment" : "Document load failure when the bytes are not valid UTF-8"
+    },
+    "The file couldn’t be read." : {
+      "comment" : "Generic document load failure when the file cannot be read"
     },
     "The global integration install record could not be read" : {
       "comment" : "Unreadable CLI agent plugin install manifest action error"

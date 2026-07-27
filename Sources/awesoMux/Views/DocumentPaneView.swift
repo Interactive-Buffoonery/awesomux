@@ -687,7 +687,7 @@ struct DocumentPaneView: View {
                     errorView(message: Self.rejectionMessage(for: reason, pane: pane))
 
                 case let .readError(message):
-                    errorView(message: "Couldn't read \u{201C}\(pane.title)\u{201D}: \(message)")
+                    errorView(message: Self.readErrorMessage(message, pane: pane))
                 }
             } else {
                 ProgressView()
@@ -1650,6 +1650,19 @@ struct DocumentPaneView: View {
     }
 
     // MARK: - Error message helpers
+
+    /// Frames a `DocumentLoader` read failure with the file it happened to.
+    ///
+    /// The interpolated reason is localized where it is produced, in
+    /// `DocumentLoader` — framing an English payload in a localized sentence
+    /// would be worse than leaving both alone, so the two must stay in step.
+    static func readErrorMessage(_ reason: String, pane: DocumentPane) -> String {
+        String(
+            localized: "Couldn't read \u{201C}\(pane.title)\u{201D}: \(reason)",
+            comment:
+                "Document pane error; first placeholder is the quoted file name, second is the localized reason"
+        )
+    }
 
     /// Static and non-private so a test can assert what the user actually
     /// reads. These strings resolve through the string catalog, whose keys
