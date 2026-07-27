@@ -35,6 +35,17 @@ enum DocumentOversizePolicy {
     /// back over cap. 500 ms outlasts that window.
     static let settleInterval: Duration = .milliseconds(500)
 
+    /// The settle wait itself, injectable so a test can drive the hold without
+    /// spending real time in it.
+    ///
+    /// `ContinuousClock` rather than `Task.sleep`: `script/check_test_waits.sh`
+    /// rejects new `Task.sleep` in `Sources/`, because a bare sleep is neither
+    /// controllable from a test nor visible to one. This is the same shape
+    /// `BoundedCommandRunner` already uses for its timeout delay.
+    @MainActor static var settleWait: @Sendable () async -> Void = {
+        try? await ContinuousClock().sleep(for: settleInterval)
+    }
+
     /// File paths currently held behind the banner, so a remount raises it
     /// again immediately instead of re-deriving it after a full read.
     ///

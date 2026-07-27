@@ -817,7 +817,7 @@ struct DocumentPaneView: View {
                 // cancelled at the guard below, and what stays on screen is
                 // still the last WHOLE render rather than a half-written
                 // prefix that happened to be under cap when we looked.
-                try? await Task.sleep(for: DocumentOversizePolicy.settleInterval)
+                await DocumentOversizePolicy.settleWait()
                 guard !Task.isCancelled,
                     reloadTaskID.fileURL == pane.fileURL,
                     reloadTaskID.generation == reloadGeneration
