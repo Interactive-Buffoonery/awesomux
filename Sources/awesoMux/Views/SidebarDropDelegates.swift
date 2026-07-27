@@ -68,6 +68,15 @@ struct SidebarGroupReorderDropDelegate: DropDelegate {
             return false
         }
         onDragRefreshed(.group)
+        // `performDrop` refuses unless the resolver places the drop, so the
+        // proposal must be gated on the same condition — otherwise the pointer
+        // shows a move cursor and the drop is then silently rejected. Gated on
+        // the RAW index: a nil visible index only means "no indicator to draw"
+        // for a no-op self-move, which `performDrop` still accepts.
+        guard insertionIndex(for: info.location.y) != nil else {
+            setInsertionIndex(nil)
+            return false
+        }
         setInsertionIndex(visibleInsertionIndex(for: info.location.y))
         return true
     }
@@ -179,6 +188,15 @@ struct SidebarWorkspaceListDropDelegate: DropDelegate {
             return false
         }
         onDragRefreshed(.workspace)
+        // `performDrop` refuses unless the resolver places the drop, so the
+        // proposal must be gated on the same condition — otherwise the pointer
+        // shows a move cursor and the drop is then silently rejected. Gated on
+        // the RAW index: a nil visible index only means "no indicator to draw"
+        // for a no-op self-move, which `performDrop` still accepts.
+        guard insertionIndex(for: info.location.y) != nil else {
+            setInsertionIndex(nil)
+            return false
+        }
         setInsertionIndex(visibleInsertionIndex(for: info.location.y))
         return true
     }
@@ -446,6 +464,15 @@ struct SidebarPinnedReorderDropDelegate: DropDelegate {
             return false
         }
         onDragRefreshed(.workspace)
+        // `performDrop` refuses unless the resolver places the drop, so the
+        // proposal must be gated on the same condition — otherwise the pointer
+        // shows a move cursor and the drop is then silently rejected. Gated on
+        // the RAW index: a nil visible index only means "no indicator to draw"
+        // for a no-op self-move, which `performDrop` still accepts.
+        guard insertionIndex(for: info.location.y) != nil else {
+            setInsertionIndex(nil)
+            return false
+        }
         setInsertionIndex(visibleInsertionIndex(for: info.location.y))
         return true
     }
