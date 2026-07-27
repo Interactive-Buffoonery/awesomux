@@ -607,9 +607,17 @@ enum AmxBackend {
             + " && chmod 600 \"$bridge_state_lock_tmp\""
             + " && mv \"$bridge_state_lock_tmp\" " + shellQuote(channel.stateFilePath)
             + " && bridge_state_lock_tmp="
+        // Same two `stat` spellings as `bridgeRemoteSocketAdmissionCommand`:
+        // GNU (`-c`) first, BSD (`-f`) as the fallback. `-f` alone would mean
+        // "stat the filesystem" on a GNU target, so a Linux remote would be
+        // comparing filesystem trivia against the uid. Both substitutions fail
+        // closed — an empty or unparseable capture matches neither `$(id -u)`
+        // nor `700`, and a pair that both fail breaks the `&&` chain outright.
         return "umask 077; mkdir -p " + quotedDirectory
-            + " && owner=$(stat -f '%u' " + quotedDirectory + ")"
-            + " && mode=$(stat -f '%Lp' " + quotedDirectory + ")"
+            + " && owner=$(stat -c %u " + quotedDirectory + " 2>/dev/null"
+            + " || stat -f %u " + quotedDirectory + " 2>/dev/null)"
+            + " && mode=$(stat -c %a " + quotedDirectory + " 2>/dev/null"
+            + " || stat -f %Lp " + quotedDirectory + " 2>/dev/null)"
             + " && [ \"$owner\" = \"$(id -u)\" ] && [ \"$mode\" = 700 ]"
             + " && "
             + bridgeStateFileLockedRemoteScript(
