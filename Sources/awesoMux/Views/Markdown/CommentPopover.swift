@@ -310,7 +310,7 @@ struct FullCommentPopover: View {
             submission.finish()
             onSubmissionChanged(false)
             recovery = outcome == .saved ? nil : outcome
-            recoveryDraft = outcome == .copyOnly ? draftToRecover : nil
+            recoveryDraft = (outcome == .copyOnly || outcome == .oversizeCopyOnly) ? draftToRecover : nil
             if outcome == .saved {
                 onSaved()
             }
@@ -328,7 +328,7 @@ struct FullCommentPopover: View {
             Text(recoveryMessage(outcome))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            if outcome == .copyOnly, let recoveryDraft {
+            if outcome == .copyOnly || outcome == .oversizeCopyOnly, let recoveryDraft {
                 Button(String(localized: "Copy Draft", comment: "Button to copy an annotation draft after a save conflict")) {
                     AnnotationSaveRecovery.copyDraft(recoveryDraft)
                 }
@@ -360,6 +360,8 @@ struct FullCommentPopover: View {
             String(
                 localized: "The selection is stale. Copy your draft and select the text again.",
                 comment: "Annotation save recovery message for a stale selection")
+        case .oversizeCopyOnly:
+            AnnotationSaveRecovery.oversizeMessage
         case .failed:
             String(localized: "The draft was not saved.", comment: "Annotation save failure message")
         case .saved:
@@ -497,7 +499,7 @@ struct ComposeCommentPopover: View {
                         Text(recoveryMessage(recovery))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
-                        if recovery == .copyAndReselect {
+                        if recovery == .copyAndReselect || recovery == .oversizeCopyOnly {
                             Button(String(localized: "Copy Draft", comment: "Button to copy a new annotation draft after a save conflict"))
                             {
                                 AnnotationSaveRecovery.copyDraft(draft)
@@ -574,6 +576,8 @@ struct ComposeCommentPopover: View {
                 comment: "New annotation recovery message after reloading a changed document")
         case .copyOnly:
             String(localized: "Copy the draft before closing.", comment: "New annotation recovery message when only copying is safe")
+        case .oversizeCopyOnly:
+            AnnotationSaveRecovery.oversizeMessage
         case .failed:
             String(localized: "The draft was not saved.", comment: "New annotation save failure message")
         case .saved:

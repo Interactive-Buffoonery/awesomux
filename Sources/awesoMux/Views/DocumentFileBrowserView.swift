@@ -11,6 +11,7 @@ struct DocumentFileBrowserView: View {
     @State private var query = ""
     @State private var files: [MarkdownFileEntry] = []
     @State private var currentDirectory = ""
+    @State private var refusal: String?
     @State private var isLoading = false
     @State private var refreshGeneration = 0
     @State private var activeLoadID: UUID?
@@ -52,6 +53,12 @@ struct DocumentFileBrowserView: View {
             Rectangle()
                 .fill(Color.aw.border2.opacity(0.7))
                 .frame(height: 0.5)
+            if let refusal {
+                refusalNotice(refusal)
+                Rectangle()
+                    .fill(Color.aw.border2.opacity(0.45))
+                    .frame(height: 0.5)
+            }
             if rootURL != nil && !isSearching {
                 directoryBar
                 Rectangle()
@@ -65,7 +72,36 @@ struct DocumentFileBrowserView: View {
         .task(id: rootTaskID) {
             await reloadFiles(rootURL: rootURL)
         }
+        // A refusal names one file in one place; carrying it into a different
+        // folder or a different search would attach it to whatever the user is
+        // looking at now.
+        .onChange(of: currentDirectory) { refusal = nil }
+        .onChange(of: query) { refusal = nil }
         .accessibilityElement(children: .contain)
+    }
+
+    private func refusalNotice(_ message: String) -> some View {
+        // The composited (opaque) tint keeps the notice legible under Reduce
+        // Transparency, and its foreground is contrast-checked against that
+        // exact composite rather than against the bare status color.
+        let base = Color.aw.surface.terminal
+        return HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.aw.status.needs)
+                .accessibilityHidden(true)
+            Text(message)
+                .awFont(AwFont.Mono.meta)
+                .foregroundStyle(Color.aw.status.tintForeground(for: .needs, over: base))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.aw.status.tintBackground(for: .needs, over: base))
+        .accessibilityElement(children: .combine)
     }
 
     private var browserToolbar: some View {
@@ -228,7 +264,7 @@ struct DocumentFileBrowserView: View {
                             isCurrent: hit.entry.url.standardizedFileURL
                                 == currentFileURL.standardizedFileURL,
                             action: {
-                                onOpen(hit.entry.url)
+                                open(hit.entry)
                             }
                         )
                     }
@@ -258,7 +294,7 @@ struct DocumentFileBrowserView: View {
                             isCurrent: entry.url.standardizedFileURL
                                 == currentFileURL.standardizedFileURL,
                             action: {
-                                onOpen(entry.url)
+                                open(entry)
                             }
                         )
                     }
@@ -268,10 +304,74 @@ struct DocumentFileBrowserView: View {
         }
     }
 
+    /// `onOpen` replaces the document tab in place, destroying the current
+    /// file's association and scroll context before the pane discovers it
+    /// can't render the new one. Anything that would be rejected must be
+    /// reported *instead of* opening, not after.
+    @MainActor
+    private func open(_ entry: MarkdownFileEntry) {
+        guard let message = Self.refusalMessage(forOpening: entry.url) else {
+            refusal = nil
+            onOpen(entry.url)
+            return
+        }
+        refusal = message
+        // The notice is a visual change with no focus move, so VoiceOver would
+        // otherwise report nothing at all for a click that did nothing.
+        TerminalAccessibilityAnnouncer.announce(message, priority: .high)
+    }
+
+    /// Re-stats `url` at click time and returns the reason it can't be opened.
+    ///
+    /// The enumerated size is a snapshot: agent-written documents grow between
+    /// the listing and the click, which is exactly the race the cap makes
+    /// routine. Only size is checked — the enumerator already filters by
+    /// extension and yields local file URLs.
+    static func refusalMessage(forOpening url: URL) -> String? {
+        // `FileManager`, not `url.resourceValues(forKeys:)`: a URL caches the
+        // resource values it has already been asked for, so re-reading through
+        // it can hand back the enumeration-time size — the exact staleness this
+        // check exists to defeat.
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let size = (attributes?[.size] as? NSNumber)?.intValue
+        guard DocumentURLValidator.reject(url, fileSize: size) == .tooLarge else { return nil }
+        let quoted = "\u{201C}\(url.lastPathComponent)\u{201D}"
+        // Deliberately the same sentence the document pane uses for the same
+        // rejection, so the two surfaces share one catalog entry and one
+        // wording.
+        return String(
+            localized: "Can't open \(quoted): file exceeds the \(DocumentURLValidator.maxFileSizeMegabytes) MB size limit.",
+            comment: "Document pane error; first placeholder is the quoted file name, second is the cap in whole megabytes")
+    }
+
+    /// Built here rather than in the row so the size state a sighted user reads
+    /// off the marker is provably the same state VoiceOver speaks.
+    static func fileRowAccessibilityLabel(entry: MarkdownFileEntry, isCurrent: Bool) -> String {
+        if entry.exceedsSizeCap {
+            let size = formattedSize(entry.fileSizeBytes)
+            let cap = DocumentURLValidator.maxFileSizeMegabytes
+            return String(
+                localized: "Too large to open, \(size), over the \(cap) MB limit, \(entry.relativePath)",
+                comment:
+                    "VoiceOver label for a Markdown file the viewer can't open; placeholders are the file size, the cap in whole megabytes, and the path"
+            )
+        }
+        if isCurrent {
+            return "Current document, \(entry.relativePath)"
+        }
+        return "Open \(entry.relativePath)"
+    }
+
+    static func formattedSize(_ bytes: Int?) -> String {
+        guard let bytes else { return "" }
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+
     @MainActor
     private func reloadFiles(rootURL: URL?) async {
         let loadID = UUID()
         activeLoadID = loadID
+        refusal = nil
 
         guard let rootURL else {
             files = []
@@ -385,6 +485,19 @@ private struct DocumentFileBrowserFileRow: View {
 
                 Spacer(minLength: 8)
 
+                // Shown rather than filtered out: a user who can't find their
+                // file has no error to read, which is worse than a clear one.
+                if entry.exceedsSizeCap {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(DocumentFileBrowserView.formattedSize(entry.fileSizeBytes))
+                            .awFont(AwFont.Mono.meta)
+                    }
+                    .foregroundStyle(Color.aw.status.needs)
+                    .accessibilityHidden(true)
+                }
+
                 if isCurrent {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .semibold))
@@ -413,10 +526,7 @@ private struct DocumentFileBrowserFileRow: View {
     }
 
     private var accessibilityLabel: String {
-        if isCurrent {
-            return "Current document, \(entry.relativePath)"
-        }
-        return "Open \(entry.relativePath)"
+        DocumentFileBrowserView.fileRowAccessibilityLabel(entry: entry, isCurrent: isCurrent)
     }
 }
 

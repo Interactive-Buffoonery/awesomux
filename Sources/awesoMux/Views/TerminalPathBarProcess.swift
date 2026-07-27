@@ -6,7 +6,15 @@ enum BoundedCommandResult: Equatable, Sendable {
     case executableNotFound
     case spawnFailure
     case nonZeroExit(Int32)
-    case timedOut
+    /// `outputTruncated` records whether the cap was already breached when the
+    /// deadline fired. A timeout outranks truncation for classification (a
+    /// killed child proved nothing about its exit), but "this command emitted
+    /// more than `maxOutputBytes`" is a fact about the output that the kill
+    /// cannot retract — and for a caller whose cap *is* a size limit, that is
+    /// the answer, not a connectivity failure. Kept as a payload rather than
+    /// reordering the priority so every existing caller still sees a timeout
+    /// as a timeout.
+    case timedOut(outputTruncated: Bool)
     /// Carries the capped buffer: a clean exit whose output hit the cap is
     /// still the Path Bar's pre-existing "truncated but usable" contract
     /// (see `run(arguments:inDirectory:)`), while callers that must not trust
@@ -284,7 +292,7 @@ struct BoundedCommandRunner: Sendable {
             if !exited {
                 resume = nil
             } else if timedOut {
-                resume = finishLocked(returning: .timedOut)
+                resume = finishLocked(returning: .timedOut(outputTruncated: truncated))
             } else {
                 resume = finishLocked(returning: .outputNotDrained)
             }
@@ -307,7 +315,7 @@ struct BoundedCommandRunner: Sendable {
         private func readyResumeLocked() -> (() -> Void)? {
             guard exited, drained else { return nil }
             if timedOut {
-                return finishLocked(returning: .timedOut)
+                return finishLocked(returning: .timedOut(outputTruncated: truncated))
             }
             // Exit status takes priority over truncation: a non-zero exit is
             // `nonZeroExit` regardless of how much output it produced first —

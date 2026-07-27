@@ -14,7 +14,20 @@ struct TerminalAccessibilityAnnouncerTests {
 
         #expect(TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(for: .fresh(snapshot)) == "Remote Markdown loaded.")
         #expect(TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(for: .cached(snapshot)).contains("stale"))
-        #expect(TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(for: .failureDocument(snapshot)).contains("failure document"))
+        // Per reason: the generated page's heading is not exposed as an AX
+        // heading, so this announcement is where a VoiceOver user learns
+        // whether retrying is worth another eight-second SSH round trip.
+        let announcements = [
+            RemoteMarkdownFailureReason.connection, .oversize, .notFound,
+        ].map {
+            TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(
+                for: .failureDocument(snapshot, reason: $0))
+        }
+
+        #expect(announcements[0].contains("failure document"))
+        #expect(announcements[1].contains("too large"))
+        #expect(announcements[2].contains("not found"))
+        #expect(Set(announcements).count == 3, "each reason needs its own wording: \(announcements)")
     }
     @Test("settings errors are announced when present")
     func settingsErrors() {

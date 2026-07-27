@@ -596,6 +596,15 @@ struct DocumentPaneView: View {
 
     @State private var loadResult: DocumentLoader.LoadResult? = nil
     @State private var renderedDoc: RenderedDocument? = nil
+    /// True while the file on disk is over the size cap and the last whole
+    /// render is being held on screen behind `DocumentOversizeBanner`.
+    ///
+    /// Seeded at init from `DocumentOversizePolicy.oversizePaths` and written
+    /// back by the load task, so it survives a remount. That matters for the
+    /// settle window, which is only reachable while this is true: a tab switch
+    /// during a non-atomic rewrite would otherwise remount into a banner-free
+    /// state and apply — and cache — the writer's half-finished prefix.
+    @State private var showsOversizeBanner: Bool
     @State private var selectedSourceSpan: Range<Int>? = nil
     // INT-580 annotation surface state is per-pane and deliberately unpersisted.
     @State private var hideResolved = false
@@ -634,6 +643,7 @@ struct DocumentPaneView: View {
     /// seeds `pendingScrollAnchor` so the first render restores the tab's last
     /// scroll position; it's a `State` seed (not a fallback read on every pass)
     /// so the reset paths that clear the pending anchor stay authoritative.
+    @MainActor
     init(
         pane: DocumentPane,
         cachedRender: DocumentTabMemory.Render? = nil,
@@ -653,6 +663,9 @@ struct DocumentPaneView: View {
         _loadResult = State(initialValue: cachedRender?.loadResult)
         _renderedDoc = State(initialValue: cachedRender?.renderedDoc)
         _pendingScrollAnchor = State(initialValue: initialScrollAnchor)
+        _showsOversizeBanner = State(
+            initialValue: DocumentOversizePolicy.isOversize(
+                path: pane.fileURL.standardizedFileURL.path))
     }
 
     // MARK: - Derived
@@ -663,6 +676,25 @@ struct DocumentPaneView: View {
 
     private var markdownTextColor: NSColor {
         MarkdownAttributedStringBuilder.textColor(forTerminalBackground: NSColor(terminalBackgroundColor))
+    }
+
+    /// The snapshot the annotation surface may commit against.
+    ///
+    /// While the oversize banner is up, the retained `.loaded` result
+    /// describes bytes the disk no longer has. Withholding the snapshot here
+    /// is the single chokepoint that takes the whole surface read-only:
+    /// `annotationsInteractive`, the pill and selection handlers, the context
+    /// menu, the annotation bar, and the note sheet all already gate on a
+    /// non-nil snapshot. Leaving them live would make every save commit
+    /// against a stale observation, conflict, reload, land back on the size
+    /// rejection, and invite the user to try again — forever.
+    ///
+    /// Static and pure so the rule is checkable without hosting the view.
+    static func editableSnapshot(
+        _ snapshot: MarkdownDocumentSnapshot?,
+        isBannerShowing: Bool
+    ) -> MarkdownDocumentSnapshot? {
+        isBannerShowing ? nil : snapshot
     }
 
     private var currentSnapshot: MarkdownDocumentSnapshot? {
@@ -762,9 +794,78 @@ struct DocumentPaneView: View {
                 reloadTaskID.generation == reloadGeneration
             else { return }
             renderTask = nil
+
+            // `guardedWrite`'s `.observedConflict` branch parks on this
+            // generation, and the popover it is blocking is
+            // `.applicationDefined` (non-transient) while submitting — so a
+            // missed completion doesn't merely leak a task, it leaves the user
+            // an undismissable popover. `defer` so no branch added below can
+            // ever skip it, registered above the settle sleep so "every path
+            // out of the task runs it" is true of the whole body rather than
+            // only the part after the sleep.
+            defer { reloadCompletion.complete(reloadTaskID.generation) }
+
+            let decision = DocumentOversizePolicy.decide(
+                result: result,
+                hasPriorRender: renderedDoc != nil,
+                isBannerShowing: showsOversizeBanner
+            )
+            if decision == .settle {
+                // Hold a recovered read before promoting it to the protected
+                // render. If the file crosses back over the cap inside the
+                // window, the watcher bumps the generation, this task is
+                // cancelled at the guard below, and what stays on screen is
+                // still the last WHOLE render rather than a half-written
+                // prefix that happened to be under cap when we looked.
+                await DocumentOversizePolicy.settleWait()
+                guard !Task.isCancelled,
+                    reloadTaskID.fileURL == pane.fileURL,
+                    reloadTaskID.generation == reloadGeneration
+                else { return }
+            }
+            let path = pane.fileURL.standardizedFileURL.path
+            guard decision != .retainRender else {
+                // The bytes are still on disk and still real; only this viewer
+                // declines to render them. Keep the last whole render — and
+                // the reader's place in it — mounted under a banner instead of
+                // replacing it with an error page.
+                DocumentOversizePolicy.noteOversize(true, path: path)
+                if !showsOversizeBanner {
+                    showsOversizeBanner = true
+                    // The banner is the only accessible signal: the rendered
+                    // body is a single `.staticText` element, so nothing about
+                    // the change is discoverable from the document itself.
+                    //
+                    // `.high` like every other state transition here
+                    // (`announceWaitingForInput`, the workspace-closed and
+                    // settings-error announcements): the trigger is an agent
+                    // writing to the file, which is exactly when the sibling
+                    // terminal is loudest, and `.medium` is queued and
+                    // preemptible.
+                    TerminalAccessibilityAnnouncer.announce(
+                        DocumentOversizeBanner.accessibilityLabel(fileName: pane.title),
+                        priority: .high
+                    )
+                }
+                return
+            }
+            DocumentOversizePolicy.noteOversize(false, path: path)
+            showsOversizeBanner = false
             renderedDoc = doc
             loadResult = result
-            reloadCompletion.complete(reloadTaskID.generation)
+            // The watcher deliberately retains the captured scroll anchor for
+            // every nil snapshot, because the over-cap case keeps the mounted
+            // render and the reader's place in it. Every other nil — deleted,
+            // unreadable, wrong extension, non-UTF-8 — lands here instead and
+            // tears the document down to the error page, where the anchor is a
+            // byte offset into a document that no longer exists. Left set it
+            // survives in `@State`, and the next time the file comes back with
+            // different content `MarkdownTextView` scrolls to it. Cleared here
+            // rather than at the watcher so every caller is covered at once.
+            switch result {
+            case .loaded: break
+            case .rejected, .readError: pendingScrollAnchor = nil
+            }
             // Report only when the content actually changed (source compare is
             // O(1) on the reuse path — same String storage). An unchanged
             // reload re-storing an identical entry would invalidate the whole
@@ -823,6 +924,7 @@ struct DocumentPaneView: View {
         blocks: [MarkdownBlock],
         snapshot: MarkdownDocumentSnapshot?
     ) -> some View {
+        let snapshot = Self.editableSnapshot(snapshot, isBannerShowing: showsOversizeBanner)
         if let doc = renderedDoc {
             let isReadOnly = pane.isReadOnlySnapshot
             let annotationsInteractive = snapshot != nil
@@ -836,6 +938,9 @@ struct DocumentPaneView: View {
 
             ZStack {
                 VStack(spacing: 0) {
+                    if showsOversizeBanner {
+                        DocumentOversizeBanner(fileName: pane.title)
+                    }
                     // Editable documents always expose the single document-note
                     // action; snapshots show it only when a note exists.
                     if !isReadOnly || doc.documentNote != nil || !doc.annotations.isEmpty {
@@ -1039,7 +1144,11 @@ struct DocumentPaneView: View {
                             documentNoteSheetDoc = nil
                             documentNoteSheetSnapshot = nil
                         },
-                        allowsEditing: !isReadOnly
+                        // `snapshot` is the banner-gated one above: a sheet
+                        // already open when the file outgrew the cap goes
+                        // read-only too, rather than committing against a
+                        // snapshot the disk no longer matches.
+                        allowsEditing: !isReadOnly && snapshot != nil
                     )
                 }
             }
@@ -1509,6 +1618,25 @@ struct DocumentPaneView: View {
             return .failed
         }
 
+        // The banner check belongs HERE, not only at the affordances that
+        // `editableSnapshot` disables. The comment popovers are NSPopover
+        // rootViews handed over imperatively, and their save closures capture
+        // the snapshot BY VALUE when the popover opens — so one opened before
+        // the file crossed the cap still holds a usable snapshot, and gating
+        // presentation does nothing for it. Without this guard that save
+        // reaches `commitObserved`, whose re-read now rejects the file for
+        // size, which returns `.observedConflict`, which reloads back into the
+        // banner and tells the user to try again: an unwinnable loop on the
+        // exact scenario this feature exists for. Every write routes through
+        // this function, so one guard closes all of them.
+        //
+        // A terminal outcome rather than an alert: the outcome is what the
+        // popovers and the note sheet already render inline, and it is the
+        // only shape that both disables their Save and keeps the typed draft
+        // on screen with Copy Draft beside it. An alert would say the same
+        // thing modally and leave the Save button live behind it.
+        guard !showsOversizeBanner else { return .oversizeCopyOnly }
+
         let fileURL = pane.fileURL
         let reloadCompletion = reloadCompletion
         let result = await Task.detached(priority: .userInitiated) {
@@ -1543,7 +1671,7 @@ struct DocumentPaneView: View {
                     comment: "Save failure alert body when the annotation itself is rejected")
             )
         case .outputTooLarge:
-            let cap = DocumentURLValidator.maxFileSizeBytes / (1024 * 1024)
+            let cap = DocumentURLValidator.maxFileSizeMegabytes
             showAlert(
                 title: saveFailureTitle,
                 message: String(
@@ -1613,15 +1741,16 @@ struct DocumentPaneView: View {
 
             let context: (old: String?, isSelfWrite: Bool)? = await MainActor.run {
                 guard !Task.isCancelled, generation == watcherReloadGeneration else { return nil }
-                guard let onDisk else {
-                    pendingScrollAnchor = nil
-                    triggerReload()
-                    watcherReloadTask = nil
-                    return nil
-                }
-
-                guard let onDiskSource = onDisk.source else {
-                    pendingScrollAnchor = nil
+                // `readSnapshot` returns nil for an over-cap file, and going
+                // over cap is routine — an agent appending to an open plan
+                // file does it. Keep the captured anchor rather than clearing
+                // it: the load task retains the mounted render behind the
+                // oversize banner, so there is still a live position to hold,
+                // and it is where the reader was if the file drops back under.
+                // The load task, not this branch, decides which reload result
+                // is retained; the anchor is only wasted state when it isn't.
+                guard let onDisk, let onDiskSource = onDisk.source else {
+                    pendingScrollAnchor = anchor
                     triggerReload()
                     watcherReloadTask = nil
                     return nil
@@ -1709,7 +1838,7 @@ struct DocumentPaneView: View {
                     "Document pane error; first placeholder is the quoted file name, second is a comma-separated extension list"
             )
         case .tooLarge:
-            let cap = DocumentURLValidator.maxFileSizeBytes / (1024 * 1024)
+            let cap = DocumentURLValidator.maxFileSizeMegabytes
             return String(
                 localized: "Can't open \(q): file exceeds the \(cap) MB size limit.",
                 comment: "Document pane error; first placeholder is the quoted file name, second is the cap in whole megabytes")

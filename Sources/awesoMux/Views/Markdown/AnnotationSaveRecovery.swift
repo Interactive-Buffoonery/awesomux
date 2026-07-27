@@ -6,6 +6,17 @@ enum AnnotationSaveOutcome: Equatable, Sendable {
     case reloadAndRetry
     case copyAndReselect
     case copyOnly
+    /// The file grew past `DocumentURLValidator.maxFileSizeBytes` while this
+    /// editor was open, so the viewer is holding a render the disk no longer
+    /// matches and no write can be committed against it.
+    ///
+    /// Terminal on BOTH submit gates below, unlike `copyOnly` (terminal only
+    /// for an existing annotation) and `copyAndReselect` (terminal only for a
+    /// new one). It has to be: the popovers are `NSHostingController` root
+    /// views handed over imperatively, so an editor opened before the file
+    /// crossed the cap never re-renders and would otherwise keep offering a
+    /// Save that re-reads, re-rejects, and invites another attempt.
+    case oversizeCopyOnly
     case failed
 }
 
@@ -58,11 +69,41 @@ enum AnnotationPopoverLifecycle {
 }
 
 enum AnnotationSaveRecovery {
+    /// One sentence for every surface that can hit the size cap mid-edit —
+    /// both popovers, the note sheet, and the VoiceOver announcement — so the
+    /// four cannot drift, and so the cap is read from the validator rather
+    /// than restated.
+    static let oversizeMessage = String(
+        localized:
+            "The file has grown past the \(DocumentURLValidator.maxFileSizeMegabytes) MB limit, so it can't be edited until it fits again.",
+        comment: "Annotation save recovery message when the document outgrew the size cap; the placeholder is the cap in whole megabytes"
+    )
+
+    /// The parked outcome after the document's editability changes under an
+    /// open sheet.
+    ///
+    /// `.oversizeCopyOnly` suspends submission rather than reporting a failure,
+    /// so it is the one outcome that has to be *withdrawn* when the cause goes
+    /// away — the file fitting again is exactly that. Nothing else clears it,
+    /// and it is the only thing still disabling Submit, so leaving it set
+    /// strands a draft that would now save perfectly well. Every other outcome
+    /// records something that really happened and survives untouched.
+    static func recovery(
+        afterEditingAllowed allowsEditing: Bool,
+        isEditing: Bool,
+        current: AnnotationSaveOutcome?
+    ) -> AnnotationSaveOutcome? {
+        guard allowsEditing else {
+            return isEditing ? .oversizeCopyOnly : current
+        }
+        return current == .oversizeCopyOnly ? nil : current
+    }
+
     static func canSubmitExistingAnnotation(
         isSubmitting: Bool,
         outcome: AnnotationSaveOutcome?
     ) -> Bool {
-        !isSubmitting && outcome != .copyOnly
+        !isSubmitting && outcome != .copyOnly && outcome != .oversizeCopyOnly
     }
 
     static func canSubmitNewAnnotation(
@@ -71,6 +112,7 @@ enum AnnotationSaveRecovery {
         outcome: AnnotationSaveOutcome?
     ) -> Bool {
         hasValidDraft && !isSubmitting && outcome != .copyAndReselect
+            && outcome != .oversizeCopyOnly
     }
 
     static func canRebind(
@@ -116,6 +158,8 @@ enum AnnotationSaveRecovery {
                 : String(
                     localized: "The annotation changed or was removed.",
                     comment: "Save recovery announcement when an annotation no longer exists")
+        case .oversizeCopyOnly:
+            oversizeMessage
         case .failed:
             String(localized: "The draft was not saved.", comment: "Save failure announcement")
         case .saved:
