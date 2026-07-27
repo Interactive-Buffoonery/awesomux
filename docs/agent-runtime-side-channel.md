@@ -610,3 +610,42 @@ can write events for its own pane, and a same-UID process can reach other panes'
 files. The channel therefore trusts code already executing locally as the user —
 a strictly higher bar than emitting terminal output, which is all the removed OSC
 path required, but not cryptographic authenticity.
+
+## Cross-Provider Guard — Accepted Residual Risks
+
+The guard's mechanism is documented at `AgentRuntimeEventReducer.swift`; its
+*accepted failure modes* are recorded here because they are decisions, not
+implementation details.
+
+The guard admits a different-kind `SessionStart` only once the established
+agent's own tracked lifecycle reads stopped or ended (`state.lifecycle.isEnded
+|| state.lifecycle.currentIsStopped`). A genuine agent switch therefore depends
+on either that `SessionStart` landing while the old agent is between turns, or
+the old agent's `SessionEnd` landing first.
+
+If both are lost — the `hooks.json` `timeout: 10` firing, or a crash before the
+hook subprocess writes — while the old agent's process is still alive and
+mid-turn, every subsequent real event from the new agent is rejected as
+contamination. The pane sticks on the stale identity until the old process exits
+and posts its own `SessionEnd`, which resets the pane to `.shell` and reopens it
+to any kind. This needs two independent hook deliveries to fail in the same pane.
+
+Accepted rather than mitigated with a time-based override: `SessionStart`
+delivery is reliable in practice, and a timer escape hatch would reopen exactly
+the silent-identity-hijack window the guard closes.
+
+A narrower compound case: the `currentIsStopped` escape hatch is keyed on the
+established agent's lifecycle reading "stopped", not on *why*. If a user's own
+blocking Stop hook vetoes Claude's first Stop attempt — so `state.lifecycle`
+briefly reads `.stopped` while Claude is about to continue — and a nested `codex
+exec` child's `SessionStart` lands in that window, the pane flips to `.codex`.
+Claude's continuation events are then foreign and rejected until the nested
+process ends or Claude fires a fresh `SessionStart`. Requires a user-configured
+blocking Stop hook *and* a nested-agent invocation to overlap. Accepted under the
+same "false negatives are fine, false positives aren't" umbrella.
+
+**Deliberate tradeoff:** a nested `codex exec` invocation's progress no longer
+appears as transient activity in the host pane at all — it is dropped before
+reaching pane state rather than displayed-but-wrong. Silently absent is safer
+than silently misleading. Nested-agent visibility, if wanted later, is a separate
+feature sourced from the Bash tool call itself, not from the shared hook stream.

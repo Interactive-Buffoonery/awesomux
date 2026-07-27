@@ -15,6 +15,20 @@ import Foundation
 /// click-time action, so UI wording can never claim a verified agent when
 /// staging is unsafe. INT-582's provider-aware annotation handoff must route
 /// through this same policy before staging text.
+///
+/// **Known window where the gate declines a genuinely ready agent.** A
+/// same-provider trailing `PostToolUse`/`toolEnd` event — from a legitimate
+/// hook-forced continuation after the *user's own* blocking Stop hook vetoes
+/// Claude's first Stop attempt — can leave a pane's `agentState` at `.thinking`
+/// for roughly 60-90s, until Claude Code's idle-prompt `Notification` hook
+/// re-confirms `.waiting`. Confirmed live in a clean single-provider trace;
+/// distinct from cross-provider contamination. Loosening the `agentState ==
+/// .waiting` guard to tolerate this window was considered and rejected:
+/// `.thinking` can mean the CLI is mid-render and genuinely unsafe to inject
+/// keystrokes into, and only a real Stop proves the terminal is back at a
+/// receptive prompt. This is the gate working as designed. The lever is the
+/// user's own blocking Stop hook — the more aggressively it vetoes a Stop, the
+/// longer the window.
 
 /// Identity of one foreground-process incarnation, observed as (pid, start
 /// time). Mirrors `AmxDaemonIncarnation`'s pid+createdAt shape for the same
