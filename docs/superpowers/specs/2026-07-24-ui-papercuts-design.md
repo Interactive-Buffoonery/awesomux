@@ -271,19 +271,40 @@ empty-only. `SessionStore.appendIndex` already exists
 (`SessionStore.swift:19`) and is already used for group-targeted moves
 (`SidebarGroupView.swift:238`).
 
-### Why the row keeps its own drop delegate
+### Why only an EMPTY group's row owns a drop delegate
 
-For a populated group the row sits inside the tile stack, which already carries
-`SidebarWorkspaceListDropDelegate`. Nesting is correct rather than redundant:
-SwiftUI routes a drop to the innermost accepting view, so hovering the row targets
-`SidebarEmptyWorkspaceDropDelegate` (lighting the row's border) while the list
-delegate receives `dropExited` and clears the insertion line. That handoff is the
-already-shipped empty-group behavior, and `clearWorkspaceHoverState` is already
-wired for it. `appendIndex` makes the landing position match where the row
-visually sits — the existing index-`0` handler would contradict it.
+> **Superseded during implementation.** This section originally specified that the
+> row keeps its own nested `SidebarEmptyWorkspaceDropDelegate` in both cases, and
+> called the result "a clean handoff". That was wrong, and shipping it produced a
+> visible defect: dragging near the bottom of a populated group made the feedback
+> flip-flop between the insertion line and the row's highlighted border. The text
+> below is the corrected design, matching what shipped.
 
-Dropping a tile onto its own group's row moves it to the end of that group, which
-is a legitimate reorder rather than a no-op to guard against.
+An **empty** group's row must own a delegate. With no tiles,
+`SidebarInsertionResolver.insertionIndex` finds no frame with non-zero height and
+returns `nil`, so the list delegate deliberately *holds* the drop. The row is the
+group's only drop target, and its dashed border going mauve is the only feedback.
+
+A **populated** group's row must not. It sits below the last tile, where the
+enclosing `SidebarWorkspaceListDropDelegate` already resolves any y past the final
+midpoint to `orderedIDs.count` — append, exactly where the row is. A nested
+delegate there adds no capability and creates two affordances competing for one
+drop position: SwiftUI routes to the innermost view, so each crossing of the
+boundary fires `dropExited` on one and `dropEntered` on the other. The append
+insertion indicator draws at `lastTileFrame.maxY + spacing/2` — essentially the
+row's own top edge — so a few points of pointer movement toggles them repeatedly.
+
+`NewWorkspaceInGroupRowPolicy.ownsDropDelegate(isGroupEmpty:)` encodes this, and
+the row's `.sidebarDrop(enabled:)` is gated on it. When false, `isDropTargeted`
+can never become true, so a populated row never lights during a drag — the list
+delegate's insertion line is the single source of feedback.
+
+Because a populated row installs no delegate, `dropInsertionIndex`'s
+`appendIndex` branch is now only reachable if that gating is ever relaxed. It is
+kept as the correct value for that position rather than removed.
+
+Dropping a tile onto its own group (resolving to append) moves it to the end,
+which is a legitimate reorder rather than a no-op to guard against.
 
 ### Interaction with papercut 2
 

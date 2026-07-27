@@ -117,7 +117,7 @@ struct SidebarStatusFooterLayoutTests {
             onToggleActivityPanel: { _ in },
             activityPanelOpen: false
         )
-        let hostingView = NSHostingView(rootView: footer.frame(width: 200))
+        let hostingView = NSHostingView(rootView: footer.frame(width: 280))
         hostingView.layoutSubtreeIfNeeded()
 
         #expect(hostingView.fittingSize.height <= AwSpacing.footerChrome)
@@ -131,7 +131,11 @@ Run: `./script/swift-test.sh --filter SidebarStatusFooterLayoutTests`
 
 Expected: FAIL — `fittingSize.height` exceeds 38 because the total label wraps to two lines.
 
-**If it PASSES, the test is not yet exercising the bug.** Do not proceed. Reduce the `.frame(width:)` (try 180, then 160) until it fails, then keep that width. A passing test here would lock in nothing.
+**If it PASSES, the test is not yet exercising the bug.** Do not proceed — a passing test here would lock in nothing.
+
+**Use 280, not a narrower width.** An earlier draft of this plan said 200 and told you to keep reducing until it failed. Don't: `SidebarWidthPolicy` floors anything below `railThreshold` (250) to `collapsedWidth` (`SidebarWidthPolicy.swift:25-44`), so `.expanded` mode is structurally unreachable below 250pt and a test at 200 exercises a state the app cannot enter. Worse, it also trips the separate narrow-width chip-squeeze overflow (issue #232) that this task explicitly does not fix, so the test would go red for the wrong reason.
+
+280 sits between `railThreshold` (250) and `expandedWidth` (296) — a genuinely reachable expanded width. It is self-validating: pre-fix it measures ~136pt (the two-line wrap's signature, not a marginal squeeze) and post-fix exactly `38.0` == `AwSpacing.footerChrome`, which could not land on the constant if residual overflow were compounding.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -436,7 +440,7 @@ Assert two things:
 
    Measure instead: capture the tile stack's own frame and the group container's frame in the same coordinate space (a `GeometryReader` preference in the test harness, or `firstDescendant` + `convert(_:to:)` on the hosted `NSView` tree), then assert:
 
-   ```
+   ```text
    groupContainerFrame.maxY - tileStackFrame.maxY  ==  0   (within 0.5pt)
    ```
 
@@ -665,7 +669,7 @@ Run: `grep -rn 'EmptyGroupDropTarget' Sources/ Tests/`
 
 Update every hit to `NewWorkspaceInGroupRow`. There is a prose reference in `Sources/awesoMux/Views/SidebarGroupHeaderView.swift` (in the `SidebarGroupClosePolicy` doc comment, which says "`EmptyGroupDropTarget`'s persistent remove button stays as the always-visible removal path"). That sentence is now only true for empty groups — amend it to say so:
 
-```
+```swift
 ///   `NewWorkspaceInGroupRow`'s persistent remove button stays as the
 ///   always-visible removal path for an EMPTY group; a populated group's row
 ///   omits it so this X is the sole pointer path there.
@@ -1432,7 +1436,7 @@ Include the Step 12 results in the commit body, especially the focus-behavior ou
 
 - [ ] Run `./script/preflight.sh` (required before any non-docs PR).
 - [ ] Run `./script/swift-test.sh` once more on the final tree.
-- [ ] Split into two PRs per the spec's sequencing: Tasks 1–3 (sidebar) and Tasks 4–5 (titlebar). Task 5 carries the focus-behavior risk and deserves its own revert boundary.
+- [x] ~~Split into two PRs per the spec's sequencing: Tasks 1–3 (sidebar) and Tasks 4–5 (titlebar).~~ **Superseded — shipped as one PR (#233).** The split was sound when written: at that point the two halves had zero source-file overlap. It stopped being clean once the review fix wave and the maintainer's UX feedback each landed changes spanning both `ContentView.swift` and the sidebar files in the same commits. Splitting afterwards would have meant cherry-picking partial commits through already-verified code, which is a real regression risk for a presentational benefit. Do not treat this line as prescribing a two-PR release for this work.
 - [ ] AI assistance level for both PR templates: **substantial**.
 - [ ] Both PRs link issue #220. The sidebar PR must carry the coverage-honesty sentence from Task 2.
 - [ ] Use neutral review wording in all public text. No internal reviewer persona names.
