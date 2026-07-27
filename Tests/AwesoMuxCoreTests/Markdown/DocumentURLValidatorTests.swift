@@ -115,7 +115,7 @@ struct DocumentURLValidatorTests {
     /// fragments, so capping the input is the only thing that bounds resident
     /// memory. Raising this without a rendering strategy that avoids
     /// whole-document layout re-buys a multi-hundred-megabyte document tab.
-    @Test("the size cap is pinned at 2 MB — raising it re-buys the memory problem")
+    @Test("the size cap is pinned at 2 MiB — raising it re-buys the memory problem")
     func sizeCapIsPinnedToItsMemoryBudget() {
         #expect(DocumentURLValidator.maxFileSizeBytes == 2 * 1024 * 1024)
     }

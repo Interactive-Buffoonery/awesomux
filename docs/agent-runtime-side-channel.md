@@ -123,7 +123,7 @@ new panes.
 
 Only absolute local `.md` and `.markdown` paths are accepted at the event layer.
 The eventual document read still goes through `DocumentURLValidator`, including
-the 2 MB file-size cap.
+the 2 MiB file-size cap.
 
 ### Touched path (`touchedPath` on `phase=toolEnd`)
 

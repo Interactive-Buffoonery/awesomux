@@ -773,17 +773,23 @@ struct DocumentPaneView: View {
             // load). Errors (doc == nil) report too — the cache should stop
             // seeding content the disk can no longer back.
             //
-            // Except growing past the size cap, where the disk still backs the
-            // content perfectly well and only this viewer declines to render
-            // it. Caching that rejection makes the failure *sticky*: every
-            // later remount is seeded straight into the error with no reload
-            // attempt, so a file that drops back under the cap keeps showing
-            // the error until something else invalidates the entry. An agent
-            // appending to an open plan file crosses this line routinely, so
-            // leave the last good entry in place and let the next mount re-read.
-            let grewPastCapWithGoodPriorRender =
-                priorDoc != nil && result.isRejectedForSize
-            if !grewPastCapWithGoodPriorRender,
+            // Except an over-cap rejection, which is never cached at all. The
+            // disk still backs that content perfectly well; only this viewer
+            // declines to render it, and the file can drop back under the cap.
+            // Caching it makes the failure *sticky* — every later remount is
+            // seeded straight into the error with no reload attempt — and an
+            // agent appending to an open plan file crosses the line routinely.
+            //
+            // Deliberately not conditioned on having a prior render: a tab
+            // whose file is already over cap when it first mounts has no prior
+            // render to protect, and caching the rejection there strands it
+            // just the same. Re-reading costs nothing either way, because the
+            // size check runs in the validator before any I/O.
+            //
+            // Skipping the callback also skips `noteRenderCompleted`, which is
+            // already a no-op here: it guards on a non-nil source, and a
+            // rejection carries none.
+            if !result.isRejectedForSize,
                 doc == nil || priorDoc == nil
                     || doc?.source.utf8.elementsEqual(priorDoc?.source.utf8 ?? "".utf8) == false
             {

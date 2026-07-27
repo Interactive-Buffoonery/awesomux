@@ -9,7 +9,7 @@ For **high-level architecture** (targets, runtime, persistence, agent/notificati
 ## Markdown document panes
 
 Markdown document panes are auxiliary rendered viewers for local `.md` and
-`.markdown` files ≤2 MB. They live inside a workspace beside terminal
+`.markdown` files ≤2 MiB. They live inside a workspace beside terminal
 panes; a document is never the only pane in a workspace. Current entry points
 are **File > Open Markdown File…** (`⌘O`), the matching command-palette
 action, local Markdown links opened from terminal output, and Markdown links
