@@ -21,9 +21,13 @@ against did not, leaving no way to verify the improvement later.
 
 ## Re-measure with
 
+Match the 90s baseline duration — a shorter capture is not comparable to the
+numbers above — and count both metrics, not just the accessibility symbols.
+
 ```sh
-sample awesoMux 30 2 -file /tmp/after.txt && \
-  grep -cE "AccessibilityViewGraph.needsUpdate|AccessibilityProperties.merge" /tmp/after.txt
+sample awesoMux 90 2 -file /tmp/after.txt
+grep -cE "AccessibilityViewGraph.needsUpdate|AccessibilityProperties.merge" /tmp/after.txt
+grep -cE "shouldRunVisibleTextDetector|visibleTextAgentState" /tmp/after.txt
 ```
 
 ## Caveat

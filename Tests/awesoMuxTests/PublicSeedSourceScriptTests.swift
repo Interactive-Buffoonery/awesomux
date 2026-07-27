@@ -74,11 +74,36 @@ struct PublicSeedSourceScriptTests {
         #expect(result.error.contains("must not be reintroduced"))
     }
 
+    /// `[[ -e ]]` alone is false for a dangling symlink, so a tracked
+    /// `docs/superpowers -> nowhere` link would reintroduce the path while
+    /// passing an existence check. The guard pairs `-e` with `-L` for that
+    /// reason; this pins it.
+    @Test(
+        "purged directories are rejected when reintroduced as a dangling symlink",
+        arguments: ["docs/plans", "docs/superpowers"])
+    func purgedDirectoriesRejectedAsDanglingSymlink(directory: String) throws {
+        let result = try runGuard(
+            publicText: "public",
+            purgedDirectory: directory,
+            purgedPathKind: .danglingSymlink
+        )
+
+        #expect(result.status == 1)
+        #expect(result.error.contains(directory))
+        #expect(result.error.contains("must not be reintroduced"))
+    }
+
+    private enum PurgedPathKind {
+        case directory
+        case danglingSymlink
+    }
+
     private func runGuard(
         publicText: String,
         failingRipgrep: Bool = false,
         purgedDirectory: String? = nil,
-        purgedFileText: String = ""
+        purgedFileText: String = "",
+        purgedPathKind: PurgedPathKind = .directory
     ) throws -> ShellResult {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "awesomux-public-seed-guard-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -93,9 +118,21 @@ struct PublicSeedSourceScriptTests {
         try Data(publicText.utf8).write(to: root.appending(path: "PUBLIC.md"))
 
         if let purgedDirectory {
-            let directory = root.appending(path: purgedDirectory, directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try Data(purgedFileText.utf8).write(to: directory.appending(path: "resurrected.md"))
+            let path = root.appending(path: purgedDirectory, directoryHint: .isDirectory)
+            switch purgedPathKind {
+            case .directory:
+                try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+                try Data(purgedFileText.utf8).write(to: path.appending(path: "resurrected.md"))
+            case .danglingSymlink:
+                try FileManager.default.createDirectory(
+                    at: path.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try FileManager.default.createSymbolicLink(
+                    atPath: path.path,
+                    withDestinationPath: root.appending(path: "no-such-target").path
+                )
+            }
         }
 
         let process = Process()

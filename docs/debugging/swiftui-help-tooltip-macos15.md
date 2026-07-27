@@ -22,7 +22,7 @@ in favour of a custom floating peek card (`SidebarGroupPeekCard`).
 
 The "hover only works right on top of the colored bar" symptom reported
 alongside this was *not* a missing `.contentShape`. The collapsed header row
-reserved `.frame(minHeight: 14)` for content occupying roughly 2.5-8pt — that
+reserved `.frame(minHeight: 14)` for content occupying roughly 2.5–8 pt — that
 undersized frame was the hit-area bug. It is now `minHeight: 26`.
 
 Worth remembering as a shape: a hover/hit-test complaint on a compact row is more

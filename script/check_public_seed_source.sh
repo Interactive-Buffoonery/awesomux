@@ -67,9 +67,12 @@ check_purged_directories() {
     # in unnoticed — this checks existence directly. A stale clone predating the
     # purge that merges or pushes will fail here rather than silently
     # republishing them.
+    # `-e` alone is false for a dangling symlink, so a tracked
+    # `docs/superpowers -> nowhere` link would reintroduce the path while
+    # passing this check. `-L` catches every link variant regardless of target.
     local purged_directory
     for purged_directory in docs/plans docs/superpowers; do
-        if [[ -e "$purged_directory" ]]; then
+        if [[ -e "$purged_directory" || -L "$purged_directory" ]]; then
             echo "error: $purged_directory was purged from this repository and must not be reintroduced" >&2
             failed=1
         fi
