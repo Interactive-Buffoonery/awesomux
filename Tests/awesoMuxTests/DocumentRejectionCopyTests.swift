@@ -45,7 +45,7 @@ struct DocumentRejectionCopyTests {
     @Test("the size rejection states the actual cap")
     func sizeRejectionStatesTheCap() {
         let message = DocumentPaneView.rejectionMessage(for: .tooLarge, pane: pane)
-        let cap = DocumentURLValidator.maxFileSizeBytes / (1024 * 1024)
+        let cap = DocumentURLValidator.maxFileSizeMegabytes
 
         #expect(message.contains("\(cap) MB"), "expected the cap in megabytes: \(message)")
         #expect(message.contains(pane.title))

@@ -384,6 +384,34 @@ struct BoundedCommandRunnerTests {
         #expect(data.count == 100)
     }
 
+    /// Timeout outranks truncation for classification, and it should: a killed
+    /// child proved nothing about its exit. But "this command emitted more than
+    /// the cap" is a fact about the output that the kill cannot retract, and a
+    /// caller whose cap *is* a size limit needs it — otherwise a remote read
+    /// that demonstrably blew the limit and then hung is reported as a
+    /// connectivity problem about a file we measured.
+    @Test("a timeout preserves whether the output cap was already breached")
+    func timeoutCarriesTheProvenCapBreach() async {
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/sh"],
+            timeout: .milliseconds(200),
+            maxOutputBytes: 10
+        )
+        let payload = String(repeating: "X", count: 2_000)
+
+        let breached = await runner.runDetailed(
+            arguments: ["-c", "printf '%s' \"$1\"; sleep 30", "_", payload],
+            inDirectory: NSTemporaryDirectory()
+        )
+        let clean = await runner.runDetailed(
+            arguments: ["-c", "sleep 30"],
+            inDirectory: NSTemporaryDirectory()
+        )
+
+        #expect(breached == .timedOut(outputTruncated: true))
+        #expect(clean == .timedOut(outputTruncated: false))
+    }
+
     @Test("a non-zero exit past the cap is still nonZeroExit, not outputTruncated")
     func nonZeroExitTakesPriorityOverTruncation() async {
         let runner = BoundedCommandRunner(executableCandidates: ["/bin/sh"], maxOutputBytes: 10)

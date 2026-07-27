@@ -38,6 +38,11 @@ public enum DocumentURLValidator {
     /// TextKit 2. Raising it alone re-buys the memory problem at 138 MB per MiB.
     public static let maxFileSizeBytes = 2 * 1024 * 1024
 
+    /// The same cap in whole megabytes, for the user-facing copy that states it.
+    /// Derived rather than restated at each message so the number the user is
+    /// told can never drift from the number actually enforced.
+    public static let maxFileSizeMegabytes = maxFileSizeBytes / (1024 * 1024)
+
     /// File extensions accepted by the viewer.
     public static let allowedExtensions: Set<String> = ["md", "markdown"]
 

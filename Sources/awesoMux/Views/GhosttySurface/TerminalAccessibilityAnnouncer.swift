@@ -24,7 +24,23 @@ enum TerminalAccessibilityAnnouncer {
                 localized: "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",
                 comment: "VoiceOver announcement when a failed refresh falls back to cached remote Markdown"
             )
-        case .failureDocument:
+        // Per reason, not one string for the case: the generated page's heading
+        // renders inside a `.staticText` body, so it is not reachable as an AX
+        // heading. This announcement is the only place a VoiceOver user learns
+        // *why* — and "fetch failed" invites a retry that, for an oversize or
+        // missing file, buys another eight-second SSH round trip and the same
+        // page.
+        case .failureDocument(_, .oversize):
+            String(
+                localized: "Remote Markdown is too large to open. Opening an explanation instead.",
+                comment: "VoiceOver announcement when a remote Markdown file exceeds the size cap"
+            )
+        case .failureDocument(_, .notFound):
+            String(
+                localized: "Remote Markdown file not found on the host. Opening an explanation instead.",
+                comment: "VoiceOver announcement when a remote Markdown file is missing or unreadable"
+            )
+        case .failureDocument(_, .connection):
             String(
                 localized: "Remote Markdown fetch failed. Opening the failure document.",
                 comment: "VoiceOver announcement when an initial remote Markdown fetch fails"

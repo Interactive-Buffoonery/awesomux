@@ -260,7 +260,7 @@ struct GitWorktreeServiceTests {
 
     @Test(arguments: [
         (BoundedCommandResult.nonZeroExit(7), GitWorktreeListFailure.nonZeroExit(7)),
-        (.timedOut, .timedOut),
+        (.timedOut(outputTruncated: false), .timedOut),
         (.spawnFailure, .spawnFailure),
         (.outputTruncated(Data()), .outputTruncated),
     ])

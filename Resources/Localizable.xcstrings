@@ -672,6 +672,12 @@
     "Check that %arg is a valid hostname or SSH config alias and is reachable." : {
       "comment" : "Guidance shown after a managed SSH connection fails"
     },
+    "Check that the file still exists at that path and that your account can read it." : {
+      "comment" : "Remediation line of the missing remote Markdown page"
+    },
+    "Check that the host is reachable and your SSH config can connect without an interactive password prompt." : {
+      "comment" : "Remediation line of the failed remote Markdown fetch page"
+    },
     "Check that the hostname or SSH config alias exists and is reachable." : {
       "comment" : "Accessibility guidance after a remote pane's SSH connection fails"
     },
@@ -982,6 +988,9 @@
     },
     "Couldn't Save" : {
       "comment" : "Title of the alert shown when saving an annotation fails"
+    },
+    "Couldn't fetch remote Markdown" : {
+      "comment" : "Heading of the generated page shown when a remote Markdown fetch fails"
     },
     "Couldn't send — this document's terminal isn't available" : {
       "comment" : "VoiceOver announcement when a document has no eligible send target"
@@ -1610,6 +1619,9 @@
     },
     "Loading document" : {
 
+    },
+    "Loading remote Markdown." : {
+      "comment" : "VoiceOver announcement when a remote Markdown fetch starts"
     },
     "Loading worktrees…" : {
       "comment" : "Worktree Manager loading state."
@@ -2448,6 +2460,27 @@
     },
     "Remember approvals per workspace" : {
 
+    },
+    "Remote Markdown fetch failed. Opening the failure document." : {
+      "comment" : "VoiceOver announcement when an initial remote Markdown fetch fails"
+    },
+    "Remote Markdown file not found" : {
+      "comment" : "Heading of the generated page shown when a remote Markdown file is missing or unreadable"
+    },
+    "Remote Markdown file not found on the host. Opening an explanation instead." : {
+      "comment" : "VoiceOver announcement when a remote Markdown file is missing or unreadable"
+    },
+    "Remote Markdown is too large" : {
+      "comment" : "Heading of the generated page shown when a remote Markdown file exceeds the size cap"
+    },
+    "Remote Markdown is too large to open. Opening an explanation instead." : {
+      "comment" : "VoiceOver announcement when a remote Markdown file exceeds the size cap"
+    },
+    "Remote Markdown loaded." : {
+      "comment" : "VoiceOver announcement after a fresh remote Markdown document loads"
+    },
+    "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale." : {
+      "comment" : "VoiceOver announcement when a failed refresh falls back to cached remote Markdown"
     },
     "Remote Markdown snapshots are read-only and cannot be sent" : {
       "comment" : "Unavailable reason for sending a read-only remote Markdown snapshot to an agent"
@@ -3588,8 +3621,14 @@
     "awesoMux could not establish a trusted remote path for this link." : {
       "comment" : "Explanation for rejecting an unsafe or unresolved remote Markdown path"
     },
+    "awesoMux connected to the host but could not read %arg." : {
+      "comment" : "Body of the missing remote Markdown page; the placeholder is the remote origin"
+    },
     "awesoMux could not find a local folder to open for the active pane." : {
       "comment" : "Alert text shown when Open in IDE cannot resolve a target folder."
+    },
+    "awesoMux could not read %arg using SSH." : {
+      "comment" : "Body of the failed remote Markdown fetch page; the placeholder is the remote origin"
     },
     "awesoMux is not registered as a macOS login item." : {
       "comment" : "Settings hint when Open at Login is disabled."

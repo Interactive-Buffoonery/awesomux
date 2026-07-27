@@ -1543,7 +1543,7 @@ struct DocumentPaneView: View {
                     comment: "Save failure alert body when the annotation itself is rejected")
             )
         case .outputTooLarge:
-            let cap = DocumentURLValidator.maxFileSizeBytes / (1024 * 1024)
+            let cap = DocumentURLValidator.maxFileSizeMegabytes
             showAlert(
                 title: saveFailureTitle,
                 message: String(
@@ -1709,7 +1709,7 @@ struct DocumentPaneView: View {
                     "Document pane error; first placeholder is the quoted file name, second is a comma-separated extension list"
             )
         case .tooLarge:
-            let cap = DocumentURLValidator.maxFileSizeBytes / (1024 * 1024)
+            let cap = DocumentURLValidator.maxFileSizeMegabytes
             return String(
                 localized: "Can't open \(q): file exceeds the \(cap) MB size limit.",
                 comment: "Document pane error; first placeholder is the quoted file name, second is the cap in whole megabytes")
