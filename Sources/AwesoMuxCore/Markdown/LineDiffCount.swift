@@ -32,8 +32,15 @@ public struct LineDiffCount: Equatable, Sendable {
     }
 
     /// Inputs past these limits skip exact counts: `difference(from:)` is
-    /// Myers-family (near-quadratic on a full rewrite), so diffing up to the
-    /// document loader's 10 MiB cap could still be expensive on every save.
+    /// Myers-family (near-quadratic on a full rewrite), so diffing a whole
+    /// large document on every save could be expensive.
+    ///
+    /// `maxDiffBytes` now coincides with `DocumentURLValidator.maxFileSizeBytes`
+    /// (both 2 MiB), so the byte limit can no longer bind on its own — anything
+    /// the loader accepts is also diffable. It was the narrower of the two when
+    /// the loader capped at 10 MiB, and it stays here as an independent bound so
+    /// that raising the loader cap does not silently make every save quadratic.
+    /// `maxDiffLines` still binds on its own.
     public static let maxDiffBytes = 2 * 1024 * 1024
     public static let maxDiffLines = 2_000
 

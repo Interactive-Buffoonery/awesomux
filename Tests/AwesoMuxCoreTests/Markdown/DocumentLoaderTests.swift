@@ -301,6 +301,30 @@ struct DocumentLoaderTests {
                 == .readError("The file couldn’t be opened because it isn’t in the correct format.")
         )
     }
+
+    /// `isRejectedForSize` gates whether a failed reload is allowed to evict a
+    /// good cached render (`DocumentPaneView`). Growing past the cap must not —
+    /// the file can shrink back, and the render we already made of it was real.
+    /// Deletion and unreadability must, because the disk no longer backs the
+    /// content. Every case is asserted, not just the true one: a predicate that
+    /// answered `true` for everything would make the eviction rule vanish and
+    /// no other test would notice.
+    @Test(
+        "only an over-cap rejection reads as a size rejection",
+        arguments: [
+            (DocumentLoader.LoadResult.rejected(.tooLarge), true),
+            (.rejected(.badExtension), false),
+            (.rejected(.notFileURL), false),
+            (.rejected(.unreadable), false),
+            (.readError("The file couldn’t be read."), false),
+            (.loaded([], source: "hi", snapshot: nil), false),
+        ])
+    func sizeRejectionIsDistinguishedFromEveryOtherOutcome(
+        result: DocumentLoader.LoadResult,
+        expected: Bool
+    ) {
+        #expect(result.isRejectedForSize == expected, "\(result)")
+    }
 }
 
 private actor RenderProbe {

@@ -770,10 +770,22 @@ struct DocumentPaneView: View {
             // reload re-storing an identical entry would invalidate the whole
             // group view for nothing on every watcher wobble; the cache
             // already holds this content (it seeded us or stored the first
-            // load). Errors (doc == nil) always report — rare, and the cache
-            // should stop seeding content the disk can no longer back.
-            if doc == nil || priorDoc == nil
-                || doc?.source.utf8.elementsEqual(priorDoc?.source.utf8 ?? "".utf8) == false
+            // load). Errors (doc == nil) report too — the cache should stop
+            // seeding content the disk can no longer back.
+            //
+            // Except growing past the size cap, where the disk still backs the
+            // content perfectly well and only this viewer declines to render
+            // it. Caching that rejection makes the failure *sticky*: every
+            // later remount is seeded straight into the error with no reload
+            // attempt, so a file that drops back under the cap keeps showing
+            // the error until something else invalidates the entry. An agent
+            // appending to an open plan file crosses this line routinely, so
+            // leave the last good entry in place and let the next mount re-read.
+            let grewPastCapWithGoodPriorRender =
+                priorDoc != nil && result.isRejectedForSize
+            if !grewPastCapWithGoodPriorRender,
+                doc == nil || priorDoc == nil
+                    || doc?.source.utf8.elementsEqual(priorDoc?.source.utf8 ?? "".utf8) == false
             {
                 onRenderCompleted?(DocumentTabMemory.Render(loadResult: result, renderedDoc: doc))
             }
