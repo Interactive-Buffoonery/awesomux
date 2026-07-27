@@ -732,18 +732,14 @@ struct RemoteMarkdownReferenceTests {
 /// literal added later is covered without anyone remembering to add it here.
 @Suite("Remote Markdown localization catalog coverage")
 struct RemoteMarkdownLocalizationCatalogTests {
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
 
     @Test(
         arguments: [
             "Sources/awesoMux/Services/RemoteMarkdownSnapshotFetcher.swift"
         ])
     func everyLocalizedLiteralInTheSourceIsACatalogKey(relativePath: String) throws {
-        let keys = try catalogKeys()
-        let literals = try localizedLiterals(in: relativePath)
+        let keys = try AwesoMuxStringCatalog.keys()
+        let literals = try AwesoMuxStringCatalog.localizedLiterals(in: relativePath)
 
         #expect(!literals.isEmpty, "found no localized literals in \(relativePath) — parser drift?")
         for literal in literals {
@@ -760,7 +756,7 @@ struct RemoteMarkdownLocalizationCatalogTests {
     /// readable in English and untranslatable everywhere else, with nothing to
     /// notice.
     @Test func theOutcomeAnnouncementsAreCatalogKeys() throws {
-        let keys = try catalogKeys()
+        let keys = try AwesoMuxStringCatalog.keys()
 
         for literal in [
             "Loading remote Markdown.",
@@ -771,27 +767,6 @@ struct RemoteMarkdownLocalizationCatalogTests {
             "Remote Markdown file not found on the host. Opening an explanation instead.",
         ] {
             #expect(keys.contains(literal), "Localizable.xcstrings has no key \"\(literal)\"")
-        }
-    }
-
-    private func catalogKeys() throws -> Set<String> {
-        let data = try Data(
-            contentsOf: Self.repositoryRoot.appending(path: "Resources/Localizable.xcstrings"))
-        let catalog = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let strings = try #require(catalog["strings"] as? [String: Any])
-        return Set(strings.keys)
-    }
-
-    /// Extracts `String(localized: "…"` literals and rewrites each Swift
-    /// interpolation to the `%arg` marker the catalog keys use, which is exactly
-    /// the normalization `xcstringstool` applies when it extracts them.
-    private func localizedLiterals(in relativePath: String) throws -> [String] {
-        let source = try String(
-            contentsOf: Self.repositoryRoot.appending(path: relativePath), encoding: .utf8)
-        let literal = try Regex(#"String\(\s*localized:\s*"((?:[^"\\]|\\[^(]|\\\([^)]*\))*)""#)
-        let interpolation = try Regex(#"\\\([^)]*\)"#)
-        return source.matches(of: literal).map {
-            String($0[1].substring ?? "").replacing(interpolation, with: "%arg")
         }
     }
 }

@@ -69,9 +69,14 @@ struct DocumentNoteSheet: View {
         // screen and reachable via Copy Draft — the sheet already renders that
         // recovery affordance, so nothing new is invented for this case.
         .onChange(of: allowsEditing) { _, allowed in
-            guard !allowed, isEditing else { return }
-            recovery = .oversizeCopyOnly
-            recoveryDraft = draft
+            let next = AnnotationSaveRecovery.recovery(
+                afterEditingAllowed: allowed,
+                isEditing: isEditing,
+                current: recovery
+            )
+            guard next != recovery else { return }
+            recovery = next
+            recoveryDraft = next == nil ? nil : draft
         }
     }
 

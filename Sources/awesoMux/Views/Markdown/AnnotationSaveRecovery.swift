@@ -79,6 +79,26 @@ enum AnnotationSaveRecovery {
         comment: "Annotation save recovery message when the document outgrew the size cap; the placeholder is the cap in whole megabytes"
     )
 
+    /// The parked outcome after the document's editability changes under an
+    /// open sheet.
+    ///
+    /// `.oversizeCopyOnly` suspends submission rather than reporting a failure,
+    /// so it is the one outcome that has to be *withdrawn* when the cause goes
+    /// away — the file fitting again is exactly that. Nothing else clears it,
+    /// and it is the only thing still disabling Submit, so leaving it set
+    /// strands a draft that would now save perfectly well. Every other outcome
+    /// records something that really happened and survives untouched.
+    static func recovery(
+        afterEditingAllowed allowsEditing: Bool,
+        isEditing: Bool,
+        current: AnnotationSaveOutcome?
+    ) -> AnnotationSaveOutcome? {
+        guard allowsEditing else {
+            return isEditing ? .oversizeCopyOnly : current
+        }
+        return current == .oversizeCopyOnly ? nil : current
+    }
+
     static func canSubmitExistingAnnotation(
         isSubmitting: Bool,
         outcome: AnnotationSaveOutcome?

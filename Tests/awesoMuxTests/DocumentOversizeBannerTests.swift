@@ -283,6 +283,60 @@ struct OversizeAnnotationOutcomeTests {
             ) == false)
     }
 
+    /// The suspension has to be withdrawn when its cause goes away. Nothing
+    /// else clears `.oversizeCopyOnly`, and it is the only thing still
+    /// disabling Submit, so a sheet left holding it strands a draft the disk
+    /// would now accept.
+    @Test("the file fitting again withdraws the suspension")
+    func editingAllowedAgainClearsTheSuspension() {
+        #expect(
+            AnnotationSaveRecovery.recovery(
+                afterEditingAllowed: true,
+                isEditing: true,
+                current: .oversizeCopyOnly
+            ) == nil)
+    }
+
+    /// A real failure recorded something that actually happened; only the
+    /// size suspension is provisional.
+    @Test(
+        "recovering editability leaves every other parked outcome alone",
+        arguments: [
+            AnnotationSaveOutcome.copyOnly,
+            .copyAndReselect,
+            .failed,
+        ])
+    func editingAllowedAgainPreservesRealFailures(outcome: AnnotationSaveOutcome) {
+        #expect(
+            AnnotationSaveRecovery.recovery(
+                afterEditingAllowed: true,
+                isEditing: false,
+                current: outcome
+            ) == outcome)
+    }
+
+    @Test("losing editability mid-edit parks the suspension")
+    func editingDisallowedWhileEditingParks() {
+        #expect(
+            AnnotationSaveRecovery.recovery(
+                afterEditingAllowed: false,
+                isEditing: true,
+                current: nil
+            ) == .oversizeCopyOnly)
+    }
+
+    /// A sheet merely *viewing* a note has no draft at risk, so there is
+    /// nothing to suspend and no reason to show a recovery affordance.
+    @Test("losing editability while only viewing parks nothing")
+    func editingDisallowedWhileViewingIsInert() {
+        #expect(
+            AnnotationSaveRecovery.recovery(
+                afterEditingAllowed: false,
+                isEditing: false,
+                current: nil
+            ) == nil)
+    }
+
     @Test("the over-cap outcome disables submit for a new annotation")
     func terminalForNewAnnotation() {
         #expect(
@@ -411,10 +465,6 @@ struct DocumentLoadCompletionStructureTests {
 /// catalog the shipped app actually loads instead.
 @Suite("Document oversize banner localization catalog coverage")
 struct DocumentOversizeBannerCatalogTests {
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
 
     /// `AnnotationSaveRecovery` is here too because it now owns the one
     /// over-cap sentence every editing surface renders — the popovers, the
@@ -426,8 +476,8 @@ struct DocumentOversizeBannerCatalogTests {
             "Sources/awesoMux/Views/Markdown/AnnotationSaveRecovery.swift",
         ])
     func everyLocalizedLiteralIsACatalogKey(relativePath: String) throws {
-        let keys = try catalogKeys()
-        let literals = try localizedLiterals(in: relativePath)
+        let keys = try AwesoMuxStringCatalog.keys()
+        let literals = try AwesoMuxStringCatalog.localizedLiterals(in: relativePath)
 
         #expect(!literals.isEmpty, "found no localized literals — parser drift?")
         for literal in literals {
@@ -440,27 +490,6 @@ struct DocumentOversizeBannerCatalogTests {
     /// The kicker is a bare SwiftUI `Text`, which the literal regex above
     /// cannot see, so it is named explicitly.
     @Test func theBannerKickerIsACatalogKey() throws {
-        #expect(try catalogKeys().contains("file outgrew the limit"))
-    }
-
-    private func catalogKeys() throws -> Set<String> {
-        let data = try Data(
-            contentsOf: Self.repositoryRoot.appending(path: "Resources/Localizable.xcstrings"))
-        let catalog = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let strings = try #require(catalog["strings"] as? [String: Any])
-        return Set(strings.keys)
-    }
-
-    /// Extracts `String(localized: "…"` literals and rewrites each Swift
-    /// interpolation to the `%arg` marker the catalog keys use — the same
-    /// normalization `xcstringstool` applies when it extracts them.
-    private func localizedLiterals(in relativePath: String) throws -> [String] {
-        let source = try String(
-            contentsOf: Self.repositoryRoot.appending(path: relativePath), encoding: .utf8)
-        let literal = try Regex(#"String\(\s*localized:\s*"((?:[^"\\]|\\[^(]|\\\([^)]*\))*)""#)
-        let interpolation = try Regex(#"\\\([^)]*\)"#)
-        return source.matches(of: literal).map {
-            String($0[1].substring ?? "").replacing(interpolation, with: "%arg")
-        }
+        #expect(try AwesoMuxStringCatalog.keys().contains("file outgrew the limit"))
     }
 }
