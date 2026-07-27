@@ -1,6 +1,17 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Can't open %arg: file exceeds the %arg MB size limit." : {
+      "comment" : "Document pane error; first placeholder is the quoted file name, second is the cap in whole megabytes",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Can't open %1$arg: file exceeds the %2$arg MB size limit."
+          }
+        }
+      }
+    },
     "Close About awesoMux" : {
 
     },
@@ -606,6 +617,23 @@
     "CRT scanlines" : {
       "comment" : "Settings field label for the CRT scanlines toggle"
     },
+    "Can't open %arg: only these file types are supported: %arg." : {
+      "comment" : "Document pane error; first placeholder is the quoted file name, second is a comma-separated extension list",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Can't open %1$arg: only these file types are supported: %2$arg."
+          }
+        }
+      }
+    },
+    "Can't open %arg: the file couldn't be read (missing or no permission)." : {
+      "comment" : "Document pane error; the placeholder is the quoted file name"
+    },
+    "Can't open %arg: the path is not a local file URL." : {
+      "comment" : "Document pane error; the placeholder is the quoted file name"
+    },
     "Cancel" : {
       "comment" : "Button title that cancels choosing an IDE.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nCancel remote clipboard handoff button\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
     },
@@ -940,6 +968,9 @@
     },
     "Could not turn on Open at Login. Open System Settings > General > Login Items and allow awesoMux, then try again. %arg" : {
       "comment" : "Error shown when registering awesoMux as a login item fails."
+    },
+    "Couldn't Save" : {
+      "comment" : "Title of the alert shown when saving an annotation fails"
     },
     "Couldn't send — this document's terminal isn't available" : {
       "comment" : "VoiceOver announcement when a document has no eligible send target"
@@ -3104,6 +3135,9 @@
     "The annotation changed or was removed. Copy your draft before closing." : {
       "comment" : "Annotation save recovery message when a draft can be copied"
     },
+    "The annotation couldn't be saved. It may be too long, invalid, or duplicated." : {
+      "comment" : "Save failure alert body when the annotation itself is rejected"
+    },
     "The awesoMux remote helper is missing or reports an incompatible protocol version." : {
       "comment" : "Bridge doctor failure reason"
     },
@@ -3137,6 +3171,9 @@
     "The document changed. Reload complete. Try saving again." : {
       "comment" : "Save recovery announcement after reloading a changed document"
     },
+    "The document couldn't be read from disk." : {
+      "comment" : "Save failure alert body when the file could not be re-read"
+    },
     "The document note changed or was removed." : {
       "comment" : "Document note editor recovery message when no draft can be recovered\nDocument note recovery message when no draft can be recovered"
     },
@@ -3145,6 +3182,9 @@
     },
     "The draft was not saved." : {
       "comment" : "Annotation save failure message\nDocument note editor save failure message\nNew annotation save failure message\nSave failure announcement"
+    },
+    "The edited document would exceed the %arg MB size limit." : {
+      "comment" : "Save failure alert body when the edit would push the file over the cap; %lld is whole megabytes"
     },
     "The global integration install record could not be read" : {
       "comment" : "Unreadable CLI agent plugin install manifest action error"
