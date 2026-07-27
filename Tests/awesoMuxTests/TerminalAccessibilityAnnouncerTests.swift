@@ -85,6 +85,32 @@ struct TerminalAccessibilityAnnouncerTests {
         )
     }
 
+    @Test("reconnect-started announcement claims only the attempt, never success")
+    func remoteReconnectStartedAnnouncementClaimsOnlyTheAttempt() {
+        // A remote-owned pane has no attach evidence at spawn time, so this copy
+        // must stay in the progressive tense — the confirmed-success wording
+        // belongs to `remoteReconnected`, which only an `attached` event earns.
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteReconnectStartedAnnouncement(
+                host: "prod.example",
+                paneDescriptor: "pane 2, web"
+            ) == "Reconnecting to prod.example in pane 2, web."
+        )
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteReconnectStartedAnnouncement(
+                host: "prod.example"
+            ) == "Reconnecting to prod.example."
+        )
+        // A pane moved to a local group has no host to name, and a blank
+        // descriptor must not leak an empty "in ." fragment.
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteReconnectStartedAnnouncement(
+                host: nil,
+                paneDescriptor: "  "
+            ) == "Reconnecting."
+        )
+    }
+
     @Test("waiting announcement includes non-empty session title")
     func waitingAnnouncementIncludesTitle() {
         #expect(
@@ -191,5 +217,44 @@ struct TerminalAccessibilityAnnouncerTests {
                 paneDescriptor: "pane 2, web"
             ) == "Session error cleared. Agent waiting for your input in Build, pane 2, web."
         )
+    }
+
+    /// `paneDescriptor(for:in:)` embeds the pane's raw title, so every
+    /// announcement taking a descriptor can be handed an arbitrarily long or
+    /// multi-line string. `compactTitle` exists to stop that dominating speech
+    /// (INT-668) but the descriptor path bypassed it. Assert the bound on the
+    /// shared helper's behaviour via all three announcements that use it, so a
+    /// fourth caller cannot reintroduce the gap by forgetting to compact.
+    @Test("pane descriptors are length-bounded in every announcement that takes one")
+    func paneDescriptorsAreLengthBounded() {
+        let longTitle = String(repeating: "x", count: 200)
+        let descriptor = "pane 2, \(longTitle)"
+
+        let announcements = [
+            TerminalAccessibilityAnnouncer.remoteReconnectStartedAnnouncement(
+                host: "alpha", paneDescriptor: descriptor)
+        ]
+
+        for announcement in announcements {
+            #expect(
+                announcement.contains("…"),
+                "expected the descriptor to be truncated: \(announcement)"
+            )
+            #expect(
+                !announcement.contains(longTitle),
+                "the untruncated title reached the spoken string"
+            )
+        }
+    }
+
+    @Test("multi-line pane descriptors are flattened before speaking")
+    func paneDescriptorsAreSingleLine() {
+        let announcement =
+            TerminalAccessibilityAnnouncer
+            .remoteReconnectStartedAnnouncement(
+                host: "alpha", paneDescriptor: "pane 2,\nsecond line")
+
+        #expect(!announcement.contains("\n"))
+        #expect(announcement.contains("second line"))
     }
 }

@@ -21,6 +21,10 @@ struct CommandBridgeEnactorTests {
     private enum Announcement: Equatable {
         case freshRespawn
         case errorEntered
+        /// Claims the session is back. Only an `attached` status event earns it.
+        case remoteReconnected(host: String?)
+        /// Claims only that a reconnect was dialed.
+        case remoteReconnectStarted(host: String?)
     }
 
     private let establishedMetadata = TerminalBackendMetadata(rawValue: "amx:v1:established")
@@ -484,6 +488,43 @@ struct CommandBridgeEnactorTests {
 
         #expect(fixture.livePane?.remoteReconnect == nil)
         #expect(!enactor.errorLatched)
+    }
+
+    @Test("a remote-owned respawn announces the attempt, never a confirmed reconnect")
+    func remoteOwnedSpawnNeverAnnouncesUnprovenSuccess() throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        var announcements: [Announcement] = []
+        enactor.announceRemoteReconnected = { host, _ in
+            announcements.append(.remoteReconnected(host: host))
+        }
+        enactor.announceRemoteReconnectStarted = { host, _ in
+            announcements.append(.remoteReconnectStarted(host: host))
+        }
+        enactor.sessionID = fixture.sessionID
+        enactor.markError()
+        enactor.beginManualReconnect()
+
+        // The spawn succeeds — libghostty forked a local ssh child. That says
+        // nothing about `example.invalid`, which by RFC 2606 can never resolve,
+        // so this models every unreachable-host/pending-auth/missing-zmx
+        // reconnect: the local process starts and the attach still fails.
+        fixture.view.applyPostSpawnPaneState(for: .remoteOwnedAttach("ssh …"))
+
+        #expect(announcements == [.remoteReconnectStarted(host: "example.invalid")])
+        // The overlay still clears on spawn (there is no `attached` event to
+        // wait for), so the announcement is the only thing standing between a
+        // VoiceOver user and a false "you're back" — assert the overlay
+        // behaviour is unchanged so this can't silently pass by regressing it.
+        #expect(fixture.livePane?.remoteReconnect == nil)
+
+        // ssh then reports the failure it was always going to report. The pane
+        // re-latches and the disconnected overlay owns the failure voice; what
+        // must never appear anywhere in this sequence is a success claim.
+        enactor.beginExitSupervision(exitCode: 255)
+
+        #expect(enactor.errorLatched)
+        #expect(announcements == [.remoteReconnectStarted(host: "example.invalid")])
     }
 
     @Test("only a local-amx attach stamps established backend metadata")

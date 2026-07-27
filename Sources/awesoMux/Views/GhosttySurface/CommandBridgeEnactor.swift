@@ -139,6 +139,23 @@ final class CommandBridgeEnactor {
     var announceErrorEntered: () -> Void = {
         TerminalAccessibilityAnnouncer.announceErrorEntered()
     }
+    /// Confirmed reconnect — only the `attached` status event may reach this.
+    var announceRemoteReconnected: (_ host: String?, _ paneDescriptor: String?) -> Void = {
+        host, paneDescriptor in
+        TerminalAccessibilityAnnouncer.announceRemoteReconnected(
+            host: host,
+            paneDescriptor: paneDescriptor
+        )
+    }
+    /// Reconnect dialed but unconfirmed — the remote-owned path, which has no
+    /// evidence stronger than "a local ssh child spawned".
+    var announceRemoteReconnectStarted: (_ host: String?, _ paneDescriptor: String?) -> Void = {
+        host, paneDescriptor in
+        TerminalAccessibilityAnnouncer.announceRemoteReconnectStarted(
+            host: host,
+            paneDescriptor: paneDescriptor
+        )
+    }
 
     init(host: CommandBridgeEnactorHost) {
         self.host = host
@@ -268,13 +285,25 @@ final class CommandBridgeEnactor {
         DispatchQueue.main.async { [weak self] in self?.markError() }
     }
 
-    /// Confirm a pending manual reconnect on a remote-owned pane. That pane
-    /// never sees an `attached` status event — the far host's zmx reports into
-    /// no local side channel — so a successful spawn is the only confirmation
-    /// signal there is, and without this the disconnected/reconnecting overlay
-    /// would stay painted forever after a successful reconnect. Optimistic by
+    /// Retire a pending manual reconnect's overlay on a remote-owned pane. That
+    /// pane never sees an `attached` status event — the far host's zmx reports
+    /// into no local side channel — so a successful spawn is the only signal
+    /// there is, and without this the disconnected/reconnecting overlay would
+    /// stay painted forever after a successful reconnect. Optimistic by
     /// construction: an ssh that dies a moment later re-latches through
     /// `markError`, which re-arms the overlay. No-ops for every ordinary spawn.
+    ///
+    /// The announcement must NOT be. A spawned local ssh child is evidence that
+    /// a process started, not that the attach landed: an unreachable host, a
+    /// pending authentication prompt, or a missing remote `zmx` each spawn just
+    /// as successfully, and "Reconnected to <host>" told a VoiceOver user the
+    /// session was back when it was not. Gating the speech on real attach
+    /// evidence isn't available here — the only channel to the far host is the
+    /// interactive ssh itself, and probing it would block on a password or
+    /// passphrase prompt — so the announcement names the attempt instead. The
+    /// outcome keeps its own voice either way: a failure re-latches and the
+    /// disconnected overlay announces the failure (its `lastAnnouncementID`
+    /// clears on `.reconnecting`, so a re-latch on the same host speaks again).
     func confirmRemoteOwnedAttach() {
         // Read the payload BEFORE confirm clears it so the announcement names
         // the host that was actually dialed (same ordering as the `attached`
@@ -289,11 +318,11 @@ final class CommandBridgeEnactor {
         else {
             return
         }
-        TerminalAccessibilityAnnouncer.announceRemoteReconnected(
-            host: reconnectState.flatMap {
+        announceRemoteReconnectStarted(
+            reconnectState.flatMap {
                 $0.context.dialedLocalRestart ? nil : $0.context.target.host
             },
-            paneDescriptor: TerminalAccessibilityAnnouncer.paneDescriptor(
+            TerminalAccessibilityAnnouncer.paneDescriptor(
                 for: paneID,
                 in: sessionStore.session(id: hostSessionID)
             )
@@ -576,9 +605,9 @@ final class CommandBridgeEnactor {
                     let reconnectedHost = reconnectState.flatMap {
                         $0.context.dialedLocalRestart ? nil : $0.context.target.host
                     }
-                    TerminalAccessibilityAnnouncer.announceRemoteReconnected(
-                        host: reconnectedHost,
-                        paneDescriptor: TerminalAccessibilityAnnouncer.paneDescriptor(
+                    announceRemoteReconnected(
+                        reconnectedHost,
+                        TerminalAccessibilityAnnouncer.paneDescriptor(
                             for: paneID,
                             in: sessionStore.session(id: hostSessionID)
                         )
