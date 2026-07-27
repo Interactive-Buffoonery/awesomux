@@ -682,6 +682,31 @@ private struct TerminalBackgroundPresetGrid: View {
     }
 }
 
+/// Foreground choice for the terminal-background preview swatch.
+///
+/// Extracted from the view purely so it can be tested: the preview exists to
+/// demonstrate readability, so picking the *less* readable foreground defeats
+/// the feature silently — nothing crashes, the swatch just lies.
+enum TerminalBackgroundPreviewForeground {
+    static func color(for background: NSColor) -> Color {
+        // Defers to the shared crossover rather than repeating the luminance
+        // math: this previously applied the Rec. 709 coefficients to raw sRGB
+        // (no gamma expansion) against a 0.5 cut, which misread backgrounds
+        // just below the real WCAG black-vs-white crossover at ~0.179 and
+        // picked white where black was more readable.
+        //
+        // Deliberately opaque. `backgroundIsDark` compares *opaque* black and
+        // white, so any alpha here would decide on one colour and render
+        // another — at #757575 the softened pair inverts the winner (white
+        // 3.99:1 vs black 4.08:1 once composited, against 4.61/4.56 opaque).
+        // Terminal text renders opaque anyway, so a softened preview would
+        // under-represent the readability it exists to demonstrate. If soft
+        // text is ever wanted here, the choice must move to comparing the
+        // composited candidates.
+        Color.aw.backgroundIsDark(Color(nsColor: background)) ? .white : .black
+    }
+}
+
 private struct TerminalBackgroundPreview: View {
     let backgroundHex: String
     let usesGhosttyConfig: Bool
@@ -747,14 +772,7 @@ private struct TerminalBackgroundPreview: View {
     // near-white text fails WCAG by a country mile and makes the preview
     // illegible at exactly the moment its job is to show readability.
     private var foregroundColor: Color {
-        let srgb = backgroundNSColor.usingColorSpace(.sRGB) ?? backgroundNSColor
-        let luminance =
-            0.2126 * srgb.redComponent
-            + 0.7152 * srgb.greenComponent
-            + 0.0722 * srgb.blueComponent
-        return luminance > 0.5
-            ? Color.black.opacity(0.85)
-            : Color.white.opacity(0.88)
+        TerminalBackgroundPreviewForeground.color(for: backgroundNSColor)
     }
 
     private static var currentUserName: String {
