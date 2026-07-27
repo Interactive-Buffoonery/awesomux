@@ -28,7 +28,7 @@ struct SidebarGroupView: View {
     let onNewGroup: () -> Void
     let onRenameGroup: () -> Void
     let onSetGroupColor: (WorkspaceGroupColor?) -> Void
-    /// Still used by `EmptyGroupDropTarget`'s persistent remove button; the
+    /// Still used by `NewWorkspaceInGroupRow`'s persistent remove button; the
     /// header context menu itself now routes through `onCloseGroup`.
     let canRemoveGroup: Bool
     let onRemoveGroup: () -> Void
@@ -162,6 +162,24 @@ struct SidebarGroupView: View {
             // `.onDrag { NSItemProvider }` — SwiftUI's Transferable
             // .dropDestination does not consistently bridge from raw
             // NSItemProvider on macOS 15.
+            // Indicator above the bracket so it anchors to the header's real
+            // bottom edge. BETWEEN the two paddings it would anchor to the
+            // padded bottom and draw `sessionStackSpacing` too low; after
+            // the reclaim it would also be correct, but this placement makes
+            // the intent unambiguous without depending on reclaim order.
+            .overlay(alignment: .bottom) {
+                if activeDragKind == .workspace && !isFiltering && headerWorkspaceDropTargeted {
+                    SidebarInsertionIndicator(tint: tint.hue)
+                        .offset(y: SidebarInsertionIndicator.height / 2)
+                        .allowsHitTesting(false)
+                }
+            }
+            // Reach down through the header→first-tile gap so a workspace
+            // drag crossing it never hits dead space (which fires
+            // dropExited and blinks the insertion indicator out mid-aim).
+            // Bottom-only keeps the origin put; the negative padding below
+            // reclaims the layout space so nothing visually moves.
+            .padding(.bottom, density.sessionStackSpacing)
             .sidebarDrop(
                 enabled: activeDragKind == .workspace && !isFiltering && displayMode != .collapsed,
                 delegate: SidebarWorkspaceHeaderDropDelegate(
@@ -185,13 +203,7 @@ struct SidebarGroupView: View {
                     }
                 )
             )
-            .overlay(alignment: .bottom) {
-                if activeDragKind == .workspace && !isFiltering && headerWorkspaceDropTargeted {
-                    SidebarInsertionIndicator(tint: tint.hue)
-                        .offset(y: SidebarInsertionIndicator.height / 2)
-                        .allowsHitTesting(false)
-                }
-            }
+            .padding(.bottom, -density.sessionStackSpacing)
 
             if !isCollapsed {
                 VStack(spacing: density.sessionStackSpacing) {
@@ -285,10 +297,26 @@ struct SidebarGroupView: View {
                         )
                     }
 
-                    if sessions.isEmpty && displayMode != .collapsed {
-                        EmptyGroupDropTarget(
+                    // Hidden while filtering: the row's drop delegate already
+                    // refuses filtered drags, but its BUTTON would still fire —
+                    // creating a workspace that instantly fails the active
+                    // filter and vanishes, which reads as a broken click. A
+                    // create affordance that produces invisible results is
+                    // worse than no affordance.
+                    if displayMode != .collapsed, !isFiltering {
+                        let isGroupEmpty = sessions.isEmpty
+                        NewWorkspaceInGroupRow(
                             isFiltering: isFiltering,
-                            canRemoveGroup: canRemoveGroup,
+                            showsRemoveButton: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
+                                isGroupEmpty: isGroupEmpty,
+                                canRemoveGroup: canRemoveGroup
+                            ),
+                            showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(
+                                isGroupEmpty: isGroupEmpty
+                            ),
+                            ownsDropDelegate: NewWorkspaceInGroupRowPolicy.ownsDropDelegate(
+                                isGroupEmpty: isGroupEmpty
+                            ),
                             activeDragKind: activeDragKind,
                             activeDragID: activeDragID,
                             activeDragSourceIsPinned: activeDragSourceIsPinned,
@@ -299,7 +327,13 @@ struct SidebarGroupView: View {
                             onDragEnded: onDragEnded,
                             onDragExited: onDragExited,
                             onAcceptDrop: { sessionID in
-                                onMoveSession(sessionID, group.id, 0)
+                                onMoveSession(
+                                    sessionID,
+                                    group.id,
+                                    NewWorkspaceInGroupRowPolicy.dropInsertionIndex(
+                                        isGroupEmpty: isGroupEmpty
+                                    )
+                                )
                             }
                         )
                     }
@@ -345,6 +379,15 @@ struct SidebarGroupView: View {
                             .allowsHitTesting(false)
                     }
                 }
+                // Reach down through the inter-group gutter (LazyVStack spacing
+                // in SidebarView owns it and its only delegate rejects workspace
+                // drags), so a cross-group drag stays over a live target the
+                // whole way. Bottom-only: row frames are measured in
+                // `.named(coordinateSpaceName)` while DropInfo.location is
+                // relative to this view, and padding only the bottom leaves the
+                // shared top-left origin untouched — so no hit-test math moves.
+                // `.padding(.top,)` here would offset every drop by half a gap.
+                .padding(.bottom, density.groupStackSpacing)
                 .sidebarDrop(
                     enabled: activeDragKind == .workspace && !isFiltering,
                     delegate: SidebarWorkspaceListDropDelegate(
@@ -371,6 +414,12 @@ struct SidebarGroupView: View {
                         }
                     )
                 )
+                // Reclaim the space: keeping the reported frame identical means
+                // collapsed groups keep their gutter (their tile stack isn't
+                // rendered at all) and SidebarGroupFramePreferenceKey still
+                // reports unchanged group frames, so group-reorder midY flip
+                // points don't move.
+                .padding(.bottom, -density.groupStackSpacing)
             }
         }
         .onChange(of: activeDragKind) { _, kind in
