@@ -307,6 +307,7 @@ struct SidebarGroupView: View {
                         let isGroupEmpty = entries.isEmpty
                         NewWorkspaceInGroupRow(
                             isFiltering: isFiltering,
+                            groupName: group.name,
                             showsRemoveButton: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
                                 isGroupEmpty: isGroupEmpty,
                                 canRemoveGroup: canRemoveGroup

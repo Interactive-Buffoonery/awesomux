@@ -506,6 +506,10 @@ struct NewWorkspaceInGroupRow: View {
     /// doesn't gate on `!isFiltering` shouldn't have to rediscover why a
     /// filtered drag can still create a workspace.
     let isFiltering: Bool
+    /// Disambiguates this row from the identical one in every other expanded
+    /// group. Without it the VoiceOver rotor lists N items all reading
+    /// "New workspace in group", with nothing to tell them apart.
+    let groupName: String
     /// Renamed from `canRemoveGroup`: the value passed in is now a presentation
     /// decision (`NewWorkspaceInGroupRowPolicy.showsRemoveButton`), not the
     /// store's removal capability. Keeping the old name would invite a future
@@ -531,6 +535,23 @@ struct NewWorkspaceInGroupRow: View {
     let onDragExited: () -> Void
     let onAcceptDrop: (TerminalSession.ID) -> Void
 
+    /// WCAG 2.5.8 minimum pointer target. Shared by the remove button and the
+    /// space the row reserves for it so the two cannot drift apart — if the
+    /// reservation were smaller, the row's tap area would sit underneath part
+    /// of the remove target and hit-testing between them would be ambiguous.
+    static let removeTargetSize: CGFloat = 24
+
+    /// Names the group so repeated rows are distinguishable in the VoiceOver
+    /// rotor — every expanded group renders one of these, and a bare
+    /// "New workspace in group" made them identical.
+    static func accessibilityLabel(forGroupNamed groupName: String) -> String {
+        String(
+            localized: "New workspace in \(groupName)",
+            comment:
+                "VoiceOver label for the row that creates a workspace in a sidebar group, naming the group so repeated rows are distinguishable."
+        )
+    }
+
     @State private var isDropTargeted = false
 
     var body: some View {
@@ -551,7 +572,12 @@ struct NewWorkspaceInGroupRow: View {
                     // Reserve trailing space for the sibling remove button so
                     // hit-test routing isn't ambiguous with the row tap.
                     if showsRemoveButton {
-                        Color.clear.frame(width: 18, height: 18)
+                        // Must match the sibling's target exactly: this is what
+                        // keeps the row tap and the remove tap from overlapping.
+                        Color.clear.frame(
+                            width: Self.removeTargetSize,
+                            height: Self.removeTargetSize
+                        )
                     }
                 }
                 .foregroundStyle(Color.aw.textFaint)
@@ -577,11 +603,7 @@ struct NewWorkspaceInGroupRow: View {
             }
             .buttonStyle(.plain)
             .help("New Workspace in Group")
-            .accessibilityLabel(
-                String(
-                    localized: "New workspace in group",
-                    comment: "VoiceOver label for the row that creates a workspace in a sidebar group."
-                ))
+            .accessibilityLabel(Self.accessibilityLabel(forGroupNamed: groupName))
 
             // Sibling overlay (mirrors SidebarSessionTile.closeButton pattern)
             // so nested Buttons don't confuse hit-test routing.
@@ -593,7 +615,15 @@ struct NewWorkspaceInGroupRow: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 9, weight: .bold))
-                            .frame(width: 18, height: 18)
+                            // Glyph stays 9pt; the frame is the POINTER
+                            // TARGET, which has to clear the 24x24 minimum.
+                            // `contentShape` makes the padded area hittable
+                            // rather than just the drawn glyph.
+                            .frame(
+                                width: Self.removeTargetSize,
+                                height: Self.removeTargetSize
+                            )
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.aw.text3)
