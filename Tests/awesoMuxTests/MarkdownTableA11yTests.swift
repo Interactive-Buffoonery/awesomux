@@ -53,6 +53,15 @@ private func makeWideTableHarness(
     return (scrollView, textView, coordinator, attr)
 }
 
+@MainActor
+private func attributedMarkdown(_ source: String) -> NSMutableAttributedString {
+    NSMutableAttributedString(
+        attributedString: MarkdownAttributedStringBuilder.attributedString(
+            for: AttributedMarkdownBuilder.build(source)
+        )
+    )
+}
+
 private let wideTableSource = """
     | Column Alpha | Column Bravo | Column Charlie |
     | - | - | - |
@@ -501,5 +510,117 @@ struct TableAXElementTreeTests {
         let cells = try #require(rows[1].accessibilityChildren() as? [NSAccessibilityElement])
         #expect(cells.count == 2)
         #expect(cells[0].accessibilityLabel() == "A: bold")
+    }
+}
+
+// MARK: - AXTable lazy materialization
+
+/// The element tree is ~20 `TableCellAccessibilityElement`s per table for the
+/// whole document; building it at render time was the largest single allocation
+/// cost of showing a table-heavy document, and nothing reads it unless an
+/// assistive client is attached. These tests are an allocation proxy — they
+/// assert the elements do not EXIST, not the byte count — plus the correctness
+/// obligations that deferral must not break.
+@Suite("AXTable lazy materialization")
+@MainActor
+struct TableAXLazyMaterializationTests {
+
+    private static let source = "| Name | Status |\n| - | - |\n| Rocket | Good |\n| Bella | Fine |"
+
+    private func makeOverlay(
+        source: String = TableAXLazyMaterializationTests.source
+    ) -> (scrollView: NSScrollView, textView: NSTextView, overlay: CommentBadgeOverlay) {
+        let (scrollView, textView, _, attr) = makeWideTableHarness(source: source)
+        let overlay = CommentBadgeOverlay(frame: textView.bounds)
+        textView.addSubview(overlay)
+        overlay.updateBadges(attr: attr, textView: textView)
+        return (scrollView, textView, overlay)
+    }
+
+    @Test("rendering a table builds no accessibility elements until something asks")
+    func deferredUntilQueried() {
+        let (_, textView, overlay) = makeOverlay()
+        #expect(
+            overlay.hasMaterializedTableAccessibilityElements == false,
+            "a render with no assistive client must not build the element tree"
+        )
+
+        // A relayout (the pane-resize path) re-runs the whole border/frame pass
+        // and must not build them either.
+        overlay.setFrameSize(NSSize(width: 500, height: textView.bounds.height))
+        overlay.needsLayout = true
+        overlay.layoutSubtreeIfNeeded()
+        #expect(overlay.hasMaterializedTableAccessibilityElements == false)
+
+        // Positive control: the document really does have a table, so the
+        // assertions above are about deferral and not about an empty document.
+        #expect(overlay.tableAccessibilityElements.count == 1)
+        #expect(overlay.hasMaterializedTableAccessibilityElements)
+    }
+
+    @Test("repeat queries hand back the same element identities")
+    func repeatQueryDoesNotRebuild() throws {
+        let (_, _, overlay) = makeOverlay()
+        let first = try #require(overlay.tableAccessibilityElements.first)
+        let firstRow = try #require(
+            (first.accessibilityRows() as? [NSAccessibilityElement])?.first)
+
+        let second = try #require(overlay.tableAccessibilityElements.first)
+        #expect(first === second, "a second query must not rebuild the tree")
+        #expect(
+            (second.accessibilityRows() as? [NSAccessibilityElement])?.first === firstRow,
+            "VoiceOver holds child references while navigating; they must survive a re-query"
+        )
+    }
+
+    @Test("a structural change drops the built tree and the next query rebuilds it")
+    func structuralChangeInvalidates() throws {
+        let (_, textView, overlay) = makeOverlay()
+        let stale = try #require(overlay.tableAccessibilityElements.first)
+        #expect(overlay.hasMaterializedTableAccessibilityElements)
+
+        let changed = attributedMarkdown(
+            "| Name | Status |\n| - | - |\n| Rocket | Great |\n| Bella | Fine |")
+        textView.textStorage?.setAttributedString(changed)
+        overlay.updateBadges(attr: changed, textView: textView)
+
+        #expect(
+            overlay.hasMaterializedTableAccessibilityElements == false,
+            "a changed document must invalidate the built tree"
+        )
+        let rebuilt = try #require(overlay.tableAccessibilityElements.first)
+        #expect(rebuilt !== stale)
+        let rows = try #require(rebuilt.accessibilityRows() as? [NSAccessibilityElement])
+        let cells = try #require(rows[1].accessibilityChildren() as? [NSAccessibilityElement])
+        #expect(cells[1].accessibilityLabel() == "Status: Great")
+    }
+
+    @Test("a client attaching after the render still reaches every cell, with live frames")
+    func clientAttachingAfterRender() throws {
+        let (scrollView, _, overlay) = makeOverlay()
+        #expect(overlay.hasMaterializedTableAccessibilityElements == false)
+
+        // The whole point of deferring: the tree is built by the first query,
+        // which can arrive long after the document rendered.
+        let window = NSWindow(
+            contentRect: scrollView.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = scrollView
+        #expect(overlay.window != nil, "premise: the overlay is now in a window")
+
+        let children = try #require(overlay.accessibilityChildren() as? [NSAccessibilityElement])
+        #expect(!children.isEmpty, "premise: accessibilityChildren must not be vacuously empty")
+
+        let table = try #require(children.first { $0.accessibilityRole() == .table })
+        #expect(table.accessibilityRowCount() == 3)
+        #expect(table.accessibilityColumnCount() == 2)
+        let rows = try #require(table.accessibilityRows() as? [NSAccessibilityElement])
+        #expect(rows.count == 3)
+        let cells = try #require(rows[1].accessibilityChildren() as? [NSAccessibilityElement])
+        #expect(cells.count == 2)
+        #expect(cells[0].accessibilityLabel() == "Name: Rocket")
+        #expect(
+            cells[0].accessibilityFrame() != .zero,
+            "a deferred build must still resolve frames through the live tableAXFrames lookup"
+        )
     }
 }

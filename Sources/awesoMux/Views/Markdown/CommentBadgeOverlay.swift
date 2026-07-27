@@ -173,7 +173,7 @@ final class CommentBadgeOverlay: NSView {
 
     override func accessibilityChildren() -> [Any]? {
         guard window != nil else { return [] }
-        return pillAccessibilityChildren() + cachedTableElements
+        return pillAccessibilityChildren() + materializedTableElements()
     }
 
     // MARK: - AXTable tree (INT-687)
@@ -210,7 +210,16 @@ final class CommentBadgeOverlay: NSView {
         let cells: [[LogicalTableCell?]]
     }
 
-    private var cachedTableElements: [TableCellAccessibilityElement] = []
+    /// The built AXTable tree, or nil when it has not been materialized since the
+    /// last structural change. Building costs ~20 `TableCellAccessibilityElement`s
+    /// per table — each dragging a weak-reference container, an index-range value
+    /// pair, a frame closure and a localized label — which measured as the single
+    /// largest allocation cost of rendering a table-heavy document, paid by every
+    /// user whether or not an assistive client ever asks. `accessibilityChildren()`
+    /// is the only door in and already refuses without a window, so deferring the
+    /// build there means VoiceOver pays once on first query instead of everyone
+    /// paying once per render.
+    private var builtTableElements: [TableCellAccessibilityElement]?
     private var tableAXFrames: [TableAXNode: NSRect] = [:]
     /// Structure fingerprint of the current grids (texts + shape, no geometry),
     /// one hash per table. The element tree rebuilds — and `.layoutChanged`
@@ -228,8 +237,14 @@ final class CommentBadgeOverlay: NSView {
     // a real document ever hits it.
     static let axTableCellCap = 5_000
 
-    /// Read-only view of the cached table elements for tests.
-    var tableAccessibilityElements: [NSAccessibilityElement] { cachedTableElements }
+    /// Test hook: the AXTable tree, materializing it the way an accessibility
+    /// query would (headless tests have no window, so `accessibilityChildren()`
+    /// is unreachable to them).
+    var tableAccessibilityElements: [NSAccessibilityElement] { materializedTableElements() }
+
+    /// Test hook: whether the tree has been built yet. Nothing but an
+    /// accessibility query should be able to flip this to `true`.
+    var hasMaterializedTableAccessibilityElements: Bool { builtTableElements != nil }
 
     /// Coalesce per-run cell infos into rectangular logical grids, ordered by
     /// table serial. Pure — unit-testable without a view tree.
@@ -352,10 +367,27 @@ final class CommentBadgeOverlay: NSView {
         return frames
     }
 
-    /// Rebuild the cached table/row/column/cell element tree. Called only on a
-    /// structural change; frames stay live through `tableAXFrames` lookups.
-    private func rebuildTableAccessibilityElements(grids: [TableAXGrid]) {
-        cachedTableElements = grids.map { grid in
+    /// Build the table/row/column/cell element tree on first query since the last
+    /// structural change, then hold it — VoiceOver keeps references to these
+    /// elements while the user navigates, so re-entrant queries must hand back the
+    /// same identities. Grids are recomputed from `tableCellInfos` rather than
+    /// stashed: the infos are retained anyway, and a coalesced copy of every cell's
+    /// text is exactly the kind of retention this deferral exists to avoid.
+    private func materializedTableElements() -> [TableCellAccessibilityElement] {
+        if let builtTableElements { return builtTableElements }
+        let elements = makeTableAccessibilityElements(
+            grids: Self.tableAXGrids(from: tableCellInfos))
+        builtTableElements = elements
+        return elements
+    }
+
+    /// Frames are deliberately absent here — they stay live through
+    /// `tableAXFrames` lookups, which is what lets a tree built long after the
+    /// render still announce current geometry.
+    private func makeTableAccessibilityElements(
+        grids: [TableAXGrid]
+    ) -> [TableCellAccessibilityElement] {
+        grids.map { grid in
             let tableElement = liveFrameElement(role: .table, node: .table(grid.table))
             tableElement.setAccessibilityParent(self)
 
@@ -526,7 +558,7 @@ final class CommentBadgeOverlay: NSView {
             tableBorderRects = []
             tableCellInfos = []
             tableAXFrames = [:]
-            cachedTableElements = []
+            builtTableElements = nil
             tableStructureSignature = []
             needsDisplay = true
             return
@@ -642,11 +674,12 @@ final class CommentBadgeOverlay: NSView {
         tableBorderRects = Self.gridLines(for: cells.filter { !wrappedTables.contains($0.grid.table) })
         tableCellInfos = infos
 
-        // INT-687 AXTable upkeep: frames refresh on every pass (cached elements
-        // look their rects up live), but the element tree itself rebuilds only
+        // INT-687 AXTable upkeep: frames refresh on every pass (built elements
+        // look their rects up live), but the element tree is only INVALIDATED
         // when the table STRUCTURE changes — VoiceOver holds element references
         // while navigating, and churning identities per reflow would drop its
-        // cursor. Structural changes are announced so a running client re-reads.
+        // cursor. Structural changes are announced so a running client re-reads,
+        // and that re-read is what rebuilds the tree.
         let grids = Self.tableAXGrids(from: infos)
         tableAXFrames = Self.tableAXFrames(for: grids)
         let signature = grids.map { grid -> Int in
@@ -664,7 +697,7 @@ final class CommentBadgeOverlay: NSView {
         }
         if signature != tableStructureSignature {
             tableStructureSignature = signature
-            rebuildTableAccessibilityElements(grids: grids)
+            builtTableElements = nil
             if window != nil {
                 NSAccessibility.post(element: self, notification: .layoutChanged)
             }
