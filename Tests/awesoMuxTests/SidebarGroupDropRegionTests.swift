@@ -118,6 +118,7 @@ struct SidebarGroupDropRegionTests {
     private static func measuredNewWorkspaceRowContribution(density: SidebarDensity) -> CGFloat {
         let row = NewWorkspaceInGroupRow(
             isFiltering: false,
+            groupName: "Group",
             showsRemoveButton: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
                 isGroupEmpty: false,
                 canRemoveGroup: false
