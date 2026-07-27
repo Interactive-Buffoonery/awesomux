@@ -299,6 +299,17 @@ struct BridgeAttachAssemblyTests {
                 )
             }
         }
+
+        // Neither spelling understood: the capture's own non-zero exit has to
+        // break the `&&` chain, since there is no output to compare at all.
+        let unusable = StatDialect(name: "unusable", script: "#!/bin/sh\nexit 1\n")
+        let publishedWithoutStat = try Self.publishesUnderStatGate(
+            dialect: unusable, owner: uid, mode: "700"
+        )
+        #expect(
+            !publishedWithoutStat,
+            "unusable stat: an otherwise correct directory still fails closed"
+        )
     }
 
     @Test("state-file write command rejects a non-absolute stateFilePath")
