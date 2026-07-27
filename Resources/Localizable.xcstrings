@@ -176,8 +176,8 @@
     "%arg has activity that will be interrupted. Restarting the shell will terminate the running process." : {
       "comment" : "Body of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
     },
-    "%arg has activity that will be interrupted. The workspace will be closed permanently and can't be reopened. Its running sessions will be terminated." : {
-      "comment" : "Body of the clear-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
+    "%arg has activity that will be interrupted. The workspace will be closed permanently and can't be reopened." : {
+      "comment" : "Opening line of the clear-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
     },
     "%arg integration" : {
 
@@ -216,8 +216,8 @@
     "%arg wants to read your clipboard. Allow?" : {
       "comment" : "Title of the OSC 52 clipboard-read confirmation dialog. Argument is the bidi-isolated pane title."
     },
-    "%arg will be closed permanently and can't be reopened. Its running sessions will be terminated." : {
-      "comment" : "Body of the clear-workspace confirmation dialog. Argument is the bidi-isolated workspace title."
+    "%arg will be closed permanently and can't be reopened." : {
+      "comment" : "Opening line of the clear-workspace confirmation dialog. Argument is the bidi-isolated workspace title."
     },
     "%arg · %arg" : {
       "localizations" : {
@@ -779,14 +779,11 @@
     "Closed workspace group %arg" : {
       "comment" : "VoiceOver announcement after a workspace group is closed; argument is the group name."
     },
+    "Closing this group closes remote panes on %arg; awesoMux can't reattach them." : {
+      "comment" : "Remote-impact line in the close-group confirmation for panes a local daemon keeps alive. The argument is a list of SSH destinations."
+    },
     "Closing this group removes its SSH creation default %arg. Its panes are local." : {
       "comment" : "SSH-default loss line for closing a populated group whose panes are all local."
-    },
-    "Closing this group terminates local panes and remote panes on %arg." : {
-      "comment" : "Remote-impact line in the close-group confirmation for mixed local and remote panes."
-    },
-    "Closing this group terminates remote panes on %arg." : {
-      "comment" : "Remote-impact line in the close-group confirmation for multiple SSH destinations.\nRemote-impact line in the close-group confirmation for one SSH destination."
     },
     "Collapse/Expand Sidebar" : {
 
@@ -2076,6 +2073,9 @@
     "Pane: %arg" : {
       "comment" : "VoiceOver label for a local terminal pane title."
     },
+    "Panes on %arg only disconnect; the remote host keeps their sessions running." : {
+      "comment" : "Close-confirmation line for panes whose zmx session the remote host owns. The argument is a list of SSH destinations."
+    },
     "Parent folder" : {
 
     },
@@ -3178,6 +3178,9 @@
     },
     "The selection is stale. Copy your draft and select the text again." : {
       "comment" : "Annotation save recovery message for a stale selection"
+    },
+    "The sessions awesoMux runs for it will be terminated." : {
+      "comment" : "Clear-workspace confirmation line covering the panes whose sessions a local daemon owns."
     },
     "The source is unavailable or changed" : {
       "comment" : "Remote handoff source error title"

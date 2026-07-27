@@ -12,6 +12,26 @@ public struct SessionGroupExecutionSummary: Hashable, Sendable {
 
     public let contents: Contents
     public let defaultTarget: RemoteTarget?
+    /// Destinations reached by a pane a local `amx` daemon keeps alive around
+    /// its SSH child. Nothing on the far host holds that work.
+    public let localAmxTargets: [RemoteTarget]
+    /// Destinations named by a pane that declares remote-owned zmx persistence
+    /// (ADR-0023 amendment #214). Its session lives on the far host and outlives
+    /// anything awesoMux does locally. A destination can appear in both lists
+    /// when its panes disagree on persistence owner.
+    public let remoteOwnedTargets: [RemoteTarget]
+
+    /// True when any pane's session lives on this Mac — a local shell, or a
+    /// local `amx` daemon wrapping SSH. These are exactly the sessions a
+    /// destructive close can end.
+    public var includesLocallyOwnedSessions: Bool {
+        if !localAmxTargets.isEmpty { return true }
+        switch contents {
+        case .localOnly: return true
+        case .mixed(_, let includesLocal): return includesLocal
+        case .empty, .singleRemote: return false
+        }
+    }
 
     public init(group: SessionGroup) {
         self.init(sessions: group.sessions, defaultTarget: group.remote)
@@ -20,6 +40,8 @@ public struct SessionGroupExecutionSummary: Hashable, Sendable {
     public init(sessions: [TerminalSession], defaultTarget: RemoteTarget? = nil) {
         var includesLocal = false
         var remoteTargets = Set<RemoteTarget>()
+        var localAmx = Set<RemoteTarget>()
+        var remoteOwned = Set<RemoteTarget>()
         var paneCount = 0
 
         for session in sessions {
@@ -30,12 +52,19 @@ public struct SessionGroupExecutionSummary: Hashable, Sendable {
                     includesLocal = true
                 case .remote(let target):
                     remoteTargets.insert(target)
+                    if pane.executionPlan.remoteOwnedExecution == nil {
+                        localAmx.insert(target)
+                    } else {
+                        remoteOwned.insert(target)
+                    }
                 }
             }
         }
 
         let targets = remoteTargets.sorted(by: Self.targetSort)
         self.defaultTarget = defaultTarget
+        self.localAmxTargets = localAmx.sorted(by: Self.targetSort)
+        self.remoteOwnedTargets = remoteOwned.sorted(by: Self.targetSort)
         if paneCount == 0 {
             contents = .empty
         } else if targets.isEmpty {

@@ -1407,20 +1407,14 @@ struct AwesoMuxApp: App {
             )
         }
 
-        // One localized string per variant (not concatenated fragments) so
-        // translators control the full sentence — mirrors confirmCloseIfNeeded.
-        let body =
-            atRisk
-            ? String(
-                localized:
-                    "\(displayTitle) has activity that will be interrupted. The workspace will be closed permanently and can't be reopened. Its running sessions will be terminated.",
-                comment:
-                    "Body of the clear-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
-            )
-            : String(
-                localized: "\(displayTitle) will be closed permanently and can't be reopened. Its running sessions will be terminated.",
-                comment: "Body of the clear-workspace confirmation dialog. Argument is the bidi-isolated workspace title."
-            )
+        // Whole sentences, composed: the pane mix decides what the close can
+        // actually end, and `killClearedDaemons` never reaches a session the
+        // remote host owns.
+        let body = DestructiveCloseCopy.clearWorkspaceBody(
+            title: displayTitle,
+            hasInterruptedActivity: atRisk,
+            summary: SessionGroupExecutionSummary(sessions: [session])
+        )
         return NSAlert.confirmDestructive(
             title: String(
                 localized: "Clear \(displayTitle)?",
