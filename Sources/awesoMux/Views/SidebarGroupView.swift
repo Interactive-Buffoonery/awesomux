@@ -83,10 +83,6 @@ struct SidebarGroupView: View {
     // in-tile store reads stale behind the tile's `.equatable()` gate (PR #428).
     @Environment(AppSettingsStore.self) private var appSettingsStore
 
-    private var sessions: [TerminalSession] {
-        entries.map(\.session)
-    }
-
     private var coordinateSpaceName: String { "sidebar-group-\(group.id.uuidString)" }
 
     /// "Other groups" for the context-menu `Move to Group…` picker — excludes self.
@@ -105,10 +101,14 @@ struct SidebarGroupView: View {
     }
 
     var body: some View {
-        let sessionIDs = sessions.map(\.id)
+        let sessionIDs = entries.map(\.session.id)
+        // Hoisted out of the tile loop below: every row passes the same value,
+        // so evaluating the computed property per row rebuilt one array per
+        // row — `allGroups.count` work multiplied by the row count, for a
+        // result that cannot differ between rows.
+        let rowOtherGroups = otherGroups
         // Reused by the frame-preference and onChange closures below so they
-        // don't each rebuild `sessions.map(\.id)` (a double allocation —
-        // `sessions` is itself computed) on every render / layout pass.
+        // don't each rebuild the id list on every render / layout pass.
         let sessionIDSet = Set(sessionIDs)
         let dragRowFrames = rowFrameCache.frames(
             stored: rowFrames,
@@ -226,11 +226,11 @@ struct SidebarGroupView: View {
                             duplicateDisambiguation:
                                 duplicateDisambiguationBySessionID[session.id],
                             indexInGroup: offset,
-                            sessionCountInGroup: sessions.count,
+                            sessionCountInGroup: entries.count,
                             ownerGroupIndex: resolvedGroupIndex,
                             previousNeighborGroup: previousNeighborGroup,
                             nextNeighborGroup: nextNeighborGroup,
-                            otherGroups: otherGroups,
+                            otherGroups: rowOtherGroups,
                             verticalPadding: density.sessionTileVerticalPadding,
                             tintedHighContrast: appSettingsStore.appearance.value.tintedHighContrast,
                             alwaysShowJumpNumbers: appSettingsStore.appearance.value.alwaysShowJumpNumbers,
@@ -304,7 +304,7 @@ struct SidebarGroupView: View {
                     // create affordance that produces invisible results is
                     // worse than no affordance.
                     if displayMode != .collapsed, !isFiltering {
-                        let isGroupEmpty = sessions.isEmpty
+                        let isGroupEmpty = entries.isEmpty
                         NewWorkspaceInGroupRow(
                             isFiltering: isFiltering,
                             showsRemoveButton: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
