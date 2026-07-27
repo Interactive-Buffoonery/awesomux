@@ -255,10 +255,7 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         do {
             guard validatedCacheDirectory(createIfMissing: true) != nil else { return nil }
             let fileURL = cacheFileURL(for: reference)
-            try content.write(to: fileURL, options: .atomic)
-            // The chmod follows symlinks; safe only because the atomic write
-            // above just replaced any pre-planted link at this path.
-            try fileManager.setOwnerOnlyPermissions(onFileAt: fileURL)
+            try fileManager.writeOwnerOnlyFile(at: fileURL, contents: content)
             return RemoteMarkdownSnapshot(fileURL: fileURL, identity: reference.identity)
         } catch {
             return nil

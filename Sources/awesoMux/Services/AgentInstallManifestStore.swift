@@ -186,7 +186,6 @@ struct AgentInstallManifestStore<Manifest: AgentInstallManifest> {
     }
 
     private func writePrivateFile(_ data: Data, to url: URL) throws {
-        try data.write(to: url, options: [.atomic])
-        try fileManager.setOwnerOnlyPermissions(onFileAt: url)
+        try fileManager.writeOwnerOnlyFile(at: url, contents: data)
     }
 }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import AwesoMuxConfig
@@ -90,4 +91,53 @@ struct FileManagerOwnerOnlyTests {
         }
     }
 
+    @Test("writes a new file at 0600 under a permissive umask")
+    func writesNewOwnerOnlyFileAtExactMode() throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? fileManager.removeItem(at: scratch) }
+        let file = scratch.appending(path: "state.json")
+        // 0o022 is the macOS default, so a write-then-chmod shape would land
+        // these bytes at 0o644 first. Restored immediately — umask is process
+        // global, and this value is what a concurrent test would see anyway.
+        let previousUmask = umask(0o022)
+        defer { _ = umask(previousUmask) }
+
+        try fileManager.writeOwnerOnlyFile(at: file, contents: Data("{}".utf8))
+
+        #expect(try permissions(atPath: file.path) == 0o600)
+        #expect(try Data(contentsOf: file) == Data("{}".utf8))
+        #expect(try fileManager.contentsOfDirectory(atPath: scratch.path) == ["state.json"])
+    }
+
+    @Test("replacing an existing file swaps its contents and re-clamps the mode")
+    func writesOwnerOnlyFileReplacingExistingFile() throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? fileManager.removeItem(at: scratch) }
+        let file = scratch.appending(path: "state.json")
+        try Data("stale".utf8).write(to: file)
+        try fileManager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+
+        try fileManager.writeOwnerOnlyFile(at: file, contents: Data("fresh".utf8))
+
+        #expect(try Data(contentsOf: file) == Data("fresh".utf8))
+        #expect(try permissions(atPath: file.path) == 0o600)
+        #expect(try fileManager.contentsOfDirectory(atPath: scratch.path) == ["state.json"])
+    }
+
+    @Test("a failed write leaves no temporary file behind")
+    func failedOwnerOnlyWriteRemovesTemporaryFile() throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? fileManager.removeItem(at: scratch) }
+        // rename(2) refuses to replace a non-empty directory, so the write fails
+        // only after the temporary file exists — the case the cleanup guards.
+        let occupied = scratch.appending(path: "occupied", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: occupied, withIntermediateDirectories: false)
+        try Data("child".utf8).write(to: occupied.appending(path: "child"))
+
+        #expect(throws: (any Error).self) {
+            try fileManager.writeOwnerOnlyFile(at: occupied, contents: Data("{}".utf8))
+        }
+
+        #expect(try fileManager.contentsOfDirectory(atPath: scratch.path) == ["occupied"])
+    }
 }
