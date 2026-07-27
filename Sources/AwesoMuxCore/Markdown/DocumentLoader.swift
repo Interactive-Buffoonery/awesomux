@@ -99,7 +99,10 @@ public enum DocumentLoader {
         switch readSource(url, effectiveUID: effectiveUID) {
         case let .snapshot(snapshot):
             guard let source = snapshot.source else {
-                return .readError("The file couldn’t be opened because it isn’t in the correct format.")
+                return .readError(
+                    String(
+                        localized: "The file couldn’t be opened because it isn’t in the correct format.",
+                        comment: "Document load failure when the bytes are not valid UTF-8"))
             }
             return .loaded(
                 MarkdownRenderModelBuilder.build(source),
@@ -139,7 +142,11 @@ public enum DocumentLoader {
         do {
             let data = try handle.read(maximumBytes: DocumentURLValidator.maxFileSizeBytes)
             guard String(data: data, encoding: .utf8) != nil else {
-                return .failure(.readError("The file couldn’t be opened because it isn’t in the correct format."))
+                return .failure(
+                    .readError(
+                        String(
+                            localized: "The file couldn’t be opened because it isn’t in the correct format.",
+                            comment: "Document load failure when the bytes are not valid UTF-8")))
             }
             return .snapshot(
                 MarkdownDocumentSnapshot(
@@ -151,7 +158,11 @@ public enum DocumentLoader {
         } catch SecureFileReadError.tooLarge {
             return .failure(.rejected(.tooLarge))
         } catch {
-            return .failure(.readError("The file couldn’t be read."))
+            return .failure(
+                .readError(
+                    String(
+                        localized: "The file couldn’t be read.",
+                        comment: "Generic document load failure when the file cannot be read")))
         }
     }
 }

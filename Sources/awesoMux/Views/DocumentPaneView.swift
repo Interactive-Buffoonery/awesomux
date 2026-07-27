@@ -684,10 +684,10 @@ struct DocumentPaneView: View {
                     loadedView(blocks: blocks, snapshot: snapshot)
 
                 case let .rejected(reason):
-                    errorView(message: rejectionMessage(for: reason, pane: pane))
+                    errorView(message: Self.rejectionMessage(for: reason, pane: pane))
 
                 case let .readError(message):
-                    errorView(message: "Couldn't read \u{201C}\(pane.title)\u{201D}: \(message)")
+                    errorView(message: Self.readErrorMessage(message, pane: pane))
                 }
             } else {
                 ProgressView()
@@ -1530,25 +1530,44 @@ struct DocumentPaneView: View {
             guard await reloadCompletion.wait(for: generation) else { return .failed }
             return conflictOutcome
         case .unreadable:
-            showAlert(title: "Couldn't Save", message: "The document couldn't be read from disk.")
+            showAlert(
+                title: saveFailureTitle,
+                message: String(
+                    localized: "The document couldn't be read from disk.",
+                    comment: "Save failure alert body when the file could not be re-read"))
         case .invalidEdit:
             showAlert(
-                title: "Couldn't Save",
-                message: "The annotation couldn't be saved. It may be too long, invalid, or duplicated."
+                title: saveFailureTitle,
+                message: String(
+                    localized: "The annotation couldn't be saved. It may be too long, invalid, or duplicated.",
+                    comment: "Save failure alert body when the annotation itself is rejected")
             )
         case .outputTooLarge:
-            showAlert(title: "Couldn't Save", message: "The edited document would be too large.")
+            let cap = DocumentURLValidator.maxFileSizeBytes / (1024 * 1024)
+            showAlert(
+                title: saveFailureTitle,
+                message: String(
+                    localized: "The edited document would exceed the \(cap) MB size limit.",
+                    comment: "Save failure alert body when the edit would push the file over the cap; the placeholder is whole megabytes"
+                ))
         case .failed(let failure):
-            showAlert(title: "Couldn't Save", message: failure.message)
+            showAlert(title: saveFailureTitle, message: failure.message)
         }
         return .failed
+    }
+
+    /// Shared so the four save-failure alerts cannot drift apart in wording,
+    /// and so the title is localized once rather than at each call site.
+    private var saveFailureTitle: String {
+        String(localized: "Couldn't Save", comment: "Title of the alert shown when saving an annotation fails")
     }
 
     private func showAlert(title: String, message: String) {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
-        alert.addButton(withTitle: "OK")
+        alert.addButton(
+            withTitle: String(localized: "OK", comment: "Dismiss button on the save-failure alert"))
         alert.runModal()
     }
 
@@ -1650,22 +1669,54 @@ struct DocumentPaneView: View {
 
     // MARK: - Error message helpers
 
-    private func rejectionMessage(
+    /// Frames a `DocumentLoader` read failure with the file it happened to.
+    ///
+    /// The interpolated reason is localized where it is produced, in
+    /// `DocumentLoader` — framing an English payload in a localized sentence
+    /// would be worse than leaving both alone, so the two must stay in step.
+    static func readErrorMessage(_ reason: String, pane: DocumentPane) -> String {
+        String(
+            localized: "Couldn't read \u{201C}\(pane.title)\u{201D}: \(reason)",
+            comment:
+                "Document pane error; first placeholder is the quoted file name, second is the localized reason"
+        )
+    }
+
+    /// Static and non-private so a test can assert what the user actually
+    /// reads. These strings resolve through the string catalog, whose keys
+    /// carry `%arg` placeholder markers; a lookup that fell through wrongly
+    /// would surface those markers verbatim, and nothing else in the app would
+    /// catch it.
+    static func rejectionMessage(
         for reason: DocumentURLValidator.Rejection,
         pane: DocumentPane
     ) -> String {
+        // Localized here rather than at the `Text` that renders it: the view
+        // uses `Text(String)`, which is the non-localizing initializer, so a
+        // raw string built here would reach the user in English regardless of
+        // locale. Resolving at construction keeps the call site unchanged.
         let q = "\u{201C}\(pane.title)\u{201D}"
         switch reason {
         case .notFileURL:
-            return "Can't open \(q): the path is not a local file URL."
+            return String(
+                localized: "Can't open \(q): the path is not a local file URL.",
+                comment: "Document pane error; the placeholder is the quoted file name")
         case .badExtension:
             let allowed = DocumentURLValidator.allowedExtensions.sorted().joined(separator: ", ")
-            return "Can't open \(q): only these file types are supported: \(allowed)."
+            return String(
+                localized: "Can't open \(q): only these file types are supported: \(allowed).",
+                comment:
+                    "Document pane error; first placeholder is the quoted file name, second is a comma-separated extension list"
+            )
         case .tooLarge:
             let cap = DocumentURLValidator.maxFileSizeBytes / (1024 * 1024)
-            return "Can't open \(q): file exceeds the \(cap) MB size limit."
+            return String(
+                localized: "Can't open \(q): file exceeds the \(cap) MB size limit.",
+                comment: "Document pane error; first placeholder is the quoted file name, second is the cap in whole megabytes")
         case .unreadable:
-            return "Can't open \(q): the file couldn't be read (missing or no permission)."
+            return String(
+                localized: "Can't open \(q): the file couldn't be read (missing or no permission).",
+                comment: "Document pane error; the placeholder is the quoted file name")
         }
     }
 }
