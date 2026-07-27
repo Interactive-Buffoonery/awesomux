@@ -694,9 +694,16 @@ enum TerminalBackgroundPreviewForeground {
         // (no gamma expansion) against a 0.5 cut, which misread backgrounds
         // just below the real WCAG black-vs-white crossover at ~0.179 and
         // picked white where black was more readable.
-        Color.aw.backgroundIsDark(Color(nsColor: background))
-            ? Color.white.opacity(0.88)
-            : Color.black.opacity(0.85)
+        //
+        // Deliberately opaque. `backgroundIsDark` compares *opaque* black and
+        // white, so any alpha here would decide on one colour and render
+        // another — at #757575 the softened pair inverts the winner (white
+        // 3.99:1 vs black 4.08:1 once composited, against 4.61/4.56 opaque).
+        // Terminal text renders opaque anyway, so a softened preview would
+        // under-represent the readability it exists to demonstrate. If soft
+        // text is ever wanted here, the choice must move to comparing the
+        // composited candidates.
+        Color.aw.backgroundIsDark(Color(nsColor: background)) ? .white : .black
     }
 }
 
