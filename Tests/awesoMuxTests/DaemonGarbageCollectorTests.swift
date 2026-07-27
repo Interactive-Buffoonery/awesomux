@@ -228,6 +228,60 @@ struct DaemonGarbageCollectorTests {
         #expect(bridgeEnabled == bridgeDisabled)
     }
 
+    // MARK: - Idle classification resolves the daemon, not its shell
+
+    /// `amx list` publishes the forkpty shell child, so `AmxBackend.isIdle` has
+    /// to resolve the daemon before classifying. These pin the resolution and
+    /// its fail-busy default; `DaemonGCPlan.isIdle` itself is covered in Core.
+    private func listed(shellPID: Int32, daemonPID: Int32? = nil) -> LiveDaemon {
+        LiveDaemon(
+            id: TerminalSessionID(rawValue: Self.orphanUUID)!, pid: shellPID, createdEpoch: 10, clients: 0,
+            daemonPID: daemonPID)
+    }
+
+    /// The exact reap-a-live-session shape: the pty child exec'd an agent, so
+    /// it keeps the listed pid and has no children of its own. Classifying from
+    /// the listed pid reads that as idle; classifying from the daemon sees a
+    /// non-shell child and reads busy.
+    private var agentSnapshot: [ProcEntry] {
+        [
+            ProcEntry(pid: 69206, ppid: 1, command: "amx"),
+            ProcEntry(pid: 69207, ppid: 69206, command: "claude"),
+        ]
+    }
+
+    @Test("idle: a detached session whose shell exec'd an agent is busy, resolved via daemon_pid")
+    func idleResolvesViaDaemonPID() {
+        #expect(!AmxBackend.isIdle(listed(shellPID: 69207, daemonPID: 69206), snapshot: agentSnapshot))
+        // The shipped bug, pinned: from the shell pid the agent looks childless.
+        #expect(DaemonGCPlan.isIdle(daemonPID: 69207, in: agentSnapshot))
+    }
+
+    @Test("idle: the same session is busy when the daemon is resolved via the shell's ppid")
+    func idleResolvesViaParent() {
+        #expect(!AmxBackend.isIdle(listed(shellPID: 69207), snapshot: agentSnapshot))
+    }
+
+    @Test("idle: an unresolvable daemon classifies busy, never idle")
+    func unresolvableDaemonIsBusy() {
+        // Idle is the reap-ward answer, so an unresolvable daemon must not land
+        // there — reachable whenever a truncated `ps` drops the shell's row.
+        #expect(!AmxBackend.isIdle(listed(shellPID: 69207), snapshot: []))
+        #expect(
+            !AmxBackend.isIdle(
+                listed(shellPID: 69207), snapshot: [ProcEntry(pid: 69207, ppid: 1, command: "-zsh")]))
+    }
+
+    @Test("idle: a resolved daemon whose only child is a childless shell is still idle")
+    func resolvedIdleDaemonStaysIdle() {
+        let snapshot = [
+            ProcEntry(pid: 69206, ppid: 1, command: "amx"),
+            ProcEntry(pid: 69207, ppid: 69206, command: "-zsh"),
+        ]
+        #expect(AmxBackend.isIdle(listed(shellPID: 69207, daemonPID: 69206), snapshot: snapshot))
+        #expect(AmxBackend.isIdle(listed(shellPID: 69207), snapshot: snapshot))
+    }
+
     @Test("restore and recovery guards still suppress launch sweeps")
     func safetyGuardsSuppressSweep() {
         #expect(

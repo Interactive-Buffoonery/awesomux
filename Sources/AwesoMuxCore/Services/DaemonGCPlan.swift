@@ -34,15 +34,26 @@ public enum DaemonGCPlan {
             }
             guard let name = fields["name"]?.trimmingCharacters(in: .whitespaces),
                 let id = TerminalSessionID(rawValue: name),
-                let pidString = fields["pid"], let pid = Int32(pidString),
+                let pidString = fields["pid"], let pid = Int32(pidString), pid > 0,
                 let createdString = fields["created"], let created = Int(createdString),
                 !seen.contains(name)
             else { continue }
             // Fail safe: if `clients` is absent/unparseable we cannot prove the
             // daemon is unattached, so default to 1 (in use) and spare it.
             let clients = fields["clients"].flatMap(Int.init) ?? 1
+            // Absent, unparseable, or not > 1 all mean "unknown" — never a
+            // dropped row and never a strict-parse failure: a daemon from a
+            // build predating the field emits nothing (or the zeroed 0 its
+            // struct ships), and that is precisely the population the
+            // orphan-attach sweep must not kill. Failing the parse here would
+            // abort the sweep exactly when it matters; `resolvedDaemonPID`
+            // covers unknowns with the listed pid's parent instead, and takes
+            // the same `> 1` line: pid 1 is launchd, never a daemon, so
+            // accepting it would excuse the wrong process from the sweep.
+            let daemonPID = fields["daemon_pid"].flatMap(Int32.init).flatMap { $0 > 1 ? $0 : nil }
             seen.insert(name)
-            result.append(LiveDaemon(id: id, pid: pid, createdEpoch: created, clients: clients))
+            result.append(
+                LiveDaemon(id: id, pid: pid, createdEpoch: created, clients: clients, daemonPID: daemonPID))
         }
         return result
     }
@@ -374,6 +385,61 @@ public enum DaemonGCPlan {
     }
 
     // MARK: - Orphan attach client GC (Interactive-Buffoonery/awesomux#183)
+
+    /// A listed session's OWN daemon pid, or nil when it cannot be established.
+    ///
+    /// `amx list` publishes the daemon's forkpty SHELL CHILD in `pid`, never
+    /// the daemon itself, so every consumer that means "the daemon" has to
+    /// resolve it: `daemonPID` where the daemon publishes it, otherwise the
+    /// listed pid's parent — the process that forkpty'd that shell. The parent
+    /// term is the only one covering daemons from builds predating
+    /// `daemon_pid`, which is the entire inherited population on the first
+    /// launch after upgrade.
+    ///
+    /// nil is reachable in production, not a theoretical branch:
+    /// `AmxBackend.currentProcessSnapshot()` caps `ps` output at 4 MB, and a
+    /// truncated snapshot silently drops rows. A daemon that publishes no
+    /// `daemon_pid` and whose shell row was one of the dropped ones has no
+    /// resolution left. Callers must treat that as "unknown", never as
+    /// evidence about what the process is.
+    public static func resolvedDaemonPID(_ daemon: LiveDaemon, in snapshot: [ProcEntry]) -> Int32? {
+        if let published = daemon.daemonPID { return published }
+        // pid 1 is launchd: a shell already reparented to it names no daemon.
+        guard let ppid = snapshot.first(where: { $0.pid == daemon.pid })?.ppid, ppid > 1 else { return nil }
+        return ppid
+    }
+
+    /// Every pid that might BE a live daemon rather than a leaked attach
+    /// client — the exclusion set both orphan passes below fence against —
+    /// or nil when any live daemon's own pid is unresolvable.
+    ///
+    /// The listed `pid`s are in the set too (a shell is never an attach
+    /// client, and dropping the term would be a silent widening), but they are
+    /// not the point: without the resolved daemon pids, a daemon inherited
+    /// from a previous app run clears every orphan fence at once — it keeps
+    /// the client's `amx attach <uuid>` argv (it forks without exec'ing), its
+    /// client died with the old app so `ppid == 1`, and it easily outlives
+    /// `orphanAttachMinAgeSeconds` — and gets SIGTERMed on launch.
+    ///
+    /// nil is all-or-nothing on purpose. A partial set is worse than no set:
+    /// the unresolvable daemon is missing from it, which is exactly the input
+    /// that makes this pass SIGTERM a live daemon. Callers must skip the
+    /// sweep, matching the fail-dangerous stance the rest of this pass takes
+    /// on unreadable input. Cost of skipping: a genuinely leaked attach client
+    /// survives one more launch. Cost of the alternative: the user's running
+    /// agent work dies.
+    ///
+    /// A reused pid can only add an extra exclusion, which is the safe
+    /// direction — over-excluding costs a leaked client, under-excluding
+    /// destroys running work.
+    public static func liveDaemonPIDs(live: [LiveDaemon], snapshot: [ProcEntry]) -> Set<Int32>? {
+        var pids = Set(live.map(\.pid))
+        for daemon in live {
+            guard let resolved = resolvedDaemonPID(daemon, in: snapshot) else { return nil }
+            pids.insert(resolved)
+        }
+        return pids
+    }
 
     /// A crashed/force-killed app leaves its `amx attach <uuid>` child
     /// orphaned to launchd (macOS reparents to pid 1 — verified empirically,

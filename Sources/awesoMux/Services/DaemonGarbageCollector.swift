@@ -197,7 +197,15 @@ enum DaemonGarbageCollector {
         live: [LiveDaemon],
         snapshot: [ProcEntry]
     ) async {
-        let daemonPIDs = Set(live.map(\.pid))
+        // A daemon whose own pid we cannot resolve is indistinguishable from a
+        // leaked attach client here, and it is missing from the very set that
+        // would spare it — so skip, exactly as the guards below do on
+        // unreadable input. Reachable in production: `currentProcessSnapshot()`
+        // caps `ps` at 4 MB and a truncated snapshot silently drops rows.
+        guard let daemonPIDs = DaemonGCPlan.liveDaemonPIDs(live: live, snapshot: snapshot) else {
+            log.error("orphan attach GC skipped: a live daemon's own pid is unresolvable")
+            return
+        }
         let candidates = DaemonGCPlan.candidateOrphanAttachPIDs(
             snapshot: snapshot, daemonPIDs: daemonPIDs, executableName: AmxBackend.executableName
         )
@@ -220,11 +228,28 @@ enum DaemonGarbageCollector {
             log.error("orphan attach GC aborted: fresh daemon list unavailable or unparseable")
             return
         }
+        // `attachProcessSamples(forPIDs:)` below covers only the candidate
+        // attach pids, so it can never resolve the parents of the FRESH listed
+        // pids — and those parents are the daemons `liveDaemonPIDs` fences on.
+        // Hence a second full snapshot here rather than a reuse. Same
+        // fail-dangerous stance as the strict re-parse above: an unavailable
+        // snapshot means we cannot tell a daemon from a leaked client, so
+        // abort instead of falling open into a kill.
+        guard let freshSnapshot = await AmxBackend.currentProcessSnapshot() else {
+            log.error("orphan attach GC aborted: fresh process snapshot unavailable")
+            return
+        }
+        // Resolved before the confirm query so an unresolvable daemon aborts
+        // without spawning it.
+        guard let freshDaemonPIDs = DaemonGCPlan.liveDaemonPIDs(live: freshDaemons, snapshot: freshSnapshot)
+        else {
+            log.error("orphan attach GC aborted: a fresh live daemon's own pid is unresolvable")
+            return
+        }
         guard let samples = await AmxBackend.attachProcessSamples(forPIDs: candidates) else {
             log.error("orphan attach GC aborted: process confirm query unavailable")
             return
         }
-        let freshDaemonPIDs = Set(freshDaemons.map(\.pid))
         let confirmed = DaemonGCPlan.confirmedOrphanAttachPIDs(
             samples: samples, daemonPIDs: freshDaemonPIDs, executableName: AmxBackend.executableName
         )

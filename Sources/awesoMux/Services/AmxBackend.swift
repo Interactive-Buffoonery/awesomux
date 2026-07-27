@@ -1317,8 +1317,17 @@ enum AmxBackend {
         return snapshot.isEmpty ? nil : snapshot
     }
 
+    /// `daemon.pid` is the forkpty SHELL CHILD, not the daemon, so it must be
+    /// resolved before classification: passing the shell pid inspects the
+    /// SHELL's children instead of the daemon's, and a shell that exec'd an
+    /// agent keeps its pid — so a detached session running live agent work
+    /// reads as childless-and-idle and the reap path kills it.
+    ///
+    /// Unresolvable → BUSY. Idle is the reap-ward answer, so ambiguity must
+    /// never land there.
     static func isIdle(_ daemon: LiveDaemon, snapshot: [ProcEntry]) -> Bool {
-        DaemonGCPlan.isIdle(daemonPID: daemon.pid, in: snapshot)
+        guard let daemonPID = DaemonGCPlan.resolvedDaemonPID(daemon, in: snapshot) else { return false }
+        return DaemonGCPlan.isIdle(daemonPID: daemonPID, in: snapshot)
     }
 
     /// Targeted confirm-pass query for orphan attach client GC

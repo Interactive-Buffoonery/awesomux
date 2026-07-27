@@ -12,12 +12,26 @@ public struct LiveDaemon: Hashable, Sendable {
     /// in active use (this app's own pane, another terminal, or another
     /// awesoMux instance) and is never launch-GC'd.
     public let clients: Int
+    /// The daemon's OWN pid, when it publishes one. `pid` above is not it:
+    /// zmx reports the forkpty shell child there, so the daemon process
+    /// itself is invisible to anything keyed on `pid` alone. Optional
+    /// because daemons started by a build predating the field report
+    /// nothing (or a zeroed 0), and those are exactly the inherited
+    /// daemons GC must not misread as leaked attach clients.
+    public let daemonPID: Int32?
 
-    public init(id: TerminalSessionID, pid: Int32, createdEpoch: Int, clients: Int) {
+    public init(
+        id: TerminalSessionID,
+        pid: Int32,
+        createdEpoch: Int,
+        clients: Int,
+        daemonPID: Int32? = nil
+    ) {
         self.id = id
         self.pid = pid
         self.createdEpoch = createdEpoch
         self.clients = clients
+        self.daemonPID = daemonPID
     }
 }
 
