@@ -218,4 +218,43 @@ struct TerminalAccessibilityAnnouncerTests {
             ) == "Session error cleared. Agent waiting for your input in Build, pane 2, web."
         )
     }
+
+    /// `paneDescriptor(for:in:)` embeds the pane's raw title, so every
+    /// announcement taking a descriptor can be handed an arbitrarily long or
+    /// multi-line string. `compactTitle` exists to stop that dominating speech
+    /// (INT-668) but the descriptor path bypassed it. Assert the bound on the
+    /// shared helper's behaviour via all three announcements that use it, so a
+    /// fourth caller cannot reintroduce the gap by forgetting to compact.
+    @Test("pane descriptors are length-bounded in every announcement that takes one")
+    func paneDescriptorsAreLengthBounded() {
+        let longTitle = String(repeating: "x", count: 200)
+        let descriptor = "pane 2, \(longTitle)"
+
+        let announcements = [
+            TerminalAccessibilityAnnouncer.remoteReconnectStartedAnnouncement(
+                host: "alpha", paneDescriptor: descriptor)
+        ]
+
+        for announcement in announcements {
+            #expect(
+                announcement.contains("…"),
+                "expected the descriptor to be truncated: \(announcement)"
+            )
+            #expect(
+                !announcement.contains(longTitle),
+                "the untruncated title reached the spoken string"
+            )
+        }
+    }
+
+    @Test("multi-line pane descriptors are flattened before speaking")
+    func paneDescriptorsAreSingleLine() {
+        let announcement =
+            TerminalAccessibilityAnnouncer
+            .remoteReconnectStartedAnnouncement(
+                host: "alpha", paneDescriptor: "pane 2,\nsecond line")
+
+        #expect(!announcement.contains("\n"))
+        #expect(announcement.contains("second line"))
+    }
 }

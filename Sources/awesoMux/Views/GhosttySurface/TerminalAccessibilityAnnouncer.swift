@@ -261,8 +261,15 @@ enum TerminalAccessibilityAnnouncer {
         )
     }
 
+    /// Compacts before trimming: `paneDescriptor(for:in:)` embeds the pane's
+    /// raw title, so without this an overlong or multi-line title would
+    /// dominate the spoken string — the case `compactTitle` exists to prevent
+    /// (INT-668). Applied here rather than at each announcement so a new
+    /// caller inherits the bound instead of having to remember it.
     private static func trimmedPaneDescriptor(_ descriptor: String?) -> String? {
-        guard let trimmed = descriptor?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard
+            let trimmed = descriptor.map(compactTitle)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
             !trimmed.isEmpty
         else {
             return nil
