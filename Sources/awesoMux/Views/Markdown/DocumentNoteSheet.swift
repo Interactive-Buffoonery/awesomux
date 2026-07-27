@@ -61,6 +61,18 @@ struct DocumentNoteSheet: View {
         .accessibilityLabel(String(localized: "Document note", comment: "Accessibility label for the document note sheet"))
         .onAppear { presentationID = UUID() }
         .onDisappear { presentationID = nil }
+        // `isEditing` is `@State` seeded at init, so it does not follow
+        // `allowsEditing` falling to false mid-edit (the file outgrew the size
+        // cap while this sheet was open). Without this the editor stays live
+        // with a working Submit that can only ever fail. Parking the terminal
+        // outcome here rather than closing the editor keeps the typed draft on
+        // screen and reachable via Copy Draft — the sheet already renders that
+        // recovery affordance, so nothing new is invented for this case.
+        .onChange(of: allowsEditing) { _, allowed in
+            guard !allowed, isEditing else { return }
+            recovery = .oversizeCopyOnly
+            recoveryDraft = draft
+        }
     }
 
     private var header: some View {
@@ -208,7 +220,7 @@ struct DocumentNoteSheet: View {
             guard let activePresentation, presentationID == activePresentation else { return }
             submission.finish()
             recovery = outcome == .saved ? nil : outcome
-            recoveryDraft = outcome == .copyOnly ? draftToRecover : nil
+            recoveryDraft = (outcome == .copyOnly || outcome == .oversizeCopyOnly) ? draftToRecover : nil
             AnnotationSaveRecovery.announce(
                 outcome,
                 hasRecoverableDraft: draftToRecover != nil
@@ -230,7 +242,7 @@ struct DocumentNoteSheet: View {
             Text(recoveryMessage(outcome))
                 .font(.system(size: 11))
                 .foregroundStyle(Color.aw.text2)
-            if outcome == .copyOnly, recoveryDraft != nil {
+            if outcome == .copyOnly || outcome == .oversizeCopyOnly, recoveryDraft != nil {
                 Button(
                     String(localized: "Copy Draft", comment: "Button to copy a document note draft after a save conflict"),
                     action: copyDraft
@@ -259,6 +271,8 @@ struct DocumentNoteSheet: View {
             }
         case .copyAndReselect:
             String(localized: "Copy the draft before closing.", comment: "Document note recovery message when only copying is safe")
+        case .oversizeCopyOnly:
+            AnnotationSaveRecovery.oversizeMessage
         case .failed:
             String(localized: "The change was not saved.", comment: "Document note save failure message")
         case .saved:
@@ -334,7 +348,7 @@ private struct MultilineDocumentNoteEditor: View {
                     Text(recoveryMessage(recovery))
                         .font(.system(size: 11))
                         .foregroundStyle(Color.aw.text2)
-                    if recovery == .copyOnly, hasRecoveryDraft {
+                    if recovery == .copyOnly || recovery == .oversizeCopyOnly, hasRecoveryDraft {
                         Button(
                             String(localized: "Copy Draft", comment: "Button to copy a document note editor draft after a save conflict"),
                             action: onCopyDraft
@@ -366,6 +380,8 @@ private struct MultilineDocumentNoteEditor: View {
             }
         case .copyAndReselect:
             String(localized: "Copy your draft before closing.", comment: "Document note editor recovery message when only copying is safe")
+        case .oversizeCopyOnly:
+            AnnotationSaveRecovery.oversizeMessage
         case .failed:
             String(localized: "The draft was not saved.", comment: "Document note editor save failure message")
         case .saved:

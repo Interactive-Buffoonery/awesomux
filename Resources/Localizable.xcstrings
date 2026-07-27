@@ -160,6 +160,9 @@
     "%arg" : {
 
     },
+    "%arg is now too large to render." : {
+      "comment" : "Accessibility lead-in for the document oversize banner; the placeholder is the file name"
+    },
     "%arg %arg" : {
       "localizations" : {
         "en" : {
@@ -3236,6 +3239,12 @@
     "The file couldn’t be read." : {
       "comment" : "Generic document load failure when the file cannot be read"
     },
+    "The file has grown past the %arg MB limit. Showing the last version that fit. Comments are paused until the file fits again." : {
+      "comment" : "Document banner shown when an open file grows past the size cap; the placeholder is the cap in whole megabytes"
+    },
+    "The file has grown past the %arg MB limit, so it can't be edited until it fits again." : {
+      "comment" : "Annotation save recovery message when the document outgrew the size cap; the placeholder is the cap in whole megabytes"
+    },
     "The global integration install record could not be read" : {
       "comment" : "Unreadable CLI agent plugin install manifest action error"
     },
@@ -3724,6 +3733,9 @@
     },
     "or" : {
 
+    },
+    "file outgrew the limit" : {
+      "comment" : "Kicker on the document banner shown when an open file grows past the size cap"
     },
     "permission needed" : {
 

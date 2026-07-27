@@ -6,6 +6,17 @@ enum AnnotationSaveOutcome: Equatable, Sendable {
     case reloadAndRetry
     case copyAndReselect
     case copyOnly
+    /// The file grew past `DocumentURLValidator.maxFileSizeBytes` while this
+    /// editor was open, so the viewer is holding a render the disk no longer
+    /// matches and no write can be committed against it.
+    ///
+    /// Terminal on BOTH submit gates below, unlike `copyOnly` (terminal only
+    /// for an existing annotation) and `copyAndReselect` (terminal only for a
+    /// new one). It has to be: the popovers are `NSHostingController` root
+    /// views handed over imperatively, so an editor opened before the file
+    /// crossed the cap never re-renders and would otherwise keep offering a
+    /// Save that re-reads, re-rejects, and invites another attempt.
+    case oversizeCopyOnly
     case failed
 }
 
@@ -58,11 +69,21 @@ enum AnnotationPopoverLifecycle {
 }
 
 enum AnnotationSaveRecovery {
+    /// One sentence for every surface that can hit the size cap mid-edit —
+    /// both popovers, the note sheet, and the VoiceOver announcement — so the
+    /// four cannot drift, and so the cap is read from the validator rather
+    /// than restated.
+    static let oversizeMessage = String(
+        localized:
+            "The file has grown past the \(DocumentURLValidator.maxFileSizeMegabytes) MB limit, so it can't be edited until it fits again.",
+        comment: "Annotation save recovery message when the document outgrew the size cap; the placeholder is the cap in whole megabytes"
+    )
+
     static func canSubmitExistingAnnotation(
         isSubmitting: Bool,
         outcome: AnnotationSaveOutcome?
     ) -> Bool {
-        !isSubmitting && outcome != .copyOnly
+        !isSubmitting && outcome != .copyOnly && outcome != .oversizeCopyOnly
     }
 
     static func canSubmitNewAnnotation(
@@ -71,6 +92,7 @@ enum AnnotationSaveRecovery {
         outcome: AnnotationSaveOutcome?
     ) -> Bool {
         hasValidDraft && !isSubmitting && outcome != .copyAndReselect
+            && outcome != .oversizeCopyOnly
     }
 
     static func canRebind(
@@ -116,6 +138,8 @@ enum AnnotationSaveRecovery {
                 : String(
                     localized: "The annotation changed or was removed.",
                     comment: "Save recovery announcement when an annotation no longer exists")
+        case .oversizeCopyOnly:
+            oversizeMessage
         case .failed:
             String(localized: "The draft was not saved.", comment: "Save failure announcement")
         case .saved:
