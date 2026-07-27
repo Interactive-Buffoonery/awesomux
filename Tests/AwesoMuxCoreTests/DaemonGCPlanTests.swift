@@ -42,6 +42,45 @@ struct DaemonGCPlanTests {
         #expect(daemons.first?.clients == 1)
     }
 
+    @Test("amx list: daemon_pid is parsed when the daemon publishes it")
+    func parseListDaemonPID() {
+        // Live shape: `pid` is the forkpty shell child, `daemon_pid` the daemon.
+        let raw = "  name=\(uuidA)\tpid=69207\tclients=1\tcreated=1782263486\tdaemon_pid=69206\tstart_dir=/x"
+        #expect(DaemonGCPlan.parseAmxList(raw).first?.daemonPID == 69206)
+    }
+
+    @Test("amx list: absent/zero/malformed daemon_pid reads as unknown without dropping or failing the row")
+    func parseListDaemonPIDUnknown() {
+        let base = "  name=\(uuidA)\tpid=100\tclients=1\tcreated=500\tstart_dir=/x"
+        let rows = [
+            base,  // daemon predating the field
+            base + "\tdaemon_pid=0",  // zeroed struct from an old daemon
+            base + "\tdaemon_pid=1",  // launchd is never a daemon
+            base + "\tdaemon_pid=notanint",
+            base + "\tdaemon_pid=",
+            base + "\tdaemon_pid=-1",
+        ]
+        for row in rows {
+            let parsed = DaemonGCPlan.parseAmxList(row)
+            #expect(parsed.count == 1)
+            #expect(parsed.first?.daemonPID == nil)
+            // Strict must still succeed: aborting the sweep on a missing
+            // daemon_pid would abort it on exactly the inherited daemons the
+            // field exists to protect.
+            #expect(DaemonGCPlan.parseAmxListStrict(row)?.count == 1)
+        }
+    }
+
+    @Test("amx list: a non-positive pid drops the row rather than seeding a bogus exclusion")
+    func parseListRejectsNonPositivePID() {
+        for pid in ["0", "-1"] {
+            let raw = "  name=\(uuidA)\tpid=\(pid)\tclients=1\tcreated=500\tstart_dir=/x"
+            #expect(DaemonGCPlan.parseAmxList(raw).isEmpty)
+            // Strict must notice the drop and abort its consumers' sweeps.
+            #expect(DaemonGCPlan.parseAmxListStrict(raw) == nil)
+        }
+    }
+
     @Test("process snapshot parser")
     func parseProcs() {
         let raw = " 100 1 zsh\n 200 100 sleep\n 300 1 -bash\nbad\n"
@@ -357,6 +396,153 @@ struct DaemonGCPlanTests {
     }
 
     // MARK: - Orphan attach client GC (#183)
+
+    /// `amx list` row for a daemon whose forkpty shell child is `shellPID`.
+    private func listedDaemon(shellPID: Int32, daemonPID: Int32? = nil) -> LiveDaemon {
+        LiveDaemon(
+            id: TerminalSessionID(rawValue: uuidA)!, pid: shellPID, createdEpoch: 10, clients: 1,
+            daemonPID: daemonPID)
+    }
+
+    @Test("resolved daemon pid: the published daemon_pid wins")
+    func resolvedDaemonPIDPublished() {
+        // Deliberately contradicts the snapshot: `daemon_pid` is first-hand.
+        let snapshot = [ProcEntry(pid: 69207, ppid: 999, command: "-zsh")]
+        #expect(
+            DaemonGCPlan.resolvedDaemonPID(listedDaemon(shellPID: 69207, daemonPID: 69206), in: snapshot)
+                == 69206)
+    }
+
+    @Test("resolved daemon pid: falls back to the listed pid's parent")
+    func resolvedDaemonPIDFromParent() {
+        let snapshot = [ProcEntry(pid: 69207, ppid: 69206, command: "-zsh")]
+        #expect(DaemonGCPlan.resolvedDaemonPID(listedDaemon(shellPID: 69207), in: snapshot) == 69206)
+    }
+
+    @Test("resolved daemon pid: unresolvable when the shell row is missing or reparented to launchd")
+    func resolvedDaemonPIDUnresolvable() {
+        // A truncated `ps` (4 MB cap in currentProcessSnapshot) drops rows, so
+        // the shell row backing the only fallback can simply be absent.
+        #expect(DaemonGCPlan.resolvedDaemonPID(listedDaemon(shellPID: 69207), in: []) == nil)
+        #expect(
+            DaemonGCPlan.resolvedDaemonPID(
+                listedDaemon(shellPID: 69207), in: [ProcEntry(pid: 69207, ppid: 1, command: "-zsh")])
+                == nil)
+    }
+
+    @Test("live daemon pids: union of the listed pid, its published daemon_pid, and its parent")
+    func liveDaemonPIDsUnion() {
+        let snapshot = [ProcEntry(pid: 69207, ppid: 69206, command: "-zsh")]
+        #expect(
+            DaemonGCPlan.liveDaemonPIDs(
+                live: [listedDaemon(shellPID: 69207, daemonPID: 69206)], snapshot: snapshot)
+                == Set<Int32>([69206, 69207]))
+    }
+
+    @Test("live daemon pids: the parent term covers a daemon that publishes no daemon_pid")
+    func liveDaemonPIDsParentFallback() {
+        let snapshot = [ProcEntry(pid: 69207, ppid: 69206, command: "-zsh")]
+        #expect(
+            DaemonGCPlan.liveDaemonPIDs(live: [listedDaemon(shellPID: 69207)], snapshot: snapshot)
+                == Set<Int32>([69206, 69207]))
+    }
+
+    @Test("live daemon pids: a listed pid missing from the snapshot yields nil, not a partial set")
+    func liveDaemonPIDsMissingFromSnapshot() {
+        // The partial set `[69207]` would be the dangerous answer: it omits the
+        // daemon, which is exactly what makes the orphan sweep SIGTERM it.
+        #expect(DaemonGCPlan.liveDaemonPIDs(live: [listedDaemon(shellPID: 69207)], snapshot: []) == nil)
+    }
+
+    @Test("live daemon pids: a shell already reparented to launchd yields nil")
+    func liveDaemonPIDsIgnoresLaunchdParent() {
+        let snapshot = [ProcEntry(pid: 69207, ppid: 1, command: "-zsh")]
+        #expect(DaemonGCPlan.liveDaemonPIDs(live: [listedDaemon(shellPID: 69207)], snapshot: snapshot) == nil)
+    }
+
+    @Test("live daemon pids: one unresolvable daemon nils the whole set, sparing the resolvable ones too")
+    func liveDaemonPIDsUnresolvableIsAllOrNothing() {
+        let resolvable = LiveDaemon(
+            id: TerminalSessionID(rawValue: uuidB)!, pid: 100, createdEpoch: 10, clients: 1, daemonPID: 99)
+        #expect(
+            DaemonGCPlan.liveDaemonPIDs(
+                live: [resolvable, listedDaemon(shellPID: 69207)], snapshot: []) == nil)
+    }
+
+    @Test("skip, never kill: an unresolvable daemon leaves the sweep with no candidate list at all")
+    func unresolvableDaemonSkipsTheSweep() {
+        // The pure-function stand-in for `reapOrphanAttachClients`' guard: nil
+        // has no `Set` to hand `candidateOrphanAttachPIDs`, so the caller can
+        // only return. Assert the shape the guard depends on — a fall-through
+        // to `?? []` would select the daemon itself.
+        let snapshot = [
+            ProcEntry(pid: 69206, ppid: 1, command: "amx"),
+            ProcEntry(pid: 69207, ppid: 1, command: "-zsh"),  // reparented: daemon unresolvable
+        ]
+        #expect(DaemonGCPlan.liveDaemonPIDs(live: [listedDaemon(shellPID: 69207)], snapshot: snapshot) == nil)
+        #expect(
+            DaemonGCPlan.candidateOrphanAttachPIDs(
+                snapshot: snapshot, daemonPIDs: [], executableName: "amx"
+            ) == [69206])
+    }
+
+    @Test("regression: a daemon inherited from the previous app run is never an orphan-attach candidate")
+    func inheritedDaemonIsNeverAnOrphanCandidate() throws {
+        // Verified live: `amx list` publishes pid=69207, which is `-zsh`; its
+        // parent 69206 is the daemon. The daemon forks without exec'ing, so it
+        // still carries its client's `amx attach <uuid>` argv, and its client
+        // died with the previous app run, so it is reparented to launchd.
+        let listed = listedDaemon(shellPID: 69207)
+        let snapshot = [
+            ProcEntry(pid: 69206, ppid: 1, command: "/Applications/awesoMux.app/Contents/MacOS/amx"),
+            ProcEntry(pid: 69207, ppid: 69206, command: "-zsh"),
+        ]
+        let daemonPIDs = try #require(DaemonGCPlan.liveDaemonPIDs(live: [listed], snapshot: snapshot))
+        #expect(
+            DaemonGCPlan.candidateOrphanAttachPIDs(
+                snapshot: snapshot, daemonPIDs: daemonPIDs, executableName: "amx"
+            ).isEmpty)
+
+        // The shipped bug, pinned: fencing on the listed pids alone selects the
+        // daemon itself for SIGTERM.
+        #expect(
+            DaemonGCPlan.candidateOrphanAttachPIDs(
+                snapshot: snapshot, daemonPIDs: Set([listed].map(\.pid)), executableName: "amx"
+            ) == [69206])
+
+        // The confirm pass must reach the same verdict from its own inputs.
+        let sample = DaemonGCPlan.AttachProcessSample(
+            pid: 69206, ppid: 1, etimeSeconds: 7200,
+            argv0: "/Applications/awesoMux.app/Contents/MacOS/amx", subcommand: "attach",
+            sessionArgument: uuidA)
+        #expect(
+            DaemonGCPlan.confirmedOrphanAttachPIDs(
+                samples: [sample], daemonPIDs: daemonPIDs, executableName: "amx"
+            ).isEmpty)
+    }
+
+    @Test("regression guard: widening the exclusion set still reaps a genuine orphan attach client")
+    func genuineOrphanStillReapedAlongsideLiveDaemon() throws {
+        let listed = listedDaemon(shellPID: 69207, daemonPID: 69206)
+        let snapshot = [
+            ProcEntry(pid: 69206, ppid: 1, command: "amx"),  // live daemon
+            ProcEntry(pid: 69207, ppid: 69206, command: "-zsh"),
+            ProcEntry(pid: 800, ppid: 1, command: "amx"),  // leaked client (#183)
+        ]
+        let daemonPIDs = try #require(DaemonGCPlan.liveDaemonPIDs(live: [listed], snapshot: snapshot))
+        #expect(
+            DaemonGCPlan.candidateOrphanAttachPIDs(
+                snapshot: snapshot, daemonPIDs: daemonPIDs, executableName: "amx"
+            ) == [800])
+
+        let orphan = DaemonGCPlan.AttachProcessSample(
+            pid: 800, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach",
+            sessionArgument: uuidB)
+        #expect(
+            DaemonGCPlan.confirmedOrphanAttachPIDs(
+                samples: [orphan], daemonPIDs: daemonPIDs, executableName: "amx"
+            ) == [800])
+    }
 
     @Test("candidate shortlist: orphaned amx process detected, basename-normalized")
     func candidateOrphanDetected() {
