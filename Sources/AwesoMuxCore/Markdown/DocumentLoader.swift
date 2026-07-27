@@ -26,6 +26,20 @@ public enum DocumentLoader {
         case rejected(DocumentURLValidator.Rejection)
         /// The URL was valid but the file could not be read (e.g. permissions, deleted).
         case readError(String)
+
+        /// The load failed *only* because the file is over
+        /// `DocumentURLValidator.maxFileSizeBytes`.
+        ///
+        /// Worth distinguishing from every other failure: the bytes are still
+        /// there and still readable, and this viewer is the only thing
+        /// declining them. A deleted or unreachable file should invalidate
+        /// cached content; a file that merely grew past the cap should not,
+        /// because it can drop back under and because the last render we made
+        /// of it was real.
+        public var isRejectedForSize: Bool {
+            if case .rejected(.tooLarge) = self { return true }
+            return false
+        }
     }
 
     // MARK: - Load

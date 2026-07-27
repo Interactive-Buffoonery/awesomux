@@ -107,6 +107,19 @@ struct DocumentURLValidatorTests {
         #expect(DocumentURLValidator.reject(url, fileSize: 100 * 1024 * 1024) == .tooLarge)
     }
 
+    /// Every other size test is written relative to `maxFileSizeBytes`, so the
+    /// suite stays green no matter what the cap is set to. This one pins the
+    /// value itself, because the value is a deliberate memory decision rather
+    /// than an arbitrary limit: a rendered document costs ~138 MB of live heap
+    /// per MB of source, and `NSTextLayoutManager` never releases layout
+    /// fragments, so capping the input is the only thing that bounds resident
+    /// memory. Raising this without a rendering strategy that avoids
+    /// whole-document layout re-buys a multi-hundred-megabyte document tab.
+    @Test("the size cap is pinned at 2 MiB — raising it re-buys the memory problem")
+    func sizeCapIsPinnedToItsMemoryBudget() {
+        #expect(DocumentURLValidator.maxFileSizeBytes == 2 * 1024 * 1024)
+    }
+
     @Test("accepts nil file size (size check skipped)")
     func acceptsNilFileSize() {
         // nil means the caller hasn't determined the size yet or the file

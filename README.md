@@ -37,7 +37,7 @@ work.
 
 Markdown panes are meant to support the terminal, not replace it: each workspace
 still keeps at least one terminal pane open. You can open local `.md` and
-`.markdown` files up to 10 MB.
+`.markdown` files up to 2 MiB.
 
 Entry points:
 

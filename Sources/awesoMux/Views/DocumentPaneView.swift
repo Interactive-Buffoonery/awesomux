@@ -770,10 +770,28 @@ struct DocumentPaneView: View {
             // reload re-storing an identical entry would invalidate the whole
             // group view for nothing on every watcher wobble; the cache
             // already holds this content (it seeded us or stored the first
-            // load). Errors (doc == nil) always report — rare, and the cache
-            // should stop seeding content the disk can no longer back.
-            if doc == nil || priorDoc == nil
-                || doc?.source.utf8.elementsEqual(priorDoc?.source.utf8 ?? "".utf8) == false
+            // load). Errors (doc == nil) report too — the cache should stop
+            // seeding content the disk can no longer back.
+            //
+            // Except an over-cap rejection, which is never cached at all. The
+            // disk still backs that content perfectly well; only this viewer
+            // declines to render it, and the file can drop back under the cap.
+            // Caching it makes the failure *sticky* — every later remount is
+            // seeded straight into the error with no reload attempt — and an
+            // agent appending to an open plan file crosses the line routinely.
+            //
+            // Deliberately not conditioned on having a prior render: a tab
+            // whose file is already over cap when it first mounts has no prior
+            // render to protect, and caching the rejection there strands it
+            // just the same. Re-reading costs nothing either way, because the
+            // size check runs in the validator before any I/O.
+            //
+            // Skipping the callback also skips `noteRenderCompleted`, which is
+            // already a no-op here: it guards on a non-nil source, and a
+            // rejection carries none.
+            if !result.isRejectedForSize,
+                doc == nil || priorDoc == nil
+                    || doc?.source.utf8.elementsEqual(priorDoc?.source.utf8 ?? "".utf8) == false
             {
                 onRenderCompleted?(DocumentTabMemory.Render(loadResult: result, renderedDoc: doc))
             }
