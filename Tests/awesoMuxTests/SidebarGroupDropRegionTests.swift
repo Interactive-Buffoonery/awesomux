@@ -11,6 +11,15 @@ import Testing
 /// undocumented SwiftUI hit-testing behavior, so assert them directly: a
 /// toolchain change that clips the overflow, or drops the reclaim, would
 /// otherwise revert the fix with a green suite.
+///
+/// **Coverage limit — read before trusting a green run here.** This suite
+/// asserts the registered drag-destination view's *bounds*, not a delivered
+/// drag session. AppKit resolves destinations by hit-testing views with
+/// registered types, so a registrant spanning the gutter is a sound proxy — but
+/// `SidebarHostedTestHarness` has no synthetic drag-session support
+/// (`sendClick` hardcodes `clickCount: 1`), so nothing here exercises an
+/// end-to-end drop. Manual verification is the only check on the delivered
+/// behavior.
 @Suite(.serialized)
 @MainActor
 struct SidebarGroupDropRegionTests {

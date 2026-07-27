@@ -53,7 +53,33 @@ struct PublicSeedSourceScriptTests {
         #expect(result.error.contains("simulated rg failure"))
     }
 
-    private func runGuard(publicText: String, failingRipgrep: Bool = false) throws -> ShellResult {
+    /// The purged directories are rejected on *existence*, not on content.
+    /// Only a third of the files removed in the 2026-07-27 purge matched the
+    /// string patterns above, so a content-only scan would have readmitted the
+    /// rest unnoticed. The fixture content here is deliberately innocuous: if
+    /// this test can only fail when the file contains a flagged string, it is
+    /// testing the wrong thing.
+    @Test(
+        "purged directories are rejected even when their contents are innocuous",
+        arguments: ["docs/plans", "docs/superpowers"])
+    func purgedDirectoriesRemainRejected(directory: String) throws {
+        let result = try runGuard(
+            publicText: "public",
+            purgedDirectory: directory,
+            purgedFileText: "nothing sensitive in here at all"
+        )
+
+        #expect(result.status == 1)
+        #expect(result.error.contains(directory))
+        #expect(result.error.contains("must not be reintroduced"))
+    }
+
+    private func runGuard(
+        publicText: String,
+        failingRipgrep: Bool = false,
+        purgedDirectory: String? = nil,
+        purgedFileText: String = ""
+    ) throws -> ShellResult {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "awesomux-public-seed-guard-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -65,6 +91,12 @@ struct PublicSeedSourceScriptTests {
         let copiedScript = scriptDirectory.appending(path: "check_public_seed_source.sh")
         try Data(contentsOf: sourceScript).write(to: copiedScript)
         try Data(publicText.utf8).write(to: root.appending(path: "PUBLIC.md"))
+
+        if let purgedDirectory {
+            let directory = root.appending(path: purgedDirectory, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(purgedFileText.utf8).write(to: directory.appending(path: "resurrected.md"))
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
