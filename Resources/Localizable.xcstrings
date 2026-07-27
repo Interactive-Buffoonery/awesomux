@@ -2343,6 +2343,26 @@
     "Reconnected." : {
       "comment" : "VoiceOver announcement when a moved-to-local pane reconnects, with no host to name"
     },
+    "Reconnecting in %arg." : {
+      "comment" : "VoiceOver announcement when a reconnect attempt starts for a moved-to-local pane in a split, with no host to name"
+    },
+    "Reconnecting to %arg in %arg." : {
+      "comment" : "VoiceOver announcement when a reconnect attempt starts for a remote pane in a split, naming the host and pane",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Reconnecting to %1$arg in %2$arg."
+          }
+        }
+      }
+    },
+    "Reconnecting to %arg." : {
+      "comment" : "VoiceOver announcement when a reconnect attempt starts for a remote pane, naming the host"
+    },
+    "Reconnecting." : {
+      "comment" : "VoiceOver announcement when a reconnect attempt starts for a moved-to-local pane, with no host to name"
+    },
     "Reconnecting…" : {
       "comment" : "Disabled button label shown on the remote-disconnected overlay while a manual reconnect is in flight\nTitle on the remote-pane overlay while a manual reconnect is in flight"
     },

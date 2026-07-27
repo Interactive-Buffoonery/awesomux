@@ -85,6 +85,32 @@ struct TerminalAccessibilityAnnouncerTests {
         )
     }
 
+    @Test("reconnect-started announcement claims only the attempt, never success")
+    func remoteReconnectStartedAnnouncementClaimsOnlyTheAttempt() {
+        // A remote-owned pane has no attach evidence at spawn time, so this copy
+        // must stay in the progressive tense — the confirmed-success wording
+        // belongs to `remoteReconnected`, which only an `attached` event earns.
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteReconnectStartedAnnouncement(
+                host: "prod.example",
+                paneDescriptor: "pane 2, web"
+            ) == "Reconnecting to prod.example in pane 2, web."
+        )
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteReconnectStartedAnnouncement(
+                host: "prod.example"
+            ) == "Reconnecting to prod.example."
+        )
+        // A pane moved to a local group has no host to name, and a blank
+        // descriptor must not leak an empty "in ." fragment.
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteReconnectStartedAnnouncement(
+                host: nil,
+                paneDescriptor: "  "
+            ) == "Reconnecting."
+        )
+    }
+
     @Test("waiting announcement includes non-empty session title")
     func waitingAnnouncementIncludesTitle() {
         #expect(

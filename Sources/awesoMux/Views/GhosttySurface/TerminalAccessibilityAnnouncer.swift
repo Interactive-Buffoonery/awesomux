@@ -185,6 +185,10 @@ enum TerminalAccessibilityAnnouncer {
     /// (INT-697), the recovery counterpart to the disconnect announcement.
     /// `host` is nil when the pane had moved to a local group (a plain restart,
     /// no host to name) — success is still announced so it's never silent.
+    ///
+    /// Only for panes with a status side channel, where `attached` is real
+    /// evidence the session is back. A remote-owned pane has no such channel and
+    /// must use `announceRemoteReconnectStarted` instead.
     static func announceRemoteReconnected(host: String?, paneDescriptor: String? = nil) {
         let pane = trimmedPaneDescriptor(paneDescriptor)
         let message: String
@@ -211,6 +215,50 @@ enum TerminalAccessibilityAnnouncer {
             )
         }
         post(message, priority: .medium)
+    }
+
+    /// Spoken when a remote-OWNED pane's reconnect has been dialed but not yet
+    /// confirmed. That pane has no local status side channel, so a spawned ssh
+    /// child is the only signal available and it proves nothing about the far
+    /// host — an unreachable host, a pending authentication prompt, or a missing
+    /// `zmx` all spawn just as successfully. Speaking "Reconnected to X" there
+    /// told a VoiceOver user the session was back when it may not be, so this
+    /// names only what actually happened. The outcome still gets its own voice:
+    /// a failure re-latches and the disconnected overlay announces it.
+    static func remoteReconnectStartedAnnouncement(
+        host: String?,
+        paneDescriptor: String? = nil
+    ) -> String {
+        let pane = trimmedPaneDescriptor(paneDescriptor)
+        switch (host, pane) {
+        case let (host?, pane?):
+            return String(
+                localized: "Reconnecting to \(host) in \(pane).",
+                comment: "VoiceOver announcement when a reconnect attempt starts for a remote pane in a split, naming the host and pane"
+            )
+        case let (host?, nil):
+            return String(
+                localized: "Reconnecting to \(host).",
+                comment: "VoiceOver announcement when a reconnect attempt starts for a remote pane, naming the host"
+            )
+        case let (nil, pane?):
+            return String(
+                localized: "Reconnecting in \(pane).",
+                comment: "VoiceOver announcement when a reconnect attempt starts for a moved-to-local pane in a split, with no host to name"
+            )
+        case (nil, nil):
+            return String(
+                localized: "Reconnecting.",
+                comment: "VoiceOver announcement when a reconnect attempt starts for a moved-to-local pane, with no host to name"
+            )
+        }
+    }
+
+    static func announceRemoteReconnectStarted(host: String?, paneDescriptor: String? = nil) {
+        post(
+            remoteReconnectStartedAnnouncement(host: host, paneDescriptor: paneDescriptor),
+            priority: .medium
+        )
     }
 
     private static func trimmedPaneDescriptor(_ descriptor: String?) -> String? {
