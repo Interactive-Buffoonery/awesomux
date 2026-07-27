@@ -22,8 +22,18 @@ enum ClosePresentationClaims {
 
     /// Copy asserting that the pane's work does not come back — either awesoMux
     /// ends it outright, or it survives somewhere awesoMux can no longer reach.
+    ///
+    /// The reattach half requires a negation ahead of it in the same sentence.
+    /// Matching a bare "reattach" made this true for copy claiming the exact
+    /// opposite — "you can reattach after closing" would have satisfied an
+    /// assertion that the pane is lost, so the guard would have passed on
+    /// wording it exists to reject.
     static func saysAwesoMuxLosesThePane(_ text: String) -> Bool {
-        claimsDestruction(text) || matches(text, #"\b(reattach|(can'?t|cannot) be recovered)\b"#)
+        claimsDestruction(text)
+            || matches(
+                text,
+                #"\b(?:can'?t|cannot|won'?t|will not|unable to|no longer)\b[^.]*\b(?:reattach\w*|recover\w*)\b"#
+            )
     }
 
     private static func matches(_ text: String, _ pattern: String) -> Bool {
