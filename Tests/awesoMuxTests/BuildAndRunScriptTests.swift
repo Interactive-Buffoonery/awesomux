@@ -36,6 +36,18 @@ struct BuildAndRunScriptTests {
         #expect(result.output.contains("ancestor_found=yes"), "stdout: \(result.output)")
     }
 
+    @Test("candidate pid enumeration fails closed when ps itself fails")
+    func candidatePIDEnumerationFailsClosedOnPSFailure() throws {
+        // The rewrite moved the ps-failure handling inline; nothing else in
+        // this suite drives `ps` itself failing (the other enumeration-failure
+        // tests stub `app_bundle_pids`/`app_bundle_is_running` a layer up), so
+        // this is the only test that would catch a regression in that branch.
+        let result = try Self.runCandidatePIDsPSFailureSnippet()
+
+        #expect(result.exitStatus == 70, "stderr: \(result.error)")
+        #expect(result.error.contains("unable to enumerate running awesoMux processes (ps exited"))
+    }
+
     @Test("terminate_app_bundle refuses to kill a process it is running inside")
     func terminateAppBundleRefusesSelfTermination() throws {
         // Fixing the ancestor-detection bug above means an ancestor awesoMux
@@ -435,6 +447,37 @@ struct BuildAndRunScriptTests {
         let process = Process()
         process.executableURL = helperURL
         process.arguments = ["/bin/bash", "-c", bash]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        try process.waitUntilExitEventually()
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
+    private static func runCandidatePIDsPSFailureSnippet() throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let function = try candidatePIDsFunction(from: script)
+
+        let bash = """
+            set -euo pipefail
+            APP_NAME=awesoMux
+            PROCESS_ENUMERATION_FAILURE=70
+            \(function)
+
+            ps() { echo "ps: permission denied" >&2; return 1; }
+            awesomux_candidate_pids
+            """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", bash]
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
