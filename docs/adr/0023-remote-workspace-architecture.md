@@ -170,10 +170,42 @@ carried was the workaround for the bug this replaces.
 
 Failure is visible and terminal — the disconnected overlay, never a fallback
 to a local shell, another host, or a different persistence owner. Exit code 0
-closes the pane; because the pane runs with a command set rather than a login
-shell, its exit parks behind ghostty's `wait_after_command`
-([ADR-0011](0011-persistent-session-daemon-command-bridge.md)), so the error
-overlay is keypress-deferred.
+closes the pane, exactly as a local shell's `exit` does.
+
+That status has to be recovered out of band, and the pane has to stop waiting
+for a keypress to act on it. Neither is free:
+
+- The pane runs with a command set rather than a login shell, so ghostty forces
+  `wait_after_command` on
+  ([ADR-0011](0011-persistent-session-daemon-command-bridge.md)) and the exit
+  parks at "Press any key to close the terminal" instead of reaching the close
+  callback. awesoMux therefore claims ghostty's child-exited action and drives
+  the exit itself. It answers that claim synchronously — the return value
+  decides whether ghostty paints its own screen — but enacts the teardown a
+  main-actor turn later, because ghostty goes on using the surface after the
+  action returns and the teardown frees it.
+- libghostty's own child-exit code is 0 for every child on macOS, because
+  ghostty spawns through `/usr/bin/login`, which does not propagate the child's
+  status (`login -flpq "$USER" /bin/sh -c 'exit 7'` returns 0; ghostty's source
+  records the symptom without naming the cause). A remote-owned pane also has
+  no `amx` status channel to report into.
+
+So the ssh client runs under a local `/bin/sh` that writes its exit status to a
+per-pane file, which the exit decision reads and deletes. A file rather than an
+in-band terminal report, deliberately: a write completes before the writer
+exits, so the status is guaranteed readable when the child-exited action
+arrives, whereas terminal bytes are parsed on libghostty's reader thread with no
+ordering against that action at all. The file is also unambiguously ours — a far
+host running its own shell integration emits OSC 133 reports that nothing
+downstream could distinguish from a synthesized one — and it stays out of the
+generic shell/agent completion pipeline that an in-band report would trigger on
+its way through.
+
+Exit code 0 closes the pane. Everything else — ssh's own 255, the discovery
+script's 127, and a missing file — latches the disconnected overlay. Telling
+those failures apart *from each other* in the overlay copy is
+[#275](https://github.com/Interactive-Buffoonery/awesomux/issues/275) and is
+not done here; this makes the signal available, nothing consumes it yet.
 
 Accepted cost: a snapshot containing a `.remoteZmx` pane does not decode on a
 pre-#214 build, and a snapshot fails to restore as a whole rather than per

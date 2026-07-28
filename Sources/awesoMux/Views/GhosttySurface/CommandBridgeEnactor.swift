@@ -124,13 +124,26 @@ final class CommandBridgeEnactor {
     var remoteOwnedAttachCommandProvider:
         (
             RemoteTarget,
-            RemoteSessionName
-        ) -> String = { target, sessionName in
+            RemoteSessionName,
+            URL?
+        ) -> String = { target, sessionName, exitStatusFile in
             AmxBackend.remoteOwnedAttachCommand(
                 remote: target,
-                sessionName: sessionName
+                sessionName: sessionName,
+                exitStatusFile: exitStatusFile
             )
         }
+    var remoteOwnedExitStatusFileProvider: (TerminalSessionID) -> URL? = {
+        AmxBackend.makeRemoteOwnedExitStatusFile(for: $0)
+    }
+    var remoteOwnedExitStatusConsumer: (URL) -> Int16? = {
+        AmxBackend.consumeRemoteOwnedExitStatus(at: $0)
+    }
+    /// Where the current remote-owned attach's `/bin/sh` wrapper will write the
+    /// ssh client's exit status. Per attach, so a re-attach never reads the
+    /// previous incarnation's result; consumed (and deleted) by the exit
+    /// decision, and dropped on teardown/repoint.
+    var remoteOwnedExitStatusFile: URL?
     var announceSessionRespawnedFresh: () -> Void = {
         TerminalAccessibilityAnnouncer.announceSessionRespawnedFresh()
     }
@@ -241,10 +254,16 @@ final class CommandBridgeEnactor {
             // silently close the pane) unless a session id is recorded, so
             // without this a dropped ssh would vanish instead of latching.
             sessionID = pane.terminalSessionID
+            // Mint a fresh status file per attach. A failure to mint is not
+            // worth refusing the attach over — the pane still connects, it just
+            // loses the ability to tell a clean `exit` from a dropped
+            // connection, which is exactly the behaviour it had before.
+            remoteOwnedExitStatusFile = remoteOwnedExitStatusFileProvider(pane.terminalSessionID)
             return .remoteOwnedAttach(
                 remoteOwnedAttachCommandProvider(
                     execution.target,
-                    sessionName
+                    sessionName,
+                    remoteOwnedExitStatusFile
                 )
             )
         case .remoteUnavailable:
@@ -467,6 +486,49 @@ final class CommandBridgeEnactor {
             beginExitSupervision(exitCode: exitCode)
         } else {
             scheduleCloseResolution()
+        }
+        return true
+    }
+
+    /// libghostty's child-exited action, which for a remote-owned pane is the
+    /// only prompt exit signal there is. Returns `true` when this pane took the
+    /// exit over, which also tells libghostty to skip its own "Process exited.
+    /// Press any key to close the terminal." screen.
+    ///
+    /// Setting a surface `command` forces `wait-after-command` on inside
+    /// libghostty's embedded apprt, so the child's exit parks the surface at
+    /// that screen and the close callback driving `handleProcessExit` does not
+    /// fire until a key is pressed. A bridge pane never notices — its status
+    /// feed's `session-end` is the runtime signal it acts on — but a remote-owned
+    /// pane has no status feed, so without this its close (clean or failed) sat
+    /// behind a keypress.
+    ///
+    /// Enacts on a LATER main-actor turn, and that is load-bearing rather than
+    /// stylistic. `Surface.childExited` keeps using the surface after this
+    /// action returns — it reads `self.config.wait_after_command` and may call
+    /// `self.close()` — while supervision's first act is to dispose that same
+    /// native surface, whose `ghostty_surface_free` destroys the allocation the
+    /// Zig frame is standing on and joins the IO thread that queued this very
+    /// message. Deciding here and enacting a turn later keeps the claim (which
+    /// must be answered now) separate from the teardown (which must not run
+    /// now). `closeSurface`, the callback this pane's exit used to arrive
+    /// through, has always hopped the same way.
+    func handleChildExited() -> Bool {
+        guard host.pane.executionPlan.remoteOwnedExecution != nil,
+            sessionID != nil
+        else {
+            return false
+        }
+        // Already supervising: claim the action anyway (suppressing libghostty's
+        // screen is still right) but do not queue a second teardown.
+        guard !exitProbeInFlight, !exitResolutionPending else {
+            return true
+        }
+        // Latches against a second child-exited before the hop lands;
+        // `beginExitSupervision` clears it.
+        exitResolutionPending = true
+        Task { @MainActor [weak self] in
+            self?.beginExitSupervision(exitCode: nil)
         }
         return true
     }
@@ -762,14 +824,22 @@ final class CommandBridgeEnactor {
         // which can never contain a session living on another host (a
         // guaranteed false "session is gone" error), and the bridge-disabled
         // arm clears state and re-creates, which the policy would answer with
-        // another remote-owned attach: a silent infinite re-attach loop. The
-        // ssh child's exit code is the whole signal available, and it is
-        // enough: ssh forwards the remote shell's own status and reserves 255
-        // for its transport failures, so a 0 is a deliberate `exit` (close the
-        // pane exactly like a local shell — INT-769) and anything else,
-        // including an unknown code, is a failure worth surfacing.
+        // another remote-owned attach: a silent infinite re-attach loop.
+        //
+        // The status comes from the attach wrapper's own file, NOT the passed
+        // `exitCode`: that argument carries libghostty's `command_finished`
+        // cache, which holds whatever OSC 133 the pane last saw — including
+        // ones the far host's own shell integration emitted — with no
+        // correlation to this attach. `AmxBackend.consumeRemoteOwnedExitStatus`
+        // reads a file only this attach's wrapper writes. ssh forwards the
+        // remote shell's own status and reserves 255 for its transport
+        // failures, so a 0 is a deliberate `exit` (close the pane exactly like a
+        // local shell — INT-769) and anything else, including a missing file, is
+        // a failure worth surfacing.
         if host.pane.executionPlan.remoteOwnedExecution != nil {
-            if exitCode == 0 {
+            let status = remoteOwnedExitStatusFile.flatMap(remoteOwnedExitStatusConsumer)
+            remoteOwnedExitStatusFile = nil
+            if status == 0 {
                 // Clear BEFORE closing — the recursion floor in
                 // `handleProcessExit` (see the `.markExited` arm).
                 clearStateForLocalShellFallback()
@@ -984,6 +1054,10 @@ final class CommandBridgeEnactor {
             ?? sessionID
         legacyExitProbeGeneration &+= 1
         tearDownBridgeGeneration(for: oldRecoverySessionID)
+        // Consume-to-delete: the wrapper this file belonged to is no longer the
+        // one this enactor supervises, so its status is meaningless and the file
+        // would otherwise outlive every reader of it.
+        discardRemoteOwnedExitStatusFile()
         sessionID = nil
         errorLatched = false
         exitResolutionPending = false
@@ -998,6 +1072,14 @@ final class CommandBridgeEnactor {
         if let oldRecoverySessionID {
             runtime.discardCommandBridgeRecoveryRecord(for: oldRecoverySessionID)
         }
+    }
+
+    /// Drops the pending attach's status file without reading it. Used by the
+    /// teardown paths, which have no exit decision to make with it.
+    private func discardRemoteOwnedExitStatusFile() {
+        guard let url = remoteOwnedExitStatusFile else { return }
+        remoteOwnedExitStatusFile = nil
+        _ = remoteOwnedExitStatusConsumer(url)
     }
 
     func markError() {

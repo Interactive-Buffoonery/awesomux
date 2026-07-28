@@ -313,6 +313,37 @@ extension GhosttyRuntime {
             }
             return true
 
+        case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
+            guard let view = surfaceView(from: target) else {
+                return false
+            }
+
+            // Synchronous for the same reason as the progress report above, and
+            // safe for the same reason: child-exited reaches `action_cb` only
+            // through the surface-message mailbox that `ghostty_app_tick`
+            // drains, and this codebase ticks only from the main actor.
+            //
+            // The return value is load-bearing in a way most cases' is not:
+            // claiming the action tells libghostty to skip its own "Process
+            // exited. Press any key…" screen, so it must be claimed ONLY by a
+            // pane that really did take the exit over.
+            //
+            // Only the DECISION is synchronous. `handleChildExited` defers the
+            // teardown itself to a later main-actor turn, because
+            // `Surface.childExited` goes on using the surface after this returns
+            // and the teardown frees it — see that method for the full trace.
+            // That is also why this case does not repeat the neighbouring
+            // `closeSurface` callback's dispatch shape: it splits the two halves
+            // rather than deferring both.
+            assert(
+                Thread.isMainThread,
+                "GHOSTTY_ACTION_SHOW_CHILD_EXITED fired off-main — the "
+                    + "ghostty_app_tick-only assumption no longer holds"
+            )
+            return onMainThreadSynchronously {
+                view.handleChildExited()
+            }
+
         case GHOSTTY_ACTION_CELL_SIZE:
             guard let view = surfaceView(from: target) else {
                 return false
