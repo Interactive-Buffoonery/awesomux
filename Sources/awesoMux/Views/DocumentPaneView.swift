@@ -1812,10 +1812,11 @@ struct DocumentPaneView: View {
     }
 
     /// Static and non-private so a test can assert what the user actually
-    /// reads. These strings resolve through the string catalog, whose keys
-    /// carry `%arg` placeholder markers; a lookup that fell through wrongly
-    /// would surface those markers verbatim, and nothing else in the app would
-    /// catch it.
+    /// reads. Note what such a test can and cannot see: `Localizable.xcstrings`
+    /// is not a declared SwiftPM resource, so under `swift test` these always
+    /// render the source literal. A rendered-string assertion therefore checks
+    /// the source only — `DocumentRejectionCopyCatalogTests` reads the catalog
+    /// file directly for the other half.
     static func rejectionMessage(
         for reason: DocumentURLValidator.Rejection,
         pane: DocumentPane

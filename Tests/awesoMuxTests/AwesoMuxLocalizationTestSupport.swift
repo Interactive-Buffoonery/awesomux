@@ -47,14 +47,81 @@ enum AwesoMuxStringCatalog {
     /// Extracts `String(localized: "…"` literals and rewrites each Swift
     /// interpolation to the `%arg` marker the catalog keys use — the same
     /// normalization `xcstringstool` applies when it extracts them.
+    ///
+    /// Two known limits, neither reachable by any literal in the repo today.
+    /// Both would produce a spurious FAILURE rather than a false pass, so they
+    /// are recorded rather than fixed:
+    ///
+    /// - An escaped backslash before a paren, `\\(name)`, is literal text in
+    ///   Swift, not interpolation — but the interpolation pattern sees the
+    ///   second backslash and normalizes it to `%arg` anyway. Measured across
+    ///   the swept files: 59 localized literals, 18 containing a backslash,
+    ///   **0** containing `\\`. Distinguishing them needs the tokenizer to
+    ///   count preceding backslashes, which is more machinery than a case that
+    ///   does not exist warrants.
+    /// - The interpolation pattern stops at the first `)`, so an interpolation
+    ///   containing its own parens — `\(list.joined(separator: ", "))` — would
+    ///   leave a trailing `)`. `rejectionMessage` and friends dodge this by
+    ///   precomputing such values into locals first.
     static func localizedLiterals(in relativePath: String) throws -> [String] {
         let source = try String(
             contentsOf: repositoryRoot.appending(path: relativePath), encoding: .utf8)
         let literal = try Regex(#"String\(\s*localized:\s*"((?:[^"\\]|\\[^(]|\\\([^)]*\))*)""#)
         let interpolation = try Regex(#"\\\([^)]*\)"#)
         return source.matches(of: literal).map {
-            String($0[1].substring ?? "").replacing(interpolation, with: "%arg")
+            unescape(String($0[1].substring ?? "").replacing(interpolation, with: "%arg"))
         }
+    }
+
+    /// The compiler resolves escapes before `xcstringstool` ever sees the
+    /// literal, so a source that writes `\u{201C}` and a catalog key holding a
+    /// real curly quote are the *same* key. Reading the source text back means
+    /// undoing that ourselves, or every escaped literal reports false drift.
+    ///
+    /// Today only `DocumentPaneView`'s read-error string needs this, and the
+    /// two curly quotes there could just as well be written literally — eight
+    /// other files already do. It stays because the escapes that will actually
+    /// need it are the *invisible* ones: `GhosttyRuntimeCallbacks` localizes
+    /// with `\u{2068}`/`\u{2069}` (FSI/PDI) bidi isolates, which cannot be
+    /// written literally without becoming unreadable source. Any sweep that
+    /// grows to cover those files needs this to already work.
+    private static func unescape(_ literal: String) -> String {
+        var result = ""
+        var rest = Substring(literal)
+        while let slash = rest.firstIndex(of: "\\") {
+            result += rest[rest.startIndex..<slash]
+            let afterSlash = rest.index(after: slash)
+            guard afterSlash < rest.endIndex else {
+                result += rest[slash...]
+                return result
+            }
+            switch rest[afterSlash] {
+            case "u":
+                // `\u` must be followed IMMEDIATELY by `{`. Anchoring `open`
+                // rather than searching for the next brace anywhere matters:
+                // an unanchored search walks past this escape into a later
+                // one, and `\u and later {41} here` silently became `A here`.
+                let open = rest.index(after: afterSlash)
+                guard
+                    open < rest.endIndex, rest[open] == "{",
+                    let close = rest[open...].firstIndex(of: "}"),
+                    let scalar = UInt32(rest[rest.index(after: open)..<close], radix: 16)
+                        .flatMap(Unicode.Scalar.init)
+                else {
+                    result += rest[slash...afterSlash]
+                    rest = rest[rest.index(after: afterSlash)...]
+                    continue
+                }
+                result.unicodeScalars.append(scalar)
+                rest = rest[rest.index(after: close)...]
+            case "n": result += "\n"; rest = rest[rest.index(after: afterSlash)...]
+            case "t": result += "\t"; rest = rest[rest.index(after: afterSlash)...]
+            case "r": result += "\r"; rest = rest[rest.index(after: afterSlash)...]
+            case "0": result += "\0"; rest = rest[rest.index(after: afterSlash)...]
+            case let other: result.append(other); rest = rest[rest.index(after: afterSlash)...]
+            }
+        }
+        return result + rest
     }
 
     enum CatalogError: Error {
