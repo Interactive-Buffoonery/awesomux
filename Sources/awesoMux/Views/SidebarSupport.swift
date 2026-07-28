@@ -124,6 +124,10 @@ struct ProjectTint {
 
 struct SidebarSnapshot {
     let entries: [SidebarGroupEntry]
+    /// Workspaces awaiting a human answer, lifted into the synthetic Needs Input
+    /// section. Empty when the feature is off. Removed from `entries` by
+    /// `SidebarAttentionProjection`.
+    let attention: [LiftedSessionEntry]
     /// Pinned workspaces floated into the synthetic Pinned section, in pin
     /// order. Removed from `entries` by `SidebarPinnedProjection` (INT-737).
     let pinned: [LiftedSessionEntry]
