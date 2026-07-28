@@ -47,6 +47,22 @@ enum AwesoMuxStringCatalog {
     /// Extracts `String(localized: "…"` literals and rewrites each Swift
     /// interpolation to the `%arg` marker the catalog keys use — the same
     /// normalization `xcstringstool` applies when it extracts them.
+    ///
+    /// Two known limits, neither reachable by any literal in the repo today.
+    /// Both would produce a spurious FAILURE rather than a false pass, so they
+    /// are recorded rather than fixed:
+    ///
+    /// - An escaped backslash before a paren, `\\(name)`, is literal text in
+    ///   Swift, not interpolation — but the interpolation pattern sees the
+    ///   second backslash and normalizes it to `%arg` anyway. Measured across
+    ///   the swept files: 59 localized literals, 18 containing a backslash,
+    ///   **0** containing `\\`. Distinguishing them needs the tokenizer to
+    ///   count preceding backslashes, which is more machinery than a case that
+    ///   does not exist warrants.
+    /// - The interpolation pattern stops at the first `)`, so an interpolation
+    ///   containing its own parens — `\(list.joined(separator: ", "))` — would
+    ///   leave a trailing `)`. `rejectionMessage` and friends dodge this by
+    ///   precomputing such values into locals first.
     static func localizedLiterals(in relativePath: String) throws -> [String] {
         let source = try String(
             contentsOf: repositoryRoot.appending(path: relativePath), encoding: .utf8)
