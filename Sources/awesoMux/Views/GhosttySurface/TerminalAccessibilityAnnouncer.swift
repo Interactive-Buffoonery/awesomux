@@ -19,6 +19,12 @@ enum TerminalAccessibilityAnnouncer {
         switch outcome {
         case .fresh:
             String(localized: "Remote Markdown loaded.", comment: "VoiceOver announcement after a fresh remote Markdown document loads")
+        // One string for every reason, unlike `.failureDocument` below. An
+        // over-cap refresh failure now also raises `DocumentOversizeBanner`
+        // over the retained copy, and that row IS a single labelled AX element
+        // carrying the full explanation — so a second, more specific
+        // announcement here would say the same thing twice to the only user
+        // who hears it.
         case .cached:
             String(
                 localized: "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",

@@ -142,6 +142,10 @@ extension GhosttyRuntime {
                 return
             }
             let snapshot = outcome.snapshot
+            // Before opening: `DocumentPaneView` seeds its banner state at
+            // init, so a note recorded afterwards would not be seen until the
+            // next remount.
+            RemoteSnapshotStalePolicy.record(outcome)
             sessionStore.openDocumentPane(
                 fileURL: snapshot.fileURL,
                 in: sessionID,
@@ -324,6 +328,8 @@ extension GhosttyRuntime {
                 return
             }
             let snapshot = outcome.snapshot
+            // Before opening — see the note on the recent-links path above.
+            RemoteSnapshotStalePolicy.record(outcome)
             view.sessionStore.openDocumentPane(
                 fileURL: snapshot.fileURL,
                 in: workspaceID,

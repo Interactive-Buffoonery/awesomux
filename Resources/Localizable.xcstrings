@@ -3242,6 +3242,15 @@
     "The file has grown past the %arg MB limit. Showing the last version that fit. Comments are paused until the file fits again." : {
       "comment" : "Document banner shown when an open file grows past the size cap; the placeholder is the cap in whole megabytes"
     },
+    "The remote file has grown past the %arg MB limit, so it stopped refreshing. Showing the last version that fit." : {
+      "comment" : "Document banner shown when a remote snapshot can no longer be refreshed because the remote file is over the size cap; the placeholder is the cap in whole megabytes"
+    },
+    "showing a stale copy" : {
+      "comment" : "Document banner kicker when a remote snapshot stopped refreshing because the remote file is over the size cap"
+    },
+    "%arg stopped refreshing." : {
+      "comment" : "Accessibility lead-in for the banner shown when a remote snapshot can no longer be refreshed; the placeholder is the file name"
+    },
     "The file has grown past the %arg MB limit, so it can't be edited until it fits again." : {
       "comment" : "Annotation save recovery message when the document outgrew the size cap; the placeholder is the cap in whole megabytes"
     },

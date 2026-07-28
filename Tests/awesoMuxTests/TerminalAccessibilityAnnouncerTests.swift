@@ -13,7 +13,15 @@ struct TerminalAccessibilityAnnouncerTests {
         )
 
         #expect(TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(for: .fresh(snapshot)) == "Remote Markdown loaded.")
-        #expect(TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(for: .cached(snapshot)).contains("stale"))
+        // Every stale reason gets the same announcement on purpose — the
+        // oversize case additionally raises a labelled banner over the
+        // retained copy, so specialising here would repeat it.
+        for reason in [RemoteMarkdownFailureReason.oversize, .notFound, .connection] {
+            #expect(
+                TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(
+                    for: .cached(snapshot, staleReason: reason)
+                ).contains("stale"))
+        }
         // Per reason: the generated page's heading is not exposed as an AX
         // heading, so this announcement is where a VoiceOver user learns
         // whether retrying is worth another eight-second SSH round trip.

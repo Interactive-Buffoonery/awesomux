@@ -131,12 +131,18 @@ enum RemoteMarkdownFailureReason: Equatable, Sendable {
 
 enum RemoteMarkdownFetchOutcome: Equatable, Sendable {
     case fresh(RemoteMarkdownSnapshot)
-    case cached(RemoteMarkdownSnapshot)
+    /// A refresh was attempted and failed, so the previously cached copy is
+    /// served instead. `staleReason` is not optional: this case is only ever
+    /// reached *after* a failed or over-cap fetch, so there is always a reason
+    /// the content on screen is out of date. Carrying it is what lets the pane
+    /// say so — without it the caller sees a cache hit indistinguishable from
+    /// a healthy one.
+    case cached(RemoteMarkdownSnapshot, staleReason: RemoteMarkdownFailureReason)
     case failureDocument(RemoteMarkdownSnapshot, reason: RemoteMarkdownFailureReason)
 
     var snapshot: RemoteMarkdownSnapshot {
         switch self {
-        case .fresh(let snapshot), .cached(let snapshot), .failureDocument(let snapshot, _):
+        case .fresh(let snapshot), .cached(let snapshot, _), .failureDocument(let snapshot, _):
             snapshot
         }
     }
@@ -204,16 +210,16 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
             return write(output, at: cacheFileURL(for: reference), for: reference)
                 .map(RemoteMarkdownFetchOutcome.fresh)
         }
-        // Retained content wins over an explanation, so a file that cached
-        // successfully and later grew past the cap never renders the oversize
-        // page — the user sees the stale copy with no word of why it stopped
-        // refreshing. The agreed surface for that is a banner over the retained
-        // content, which does not exist yet; deliberately not fixed by
-        // reordering these two branches.
-        if let cached = cachedSnapshot(for: reference) {
-            return .cached(cached)
-        }
+        // Retained content still wins over an explanation — the reader keeps
+        // the copy they had rather than losing it to a failure page. What
+        // changed is that the reason now travels with it, so the pane can raise
+        // a banner over the retained content instead of the user seeing a stale
+        // copy with no word of why it stopped refreshing. Still deliberately
+        // not fixed by reordering these two branches.
         let reason = Self.failureReason(for: result)
+        if let cached = cachedSnapshot(for: reference) {
+            return .cached(cached, staleReason: reason)
+        }
         let markdown = failureMarkdown(for: reference, reason: reason)
         return write(Data(markdown.utf8), at: failureFileURL(for: reference), for: reference)
             .map { .failureDocument($0, reason: reason) }
