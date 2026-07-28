@@ -144,32 +144,28 @@ struct TerminalPaneLayoutView: View {
             // no longer overlays the surface edge, and the title bar never
             // overlaps the terminal — INT-283 F1).
             GeometryReader { _ in
+                // Pane-scoped attention (superseding the INT-721 session fold): a
+                // needy pane shows the peach rail itself, active or not, so the
+                // rail identifies WHICH pane wants input. The merely-focused pane
+                // keeps its normal accent.
+                let accentState = session.focusAccentAwState(for: pane)
+                let showsFocusAccent =
+                    accentState == .needs
+                    || (session.activePaneID == pane.id
+                        && !suppressTopFocusAccentForActivePane)
                 VStack(spacing: 0) {
                     // Focus indicator band — a constant-height zone reserved on
                     // EVERY pane (focused or not) so the title bar can't bounce
-                    // vertically when focus moves (INT-283). Backed by opaque
-                    // chrome (matching the title bar) and CLIPPED: when the
-                    // reserved space was transparent, a focused neighbour's accent
-                    // glow bled through onto the unfocused pane's band (the
-                    // right-focused pane draws on top of its left neighbour, so a
-                    // bg colour alone can't cover it). Chrome + clip contains each
-                    // pane's accent and glow to its own band.
+                    // vertically when focus moves (INT-283). The rail itself is
+                    // drawn by the overlay below, not in here; this is the
+                    // opaque chrome backdrop it sits on, matching the title bar.
+                    // Containment of the INT-283 neighbour bleed now belongs to
+                    // the pane-level `.clipped()` below — a bg colour alone
+                    // couldn't cover it, because the right-focused pane draws on
+                    // top of its left neighbour.
                     ZStack {
                         Color.aw.surface.chrome
-                        // Pane-scoped attention (superseding the INT-721 session
-                        // fold): a needy pane shows the peach rail itself, active
-                        // or not, so the rail identifies WHICH pane wants input.
-                        // The merely-focused pane keeps its normal accent.
-                        let accentState = session.focusAccentAwState(for: pane)
-                        if accentState == .needs
-                            || (session.activePaneID == pane.id
-                                && !suppressTopFocusAccentForActivePane)
-                        {
-                            PaneFocusAccent(
-                                state: accentState,
-                                differentiateWithoutColor: differentiateWithoutColor
-                            )
-                        } else if abutsWindowTop {
+                        if !showsFocusAccent, abutsWindowTop {
                             // Top-row inactive panes draw the tab-edge line that
                             // replaced the titlebar hairline (#82) — without it the
                             // workspace title blends into the pane title strip.
@@ -187,7 +183,6 @@ struct TerminalPaneLayoutView: View {
                         }
                     }
                     .frame(height: PaneFocusAccent.reservedHeight)
-                    .clipped()
 
                     if isMultiPane {
                         PaneTitleBarView(
@@ -285,6 +280,28 @@ struct TerminalPaneLayoutView: View {
                         // the surface anymore (INT-283 Task 7).
                     }
                 }
+                // The accent rail rides ON TOP of the whole pane stack rather
+                // than inside the reserved band. The band is exactly as tall as
+                // the resting stripe, so a halo drawn inside it had nowhere to
+                // land and was clipped to nothing. Up here the glow spills down
+                // over the title bar and terminal — what a glow is supposed to
+                // do — while `.clipped()` below keeps it inside this pane, which
+                // is the neighbour bleed the band's clip was really guarding
+                // against (INT-283).
+                //
+                // Only the halo escapes: `PaneFocusAccent` caps its own solid
+                // fill at `reservedHeight`, so the rail cannot paint over the
+                // title bar or the terminal's first text row. The band still
+                // reserves the height, so nothing moves when focus does.
+                .overlay(alignment: .top) {
+                    if showsFocusAccent {
+                        PaneFocusAccent(
+                            state: accentState,
+                            differentiateWithoutColor: differentiateWithoutColor
+                        )
+                    }
+                }
+                .clipped()
                 // Drop zones cover the WHOLE pane stack (title bar + surface),
                 // not just the surface — otherwise a drag released over another
                 // pane's title bar finds no drop target and cancels. Attached to
