@@ -20,6 +20,16 @@ public struct SSHExecution: Hashable, Sendable {
         self.sessionName = nil
     }
 
+    /// The remote-owned counterpart, non-failable because naming the session IS
+    /// the `.remoteZmx` invariant. Callers that know which owner they want reach
+    /// for one of these two; the failable init below exists for the decode seam,
+    /// where owner and name arrive separately and can contradict each other.
+    public init(target: RemoteTarget, remoteSessionName: RemoteSessionName) {
+        self.target = target
+        self.persistenceOwner = .remoteZmx
+        self.sessionName = remoteSessionName
+    }
+
     /// Returns nil when the persistence owner and its remote fields disagree:
     /// local-amx panes carry no remote session identity, and remote-owned panes
     /// must name their session. Where the remote backend LIVES is not part of

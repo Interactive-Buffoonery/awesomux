@@ -149,6 +149,25 @@ failed on every host tested. This replaces the per-pane executable path the
 amendment originally carried, which was optional in name and mandatory in
 practice (#235).
 
+A `PATH` hit must resolve to an absolute path before it is `exec`'d. `command
+-v` matches shell functions and aliases too, `exec` matches neither, and a
+failed `exec` terminates a non-interactive shell — so accepting a bare match
+would let a wrapper function in the very profile this sources abort every
+remaining fallback and the diagnostic with it.
+
+Known limits of the mechanism, all failing before any probe runs: a csh/tcsh
+destination (csh takes `-l` only as its sole argument and has no `2>`
+redirection), and a `$SHELL` that is unset or a `nologin` stub. Sourcing the
+login profile also means whatever that profile prints — banners, MOTD — reaches
+the pane ahead of the attach.
+
+Restoring a pane that predates this change drops its recorded executable path
+rather than honouring it, so a destination whose backend is reachable ONLY by
+that path stops attaching, and one where discovery finds a DIFFERENT install
+attaches that install's session of the same name instead. Accepted rather than
+shimmed: remote-owned panes shipped days earlier in #222, and the path they
+carried was the workaround for the bug this replaces.
+
 Failure is visible and terminal — the disconnected overlay, never a fallback
 to a local shell, another host, or a different persistence owner. Exit code 0
 closes the pane; because the pane runs with a command set rather than a login

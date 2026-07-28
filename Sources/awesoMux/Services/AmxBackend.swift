@@ -908,12 +908,28 @@ enum AmxBackend {
     /// plain wrap; the session name is `[A-Za-z0-9._-]` by construction and
     /// needs no quoting anywhere it is interpolated.
     ///
+    /// A POSIX-family login shell is assumed. csh/tcsh accept neither `-lc`
+    /// (csh takes `-l` only as its sole argument) nor `2>`-style redirection,
+    /// so such a destination fails before any probe runs — as does one whose
+    /// `$SHELL` is unset or a `nologin` stub. Both are documented limits of
+    /// remote-owned panes rather than cases this string tries to cover.
+    ///
     /// Internal rather than private so the tests can read the script itself:
     /// asserted through both quoting layers it is an unreviewable blob.
     static func remoteBackendDiscoveryCommand(sessionName: RemoteSessionName) -> String {
         let name = sessionName.rawValue
+        // `| grep -q "^/"` is load-bearing, not belt-and-braces. `command -v`
+        // reports shell FUNCTIONS and aliases as readily as files, and `exec`
+        // resolves neither — it execve's a file found on PATH. A failed `exec`
+        // then TERMINATES a non-interactive shell, so a name matching only a
+        // function would take the whole `;`-chain with it: no zmx fallback, no
+        // bundle fallback, not even the diagnostic below. An absolute path is
+        // the one thing `command -v` prints for a real executable and not for a
+        // function or alias, so requiring one keeps a wrapper in the user's
+        // profile from swallowing every fallback — and the login shell sourced
+        // here is exactly where such a wrapper lives.
         var clauses = ["amx", "zmx"].map {
-            "command -v \($0) >/dev/null 2>&1 && exec \($0) attach \(name)"
+            "command -v \($0) 2>/dev/null | grep -q \"^/\" && exec \($0) attach \(name)"
         }
         clauses += remoteBundledBackendPaths.map {
             "[ -x \"\($0)\" ] && exec \"\($0)\" attach \(name)"
@@ -922,8 +938,10 @@ enum AmxBackend {
             "echo \"awesoMux: no amx or zmx found on this host."
                 + " Install one, or reconnect without a remote session name.\" >&2"
         )
-        // 127 is the shell's own not-found status, which is what this is: it
-        // separates a missing backend from ssh's transport failures (255).
+        // 127 is the shell's own not-found status, which is what this is.
+        // awesoMux does not branch on it — every nonzero exit latches the same
+        // overlay — so this is for a human reading the raw status, and a seam
+        // for the exit-code plumbing #238 left as follow-up.
         clauses.append("exit 127")
         return "exec \"$SHELL\" -lc " + shellQuote(clauses.joined(separator: "; "))
     }

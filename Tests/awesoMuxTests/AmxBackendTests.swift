@@ -794,8 +794,8 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
 
         #expect(
             script == "exec \"$SHELL\" -lc '"
-                + "command -v amx >/dev/null 2>&1 && exec amx attach dev; "
-                + "command -v zmx >/dev/null 2>&1 && exec zmx attach dev; "
+                + "command -v amx 2>/dev/null | grep -q \"^/\" && exec amx attach dev; "
+                + "command -v zmx 2>/dev/null | grep -q \"^/\" && exec zmx attach dev; "
                 + "[ -x \"$HOME/Applications/awesoMux.app/Contents/MacOS/amx\" ]"
                 + " && exec \"$HOME/Applications/awesoMux.app/Contents/MacOS/amx\" attach dev; "
                 + "[ -x \"/Applications/awesoMux.app/Contents/MacOS/amx\" ]"
@@ -803,6 +803,22 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
                 + "echo \"awesoMux: no amx or zmx found on this host."
                 + " Install one, or reconnect without a remote session name.\" >&2; "
                 + "exit 127'")
+    }
+
+    /// The chain only survives a miss if each probe can FAIL. `command -v`
+    /// matches shell functions and aliases, `exec` matches neither, and a failed
+    /// `exec` kills a non-interactive shell — so a bare `command -v` hit would
+    /// let a wrapper function in the remote profile abort every fallback after
+    /// it. Requiring an absolute path is what keeps the chain a chain.
+    @Test("a PATH probe demands a real executable, not a shell function")
+    func discoveryScriptRejectsAFunctionShadowingTheBackend() {
+        let script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
+
+        for backend in ["amx", "zmx"] {
+            #expect(script.contains("command -v \(backend) 2>/dev/null | grep -q \"^/\""))
+            // The bare form is what makes a function look like an executable.
+            #expect(!script.contains("command -v \(backend) >/dev/null 2>&1 &&"))
+        }
     }
 
     /// `ssh host cmd` runs a NON-login shell, which is the mechanism that made
@@ -872,8 +888,10 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
         #expect(!command.contains("GHOSTTY_"))
         // Nothing local is bridged, so no bridge env crosses either.
         #expect(!command.contains("AWESOMUX_BRIDGE_"))
-        // The bundle paths the script probes are the REMOTE host's; this app's
-        // own bundled `amx` must never be named in a command that runs there.
-        #expect(!command.contains(Bundle.main.bundlePath))
+        // No assertion here about this app's own bundle path: under `swift test`
+        // `Bundle.main` is the test runner, so such a check passes against any
+        // implementation and proves nothing. The remote bundle paths this
+        // command MAY name are pinned literally by
+        // `discoveryScriptChecksEveryBackendLocation`.
     }
 }

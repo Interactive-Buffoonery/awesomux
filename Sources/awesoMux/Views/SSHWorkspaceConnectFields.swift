@@ -20,11 +20,7 @@ enum SSHWorkspaceConnectFields {
         // alive on this side of the connection.
         guard !trimmedName.isEmpty else { return SSHExecution(target: target) }
         guard let sessionName = RemoteSessionName(rawValue: trimmedName) else { return nil }
-        return SSHExecution(
-            target: target,
-            persistenceOwner: .remoteZmx,
-            sessionName: sessionName
-        )
+        return SSHExecution(target: target, remoteSessionName: sessionName)
     }
 
     /// True when the fields name a session the remote host owns, before the

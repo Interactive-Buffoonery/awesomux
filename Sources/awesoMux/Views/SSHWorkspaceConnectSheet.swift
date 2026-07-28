@@ -88,7 +88,12 @@ struct SSHWorkspaceConnectSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled(true)
                 .accessibilityLabel("Remote session name")
-                .accessibilityHint("Optional. Names a session the remote host keeps running with its own amx or zmx")
+                .accessibilityHint(
+                    String(
+                        localized: "Optional. Names a session the remote host keeps running with its own amx or zmx",
+                        comment: "Accessibility hint for the remote session name field in the Connect via SSH sheet"
+                    )
+                )
                 .onSubmit { connect(execution) }
             // A name is a persistence-owner switch, not a label, and the sheet
             // used to say so only by revealing a path field. Now that the
