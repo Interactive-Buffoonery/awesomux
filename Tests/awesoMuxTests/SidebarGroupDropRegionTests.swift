@@ -109,6 +109,22 @@ struct SidebarGroupDropRegionTests {
         #expect(abs(collapsed.hostingView.fittingSize.height - headerFittingHeight) < 0.5)
     }
 
+    /// An empty group's `+ new workspace` row is its SOLE drop target — the
+    /// list delegate deliberately stands aside there
+    /// (`NewWorkspaceInGroupRowPolicy.ownsDropDelegate`) — and its only
+    /// pointer path to creating a workspace. Compact density is the tight
+    /// case: every child of the row's `HStack` is short (a 10pt glyph, a 10pt
+    /// mono face), so without a floor the row lands under the WCAG 2.5.8 24pt
+    /// minimum. Measured from live geometry, so a font or padding change that
+    /// eats the margin is caught rather than silently shipped.
+    @Test("the empty group's create row clears the 24pt pointer-target minimum in both densities")
+    func emptyGroupCreateRowClearsPointerTargetMinimum() {
+        for density in [SidebarDensity(compact: true), SidebarDensity(compact: false)] {
+            let height = Self.measuredNewWorkspaceRowHeight(density: density, isGroupEmpty: true)
+            #expect(height >= 24, "row measured \(height)pt")
+        }
+    }
+
     /// Renders `NewWorkspaceInGroupRow` in isolation, exactly as a populated
     /// group configures it (`NewWorkspaceInGroupRowPolicy` with
     /// `isGroupEmpty: false`), and measures its real height plus the one
@@ -116,21 +132,26 @@ struct SidebarGroupDropRegionTests {
     /// Live geometry, not a hardcoded constant — a font or padding change to
     /// the row keeps this guard's expectation in sync automatically.
     private static func measuredNewWorkspaceRowContribution(density: SidebarDensity) -> CGFloat {
+        measuredNewWorkspaceRowHeight(density: density, isGroupEmpty: false)
+            + density.sessionStackSpacing
+    }
+
+    /// The row's own rendered height, with no stack spacing folded in — the
+    /// number WCAG 2.5.8 applies to, since the row IS the pointer target.
+    private static func measuredNewWorkspaceRowHeight(
+        density: SidebarDensity,
+        isGroupEmpty: Bool
+    ) -> CGFloat {
         let row = NewWorkspaceInGroupRow(
             isFiltering: false,
             groupName: "Group",
-            showsRemoveButton: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
-                isGroupEmpty: false,
-                canRemoveGroup: false
-            ),
-            showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(isGroupEmpty: false),
-            ownsDropDelegate: NewWorkspaceInGroupRowPolicy.ownsDropDelegate(isGroupEmpty: false),
+            showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(isGroupEmpty: isGroupEmpty),
+            ownsDropDelegate: NewWorkspaceInGroupRowPolicy.ownsDropDelegate(isGroupEmpty: isGroupEmpty),
             activeDragKind: nil,
             activeDragID: nil,
             activeDragSourceIsPinned: false,
             verticalPadding: density.emptyGroupVerticalPadding,
             onNewSessionInGroup: {},
-            onRemoveGroup: {},
             onDragRefreshed: { _ in },
             onDragEnded: {},
             onDragExited: {},
@@ -147,7 +168,7 @@ struct SidebarGroupDropRegionTests {
         hosted.hostingView.layoutSubtreeIfNeeded()
         SidebarHostedTestHarness.settleMainRunLoop()
 
-        return hosted.hostingView.fittingSize.height + density.sessionStackSpacing
+        return hosted.hostingView.fittingSize.height
     }
 
     /// Walks the hosted `NSView` tree for views with registered drag types —
@@ -285,8 +306,6 @@ private struct DropRegionHarnessView: View {
             onNewGroup: {},
             onRenameGroup: {},
             onSetGroupColor: { _ in },
-            canRemoveGroup: false,
-            onRemoveGroup: {},
             onCloseGroup: {},
             onAcknowledge: { _ in },
             onMoveSession: { _, _, _ in },

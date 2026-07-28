@@ -4,33 +4,6 @@ import Testing
 
 @Suite("NewWorkspaceInGroupRowPolicy")
 struct NewWorkspaceInGroupRowPolicyTests {
-    /// The row is the empty group's only always-visible removal path, so it
-    /// keeps the X there. A populated group already has the header's hover X —
-    /// two pointer paths to the same destructive action is one too many.
-    @Test("only an empty group shows the row's remove button")
-    func onlyEmptyGroupShowsRemoveButton() {
-        #expect(
-            NewWorkspaceInGroupRowPolicy.showsRemoveButton(
-                isGroupEmpty: true,
-                canRemoveGroup: true
-            )
-        )
-        #expect(
-            !NewWorkspaceInGroupRowPolicy.showsRemoveButton(
-                isGroupEmpty: false,
-                canRemoveGroup: true
-            )
-        )
-        // An empty group that cannot be removed (the store refuses to remove
-        // the last group) still gets no dead control.
-        #expect(
-            !NewWorkspaceInGroupRowPolicy.showsRemoveButton(
-                isGroupEmpty: true,
-                canRemoveGroup: false
-            )
-        )
-    }
-
     /// The dashed border is the empty group's "there's nothing here" cue. Once
     /// there are tiles above it, one dashed box per group reads as noise, so the
     /// row rests borderless and lights up only under an active drag.

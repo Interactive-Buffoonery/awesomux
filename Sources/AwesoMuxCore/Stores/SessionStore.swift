@@ -877,9 +877,44 @@ public final class SessionStore {
     /// outcome must not claim a removal that was silently refused.
     @discardableResult
     public func removeGroup(id: SessionGroup.ID) -> Bool {
+        // Captured before the reducer runs: closing an EMPTY group takes
+        // neither confirmation branch (nothing live to warn about), so undo is
+        // the only recovery a mis-click has.
+        guard let removedIndex = _groups.firstIndex(where: { $0.id == id }) else { return false }
+        let removed = _groups[removedIndex]
         guard WorkspaceTreeReducer.removeGroup(in: &_groups, id: id) else { return false }
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
+        registerUndo(actionName: Self.closeGroupUndoActionName) { target in
+            target.restoreRemovedGroup(removed, at: removedIndex)
+        }
         return true
+    }
+
+    private static let closeGroupUndoActionName = String(
+        localized: "Close Group",
+        comment: "Undo action for closing a workspace group."
+    )
+
+    /// Undo inverse for `removeGroup`. Reinstates the removed VALUE, not a
+    /// fresh group with the same name — `SessionGroup` also carries the color
+    /// and the SSH creation default, and a rebuilt stand-in would silently drop
+    /// both. `removeGroup` only ever removes an empty group, so there are no
+    /// sessions to collide with on the way back in.
+    ///
+    /// ponytail: workspaces closed by `closeGroup` are NOT part of this — they
+    /// leave through `closeSession`, whose recovery path is Reopen Closed
+    /// Workspace (⌘⇧T). Undoing that close returns the group shell to reopen
+    /// them into.
+    private func restoreRemovedGroup(_ group: SessionGroup, at index: Int) {
+        // A group with this ID already back (redo of a redo, or a restore that
+        // reused the ID) makes this inverse stale — refuse rather than
+        // duplicate, and register nothing so no redo is offered for a no-op.
+        guard !_groups.contains(where: { $0.id == group.id }) else { return }
+        _groups.insert(group, at: min(index, _groups.count))
+        commit(WorkspaceMutationEffect(needsFullRebuild: true))
+        registerUndo(actionName: Self.closeGroupUndoActionName) { target in
+            target.removeGroup(id: group.id)
+        }
     }
 
     public func moveSession(

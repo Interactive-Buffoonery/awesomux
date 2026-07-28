@@ -4,17 +4,14 @@ import AwesoMuxCore
 /// a populated one. Hoisted out of the call site so the differences live in one
 /// reviewable place instead of three ternaries in `SidebarGroupView.body`
 /// (same reason `SidebarGroupClosePolicy` exists).
+///
+/// The row used to carry a fourth: a persistent remove-group X, which existed
+/// only because the header's X was hover-only and an empty group therefore had
+/// no resting removal path. `SidebarGroupClosePolicy` now rests that X visible
+/// for an expanded empty group, so the row's duplicate is gone — a row whose
+/// whole purpose is creating a workspace is the wrong place to put the control
+/// that destroys the group.
 enum NewWorkspaceInGroupRowPolicy {
-    /// The row's persistent remove-group X.
-    ///
-    /// An empty group has no tiles and its header X is hover-only, so the row
-    /// is its only always-visible removal path. A populated group already has
-    /// the header's hover X, and two pointer paths to the same destructive
-    /// action invites the wrong one being clicked.
-    static func showsRemoveButton(isGroupEmpty: Bool, canRemoveGroup: Bool) -> Bool {
-        isGroupEmpty && canRemoveGroup
-    }
-
     /// The dashed resting border.
     ///
     /// It reads as "there's nothing here" for an empty group. With tiles above

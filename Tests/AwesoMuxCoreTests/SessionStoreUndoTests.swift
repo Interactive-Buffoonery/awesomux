@@ -96,6 +96,58 @@ struct SessionStoreUndoTests {
         #expect(store.groups[0].sessions.map(\.id) == [sessions[1].id, sessions[2].id, sessions[0].id])
     }
 
+    /// Closing an EMPTY group takes neither confirmation branch — no live
+    /// sessions to warn about — so a mis-clicked close is otherwise silent and
+    /// final. Undo must bring back the whole group value, not just its name:
+    /// the color and the SSH creation default are what make it the group the
+    /// user built, and `SessionGroup` carries both.
+    @Test("closing an empty group undoes and redoes, restoring its whole value and slot")
+    func removeGroupUndoRedo() {
+        let target = SessionGroup(
+            name: "Target",
+            color: .pink,
+            remote: RemoteTarget(user: "ed", host: "example.test"),
+            sessions: []
+        )
+        let (store, undoManager) = makeStore(groups: [
+            SessionGroup(name: "Before", sessions: []),
+            target,
+            SessionGroup(name: "After", sessions: []),
+        ])
+
+        performGesture(using: undoManager) {
+            #expect(store.removeGroup(id: target.id))
+        }
+
+        #expect(store.groups.map(\.name) == ["Before", "After"])
+        #expect(undoManager.undoActionName == "Close Group")
+        undoManager.undo()
+
+        #expect(store.groups.map(\.name) == ["Before", "Target", "After"])
+        #expect(store.groups[1].id == target.id)
+        #expect(store.groups[1].color == .pink)
+        #expect(store.groups[1].remote == target.remote)
+
+        #expect(undoManager.redoActionName == "Close Group")
+        undoManager.redo()
+        #expect(store.groups.map(\.name) == ["Before", "After"])
+    }
+
+    /// The reducer refuses non-empty groups and the last group. A refused
+    /// removal changed nothing, so it must not leave an inverse behind that
+    /// would resurrect a group on the next ⌘Z.
+    @Test("refused removals do not register undo")
+    func refusedRemovalsDoNotRegisterUndo() {
+        let session = makeSession("Only")
+        let populated = SessionGroup(name: "Populated", sessions: [session])
+        let (store, undoManager) = makeStore(groups: [populated])
+
+        #expect(!store.removeGroup(id: populated.id))
+        #expect(!store.removeGroup(id: UUID()))
+
+        #expect(!undoManager.canUndo)
+    }
+
     @Test("multiple gestures undo in reverse order")
     func multipleGesturesUndoInOrder() {
         let group = SessionGroup(name: "Original", sessions: [])
@@ -149,7 +201,12 @@ struct SessionStoreUndoTests {
         performGesture(using: undoManager) {
             store.renameGroup(id: target.id, to: "Renamed")
         }
+        // Removed with registration off so the rename's inverse is the top of
+        // the stack: this test is about an inverse whose subject is gone, not
+        // about the removal's own inverse (`removeGroupUndoRedo` owns that).
+        undoManager.disableUndoRegistration()
         #expect(store.removeGroup(id: target.id))
+        undoManager.enableUndoRegistration()
 
         undoManager.undo()
 
@@ -169,8 +226,12 @@ struct SessionStoreUndoTests {
 
         // Removing a group shifts every index below it. Undo must still
         // restore "One" (tracked by ID), not whatever group now sits at the
-        // captured post-move index.
+        // captured post-move index. Registration is off for the removal so the
+        // move's inverse stays the top of the stack — the structural change is
+        // the point here, not the removal's own undo.
+        undoManager.disableUndoRegistration()
         #expect(store.removeGroup(id: store.groups[0].id))
+        undoManager.enableUndoRegistration()
         #expect(store.groups.map(\.name) == ["Three", "One"])
 
         undoManager.undo()

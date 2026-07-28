@@ -16,9 +16,10 @@ extension EnvironmentValues {
     }
 }
 
-/// Gate for the group header's hover-revealed close-group X (INT-739).
+/// Gate for the group header's close-group X (INT-739) — a hover reveal over
+/// the count badge, except in an expanded empty group, where it rests visible.
 ///
-/// Beyond hover, the X carries the same guards as the context menu's
+/// Beyond that, the X carries the same guards as the context menu's
 /// "Close Group" (see `groupContextMenuContent` for the rationale):
 /// suppressed while filtering (the header reflects only the matched
 /// subset, so closing would destroy hidden workspaces), for unresolved
@@ -29,21 +30,32 @@ extension EnvironmentValues {
 /// Group" disables on. Empty groups among others DO get the X (INT-770):
 /// closing routes through `closeWorkspaceGroup`, which skips the confirm
 /// dialog when there is no remote impact but still confirms loss of an SSH
-/// creation default. `NewWorkspaceInGroupRow`'s persistent remove button stays
-/// as the always-visible removal path for an EMPTY group; a populated group's
-/// row omits it so this X is the sole pointer path there. This X is also the
-/// only pointer path while the group's own rows are collapsed (`isCollapsed`
-/// hides that body row — distinct from the rail-collapsed `displayMode`,
-/// which suppresses the X entirely).
+/// creation default. This X is the sole pointer path for every group: it rests
+/// visible (no hover needed) in an expanded EMPTY group, and is a hover reveal
+/// everywhere else. `NewWorkspaceInGroupRow` used to carry a second persistent
+/// X for empty groups precisely because this one was hover-only; now that the
+/// empty case rests visible here, that duplicate is gone — two pointer paths to
+/// the same destructive action invited the wrong one being clicked, and one of
+/// them sat in a row whose entire purpose is creation.
+///
+/// `isCollapsed` (the group's own rows hidden — distinct from the
+/// rail-collapsed `displayMode`, which suppresses the X entirely) keeps the
+/// count badge, because a collapsed body makes the count the only signal of
+/// what is inside.
 enum SidebarGroupClosePolicy {
     static let actionLabel = String(
         localized: "Close Group",
         comment: "Label and help text for controls that close a workspace group."
     )
 
+    /// This decides VISIBILITY only. `SidebarGroupHeaderRow` additionally
+    /// requires a live pointer hover before the X accepts a click, so a header
+    /// that slides under a stationary pointer never arrives pre-armed.
+    ///
     /// - Parameters:
-    ///   - isHeaderHovered: pointer is over the header row; the X is a
-    ///     hover-only shortcut, never resting UI.
+    ///   - isHeaderHovered: pointer is over the header row. Reveals the X
+    ///     everywhere except the expanded empty group, where it already rests
+    ///     visible.
     ///   - displayMode: sidebar width mode; the collapsed rail renders no
     ///     count badge, so there is no slot to morph.
     ///   - isFiltering: the header reflects only the matched subset while
@@ -54,15 +66,34 @@ enum SidebarGroupClosePolicy {
     ///     filtered projection).
     ///   - totalGroupCount: total groups in the store; feeds the
     ///     sole-empty-group dead-control clause.
+    ///   - isGroupCollapsed: the group's own rows are hidden. An expanded
+    ///     empty group shows its emptiness directly, so the count badge is
+    ///     redundant there and the X rests in that slot instead of waiting
+    ///     for hover.
+    ///   - isDragActive: any sidebar drag is in flight. Suppresses the resting
+    ///     X — a drag is aiming at drop targets, and a destructive control
+    ///     sitting in the flight path is the wrong thing to leave lit. The
+    ///     hover half needs no term here: the row zeroes its hover flag when a
+    ///     drag starts (tracking-area exits stop being delivered mid-drag).
     static func showsCloseButton(
         isHeaderHovered: Bool,
         displayMode: SidebarWidthMode,
         isFiltering: Bool,
         hasResolvedGroupIndex: Bool,
         isGroupEmpty: Bool,
-        totalGroupCount: Int
+        totalGroupCount: Int,
+        isGroupCollapsed: Bool,
+        isDragActive: Bool
     ) -> Bool {
-        isHeaderHovered
+        // An expanded empty group has a visibly empty body, so "0" tells the
+        // user nothing they cannot already see, and the X is the only thing
+        // that slot can usefully hold. Collapsed, the body is hidden and the
+        // count IS the only signal of what is in there, so it keeps the slot
+        // and the X stays a hover reveal. A live drag suppresses the resting
+        // half outright — the empty group's body is itself a drop target, and
+        // the pointer is on its way there.
+        let restsVisible = isGroupEmpty && !isGroupCollapsed && !isDragActive
+        return (isHeaderHovered || restsVisible)
             && displayMode != .collapsed
             && !isFiltering
             && hasResolvedGroupIndex
@@ -184,22 +215,34 @@ struct SidebarGroupHeaderRow: View {
         (metaFontSize / AwFont.spec(AwFont.Mono.meta).baseSize) * CGFloat(AwTextScale.clamp(textScale))
     }
 
-    /// The hover-revealed close-group X replaces the count badge only in the
-    /// expanded header; the collapsed rail renders no badge (INT-739).
-    /// Gate logic lives in `SidebarGroupClosePolicy` so its truth table is
-    /// unit-testable.
+    /// Live pointer presence over the header, or the test override standing in
+    /// for it. Distinct from `showsGroupCloseButton`: an expanded empty group
+    /// shows its X without this, but never ARMS it without this.
+    private var isPointerOverHeader: Bool {
+        headerHoverOverride ?? isHeaderHovered
+    }
+
+    /// The close-group X takes the count badge's slot in the expanded header —
+    /// resting there for an empty group, on hover otherwise; the collapsed
+    /// rail renders no badge, so no X (INT-739). Gate logic lives in
+    /// `SidebarGroupClosePolicy` so its truth table is unit-testable.
     private var showsGroupCloseButton: Bool {
         SidebarGroupClosePolicy.showsCloseButton(
-            isHeaderHovered: headerHoverOverride ?? isHeaderHovered,
+            isHeaderHovered: isPointerOverHeader,
             displayMode: displayMode,
             isFiltering: isFiltering,
             hasResolvedGroupIndex: currentGroupIndex != nil,
             // Reads the model's `group.sessions` (like the context menu's
             // disabled check), not the projected `entries` the count badge
-            // renders — they only diverge while filtering, which the policy
-            // already gates off.
+            // renders. The projection also floats pinned sessions out of their
+            // group with no filter active (`SidebarPinnedProjection.apply`), so
+            // `entries` can be empty for a group that still holds workspaces —
+            // exactly the direction that would rest a close X over a group the
+            // store then refuses to remove.
             isGroupEmpty: group.sessions.isEmpty,
-            totalGroupCount: totalGroupCount
+            totalGroupCount: totalGroupCount,
+            isGroupCollapsed: isCollapsed,
+            isDragActive: isDragActive
         )
     }
 
@@ -334,27 +377,35 @@ struct SidebarGroupHeaderRow: View {
             // mouseExited isn't delivered when the header is torn out from
             // under a stationary pointer (filter removes the group, structural
             // rebuild) — same reset the session tile carries. Without it a
-            // stale-true flag re-arms the X on reappear with no live hover.
+            // stale-true flag both reveals AND arms the X on reappear with no
+            // live hover. The resting X (expanded empty group) is revealed
+            // regardless, but this reset still governs whether it can be
+            // clicked, which is the half that destroys a group.
             .onDisappear {
                 isHeaderHovered = false
                 cancelPeek()
                 peekModel.hideGroup(for: group.id)
             }
             // A drag suppresses tracking-area exit events, so the origin
-            // header's hover flag would strand true (and the close X strand
-            // visible) after the group lands elsewhere. (Was a parent-level
-            // `.onChange(of: activeDragKind)`; moved here with the state.)
+            // header's hover flag would strand true (and the hover X strand
+            // visible and armed) after the group lands elsewhere. (Was a
+            // parent-level `.onChange(of: activeDragKind)`; moved here with the
+            // state.) The resting X is covered by the policy's own
+            // `isDragActive` term instead — nothing to reset, since it never
+            // read hover in the first place.
             .onChange(of: isDragActive) { _, active in
                 if active {
                     isHeaderHovered = false
                     cancelPeek()
                 }
             }
-            // Re-arming the X requires a fresh hover: without this, clearing
-            // the filter by keyboard while the pointer rests on a header
-            // widens the gate under a stationary pointer and the X appears
-            // with no hover gesture (stale-state-plus-widened-gate, INT-562
-            // family). (Was a parent-level `.onChange(of: isFiltering)`.)
+            // Arming the X requires a fresh hover: without this, clearing the
+            // filter by keyboard while the pointer rests on a header widens the
+            // gate under a stationary pointer and the X becomes clickable with
+            // no hover gesture (stale-state-plus-widened-gate, INT-562 family).
+            // For an expanded empty group the X also becomes VISIBLE at that
+            // moment — that part is intended; being immediately clickable is
+            // not. (Was a parent-level `.onChange(of: isFiltering)`.)
             .onChange(of: isFiltering) { _, _ in
                 isHeaderHovered = false
                 cancelPeek()
@@ -774,47 +825,69 @@ struct SidebarGroupHeaderRow: View {
         }
     }
 
-    // Hover-gated by design, unlike SidebarCloseButton (INT-8): this X is a
-    // redundant pointer shortcut over the count badge. The context menu
-    // "Close Group" and the header's "Close Group" accessibility action
-    // (`groupAccessibilityActionsContent`) remain the always-available close
-    // paths, so nothing is discoverable only by hover.
+    /// WCAG 2.5.8 minimum pointer target for the X, before `textScaleFactor`
+    /// scales it up. This X is the sole pointer path to closing a group, so
+    /// the base can't sit under the minimum and lean on a scaled-up user
+    /// setting to reach it.
+    static let closeTargetBaseSize: CGFloat = 24
+
+    // This X is the only pointer path to closing a group, so it can't be
+    // discoverable by hover alone in the state where hover is the least
+    // likely gesture: an expanded empty group rests it visible. Everywhere
+    // else it stays a hover reveal over the count badge, and the context menu
+    // "Close Group" plus the header's "Close Group" accessibility action
+    // (`groupAccessibilityActionsContent`) remain always-available.
     private var groupCloseButton: some View {
         Button(role: .destructive) {
-            // Belt-and-braces with the opacity/hit-testing gate below: any
-            // activation path that sidesteps pointer hit-testing (e.g. a
-            // future synthesized action) still can't close a gated group.
+            // Belt-and-braces with the opacity gate below: any activation path
+            // that sidesteps pointer hit-testing (keyboard, or a future
+            // synthesized action) still can't close a gated group. Deliberately
+            // NOT gated on `isPointerOverHeader` — arming is a pointer-safety
+            // rule, and a keyboard activation is not a mis-aimed click.
             guard showsGroupCloseButton else { return }
             onCloseGroup()
         } label: {
             // Glyph + hit frame scale with the count badge (see
             // `textScaleFactor`) so a large text-size setting doesn't shrink
             // the X into a tiny mark beside a grown count (INT-237). The base
-            // 9pt glyph / 20pt frame are the X's own design sizes (the count
-            // renders at 11pt — deliberately larger than the glyph);
-            // `textScaleFactor` is 1.0 at 100%, so no scaling is applied.
+            // 9pt glyph is the X's own design size (the count renders at 11pt —
+            // deliberately larger than the glyph); the frame is the POINTER
+            // TARGET and carries the 24pt minimum. `textScaleFactor` is 1.0 at
+            // 100%, so no scaling is applied there.
             Image(systemName: "xmark")
                 .font(.system(size: 9 * textScaleFactor, weight: .bold))
-                .frame(width: 20 * textScaleFactor, height: 20 * textScaleFactor)
+                .frame(
+                    width: Self.closeTargetBaseSize * textScaleFactor,
+                    height: Self.closeTargetBaseSize * textScaleFactor
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // Pointer-only per spec: without this, Full Keyboard Access can Tab
-        // to the (possibly invisible) X and activate it with Space —
-        // `accessibilityHidden` and `allowsHitTesting` don't remove a
-        // Button from the FKA focus order.
-        .focusable(false)
+        // In the FKA focus order exactly while it is visible. An invisible X
+        // that Tab can still reach and Space can still fire is the original
+        // reason this was `focusable(false)`; a resting-visible X is ordinary
+        // UI, and keyboard users get the same reach as the pointer.
+        // (`accessibilityHidden` and `allowsHitTesting` do not remove a Button
+        // from the FKA focus order — only `focusable` does.)
+        .focusable(showsGroupCloseButton)
         .foregroundStyle(Color.aw.text)
-        // Hidden-but-present (not `if`-removed) so hover morph doesn't
-        // insert/remove views; hit-testing is gated off while hidden so an
-        // invisible X can never eat a header click and silently close the
-        // group (see badge-slot hit-target test).
+        // Hidden-but-present (not `if`-removed) so the hover morph doesn't
+        // insert/remove views.
         .opacity(showsGroupCloseButton ? 1 : 0)
-        .allowsHitTesting(showsGroupCloseButton)
+        // Visibility and hit-testing DIVERGE here, and that is the point.
+        // Closing a group rebuilds the list, sliding the next header up under
+        // a stationary pointer with its X already resting visible; if that
+        // target were also armed, a second click in the same spot would
+        // destroy a group the user never looked at (empty groups take neither
+        // confirm branch). Requiring a real hover-enter is what re-arms it,
+        // which is also what makes the three `isHeaderHovered` resets in
+        // `withPeekLifecycle` bite for the resting X. Keyboard activation is
+        // unaffected: focus is not hit-testing.
+        .allowsHitTesting(showsGroupCloseButton && isPointerOverHeader)
         .accessibilityHidden(true)
         // Emptied while hidden — AppKit skips empty tooltips, so the count
-        // badge can't pop a close tooltip in the gated states (filtering,
-        // unresolved row, empty group) where the X never shows.
+        // badge can't pop a close tooltip in the states where the X never
+        // shows (filtering, unresolved row, sole empty group, collapsed rail).
         // "Close Group" matches the context menu and VoiceOver action names
         // for the same operation (consistent identification).
         .help(showsGroupCloseButton ? SidebarGroupClosePolicy.actionLabel : "")
