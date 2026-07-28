@@ -192,7 +192,7 @@ struct SidebarInsertionIndicatorBody: View {
 
             dot
         }
-        .shadow(color: tint.opacity(shadowOpacity), radius: 3, y: 1)
+        .awGlow(color: tint.opacity(shadowOpacity), radius: 3, y: 1)
     }
 
     private var dot: some View {
