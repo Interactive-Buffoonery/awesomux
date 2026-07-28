@@ -48,9 +48,12 @@ enum SidebarGroupClosePolicy {
         comment: "Label and help text for controls that close a workspace group."
     )
 
-    /// This decides VISIBILITY only. `SidebarGroupHeaderRow` additionally
-    /// requires a live pointer hover before the X accepts a click, so a header
-    /// that slides under a stationary pointer never arrives pre-armed.
+    /// This decides both visibility and hit-testing — `SidebarGroupHeaderRow`
+    /// drives them from this one value, because an X that is drawn but ignores
+    /// a click is its own bug. A resting X can therefore be clicked the instant
+    /// a rebuild slides it under a stationary pointer; that is accepted rather
+    /// than guarded, because `removeGroup` registers undo and gating on hover
+    /// does not prevent it (the arriving header gets a real hover-enter).
     ///
     /// - Parameters:
     ///   - isHeaderHovered: pointer is over the header row. Reveals the X
@@ -216,8 +219,8 @@ struct SidebarGroupHeaderRow: View {
     }
 
     /// Live pointer presence over the header, or the test override standing in
-    /// for it. Distinct from `showsGroupCloseButton`: an expanded empty group
-    /// shows its X without this, but never ARMS it without this.
+    /// for it. Feeds the close policy's hover term; an expanded empty group
+    /// rests its X without this, and the peek lifecycle owns the resets.
     private var isPointerOverHeader: Bool {
         headerHoverOverride ?? isHeaderHovered
     }

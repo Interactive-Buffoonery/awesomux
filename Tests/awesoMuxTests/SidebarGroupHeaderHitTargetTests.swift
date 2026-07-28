@@ -372,6 +372,45 @@ struct SidebarGroupHeaderHitTargetTests {
         return hosted.window
     }
 
+    /// `.focusable(showsGroupCloseButton)` is what gives keyboard users the
+    /// same reach as the pointer — the X was `.focusable(false)` before,
+    /// because an INVISIBLE X that Tab could still fire is a trap. A resting
+    /// visible one is ordinary UI.
+    ///
+    /// Two baselines where the X is hidden for DIFFERENT reasons — a dead
+    /// control (sole group) and a hover-gated one (populated) — pin that it is
+    /// the X's visibility that moves the count, not emptiness or group count.
+    /// Both measure identically; only the resting X changes anything.
+    ///
+    /// Asserts a strict increase rather than a fixed delta: a focusable
+    /// SwiftUI `Button` currently publishes two key-view shims, and that ratio
+    /// is an implementation detail no test should pin.
+    @Test("the resting close X joins the keyboard focus order")
+    func restingCloseButtonJoinsFocusOrder() {
+        func focusStops(isGroupEmpty: Bool, totalGroupCount: Int) -> Int {
+            let window = Self.makeWindow(
+                isGroupEmpty: isGroupEmpty,
+                totalGroupCount: totalGroupCount,
+                headerHoverOverride: false,
+                onToggle: {}
+            )
+            defer { window.close() }
+            return Self.keyViewCount(in: window)
+        }
+
+        let restingX = focusStops(isGroupEmpty: true, totalGroupCount: 2)
+        let deadX = focusStops(isGroupEmpty: true, totalGroupCount: 1)
+        let hoverX = focusStops(isGroupEmpty: false, totalGroupCount: 2)
+
+        #expect(deadX > 0, "premise: the header must publish focusables at all")
+        #expect(
+            deadX == hoverX,
+            "baselines must agree, or something other than the X is moving: \(deadX) vs \(hoverX)")
+        #expect(
+            restingX > deadX,
+            "the resting X should be reachable by Tab: \(restingX) vs \(deadX)")
+    }
+
     /// SwiftUI publishes each focusable item as a key-view-capable `NSView`
     /// shim in the hosted tree, so counting them is a real readback of the
     /// keyboard focus order — unlike this view's accessibility tree, which
