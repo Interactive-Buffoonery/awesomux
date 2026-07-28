@@ -327,7 +327,7 @@ struct CommandBridgeEnactorTests {
         let fixture = try makeRemoteOwnedFixture()
         let enactor = fixture.view.commandBridgeEnactor
         var providedSessionName: RemoteSessionName?
-        enactor.remoteOwnedAttachCommandProvider = { target, sessionName in
+        enactor.remoteOwnedAttachCommandProvider = { target, sessionName, _ in
             providedSessionName = sessionName
             return "ssh \(target.sshDestination) zmx attach \(sessionName.rawValue)"
         }
@@ -382,7 +382,7 @@ struct CommandBridgeEnactorTests {
             spawned.record(command)
             return nil
         }
-        enactor.remoteOwnedAttachCommandProvider = { _, sessionName in
+        enactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
             "remote-owned-\(sessionName.rawValue)"
         }
 
@@ -411,10 +411,11 @@ struct CommandBridgeEnactorTests {
             return true
         }
         enactor.sessionID = fixture.sessionID
-
         // ssh forwards the remote shell's own status, so 0 is a deliberate
         // `exit` on the far side — INT-769 parity with a local shell.
-        enactor.beginExitSupervision(exitCode: 0)
+        stubRemoteOwnedExitStatus(0, on: enactor)
+
+        enactor.beginExitSupervision(exitCode: nil)
 
         #expect(enactor.sessionID == nil)
         #expect(!enactor.errorLatched)
@@ -422,9 +423,12 @@ struct CommandBridgeEnactorTests {
         #expect(fixture.livePane == nil)
     }
 
+    /// `nil` is the wrapper never having written a status — killed by a signal,
+    /// or no file minted at attach. It must read as a failure, not a clean exit:
+    /// a pane that vanishes on a dropped connection is unrecoverable.
     @Test("a remote-owned abnormal exit latches the disconnected reconnect state")
     func remoteOwnedAbnormalExitLatchesDisconnected() throws {
-        for exitCode in [Int16(255), nil] {
+        for status in [Int16(255), Int16(127), nil] {
             let fixture = try makeRemoteOwnedFixture()
             let enactor = fixture.view.commandBridgeEnactor
             enactor.sessionExistsProvider = { _ in
@@ -432,8 +436,9 @@ struct CommandBridgeEnactorTests {
                 return true
             }
             enactor.sessionID = fixture.sessionID
+            stubRemoteOwnedExitStatus(status, on: enactor)
 
-            enactor.beginExitSupervision(exitCode: exitCode)
+            enactor.beginExitSupervision(exitCode: nil)
 
             #expect(enactor.errorLatched)
             #expect(!enactor.exitProbeInFlight)
@@ -443,6 +448,119 @@ struct CommandBridgeEnactorTests {
                 pane.remoteReconnect == .disconnected(.init(target: try remoteOwnedTarget()))
             )
         }
+    }
+
+    /// The decision must come from the attach's OWN status file, never from
+    /// libghostty's `command_finished` cache — that cache holds whatever OSC 133
+    /// the pane last saw, including ones the far host's shell integration
+    /// emitted, with no correlation to this attach. A stale non-zero there used
+    /// to be enough to paint "Remote session unavailable" over a clean `exit`.
+    @Test("a stale cached command exit code cannot decide a remote-owned exit")
+    func remoteOwnedExitIgnoresStaleCommandExitCache() throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.sessionID = fixture.sessionID
+        // What a remote `grep` with no match leaves behind.
+        fixture.view.handleCommandFinished(exitCode: 1)
+        stubRemoteOwnedExitStatus(0, on: enactor)
+
+        enactor.beginExitSupervision(exitCode: 1)
+
+        #expect(!enactor.errorLatched)
+        #expect(fixture.livePane == nil)
+    }
+
+    /// The pane's exit used to sit behind libghostty's "Press any key to close
+    /// the terminal." screen: setting a surface command forces
+    /// `wait-after-command` on, and a remote-owned pane has no status feed to
+    /// act on instead. Claiming the child-exited action is what closes that gap.
+    ///
+    /// The claim must be answered synchronously, but the teardown must NOT run
+    /// before the action returns: `Surface.childExited` keeps using the surface
+    /// afterward and supervision frees it. Asserting the pane is still alive at
+    /// return is what fails if anyone re-inlines the teardown.
+    @Test("a remote-owned pane claims its child's exit but tears down a turn later")
+    func remoteOwnedChildExitDefersSupervision() async throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.sessionExistsProvider = { _ in
+            Issue.record("a remote-owned pane must never probe the local amx daemon")
+            return true
+        }
+        enactor.sessionID = fixture.sessionID
+        stubRemoteOwnedExitStatus(0, on: enactor)
+
+        #expect(fixture.view.handleChildExited())
+
+        // Nothing freed yet — this is the invariant the C boundary depends on.
+        #expect(enactor.sessionID == fixture.sessionID)
+        #expect(fixture.livePane != nil)
+
+        await Task.yield()
+
+        #expect(enactor.sessionID == nil)
+        #expect(!enactor.errorLatched)
+        #expect(fixture.livePane == nil)
+    }
+
+    /// The dropped-connection direction through the same new entry point: the
+    /// keypress goes away for failures too, and the overlay must still latch.
+    @Test("a remote-owned child exit that failed still latches the overlay")
+    func remoteOwnedChildExitFailureLatchesOverlay() async throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.sessionID = fixture.sessionID
+        stubRemoteOwnedExitStatus(255, on: enactor)
+
+        #expect(fixture.view.handleChildExited())
+        await Task.yield()
+
+        #expect(enactor.errorLatched)
+        let pane = try #require(fixture.livePane)
+        #expect(pane.remoteReconnect == .disconnected(.init(target: try remoteOwnedTarget())))
+    }
+
+    /// A second child-exited before the deferred teardown lands must still be
+    /// claimed (suppressing libghostty's screen) without queueing a second one.
+    @Test("a repeated child-exited action is claimed but enacted once")
+    func remoteOwnedRepeatedChildExitEnactsOnce() async throws {
+        let fixture = try makeRemoteOwnedFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.sessionID = fixture.sessionID
+        var consumed = 0
+        enactor.remoteOwnedExitStatusFile = URL(fileURLWithPath: "/tmp/unused.exit")
+        enactor.remoteOwnedExitStatusConsumer = { _ in
+            consumed += 1
+            return 0
+        }
+
+        #expect(fixture.view.handleChildExited())
+        #expect(fixture.view.handleChildExited())
+        await Task.yield()
+
+        #expect(consumed == 1)
+    }
+
+    /// Returning false leaves libghostty's own child-exit handling in place. A
+    /// local or bridged pane still has it (the bridge acts on its status feed
+    /// instead), so only the remote-owned pane may claim the action.
+    @Test("a pane that is not remote-owned leaves the child-exited action alone")
+    func nonRemoteOwnedChildExitIsNotClaimed() throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"))
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                title: "local",
+                workingDirectory: "/tmp",
+                executionPlan: .local
+            )
+        )
+        fixture.view.commandBridgeEnactor.sessionID = sessionID
+
+        #expect(!fixture.view.handleChildExited())
+        #expect(fixture.livePane != nil)
     }
 
     @Test("a remote-owned exit with the bridge disabled never re-creates the surface")
@@ -458,8 +576,9 @@ struct CommandBridgeEnactorTests {
             return true
         }
         enactor.sessionID = fixture.sessionID
+        stubRemoteOwnedExitStatus(0, on: enactor)
 
-        enactor.beginExitSupervision(exitCode: 0)
+        enactor.beginExitSupervision(exitCode: nil)
 
         #expect(host.closeAfterProcessExitCount == 1)
         #expect(host.scheduleSurfaceCreationCount == 0)
@@ -564,7 +683,7 @@ struct CommandBridgeEnactorTests {
             spawned.record(command)
             return nil
         }
-        fixture.view.commandBridgeEnactor.remoteOwnedAttachCommandProvider = { _, sessionName in
+        fixture.view.commandBridgeEnactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
             "remote-owned-\(sessionName.rawValue)"
         }
 
@@ -1057,6 +1176,13 @@ struct CommandBridgeEnactorTests {
         )
     }
 
+    /// Stands in for the `/bin/sh` wrapper having written (or not written) a
+    /// status, without touching the filesystem.
+    private func stubRemoteOwnedExitStatus(_ status: Int16?, on enactor: CommandBridgeEnactor) {
+        enactor.remoteOwnedExitStatusFile = URL(fileURLWithPath: "/tmp/unused.exit")
+        enactor.remoteOwnedExitStatusConsumer = { _ in status }
+    }
+
     private func remoteOwnedTarget() throws -> RemoteTarget {
         try #require(RemoteTarget(user: "ed", host: "example.invalid"))
     }
@@ -1065,10 +1191,16 @@ struct CommandBridgeEnactorTests {
     /// session-prefixed listing of the socket directory is how "no channel was
     /// ever minted" is proven — `statusChannel == nil` alone would also hold for
     /// a channel that was minted and then deleted.
+    ///
+    /// The suffix is part of the filter, not decoration: a remote-owned attach
+    /// legitimately mints a `<session>.exit` file in the same directory, and a
+    /// prefix-only match would count that as a status channel.
     private func statusFileNames(for sessionID: TerminalSessionID) -> [String] {
         let directory = AmxBackend.sessionSocketDirectory()
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
-        return names.filter { $0.hasPrefix(sessionID.rawValue) }
+        return names.filter {
+            $0.hasPrefix(sessionID.rawValue) && $0.hasSuffix(".status.jsonl")
+        }
     }
 
     private func makeFixture(sessionID: TerminalSessionID, pane: TerminalPane) throws -> Fixture {

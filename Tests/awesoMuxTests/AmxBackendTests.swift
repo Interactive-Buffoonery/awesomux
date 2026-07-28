@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -769,9 +770,7 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
     private static let remote = RemoteTarget(user: "alice", host: "box")!
     private static let sessionName = RemoteSessionName(rawValue: "dev")!
 
-    /// Everything before the composed remote command. The ControlPath embeds the
-    /// invoking user's home directory, so it is interpolated rather than
-    /// literal — the same accommodation the local-amx ssh-tail tests make.
+    /// The scrubbed `env` prefix, up to the local shell that wraps the ssh run.
     private static var expectedPrefix: String {
         "'/usr/bin/env' "
             + "-u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
@@ -779,10 +778,24 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
             + "-u AWESOMUX_AGENT_EVENT_PROTOCOL -u AWESOMUX_SESSION_ID -u AWESOMUX_PANE_ID "
             + "-u AWESOMUX_AGENT_EVENT_FILE -u AWESOMUX_AGENT_HOOK "
             + "-u AWESOMUX_AGENT_ENABLED_SOURCES -u AWESOMUX_AMX -u AWESOMUX_PROFILE "
-            + "'ssh' '-o' 'ControlMaster=auto' "
+            + "'/bin/sh' '-c' "
+    }
+
+    /// The ssh invocation as it appears INSIDE the local shell's script, before
+    /// that script is quoted into a single argument. The ControlPath embeds the
+    /// invoking user's home directory, so it is interpolated rather than
+    /// literal — the same accommodation the local-amx ssh-tail tests make.
+    private static var expectedSSHTokens: String {
+        "'ssh' '-o' 'ControlMaster=auto' "
             + "'-o' 'ControlPath=\(AmxBackend.sshControlPath())' "
             + "'-o' 'ControlPersist=60' '-o' 'ConnectTimeout=10' '-o' 'ServerAliveInterval=15' "
             + "'-t' '--' 'alice@box' "
+    }
+
+    private static let exitStatusFile = URL(fileURLWithPath: "/tmp/amx-test/session.exit")
+
+    private static func singleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// The whole of #235: nothing is asked for, and every place the backend can
@@ -852,28 +865,115 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
     func assemblesDiscoveryCommand() {
         let command = AmxBackend.remoteOwnedAttachCommand(
             remote: Self.remote,
-            sessionName: Self.sessionName
+            sessionName: Self.sessionName,
+            exitStatusFile: Self.exitStatusFile
         )
-        let script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
-        #expect(
-            command == Self.expectedPrefix
-                + "'" + script.replacingOccurrences(of: "'", with: "'\\''") + "'")
+        let discovery = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
+        let script =
+            Self.expectedSSHTokens + Self.singleQuoted(discovery)
+            + "; printf %s \"$?\" > '/tmp/amx-test/session.exit'"
+        #expect(command == Self.expectedPrefix + Self.singleQuoted(script))
+    }
+
+    /// The pane's only exit status: libghostty reports 0 for every child on
+    /// macOS, so without this report a deliberate `exit` and a dropped
+    /// connection reach the enactor identically.
+    @Test("the ssh run writes its exit status to the per-attach file")
+    func reportsExitStatusToFile() {
+        let command = AmxBackend.remoteOwnedAttachCommand(
+            remote: Self.remote,
+            sessionName: Self.sessionName,
+            exitStatusFile: Self.exitStatusFile
+        )
+        // Sequenced after ssh, not `exec`d in front of it: an `exec` would
+        // replace the shell and the report would never run.
+        #expect(command.contains("'\\''; printf %s \"$?\" > '\\''/tmp/amx-test/session.exit'\\''"))
+        #expect(!command.contains("exec 'ssh'"))
+        // NOT an in-band terminal report: an OSC 133 status would be parsed on
+        // libghostty's reader thread with no ordering against the child-exited
+        // event, and would be indistinguishable from one the far host's own
+        // shell integration emitted.
+        #expect(!command.contains("133"))
+    }
+
+    /// Minting can fail (squatted path, EACCES). The pane must still attach —
+    /// losing the exit status is the pre-#237 behaviour, refusing to connect is
+    /// a regression.
+    @Test("a pane with no status file still attaches, without the shell wrapper")
+    func attachesWithoutStatusFile() {
+        let command = AmxBackend.remoteOwnedAttachCommand(
+            remote: Self.remote,
+            sessionName: Self.sessionName,
+            exitStatusFile: nil
+        )
+        #expect(command.contains("'ssh'"))
+        #expect(!command.contains("'/bin/sh'"))
+        #expect(!command.contains("printf"))
     }
 
     @Test("forces a remote PTY")
     func forcesRemotePTY() {
         let command = AmxBackend.remoteOwnedAttachCommand(
             remote: Self.remote,
-            sessionName: Self.sessionName
+            sessionName: Self.sessionName,
+            exitStatusFile: Self.exitStatusFile
         )
-        #expect(command.contains(" '-t' "))
+        #expect(command.contains("'\\''-t'\\'' "))
+    }
+
+    /// Round-trips the real file through the real shell command, which is the
+    /// only way to prove the quoted redirect and the reader agree. Runs the
+    /// wrapper's own reporting fragment rather than a hand-written echo.
+    @Test("the wrapper's write and the reader agree, and the read consumes the file")
+    func exitStatusFileRoundTrips() throws {
+        let sessionID = try #require(TerminalSessionID(rawValue: "roundtrip-exit-status"))
+        let url = try #require(AmxBackend.makeRemoteOwnedExitStatusFile(for: sessionID))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // 0600 in a user-only directory, per the squatting guard it shares with
+        // the amx status channel.
+        let mode = try #require(
+            try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber
+        )
+        #expect(mode.int16Value == 0o600)
+
+        let command = AmxBackend.remoteOwnedAttachCommand(
+            remote: Self.remote,
+            sessionName: Self.sessionName,
+            exitStatusFile: url
+        )
+        // Take the wrapper's script exactly as assembled, and swap only the ssh
+        // invocation for a stub that exits 42 — so the redirect under test is
+        // the shipped one, through its real quoting.
+        let script = try #require(command.components(separatedBy: "'-c' ").last)
+        let unquoted = String(script.dropFirst().dropLast())
+            .replacingOccurrences(of: "'\\''", with: "'")
+        let stubbed = unquoted.replacingOccurrences(
+            of: "'ssh'",
+            with: "'/bin/sh' '-c' 'exit 42' ''",
+            options: [],
+            range: unquoted.range(of: "'ssh'")
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", stubbed]
+        try process.run()
+        try process.waitUntilExitEventually()
+
+        #expect(AmxBackend.consumeRemoteOwnedExitStatus(at: url) == 42)
+        // Consumed means gone: a second read must not resurrect a dead attach's
+        // status for the next one.
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(AmxBackend.consumeRemoteOwnedExitStatus(at: url) == nil)
     }
 
     @Test("carries no local-daemon state: no ZMX_DIR, no status channel, no shell integration")
     func carriesNoLocalDaemonState() {
         let command = AmxBackend.remoteOwnedAttachCommand(
             remote: Self.remote,
-            sessionName: Self.sessionName
+            sessionName: Self.sessionName,
+            exitStatusFile: Self.exitStatusFile
         )
         // The local socket directory is meaningless to a zmx on another host.
         #expect(!command.contains("ZMX_DIR"))

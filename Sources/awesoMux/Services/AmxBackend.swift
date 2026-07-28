@@ -38,6 +38,7 @@ struct AmxStatusChannel: Equatable {
 enum AmxBackend {
     static let executableName = "amx"
     private static let envExecutablePath = "/usr/bin/env"
+    private static let shellExecutablePath = "/bin/sh"
     private static let establishedMetadataRawValue = "amx:v1:established"
     /// 0700 so the socket dir is user-only (zmx's default is 0750, group-readable).
     private static let socketDirectoryMode = "700"
@@ -868,18 +869,121 @@ enum AmxBackend {
     /// through `env`: it strips the pane-scoped agent keys and the status pair
     /// from the ssh CLIENT, so a promiscuous `SendEnv`/`AcceptEnv` pair can
     /// never carry this instance's side channel across (ADR-0022).
+    ///
+    /// The ssh client runs under a local `/bin/sh` rather than as the surface's
+    /// own child so that its exit status can be written to `exitStatusFile`
+    /// after it returns. `nil` attaches without a status file (minting failed);
+    /// the pane still works, but every exit reads as a failure.
     static func remoteOwnedAttachCommand(
         remote: RemoteTarget,
-        sessionName: RemoteSessionName
+        sessionName: RemoteSessionName,
+        exitStatusFile: URL?
     ) -> String {
+        let ssh = sshTailTokens(
+            for: remote,
+            remoteCommand: remoteBackendDiscoveryCommand(sessionName: sessionName)
+        )
+        .map(shellQuote)
+        .joined(separator: " ")
+        guard let exitStatusFile else {
+            let tokens =
+                [shellQuote(envExecutablePath)]
+                + environmentScrubTokens(remote: remote)
+                + [ssh]
+            return tokens.joined(separator: " ")
+        }
         let tokens =
             [shellQuote(envExecutablePath)]
             + environmentScrubTokens(remote: remote)
-            + sshTailTokens(
-                for: remote,
-                remoteCommand: remoteBackendDiscoveryCommand(sessionName: sessionName)
-            ).map(shellQuote)
+            + [
+                shellQuote(shellExecutablePath),
+                shellQuote("-c"),
+                shellQuote(ssh + "; " + exitStatusReport(to: exitStatusFile)),
+            ]
         return tokens.joined(separator: " ")
+    }
+
+    /// Writes the preceding command's exit status to `url`.
+    ///
+    /// A file, deliberately, and not an in-band terminal report. The pane's exit
+    /// status has no other source — libghostty spawns through `/usr/bin/login`,
+    /// which swallows the child's status (verified: `login -flpq $USER /bin/sh
+    /// -c 'exit 7'` returns 0), and a remote-owned pane has no `amx` status
+    /// channel — but an OSC 133 report cannot be read back safely:
+    ///
+    /// - **Ordering.** A `write` completes before the writer exits, so the file
+    ///   is guaranteed present when the child-exited action arrives. Terminal
+    ///   bytes are only *sent* before exit; libghostty parses them on its own
+    ///   reader thread, so the parsed result can land arbitrarily later than the
+    ///   exit — unboundedly so after a large output burst.
+    /// - **Correlation.** This path is unique per attach and only this wrapper
+    ///   writes it. A far shell running ghostty/iTerm2 shell integration,
+    ///   starship, or bash-preexec emits OSC 133 pairs of its own, and nothing
+    ///   downstream could tell those from ours.
+    /// - **Side effects.** An OSC 133 report rides libghostty's
+    ///   `command_finished` action into the generic shell/agent completion
+    ///   pipeline — clearing a live `.error`, latching shell idle, and speaking
+    ///   accessibility announcements — none of which a transport teardown wants.
+    private static func exitStatusReport(to url: URL) -> String {
+        "printf %s \"$?\" > " + shellQuote(url.path)
+    }
+
+    /// Mints the file `remoteOwnedAttachCommand`'s wrapper writes its exit status
+    /// to, pre-created 0600 in the user-only socket directory by the same helper
+    /// that guards the `amx` status channel against squatting.
+    ///
+    /// One path per pane, removed and re-created rather than reused: a re-attach
+    /// must never be able to read the previous incarnation's status, and a pane
+    /// that is closed without ever exiting (app quit) would otherwise leave a
+    /// file per attach behind. `O_EXCL` inside `prepare` means the re-create
+    /// still refuses to adopt a file somebody else owns.
+    static func makeRemoteOwnedExitStatusFile(for sessionID: TerminalSessionID) -> URL? {
+        let fileURL = remoteOwnedExitStatusURL(for: sessionID)
+        try? FileManager.default.removeItem(at: fileURL)
+        guard AgentRuntimeEventFile.prepare(at: fileURL) else {
+            return nil
+        }
+        return fileURL
+    }
+
+    static func remoteOwnedExitStatusURL(for sessionID: TerminalSessionID) -> URL {
+        URL(fileURLWithPath: sessionSocketDirectory())
+            .appendingPathComponent("\(sessionID.rawValue).exit")
+    }
+
+    /// Reads and removes a status file minted by `makeRemoteOwnedExitStatusFile`.
+    /// Returns nil when the wrapper never wrote one — it was killed by a signal,
+    /// or minting failed at attach time — which reads as a failed exit, the
+    /// safe direction: the user gets the reconnect overlay rather than a pane
+    /// that vanishes.
+    ///
+    /// Validates the descriptor rather than the path (`O_NOFOLLOW` plus an owner
+    /// check on `fstat`) for the same reason `AgentRuntimeEventFile.truncate`
+    /// does: a same-UID process can swap the file for a symlink in the window
+    /// between mint and read.
+    static func consumeRemoteOwnedExitStatus(at url: URL) -> Int16? {
+        defer { try? FileManager.default.removeItem(at: url) }
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+
+        var st = stat()
+        guard fstat(fd, &st) == 0,
+            (st.st_mode & S_IFMT) == S_IFREG,
+            st.st_uid == geteuid()
+        else {
+            return nil
+        }
+
+        // A shell status is at most three digits; anything longer is not ours.
+        var buffer = [UInt8](repeating: 0, count: 8)
+        let count = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, 8) }
+        guard count > 0,
+            let text = String(bytes: buffer.prefix(count), encoding: .utf8)
+        else {
+            return nil
+        }
+        return Int16(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// Where a macOS destination keeps `amx` when awesoMux is installed but

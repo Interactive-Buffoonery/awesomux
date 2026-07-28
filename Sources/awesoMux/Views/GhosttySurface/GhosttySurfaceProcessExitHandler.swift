@@ -87,6 +87,12 @@ extension GhosttySurfaceNSView {
         }
     }
 
+    /// libghostty's child-exited action. See `CommandBridgeEnactor.handleChildExited`.
+    @MainActor
+    func handleChildExited() -> Bool {
+        commandBridgeEnactor.handleChildExited()
+    }
+
     /// Forwarder retained for the existing view tests, which drive the bridge
     /// exclusively through the view surface. New call sites use the enactor.
     @MainActor
