@@ -53,8 +53,46 @@ enum AwesoMuxStringCatalog {
         let literal = try Regex(#"String\(\s*localized:\s*"((?:[^"\\]|\\[^(]|\\\([^)]*\))*)""#)
         let interpolation = try Regex(#"\\\([^)]*\)"#)
         return source.matches(of: literal).map {
-            String($0[1].substring ?? "").replacing(interpolation, with: "%arg")
+            unescape(String($0[1].substring ?? "").replacing(interpolation, with: "%arg"))
         }
+    }
+
+    /// The compiler resolves escapes before `xcstringstool` ever sees the
+    /// literal, so a source that writes `\u{201C}` and a catalog key holding a
+    /// real curly quote are the *same* key. Reading the source text back means
+    /// undoing that ourselves, or every escaped literal reports false drift.
+    private static func unescape(_ literal: String) -> String {
+        var result = ""
+        var rest = Substring(literal)
+        while let slash = rest.firstIndex(of: "\\") {
+            result += rest[rest.startIndex..<slash]
+            let afterSlash = rest.index(after: slash)
+            guard afterSlash < rest.endIndex else {
+                result += rest[slash...]
+                return result
+            }
+            switch rest[afterSlash] {
+            case "u":
+                // \u{XXXX} — anything else beginning `\u` is not a valid Swift
+                // escape, so failing to parse it means the regex mis-captured.
+                guard
+                    let open = rest[afterSlash...].firstIndex(of: "{"),
+                    let close = rest[open...].firstIndex(of: "}"),
+                    let scalar = UInt32(rest[rest.index(after: open)..<close], radix: 16)
+                        .flatMap(Unicode.Scalar.init)
+                else {
+                    result += rest[slash...afterSlash]
+                    rest = rest[rest.index(after: afterSlash)...]
+                    continue
+                }
+                result.unicodeScalars.append(scalar)
+                rest = rest[rest.index(after: close)...]
+            case "n": result += "\n"; rest = rest[rest.index(after: afterSlash)...]
+            case "t": result += "\t"; rest = rest[rest.index(after: afterSlash)...]
+            case let other: result.append(other); rest = rest[rest.index(after: afterSlash)...]
+            }
+        }
+        return result + rest
     }
 
     enum CatalogError: Error {
