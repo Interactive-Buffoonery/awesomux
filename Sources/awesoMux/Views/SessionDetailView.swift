@@ -725,6 +725,14 @@ private struct NeedsInputBar: View {
         }
         .padding(.leading, 16)
         .padding(.trailing, 12)
+        // The accents are overlays, so they paint over the bar's own edges
+        // without reserving any. Padding each accented edge by its own
+        // thickness centres the row in the space that stays visible. Without
+        // it the always-present top accent eats 3pt that nothing gives back,
+        // and the row rides high — invisible in multi-pane, where the bottom
+        // accent balances it, and visible in single-pane, where it is dropped.
+        .padding(.top, Self.accentThickness)
+        .padding(.bottom, showsBottomAccent ? Self.accentThickness : 0)
         .frame(minHeight: 46)
         .background {
             LinearGradient(
@@ -746,8 +754,12 @@ private struct NeedsInputBar: View {
         }
     }
 
-    private var edgeAccent: some View { accentBar(width: 3) }
-    private var horizontalAccent: some View { accentBar(height: 3) }
+    /// Shared by the bars and by the padding that compensates for them; they
+    /// have to move together or the row goes off-centre again.
+    private static let accentThickness: CGFloat = 3
+
+    private var edgeAccent: some View { accentBar(width: Self.accentThickness) }
+    private var horizontalAccent: some View { accentBar(height: Self.accentThickness) }
 
     // Decorative; state is already carried by StatusDot + the "permission
     // needed" text, same rationale as StatusDot's own accessibilityHidden use.
