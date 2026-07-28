@@ -188,8 +188,14 @@ under `$TMPDIR` (`AppRuntimeProfile.amxSocketDirectoryPath`):
 | App | Socket dir |
 | --- | --- |
 | Production (`com.interactivebuffoonery.awesomux`) | `$TMPDIR/amx` |
-| Primary dev bundle (`…awesomux.dev`, `swift run`, test runners) | `$TMPDIR/amx-dev` |
+| Primary dev bundle (`…awesomux.dev`, `swift run`) | `$TMPDIR/amx-dev` |
 | Linked-worktree dev bundle (`…awesomux.dev.<id>`) | `$TMPDIR/<stable-7-character-namespace>` |
+| Test process (`swift test`, Xcode) | `$TMPDIR/am<4-character-pid-namespace>` |
+
+A test process is deliberately not the dev bundle: it gets its own pid-scoped
+directory, cleared once at startup, so a run can never write into a live dev
+build's session state or inherit a previous run's leftovers. Six characters,
+never seven, so a test namespace cannot collide with a linked worktree's.
 
 ```sh
 export ZMX_DIR="${TMPDIR:?}amx"  # or ${TMPDIR:?}amx-dev for a dev build

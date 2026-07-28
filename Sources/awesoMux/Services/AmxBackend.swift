@@ -72,7 +72,29 @@ enum AmxBackend {
 
     /// Computed once: `$TMPDIR` is process-stable, so re-deriving the path on
     /// every spawn just churns string work on the bridge hot path.
-    private static let cachedSocketDirectory: String = AppRuntimeProfile.current.amxSocketDirectoryPath
+    private static let cachedSocketDirectory: String = {
+        let path = AppRuntimeProfile.current.amxSocketDirectoryPath
+        // Runs under the same `once` that publishes the path, so no caller can
+        // have written into the directory yet.
+        discardResidueOfPriorRun(at: path, profile: AppRuntimeProfile.current)
+        return path
+    }()
+
+    /// A test process's socket directory is named for its pid, and a pid is
+    /// unique among LIVE processes — so anything already in there was left by a
+    /// run that has since exited, never by a peer we could be racing. Clearing
+    /// it is what makes runs independent across pid reuse; `$TMPDIR` purging is
+    /// not a bound on that, because pids can wrap well inside the purge window
+    /// and a recycled pid would otherwise inherit the dead run's status files
+    /// and bring #296 back.
+    ///
+    /// Deliberately inert for every other profile: those directories belong to a
+    /// real app that may be running right now, and emptying one would take a
+    /// live session's sockets with it.
+    static func discardResidueOfPriorRun(at path: String, profile: AppRuntimeProfile) {
+        guard case .test = profile else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
 
     /// Dedicated directory for ssh ControlMaster sockets — deliberately NOT the
     /// amx/zmx socket dir, which `amx list`/GC enumerate (a foreign %C socket

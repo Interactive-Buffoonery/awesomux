@@ -9,10 +9,12 @@ enum AppRuntimeProfile: Equatable, Sendable {
     /// wrote status files into the live dev build's amx socket directory and
     /// then tripped over its own leftovers on the next run (#296).
     ///
-    /// Carries the pid so two runs — or a run and its own residue — can never
-    /// share a directory. The residue is left for `$TMPDIR` purging rather than
-    /// swept in-process: swift-testing runs suites concurrently, so nothing
-    /// inside the run can safely decide the directory is finished with.
+    /// Carries the pid so no two CONCURRENT runs share a directory. Pids are
+    /// recycled, though, so that alone would let a much later run inherit a dead
+    /// one's residue — #296 again, rarer. `AmxBackend.sessionSocketDirectory`
+    /// closes that by clearing the directory once per process: a pid is unique
+    /// among LIVE processes, so anything already there belongs to a run that has
+    /// already exited.
     case test(processID: Int32)
 
     // Must stay byte-identical to script/runtime-profile.sh, which stamps the
@@ -143,15 +145,22 @@ enum AppRuntimeProfile: Equatable, Sendable {
         }
     }
 
-    /// Base-36 and zero-padded to exactly `amx-dev`'s width, because that width
-    /// IS the ceiling: under the longest `$TMPDIR` the `sockaddr_un` budget in
-    /// `AmxBackend.sessionSocketDirectory` leaves room for seven bytes and not
-    /// an eighth. `suffix` keeps the low digits — pids cap at 99999 on macOS, so
-    /// it never truncates today, and neighbouring pids stay distinct if a future
-    /// kernel raises that ceiling.
+    /// Six bytes, where `socketNamespace(worktreeID:)` is always exactly seven.
+    /// That length gap is the disjointness proof, and it is why this does not
+    /// simply prefix `amx`: base-36's alphabet contains `a`, `m` and `x`, so a
+    /// seven-byte `amx`-prefixed name is reachable by the worktree hash. Worktree
+    /// `5640ea939abc` and pid 12345 both encode to `amx09ix` — which would drop a
+    /// test run straight into a live worktree dev build's socket directory, the
+    /// very class of collision this case exists to end.
+    ///
+    /// Four base-36 digits cover every pid macOS issues (36^4 = 1_679_616 against
+    /// a 99999 ceiling). `suffix` bounds the width rather than the value, so a
+    /// kernel that raised that ceiling past 36^4 would alias instead of
+    /// overflowing the path budget; the per-process sweep in
+    /// `AmxBackend.sessionSocketDirectory` is what keeps an alias harmless.
     private static func testSocketNamespace(processID: Int32) -> String {
         let encoded = String(UInt32(bitPattern: processID), radix: 36).suffix(4)
-        return "amx" + String(repeating: "0", count: 4 - encoded.count) + encoded
+        return "am" + String(repeating: "0", count: 4 - encoded.count) + encoded
     }
 
     private static func socketNamespace(worktreeID: String) -> String {
