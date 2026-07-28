@@ -238,6 +238,11 @@ final class SidebarPeekModel {
     /// came from, not `group?.id` read off the model at call time.
     @ObservationIgnored var onSelectGroupSession: ((SessionGroup.ID, TerminalSession.ID) -> Void)?
 
+    /// Offered only by the peek card's genuinely-empty state, where the card
+    /// would otherwise be a dead end. Carries the group id for the same reason
+    /// `onSelectGroupSession` does — the card may already have handed off.
+    @ObservationIgnored var onNewSessionInGroup: ((SessionGroup.ID) -> Void)?
+
     /// Publishes interactive-card pointer ownership to the hidden-sidebar
     /// presentation model, including explicit removals that may not emit a
     /// matching SwiftUI hover-exit callback.

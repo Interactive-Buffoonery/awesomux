@@ -508,6 +508,19 @@ struct ContentView: View {
             sessionStore.acknowledgeSession(id: sessionID)
             peekModel?.hideGroup(for: groupID)
         }
+        peekModel.onNewSessionInGroup = { [weak peekModel] groupID in
+            // Resolve the name at call time: `addSession` keys off it, and the
+            // group could have been renamed or closed while the card was up.
+            guard let group = sessionStore.groups.first(where: { $0.id == groupID }) else {
+                peekModel?.hideGroup(for: groupID)
+                return
+            }
+            // No explicit selection write: `addSession` already commits
+            // `selection: .set(...)`, unlike `onSelectGroupSession` above,
+            // which selects an existing session and must set it itself.
+            _ = sessionStore.addSession(groupName: group.name)
+            peekModel?.hideGroup(for: groupID)
+        }
         peekModel.onPointerChanged = sidebarPresentation.peekPointerChanged
     }
 
@@ -1058,6 +1071,7 @@ private struct SidebarPeekCardOverlay: View {
                     tint: tint,
                     items: model.groupSessionItems,
                     onSelectSession: { sessionID in model.onSelectGroupSession?(group.id, sessionID) },
+                    onNewWorkspace: { model.onNewSessionInGroup?(group.id) },
                     onHoverChanged: { over in model.setPointerOverGroupCard(over, for: group.id) }
                 )
                 // Always hittable — every row jumps, unlike the
