@@ -36,11 +36,11 @@ struct DocumentLoaderTests {
 
     // MARK: - Happy path
 
-    /// Used to assert the parsed `[MarkdownBlock]` payload. `LoadResult` no
-    /// longer carries one — rendering parses the source for itself — so what
-    /// is left to check here is that a well-formed file reaches `.loaded` with
-    /// its bytes intact. Block-shape coverage lives in
-    /// `MarkdownRenderModelBuilderTests`, which tests the parser directly.
+    /// Used to assert a parsed block-tree payload. `LoadResult` no longer
+    /// carries one — rendering parses the source for itself — so what is left
+    /// to check here is that a well-formed file reaches `.loaded` with its
+    /// bytes intact. The block model and its builder were deleted outright
+    /// once nothing consumed them, so there is no parser left to cover.
     @Test("loads a valid .md file and carries its source")
     func loadsValidMarkdown() throws {
         let content = "# Hello\n\nWorld"

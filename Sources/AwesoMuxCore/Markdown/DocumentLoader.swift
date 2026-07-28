@@ -24,10 +24,11 @@ public enum DocumentLoader {
         ///
         /// Carries the source rather than a parse tree because that is what
         /// rendering consumes: `loadAndRender` hands `source` to
-        /// `AttributedMarkdownBuilder`, which parses for itself. A
-        /// `[MarkdownBlock]` payload used to ride along here and was read by
-        /// nothing — it cost a second full parse of every document on every
-        /// load, and held that tree alive for as long as the tab stayed open.
+        /// `AttributedMarkdownBuilder`, which parses for itself. A separate
+        /// block-tree payload used to ride along here and was read by nothing
+        /// — it cost a second full parse of every document on every load, and
+        /// held that tree alive for as long as the tab stayed open. Both it
+        /// and the renderer that once consumed it are gone.
         case loaded(source: String, snapshot: MarkdownDocumentSnapshot?)
         /// The URL was rejected before any I/O was attempted.
         case rejected(DocumentURLValidator.Rejection)
