@@ -1126,7 +1126,7 @@ struct AwesoMuxApp: App {
                     id: \.element.id
                 ) { offset, binding in
                     // Label with the real workspace title ⌘N lands on; both this
-                    // list and the jump action resolve through the same pinned-first
+                    // list and the jump action resolve through the same lifted-first
                     // order, so index ↔ title stays aligned. Out-of-range slots keep
                     // the generic "Jump to Workspace N" and stay disabled.
                     Button(offset < jumpRows.count ? jumpRows[offset].title : binding.action) {

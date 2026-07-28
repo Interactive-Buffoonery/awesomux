@@ -80,4 +80,21 @@ import Testing
         )
         #expect(order == [a.id])
     }
+
+    @Test func pinnedWinsTheTieNotLifted() {
+        // aSessionNeverAppearsTwice only proves dedup happens, not which list
+        // wins: a single shared id gives [a.id] either way. Here lifted and
+        // pinned disagree on ORDER (a is lifted, b is pinned-only, but a is
+        // ALSO pinned) so pinned-wins ([b.id, a.id]) and a hypothetical
+        // lifted-wins ([a.id, b.id]) diverge in output.
+        let a = TerminalSession(title: "alpha", workingDirectory: "~")
+        let b = TerminalSession(title: "beta", workingDirectory: "~")
+        let g = SessionGroup(name: "One", sessions: [a, b])
+        let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
+            in: [g],
+            liftedSessionIDs: [a.id],
+            pinnedSessionIDs: [b.id, a.id]
+        )
+        #expect(order == [b.id, a.id])
+    }
 }
