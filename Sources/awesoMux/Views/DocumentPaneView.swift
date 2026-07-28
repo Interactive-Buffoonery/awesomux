@@ -539,12 +539,13 @@ private struct SendToAgentButton: NSViewRepresentable {
 // MARK: - DocumentPaneView
 
 /// Renders a `DocumentPane` — validates the URL, loads the markdown file, and
-/// displays it using `MarkdownTextView` (Task 3+) with a `MarkdownView`
-/// fallback while the `RenderedDocument` is still being built.
+/// displays it using `MarkdownTextView` (Task 3+). The `MarkdownView` fallback
+/// this used to name is gone: `.loaded` never arrives without a rendered
+/// document, so the branch was unreachable.
 ///
 /// Load lifecycle (PR2 Task 3: read-once on appear, no live reload):
 ///   1. `DocumentURLValidator` checks scheme, extension, and size.
-///   2. `DocumentLoader` reads the file and builds `[MarkdownBlock]`.
+///   2. `DocumentLoader` reads the file and returns its source.
 ///   3. `AttributedMarkdownBuilder` builds the `RenderedDocument` (off-main).
 ///   4. `MarkdownTextView` renders the document via TextKit with custom
 ///      `NSAttributedString` attributes for source-offset mapping and marks.

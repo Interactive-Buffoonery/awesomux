@@ -51,8 +51,9 @@ public enum DocumentLoader {
 
     // MARK: - Load
 
-    /// Opens `url` once, validates that descriptor, reads its UTF-8 content,
-    /// and builds `[MarkdownBlock]`.
+    /// Opens `url` once, validates that descriptor, and reads its UTF-8
+    /// content. Parsing belongs to whoever renders the source — see
+    /// `LoadResult.loaded`.
     ///
     /// - Parameters:
     ///   - url: The file URL to load.
