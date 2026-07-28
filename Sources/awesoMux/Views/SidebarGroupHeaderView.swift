@@ -841,9 +841,7 @@ struct SidebarGroupHeaderRow: View {
         Button(role: .destructive) {
             // Belt-and-braces with the opacity gate below: any activation path
             // that sidesteps pointer hit-testing (keyboard, or a future
-            // synthesized action) still can't close a gated group. Deliberately
-            // NOT gated on `isPointerOverHeader` — arming is a pointer-safety
-            // rule, and a keyboard activation is not a mis-aimed click.
+            // synthesized action) still can't close a gated group.
             guard showsGroupCloseButton else { return }
             onCloseGroup()
         } label: {
@@ -874,16 +872,13 @@ struct SidebarGroupHeaderRow: View {
         // Hidden-but-present (not `if`-removed) so the hover morph doesn't
         // insert/remove views.
         .opacity(showsGroupCloseButton ? 1 : 0)
-        // Visibility and hit-testing DIVERGE here, and that is the point.
-        // Closing a group rebuilds the list, sliding the next header up under
-        // a stationary pointer with its X already resting visible; if that
-        // target were also armed, a second click in the same spot would
-        // destroy a group the user never looked at (empty groups take neither
-        // confirm branch). Requiring a real hover-enter is what re-arms it,
-        // which is also what makes the three `isHeaderHovered` resets in
-        // `withPeekLifecycle` bite for the resting X. Keyboard activation is
-        // unaffected: focus is not hit-testing.
-        .allowsHitTesting(showsGroupCloseButton && isPointerOverHeader)
+        // Hit-testing follows visibility exactly: an X that is drawn but
+        // ignores a click is its own bug. A rebuild can slide a resting X under
+        // a stationary pointer, so a repeated click in one spot can close more
+        // than one group — that is recoverable (`removeGroup` registers undo)
+        // and gating on hover does not prevent it, because the arriving header
+        // receives a genuine hover-enter.
+        .allowsHitTesting(showsGroupCloseButton)
         .accessibilityHidden(true)
         // Emptied while hidden — AppKit skips empty tooltips, so the count
         // badge can't pop a close tooltip in the states where the X never

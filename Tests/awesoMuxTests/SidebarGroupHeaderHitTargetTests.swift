@@ -126,13 +126,18 @@ struct SidebarGroupHeaderHitTargetTests {
             "hover must not change an expanded empty group's header — the X already rests there")
     }
 
-    /// Hovering is what ARMS the resting X, even though it isn't what reveals
-    /// it. Visibility and hit-testing are deliberately decoupled here: closing
-    /// a group rebuilds the list, sliding the next header up under a pointer
-    /// that never moved, and a target that arrives already clickable turns a
-    /// second click at the same spot into a second (unconfirmed) group close.
-    @Test("hovering the expanded empty group's resting X is what makes it clickable")
-    func restingCloseButtonArmsOnlyOnHover() {
+    /// The resting X is clickable WITHOUT hover — the point of the whole
+    /// change. Hit-testing follows visibility exactly, because an X that is
+    /// drawn but swallows clicks is its own bug.
+    ///
+    /// The cost is accepted deliberately: closing a group rebuilds the list and
+    /// can slide the next resting X under a pointer that never moved, so a
+    /// repeated click in one spot can close more than one group. Gating on
+    /// hover does NOT prevent that (the arriving header receives a genuine
+    /// hover-enter, verified by hand), and `removeGroup` registers undo, so the
+    /// cascade is recoverable rather than destructive.
+    @Test("the resting X closes the group without ever being hovered")
+    func restingCloseButtonIsClickableWithoutHover() {
         let restingToggle = ToggleCounter()
         let restingClose = ToggleCounter()
         let restingWindow = Self.makeWindow(
@@ -145,68 +150,13 @@ struct SidebarGroupHeaderHitTargetTests {
         defer { restingWindow.close() }
 
         SidebarHostedTestHarness.sendClick(to: restingWindow, at: Self.expandedCountBadgePoint)
-        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { restingToggle.count >= 1 }))
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { restingClose.count >= 1 }))
         SidebarHostedTestHarness.settleMainRunLoop()
 
-        // Falls through to the header exactly as the un-armed hover X does:
-        // the click collapses the group instead of destroying it.
-        #expect(restingClose.count == 0)
-        #expect(restingToggle.count == 1)
-
-        restingWindow.close()
-
-        let hoveredToggle = ToggleCounter()
-        let hoveredClose = ToggleCounter()
-        let hoveredWindow = Self.makeWindow(
-            isGroupEmpty: true,
-            totalGroupCount: 2,
-            headerHoverOverride: true,
-            onToggle: hoveredToggle.increment,
-            onCloseGroup: hoveredClose.increment
-        )
-        defer { hoveredWindow.close() }
-
-        hoveredWindow.makeKeyAndOrderFront(nil)
-        SidebarHostedTestHarness.settleMainRunLoop()
-        SidebarHostedTestHarness.sendClick(to: hoveredWindow, at: Self.expandedCountBadgePoint)
-        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { hoveredClose.count >= 1 }))
-        SidebarHostedTestHarness.settleMainRunLoop()
-
-        #expect(hoveredClose.count == 1)
-        #expect(hoveredToggle.count == 0)
-    }
-
-    /// The resting X is un-armed for the pointer until a hover-enter, which
-    /// leaves the keyboard as the path that must keep working — focus and hit
-    /// testing are separate systems, and only `.focusable` governs the former.
-    /// Isolated by flipping ONLY `totalGroupCount`: at 1 the close is a dead
-    /// control and the X is hidden, at 2 it rests visible, and every other
-    /// focusable in the rendered group is identical between the two, so the
-    /// difference is the X's own focus admission.
-    @Test("the resting close X joins the keyboard focus order even while un-armed")
-    func restingCloseButtonJoinsFocusOrder() {
-        let soleWindow = Self.makeWindow(
-            isGroupEmpty: true,
-            totalGroupCount: 1,
-            headerHoverOverride: false,
-            onToggle: {}
-        )
-        defer { soleWindow.close() }
-        let amongOthersWindow = Self.makeWindow(
-            isGroupEmpty: true,
-            totalGroupCount: 2,
-            headerHoverOverride: false,
-            onToggle: {}
-        )
-        defer { amongOthersWindow.close() }
-
-        let hiddenXFocusables = Self.keyViewCount(in: soleWindow)
-        let restingXFocusables = Self.keyViewCount(in: amongOthersWindow)
-
-        #expect(hiddenXFocusables > 0, "no focusable views rendered at all")
-        #expect(
-            restingXFocusables == hiddenXFocusables + 1,
-            "resting X contributed \(restingXFocusables - hiddenXFocusables) focus stops")
+        // Closes rather than falling through to the header's collapse toggle —
+        // the same outcome a hovered X produces, which is the contract.
+        #expect(restingClose.count == 1)
+        #expect(restingToggle.count == 0)
     }
 
     /// Collapsed, the group's rows are hidden, so the count is the only signal
