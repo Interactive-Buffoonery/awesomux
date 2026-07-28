@@ -698,7 +698,7 @@ struct DocumentPaneView: View {
     }
 
     private var currentSnapshot: MarkdownDocumentSnapshot? {
-        guard case let .loaded(_, _, snapshot) = loadResult else { return nil }
+        guard case let .loaded(_, snapshot) = loadResult else { return nil }
         return snapshot
     }
 
@@ -712,8 +712,8 @@ struct DocumentPaneView: View {
         Group {
             if let result = loadResult {
                 switch result {
-                case let .loaded(blocks, _, snapshot):
-                    loadedView(blocks: blocks, snapshot: snapshot)
+                case let .loaded(_, snapshot):
+                    loadedView(snapshot: snapshot)
 
                 case let .rejected(reason):
                     errorView(message: Self.rejectionMessage(for: reason, pane: pane))
@@ -769,11 +769,7 @@ struct DocumentPaneView: View {
                                 return DocumentLoader.LoadResult.readError(
                                     "The file couldn’t be opened because it isn’t in the correct format.")
                             }
-                            return .loaded(
-                                MarkdownRenderModelBuilder.build(source),
-                                source: source,
-                                snapshot: $0
-                            )
+                            return .loaded(source: source, snapshot: $0)
                         }
                             ?? DocumentLoader.load(reloadTaskID.fileURL)
                     },
@@ -921,7 +917,6 @@ struct DocumentPaneView: View {
 
     @ViewBuilder
     private func loadedView(
-        blocks: [MarkdownBlock],
         snapshot: MarkdownDocumentSnapshot?
     ) -> some View {
         let snapshot = Self.editableSnapshot(snapshot, isBannerShowing: showsOversizeBanner)
@@ -1153,12 +1148,16 @@ struct DocumentPaneView: View {
                 }
             }
         } else {
-            // Structurally-unreachable fallback: retained as a defensive backstop.
-            ScrollView(.vertical) {
-                MarkdownView(blocks: blocks)
-                    .padding(20)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // Unreachable: `.loaded` always arrives with a rendered document.
+            // `loadAndRender` returns a nil document only for non-`.loaded`
+            // results, `DocumentTabMemory.Render.init` traps on the pairing,
+            // and the two are assigned together. Kept as a spinner rather than
+            // a second renderer so this branch cannot rot into a divergent
+            // rendering path — it has no content to show that the real one
+            // would not show better.
+            ProgressView()
+                .accessibilityLabel("Loading document")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

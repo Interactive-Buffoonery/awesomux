@@ -36,20 +36,21 @@ struct DocumentLoaderTests {
 
     // MARK: - Happy path
 
-    @Test("loads a valid .md file and returns blocks")
+    /// Used to assert the parsed `[MarkdownBlock]` payload. `LoadResult` no
+    /// longer carries one — rendering parses the source for itself — so what
+    /// is left to check here is that a well-formed file reaches `.loaded` with
+    /// its bytes intact. Block-shape coverage lives in
+    /// `MarkdownRenderModelBuilderTests`, which tests the parser directly.
+    @Test("loads a valid .md file and carries its source")
     func loadsValidMarkdown() throws {
-        let url = try writeTempFile(name: "hello.md", content: "# Hello\n\nWorld")
+        let content = "# Hello\n\nWorld"
+        let url = try writeTempFile(name: "hello.md", content: content)
         let result = DocumentLoader.load(url)
-        guard case let .loaded(blocks, _, _) = result else {
+        guard case let .loaded(source, _) = result else {
             Issue.record("Expected .loaded, got \(result)")
             return
         }
-        #expect(blocks.count == 2)
-        #expect(blocks[0] == .heading(level: 1, [.text("Hello")]))
-        guard case .paragraph = blocks[1] else {
-            Issue.record("Expected paragraph at index 1, got \(blocks[1])")
-            return
-        }
+        #expect(source == content)
     }
 
     @Test("loaded result carries the raw source string")
@@ -57,7 +58,7 @@ struct DocumentLoaderTests {
         let content = "# Hello\n\nWorld"
         let url = try writeTempFile(name: "source.md", content: content)
         let result = DocumentLoader.load(url)
-        guard case let .loaded(_, source, _) = result else {
+        guard case let .loaded(source, _) = result else {
             Issue.record("Expected .loaded, got \(result)")
             return
         }
@@ -74,15 +75,18 @@ struct DocumentLoaderTests {
         }
     }
 
-    @Test("empty file returns empty blocks array")
+    /// An empty file is a successful load, not a read error — the distinction
+    /// the pane relies on to show "This document is empty." rather than an
+    /// error page.
+    @Test("empty file loads with an empty source")
     func loadsEmptyFile() throws {
         let url = try writeTempFile(name: "empty.md", content: "")
         let result = DocumentLoader.load(url)
-        guard case let .loaded(blocks, _, _) = result else {
+        guard case let .loaded(source, _) = result else {
             Issue.record("Expected .loaded, got \(result)")
             return
         }
-        #expect(blocks.isEmpty)
+        #expect(source.isEmpty)
     }
 
     // MARK: - Rejection: bad extension
@@ -133,7 +137,7 @@ struct DocumentLoaderTests {
         let captured = try #require(DocumentLoader.readSource(url))
         try "# Save B".write(to: url, atomically: true, encoding: .utf8)
 
-        guard case let .loaded(_, source, _) = DocumentLoader.load(source: captured) else {
+        guard case let .loaded(source, _) = DocumentLoader.load(source: captured) else {
             Issue.record("Expected captured source to load")
             return
         }
@@ -281,7 +285,7 @@ struct DocumentLoaderTests {
 
         let result = DocumentLoader.load(symlink)
 
-        guard case let .loaded(_, source, _) = result else {
+        guard case let .loaded(source, _) = result else {
             Issue.record("Expected .loaded, got \(result)")
             return
         }
@@ -317,7 +321,7 @@ struct DocumentLoaderTests {
             (.rejected(.notFileURL), false),
             (.rejected(.unreadable), false),
             (.readError("The file couldn’t be read."), false),
-            (.loaded([], source: "hi", snapshot: nil), false),
+            (.loaded(source: "hi", snapshot: nil), false),
         ])
     func sizeRejectionIsDistinguishedFromEveryOtherOutcome(
         result: DocumentLoader.LoadResult,

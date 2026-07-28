@@ -8,6 +8,14 @@ struct MarkdownRenderModelBuilderTests {
 
     // MARK: Headings
 
+    /// Moved here from `DocumentLoaderTests` when `LoadResult` stopped
+    /// carrying a parse tree: the loader no longer has blocks to assert on,
+    /// and this is the only remaining home for the empty-input case.
+    @Test("empty source produces no blocks")
+    func emptySourceProducesNoBlocks() {
+        #expect(MarkdownRenderModelBuilder.build("").isEmpty)
+    }
+
     @Test("heading level 1")
     func headingLevel1() {
         let blocks = MarkdownRenderModelBuilder.build("# Hi")

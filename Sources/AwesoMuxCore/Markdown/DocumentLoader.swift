@@ -20,8 +20,15 @@ public enum DocumentLoader {
 
     /// The outcome of a load attempt.
     public enum LoadResult: Equatable, Sendable {
-        /// The document was successfully read and parsed.
-        case loaded([MarkdownBlock], source: String, snapshot: MarkdownDocumentSnapshot?)
+        /// The document was successfully read.
+        ///
+        /// Carries the source rather than a parse tree because that is what
+        /// rendering consumes: `loadAndRender` hands `source` to
+        /// `AttributedMarkdownBuilder`, which parses for itself. A
+        /// `[MarkdownBlock]` payload used to ride along here and was read by
+        /// nothing — it cost a second full parse of every document on every
+        /// load, and held that tree alive for as long as the tab stayed open.
+        case loaded(source: String, snapshot: MarkdownDocumentSnapshot?)
         /// The URL was rejected before any I/O was attempted.
         case rejected(DocumentURLValidator.Rejection)
         /// The URL was valid but the file could not be read (e.g. permissions, deleted).
@@ -57,7 +64,7 @@ public enum DocumentLoader {
     }
 
     package static func load(source: String) -> LoadResult {
-        .loaded(MarkdownRenderModelBuilder.build(source), source: source, snapshot: nil)
+        .loaded(source: source, snapshot: nil)
     }
 
     package static func loadAndRender(
@@ -68,7 +75,7 @@ public enum DocumentLoader {
         guard !Task.isCancelled else { return nil }
         let result = await load()
         guard !Task.isCancelled else { return nil }
-        guard case let .loaded(_, source, _) = result else {
+        guard case let .loaded(source, _) = result else {
             return (result, nil)
         }
         if let priorDocument, priorDocument.source.utf8.elementsEqual(source.utf8) {
@@ -104,11 +111,7 @@ public enum DocumentLoader {
                         localized: "The file couldn’t be opened because it isn’t in the correct format.",
                         comment: "Document load failure when the bytes are not valid UTF-8"))
             }
-            return .loaded(
-                MarkdownRenderModelBuilder.build(source),
-                source: source,
-                snapshot: snapshot
-            )
+            return .loaded(source: source, snapshot: snapshot)
         case let .failure(result):
             return result
         }

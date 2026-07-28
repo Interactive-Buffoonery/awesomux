@@ -14,7 +14,7 @@ import Testing
     private func makeRender(source: String) -> DocumentTabMemory.Render {
         let renderedDocument = makeRenderedDocument(source: source)
         return DocumentTabMemory.Render(
-            loadResult: .loaded([], source: source, snapshot: nil),
+            loadResult: .loaded(source: source, snapshot: nil),
             renderedDoc: renderedDocument
         )
     }
@@ -33,11 +33,11 @@ import Testing
         let tab = makeTab(path: "/tmp/a.md")
         memory.storeRender(makeRender(source: "a"), for: tab)
         memory.storeScrollAnchor(42, for: tab)
-        #expect(memory.render(for: tab)?.loadResult == .loaded([], source: "a", snapshot: nil))
+        #expect(memory.render(for: tab)?.loadResult == .loaded(source: "a", snapshot: nil))
         #expect(memory.scrollAnchor(for: tab) == 42)
     }
 
-    @Test func successfulRenderSeedDropsParsedBlocksAndSnapshot() throws {
+    @Test func successfulRenderSeedDropsTheFileSnapshot() throws {
         var memory = DocumentTabMemory()
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("DocumentTabMemoryTests-\(UUID().uuidString)", isDirectory: true)
@@ -47,12 +47,11 @@ import Testing
         try Data("a".utf8).write(to: fileURL)
         let tab = makeTab(path: fileURL.path)
         let loadedResult = DocumentLoader.load(fileURL)
-        guard case let .loaded(parsedBlocks, _, loadedSnapshot) = loadedResult else {
+        guard case let .loaded(_, loadedSnapshot) = loadedResult else {
             Issue.record("Expected the fixture document to load")
             return
         }
-        #expect(!parsedBlocks.isEmpty)
-        #expect(loadedSnapshot != nil)
+        #expect(loadedSnapshot != nil, "premise: a live load must carry a snapshot to drop")
 
         memory.storeRender(
             DocumentTabMemory.Render(
@@ -64,11 +63,10 @@ import Testing
 
         let storedRender = memory.render(for: tab)
         #expect(storedRender?.renderedDoc?.source == "a")
-        guard case let .loaded(blocks, source, snapshot) = storedRender?.loadResult else {
+        guard case let .loaded(source, snapshot) = storedRender?.loadResult else {
             Issue.record("Expected a successful cached seed")
             return
         }
-        #expect(blocks.isEmpty)
         #expect(source == "a")
         #expect(snapshot == nil)
     }

@@ -11,7 +11,7 @@ import Testing
 @Suite("Document oversize policy")
 struct DocumentOversizePolicyTests {
     private static let loaded = DocumentLoader.LoadResult.loaded(
-        [], source: "# plan\n", snapshot: nil)
+        source: "# plan\n", snapshot: nil)
 
     @Test("an over-cap reload keeps the last good render instead of replacing it")
     func overCapWithPriorRenderRetains() {
