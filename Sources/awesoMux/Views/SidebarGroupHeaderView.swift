@@ -130,6 +130,10 @@ struct SidebarGroupHeaderRow: View {
     @Binding var isKeyboardNavigating: Bool
 
     @State private var isHeaderHovered = false
+    /// The close X's own focus, kept separate from `focusedRowTarget`: the X is
+    /// not one of the sidebar's arrow-key rows, so it never appears in that
+    /// enum and `isKeyboardNavigating` never describes it.
+    @FocusState private var isCloseButtonFocused: Bool
     @State private var isPeekVisible = false
     @State private var peekTask: Task<Void, Never>?
     /// This header's box in the sidebar pane's `.global` space — handed to
@@ -248,7 +252,22 @@ struct SidebarGroupHeaderRow: View {
         )
         .padding(.horizontal, displayMode == .collapsed ? 0 : 4)
         .padding(.bottom, density.groupHeaderBottomPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // The row must be at least as tall as the pointer target it hosts.
+        // The close X is a trailing OVERLAY, and an overlay does not contribute
+        // to its parent's size — so the row sized itself from its text (17pt
+        // comfortable, 15pt compact) and the 24pt X hung off both edges. The
+        // top of that overflow is clipped by the sidebar's `ScrollView`, which
+        // took the focus ring's top stroke AND the top of the tappable area
+        // with it: the 24x24 minimum was declared but not delivered.
+        //
+        // Scaled by `textScaleFactor` for the same reason the target is — the
+        // floor has to track the target, or a large text setting reintroduces
+        // the overflow at a bigger size.
+        .frame(
+            maxWidth: .infinity,
+            minHeight: Self.closeTargetBaseSize * textScaleFactor,
+            alignment: .leading
+        )
         .contentShape(Rectangle())
         // `.simultaneousGesture(TapGesture)` instead of `.onTapGesture`
         // — the latter is gesture-exclusive on macOS and blocks
@@ -845,6 +864,25 @@ struct SidebarGroupHeaderRow: View {
         // (`accessibilityHidden` and `allowsHitTesting` do not remove a Button
         // from the FKA focus order — only `focusable` does.)
         .focusable(showsGroupCloseButton)
+        .focused($isCloseButtonFocused)
+        // Same treatment as the header row and the session tile: suppress the
+        // system ring and draw the accent one. macOS draws its ring OUTSIDE the
+        // focused view's frame, and this X is a trailing overlay on a header
+        // that has bottom padding but no top padding — so the system ring's top
+        // edge landed outside the row and was clipped. `awFocusRing` strokes
+        // inset, so it cannot overflow whatever bounds it lands in.
+        //
+        // This only became visible when the X joined the focus order: it was
+        // `.focusable(false)` before, so it never drew a ring to clip.
+        .focusEffectDisabled()
+        // Gated on focus alone, unlike the row rings, which also require
+        // `isKeyboardNavigating`. That flag is set only by explicit arrow /
+        // Home / End navigation over `focusedRowTarget`, and the X is not in
+        // that model — requiring it here would mean Tab lands on the X with no
+        // ring at all. Nor is the flag needed as a mouse guard the way it is
+        // for a row: a click on this X closes the group, so there is no state
+        // where it sits focused and unclicked after a pointer interaction.
+        .awFocusRing(isCloseButtonFocused, cornerRadius: 6)
         .foregroundStyle(Color.aw.text)
         // Hidden-but-present (not `if`-removed) so the hover morph doesn't
         // insert/remove views.

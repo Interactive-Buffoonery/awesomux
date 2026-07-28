@@ -75,6 +75,30 @@ struct SidebarGroupHeaderHitTargetTests {
         #expect(SidebarGroupHeaderRow.closeTargetBaseSize >= 24)
     }
 
+    /// Declaring a 24pt target is not the same as having one. The X is a
+    /// trailing OVERLAY on the header, so it is centred on whatever height the
+    /// header happens to be — and the header was shorter than the target it
+    /// hosts (measured: 20pt comfortable, 16pt compact, against a 24pt X). The
+    /// overflow was invisible until the X joined the focus order, at which
+    /// point the ring's top stroke was clipped away by the sidebar's
+    /// `ScrollView`; the same clip takes the top of the *pointer target* with
+    /// it, which is the part that actually matters.
+    ///
+    /// Asserted per density, because compact is where the gap was worst and a
+    /// single-density check would have passed while compact stayed broken.
+    @Test(
+        "the header row is at least as tall as the pointer target it hosts",
+        arguments: [false, true])
+    func headerRowFitsItsCloseTarget(isCompact: Bool) {
+        let height = Self.headerRowHeight(density: SidebarDensity(compact: isCompact))
+
+        #expect(height > 0, "premise: the header must render at all")
+        #expect(
+            height >= SidebarGroupHeaderRow.closeTargetBaseSize,
+            "header row \(height)pt cannot contain its own \(SidebarGroupHeaderRow.closeTargetBaseSize)pt close target"
+        )
+    }
+
     @Test("badge slot click without hover toggles collapse, never closes the group")
     func badgeSlotClickWithoutHoverTogglesNotCloses() {
         let toggleCounter = ToggleCounter()
@@ -323,6 +347,7 @@ struct SidebarGroupHeaderHitTargetTests {
     private static let populatedGroupNewWorkspaceRowPoint = CGPoint(x: 100, y: 44)
 
     private static func makeWindow(
+        density: SidebarDensity = SidebarDensity(compact: false),
         isCollapsed: Bool = false,
         displayMode: SidebarWidthMode = .expanded,
         width: CGFloat = SidebarWidthPolicy.expandedWidth,
@@ -370,6 +395,7 @@ struct SidebarGroupHeaderHitTargetTests {
                 entries: entries,
                 allGroups: allGroups,
                 tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
+                density: density,
                 isCollapsed: isCollapsed,
                 displayMode: displayMode,
                 width: width,
@@ -455,6 +481,36 @@ struct SidebarGroupHeaderHitTargetTests {
         return count
     }
 
+    /// The header row's rendered height, read back from the hosted tree.
+    ///
+    /// Measures `SidebarGroupHeaderRow` ON ITS OWN, rather than fishing it out
+    /// of a rendered `SidebarGroupView`.
+    ///
+    /// Two tree-walking versions were written and both passed against the
+    /// broken layout, which is why this does not walk the tree at all:
+    ///   1. "tallest view under a height ceiling" measured the 24pt close
+    ///      button itself — the target compared against itself, so it read 24
+    ///      however short the row it overflowed.
+    ///   2. Adding a full-width requirement to exclude the button then picked
+    ///      up the `+ new workspace` row, which an empty group also renders.
+    ///
+    /// `sizeThatFits` on the header alone has no such neighbours to confuse.
+    /// It also measures exactly the right quantity: an overlay does not
+    /// contribute to its parent's size, so this reports the row's own height —
+    /// which is precisely what the close button overflows.
+    private static func headerRowHeight(density: SidebarDensity) -> CGFloat {
+        let controller = NSHostingController(
+            rootView: HeaderRowMeasurementHarness(density: density))
+        // Force a layout pass; `sizeThatFits` on a never-displayed controller
+        // otherwise reports zero.
+        controller.view.layoutSubtreeIfNeeded()
+        return controller.sizeThatFits(
+            in: CGSize(
+                width: SidebarWidthPolicy.expandedWidth,
+                height: .greatestFiniteMagnitude)
+        ).height
+    }
+
     private static func renderedPixels(in window: NSWindow) -> Data {
         guard let view = window.contentView,
             let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds),
@@ -465,6 +521,51 @@ struct SidebarGroupHeaderHitTargetTests {
         return Data(bytes: bytes, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
     }
 
+}
+
+/// Just the header row, with nothing above or below it, so its own height is
+/// the only thing there is to measure.
+private struct HeaderRowMeasurementHarness: View {
+    let density: SidebarDensity
+
+    @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
+    @State private var isKeyboardNavigating = false
+
+    var body: some View {
+        let group = SessionGroup(
+            id: UUID(uuidString: "8B10C4F3-3905-4C67-A6F6-C7EB11F03D5B")!,
+            name: "Workspace group",
+            sessions: []
+        )
+        SidebarGroupHeaderRow(
+            group: group,
+            entries: [],
+            density: density,
+            tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
+            isCollapsed: false,
+            isFiltering: false,
+            displayMode: .expanded,
+            selectedSessionID: nil,
+            currentGroupIndex: 0,
+            totalGroupCount: 1,
+            isDragActive: false,
+            onToggle: {},
+            onNewSessionInGroup: {},
+            onConnectViaSSH: { _ in },
+            onNewGroup: {},
+            onRenameGroup: {},
+            onSetGroupColor: { _ in },
+            onCloseGroup: {},
+            onMoveGroup: { _, _ in },
+            onGroupDragStarted: { _ in UUID() },
+            focusedRowTarget: $focusedRowTarget,
+            isKeyboardNavigating: $isKeyboardNavigating
+        )
+        .frame(width: SidebarWidthPolicy.expandedWidth)
+        .environment(\.dynamicTypeSize, .large)
+        .environment(SidebarPeekModel())
+        .environment(AppSettingsStore(legacySnapshotProvider: { nil }))
+    }
 }
 
 private final class ToggleCounter {
@@ -480,6 +581,7 @@ private struct SidebarGroupHitTargetHarness: View {
     let entries: [SidebarSessionEntry]
     let allGroups: [SessionGroup]
     let tint: ProjectTint
+    let density: SidebarDensity
     let isCollapsed: Bool
     let displayMode: SidebarWidthMode
     let width: CGFloat
@@ -497,7 +599,7 @@ private struct SidebarGroupHitTargetHarness: View {
         SidebarGroupView(
             group: group,
             entries: entries,
-            density: SidebarDensity(compact: false),
+            density: density,
             tint: tint,
             workspacesWithBackgroundedFloatingWork: [],
             promotedSessionID: nil,
