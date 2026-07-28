@@ -56,6 +56,23 @@ struct SessionStoreCloseGroupTests {
         #expect(store.selectedSessionID == nil)
     }
 
+    /// The store-level counterpart to the reducer test in
+    /// `WorkspaceTreeReducerGroupTests` — this one goes through `SessionStore`,
+    /// so it also covers the commit and undo registration around the reducer
+    /// call rather than the guard alone.
+    ///
+    /// Lived in `SessionStoreTests` as XCTest until this change inverted it;
+    /// moved here and converted per the repo's "new tests use swift-testing,
+    /// existing XCTest stays until touched" rule.
+    @Test("removeGroup removes the final empty group")
+    func removeGroupRemovesFinalEmptyGroup() {
+        let emptyGroup = SessionGroup(name: "scratch", sessions: [])
+        let store = SessionStore(groups: [emptyGroup])
+
+        #expect(store.removeGroup(id: emptyGroup.id))
+        #expect(store.groups.isEmpty)
+    }
+
     /// The failure mode most worth fearing when closing the last group became
     /// possible: a restore path that helpfully re-seeds a default group would
     /// make the close look like a silent failure on the next launch, and the

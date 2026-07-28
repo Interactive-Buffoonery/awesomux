@@ -93,10 +93,45 @@ struct SidebarGroupHeaderHitTargetTests {
         let height = Self.headerRowHeight(density: SidebarDensity(compact: isCompact))
 
         #expect(height > 0, "premise: the header must render at all")
+
         #expect(
             height >= SidebarGroupHeaderRow.closeTargetBaseSize,
             "header row \(height)pt cannot contain its own \(SidebarGroupHeaderRow.closeTargetBaseSize)pt close target"
         )
+    }
+
+    /// The floor above is applied to the whole header flow, including the
+    /// collapsed rail — which renders no count badge and therefore no close X,
+    /// and which sets its own 26pt height inside `groupHeader`.
+    ///
+    /// Review question: does a 24pt floor shrink or otherwise disturb that?
+    /// It does not, and the reason is that the floor is never the binding
+    /// constraint there — the rail's own 26pt plus the shared bottom padding
+    /// already exceeds it. Asserting that relationship rather than a literal:
+    /// a first pass at this test guessed `== 26` and measured 29pt / 27pt,
+    /// because the rail's 26pt is set INSIDE `groupHeader` and the bottom
+    /// padding is added outside it.
+    ///
+    /// Measured rather than argued because "minHeight only raises, so it
+    /// obviously can't matter" is the same shape of reasoning about this
+    /// overlay that shipped the clipped target in the first place.
+    @Test(
+        "the close-target floor never binds on the collapsed rail",
+        arguments: [false, true])
+    func collapsedRailKeepsItsOwnHeight(isCompact: Bool) {
+        let density = SidebarDensity(compact: isCompact)
+        let railHeight = Self.headerRowHeight(
+            density: density,
+            displayMode: .collapsed,
+            width: SidebarWidthPolicy.collapsedWidth
+        )
+
+        #expect(
+            railHeight == 26 + density.groupHeaderBottomPadding,
+            "the rail should still be its own 26pt plus the shared bottom padding: got \(railHeight)")
+        #expect(
+            railHeight > SidebarGroupHeaderRow.closeTargetBaseSize,
+            "if this ever drops to the floor, the floor has started driving the rail's height")
     }
 
     @Test("badge slot click without hover toggles collapse, never closes the group")
@@ -498,16 +533,19 @@ struct SidebarGroupHeaderHitTargetTests {
     /// It also measures exactly the right quantity: an overlay does not
     /// contribute to its parent's size, so this reports the row's own height —
     /// which is precisely what the close button overflows.
-    private static func headerRowHeight(density: SidebarDensity) -> CGFloat {
+    private static func headerRowHeight(
+        density: SidebarDensity,
+        displayMode: SidebarWidthMode = .expanded,
+        width: CGFloat = SidebarWidthPolicy.expandedWidth
+    ) -> CGFloat {
         let controller = NSHostingController(
-            rootView: HeaderRowMeasurementHarness(density: density))
+            rootView: HeaderRowMeasurementHarness(
+                density: density, displayMode: displayMode, width: width))
         // Force a layout pass; `sizeThatFits` on a never-displayed controller
         // otherwise reports zero.
         controller.view.layoutSubtreeIfNeeded()
         return controller.sizeThatFits(
-            in: CGSize(
-                width: SidebarWidthPolicy.expandedWidth,
-                height: .greatestFiniteMagnitude)
+            in: CGSize(width: width, height: .greatestFiniteMagnitude)
         ).height
     }
 
@@ -527,6 +565,8 @@ struct SidebarGroupHeaderHitTargetTests {
 /// the only thing there is to measure.
 private struct HeaderRowMeasurementHarness: View {
     let density: SidebarDensity
+    let displayMode: SidebarWidthMode
+    let width: CGFloat
 
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
     @State private var isKeyboardNavigating = false
@@ -542,9 +582,9 @@ private struct HeaderRowMeasurementHarness: View {
             entries: [],
             density: density,
             tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
-            isCollapsed: false,
+            isCollapsed: displayMode == .collapsed,
             isFiltering: false,
-            displayMode: .expanded,
+            displayMode: displayMode,
             selectedSessionID: nil,
             currentGroupIndex: 0,
             totalGroupCount: 1,
@@ -561,7 +601,7 @@ private struct HeaderRowMeasurementHarness: View {
             focusedRowTarget: $focusedRowTarget,
             isKeyboardNavigating: $isKeyboardNavigating
         )
-        .frame(width: SidebarWidthPolicy.expandedWidth)
+        .frame(width: width)
         .environment(\.dynamicTypeSize, .large)
         .environment(SidebarPeekModel())
         .environment(AppSettingsStore(legacySnapshotProvider: { nil }))

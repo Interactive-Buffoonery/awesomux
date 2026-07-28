@@ -1758,15 +1758,6 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.groups.map(\.id), [populatedGroup.id])
     }
 
-    func testRemoveGroupRemovesFinalEmptyGroup() {
-        let emptyGroup = SessionGroup(name: "scratch", sessions: [])
-        let store = SessionStore(groups: [emptyGroup])
-
-        XCTAssertTrue(store.removeGroup(id: emptyGroup.id))
-
-        XCTAssertTrue(store.groups.isEmpty)
-    }
-
     func testSelectNextSessionWrapsAcrossGroups() {
         let firstSession = TerminalSession(
             title: "first",
