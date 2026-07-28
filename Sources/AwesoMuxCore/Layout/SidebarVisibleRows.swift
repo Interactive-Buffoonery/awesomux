@@ -36,7 +36,7 @@ public struct SidebarWorkspaceRotorEntry: Equatable, Hashable, Sendable, Identif
 
 public enum SidebarVisibleRows {
     public static func rows(
-        pinned: [PinnedSessionEntry] = [],
+        pinned: [LiftedSessionEntry] = [],
         for entries: [SidebarGroupEntry],
         collapsedGroupIDs: Set<SessionGroup.ID>,
         isFiltering: Bool
@@ -83,7 +83,7 @@ public enum SidebarVisibleRows {
     /// expanding groups in the source list. (Contrast `rows(for:collapsedGroupIDs:
     /// isFiltering:)`, which honors collapse for the visible-row walk.)
     public static func rotorEntries(
-        pinned: [PinnedSessionEntry] = [],
+        pinned: [LiftedSessionEntry] = [],
         for entries: [SidebarGroupEntry]
     ) -> [SidebarWorkspaceRotorEntry] {
         let pinnedEntries = pinned.map { pinnedEntry in

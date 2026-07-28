@@ -1,6 +1,9 @@
 import Foundation
 
-public struct PinnedSessionEntry: Equatable, Sendable {
+/// A session entry lifted out of its origin group into one of the sidebar's
+/// synthetic top sections (Needs Input, Pinned). Carries the origin so the tile
+/// keeps its group tint and can name where it will return to.
+public struct LiftedSessionEntry: Equatable, Sendable {
     public let entry: SidebarSessionEntry
     public let originGroup: SessionGroup
     public let originGroupUnfilteredIndex: Int
@@ -23,12 +26,12 @@ public struct PinnedSessionEntry: Equatable, Sendable {
 /// return-to-origin structurally free (INT-737).
 public enum SidebarPinnedProjection {
     public struct Output: Equatable, Sendable {
-        public let pinned: [PinnedSessionEntry]
+        public let pinned: [LiftedSessionEntry]
         public let entries: [SidebarGroupEntry]
         public let topMatch: TerminalSession.ID?
 
         public init(
-            pinned: [PinnedSessionEntry],
+            pinned: [LiftedSessionEntry],
             entries: [SidebarGroupEntry],
             topMatch: TerminalSession.ID?
         ) {
@@ -53,7 +56,7 @@ public enum SidebarPinnedProjection {
         }
 
         let pinnedIDSet = Set(pinnedSessionIDs)
-        var pinnedByID: [TerminalSession.ID: PinnedSessionEntry] = [:]
+        var pinnedByID: [TerminalSession.ID: LiftedSessionEntry] = [:]
         var remaining: [SidebarGroupEntry] = []
         remaining.reserveCapacity(entries.count)
 
@@ -62,7 +65,7 @@ public enum SidebarPinnedProjection {
             kept.reserveCapacity(groupEntry.sessions.count)
             for sessionEntry in groupEntry.sessions {
                 if pinnedIDSet.contains(sessionEntry.session.id) {
-                    pinnedByID[sessionEntry.session.id] = PinnedSessionEntry(
+                    pinnedByID[sessionEntry.session.id] = LiftedSessionEntry(
                         entry: sessionEntry,
                         originGroup: groupEntry.group,
                         originGroupUnfilteredIndex: groupEntry.unfilteredIndex

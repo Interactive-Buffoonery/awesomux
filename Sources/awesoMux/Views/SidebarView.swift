@@ -931,7 +931,7 @@ struct SidebarView: View {
     /// budget.
     @ViewBuilder
     private func pinnedSection(
-        pinned: [PinnedSessionEntry],
+        pinned: [LiftedSessionEntry],
         density: SidebarDensity,
         isFiltering: Bool,
         jumpIndexBySessionID: [TerminalSession.ID: Int],

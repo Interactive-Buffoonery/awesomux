@@ -9,7 +9,7 @@ import SwiftUI
 /// (INT-737). Not collapsible by design — the section's whole job is
 /// visibility.
 struct SidebarPinnedSectionView: View {
-    let pinned: [PinnedSessionEntry]
+    let pinned: [LiftedSessionEntry]
     let density: SidebarDensity
     let displayMode: SidebarWidthMode
     let isFiltering: Bool
@@ -223,7 +223,7 @@ struct SidebarPinnedSectionView: View {
     }
 
     @ViewBuilder
-    private func tile(for item: PinnedSessionEntry, at index: Int) -> some View {
+    private func tile(for item: LiftedSessionEntry, at index: Int) -> some View {
         let session = item.entry.session
         SidebarSessionTile(
             session: session,
