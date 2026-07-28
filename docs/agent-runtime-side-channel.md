@@ -21,7 +21,7 @@ Supported environment variables:
 | `AWESOMUX_AGENT_HOOK` | Absolute path to the bundled helper; templates should prefer it over the bare command name |
 | `AWESOMUX_AGENT_ENABLED_SOURCES` | Comma-separated file-drop provider sources enabled when this pane was spawned, such as `opencode,pi`. This is diagnostic/legacy metadata only; app-side event acceptance is the live consent source because child-process environments cannot be updated after Settings changes. |
 | `AWESOMUX_AMX` | Absolute path to the bundled `amx` CLI (the persistent-session backend). Unset when the binary is missing — never a dead path. Restored panes keep the spawn-time value until their daemon dies, so re-check `-x` before use. Not part of the health check. See [amx automation](amx-automation.md). |
-| `AWESOMUX_PROFILE` | Active runtime profile: `production`, `development`, or `development:<worktree-id>`. The app scrubs inherited values and injects its bundle-derived identity. Not part of the health check. |
+| `AWESOMUX_PROFILE` | Active runtime profile: `production`, `development`, `development:<worktree-id>`, or `test:<pid>`. The app scrubs inherited values and injects its bundle-derived identity; `test:<pid>` only ever comes from a test process, which has no bundle identity to derive one from. Not part of the health check. |
 
 Payload fields:
 

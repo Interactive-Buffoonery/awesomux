@@ -3,17 +3,49 @@ import Foundation
 enum AppRuntimeProfile: Equatable, Sendable {
     case production
     case development(worktreeID: String?)
+    /// A test process. It carries no bundle identity of its own, so it used to
+    /// fall through to `.development(nil)` — byte-identical to the profile a
+    /// plain `./script/build_and_run.sh` build runs under. The suite therefore
+    /// wrote status files into the live dev build's amx socket directory and
+    /// then tripped over its own leftovers on the next run (#296).
+    ///
+    /// Carries the pid so no two CONCURRENT runs share a directory. Pids are
+    /// recycled, though, so that alone would let a much later run inherit a dead
+    /// one's residue — #296 again, rarer. `AmxBackend.sessionSocketDirectory`
+    /// closes that by clearing the directory once per process: a pid is unique
+    /// among LIVE processes, so anything already there belongs to a run that has
+    /// already exited.
+    case test(processID: Int32)
 
     // Must stay byte-identical to script/runtime-profile.sh, which stamps the
-    // base ids (and optional worktree suffix) into the staged Info.plist.
+    // base ids (and optional worktree suffix) into the staged Info.plist. The
+    // `.test` case deliberately has no counterpart there: nothing stamps a
+    // bundle for a test process, which is exactly why it needs its own case.
     static let productionBundleIdentifier = "com.interactivebuffoonery.awesomux"
     static let developmentBundleIdentifier = "com.interactivebuffoonery.awesomux.dev"
 
     // The bundle id can't change mid-process; resolve once so future callers
     // can't accidentally put a Bundle lookup on a hot path.
-    static let current = resolve(bundleIdentifier: Bundle.main.bundleIdentifier)
+    static let current = resolve(
+        bundleIdentifier: Bundle.main.bundleIdentifier,
+        // XCTest links into the test bundle and never into the app, which makes
+        // it the only signal that survives both harnesses. SwiftPM runs
+        // swift-testing through `swiftpm-testing-helper`, which sets none of
+        // XCTest's environment variables and leaves `Bundle.main` pointing at
+        // the toolchain — so neither the bundle id nor
+        // `XCTestConfigurationFilePath` can tell a test run apart.
+        isTestRunner: NSClassFromString("XCTestCase") != nil
+    )
 
-    static func resolve(bundleIdentifier: String?) -> AppRuntimeProfile {
+    static func resolve(
+        bundleIdentifier: String?,
+        isTestRunner: Bool = false
+    ) -> AppRuntimeProfile {
+        // Ahead of the bundle id on purpose: a test process is never the app,
+        // whatever Info.plist an Xcode test host happens to hand it.
+        if isTestRunner {
+            return .test(processID: ProcessInfo.processInfo.processIdentifier)
+        }
         if bundleIdentifier == productionBundleIdentifier {
             return .production
         }
@@ -40,6 +72,7 @@ enum AppRuntimeProfile: Equatable, Sendable {
         case .production: "awesoMux"
         case .development(nil): "awesoMux-dev"
         case .development(let worktreeID?): "awesoMux-dev-\(worktreeID)"
+        case .test(let processID): "awesoMux-test-\(processID)"
         }
     }
 
@@ -48,6 +81,7 @@ enum AppRuntimeProfile: Equatable, Sendable {
         case .production: "awesomux"
         case .development(nil): "awesomux-dev"
         case .development(let worktreeID?): "awesomux-dev-\(worktreeID)"
+        case .test(let processID): "awesomux-test-\(processID)"
         }
     }
 
@@ -56,6 +90,7 @@ enum AppRuntimeProfile: Equatable, Sendable {
         case .production: "amx"
         case .development(nil): "amx-dev"
         case .development(let worktreeID?): Self.socketNamespace(worktreeID: worktreeID)
+        case .test(let processID): Self.testSocketNamespace(processID: processID)
         }
     }
 
@@ -67,6 +102,8 @@ enum AppRuntimeProfile: Equatable, Sendable {
             "development"
         case .development(let worktreeID?):
             "development:\(worktreeID)"
+        case .test(let processID):
+            "test:\(processID)"
         }
     }
 
@@ -77,6 +114,10 @@ enum AppRuntimeProfile: Equatable, Sendable {
         switch self {
         case .production: "ssh"
         case .development: "ssh-dev"
+        // Stable, unlike the socket dir: a ControlMaster socket is only ever
+        // created by a live ssh master, which the suite never spawns, so
+        // there is nothing here for a later run to inherit.
+        case .test: "ssh-test"
         }
     }
 
@@ -102,6 +143,24 @@ enum AppRuntimeProfile: Equatable, Sendable {
         value.utf8.count == 12 && value.utf8.allSatisfy { byte in
             (48 ... 57).contains(byte) || (97 ... 102).contains(byte)
         }
+    }
+
+    /// Six bytes, where `socketNamespace(worktreeID:)` is always exactly seven.
+    /// That length gap is the disjointness proof, and it is why this does not
+    /// simply prefix `amx`: base-36's alphabet contains `a`, `m` and `x`, so a
+    /// seven-byte `amx`-prefixed name is reachable by the worktree hash. Worktree
+    /// `5640ea939abc` and pid 12345 both encode to `amx09ix` — which would drop a
+    /// test run straight into a live worktree dev build's socket directory, the
+    /// very class of collision this case exists to end.
+    ///
+    /// Four base-36 digits cover every pid macOS issues (36^4 = 1_679_616 against
+    /// a 99999 ceiling). `suffix` bounds the width rather than the value, so a
+    /// kernel that raised that ceiling past 36^4 would alias instead of
+    /// overflowing the path budget; the per-process sweep in
+    /// `AmxBackend.sessionSocketDirectory` is what keeps an alias harmless.
+    private static func testSocketNamespace(processID: Int32) -> String {
+        let encoded = String(UInt32(bitPattern: processID), radix: 36).suffix(4)
+        return "am" + String(repeating: "0", count: 4 - encoded.count) + encoded
     }
 
     private static func socketNamespace(worktreeID: String) -> String {
