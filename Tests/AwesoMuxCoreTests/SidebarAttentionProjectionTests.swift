@@ -56,24 +56,12 @@ import Testing
         #expect(output.attention.map(\.entry.session.id) == [a.id, c.id])
     }
 
-    @Test func selectingALiftedRowDoesNotDemoteIt() {
-        // Regression guard for the one-frame flicker: membership must not depend
-        // on the selection, because the sticky write can only ever be observed
-        // AFTER the selection it reacts to.
-        let a = needy("alpha")
-        let g = SessionGroup(name: "One", sessions: [a])
-        let output = SidebarAttentionProjection.apply(
-            entries: [entry(g, index: 0)],
-            stickySessionID: nil,
-            isFiltering: false,
-            searchTopMatch: nil
-        )
-        #expect(output.attention.map(\.entry.session.id) == [a.id])
-    }
-
     @Test func stickySessionStaysLiftedAfterAcknowledgement() {
         // The 500ms dwell clears attentionReason while the user is still on the
-        // row; sticky is what stops it teleporting away mid-read.
+        // row; sticky is what stops it teleporting away mid-read. This is the
+        // ONLY mechanism that keeps a no-longer-needy row lifted — `apply` has
+        // no selection parameter at all, so there is no selection-based test to
+        // write here: reintroducing one is a compile error, not a runtime bug.
         let a = calm("alpha")
         let g = SessionGroup(name: "One", sessions: [a])
         let output = SidebarAttentionProjection.apply(
@@ -156,13 +144,33 @@ import Testing
 
     @Test func splitWorkspaceStaysLiftedWhileASiblingPaneWaits() {
         // Documented trade-off: needsUserInput is session-wide, the dwell acks
-        // only the active pane. Asserted so the behavior is deliberate.
-        var session = TerminalSession(title: "alpha", workingDirectory: "~")
-        session.layout = session.layout.mappingPanes { pane in
-            var pane = pane
-            pane.attentionReason = .permissionPrompt
-            return pane
-        }
+        // only the active pane. A genuine two-pane split with exactly one
+        // needy pane exercises the `panes.contains` semantics — a uniformly
+        // needy session (single pane or `mappingPanes` over one) can't tell
+        // this apart from every other lift test.
+        let shell = TerminalPane(
+            title: "shell", workingDirectory: "~", agentKind: .shell,
+            agentExecutionState: .output,
+            executionPlan: .local
+        )
+        let codex = TerminalPane(
+            title: "codex", workingDirectory: "~", agentKind: .codex,
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "split",
+            workingDirectory: "~",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(shell),
+                    second: .pane(codex)
+                )),
+            activePaneID: shell.id
+        )
+        #expect(session.panes.count == 2)
+        #expect(session.panes.filter { $0.attentionReason != nil }.count == 1)
         #expect(SidebarAttentionProjection.isLifted(session, stickySessionID: nil))
     }
 }
