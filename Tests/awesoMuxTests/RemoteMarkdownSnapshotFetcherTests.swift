@@ -360,8 +360,46 @@ struct RemoteMarkdownReferenceTests {
         let first = try #require(await successful.fetch(reference))
         let refetched = try #require(await failing.fetch(reference))
 
-        #expect(refetched == .cached(first.snapshot))
+        #expect(refetched == .cached(first.snapshot, staleReason: .connection))
         #expect(try Data(contentsOf: refetched.snapshot.fileURL) == Data("last successful snapshot".utf8))
+    }
+
+    /// The journey PR #254 left open: a file caches successfully, the remote
+    /// then grows past the cap, and the refetch serves the stale copy. The
+    /// content is still the right thing to serve — losing it to a failure page
+    /// would be worse — but the caller has to be able to tell this apart from a
+    /// healthy cache hit, or the user reads a stale document with no signal.
+    ///
+    /// The whole outcome is compared rather than just the reason: `.cached`
+    /// carrying the wrong snapshot would be a far worse bug than carrying the
+    /// wrong reason, and asserting only the reason would not see it.
+    @Test func anOverCapRefetchReportsWhyTheCachedCopyIsStale() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/README.md",
+                pane: remotePane()
+            ))
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let successful = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in .success(Data("the copy that fit".utf8)) }
+        )
+        let overCap = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in
+                .nonZeroExit(RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileTooLarge)
+            }
+        )
+
+        let first = try #require(await successful.fetch(reference))
+        let refetched = try #require(await overCap.fetch(reference))
+
+        #expect(refetched == .cached(first.snapshot, staleReason: .oversize))
+        // The retained content is the point — an explanation must not have
+        // replaced it.
+        #expect(try Data(contentsOf: refetched.snapshot.fileURL) == Data("the copy that fit".utf8))
     }
 
     @Test func initialFetchFailureStillCreatesFailureSnapshot() async throws {
@@ -463,7 +501,7 @@ struct RemoteMarkdownReferenceTests {
         let fresh = try #require(await successful.fetch(reference))
         let refetched = try #require(await failing.fetch(reference))
 
-        #expect(refetched == .cached(fresh.snapshot))
+        #expect(refetched == .cached(fresh.snapshot, staleReason: .connection))
     }
 
     /// The panel's missing multi-call journey: a first fetch fails, a later one
