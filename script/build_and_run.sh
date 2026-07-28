@@ -268,9 +268,24 @@ app_bundle_pids() {
 script_runs_inside_pid() {
   local targets=" $* "
   local pid="$$"
-  while [[ -n "$pid" && "$pid" != "0" && "$pid" != "1" ]]; do
+  local ppid_output ppid
+  while [[ "$pid" != "0" && "$pid" != "1" ]]; do
     [[ "$targets" == *" $pid "* ]] && return 0
-    pid="$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' ')"
+    # A failed or malformed ppid lookup must NOT resolve to "walk complete,
+    # no match" — an ancestor this walk lost track of is still an ancestor.
+    # `set -e` doesn't apply inside this `while` condition's command
+    # substitution, so the fallthrough has to be caught explicitly, not
+    # assumed.
+    if ! ppid_output="$(ps -p "$pid" -o ppid= 2>&1)"; then
+      echo "error: unable to inspect process $pid's parent while checking for self-termination; refusing to continue." >&2
+      return "$PROCESS_ENUMERATION_FAILURE"
+    fi
+    ppid="$(tr -d ' ' <<< "$ppid_output")"
+    if [[ ! "$ppid" =~ ^[0-9]+$ ]]; then
+      echo "error: unexpected ppid output '$ppid_output' for process $pid while checking for self-termination; refusing to continue." >&2
+      return "$PROCESS_ENUMERATION_FAILURE"
+    fi
+    pid="$ppid"
   done
   return 1
 }
@@ -287,10 +302,15 @@ terminate_app_bundle() {
   fi
 
   if [[ -n "$pids" ]]; then
+    local self_check_status=0
     # shellcheck disable=SC2086
-    if script_runs_inside_pid $pids; then
+    script_runs_inside_pid $pids || self_check_status="$?"
+    if [[ "$self_check_status" == 0 ]]; then
       echo "error: refusing to terminate $bundle — this script is running inside one of its own processes. Killing it would tear down this pane before the script could relaunch anything. Run this from a different window (e.g. Terminal.app) instead." >&2
       exit "$SELF_TERMINATION_REFUSED"
+    elif [[ "$self_check_status" != 1 ]]; then
+      echo "error: cannot safely determine whether this script is running inside $bundle; refusing to continue." >&2
+      exit "$self_check_status"
     fi
     # Word-split intentional: one or more PIDs on separate lines.
     # shellcheck disable=SC2086

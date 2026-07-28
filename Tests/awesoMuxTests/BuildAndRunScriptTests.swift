@@ -73,6 +73,19 @@ struct BuildAndRunScriptTests {
         #expect(result.output.contains("kill_called=yes"), "stdout: \(result.output)")
     }
 
+    @Test("terminate_app_bundle refuses to kill when its own ancestry can't be inspected")
+    func terminateAppBundleRefusesWhenAncestryInspectionFails() throws {
+        // A guard whose entire job is refusing an unsafe kill must not fail
+        // open: if `ps` can't be consulted mid-walk, that must not silently
+        // resolve to "not an ancestor, safe to kill" (found by code review —
+        // the walk originally treated a failed/empty ppid lookup exactly
+        // like reaching pid 1 with no match).
+        let result = try Self.runSelfTerminationGuardAncestryFailureSnippet()
+
+        #expect(result.exitStatus == 70, "stderr: \(result.error)")
+        #expect(!result.output.contains("kill_called=yes"), "stdout: \(result.output)")
+    }
+
     @Test("plain run and install keep separate shutdown targets")
     func plainRunAndInstallKeepSeparateShutdownTargets() throws {
         let script = try Self.contents(of: "script/build_and_run.sh")
@@ -522,6 +535,46 @@ struct BuildAndRunScriptTests {
             \(functions)
 
             app_bundle_pids() { echo \(targetPID); }
+            kill() { KILL_CALLED=yes; return 0; }
+
+            terminate_app_bundle /tmp/fake.app
+            printf 'kill_called=%s\\n' "${KILL_CALLED:-no}"
+            """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", bash]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        try process.waitUntilExitEventually()
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
+    /// `ps` is stubbed to fail outright, simulating the ancestry walk losing
+    /// its ability to inspect a pid mid-walk (a reaped intermediate process,
+    /// a transient `ps` failure). The target pid is unrelated to `$PPID` —
+    /// the point is that the walk can never determine there ISN'T a match
+    /// further up, so it must refuse rather than fall through to "safe."
+    private static func runSelfTerminationGuardAncestryFailureSnippet() throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let functions = try selfTerminationGuardFunctions(from: script)
+
+        let bash = """
+            set -euo pipefail
+            PROCESS_ENUMERATION_FAILURE=70
+            SELF_TERMINATION_REFUSED=71
+            \(functions)
+
+            app_bundle_pids() { echo 999999; }
+            ps() { return 1; }
             kill() { KILL_CALLED=yes; return 0; }
 
             terminate_app_bundle /tmp/fake.app
