@@ -785,41 +785,79 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
             + "'-t' '--' 'alice@box' "
     }
 
-    @Test("defaults to bare `zmx` on the remote PATH")
-    func assemblesDefaultCommand() {
+    /// The whole of #235: nothing is asked for, and every place the backend can
+    /// hide is checked on the far side. Asserted on the script rather than
+    /// through both quoting layers, where it is an unreadable blob.
+    @Test("the remote script resolves the backend itself, PATH first then the app bundle")
+    func discoveryScriptChecksEveryBackendLocation() {
+        let script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
+
+        #expect(
+            script == "exec \"$SHELL\" -lc '"
+                + "command -v amx 2>/dev/null | grep -q \"^/\" && exec amx attach dev; "
+                + "command -v zmx 2>/dev/null | grep -q \"^/\" && exec zmx attach dev; "
+                + "[ -x \"$HOME/Applications/awesoMux.app/Contents/MacOS/amx\" ]"
+                + " && exec \"$HOME/Applications/awesoMux.app/Contents/MacOS/amx\" attach dev; "
+                + "[ -x \"/Applications/awesoMux.app/Contents/MacOS/amx\" ]"
+                + " && exec \"/Applications/awesoMux.app/Contents/MacOS/amx\" attach dev; "
+                + "echo \"awesoMux: no amx or zmx found on this host."
+                + " Install one, or reconnect without a remote session name.\" >&2; "
+                + "exit 127'")
+    }
+
+    /// The chain only survives a miss if each probe can FAIL. `command -v`
+    /// matches shell functions and aliases, `exec` matches neither, and a failed
+    /// `exec` kills a non-interactive shell — so a bare `command -v` hit would
+    /// let a wrapper function in the remote profile abort every fallback after
+    /// it. Requiring an absolute path is what keeps the chain a chain.
+    @Test("a PATH probe demands a real executable, not a shell function")
+    func discoveryScriptRejectsAFunctionShadowingTheBackend() {
+        let script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
+
+        for backend in ["amx", "zmx"] {
+            #expect(script.contains("command -v \(backend) 2>/dev/null | grep -q \"^/\""))
+            // The bare form is what makes a function look like an executable.
+            #expect(!script.contains("command -v \(backend) >/dev/null 2>&1 &&"))
+        }
+    }
+
+    /// `ssh host cmd` runs a NON-login shell, which is the mechanism that made
+    /// bare `zmx` fail on every host tested (#235). Re-execing through a login
+    /// shell is the fix, so losing `-l` would silently restore the bug.
+    @Test("the remote script runs under a login shell")
+    func discoveryScriptUsesALoginShell() {
+        #expect(
+            AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
+                .hasPrefix("exec \"$SHELL\" -lc "))
+    }
+
+    /// The script is wrapped in single quotes for the remote shell and the whole
+    /// thing is re-quoted for the local one. One stray apostrophe in the
+    /// diagnostic message breaks out of both.
+    @Test("the remote script carries no single quote of its own")
+    func discoveryScriptIsFreeOfInnerQuotes() {
+        let script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
+        let body = script.dropFirst("exec \"$SHELL\" -lc '".count).dropLast()
+        #expect(!body.contains("'"))
+    }
+
+    @Test("a missing backend exits 127, distinguishable from ssh's own 255")
+    func discoveryScriptExitsNotFound() {
+        #expect(
+            AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
+                .hasSuffix("; exit 127'"))
+    }
+
+    @Test("the assembled command carries the discovery script for the named session")
+    func assemblesDiscoveryCommand() {
         let command = AmxBackend.remoteOwnedAttachCommand(
             remote: Self.remote,
             sessionName: Self.sessionName
         )
-        #expect(command == Self.expectedPrefix + "''\\''zmx'\\'' attach '\\''dev'\\'''")
-    }
-
-    @Test("uses an absolute remote executable path when one is declared")
-    func assemblesWithAbsoluteExecutablePath() {
-        let command = AmxBackend.remoteOwnedAttachCommand(
-            remote: Self.remote,
-            sessionName: Self.sessionName,
-            executablePath: "/usr/local/bin/zmx"
-        )
+        let script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
         #expect(
             command == Self.expectedPrefix
-                + "''\\''/usr/local/bin/zmx'\\'' attach '\\''dev'\\'''")
-    }
-
-    @Test("escapes a single quote in the remote executable path through both quoting layers")
-    func escapesSingleQuoteInExecutablePath() {
-        // `RemoteSessionName` forbids a quote by construction, so the executable
-        // path is the only input that can carry one. It has to survive the
-        // remote-shell quoting AND the local re-quoting of the whole command
-        // without breaking out of either.
-        let command = AmxBackend.remoteOwnedAttachCommand(
-            remote: Self.remote,
-            sessionName: Self.sessionName,
-            executablePath: "/opt/o'brien/zmx"
-        )
-        #expect(
-            command == Self.expectedPrefix
-                + "''\\''/opt/o'\\''\\'\\'''\\''brien/zmx'\\'' attach '\\''dev'\\'''")
+                + "'" + script.replacingOccurrences(of: "'", with: "'\\''") + "'")
     }
 
     @Test("forces a remote PTY")
@@ -833,27 +871,27 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
 
     @Test("carries no local-daemon state: no ZMX_DIR, no status channel, no shell integration")
     func carriesNoLocalDaemonState() {
-        for path in [nil, "/usr/local/bin/zmx"] {
-            let command = AmxBackend.remoteOwnedAttachCommand(
-                remote: Self.remote,
-                sessionName: Self.sessionName,
-                executablePath: path
-            )
-            // The local socket directory is meaningless to a zmx on another host.
-            #expect(!command.contains("ZMX_DIR"))
-            #expect(!command.contains("ZMX_DIR_MODE"))
-            // The status channel writes to a local file no remote process can reach.
-            // Assignments only — the `-u` scrub tokens legitimately name these.
-            #expect(!command.contains("AMX_STATUS_FILE="))
-            #expect(!command.contains("AMX_STATUS_TOKEN="))
-            // The bundled ghostty resources dir does not exist on the far host.
-            #expect(!command.contains("ZDOTDIR"))
-            #expect(!command.contains("XDG_DATA_DIRS"))
-            #expect(!command.contains("GHOSTTY_"))
-            // Nothing local is bridged, so no bridge env crosses either.
-            #expect(!command.contains("AWESOMUX_BRIDGE_"))
-            // No local `amx` in the picture at all.
-            #expect(!command.contains("/amx"))
-        }
+        let command = AmxBackend.remoteOwnedAttachCommand(
+            remote: Self.remote,
+            sessionName: Self.sessionName
+        )
+        // The local socket directory is meaningless to a zmx on another host.
+        #expect(!command.contains("ZMX_DIR"))
+        #expect(!command.contains("ZMX_DIR_MODE"))
+        // The status channel writes to a local file no remote process can reach.
+        // Assignments only — the `-u` scrub tokens legitimately name these.
+        #expect(!command.contains("AMX_STATUS_FILE="))
+        #expect(!command.contains("AMX_STATUS_TOKEN="))
+        // The bundled ghostty resources dir does not exist on the far host.
+        #expect(!command.contains("ZDOTDIR"))
+        #expect(!command.contains("XDG_DATA_DIRS"))
+        #expect(!command.contains("GHOSTTY_"))
+        // Nothing local is bridged, so no bridge env crosses either.
+        #expect(!command.contains("AWESOMUX_BRIDGE_"))
+        // No assertion here about this app's own bundle path: under `swift test`
+        // `Bundle.main` is the test runner, so such a check passes against any
+        // implementation and proves nothing. The remote bundle paths this
+        // command MAY name are pinned literally by
+        // `discoveryScriptChecksEveryBackendLocation`.
     }
 }

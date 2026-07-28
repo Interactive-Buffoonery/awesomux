@@ -1,5 +1,4 @@
 import Foundation
-import UnicodeHygiene
 
 public enum PersistenceOwner: String, Codable, Hashable, Sendable {
     case localAmx
@@ -12,47 +11,43 @@ public enum PersistenceOwner: String, Codable, Hashable, Sendable {
 public struct SSHExecution: Hashable, Sendable {
     public let target: RemoteTarget
     public let persistenceOwner: PersistenceOwner
-    /// Nil for `.localAmx`. Names the zmx session on the remote host.
+    /// Nil for `.localAmx`. Names the session the remote host keeps running.
     public let sessionName: RemoteSessionName?
-    /// Absolute path to `zmx` on the remote host; nil means bare `zmx` on PATH.
-    public let remoteExecutablePath: String?
 
     public init(target: RemoteTarget) {
         self.target = target
         self.persistenceOwner = .localAmx
         self.sessionName = nil
-        self.remoteExecutablePath = nil
+    }
+
+    /// The remote-owned counterpart, non-failable because naming the session IS
+    /// the `.remoteZmx` invariant. Callers that know which owner they want reach
+    /// for one of these two; the failable init below exists for the decode seam,
+    /// where owner and name arrive separately and can contradict each other.
+    public init(target: RemoteTarget, remoteSessionName: RemoteSessionName) {
+        self.target = target
+        self.persistenceOwner = .remoteZmx
+        self.sessionName = remoteSessionName
     }
 
     /// Returns nil when the persistence owner and its remote fields disagree:
-    /// local-amx panes carry no remote zmx identity, remote-owned panes must
-    /// name their session, and an explicit executable path is only meaningful
-    /// (and only accepted as an absolute, hygiene-clean path) for remote-owned
-    /// panes.
+    /// local-amx panes carry no remote session identity, and remote-owned panes
+    /// must name their session. Where the remote backend LIVES is not part of
+    /// the plan — the attach command resolves it on the far host.
     public init?(
         target: RemoteTarget,
         persistenceOwner: PersistenceOwner,
-        sessionName: RemoteSessionName?,
-        remoteExecutablePath: String?
+        sessionName: RemoteSessionName?
     ) {
         switch persistenceOwner {
         case .localAmx:
-            guard sessionName == nil, remoteExecutablePath == nil else { return nil }
+            guard sessionName == nil else { return nil }
         case .remoteZmx:
             guard sessionName != nil else { return nil }
-        }
-        if let path = remoteExecutablePath {
-            guard persistenceOwner == .remoteZmx,
-                path.hasPrefix("/"),
-                !UnicodeHygiene.containsUnsafePathScalars(path)
-            else {
-                return nil
-            }
         }
         self.target = target
         self.persistenceOwner = persistenceOwner
         self.sessionName = sessionName
-        self.remoteExecutablePath = remoteExecutablePath
     }
 }
 
@@ -93,7 +88,6 @@ extension PaneExecutionPlan: Codable {
         case target
         case persistenceOwner
         case sessionName
-        case remoteExecutablePath
     }
 
     private enum Kind: String, Codable {
@@ -106,7 +100,7 @@ extension PaneExecutionPlan: Codable {
         switch try container.decode(Kind.self, forKey: .kind) {
         case .local:
             guard !container.contains(.target), !container.contains(.persistenceOwner),
-                !container.contains(.sessionName), !container.contains(.remoteExecutablePath)
+                !container.contains(.sessionName)
             else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .kind,
@@ -125,10 +119,6 @@ extension PaneExecutionPlan: Codable {
                 sessionName: try container.decodeIfPresent(
                     RemoteSessionName.self,
                     forKey: .sessionName
-                ),
-                remoteExecutablePath: try container.decodeIfPresent(
-                    String.self,
-                    forKey: .remoteExecutablePath
                 )
             )
             guard let execution else {
@@ -136,7 +126,7 @@ extension PaneExecutionPlan: Codable {
                     forKey: .persistenceOwner,
                     in: container,
                     debugDescription:
-                        "A remote pane execution plan's persistence owner and zmx fields disagree."
+                        "A remote pane execution plan's persistence owner and session name disagree."
                 )
             }
             self = .ssh(execution)
@@ -153,10 +143,6 @@ extension PaneExecutionPlan: Codable {
             try container.encode(execution.target, forKey: .target)
             try container.encode(execution.persistenceOwner, forKey: .persistenceOwner)
             try container.encodeIfPresent(execution.sessionName, forKey: .sessionName)
-            try container.encodeIfPresent(
-                execution.remoteExecutablePath,
-                forKey: .remoteExecutablePath
-            )
         }
     }
 }

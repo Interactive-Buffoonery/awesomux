@@ -127,32 +127,19 @@ struct SSHWorkspaceGroupTargetingTests {
 
     // MARK: - Remote-owned session declaration
 
-    @Test("a session name declares a remote-owned execution with its zmx path")
+    /// The sheet asks for a name and nothing else — where the backend lives is
+    /// the far host's problem to answer (#235).
+    @Test("a session name is the whole remote-owned declaration")
     func remoteOwnedFieldsResolve() throws {
         let execution = try #require(
             SSHWorkspaceConnectFields.execution(
                 destination: "my-server",
-                sessionName: "  my-session  ",
-                remoteExecutablePath: " /opt/zmx/bin/zmx "
+                sessionName: "  my-session  "
             ))
 
         #expect(execution.target.sshDestination == "my-server")
         #expect(execution.persistenceOwner == .remoteZmx)
         #expect(execution.sessionName?.rawValue == "my-session")
-        #expect(execution.remoteExecutablePath == "/opt/zmx/bin/zmx")
-    }
-
-    @Test("an empty zmx path leaves the remote host to resolve zmx from PATH")
-    func remoteOwnedWithoutExplicitPath() throws {
-        let execution = try #require(
-            SSHWorkspaceConnectFields.execution(
-                destination: "my-server",
-                sessionName: "my-session",
-                remoteExecutablePath: ""
-            ))
-
-        #expect(execution.persistenceOwner == .remoteZmx)
-        #expect(execution.remoteExecutablePath == nil)
     }
 
     @Test("no session name keeps the local-amx execution unchanged")
@@ -160,15 +147,12 @@ struct SSHWorkspaceGroupTargetingTests {
         let execution = try #require(
             SSHWorkspaceConnectFields.execution(
                 destination: "my-server",
-                sessionName: "  ",
-                // Ignored: the path field is only shown once a name is entered.
-                remoteExecutablePath: "/opt/zmx/bin/zmx"
+                sessionName: "  "
             ))
 
         #expect(execution == SSHExecution(target: try #require(RemoteTarget(parsing: "my-server"))))
         #expect(execution.persistenceOwner == .localAmx)
         #expect(execution.sessionName == nil)
-        #expect(execution.remoteExecutablePath == nil)
     }
 
     @Test("invalid fields resolve to no execution and explain themselves")
@@ -176,30 +160,18 @@ struct SSHWorkspaceGroupTargetingTests {
         #expect(
             SSHWorkspaceConnectFields.execution(
                 destination: "my-server",
-                sessionName: "bad name",
-                remoteExecutablePath: ""
-            ) == nil)
-        #expect(
-            SSHWorkspaceConnectFields.execution(
-                destination: "my-server",
-                sessionName: "my-session",
-                remoteExecutablePath: "relative/zmx"
+                sessionName: "bad name"
             ) == nil)
         #expect(
             SSHWorkspaceConnectFields.execution(
                 destination: "-oProxyCommand=example",
-                sessionName: "my-session",
-                remoteExecutablePath: ""
+                sessionName: "my-session"
             ) == nil)
 
         #expect(SSHWorkspaceConnectFields.sessionNameMessage(for: "") == nil)
         #expect(SSHWorkspaceConnectFields.sessionNameMessage(for: " my-session ") == nil)
         #expect(SSHWorkspaceConnectFields.sessionNameMessage(for: "bad name") != nil)
         #expect(SSHWorkspaceConnectFields.sessionNameMessage(for: "-flag") != nil)
-        #expect(SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: "") == nil)
-        #expect(SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: " /usr/bin/zmx ") == nil)
-        #expect(SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: "relative/zmx") != nil)
-        #expect(SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: "/usr/bin/\u{202E}zmx") != nil)
     }
 
     // MARK: - Command bridge gate
@@ -210,8 +182,7 @@ struct SSHWorkspaceGroupTargetingTests {
         let execution = try #require(
             SSHWorkspaceConnectFields.execution(
                 destination: "my-server",
-                sessionName: "my-session",
-                remoteExecutablePath: ""
+                sessionName: "my-session"
             ))
         var enableAttempts = 0
         var connected = false
@@ -275,8 +246,7 @@ struct SSHWorkspaceGroupTargetingTests {
     private func localAmxExecution() -> SSHExecution? {
         SSHWorkspaceConnectFields.execution(
             destination: "my-server",
-            sessionName: "",
-            remoteExecutablePath: ""
+            sessionName: ""
         )
     }
 }

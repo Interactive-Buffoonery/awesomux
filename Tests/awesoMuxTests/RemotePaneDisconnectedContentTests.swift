@@ -133,4 +133,52 @@ struct RemotePaneDisconnectedContentTests {
         )
         #expect(content.buttonLabel == "Reconnect to staging.example")
     }
+
+    // MARK: - Remote-owned panes (#238)
+
+    /// SSH connecting fine and the far host's backend failing to launch reach
+    /// the same latch, so copy that asserts a connectivity cause is a coin flip.
+    @Test("a remote-owned pane names both failure causes instead of asserting connectivity")
+    func remoteOwnedNamesTheBackend() {
+        let content = RemotePaneDisconnectedContent.make(
+            state: .disconnected(.init(target: capturedTarget)),
+            liveTarget: capturedTarget,
+            isRemoteOwned: true
+        )
+
+        #expect(content.title == "Remote session unavailable")
+        #expect(
+            content.description
+                == "Could not reach prod.example, or the session ended.\nA named session is kept alive by the remote host, so check that prod.example is reachable and has awesoMux, amx, or zmx installed.\nFor more details, try ssh deploy@prod.example in a local workspace."
+        )
+        #expect(content.buttonLabel == "Reconnect to prod.example")
+        #expect(content.buttonEnabled)
+    }
+
+    /// The command bridge is nothing to a pane with no local daemon in front of
+    /// it — offering to enable it would fix nothing and change a global setting.
+    @Test("a remote-owned pane never blames background sessions")
+    func remoteOwnedIgnoresBackgroundSessions() {
+        let content = RemotePaneDisconnectedContent.make(
+            state: .disconnected(.init(target: capturedTarget)),
+            liveTarget: capturedTarget,
+            isRemoteOwned: true,
+            backgroundSessionsEnabled: false
+        )
+
+        #expect(content.title == "Remote session unavailable")
+        #expect(content.buttonLabel == "Reconnect to prod.example")
+    }
+
+    @Test("a remote-owned pane still reads as reconnecting while a retry is in flight")
+    func remoteOwnedWhileReconnecting() {
+        let content = RemotePaneDisconnectedContent.make(
+            state: .reconnecting(.init(target: capturedTarget)),
+            liveTarget: capturedTarget,
+            isRemoteOwned: true
+        )
+
+        #expect(content.title == "Reconnecting…")
+        #expect(!content.buttonEnabled)
+    }
 }

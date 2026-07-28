@@ -92,8 +92,7 @@ import Testing
                 SSHExecution(
                     target: RemoteTarget(user: "ed", host: "box")!,
                     persistenceOwner: .remoteZmx,
-                    sessionName: RemoteSessionName(rawValue: "build-42")!,
-                    remoteExecutablePath: "/usr/local/bin/zmx"
+                    sessionName: RemoteSessionName(rawValue: "build-42")!
                 )))
         let terminal = TerminalPane(
             title: "build",

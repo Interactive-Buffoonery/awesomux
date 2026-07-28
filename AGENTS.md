@@ -82,7 +82,7 @@ Unresolved choices until they land in code or an ADR.
 | Topic | Status / direction |
 | --- | --- |
 | **Ghostty XCFramework prebuilds** | Fresh clones build locally via `./script/build_ghostty_xcframework.sh`. No published/cached macOS Ghostty XCFramework yet. |
-| **Remote SSH workspaces** | Declared remote panes default to local `amx` persistence around an SSH child, and may opt into remote-owned zmx persistence per pane (session name + optional absolute zmx path) instead. `PaneExecutionPlan` owns remote identity; host profiles and target-side installers remain non-prerequisites ([ADR 0023](docs/adr/0023-remote-workspace-architecture.md) and its amendment). Linux destinations use a manually installed static helper ([`docs/remote-linux-helper.md`](docs/remote-linux-helper.md)). |
+| **Remote SSH workspaces** | Declared remote panes default to local `amx` persistence around an SSH child, and may opt into remote-owned zmx persistence per pane (session name only — the attach resolves `amx`/`zmx` on the far host itself) instead. `PaneExecutionPlan` owns remote identity; host profiles and target-side installers remain non-prerequisites ([ADR 0023](docs/adr/0023-remote-workspace-architecture.md) and its amendment). Linux destinations use a manually installed static helper ([`docs/remote-linux-helper.md`](docs/remote-linux-helper.md)). |
 | **Richer agent adapters** | Opt-in / deeper per-agent setup beyond the shipped Claude Code, Codex, and Grok plugins remains follow-up (see agent-state notes in [`docs/architecture.md`](docs/architecture.md)). |
 
 ## Build and verification

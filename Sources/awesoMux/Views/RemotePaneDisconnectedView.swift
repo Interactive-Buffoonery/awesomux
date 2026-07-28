@@ -18,9 +18,14 @@ struct RemotePaneDisconnectedContent {
     ///   - liveTarget: the pane's durable execution target read fresh at render
     ///     time. It may differ from the target captured in `state` after an
     ///     explicit pane retarget operation.
+    ///   - isRemoteOwned: whether the far host owns the session. Such a pane can
+    ///     land here from a second, entirely different failure — ssh connected
+    ///     fine and the remote backend was missing — so pure connectivity
+    ///     guidance would misdiagnose it (#238).
     static func make(
         state: RemoteReconnectState,
         liveTarget: RemoteTarget?,
+        isRemoteOwned: Bool = false,
         backgroundSessionsEnabled: Bool = true
     ) -> Self {
         let captured = state.context.target
@@ -35,7 +40,10 @@ struct RemotePaneDisconnectedContent {
             isReconnecting = true
         }
 
-        if !backgroundSessionsEnabled, let liveTarget, !isReconnecting {
+        // A remote-owned session runs with no local `amx` daemon in front of it,
+        // so the command-bridge setting is nothing to it — the same reason the
+        // connect sheet neither requires nor offers to enable it.
+        if !backgroundSessionsEnabled, !isRemoteOwned, let liveTarget, !isReconnecting {
             return Self(
                 title: String(
                     localized: "Background sessions are off",
@@ -56,20 +64,35 @@ struct RemotePaneDisconnectedContent {
         // While reconnecting, the title reflects the in-flight state so the
         // overlay isn't stuck reading "Disconnected" over a live retry (INT-697
         // fix #7).
-        let title =
-            isReconnecting
-            ? String(
+        let title: String
+        if isReconnecting {
+            title = String(
                 localized: "Reconnecting…",
                 comment: "Title on the remote-pane overlay while a manual reconnect is in flight"
             )
-            : String(
+        } else if isRemoteOwned {
+            // Claiming SSH failed is a coin flip for this pane: the far host's
+            // backend failing to launch reaches the same latch (#238).
+            title = String(
+                localized: "Remote session unavailable",
+                comment: "Title on the overlay covering a remote-owned pane whose session could not be reached"
+            )
+        } else {
+            title = String(
                 localized: "SSH connection failed",
                 comment: "Title on the overlay covering a remote pane whose SSH connection failed or ended"
             )
-        var description = String(
-            localized: "Could not connect to \(captured.host), or the connection ended.",
-            comment: "Description under the SSH connection failed overlay title, naming the remote host"
-        )
+        }
+        var description =
+            isRemoteOwned
+            ? String(
+                localized: "Could not reach \(captured.host), or the session ended.",
+                comment: "Description under the remote-owned session overlay title, naming the remote host"
+            )
+            : String(
+                localized: "Could not connect to \(captured.host), or the connection ended.",
+                comment: "Description under the SSH connection failed overlay title, naming the remote host"
+            )
         // If the session moved to a DIFFERENT remote host while latched, the
         // button names the live host but the description names the captured
         // one — spell out the move so the two hostnames aren't silently
@@ -87,10 +110,16 @@ struct RemotePaneDisconnectedContent {
             let diagnosticTarget = liveTarget ?? captured
             description +=
                 "\n"
-                + String(
-                    localized: "Check that \(diagnosticTarget.host) is a valid hostname or SSH config alias and is reachable.",
-                    comment: "Guidance shown after a managed SSH connection fails"
-                )
+                + (isRemoteOwned
+                    ? String(
+                        localized:
+                            "A named session is kept alive by the remote host, so check that \(diagnosticTarget.host) is reachable and has awesoMux, amx, or zmx installed.",
+                        comment: "Guidance shown after a remote-owned session fails, naming both possible causes"
+                    )
+                    : String(
+                        localized: "Check that \(diagnosticTarget.host) is a valid hostname or SSH config alias and is reachable.",
+                        comment: "Guidance shown after a managed SSH connection fails"
+                    ))
                 + "\n"
                 + String(
                     localized: "For more details, try ssh \(diagnosticTarget.sshDestination) in a local workspace.",
@@ -134,6 +163,7 @@ struct RemotePaneDisconnectedContent {
 struct RemotePaneDisconnectedView: View {
     let state: RemoteReconnectState
     let liveTarget: RemoteTarget?
+    let isRemoteOwned: Bool
     let runtime: GhosttyRuntime
     let paneID: TerminalPane.ID
     /// Tree-order pane descriptor for a split, computed by the caller (which
@@ -162,6 +192,7 @@ struct RemotePaneDisconnectedView: View {
         .make(
             state: state,
             liveTarget: liveTarget,
+            isRemoteOwned: isRemoteOwned,
             backgroundSessionsEnabled: appSettingsStore.terminal.value.commandBridgeEnabled
         )
     }
@@ -195,7 +226,7 @@ struct RemotePaneDisconnectedView: View {
                     isEnabled: content.buttonEnabled,
                     accent: accentResolver.accent
                 ) {
-                    if liveTarget != nil,
+                    if liveTarget != nil, !isRemoteOwned,
                         !appSettingsStore.terminal.value.commandBridgeEnabled
                     {
                         appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
@@ -236,6 +267,17 @@ struct RemotePaneDisconnectedView: View {
             )
         }
         if isDisconnected {
+            if isRemoteOwned {
+                let failure = String(
+                    localized: "Session on \(capturedTarget.host) unavailable.",
+                    comment: "Accessibility label for a remote-owned pane whose session could not be reached"
+                )
+                let guidance = String(
+                    localized: "Check that the host is reachable and has awesoMux, amx, or zmx installed.",
+                    comment: "Accessibility guidance after a remote-owned session fails"
+                )
+                return failure + " " + guidance
+            }
             let failure = String(
                 localized: "SSH connection to \(capturedTarget.host) failed.",
                 comment: "Accessibility label for a remote pane whose SSH connection failed"
@@ -254,6 +296,7 @@ struct RemotePaneDisconnectedView: View {
 
     private var needsBackgroundSessions: Bool {
         isDisconnected
+            && !isRemoteOwned
             && liveTarget != nil
             && !appSettingsStore.terminal.value.commandBridgeEnabled
     }
@@ -262,8 +305,11 @@ struct RemotePaneDisconnectedView: View {
         needsBackgroundSessions ? appSettingsStore.latestError?.displayText : nil
     }
 
+    /// `isRemoteOwned` is read live off the pane's plan, exactly as volatile as
+    /// `liveTarget` across a retarget-while-latched — so leaving it out of the
+    /// key lets a diagnosis flip go unspoken while every other input is equal.
     private var announcementStateID: String {
-        "\(capturedTarget.host)\u{0}\(isDisconnected)\u{0}\(needsBackgroundSessions)"
+        "\(capturedTarget.host)\u{0}\(isDisconnected)\u{0}\(needsBackgroundSessions)\u{0}\(isRemoteOwned)"
     }
 
     private func announceDisconnectedIfNeeded() {
@@ -282,6 +328,7 @@ struct RemotePaneDisconnectedView: View {
         TerminalAccessibilityAnnouncer.announceRemoteDisconnected(
             host: host,
             paneDescriptor: paneDescriptor,
+            isRemoteOwned: isRemoteOwned,
             backgroundSessionsEnabled: !needsBackgroundSessions
         )
     }

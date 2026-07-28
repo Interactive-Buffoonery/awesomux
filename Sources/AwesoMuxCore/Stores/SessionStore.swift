@@ -464,17 +464,10 @@ public final class SessionStore {
     public func addSSHSession(
         target: RemoteTarget,
         toGroupID groupID: SessionGroup.ID,
-        sessionName: RemoteSessionName? = nil,
-        remoteExecutablePath: String? = nil
+        sessionName: RemoteSessionName? = nil
     ) -> TerminalSession.ID? {
         guard target.isSafeSSHDestination else { return nil }
-        guard
-            let execution = Self.sshExecution(
-                target: target,
-                sessionName: sessionName,
-                remoteExecutablePath: remoteExecutablePath
-            )
-        else { return nil }
+        let execution = Self.sshExecution(target: target, sessionName: sessionName)
         guard
             let sessionID = WorkspaceTreeReducer.addSession(
                 to: &_groups,
@@ -1296,45 +1289,34 @@ public final class SessionStore {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         target: RemoteTarget,
-        sessionName: RemoteSessionName? = nil,
-        remoteExecutablePath: String? = nil
+        sessionName: RemoteSessionName? = nil
     ) -> TerminalPane.ID? {
         guard target.isSafeSSHDestination,
             let pane = session(id: sessionID)?.activePane,
             pane.id == paneID,
-            pane.executionPlan == .local,
-            let execution = Self.sshExecution(
-                target: target,
-                sessionName: sessionName,
-                remoteExecutablePath: remoteExecutablePath
-            )
+            pane.executionPlan == .local
         else {
             return nil
         }
         return recycleActivePane(
             in: sessionID,
-            executionPlan: .ssh(execution)
+            executionPlan: .ssh(Self.sshExecution(target: target, sessionName: sessionName))
         )
     }
 
-    /// Nil only when the remote fields contradict each other — a path with no
-    /// session name to own it, or a name the model rejects. The sheets validate
-    /// before they call, so this failing means a caller skipped that gate.
+    /// A named session is remote-owned; an unnamed one is the local-amx default.
+    /// Non-optional deliberately: both arms satisfy `SSHExecution`'s invariant
+    /// by construction, so an Optional here would be a nil case no caller could
+    /// ever reach — the failable init still earns its `?` at the decode seam,
+    /// where the input is untrusted JSON rather than these two branches.
     private static func sshExecution(
         target: RemoteTarget,
-        sessionName: RemoteSessionName?,
-        remoteExecutablePath: String?
-    ) -> SSHExecution? {
+        sessionName: RemoteSessionName?
+    ) -> SSHExecution {
         guard let sessionName else {
-            guard remoteExecutablePath == nil else { return nil }
             return SSHExecution(target: target)
         }
-        return SSHExecution(
-            target: target,
-            persistenceOwner: .remoteZmx,
-            sessionName: sessionName,
-            remoteExecutablePath: remoteExecutablePath
-        )
+        return SSHExecution(target: target, remoteSessionName: sessionName)
     }
 
     private func recycleActivePane(

@@ -151,12 +151,35 @@ enum TerminalAccessibilityAnnouncer {
     /// appears (INT-697). `host` names the dropped host; `paneDescriptor`
     /// disambiguates a split. The single voice for the disconnect transition —
     /// `markError` suppresses its generic "Session error." for this case.
+    /// `isRemoteOwned` must track the overlay's own branch (#238). A sighted
+    /// user can read the corrected copy and self-correct; this announcement is
+    /// the only signal a VoiceOver user gets when focus is elsewhere, so it is
+    /// the LAST place that can afford to keep asserting a connectivity cause.
     static func remoteDisconnectedAnnouncement(
         host: String,
         paneDescriptor: String? = nil,
+        isRemoteOwned: Bool = false,
         backgroundSessionsEnabled: Bool = true
     ) -> String {
         let pane = trimmedPaneDescriptor(paneDescriptor)
+        if isRemoteOwned {
+            let recovery = String(
+                localized: "Check that the host is reachable and has awesoMux, amx, or zmx installed. Reconnect available.",
+                comment: "VoiceOver recovery guidance after a remote-owned session fails, naming both possible causes"
+            )
+            if let pane {
+                return String(
+                    localized: "Session on \(host) in \(pane) unavailable.",
+                    comment: "VoiceOver announcement when a remote-owned pane's session in a split could not be reached"
+                ) + " " + recovery
+            }
+            return String(
+                localized: "Session on \(host) unavailable.",
+                comment: "VoiceOver announcement when a remote-owned pane's session could not be reached"
+            ) + " " + recovery
+        }
+        // A remote-owned pane never reaches the background-sessions arm: it runs
+        // with no local daemon, so the setting is nothing to it.
         if !backgroundSessionsEnabled {
             if let pane {
                 return String(
@@ -191,12 +214,14 @@ enum TerminalAccessibilityAnnouncer {
     static func announceRemoteDisconnected(
         host: String,
         paneDescriptor: String? = nil,
+        isRemoteOwned: Bool = false,
         backgroundSessionsEnabled: Bool = true
     ) {
         post(
             remoteDisconnectedAnnouncement(
                 host: host,
                 paneDescriptor: paneDescriptor,
+                isRemoteOwned: isRemoteOwned,
                 backgroundSessionsEnabled: backgroundSessionsEnabled
             ),
             priority: .medium

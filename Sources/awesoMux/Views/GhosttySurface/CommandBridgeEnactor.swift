@@ -124,13 +124,11 @@ final class CommandBridgeEnactor {
     var remoteOwnedAttachCommandProvider:
         (
             RemoteTarget,
-            RemoteSessionName,
-            String?
-        ) -> String = { target, sessionName, executablePath in
+            RemoteSessionName
+        ) -> String = { target, sessionName in
             AmxBackend.remoteOwnedAttachCommand(
                 remote: target,
-                sessionName: sessionName,
-                executablePath: executablePath
+                sessionName: sessionName
             )
         }
     var announceSessionRespawnedFresh: () -> Void = {
@@ -246,8 +244,7 @@ final class CommandBridgeEnactor {
             return .remoteOwnedAttach(
                 remoteOwnedAttachCommandProvider(
                     execution.target,
-                    sessionName,
-                    execution.remoteExecutablePath
+                    sessionName
                 )
             )
         case .remoteUnavailable:

@@ -144,8 +144,7 @@ struct SessionGroupExecutionSummaryTests {
             SSHExecution(
                 target: zeta,
                 persistenceOwner: .remoteZmx,
-                sessionName: RemoteSessionName(rawValue: "work"),
-                remoteExecutablePath: nil
+                sessionName: RemoteSessionName(rawValue: "work")
             )
         )
         let group = SessionGroup(
@@ -166,8 +165,7 @@ struct SessionGroupExecutionSummaryTests {
             SSHExecution(
                 target: alpha,
                 persistenceOwner: .remoteZmx,
-                sessionName: RemoteSessionName(rawValue: "work"),
-                remoteExecutablePath: nil
+                sessionName: RemoteSessionName(rawValue: "work")
             )
         )
         let summary = SessionGroupExecutionSummary(

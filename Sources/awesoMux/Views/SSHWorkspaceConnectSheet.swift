@@ -46,7 +46,6 @@ struct SSHWorkspaceConnectSheet: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var destination: String
     @State private var sessionName = ""
-    @State private var remoteExecutablePath = ""
     @State private var submission = SSHWorkspaceConnectionSubmission()
     @FocusState private var isFocused: Bool
 
@@ -66,8 +65,7 @@ struct SSHWorkspaceConnectSheet: View {
     var body: some View {
         let execution = SSHWorkspaceConnectFields.execution(
             destination: destination,
-            sessionName: sessionName,
-            remoteExecutablePath: remoteExecutablePath
+            sessionName: sessionName
         )
         let validationMessage = fieldValidationMessage
         VStack(alignment: .leading, spacing: 16) {
@@ -90,18 +88,22 @@ struct SSHWorkspaceConnectSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled(true)
                 .accessibilityLabel("Remote session name")
-                .accessibilityHint("Optional. Names a zmx session the remote host keeps running")
+                .accessibilityHint(
+                    String(
+                        localized: "Optional. Names a session the remote host keeps running with its own amx or zmx",
+                        comment: "Accessibility hint for the remote session name field in the Connect via SSH sheet"
+                    )
+                )
                 .onSubmit { connect(execution) }
+            // A name is a persistence-owner switch, not a label, and the sheet
+            // used to say so only by revealing a path field. Now that the
+            // backend resolves itself, this caption is the only disclosure —
+            // and it has to arrive before Connect, not after a failed attach.
             if declaresRemoteSession {
-                Text("zmx path (optional)")
+                Text(remoteSessionExplanation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField(Self.remoteExecutablePathPlaceholder, text: $remoteExecutablePath)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled(true)
-                    .accessibilityLabel("Remote zmx path")
-                    .accessibilityHint("Optional. Leave empty to run zmx from the remote PATH")
-                    .onSubmit { connect(execution) }
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let message = validationMessage ?? settingsErrorMessage ?? submission.errorMessage {
                 Text(message)
@@ -145,19 +147,26 @@ struct SSHWorkspaceConnectSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(sheetTitle)
         .onAppear { isFocused = true }
-        // Clearing the session name hides the path field; its text would
-        // otherwise survive unseen and either revive on re-entry or be silently
-        // dropped by `execution(...)` on submit.
-        .onChange(of: declaresRemoteSession) { _, declares in
-            if !declares { remoteExecutablePath = "" }
-        }
     }
 
-    /// Placeholder examples, deliberately not localized: a session name is
-    /// restricted to `[A-Za-z0-9._-]` and a path is a path, so neither example
-    /// changes by language.
+    /// Placeholder example, deliberately not localized: a session name is
+    /// restricted to `[A-Za-z0-9._-]`, so it does not change by language.
     private static let sessionNamePlaceholder = "my-session"
-    private static let remoteExecutablePathPlaceholder = "/usr/local/bin/zmx"
+
+    private var remoteSessionExplanation: String {
+        guard let host = SSHWorkspaceDestinationValidation.target(from: destination)?.host else {
+            return String(
+                localized:
+                    "Named, the remote host keeps this session running with its own amx or zmx, and awesoMux finds it there. Leave empty to keep the session on this Mac instead.",
+                comment: "Caption explaining what naming a remote session does, before a destination has been entered"
+            )
+        }
+        return String(
+            localized:
+                "\(host) keeps this session running with its own amx or zmx, and awesoMux finds it there. Leave empty to keep the session on this Mac instead.",
+            comment: "Caption explaining what naming a remote session does. The argument is the destination host"
+        )
+    }
 
     private func connect(_ execution: SSHExecution?) {
         submission.submit(
@@ -178,8 +187,6 @@ struct SSHWorkspaceConnectSheet: View {
     private var fieldValidationMessage: String? {
         SSHWorkspaceDestinationValidation.message(for: destination)
             ?? SSHWorkspaceConnectFields.sessionNameMessage(for: sessionName)
-            ?? (declaresRemoteSession
-                ? SSHWorkspaceConnectFields.remoteExecutablePathMessage(for: remoteExecutablePath) : nil)
     }
 
     private var backgroundSessionsEnabled: Bool {
