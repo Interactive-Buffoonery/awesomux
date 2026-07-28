@@ -17,7 +17,7 @@ import Testing
 
     @Test func noPinnedPreservesGroupOrder() {
         let f = groups()
-        let order = WorkspaceNavigationOrder.pinnedFirstSessionIDs(
+        let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
             in: f.groups,
             pinnedSessionIDs: []
         )
@@ -27,7 +27,7 @@ import Testing
     @Test func pinnedComeFirstInPinOrderThenGroupOrder() {
         let f = groups()
         // Pin c then a — pin order, NOT group order.
-        let order = WorkspaceNavigationOrder.pinnedFirstSessionIDs(
+        let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
             in: f.groups,
             pinnedSessionIDs: [f.c.id, f.a.id]
         )
@@ -37,11 +37,47 @@ import Testing
     @Test func staleAndMissingPinnedIDsAreDropped() {
         let f = groups()
         let ghost = TerminalSession(title: "ghost", workingDirectory: "~").id
-        let order = WorkspaceNavigationOrder.pinnedFirstSessionIDs(
+        let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
             in: f.groups,
             pinnedSessionIDs: [ghost, f.b.id]
         )
         // ghost isn't a live session, so it's dropped; b floats first.
         #expect(order == [f.b.id, f.a.id, f.c.id, f.d.id])
+    }
+
+    @Test func liftedComeBeforePinnedAndTheRest() {
+        let a = TerminalSession(title: "alpha", workingDirectory: "~")
+        let b = TerminalSession(title: "beta", workingDirectory: "~")
+        let c = TerminalSession(title: "gamma", workingDirectory: "~")
+        let g = SessionGroup(name: "One", sessions: [a, b, c])
+        let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
+            in: [g],
+            liftedSessionIDs: [c.id],
+            pinnedSessionIDs: [b.id]
+        )
+        #expect(order == [c.id, b.id, a.id])
+    }
+
+    @Test func aSessionNeverAppearsTwice() {
+        // Pinned wins, so a pinned id passed as lifted must not duplicate.
+        let a = TerminalSession(title: "alpha", workingDirectory: "~")
+        let g = SessionGroup(name: "One", sessions: [a])
+        let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
+            in: [g],
+            liftedSessionIDs: [a.id],
+            pinnedSessionIDs: [a.id]
+        )
+        #expect(order == [a.id])
+    }
+
+    @Test func staleLiftedIDsAreDropped() {
+        let a = TerminalSession(title: "alpha", workingDirectory: "~")
+        let g = SessionGroup(name: "One", sessions: [a])
+        let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
+            in: [g],
+            liftedSessionIDs: [UUID()],
+            pinnedSessionIDs: []
+        )
+        #expect(order == [a.id])
     }
 }
