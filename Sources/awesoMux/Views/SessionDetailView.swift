@@ -515,6 +515,32 @@ final class EmptyWorkspacePrimaryActionFocusButton: NSButton {
         nil
     }
 
+    /// Corner radius of the focus-ring mask.
+    ///
+    /// This button is invisible: it is the AppKit focus proxy layered over a
+    /// SwiftUI `.borderedProminent` button, sized and positioned to match it
+    /// exactly. AppKit still needs to be told the shape, because a button cell
+    /// masks its focus ring with a plain rectangle — full width, inset 4pt top
+    /// and bottom, square corners — so an exterior ring came out as a hard
+    /// rectangle around a rounded control.
+    ///
+    /// Measured off the rendered button on macOS 15: the bezel's corner arc
+    /// spans about 4.5pt. Staying a touch under the bezel's own radius is the
+    /// safe side of the error — the ring is stroked outside the mask, so a
+    /// tighter corner only rounds it slightly more than the control, while a
+    /// wider one starts pulling the ring's corners in over the bezel.
+    private static let focusRingCornerRadius: CGFloat = 5
+
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func drawFocusRingMask() {
+        NSBezierPath(
+            roundedRect: bounds,
+            xRadius: Self.focusRingCornerRadius,
+            yRadius: Self.focusRingCornerRadius
+        ).fill()
+    }
+
     func update(
         onActivate: @escaping () -> Void,
         initialAccessibilityFocusRequest: EmptyWorkspaceInitialAccessibilityFocusRequest
