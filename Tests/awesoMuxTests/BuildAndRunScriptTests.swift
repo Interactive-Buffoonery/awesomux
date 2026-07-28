@@ -402,6 +402,12 @@ struct BuildAndRunScriptTests {
         let function = try candidatePIDsFunction(from: script)
 
         let tempDir = try TemporaryDirectory()
+        // `tempDir` has no further direct reference after deriving these two
+        // URLs, so ARC is free to run its deinit (which deletes the
+        // directory) before the compile/exec steps below finish with it —
+        // the same bug already fixed at its other call sites in
+        // GhosttyConfigEnvironmentTests.swift and HelperConnectionTests.swift.
+        defer { withExtendedLifetime(tempDir) {} }
         let helperName = "amxpidtest"
         let sourceURL = tempDir.url.appendingPathComponent("\(helperName).c")
         let helperURL = tempDir.url.appendingPathComponent(helperName)
