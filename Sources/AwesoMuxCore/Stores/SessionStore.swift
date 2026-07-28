@@ -203,6 +203,10 @@ public final class SessionStore {
         recentlyClosed = components.recentlyClosed
         pinnedSessionIDs = components.pinnedSessionIDs
         lastClosedTransient = nil
+        // "The user is mid-read of this row" is not state a bulk restore
+        // inherits, and the ID-reuse hazard above applies: a surviving sticky
+        // could lift a restored workspace that never needed input.
+        attentionStickySessionID = nil
         shellActivityReducer = ShellActivityReducer()
         runtimeEventReducer = AgentRuntimeEventReducer()
         commit(
