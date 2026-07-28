@@ -131,12 +131,16 @@ struct SidebarGroupPeekCard: View {
                 // existing "New Workspace in Group" (the card itself is
                 // `accessibilityHidden`), so this adds no unreachable control.
                 //
-                // Styled after `NewWorkspaceInGroupRow`, which is this exact
-                // action in the expanded sidebar — same label, same faint
-                // foreground, same pointer-target floor. The group tint is a
-                // fill/glow colour and fails contrast as text on this card's
-                // tint wash (teal on Latte measures 2.23:1), so it stays out
-                // of the foreground.
+                // Shaped after `NewWorkspaceInGroupRow`, the same action in the
+                // expanded sidebar — same label, same pointer-target floor.
+                //
+                // NOT its `textFaint` foreground, though: that row sits on plain
+                // sidebar surface, while this card is `surface.elevated` under a
+                // 10% tint wash, and on Latte `textFaint` measures 1.69:1 there.
+                // `text2` (3.20:1) and `railText` (4.05:1) are both under the
+                // AA floor too; `text` is the only token that clears it on every
+                // tint (4.58:1 worst case, mauve). The group tint itself is a
+                // fill colour — teal reads 2.23:1 — so it stays out entirely.
                 VStack(alignment: .leading, spacing: 8) {
                     Text("No workspaces")
                         .awFont(AwFont.UI.meta)
@@ -153,7 +157,7 @@ struct SidebarGroupPeekCard: View {
 
                             Spacer(minLength: 4)
                         }
-                        .foregroundStyle(Color.aw.textFaint)
+                        .foregroundStyle(Color.aw.text)
                         .frame(
                             maxWidth: .infinity,
                             minHeight: NewWorkspaceInGroupRow.minimumPointerTargetHeight,
