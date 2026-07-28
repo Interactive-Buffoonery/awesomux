@@ -847,8 +847,9 @@ public final class SessionStore {
     /// capture-on-close invariant (INT-415), selection fixup, and per-pane
     /// reducer cleanup in the single existing path — then attempts to
     /// remove the group. Returns whether the group was removed:
-    /// `removeGroup` refuses the last group (closing the sole group leaves
-    /// the empty shell behind) and refuses a still-populated group.
+    /// `removeGroup` refuses a still-populated group. Closing the sole group
+    /// is allowed and leaves an empty tree — the cold-launch state, which
+    /// `SessionDetailView` renders as its first-launch empty state.
     ///
     /// `limitedTo` restricts the close to sessions the caller already
     /// confirmed with the user — a session that joined the group after
@@ -873,8 +874,8 @@ public final class SessionStore {
     }
 
     /// Returns whether the group was actually removed — the reducer refuses
-    /// non-empty groups and the last group, and callers announcing the
-    /// outcome must not claim a removal that was silently refused.
+    /// non-empty groups, and callers announcing the outcome must not claim a
+    /// removal that was silently refused.
     @discardableResult
     public func removeGroup(id: SessionGroup.ID) -> Bool {
         // Captured before the reducer runs: closing an EMPTY group takes

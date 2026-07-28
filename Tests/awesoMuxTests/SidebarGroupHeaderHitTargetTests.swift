@@ -75,6 +75,65 @@ struct SidebarGroupHeaderHitTargetTests {
         #expect(SidebarGroupHeaderRow.closeTargetBaseSize >= 24)
     }
 
+    /// Declaring a 24pt target is not the same as having one. The X is a
+    /// trailing OVERLAY on the header, so it is centred on whatever height the
+    /// header happens to be — and the header was shorter than the target it
+    /// hosts (measured: 20pt comfortable, 16pt compact, against a 24pt X). The
+    /// overflow was invisible until the X joined the focus order, at which
+    /// point the ring's top stroke was clipped away by the sidebar's
+    /// `ScrollView`; the same clip takes the top of the *pointer target* with
+    /// it, which is the part that actually matters.
+    ///
+    /// Asserted per density, because compact is where the gap was worst and a
+    /// single-density check would have passed while compact stayed broken.
+    @Test(
+        "the header row is at least as tall as the pointer target it hosts",
+        arguments: [false, true])
+    func headerRowFitsItsCloseTarget(isCompact: Bool) {
+        let height = Self.headerRowHeight(density: SidebarDensity(compact: isCompact))
+
+        #expect(height > 0, "premise: the header must render at all")
+
+        #expect(
+            height >= SidebarGroupHeaderRow.closeTargetBaseSize,
+            "header row \(height)pt cannot contain its own \(SidebarGroupHeaderRow.closeTargetBaseSize)pt close target"
+        )
+    }
+
+    /// The floor above is applied to the whole header flow, including the
+    /// collapsed rail — which renders no count badge and therefore no close X,
+    /// and which sets its own 26pt height inside `groupHeader`.
+    ///
+    /// Review question: does a 24pt floor shrink or otherwise disturb that?
+    /// It does not, and the reason is that the floor is never the binding
+    /// constraint there — the rail's own 26pt plus the shared bottom padding
+    /// already exceeds it. Asserting that relationship rather than a literal:
+    /// a first pass at this test guessed `== 26` and measured 29pt / 27pt,
+    /// because the rail's 26pt is set INSIDE `groupHeader` and the bottom
+    /// padding is added outside it.
+    ///
+    /// Measured rather than argued because "minHeight only raises, so it
+    /// obviously can't matter" is the same shape of reasoning about this
+    /// overlay that shipped the clipped target in the first place.
+    @Test(
+        "the close-target floor never binds on the collapsed rail",
+        arguments: [false, true])
+    func collapsedRailKeepsItsOwnHeight(isCompact: Bool) {
+        let density = SidebarDensity(compact: isCompact)
+        let railHeight = Self.headerRowHeight(
+            density: density,
+            displayMode: .collapsed,
+            width: SidebarWidthPolicy.collapsedWidth
+        )
+
+        #expect(
+            railHeight == 26 + density.groupHeaderBottomPadding,
+            "the rail should still be its own 26pt plus the shared bottom padding: got \(railHeight)")
+        #expect(
+            railHeight > SidebarGroupHeaderRow.closeTargetBaseSize,
+            "if this ever drops to the floor, the floor has started driving the rail's height")
+    }
+
     @Test("badge slot click without hover toggles collapse, never closes the group")
     func badgeSlotClickWithoutHoverTogglesNotCloses() {
         let toggleCounter = ToggleCounter()
@@ -191,39 +250,52 @@ struct SidebarGroupHeaderHitTargetTests {
             "a collapsed empty group must still morph count → X on hover")
     }
 
-    @Test("hovered sole empty group keeps the badge and close action gated")
-    func hoveredSoleEmptyGroupKeepsCloseButtonGated() {
+    /// This used to assert the opposite: the sole empty group kept its count
+    /// badge and its click toggled collapse, because the store refused to
+    /// remove the last group and a resting X there would have been a dead
+    /// control. The store now accepts it, so the carve-out is gone and the
+    /// last group behaves like every other empty one — the X rests in the
+    /// count slot and the click closes.
+    ///
+    /// Rendered against a two-group control rather than asserted alone: equal
+    /// pixels prove group count no longer changes what the header draws, which
+    /// is the actual claim.
+    @Test("the sole empty group rests its close X like any other empty group")
+    func soleEmptyGroupRestsCloseButton() {
         let toggleCounter = ToggleCounter()
         let closeCounter = ToggleCounter()
         let window = Self.makeWindow(
             isGroupEmpty: true,
-            headerHoverOverride: true,
+            headerHoverOverride: false,
             onToggle: toggleCounter.increment,
             onCloseGroup: closeCounter.increment
         )
         defer { window.close() }
 
-        let hoveredRendering = Self.renderedPixels(in: window)
-        let badgeWindow = Self.makeWindow(
+        let soleRendering = Self.renderedPixels(in: window)
+        let amongOthersWindow = Self.makeWindow(
             isGroupEmpty: true,
+            totalGroupCount: 2,
             headerHoverOverride: false,
             onToggle: {}
         )
-        defer { badgeWindow.close() }
-        let badgeRendering = Self.renderedPixels(in: badgeWindow)
+        defer { amongOthersWindow.close() }
+        let amongOthersRendering = Self.renderedPixels(in: amongOthersWindow)
 
-        #expect(!hoveredRendering.isEmpty)
-        #expect(hoveredRendering == badgeRendering)
+        #expect(!soleRendering.isEmpty)
+        #expect(
+            soleRendering == amongOthersRendering,
+            "the sole empty group must draw the same resting X as one among others")
 
-        badgeWindow.close()
+        amongOthersWindow.close()
         window.makeKeyAndOrderFront(nil)
         SidebarHostedTestHarness.settleMainRunLoop()
         SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedCountBadgePoint)
-        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { toggleCounter.count >= 1 }))
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { closeCounter.count >= 1 }))
         SidebarHostedTestHarness.settleMainRunLoop()
 
-        #expect(toggleCounter.count == 1)
-        #expect(closeCounter.count == 0)
+        #expect(closeCounter.count == 1)
+        #expect(toggleCounter.count == 0, "the click must close, not toggle collapse")
     }
 
     @Test("populated group's new-workspace row creates a workspace")
@@ -310,6 +382,7 @@ struct SidebarGroupHeaderHitTargetTests {
     private static let populatedGroupNewWorkspaceRowPoint = CGPoint(x: 100, y: 44)
 
     private static func makeWindow(
+        density: SidebarDensity = SidebarDensity(compact: false),
         isCollapsed: Bool = false,
         displayMode: SidebarWidthMode = .expanded,
         width: CGFloat = SidebarWidthPolicy.expandedWidth,
@@ -357,6 +430,7 @@ struct SidebarGroupHeaderHitTargetTests {
                 entries: entries,
                 allGroups: allGroups,
                 tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
+                density: density,
                 isCollapsed: isCollapsed,
                 displayMode: displayMode,
                 width: width,
@@ -377,38 +451,51 @@ struct SidebarGroupHeaderHitTargetTests {
     /// because an INVISIBLE X that Tab could still fire is a trap. A resting
     /// visible one is ordinary UI.
     ///
-    /// Two baselines where the X is hidden for DIFFERENT reasons — a dead
-    /// control (sole group) and a hover-gated one (populated) — pin that it is
-    /// the X's visibility that moves the count, not emptiness or group count.
-    /// Both measure identically; only the resting X changes anything.
+    /// This used to hang a second baseline off the sole empty group, where the
+    /// X was hidden because closing it would have been a dead control. The
+    /// store now accepts removing the last group, so that state rests its X
+    /// like every other empty group and can no longer serve as a baseline.
     ///
-    /// Asserts a strict increase rather than a fixed delta: a focusable
+    /// Two replacements were measured and rejected, both for the same reason —
+    /// they move a focusable that is not the X, so an equal count would prove
+    /// nothing: a *collapsed* empty group and a *filtered* one each hide the
+    /// `+ new workspace` row as well (1 focusable, against 2 for the populated
+    /// baseline).
+    ///
+    /// So the control changes exactly one input instead: hover, on the same
+    /// populated group. That isolates the X's contribution outright, and the
+    /// resting case is then asserted to reach the same total — a resting X
+    /// gives the keyboard the same reach a hovered one does, which is the
+    /// actual claim.
+    ///
+    /// Counts are compared to each other, never to a literal: a focusable
     /// SwiftUI `Button` currently publishes two key-view shims, and that ratio
     /// is an implementation detail no test should pin.
     @Test("the resting close X joins the keyboard focus order")
     func restingCloseButtonJoinsFocusOrder() {
-        func focusStops(isGroupEmpty: Bool, totalGroupCount: Int) -> Int {
+        func focusStops(isGroupEmpty: Bool, isHovered: Bool) -> Int {
             let window = Self.makeWindow(
                 isGroupEmpty: isGroupEmpty,
-                totalGroupCount: totalGroupCount,
-                headerHoverOverride: false,
+                headerHoverOverride: isHovered,
                 onToggle: {}
             )
             defer { window.close() }
             return Self.keyViewCount(in: window)
         }
 
-        let restingX = focusStops(isGroupEmpty: true, totalGroupCount: 2)
-        let deadX = focusStops(isGroupEmpty: true, totalGroupCount: 1)
-        let hoverX = focusStops(isGroupEmpty: false, totalGroupCount: 2)
+        let populatedHidden = focusStops(isGroupEmpty: false, isHovered: false)
+        let populatedShown = focusStops(isGroupEmpty: false, isHovered: true)
+        let emptyResting = focusStops(isGroupEmpty: true, isHovered: false)
 
-        #expect(deadX > 0, "premise: the header must publish focusables at all")
+        #expect(populatedHidden > 0, "premise: the header must publish focusables at all")
         #expect(
-            deadX == hoverX,
-            "baselines must agree, or something other than the X is moving: \(deadX) vs \(hoverX)")
+            populatedShown > populatedHidden,
+            "the X must add focus stops; hover was the only input that changed: \(populatedShown) vs \(populatedHidden)"
+        )
         #expect(
-            restingX > deadX,
-            "the resting X should be reachable by Tab: \(restingX) vs \(deadX)")
+            emptyResting == populatedShown,
+            "a resting X should reach the keyboard exactly as a hovered one does: \(emptyResting) vs \(populatedShown)"
+        )
     }
 
     /// SwiftUI publishes each focusable item as a key-view-capable `NSView`
@@ -429,6 +516,39 @@ struct SidebarGroupHeaderHitTargetTests {
         return count
     }
 
+    /// The header row's rendered height, read back from the hosted tree.
+    ///
+    /// Measures `SidebarGroupHeaderRow` ON ITS OWN, rather than fishing it out
+    /// of a rendered `SidebarGroupView`.
+    ///
+    /// Two tree-walking versions were written and both passed against the
+    /// broken layout, which is why this does not walk the tree at all:
+    ///   1. "tallest view under a height ceiling" measured the 24pt close
+    ///      button itself — the target compared against itself, so it read 24
+    ///      however short the row it overflowed.
+    ///   2. Adding a full-width requirement to exclude the button then picked
+    ///      up the `+ new workspace` row, which an empty group also renders.
+    ///
+    /// `sizeThatFits` on the header alone has no such neighbours to confuse.
+    /// It also measures exactly the right quantity: an overlay does not
+    /// contribute to its parent's size, so this reports the row's own height —
+    /// which is precisely what the close button overflows.
+    private static func headerRowHeight(
+        density: SidebarDensity,
+        displayMode: SidebarWidthMode = .expanded,
+        width: CGFloat = SidebarWidthPolicy.expandedWidth
+    ) -> CGFloat {
+        let controller = NSHostingController(
+            rootView: HeaderRowMeasurementHarness(
+                density: density, displayMode: displayMode, width: width))
+        // Force a layout pass; `sizeThatFits` on a never-displayed controller
+        // otherwise reports zero.
+        controller.view.layoutSubtreeIfNeeded()
+        return controller.sizeThatFits(
+            in: CGSize(width: width, height: .greatestFiniteMagnitude)
+        ).height
+    }
+
     private static func renderedPixels(in window: NSWindow) -> Data {
         guard let view = window.contentView,
             let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds),
@@ -439,6 +559,53 @@ struct SidebarGroupHeaderHitTargetTests {
         return Data(bytes: bytes, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
     }
 
+}
+
+/// Just the header row, with nothing above or below it, so its own height is
+/// the only thing there is to measure.
+private struct HeaderRowMeasurementHarness: View {
+    let density: SidebarDensity
+    let displayMode: SidebarWidthMode
+    let width: CGFloat
+
+    @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
+    @State private var isKeyboardNavigating = false
+
+    var body: some View {
+        let group = SessionGroup(
+            id: UUID(uuidString: "8B10C4F3-3905-4C67-A6F6-C7EB11F03D5B")!,
+            name: "Workspace group",
+            sessions: []
+        )
+        SidebarGroupHeaderRow(
+            group: group,
+            entries: [],
+            density: density,
+            tint: ProjectTint(groupName: group.name, color: group.color, index: 0),
+            isCollapsed: displayMode == .collapsed,
+            isFiltering: false,
+            displayMode: displayMode,
+            selectedSessionID: nil,
+            currentGroupIndex: 0,
+            totalGroupCount: 1,
+            isDragActive: false,
+            onToggle: {},
+            onNewSessionInGroup: {},
+            onConnectViaSSH: { _ in },
+            onNewGroup: {},
+            onRenameGroup: {},
+            onSetGroupColor: { _ in },
+            onCloseGroup: {},
+            onMoveGroup: { _, _ in },
+            onGroupDragStarted: { _ in UUID() },
+            focusedRowTarget: $focusedRowTarget,
+            isKeyboardNavigating: $isKeyboardNavigating
+        )
+        .frame(width: width)
+        .environment(\.dynamicTypeSize, .large)
+        .environment(SidebarPeekModel())
+        .environment(AppSettingsStore(legacySnapshotProvider: { nil }))
+    }
 }
 
 private final class ToggleCounter {
@@ -454,6 +621,7 @@ private struct SidebarGroupHitTargetHarness: View {
     let entries: [SidebarSessionEntry]
     let allGroups: [SessionGroup]
     let tint: ProjectTint
+    let density: SidebarDensity
     let isCollapsed: Bool
     let displayMode: SidebarWidthMode
     let width: CGFloat
@@ -471,7 +639,7 @@ private struct SidebarGroupHitTargetHarness: View {
         SidebarGroupView(
             group: group,
             entries: entries,
-            density: SidebarDensity(compact: false),
+            density: density,
             tint: tint,
             workspacesWithBackgroundedFloatingWork: [],
             promotedSessionID: nil,

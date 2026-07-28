@@ -36,18 +36,64 @@ struct SessionStoreCloseGroupTests {
         #expect(store.selectedSession?.id == survivor.id)
     }
 
-    @Test("closing the sole group closes its workspaces but the empty group remains")
-    func closeSoleGroupLeavesEmptyGroup() {
+    /// Closing the sole group used to leave an empty shell behind, because
+    /// `removeGroup` refused the last group. It now removes it outright.
+    ///
+    /// The `groups.isEmpty` + `selectedSessionID == nil` pair is asserted
+    /// together deliberately: that combination is what drives
+    /// `SessionDetailView.emptyStateMode` to `.firstLaunch`, which is the
+    /// entire reason this destination is acceptable to land on.
+    @Test("closing the sole group removes it, leaving an empty tree")
+    func closeSoleGroupLeavesEmptyTree() {
         let first = makeSession("first")
         let second = makeSession("second")
         let sole = SessionGroup(name: "sole", sessions: [first, second])
         let store = SessionStore(groups: [sole], selectedSessionID: first.id)
 
-        store.closeGroup(id: sole.id)
+        #expect(store.closeGroup(id: sole.id))
 
-        #expect(store.groups.map(\.id) == [sole.id])
-        #expect(store.groups.first?.sessions.isEmpty == true)
+        #expect(store.groups.isEmpty)
         #expect(store.selectedSessionID == nil)
+    }
+
+    /// The store-level counterpart to the reducer test in
+    /// `WorkspaceTreeReducerGroupTests` — this one goes through `SessionStore`,
+    /// so it also covers the commit and undo registration around the reducer
+    /// call rather than the guard alone.
+    ///
+    /// Lived in `SessionStoreTests` as XCTest until this change inverted it;
+    /// moved here and converted per the repo's "new tests use swift-testing,
+    /// existing XCTest stays until touched" rule.
+    @Test("removeGroup removes the final empty group")
+    func removeGroupRemovesFinalEmptyGroup() {
+        let emptyGroup = SessionGroup(name: "scratch", sessions: [])
+        let store = SessionStore(groups: [emptyGroup])
+
+        #expect(store.removeGroup(id: emptyGroup.id))
+        #expect(store.groups.isEmpty)
+    }
+
+    /// The failure mode most worth fearing when closing the last group became
+    /// possible: a restore path that helpfully re-seeds a default group would
+    /// make the close look like a silent failure on the next launch, and the
+    /// user would have no way to tell that from a bug.
+    ///
+    /// Runs the REAL persistence shape — encode, decode, then
+    /// `SessionRestoreReducer.restoredComponents` — rather than asserting on
+    /// the snapshot alone, because an injection would live in the reducer.
+    @Test("an empty tree survives a persistence round trip without gaining a group")
+    func emptyTreeRoundTripsWithoutResurrectingAGroup() throws {
+        let sole = SessionGroup(name: "sole", sessions: [])
+        let store = SessionStore(groups: [sole])
+        #expect(store.removeGroup(id: sole.id))
+        #expect(store.groups.isEmpty, "premise: the tree must actually be empty to round trip")
+
+        let snapshot = SessionSnapshot(groups: store.groups, selectedSessionID: nil)
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try SessionSnapshot.decode(from: data)
+        let restored = SessionRestoreReducer.restoredComponents(from: decoded)
+
+        #expect(restored.groups.isEmpty, "restore must not conjure a default group")
     }
 
     @Test("closing an unknown group is a no-op")

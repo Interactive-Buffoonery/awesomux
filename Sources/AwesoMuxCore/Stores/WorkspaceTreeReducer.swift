@@ -210,10 +210,15 @@ struct WorkspaceTreeReducer: Sendable {
         return true
     }
 
+    /// Removing the last group is allowed: an empty tree is not a new state,
+    /// it is the cold-launch state (`SessionStore.init` defaults to `groups:
+    /// []`), and `SessionDetailView` renders its designed first-launch empty
+    /// state there. Refusing it only made the sole empty group's close a dead
+    /// control while every other group's worked.
     static func removeGroup(in groups: inout [SessionGroup], id: SessionGroup.ID) -> Bool {
         guard let groupIndex = groups.firstIndex(where: { $0.id == id }),
-              groups[groupIndex].sessions.isEmpty,
-              groups.count > 1 else {
+            groups[groupIndex].sessions.isEmpty
+        else {
             return false
         }
 

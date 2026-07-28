@@ -134,13 +134,10 @@ struct SessionDetailView: View {
     }
 
     private var emptyStateMode: EmptyWorkspaceMode {
-        if hasRecoveryWarning {
-            return .recovered
-        }
-        // A truly empty tree is a genuine cold launch / all-closed state; a
-        // non-empty tree with no selection is a returning user between
-        // workspaces, so don't greet them as new (INT-166 review).
-        return sessionStore.groups.isEmpty ? .firstLaunch : .noSelection
+        EmptyWorkspaceMode.resolve(
+            hasRecoveryWarning: hasRecoveryWarning,
+            hasAnyGroup: !sessionStore.groups.isEmpty
+        )
     }
 }
 
@@ -148,6 +145,19 @@ enum EmptyWorkspaceMode {
     case firstLaunch
     case noSelection
     case recovered
+
+    /// Split out of `SessionDetailView` so it is reachable from a test: this
+    /// is where a user lands after closing their last workspace group, and
+    /// that being a designed empty state rather than a blank pane is the whole
+    /// reason closing the last group is allowed.
+    ///
+    /// A truly empty tree is a genuine cold launch / all-closed state; a
+    /// non-empty tree with no selection is a returning user between
+    /// workspaces, so don't greet them as new (INT-166 review).
+    static func resolve(hasRecoveryWarning: Bool, hasAnyGroup: Bool) -> EmptyWorkspaceMode {
+        if hasRecoveryWarning { return .recovered }
+        return hasAnyGroup ? .noSelection : .firstLaunch
+    }
 }
 
 @MainActor

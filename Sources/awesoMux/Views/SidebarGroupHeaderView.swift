@@ -22,15 +22,13 @@ extension EnvironmentValues {
 /// Beyond that, the X carries the same guards as the context menu's
 /// "Close Group" (see `groupContextMenuContent` for the rationale):
 /// suppressed while filtering (the header reflects only the matched
-/// subset, so closing would destroy hidden workspaces), for unresolved
+/// subset, so closing would destroy hidden workspaces), and for unresolved
 /// or stale rows (no resolved group index — an ID-keyed mutation could
-/// hit a different group than the one shown), and for the sole empty
-/// group, where the store refuses to remove the last group so the X
-/// would be a dead control — the same clause the context menu's "Close
-/// Group" disables on. Empty groups among others DO get the X (INT-770):
-/// closing routes through `closeWorkspaceGroup`, which skips the confirm
-/// dialog when there is no remote impact but still confirms loss of an SSH
-/// creation default. This X is the sole pointer path for every group: it rests
+/// hit a different group than the one shown). Every empty group gets the X,
+/// including the last one: closing routes through `closeWorkspaceGroup`,
+/// which skips the confirm dialog when there is no remote impact but still
+/// confirms loss of an SSH creation default. This X is the sole pointer path
+/// for every group: it rests
 /// visible (no hover needed) in an expanded EMPTY group, and is a hover reveal
 /// everywhere else. `NewWorkspaceInGroupRow` used to carry a second persistent
 /// X for empty groups precisely because this one was hover-only; now that the
@@ -67,8 +65,6 @@ enum SidebarGroupClosePolicy {
     ///     ID-keyed mutation could hit a different group than shown.
     ///   - isGroupEmpty: the model's `group.sessions` emptiness (not the
     ///     filtered projection).
-    ///   - totalGroupCount: total groups in the store; feeds the
-    ///     sole-empty-group dead-control clause.
     ///   - isGroupCollapsed: the group's own rows are hidden. An expanded
     ///     empty group shows its emptiness directly, so the count badge is
     ///     redundant there and the X rests in that slot instead of waiting
@@ -84,7 +80,6 @@ enum SidebarGroupClosePolicy {
         isFiltering: Bool,
         hasResolvedGroupIndex: Bool,
         isGroupEmpty: Bool,
-        totalGroupCount: Int,
         isGroupCollapsed: Bool,
         isDragActive: Bool
     ) -> Bool {
@@ -100,16 +95,6 @@ enum SidebarGroupClosePolicy {
             && displayMode != .collapsed
             && !isFiltering
             && hasResolvedGroupIndex
-            && !closeIsDeadControl(isGroupEmpty: isGroupEmpty, totalGroupCount: totalGroupCount)
-    }
-
-    /// True when closing the group would be a no-op: `removeGroup` refuses
-    /// the last group, so the sole empty group's close is a dead control.
-    /// Single source of truth for the hover X, the context menu's "Close
-    /// Group" `.disabled`, and the accessibility action's suppression —
-    /// keep all three routed here so they can't drift apart.
-    static func closeIsDeadControl(isGroupEmpty: Bool, totalGroupCount: Int) -> Bool {
-        isGroupEmpty && totalGroupCount <= 1
     }
 }
 
@@ -145,6 +130,10 @@ struct SidebarGroupHeaderRow: View {
     @Binding var isKeyboardNavigating: Bool
 
     @State private var isHeaderHovered = false
+    /// The close X's own focus, kept separate from `focusedRowTarget`: the X is
+    /// not one of the sidebar's arrow-key rows, so it never appears in that
+    /// enum and `isKeyboardNavigating` never describes it.
+    @FocusState private var isCloseButtonFocused: Bool
     @State private var isPeekVisible = false
     @State private var peekTask: Task<Void, Never>?
     /// This header's box in the sidebar pane's `.global` space — handed to
@@ -243,7 +232,6 @@ struct SidebarGroupHeaderRow: View {
             // exactly the direction that would rest a close X over a group the
             // store then refuses to remove.
             isGroupEmpty: group.sessions.isEmpty,
-            totalGroupCount: totalGroupCount,
             isGroupCollapsed: isCollapsed,
             isDragActive: isDragActive
         )
@@ -264,7 +252,22 @@ struct SidebarGroupHeaderRow: View {
         )
         .padding(.horizontal, displayMode == .collapsed ? 0 : 4)
         .padding(.bottom, density.groupHeaderBottomPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // The row must be at least as tall as the pointer target it hosts.
+        // The close X is a trailing OVERLAY, and an overlay does not contribute
+        // to its parent's size — so the row sized itself from its text (17pt
+        // comfortable, 15pt compact) and the 24pt X hung off both edges. The
+        // top of that overflow is clipped by the sidebar's `ScrollView`, which
+        // took the focus ring's top stroke AND the top of the tappable area
+        // with it: the 24x24 minimum was declared but not delivered.
+        //
+        // Scaled by `textScaleFactor` for the same reason the target is — the
+        // floor has to track the target, or a large text setting reintroduces
+        // the overflow at a bigger size.
+        .frame(
+            maxWidth: .infinity,
+            minHeight: Self.closeTargetBaseSize * textScaleFactor,
+            alignment: .leading
+        )
         .contentShape(Rectangle())
         // `.simultaneousGesture(TapGesture)` instead of `.onTapGesture`
         // — the latter is gesture-exclusive on macOS and blocks
@@ -668,21 +671,16 @@ struct SidebarGroupHeaderRow: View {
         // silently close hidden workspaces — and for unresolved or
         // stale rows (nil currentGroupIndex), where an ID-keyed
         // mutation could hit a different group than the one shown
-        // (same gating rationale as Move Group above). Disabled
-        // for the sole empty group: the store
-        // refuses to remove the last group, so the action would be
-        // a no-op.
+        // (same gating rationale as Move Group above). No longer
+        // disabled for the sole empty group: the store accepts
+        // removing the last group, leaving the first-launch empty
+        // state.
         if !isFiltering, currentGroupIndex != nil {
             Divider()
 
             Button(SidebarGroupClosePolicy.actionLabel, role: .destructive) {
                 onCloseGroup()
             }
-            .disabled(
-                SidebarGroupClosePolicy.closeIsDeadControl(
-                    isGroupEmpty: group.sessions.isEmpty,
-                    totalGroupCount: totalGroupCount
-                ))
         }
     }
 
@@ -744,12 +742,7 @@ struct SidebarGroupHeaderRow: View {
         // Omitted (rather than disabled) when inapplicable —
         // `.accessibilityActions` has no disabled state. Same
         // filtering + unresolved-row suppression as the context menu.
-        if !isFiltering, currentGroupIndex != nil,
-            !SidebarGroupClosePolicy.closeIsDeadControl(
-                isGroupEmpty: group.sessions.isEmpty,
-                totalGroupCount: totalGroupCount
-            )
-        {
+        if !isFiltering, currentGroupIndex != nil {
             Button(SidebarGroupClosePolicy.actionLabel) {
                 onCloseGroup()
             }
@@ -871,6 +864,25 @@ struct SidebarGroupHeaderRow: View {
         // (`accessibilityHidden` and `allowsHitTesting` do not remove a Button
         // from the FKA focus order — only `focusable` does.)
         .focusable(showsGroupCloseButton)
+        .focused($isCloseButtonFocused)
+        // Same treatment as the header row and the session tile: suppress the
+        // system ring and draw the accent one. macOS draws its ring OUTSIDE the
+        // focused view's frame, and this X is a trailing overlay on a header
+        // that has bottom padding but no top padding — so the system ring's top
+        // edge landed outside the row and was clipped. `awFocusRing` strokes
+        // inset, so it cannot overflow whatever bounds it lands in.
+        //
+        // This only became visible when the X joined the focus order: it was
+        // `.focusable(false)` before, so it never drew a ring to clip.
+        .focusEffectDisabled()
+        // Gated on focus alone, unlike the row rings, which also require
+        // `isKeyboardNavigating`. That flag is set only by explicit arrow /
+        // Home / End navigation over `focusedRowTarget`, and the X is not in
+        // that model — requiring it here would mean Tab lands on the X with no
+        // ring at all. Nor is the flag needed as a mouse guard the way it is
+        // for a row: a click on this X closes the group, so there is no state
+        // where it sits focused and unclicked after a pointer interaction.
+        .awFocusRing(isCloseButtonFocused, cornerRadius: 6)
         .foregroundStyle(Color.aw.text)
         // Hidden-but-present (not `if`-removed) so the hover morph doesn't
         // insert/remove views.
@@ -885,7 +897,7 @@ struct SidebarGroupHeaderRow: View {
         .accessibilityHidden(true)
         // Emptied while hidden — AppKit skips empty tooltips, so the count
         // badge can't pop a close tooltip in the states where the X never
-        // shows (filtering, unresolved row, sole empty group, collapsed rail).
+        // shows (filtering, unresolved row, collapsed rail).
         // "Close Group" matches the context menu and VoiceOver action names
         // for the same operation (consistent identification).
         .help(showsGroupCloseButton ? SidebarGroupClosePolicy.actionLabel : "")
