@@ -28,10 +28,9 @@ struct SidebarGroupView: View {
     let onNewGroup: () -> Void
     let onRenameGroup: () -> Void
     let onSetGroupColor: (WorkspaceGroupColor?) -> Void
-    /// Still used by `NewWorkspaceInGroupRow`'s persistent remove button; the
-    /// header context menu itself now routes through `onCloseGroup`.
-    let canRemoveGroup: Bool
-    let onRemoveGroup: () -> Void
+    /// The group's single close path: the header X, its context menu, and its
+    /// VoiceOver action all route here, so the confirm-and-announce work in
+    /// `closeWorkspaceGroup` can't be bypassed by one of them.
     let onCloseGroup: () -> Void
     let onAcknowledge: (TerminalSession) -> Void
     let onMoveSession: (TerminalSession.ID, SessionGroup.ID, Int) -> Void
@@ -308,10 +307,6 @@ struct SidebarGroupView: View {
                         NewWorkspaceInGroupRow(
                             isFiltering: isFiltering,
                             groupName: group.name,
-                            showsRemoveButton: NewWorkspaceInGroupRowPolicy.showsRemoveButton(
-                                isGroupEmpty: isGroupEmpty,
-                                canRemoveGroup: canRemoveGroup
-                            ),
                             showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(
                                 isGroupEmpty: isGroupEmpty
                             ),
@@ -323,7 +318,6 @@ struct SidebarGroupView: View {
                             activeDragSourceIsPinned: activeDragSourceIsPinned,
                             verticalPadding: density.emptyGroupVerticalPadding,
                             onNewSessionInGroup: onNewSessionInGroup,
-                            onRemoveGroup: onRemoveGroup,
                             onDragRefreshed: onDragRefreshed,
                             onDragEnded: onDragEnded,
                             onDragExited: onDragExited,

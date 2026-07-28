@@ -510,12 +510,6 @@ struct NewWorkspaceInGroupRow: View {
     /// group. Without it the VoiceOver rotor lists N items all reading
     /// "New workspace in group", with nothing to tell them apart.
     let groupName: String
-    /// Renamed from `canRemoveGroup`: the value passed in is now a presentation
-    /// decision (`NewWorkspaceInGroupRowPolicy.showsRemoveButton`), not the
-    /// store's removal capability. Keeping the old name would invite a future
-    /// caller to pass the raw capability and reintroduce a second X on
-    /// populated groups, which already have the header's hover X.
-    let showsRemoveButton: Bool
     /// False for a populated group — see `NewWorkspaceInGroupRowPolicy`.
     let showsRestingBorder: Bool
     /// False for a populated group: the enclosing `SidebarWorkspaceListDropDelegate`
@@ -529,17 +523,18 @@ struct NewWorkspaceInGroupRow: View {
     let activeDragSourceIsPinned: Bool
     let verticalPadding: CGFloat
     let onNewSessionInGroup: () -> Void
-    let onRemoveGroup: () -> Void
     let onDragRefreshed: (SidebarDragKind) -> Void
     let onDragEnded: () -> Void
     let onDragExited: () -> Void
     let onAcceptDrop: (TerminalSession.ID) -> Void
 
-    /// WCAG 2.5.8 minimum pointer target. Shared by the remove button and the
-    /// space the row reserves for it so the two cannot drift apart — if the
-    /// reservation were smaller, the row's tap area would sit underneath part
-    /// of the remove target and hit-testing between them would be ambiguous.
-    static let removeTargetSize: CGFloat = 24
+    /// WCAG 2.5.8 minimum pointer target. The row IS the target — it is the
+    /// whole tap area for creating a workspace, and for an empty group it is
+    /// also the sole drop target (`NewWorkspaceInGroupRowPolicy.ownsDropDelegate`).
+    /// Every child of its `HStack` is shorter than this (a 10pt glyph, a 10pt
+    /// mono face), so without an explicit floor compact density lands under the
+    /// minimum.
+    static let minimumPointerTargetHeight: CGFloat = 24
 
     /// Names the group so repeated rows are distinguishable in the VoiceOver
     /// rotor — every expanded group renders one of these, and a bare
@@ -555,84 +550,47 @@ struct NewWorkspaceInGroupRow: View {
     @State private var isDropTargeted = false
 
     var body: some View {
-        ZStack {
-            Button {
-                onNewSessionInGroup()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .bold))
-                        .frame(width: 14)
+        Button {
+            onNewSessionInGroup()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 14)
 
-                    Text("new workspace")
-                        .awFont(AwFont.Mono.pill)
+                Text("new workspace")
+                    .awFont(AwFont.Mono.pill)
 
-                    Spacer(minLength: 4)
-
-                    // Reserve trailing space for the sibling remove button so
-                    // hit-test routing isn't ambiguous with the row tap.
-                    if showsRemoveButton {
-                        // Must match the sibling's target exactly: this is what
-                        // keeps the row tap and the remove tap from overlapping.
-                        Color.clear.frame(
-                            width: Self.removeTargetSize,
-                            height: Self.removeTargetSize
-                        )
-                    }
-                }
-                .foregroundStyle(Color.aw.textFaint)
-                .padding(.horizontal, 8)
-                .padding(.vertical, verticalPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.aw.surface.elevated.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
-                .overlay {
-                    let isDropLit = activeDragKind == .workspace && isDropTargeted
-                    if isDropLit || showsRestingBorder {
-                        RoundedRectangle(cornerRadius: 7)
-                            .stroke(
-                                isDropLit
-                                    ? Color.aw.mauve.opacity(0.90)
-                                    : Color.aw.border2.opacity(0.75),
-                                style: StrokeStyle(
-                                    lineWidth: isDropLit ? 1.25 : 0.75,
-                                    dash: [3, 3]
-                                )
-                            )
-                    }
-                }
+                Spacer(minLength: 4)
             }
-            .buttonStyle(.plain)
-            .help("New Workspace in Group")
-            .accessibilityLabel(Self.accessibilityLabel(forGroupNamed: groupName))
-
-            // Sibling overlay (mirrors SidebarSessionTile.closeButton pattern)
-            // so nested Buttons don't confuse hit-test routing.
-            if showsRemoveButton {
-                HStack {
-                    Spacer()
-                    Button(role: .destructive) {
-                        onRemoveGroup()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .bold))
-                            // Glyph stays 9pt; the frame is the POINTER
-                            // TARGET, which has to clear the 24x24 minimum.
-                            // `contentShape` makes the padded area hittable
-                            // rather than just the drawn glyph.
-                            .frame(
-                                width: Self.removeTargetSize,
-                                height: Self.removeTargetSize
+            .foregroundStyle(Color.aw.textFaint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, verticalPadding)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: Self.minimumPointerTargetHeight,
+                alignment: .leading
+            )
+            .background(Color.aw.surface.elevated.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
+            .overlay {
+                let isDropLit = activeDragKind == .workspace && isDropTargeted
+                if isDropLit || showsRestingBorder {
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(
+                            isDropLit
+                                ? Color.aw.mauve.opacity(0.90)
+                                : Color.aw.border2.opacity(0.75),
+                            style: StrokeStyle(
+                                lineWidth: isDropLit ? 1.25 : 0.75,
+                                dash: [3, 3]
                             )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.aw.text3)
-                    .padding(.trailing, 8)
-                    .accessibilityLabel(SidebarGroupClosePolicy.actionLabel)
-                    .help(SidebarGroupClosePolicy.actionLabel)
+                        )
                 }
             }
         }
+        .buttonStyle(.plain)
+        .help("New Workspace in Group")
+        .accessibilityLabel(Self.accessibilityLabel(forGroupNamed: groupName))
         .sidebarDrop(
             enabled: ownsDropDelegate && activeDragKind == .workspace && !isFiltering,
             delegate: SidebarEmptyWorkspaceDropDelegate(

@@ -6,22 +6,18 @@ import Testing
 
 @testable import awesoMux
 
-/// Two WCAG-shaped regressions this row shipped with, both invisible to a
-/// green suite: a pointer target under the 24x24 minimum, and an accessibility
-/// name repeated verbatim in every expanded group, so the VoiceOver rotor
-/// listed N indistinguishable items.
+/// A WCAG-shaped regression this row shipped with, invisible to a green
+/// suite: an accessibility name repeated verbatim in every expanded group, so
+/// the VoiceOver rotor listed N indistinguishable items.
+///
+/// The row's own 24pt pointer-target guard moved rather than vanished when the
+/// remove X it used to reserve space for was deleted: the ROW is the target
+/// now, so `SidebarGroupDropRegionTests` asserts its measured height from live
+/// geometry. `SidebarGroupHeaderHitTargetTests.closeTargetMeetsMinimumSize`
+/// covers the group-close X in its new (and only) home, the group header.
 @Suite("New workspace in group row accessibility")
 @MainActor
 struct NewWorkspaceInGroupRowA11yTests {
-    /// The remove control draws a 9pt glyph; what must clear 24x24 is the
-    /// *target*. The row reserves matching space beside it so the two controls
-    /// cannot overlap, so assert one constant governs both — a mismatch
-    /// between them is exactly how the overlap returns.
-    @Test("the remove control's pointer target clears the 24x24 minimum")
-    func removeTargetMeetsMinimumSize() {
-        #expect(NewWorkspaceInGroupRow.removeTargetSize >= 24)
-    }
-
     /// Calls the row's OWN label builder rather than re-deriving the string in
     /// the test — an oracle that constructs the same text the view constructs
     /// would pass even if the view ignored `groupName` entirely.

@@ -257,15 +257,6 @@ struct SidebarView: View {
                                 onSetGroupColor: { color in
                                     sessionStore.setGroupColor(id: entry.group.id, color: color)
                                 },
-                                canRemoveGroup: entry.group.sessions.isEmpty
-                                    && sessionStore.groups.count > 1,
-                                // Same path as the header X / context menu —
-                                // a direct `removeGroup` here would skip the
-                                // VoiceOver announcement and the empty-remote
-                                // confirm.
-                                onRemoveGroup: {
-                                    onCloseWorkspaceGroup(entry.group)
-                                },
                                 onCloseGroup: {
                                     onCloseWorkspaceGroup(entry.group)
                                 },

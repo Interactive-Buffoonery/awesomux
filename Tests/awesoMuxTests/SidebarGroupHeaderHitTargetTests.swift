@@ -65,6 +65,16 @@ struct SidebarGroupHeaderHitTargetTests {
         #expect(newWorkspaceCounter.count == 0)
     }
 
+    /// The X draws a 9pt glyph; what must clear WCAG 2.5.8's 24pt minimum is
+    /// the *target* frame around it. This is the group's only pointer close
+    /// path — the `+ new workspace` row's duplicate X (and the 24pt guard that
+    /// came with it) is gone — so the base size carries the whole requirement.
+    /// `textScaleFactor` only ever scales it up.
+    @Test("the header close X's pointer target clears the 24x24 minimum")
+    func closeTargetMeetsMinimumSize() {
+        #expect(SidebarGroupHeaderRow.closeTargetBaseSize >= 24)
+    }
+
     @Test("badge slot click without hover toggles collapse, never closes the group")
     func badgeSlotClickWithoutHoverTogglesNotCloses() {
         let toggleCounter = ToggleCounter()
@@ -84,41 +94,101 @@ struct SidebarGroupHeaderHitTargetTests {
         #expect(closeCounter.count == 0)
     }
 
-    @Test("hovered empty group among others renders a hittable close X")
-    func hoveredEmptyGroupAmongOthersRendersHittableCloseButton() {
-        let toggleCounter = ToggleCounter()
-        let closeCounter = ToggleCounter()
+    /// An expanded empty group rests its close X visible: the body below the
+    /// header already shows the group is empty, so the count badge says nothing
+    /// and the X takes that slot without waiting for hover. Pinned at the pixel
+    /// level because it is the reason the `+ new workspace` row no longer
+    /// carries its own duplicate X — if this silently reverted to hover-only,
+    /// an empty group would have no resting way to close it at all.
+    @Test("expanded empty group renders the same close X hovered or not")
+    func expandedEmptyGroupRestsCloseButtonVisible() {
         let window = Self.makeWindow(
             isGroupEmpty: true,
             totalGroupCount: 2,
             headerHoverOverride: true,
-            onToggle: toggleCounter.increment,
-            onCloseGroup: closeCounter.increment
+            onToggle: {}
         )
         defer { window.close() }
-
         let closeRendering = Self.renderedPixels(in: window)
-        let badgeWindow = Self.makeWindow(
+
+        let restingWindow = Self.makeWindow(
             isGroupEmpty: true,
             totalGroupCount: 2,
             headerHoverOverride: false,
             onToggle: {}
         )
-        defer { badgeWindow.close() }
-        let badgeRendering = Self.renderedPixels(in: badgeWindow)
+        defer { restingWindow.close() }
+        let restingRendering = Self.renderedPixels(in: restingWindow)
 
         #expect(!closeRendering.isEmpty)
-        #expect(closeRendering != badgeRendering)
+        #expect(
+            closeRendering == restingRendering,
+            "hover must not change an expanded empty group's header — the X already rests there")
+    }
 
-        badgeWindow.close()
-        window.makeKeyAndOrderFront(nil)
-        SidebarHostedTestHarness.settleMainRunLoop()
-        SidebarHostedTestHarness.sendClick(to: window, at: Self.expandedCountBadgePoint)
-        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { closeCounter.count >= 1 }))
+    /// The resting X is clickable WITHOUT hover — the point of the whole
+    /// change. Hit-testing follows visibility exactly, because an X that is
+    /// drawn but swallows clicks is its own bug.
+    ///
+    /// The cost is accepted deliberately: closing a group rebuilds the list and
+    /// can slide the next resting X under a pointer that never moved, so a
+    /// repeated click in one spot can close more than one group. Gating on
+    /// hover does NOT prevent that (the arriving header receives a genuine
+    /// hover-enter, verified by hand), and `removeGroup` registers undo, so the
+    /// cascade is recoverable rather than destructive.
+    @Test("the resting X closes the group without ever being hovered")
+    func restingCloseButtonIsClickableWithoutHover() {
+        let restingToggle = ToggleCounter()
+        let restingClose = ToggleCounter()
+        let restingWindow = Self.makeWindow(
+            isGroupEmpty: true,
+            totalGroupCount: 2,
+            headerHoverOverride: false,
+            onToggle: restingToggle.increment,
+            onCloseGroup: restingClose.increment
+        )
+        defer { restingWindow.close() }
+
+        SidebarHostedTestHarness.sendClick(to: restingWindow, at: Self.expandedCountBadgePoint)
+        #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { restingClose.count >= 1 }))
         SidebarHostedTestHarness.settleMainRunLoop()
 
-        #expect(closeCounter.count == 1)
-        #expect(toggleCounter.count == 0)
+        // Closes rather than falling through to the header's collapse toggle —
+        // the same outcome a hovered X produces, which is the contract.
+        #expect(restingClose.count == 1)
+        #expect(restingToggle.count == 0)
+    }
+
+    /// Collapsed, the group's rows are hidden, so the count is the only signal
+    /// of what is inside and it keeps the slot — the X goes back to being a
+    /// hover reveal. This is the half of the rule the expanded case inverts, so
+    /// pin it too: collapsing must not silently inherit the resting X.
+    @Test("collapsed empty group keeps its count until hover")
+    func collapsedEmptyGroupKeepsCountUntilHover() {
+        let restingWindow = Self.makeWindow(
+            isCollapsed: true,
+            isGroupEmpty: true,
+            totalGroupCount: 2,
+            headerHoverOverride: false,
+            onToggle: {}
+        )
+        defer { restingWindow.close() }
+        let restingRendering = Self.renderedPixels(in: restingWindow)
+
+        let hoveredWindow = Self.makeWindow(
+            isCollapsed: true,
+            isGroupEmpty: true,
+            totalGroupCount: 2,
+            headerHoverOverride: true,
+            onToggle: {}
+        )
+        defer { hoveredWindow.close() }
+        let hoveredRendering = Self.renderedPixels(in: hoveredWindow)
+
+        #expect(!restingRendering.isEmpty)
+        #expect(
+            restingRendering != hoveredRendering,
+            "a collapsed empty group must still morph count → X on hover")
     }
 
     @Test("hovered sole empty group keeps the badge and close action gated")
@@ -302,6 +372,63 @@ struct SidebarGroupHeaderHitTargetTests {
         return hosted.window
     }
 
+    /// `.focusable(showsGroupCloseButton)` is what gives keyboard users the
+    /// same reach as the pointer — the X was `.focusable(false)` before,
+    /// because an INVISIBLE X that Tab could still fire is a trap. A resting
+    /// visible one is ordinary UI.
+    ///
+    /// Two baselines where the X is hidden for DIFFERENT reasons — a dead
+    /// control (sole group) and a hover-gated one (populated) — pin that it is
+    /// the X's visibility that moves the count, not emptiness or group count.
+    /// Both measure identically; only the resting X changes anything.
+    ///
+    /// Asserts a strict increase rather than a fixed delta: a focusable
+    /// SwiftUI `Button` currently publishes two key-view shims, and that ratio
+    /// is an implementation detail no test should pin.
+    @Test("the resting close X joins the keyboard focus order")
+    func restingCloseButtonJoinsFocusOrder() {
+        func focusStops(isGroupEmpty: Bool, totalGroupCount: Int) -> Int {
+            let window = Self.makeWindow(
+                isGroupEmpty: isGroupEmpty,
+                totalGroupCount: totalGroupCount,
+                headerHoverOverride: false,
+                onToggle: {}
+            )
+            defer { window.close() }
+            return Self.keyViewCount(in: window)
+        }
+
+        let restingX = focusStops(isGroupEmpty: true, totalGroupCount: 2)
+        let deadX = focusStops(isGroupEmpty: true, totalGroupCount: 1)
+        let hoverX = focusStops(isGroupEmpty: false, totalGroupCount: 2)
+
+        #expect(deadX > 0, "premise: the header must publish focusables at all")
+        #expect(
+            deadX == hoverX,
+            "baselines must agree, or something other than the X is moving: \(deadX) vs \(hoverX)")
+        #expect(
+            restingX > deadX,
+            "the resting X should be reachable by Tab: \(restingX) vs \(deadX)")
+    }
+
+    /// SwiftUI publishes each focusable item as a key-view-capable `NSView`
+    /// shim in the hosted tree, so counting them is a real readback of the
+    /// keyboard focus order — unlike this view's accessibility tree, which
+    /// hosts empty. Counted by capability, never by private class name.
+    private static func keyViewCount(in window: NSWindow) -> Int {
+        window.makeKeyAndOrderFront(nil)
+        SidebarHostedTestHarness.settleMainRunLoop()
+        guard let root = window.contentView else { return 0 }
+
+        var count = 0
+        func walk(_ view: NSView) {
+            if view.canBecomeKeyView { count += 1 }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        return count
+    }
+
     private static func renderedPixels(in window: NSWindow) -> Data {
         guard let view = window.contentView,
             let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds),
@@ -366,8 +493,6 @@ private struct SidebarGroupHitTargetHarness: View {
             onNewGroup: {},
             onRenameGroup: {},
             onSetGroupColor: { _ in },
-            canRemoveGroup: false,
-            onRemoveGroup: {},
             onCloseGroup: onCloseGroup,
             onAcknowledge: { _ in },
             onMoveSession: { _, _, _ in },
