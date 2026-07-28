@@ -141,10 +141,14 @@ struct SidebarGroupPeekCard: View {
                 // AA floor too; `text` is the only token that clears it on every
                 // tint (4.58:1 worst case, mauve). The group tint itself is a
                 // fill colour — teal reads 2.23:1 — so it stays out entirely.
+                //
+                // Both labels on this card use `text` for the same reason. They
+                // read as secondary, but no dimmer token survives the tint wash,
+                // and being legible beats matching the sidebar's greyer meta text.
                 VStack(alignment: .leading, spacing: 8) {
                     Text("No workspaces")
                         .awFont(AwFont.UI.meta)
-                        .foregroundStyle(Color.aw.text2)
+                        .foregroundStyle(Color.aw.text)
 
                     Button(action: guardedNewWorkspace) {
                         HStack(spacing: 8) {
@@ -171,7 +175,7 @@ struct SidebarGroupPeekCard: View {
             } else {
                 Text("All pinned")
                     .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.text2)
+                    .foregroundStyle(Color.aw.text)
             }
         } else {
             let rows = VStack(alignment: .leading, spacing: 4) {
