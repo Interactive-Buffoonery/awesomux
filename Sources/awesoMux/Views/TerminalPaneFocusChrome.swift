@@ -45,8 +45,10 @@ struct CRTScanlinesOverlay: View {
 struct PaneFocusAccent: View {
     /// Constant height of the focus-indicator band the title bar reserves on
     /// every pane (focused or not) so the bar can't bounce vertically when focus
-    /// moves. Matches the resting dark-terminal stripe thickness — the common
-    /// case; light/DWC stripes differ by ~1-2px, a negligible gap/bleed.
+    /// moves. Also a hard cap on the rail's *solid* fill: `thickness` can reach
+    /// 9 (DWC + `.needs`), and anything past this height is clipped rather than
+    /// painted onto the title bar or the terminal's first text row. The halo is
+    /// deliberately exempt — it is cast from the clipped shape and spills.
     static let reservedHeight: CGFloat = 4
 
     let state: AwState
@@ -71,10 +73,14 @@ struct PaneFocusAccent: View {
         // has to come from weight, not color. It gets extra heft plus a halo
         // that ignores the decorative cursor-glow *toggle* (radius 8 either
         // way), standing in for the busier 4-side border this replaced
-        // (INT-111). The thickness bump — not the halo — is the robust cue:
-        // awGlow still drops the halo under Reduce Transparency / Increase
-        // Contrast / glow-strength 0, so the extra pixels carry the signal
-        // when the glow can't.
+        // (INT-111).
+        //
+        // The bump is computed but NOT currently rendered: `reservedHeight`
+        // caps the solid fill at 4pt (see the clip below), so every thickness
+        // over that is clipped. It has been that way since the band was
+        // introduced. Kept whole rather than deleted because the fix is to grow
+        // the band, not to drop the cue — until then the escalation reads
+        // through colour and halo alone.
         let baseThickness = PaneFocusStyle.thickness(
             differentiateWithoutColor: differentiateWithoutColor,
             terminalIsDark: Color.aw.backgroundIsDark(terminalBackground)
@@ -90,6 +96,19 @@ struct PaneFocusAccent: View {
         Rectangle()
             .fill(accentColor)
             .frame(height: thickness)
+            // Clip the solid fill to the reserved band, then glow. Order is the
+            // whole trick: `.shadow` renders outside an earlier `.clipped()`,
+            // so the halo escapes while the opaque rail cannot. Without the cap
+            // a `.needs` rail (7pt dark, 9pt with DWC) paints over the title bar
+            // or, in a single-pane session, the terminal's first text row.
+            //
+            // Consequence worth naming: the thickness bump above 4pt is
+            // therefore still not visible, so the escalation cue rests entirely
+            // on colour and the halo. That is the status quo, not a new
+            // regression — the band has always clipped it — and fixing it means
+            // growing the band, tracked separately.
+            .frame(height: PaneFocusAccent.reservedHeight, alignment: .top)
+            .clipped()
             .awGlow(
                 color: accentColor.opacity(0.65),
                 radius: glowRadius
