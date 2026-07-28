@@ -510,8 +510,6 @@ struct NewWorkspaceInGroupRow: View {
     /// group. Without it the VoiceOver rotor lists N items all reading
     /// "New workspace in group", with nothing to tell them apart.
     let groupName: String
-    /// False for a populated group — see `NewWorkspaceInGroupRowPolicy`.
-    let showsRestingBorder: Bool
     /// False for a populated group: the enclosing `SidebarWorkspaceListDropDelegate`
     /// already resolves anything below the last tile to append, exactly where this
     /// row sits, so a second delegate here would fight it for the same drop — see
@@ -572,18 +570,17 @@ struct NewWorkspaceInGroupRow: View {
                 alignment: .leading
             )
             .background(Color.aw.surface.elevated.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
+            // Border only while drag-targeted. The row used to also rest
+            // bordered in an empty group, as a "there's nothing here" cue, but
+            // that made the same control look like two different things
+            // depending on whether the group happened to be empty. The dashed
+            // stroke now means one thing: drop here.
             .overlay {
-                let isDropLit = activeDragKind == .workspace && isDropTargeted
-                if isDropLit || showsRestingBorder {
+                if activeDragKind == .workspace, isDropTargeted {
                     RoundedRectangle(cornerRadius: 7)
                         .stroke(
-                            isDropLit
-                                ? Color.aw.mauve.opacity(0.90)
-                                : Color.aw.border2.opacity(0.75),
-                            style: StrokeStyle(
-                                lineWidth: isDropLit ? 1.25 : 0.75,
-                                dash: [3, 3]
-                            )
+                            Color.aw.mauve.opacity(0.90),
+                            style: StrokeStyle(lineWidth: 1.25, dash: [3, 3])
                         )
                 }
             }

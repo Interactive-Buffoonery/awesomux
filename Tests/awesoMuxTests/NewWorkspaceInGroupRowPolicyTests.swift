@@ -4,15 +4,6 @@ import Testing
 
 @Suite("NewWorkspaceInGroupRowPolicy")
 struct NewWorkspaceInGroupRowPolicyTests {
-    /// The dashed border is the empty group's "there's nothing here" cue. Once
-    /// there are tiles above it, one dashed box per group reads as noise, so the
-    /// row rests borderless and lights up only under an active drag.
-    @Test("only an empty group shows a resting border")
-    func onlyEmptyGroupShowsRestingBorder() {
-        #expect(NewWorkspaceInGroupRowPolicy.showsRestingBorder(isGroupEmpty: true))
-        #expect(!NewWorkspaceInGroupRowPolicy.showsRestingBorder(isGroupEmpty: false))
-    }
-
     /// The row sits at the BOTTOM of a populated group, so its drop has to
     /// append — index 0 would contradict where the row visually is. An empty
     /// group has no tiles, so 0 and append are the same position; 0 is used

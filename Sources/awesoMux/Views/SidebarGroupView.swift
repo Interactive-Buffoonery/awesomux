@@ -307,9 +307,6 @@ struct SidebarGroupView: View {
                         NewWorkspaceInGroupRow(
                             isFiltering: isFiltering,
                             groupName: group.name,
-                            showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(
-                                isGroupEmpty: isGroupEmpty
-                            ),
                             ownsDropDelegate: NewWorkspaceInGroupRowPolicy.ownsDropDelegate(
                                 isGroupEmpty: isGroupEmpty
                             ),

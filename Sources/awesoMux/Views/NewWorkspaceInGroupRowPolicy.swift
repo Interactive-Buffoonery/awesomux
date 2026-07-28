@@ -1,9 +1,14 @@
 import AwesoMuxCore
 
-/// The three ways the `+ new workspace` row differs between an empty group and
-/// a populated one. Hoisted out of the call site so the differences live in one
-/// reviewable place instead of three ternaries in `SidebarGroupView.body`
+/// The two ways the `+ new workspace` row differs between an empty group and a
+/// populated one. Hoisted out of the call site so the differences live in one
+/// reviewable place instead of ternaries in `SidebarGroupView.body`
 /// (same reason `SidebarGroupClosePolicy` exists).
+///
+/// Both remaining differences are about DROP behavior, which genuinely differs:
+/// an empty group has no tiles, so the row is its only drop target. A third
+/// difference — a dashed resting border on empty groups only — was removed
+/// because it was purely cosmetic and made one control read as two.
 ///
 /// The row used to carry a fourth: a persistent remove-group X, which existed
 /// only because the header's X was hover-only and an empty group therefore had
@@ -12,15 +17,6 @@ import AwesoMuxCore
 /// whole purpose is creating a workspace is the wrong place to put the control
 /// that destroys the group.
 enum NewWorkspaceInGroupRowPolicy {
-    /// The dashed resting border.
-    ///
-    /// It reads as "there's nothing here" for an empty group. With tiles above
-    /// it, one dashed box per group is visual noise, so the row rests
-    /// borderless and only lights up while drag-targeted.
-    static func showsRestingBorder(isGroupEmpty: Bool) -> Bool {
-        isGroupEmpty
-    }
-
     /// Where a workspace dropped on the row lands.
     ///
     /// The row sits at the bottom of a populated group, so it must append —
