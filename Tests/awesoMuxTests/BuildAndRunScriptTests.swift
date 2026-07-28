@@ -9,10 +9,31 @@ struct BuildAndRunScriptTests {
         let script = try Self.contents(of: "script/build_and_run.sh")
 
         #expect(script.contains("awesomux_candidate_pids()"))
-        #expect(script.contains("pgrep -x \"$APP_NAME\" 2>&1"))
-        #expect(script.contains("pgrep exits 1 for \"no matching process\""))
+        #expect(script.contains("ps -axo pid=,ucomm= 2>&1"))
+        #expect(script.contains("unable to enumerate running $APP_NAME processes (ps exited $status)"))
         #expect(script.contains("cannot safely determine whether $bundle is running"))
-        #expect(!script.contains("pgrep -x \"$APP_NAME\" 2>/dev/null || true"))
+        // pgrep -x silently misses a name-matching process that is an
+        // ancestor of the pgrep call itself (pgrep(1) -a) — the ordinary
+        // shape of running this script from inside a running awesoMux pane
+        // (awesomux#281). Nothing should invoke pgrep anymore; explaining
+        // why in a comment is fine, so check for the removed invocation
+        // rather than the bare word.
+        #expect(!script.contains("pgrep -x \"$APP_NAME\" 2>&1"))
+    }
+
+    @Test("candidate pid enumeration finds a name-matching ancestor process")
+    func candidatePIDEnumerationFindsAncestorProcess() throws {
+        // `pgrep -x` silently excludes the pgrep process's own ancestors, so a
+        // running awesoMux instance hosting the very pane this script runs in
+        // never showed up as a candidate (awesomux#281). Reproduce that exact
+        // shape for real: a helper process that forks a child bash (instead of
+        // exec'ing over itself) stays alive under a controlled name while its
+        // child calls the function under test, making the helper a genuine
+        // process-tree ancestor of that call — not just a same-name process.
+        let result = try Self.runCandidatePIDAncestorSnippet()
+
+        #expect(result.exitStatus == 0, "stderr: \(result.error)")
+        #expect(result.output.contains("ancestor_found=yes"), "stdout: \(result.output)")
     }
 
     @Test("plain run and install keep separate shutdown targets")
@@ -325,6 +346,82 @@ struct BuildAndRunScriptTests {
             range: start..<script.endIndex
         )?.lowerBound)
         return String(script[start..<end])
+    }
+
+    private static func candidatePIDsFunction(from script: String) throws -> String {
+        let start = try #require(script.range(of: "awesomux_candidate_pids() {")?.lowerBound)
+        let end = try #require(script.range(of: "\n\n# PIDs whose actual executable", range: start..<script.endIndex)?.lowerBound)
+        return String(script[start..<end])
+    }
+
+    /// Compiles a tiny helper that forks a child instead of exec'ing over
+    /// itself, then waits for it — so the helper process survives under its
+    /// own compiled-name `comm` while its child (and that child's own `bash
+    /// -c` grandchild, which calls `awesomux_candidate_pids`) runs beneath
+    /// it. That makes the helper a real process-tree ancestor of the
+    /// enumeration call, the exact shape pgrep -x silently excludes.
+    private static func runCandidatePIDAncestorSnippet() throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let function = try candidatePIDsFunction(from: script)
+
+        let tempDir = try TemporaryDirectory()
+        let helperName = "amxpidtest"
+        let sourceURL = tempDir.url.appendingPathComponent("\(helperName).c")
+        let helperURL = tempDir.url.appendingPathComponent(helperName)
+
+        let source = """
+            #include <unistd.h>
+            #include <sys/wait.h>
+            int main(int argc, char **argv) {
+                pid_t pid = fork();
+                if (pid == 0) {
+                    execvp(argv[1], &argv[1]);
+                    _exit(127);
+                }
+                int status = 0;
+                waitpid(pid, &status, 0);
+                return WEXITSTATUS(status);
+            }
+            """
+        try source.write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let compile = Process()
+        compile.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        compile.arguments = ["-O0", "-o", helperURL.path, sourceURL.path]
+        try compile.run()
+        try compile.waitUntilExitEventually()
+        try #require(compile.terminationStatus == 0, "clang failed to compile the ancestor-process test helper")
+
+        let bash = """
+            set -euo pipefail
+            parent_pid="$PPID"
+            APP_NAME=\(helperName)
+            PROCESS_ENUMERATION_FAILURE=70
+            \(function)
+
+            candidates="$(awesomux_candidate_pids)"
+            ancestor_found=no
+            for pid in $candidates; do
+              [[ "$pid" == "$parent_pid" ]] && ancestor_found=yes
+            done
+            printf 'parent_pid=%s ancestor_found=%s candidates=[%s]\\n' "$parent_pid" "$ancestor_found" "$candidates"
+            """
+
+        let process = Process()
+        process.executableURL = helperURL
+        process.arguments = ["/bin/bash", "-c", bash]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        try process.waitUntilExitEventually()
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
     }
 
     private static func ghosttySHAStampFunction(from script: String) throws -> String {

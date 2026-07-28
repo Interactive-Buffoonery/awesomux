@@ -172,37 +172,46 @@ app_executable_path() {
 awesomux_candidate_pids() {
   local output status
 
-  if output="$(pgrep -x "$APP_NAME" 2>&1)"; then
-    [[ -n "$output" ]] && printf '%s\n' "$output"
-    return 0
+  # `ps -axo pid=,ucomm=` instead of `pgrep -x "$APP_NAME"`: pgrep excludes
+  # the pgrep process itself and ALL of its ancestors by default (pgrep(1),
+  # -a). Running this script from a pane hosted by a running awesoMux
+  # instance — the ordinary way to dogfood a build from inside the app
+  # itself — makes that instance an ancestor of the pgrep call, so pgrep
+  # silently drops it from the candidate list even though its name matches
+  # exactly (awesomux#281). `ps` has no such exclusion.
+  if output="$(ps -axo pid=,ucomm= 2>&1)"; then
+    :
   else
     status="$?"
+    echo "error: unable to enumerate running $APP_NAME processes (ps exited $status)." >&2
+    [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+    return "$PROCESS_ENUMERATION_FAILURE"
   fi
 
-  # pgrep exits 1 for "no matching process". Any other status means process
-  # enumeration itself failed, and treating that as "not running" can leave an
-  # old installed app alive while --install opens the replacement.
-  if [[ "$status" == 1 ]]; then
-    return 0
-  fi
+  local pid comm
+  while read -r pid comm; do
+    [[ "$comm" == "$APP_NAME" ]] && printf '%s\n' "$pid"
+  done <<< "$output"
 
-  echo "error: unable to enumerate running $APP_NAME processes (pgrep exited $status)." >&2
-  [[ -n "$output" ]] && printf '%s\n' "$output" >&2
-  return "$PROCESS_ENUMERATION_FAILURE"
+  # The loop's last `read` always fails at EOF, which would otherwise become
+  # this function's (mis-signaling) return status regardless of how the
+  # enumeration itself went.
+  return 0
 }
 
 # PIDs whose actual executable IS this bundle's binary.
 #
-# `pgrep -x "$APP_NAME"` finds processes named exactly `awesoMux`, then we
+# `awesomux_candidate_pids` finds processes named exactly `awesoMux`, then we
 # confirm each candidate's real executable path (`ps -o comm=`, which is the
 # absolute exec path on macOS) with a fixed-string compare. We deliberately
-# do NOT use `pgrep -f <path>`: `-f` matches an extended REGEX against the
-# whole command line, so the bundle path's dots are wildcards, an install
-# dir with regex metacharacters breaks the match, and — worst — an `lldb`,
-# `leaks`, editor, or `tail` whose argv merely mentions the path would be
-# treated as the running app (false-positive `--verify`) or get killed by a
-# normal build. Matching the exact exec path of a process named `awesoMux`
-# keeps the dist-vs-installed distinction without those footguns.
+# do NOT match the bundle path with a single `ps -axo pid=,args=` regex (the
+# `pgrep -f` equivalent): that matches the whole command line, so the bundle
+# path's dots are wildcards, an install dir with regex metacharacters breaks
+# the match, and — worst — an `lldb`, `leaks`, editor, or `tail` whose argv
+# merely mentions the path would be treated as the running app
+# (false-positive `--verify`) or get killed by a normal build. Matching the
+# exact exec path of a process named `awesoMux` keeps the dist-vs-installed
+# distinction without those footguns.
 app_bundle_pids() {
   local bundle="$1"
   local executable
