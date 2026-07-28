@@ -28,6 +28,7 @@ PROD_BUNDLE_ID="$AWESOMUX_PRODUCTION_BUNDLE_ID"
 # subsystem) would match nothing.
 LOG_SUBSYSTEM="$PROD_BUNDLE_ID"
 PROCESS_ENUMERATION_FAILURE=70
+SELF_TERMINATION_REFUSED=71
 
 # BUNDLE_DISPLAY_NAME (CFBundleName) distinguishes the two identities everywhere
 # macOS shows the app by name — System Settings → Notifications, the menu bar,
@@ -254,6 +255,26 @@ app_bundle_pids() {
   done <<< "$candidate_pids"
 }
 
+# True if this script's own process is a descendant of one of the given pids
+# — i.e. it is running inside one of the very processes it is about to
+# terminate. This became reachable once awesomux_candidate_pids started
+# finding ancestor processes correctly (awesomux#281): a non-command-bridged
+# pane (the default; ADR-0011) has awesoMux itself holding the pane's PTY, so
+# terminating an ancestor SIGHUPs this script's own controlling terminal
+# before it can relaunch anything (ForegroundProcessLiveness.busyShell: "quit
+# would SIGHUP it"). A command-bridged pane survives via amx/zmx and isn't at
+# risk, but this script can't tell which kind of pane it's running in, so it
+# treats every ancestor match as unsafe.
+script_runs_inside_pid() {
+  local targets=" $* "
+  local pid="$$"
+  while [[ -n "$pid" && "$pid" != "0" && "$pid" != "1" ]]; do
+    [[ "$targets" == *" $pid "* ]] && return 0
+    pid="$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' ')"
+  done
+  return 1
+}
+
 terminate_app_bundle() {
   local bundle="$1"
   local signal="${2:-TERM}"
@@ -266,6 +287,11 @@ terminate_app_bundle() {
   fi
 
   if [[ -n "$pids" ]]; then
+    # shellcheck disable=SC2086
+    if script_runs_inside_pid $pids; then
+      echo "error: refusing to terminate $bundle — this script is running inside one of its own processes. Killing it would tear down this pane before the script could relaunch anything. Run this from a different window (e.g. Terminal.app) instead." >&2
+      exit "$SELF_TERMINATION_REFUSED"
+    fi
     # Word-split intentional: one or more PIDs on separate lines.
     # shellcheck disable=SC2086
     kill -s "$signal" $pids >/dev/null 2>&1 || true

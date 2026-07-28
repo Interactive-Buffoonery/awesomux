@@ -36,6 +36,31 @@ struct BuildAndRunScriptTests {
         #expect(result.output.contains("ancestor_found=yes"), "stdout: \(result.output)")
     }
 
+    @Test("terminate_app_bundle refuses to kill a process it is running inside")
+    func terminateAppBundleRefusesSelfTermination() throws {
+        // Fixing the ancestor-detection bug above means an ancestor awesoMux
+        // instance now correctly shows up as a termination candidate — but a
+        // non-command-bridged pane (the default; ADR-0011) has awesoMux
+        // itself holding the pane's PTY, so terminating an ancestor SIGHUPs
+        // this very script before it can relaunch anything. `$PPID` inside
+        // the spawned `bash -c` is genuinely this test process's pid, so
+        // `app_bundle_pids` returning it is a real ancestor relationship, not
+        // a stubbed one.
+        let result = try Self.runSelfTerminationGuardSnippet(targetIsAncestor: true)
+
+        #expect(result.exitStatus == 71, "stderr: \(result.error)")
+        #expect(result.error.contains("refusing to terminate"))
+        #expect(!result.output.contains("kill_called=yes"))
+    }
+
+    @Test("terminate_app_bundle still kills a target that is not an ancestor")
+    func terminateAppBundleKillsNonAncestorTarget() throws {
+        let result = try Self.runSelfTerminationGuardSnippet(targetIsAncestor: false)
+
+        #expect(result.exitStatus == 0, "stderr: \(result.error)")
+        #expect(result.output.contains("kill_called=yes"), "stdout: \(result.output)")
+    }
+
     @Test("plain run and install keep separate shutdown targets")
     func plainRunAndInstallKeepSeparateShutdownTargets() throws {
         let script = try Self.contents(of: "script/build_and_run.sh")
@@ -410,6 +435,53 @@ struct BuildAndRunScriptTests {
         let process = Process()
         process.executableURL = helperURL
         process.arguments = ["/bin/bash", "-c", bash]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        try process.waitUntilExitEventually()
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
+    private static func selfTerminationGuardFunctions(from script: String) throws -> String {
+        let start = try #require(script.range(of: "script_runs_inside_pid() {")?.lowerBound)
+        let end = try #require(script.range(of: "\napp_bundle_is_running() {", range: start..<script.endIndex)?.lowerBound)
+        return String(script[start..<end])
+    }
+
+    /// `app_bundle_pids` is stubbed to hand back either `$PPID` (this test
+    /// process's real pid — a genuine ancestor of the spawned `bash -c`, not
+    /// a synthetic one) or an unrelated pid, so the same real
+    /// `terminate_app_bundle` body decides whether to refuse. `kill` is
+    /// stubbed rather than actually invoked — this test only needs to know
+    /// whether it was reached, not to signal anything.
+    private static func runSelfTerminationGuardSnippet(targetIsAncestor: Bool) throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let functions = try selfTerminationGuardFunctions(from: script)
+        let targetPID = targetIsAncestor ? "$PPID" : "999999"
+
+        let bash = """
+            set -euo pipefail
+            PROCESS_ENUMERATION_FAILURE=70
+            SELF_TERMINATION_REFUSED=71
+            \(functions)
+
+            app_bundle_pids() { echo \(targetPID); }
+            kill() { KILL_CALLED=yes; return 0; }
+
+            terminate_app_bundle /tmp/fake.app
+            printf 'kill_called=%s\\n' "${KILL_CALLED:-no}"
+            """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", bash]
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
