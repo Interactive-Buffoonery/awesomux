@@ -40,6 +40,9 @@ struct SidebarSessionTile: View {
     /// Same snapshot treatment for the jump-number setting: `jumpNumberDisplay`
     /// is a render-path read, so an in-tile store read stales behind the gate.
     let alwaysShowJumpNumbers: Bool
+    /// False for sections whose order is derived rather than user-owned, so the
+    /// Move Workspace Up/Down actions aren't offered where they'd no-op.
+    var canReorderWithinGroup: Bool = true
     let onSelect: () -> Void
     let onNewSessionHere: () -> Void
     let onAcknowledge: () -> Void
@@ -53,11 +56,13 @@ struct SidebarSessionTile: View {
     let onToggleNotificationsMute: () -> Void
     let isPinned: Bool
     let onTogglePin: () -> Void
-    /// Origin group name spoken to VoiceOver when this tile renders in the
-    /// synthetic Pinned section — the audible twin of the pointer-only origin
-    /// tooltip. `nil` (the default) for in-group tiles, which have no separate
-    /// origin to announce (INT-737).
-    var pinnedOriginGroupName: String? = nil
+    /// Composed, already-localized phrase spoken to VoiceOver when this tile
+    /// renders in a synthetic section (Pinned, Needs Input) — the audible twin
+    /// of the pointer-only origin tooltip. The caller owns the wording, because
+    /// each section names its own reason for lifting the row alongside the
+    /// origin group. `nil` (the default) for in-group tiles, which have no
+    /// separate origin to announce (INT-737).
+    var originGroupPhrase: String? = nil
     let onDragStarted: () -> UUID
     let focusedRowTarget: FocusState<SidebarVisibleRowTarget?>.Binding
     /// Snapshot of the sidebar's keyboard-modality flag at construction —
@@ -309,12 +314,12 @@ struct SidebarSessionTile: View {
                 // under filter would mutate the underlying array against an
                 // index from the projected view — landing the workspace at
                 // the wrong slot relative to hidden rows.
-                if !isFiltering, indexInGroup > 0 {
+                if canReorderWithinGroup, !isFiltering, indexInGroup > 0 {
                     Button("Move Workspace Up") {
                         onMoveWithinGroup(indexInGroup - 1)
                     }
                 }
-                if !isFiltering, indexInGroup < sessionCountInGroup - 1 {
+                if canReorderWithinGroup, !isFiltering, indexInGroup < sessionCountInGroup - 1 {
                     Button("Move Workspace Down") {
                         // moveSession's atIndex is post-removal, so "down by one"
                         // in current visible terms maps to indexInGroup + 1.
@@ -923,16 +928,14 @@ struct SidebarSessionTile: View {
 
     private var rowAccessibilityValue: String {
         let position = "Workspace \(indexInGroup + 1) of \(sessionCountInGroup)"
-        guard let pinnedOriginGroupName else {
+        guard let originGroupPhrase else {
             return position
         }
         // `.help()` origin tooltip is pointer-only; VoiceOver hears the origin
-        // here so a pinned tile still answers "which project is this?".
-        return position + ", "
-            + String(
-                localized: "Pinned, from \(pinnedOriginGroupName)",
-                comment: "VoiceOver value fragment on a pinned sidebar workspace naming its origin group."
-            )
+        // here so a lifted tile still answers "which project is this?". The
+        // caller owns the wording — each synthetic section names its own reason
+        // for lifting the row.
+        return position + ", " + originGroupPhrase
     }
 
     private func paneJumpActionLabel(_ item: PanePeekItem) -> String {
@@ -980,12 +983,13 @@ extension SidebarSessionTile: Equatable {
     ///   isPromotionPulseActive, isFiltering, duplicateDisambiguation,
     ///   indexInGroup, sessionCountInGroup, ownerGroupIndex,
     ///   previousNeighborGroup, nextNeighborGroup, otherGroups,
-    ///   verticalPadding, onSelect (closure), onNewSessionHere (closure),
+    ///   verticalPadding, canReorderWithinGroup,
+    ///   onSelect (closure), onNewSessionHere (closure),
     ///   onAcknowledge (closure), onMoveWithinGroup (closure),
     ///   onMoveToGroup (closure), onClose (closure), onClear (closure),
     ///   onRename (closure), canMakeWorkspaceManaged,
     ///   onMakeWorkspaceManaged (closure), onToggleNotificationsMute
-    ///   (closure), isPinned, onTogglePin (closure), pinnedOriginGroupName,
+    ///   (closure), isPinned, onTogglePin (closure), originGroupPhrase,
     ///   onDragStarted (closure), focusedRowTarget, isKeyboardNavigatingValue,
     ///   isKeyboardNavigating (@Binding), isHovered (@State), promotionPulseIsBright (@State),
     ///   promotionPulseTask (@State), isPeekVisible (@State), peekTask
@@ -1036,13 +1040,18 @@ extension SidebarSessionTile: Equatable {
     /// `isKeyboardFocused` is already precomputed from `focusedRowTarget`),
     /// so this is a snapshot, not a binding read.
     ///
-    /// `isPinned`/`pinnedOriginGroupName` are two more fields beyond the
+    /// `isPinned`/`originGroupPhrase` are two more fields beyond the
     /// original brief: `isPinned` changes `pinMenuTitle` (context-menu title
-    /// + its named accessibility action), and `pinnedOriginGroupName` changes
-    /// `rowAccessibilityValue`'s spoken origin-group fragment — both are
-    /// call-site-varying (`SidebarPinnedSectionView` passes `isPinned: true`
-    /// and a real origin name; `SidebarGroupView` passes `isPinned: false`
-    /// and `nil`).
+    /// + its named accessibility action), and `originGroupPhrase` changes
+    /// `rowAccessibilityValue`'s spoken origin fragment — it carries a
+    /// composed localized phrase, not a bare group name, so the same origin
+    /// group reads differently per section. Both are call-site-varying
+    /// (`SidebarPinnedSectionView` and `SidebarAttentionSectionView` pass a
+    /// real phrase; `SidebarGroupView` passes `isPinned: false` and `nil`).
+    ///
+    /// `canReorderWithinGroup` is here for the same reason: it decides whether
+    /// the Move Workspace Up/Down accessibility actions render at all, so a
+    /// row that skipped re-render on a change would offer actions that no-op.
     private struct RenderKey: Equatable {
         let sessionID: TerminalSession.ID
         let title: String
@@ -1091,8 +1100,9 @@ extension SidebarSessionTile: Equatable {
         let tintedHighContrast: Bool
         let alwaysShowJumpNumbers: Bool
         let canMakeWorkspaceManaged: Bool
+        let canReorderWithinGroup: Bool
         let isPinned: Bool
-        let pinnedOriginGroupName: String?
+        let originGroupPhrase: String?
         let isKeyboardNavigatingValue: Bool
     }
 
@@ -1172,8 +1182,9 @@ extension SidebarSessionTile: Equatable {
             tintedHighContrast: tintedHighContrast,
             alwaysShowJumpNumbers: alwaysShowJumpNumbers,
             canMakeWorkspaceManaged: canMakeWorkspaceManaged,
+            canReorderWithinGroup: canReorderWithinGroup,
             isPinned: isPinned,
-            pinnedOriginGroupName: pinnedOriginGroupName,
+            originGroupPhrase: originGroupPhrase,
             // The immutable snapshot, not the live `@Binding` — the OLD and
             // NEW tile instances compared by `==` share the same binding, so
             // reading through its getter here would see the CURRENT value on

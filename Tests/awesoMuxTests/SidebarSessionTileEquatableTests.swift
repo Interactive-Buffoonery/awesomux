@@ -15,12 +15,12 @@ import Testing
 //   isPromotionPulseActive, isFiltering, duplicateDisambiguation,
 //   indexInGroup, sessionCountInGroup, ownerGroupIndex,
 //   previousNeighborGroup, nextNeighborGroup, otherGroups, verticalPadding,
-//   tintedHighContrast, alwaysShowJumpNumbers,
+//   tintedHighContrast, alwaysShowJumpNumbers, canReorderWithinGroup,
 //   onSelect (closure), onNewSessionHere (closure), onAcknowledge (closure),
 //   onMoveWithinGroup (closure), onMoveToGroup (closure), onClose (closure),
 //   onClear (closure), onRename (closure), canMakeWorkspaceManaged,
 //   onMakeWorkspaceManaged (closure), onToggleNotificationsMute (closure),
-//   isPinned, onTogglePin (closure), pinnedOriginGroupName,
+//   isPinned, onTogglePin (closure), originGroupPhrase,
 //   onDragStarted (closure), focusedRowTarget, isKeyboardNavigatingValue,
 //   isKeyboardNavigating (@Binding), isHovered (@State), promotionPulseIsBright (@State),
 //   promotionPulseTask (@State), isPeekVisible (@State), peekTask (@State),
@@ -119,14 +119,15 @@ struct SidebarSessionTileEquatableTests {
         // below by passing a real `Binding` here.
         isKeyboardNavigatingBinding: Binding<Bool>? = nil,
         isPinned: Bool = false,
-        pinnedOriginGroupName: String? = nil,
+        originGroupPhrase: String? = nil,
         activePaneID: TerminalPane.ID? = nil,
         previousNeighborGroup: SessionGroup? = nil,
         nextNeighborGroup: SessionGroup? = nil,
         otherGroups: [SessionGroup] = [],
         canMakeWorkspaceManaged: Bool = false,
         tintedHighContrast: Bool = false,
-        alwaysShowJumpNumbers: Bool = false
+        alwaysShowJumpNumbers: Bool = false,
+        canReorderWithinGroup: Bool = true
     ) -> SidebarSessionTile {
         let focusState = FocusState<SidebarVisibleRowTarget?>()
         return SidebarSessionTile(
@@ -152,6 +153,7 @@ struct SidebarSessionTileEquatableTests {
             verticalPadding: 9,
             tintedHighContrast: tintedHighContrast,
             alwaysShowJumpNumbers: alwaysShowJumpNumbers,
+            canReorderWithinGroup: canReorderWithinGroup,
             onSelect: {},
             onNewSessionHere: {},
             onAcknowledge: {},
@@ -165,7 +167,7 @@ struct SidebarSessionTileEquatableTests {
             onToggleNotificationsMute: {},
             isPinned: isPinned,
             onTogglePin: {},
-            pinnedOriginGroupName: pinnedOriginGroupName,
+            originGroupPhrase: originGroupPhrase,
             onDragStarted: { UUID() },
             focusedRowTarget: focusState.projectedValue,
             isKeyboardNavigatingValue: isKeyboardNavigating,
@@ -300,13 +302,27 @@ struct SidebarSessionTileEquatableTests {
         #expect(tileA != tileB)
     }
 
-    @Test("pinnedOriginGroupName difference compares NOT equal")
-    func pinnedOriginGroupNameChangeRerenders() {
+    @Test("originGroupPhrase difference compares NOT equal")
+    func originGroupPhraseChangeRerenders() {
         let onePane = pane()
         let sessionValue = session(panes: [onePane])
 
-        let tileA = tile(session: sessionValue, isPinned: true, pinnedOriginGroupName: "Group A")
-        let tileB = tile(session: sessionValue, isPinned: true, pinnedOriginGroupName: "Group B")
+        let tileA = tile(session: sessionValue, isPinned: true, originGroupPhrase: "Pinned, from Group A")
+        let tileB = tile(session: sessionValue, isPinned: true, originGroupPhrase: "Pinned, from Group B")
+
+        #expect(tileA != tileB)
+    }
+
+    @Test("canReorderWithinGroup difference compares NOT equal")
+    func canReorderWithinGroupChangeRerenders() {
+        // The flag decides whether the Move Workspace Up/Down accessibility
+        // actions render at all, so an equal-comparing row that skipped
+        // re-render would keep offering actions that no-op.
+        let onePane = pane()
+        let sessionValue = session(panes: [onePane])
+
+        let tileA = tile(session: sessionValue, canReorderWithinGroup: true)
+        let tileB = tile(session: sessionValue, canReorderWithinGroup: false)
 
         #expect(tileA != tileB)
     }

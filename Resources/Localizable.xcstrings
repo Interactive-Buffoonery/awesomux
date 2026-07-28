@@ -1768,6 +1768,9 @@
     "Move Workspace Up" : {
 
     },
+    "Move a workspace to a Needs Input section at the top of the sidebar while it waits on your answer. It returns to its group once you've dealt with it. Off by default." : {
+      "comment" : "Settings field hint for the sidebar needs-input section toggle"
+    },
     "Move to Group…" : {
 
     },
@@ -1807,6 +1810,9 @@
     "Name" : {
       "comment" : "Diagnostics process table column"
     },
+    "Needs Input" : {
+      "comment" : "Accessibility label for the needs-input workspaces section header in the collapsed sidebar.\nSidebar section header for workspaces awaiting user input."
+    },
     "Needs approval" : {
       "comment" : "Settings label when Open at Login requires approval in System Settings."
     },
@@ -1820,6 +1826,9 @@
           }
         }
       }
+    },
+    "Needs input, from %arg" : {
+      "comment" : "Tooltip on a lifted sidebar workspace naming the group it returns to.\nVoiceOver value fragment on a lifted sidebar workspace naming its origin group."
     },
     "New Custom Command" : {
       "comment" : "Title of the sheet that creates a custom command"
@@ -2312,6 +2321,9 @@
     },
     "Promote to workspace, Command Return" : {
       "comment" : "Accessibility label for the Terminal Companion promote button; action first, shortcut second."
+    },
+    "Promote workspaces needing input" : {
+      "comment" : "Settings field label for the sidebar needs-input section toggle"
     },
     "Pull request %arg, %arg" : {
       "localizations" : {
