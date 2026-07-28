@@ -327,10 +327,8 @@ struct CommandBridgeEnactorTests {
         let fixture = try makeRemoteOwnedFixture()
         let enactor = fixture.view.commandBridgeEnactor
         var providedSessionName: RemoteSessionName?
-        var providedExecutablePath: String?
-        enactor.remoteOwnedAttachCommandProvider = { target, sessionName, executablePath in
+        enactor.remoteOwnedAttachCommandProvider = { target, sessionName in
             providedSessionName = sessionName
-            providedExecutablePath = executablePath
             return "ssh \(target.sshDestination) zmx attach \(sessionName.rawValue)"
         }
 
@@ -338,7 +336,6 @@ struct CommandBridgeEnactorTests {
 
         #expect(launch == .remoteOwnedAttach("ssh ed@example.invalid zmx attach work"))
         #expect(providedSessionName?.rawValue == "work")
-        #expect(providedExecutablePath == "/opt/homebrew/bin/zmx")
         // Without the session id, `handleProcessExit` bails at its `sessionID
         // != nil` guard and the host silently closes a pane whose ssh died.
         #expect(enactor.sessionID == fixture.sessionID)
@@ -385,7 +382,7 @@ struct CommandBridgeEnactorTests {
             spawned.record(command)
             return nil
         }
-        enactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
+        enactor.remoteOwnedAttachCommandProvider = { _, sessionName in
             "remote-owned-\(sessionName.rawValue)"
         }
 
@@ -567,7 +564,7 @@ struct CommandBridgeEnactorTests {
             spawned.record(command)
             return nil
         }
-        fixture.view.commandBridgeEnactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
+        fixture.view.commandBridgeEnactor.remoteOwnedAttachCommandProvider = { _, sessionName in
             "remote-owned-\(sessionName.rawValue)"
         }
 
@@ -1020,8 +1017,7 @@ struct CommandBridgeEnactorTests {
             SSHExecution(
                 target: remote,
                 persistenceOwner: .remoteZmx,
-                sessionName: RemoteSessionName(rawValue: "work"),
-                remoteExecutablePath: "/opt/homebrew/bin/zmx"
+                sessionName: RemoteSessionName(rawValue: "work")
             ))
         let pane = TerminalPane(
             terminalSessionID: sessionID,

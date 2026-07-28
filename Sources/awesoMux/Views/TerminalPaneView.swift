@@ -269,6 +269,7 @@ struct TerminalPaneLayoutView: View {
                                 RemotePaneDisconnectedView(
                                     state: remoteReconnect,
                                     liveTarget: pane.executionPlan.remoteTarget,
+                                    isRemoteOwned: pane.executionPlan.remoteOwnedExecution != nil,
                                     runtime: runtime,
                                     paneID: pane.id,
                                     paneDescriptor: TerminalAccessibilityAnnouncer.paneDescriptor(

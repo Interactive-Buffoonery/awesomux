@@ -94,8 +94,7 @@ struct BridgeSurfaceCommandPolicyTests {
             SSHExecution(
                 target: RemoteTarget(user: "ed", host: "box")!,
                 persistenceOwner: .remoteZmx,
-                sessionName: RemoteSessionName(rawValue: "dev")!,
-                remoteExecutablePath: nil
+                sessionName: RemoteSessionName(rawValue: "dev")!
             )!)
     }
 

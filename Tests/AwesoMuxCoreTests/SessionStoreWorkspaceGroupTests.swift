@@ -505,15 +505,13 @@ struct SessionStoreWorkspaceGroupTests {
             store.addSSHSession(
                 target: target,
                 toGroupID: group.id,
-                sessionName: sessionName,
-                remoteExecutablePath: "/opt/zmx/bin/zmx"
+                sessionName: sessionName
             ))
 
         let execution = try #require(
             store.session(id: sessionID)?.activePane?.executionPlan.remoteOwnedExecution)
         #expect(execution.target == target)
         #expect(execution.sessionName == sessionName)
-        #expect(execution.remoteExecutablePath == "/opt/zmx/bin/zmx")
     }
 
     @Test("a new SSH workspace without a session name stays local-amx")
@@ -526,21 +524,6 @@ struct SessionStoreWorkspaceGroupTests {
         let plan = store.session(id: sessionID)?.activePane?.executionPlan
         #expect(plan == .ssh(SSHExecution(target: target)))
         #expect(plan?.remoteOwnedExecution == nil)
-    }
-
-    @Test("a zmx path with no session name to own it is refused")
-    func addSSHSessionRejectsPathWithoutSessionName() throws {
-        let group = SessionGroup(name: "Work", sessions: [])
-        let store = SessionStore(groups: [group])
-        let target = try #require(RemoteTarget(parsing: "my-server"))
-
-        #expect(
-            store.addSSHSession(
-                target: target,
-                toGroupID: group.id,
-                remoteExecutablePath: "/opt/zmx/bin/zmx"
-            ) == nil)
-        #expect(store.groups[0].sessions.isEmpty)
     }
 
     @Test("managed SSH workspace rejects a missing group")
@@ -613,8 +596,7 @@ struct SessionStoreWorkspaceGroupTests {
                 sessionID: session.id,
                 paneID: converting.id,
                 target: target,
-                sessionName: sessionName,
-                remoteExecutablePath: "/opt/zmx/bin/zmx"
+                sessionName: sessionName
             ) == converting.id
         )
 
@@ -622,31 +604,6 @@ struct SessionStoreWorkspaceGroupTests {
             store.session(id: session.id)?.activePane?.executionPlan.remoteOwnedExecution)
         #expect(execution.target == target)
         #expect(execution.sessionName == sessionName)
-        #expect(execution.remoteExecutablePath == "/opt/zmx/bin/zmx")
-    }
-
-    @Test("converting a pane with a zmx path but no session name leaves it local")
-    func managedSSHConversionRejectsPathWithoutSessionName() throws {
-        let converting = TerminalPane(title: "ssh", workingDirectory: "~", executionPlan: .local)
-        let session = TerminalSession(
-            title: "shell",
-            workingDirectory: "~",
-            layout: .pane(converting),
-            activePaneID: converting.id
-        )
-        let group = SessionGroup(name: "Work", sessions: [session])
-        let store = SessionStore(groups: [group], selectedSessionID: session.id)
-        let target = try #require(RemoteTarget(parsing: "my-server"))
-
-        #expect(
-            store.convertPaneToManagedSSH(
-                sessionID: session.id,
-                paneID: converting.id,
-                target: target,
-                remoteExecutablePath: "/opt/zmx/bin/zmx"
-            ) == nil
-        )
-        #expect(store.session(id: session.id)?.activePane?.executionPlan == .local)
     }
 
     @Test("remoteTarget finds the active pane's declared target")

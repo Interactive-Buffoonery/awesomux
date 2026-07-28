@@ -106,6 +106,42 @@ struct TerminalAccessibilityAnnouncerTests {
         )
     }
 
+    /// The spoken channel is the ONLY signal a VoiceOver user gets when focus is
+    /// elsewhere, so it has to carry the same corrected diagnosis the overlay
+    /// shows — not send them off to check an SSH config that was never broken.
+    @Test("remote-owned disconnect announcement names the backend, not the SSH config")
+    func remoteOwnedDisconnectAnnouncementNamesTheBackend() {
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteDisconnectedAnnouncement(
+                host: "mini",
+                isRemoteOwned: true
+            )
+                == "Session on mini unavailable. Check that the host is reachable and has awesoMux, amx, or zmx installed. Reconnect available."
+        )
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteDisconnectedAnnouncement(
+                host: "mini",
+                paneDescriptor: "pane 2, web",
+                isRemoteOwned: true
+            )
+                == "Session on mini in pane 2, web unavailable. Check that the host is reachable and has awesoMux, amx, or zmx installed. Reconnect available."
+        )
+    }
+
+    /// A remote-owned pane runs with no local daemon, so the command-bridge
+    /// setting is nothing to it — it must never be blamed for the failure.
+    @Test("remote-owned disconnect never blames background sessions")
+    func remoteOwnedDisconnectIgnoresBackgroundSessions() {
+        let announcement = TerminalAccessibilityAnnouncer.remoteDisconnectedAnnouncement(
+            host: "mini",
+            isRemoteOwned: true,
+            backgroundSessionsEnabled: false
+        )
+
+        #expect(!announcement.contains("Background sessions"))
+        #expect(announcement.hasPrefix("Session on mini unavailable."))
+    }
+
     @Test("reconnect-started announcement claims only the attempt, never success")
     func remoteReconnectStartedAnnouncementClaimsOnlyTheAttempt() {
         // A remote-owned pane has no attach evidence at spawn time, so this copy

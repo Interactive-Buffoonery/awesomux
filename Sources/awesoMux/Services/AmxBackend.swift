@@ -870,22 +870,62 @@ enum AmxBackend {
     /// never carry this instance's side channel across (ADR-0022).
     static func remoteOwnedAttachCommand(
         remote: RemoteTarget,
-        sessionName: RemoteSessionName,
-        executablePath: String? = nil
+        sessionName: RemoteSessionName
     ) -> String {
-        // Quoted for the REMOTE shell; `sshTailTokens`' caller then quotes the
-        // whole composed string for the local one, the same two-layer shape
-        // `bridgeAttachCommand` uses for `"$SHELL" -l`.
-        let remoteCommand = [
-            shellQuote(executablePath ?? "zmx"),
-            "attach",
-            shellQuote(sessionName.rawValue),
-        ].joined(separator: " ")
         let tokens =
             [shellQuote(envExecutablePath)]
             + environmentScrubTokens(remote: remote)
-            + sshTailTokens(for: remote, remoteCommand: remoteCommand).map(shellQuote)
+            + sshTailTokens(
+                for: remote,
+                remoteCommand: remoteBackendDiscoveryCommand(sessionName: sessionName)
+            ).map(shellQuote)
         return tokens.joined(separator: " ")
+    }
+
+    /// Where a macOS destination keeps `amx` when awesoMux is installed but
+    /// nothing put the backend on `PATH` — the overwhelmingly common case, since
+    /// the app ships `amx` inside its bundle and installs no shim.
+    private static let remoteBundledBackendPaths = [
+        "$HOME/Applications/awesoMux.app/Contents/MacOS/amx",
+        "/Applications/awesoMux.app/Contents/MacOS/amx",
+    ]
+
+    /// The remote-side script that finds the backend and execs it, replacing the
+    /// hand-entered executable path this used to require (#235).
+    ///
+    /// Two reasons a path had to be asked for, both handled here. `ssh host cmd`
+    /// runs a NON-login shell, so a `PATH` exported from `~/.zprofile` or
+    /// `~/.profile` — where a user-installed `amx`/`zmx` almost always lives —
+    /// is not in scope; re-execing through `"$SHELL" -lc` puts it back. And a
+    /// macOS destination running awesoMux has `amx` only inside the app bundle,
+    /// which is on no `PATH` at all; those are checked after the login `PATH`,
+    /// so an explicitly installed backend still wins.
+    ///
+    /// Written as a flat `&&`-chain rather than a `for` loop so it also parses
+    /// under fish, which shares none of POSIX's loop syntax, and kept to ASCII
+    /// because the remote locale that renders it is not ours to assume. It
+    /// carries no single quotes, so the remote-shell quoting layer stays a
+    /// plain wrap; the session name is `[A-Za-z0-9._-]` by construction and
+    /// needs no quoting anywhere it is interpolated.
+    ///
+    /// Internal rather than private so the tests can read the script itself:
+    /// asserted through both quoting layers it is an unreviewable blob.
+    static func remoteBackendDiscoveryCommand(sessionName: RemoteSessionName) -> String {
+        let name = sessionName.rawValue
+        var clauses = ["amx", "zmx"].map {
+            "command -v \($0) >/dev/null 2>&1 && exec \($0) attach \(name)"
+        }
+        clauses += remoteBundledBackendPaths.map {
+            "[ -x \"\($0)\" ] && exec \"\($0)\" attach \(name)"
+        }
+        clauses.append(
+            "echo \"awesoMux: no amx or zmx found on this host."
+                + " Install one, or reconnect without a remote session name.\" >&2"
+        )
+        // 127 is the shell's own not-found status, which is what this is: it
+        // separates a missing backend from ssh's transport failures (255).
+        clauses.append("exit 127")
+        return "exec \"$SHELL\" -lc " + shellQuote(clauses.joined(separator: "; "))
     }
 
     /// Establishes the per-attach reverse forward against the shared

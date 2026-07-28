@@ -134,11 +134,20 @@ using local `amx` persistence around an SSH child. That default is now scoped
 to local-amx panes.
 
 A pane may instead declare `PersistenceOwner.remoteZmx`, naming a validated
-session on the remote host (and optionally an absolute path to the remote
-`zmx` binary — a login-shell-only `PATH` does not reach `ssh host cmd`). For
-such a pane, the remote host's zmx owns persistence: opening it runs
-`ssh <host> '<zmx> attach <name>'` directly, with no local daemon, no local
-agent-signaling side channel (§4 does not apply), and no bridge preflight.
+session on the remote host. For such a pane, the remote host's backend owns
+persistence: opening it runs `ssh <host> '<backend> attach <name>'` directly,
+with no local daemon, no local agent-signaling side channel (§4 does not
+apply), and no bridge preflight.
+
+Which backend, and where, is resolved on the far side rather than declared.
+The attach re-execs through `"$SHELL" -lc` and takes the first of `amx` on
+`PATH`, `zmx` on `PATH`, or `amx` inside an installed `awesoMux.app`; nothing
+found exits 127 with a message naming the problem. The login shell matters:
+`ssh host cmd` runs a NON-login shell, so a `PATH` exported from `~/.zprofile`
+or `~/.profile` is out of scope, which is why the original bare-`zmx` default
+failed on every host tested. This replaces the per-pane executable path the
+amendment originally carried, which was optional in name and mandatory in
+practice (#235).
 
 Failure is visible and terminal — the disconnected overlay, never a fallback
 to a local shell, another host, or a different persistence owner. Exit code 0

@@ -474,8 +474,7 @@ struct AwesoMuxApp: App {
                                     sessionID: sessionID,
                                     paneID: paneID,
                                     target: execution.target,
-                                    sessionName: execution.sessionName,
-                                    remoteExecutablePath: execution.remoteExecutablePath
+                                    sessionName: execution.sessionName
                                 )
                             else { return false }
                             ghosttyRuntime.discardSurface(for: discardedPaneID)
@@ -484,8 +483,7 @@ struct AwesoMuxApp: App {
                                 sessionStore.addSSHSession(
                                     target: execution.target,
                                     toGroupID: groupID,
-                                    sessionName: execution.sessionName,
-                                    remoteExecutablePath: execution.remoteExecutablePath
+                                    sessionName: execution.sessionName
                                 ) != nil
                             else { return false }
                         }

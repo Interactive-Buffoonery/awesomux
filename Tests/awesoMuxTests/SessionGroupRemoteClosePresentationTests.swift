@@ -21,8 +21,7 @@ struct SessionGroupRemoteClosePresentationTests {
         let execution = SSHExecution(
             target: target,
             persistenceOwner: .remoteZmx,
-            sessionName: RemoteSessionName(rawValue: "work")!,
-            remoteExecutablePath: nil
+            sessionName: RemoteSessionName(rawValue: "work")!
         )!
         return TerminalSession(
             title: "remote-owned",

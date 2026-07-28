@@ -21,8 +21,7 @@ struct BridgeAttachDecisionTests {
         SSHExecution(
             target: remote,
             persistenceOwner: .remoteZmx,
-            sessionName: RemoteSessionName(rawValue: "dev")!,
-            remoteExecutablePath: nil
+            sessionName: RemoteSessionName(rawValue: "dev")!
         )!)
 
     @Test("gate on only when remote AND agent chrome AND a base attach command, un-latched")

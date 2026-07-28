@@ -464,15 +464,13 @@ public final class SessionStore {
     public func addSSHSession(
         target: RemoteTarget,
         toGroupID groupID: SessionGroup.ID,
-        sessionName: RemoteSessionName? = nil,
-        remoteExecutablePath: String? = nil
+        sessionName: RemoteSessionName? = nil
     ) -> TerminalSession.ID? {
         guard target.isSafeSSHDestination else { return nil }
         guard
             let execution = Self.sshExecution(
                 target: target,
-                sessionName: sessionName,
-                remoteExecutablePath: remoteExecutablePath
+                sessionName: sessionName
             )
         else { return nil }
         guard
@@ -1296,8 +1294,7 @@ public final class SessionStore {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         target: RemoteTarget,
-        sessionName: RemoteSessionName? = nil,
-        remoteExecutablePath: String? = nil
+        sessionName: RemoteSessionName? = nil
     ) -> TerminalPane.ID? {
         guard target.isSafeSSHDestination,
             let pane = session(id: sessionID)?.activePane,
@@ -1305,8 +1302,7 @@ public final class SessionStore {
             pane.executionPlan == .local,
             let execution = Self.sshExecution(
                 target: target,
-                sessionName: sessionName,
-                remoteExecutablePath: remoteExecutablePath
+                sessionName: sessionName
             )
         else {
             return nil
@@ -1317,23 +1313,21 @@ public final class SessionStore {
         )
     }
 
-    /// Nil only when the remote fields contradict each other — a path with no
-    /// session name to own it, or a name the model rejects. The sheets validate
-    /// before they call, so this failing means a caller skipped that gate.
+    /// A named session is remote-owned; an unnamed one is the local-amx default.
+    /// Optional only because `SSHExecution`'s failable init is: it cannot
+    /// actually fail from here, since both arms satisfy its invariant by
+    /// construction.
     private static func sshExecution(
         target: RemoteTarget,
-        sessionName: RemoteSessionName?,
-        remoteExecutablePath: String?
+        sessionName: RemoteSessionName?
     ) -> SSHExecution? {
         guard let sessionName else {
-            guard remoteExecutablePath == nil else { return nil }
             return SSHExecution(target: target)
         }
         return SSHExecution(
             target: target,
             persistenceOwner: .remoteZmx,
-            sessionName: sessionName,
-            remoteExecutablePath: remoteExecutablePath
+            sessionName: sessionName
         )
     }
 
