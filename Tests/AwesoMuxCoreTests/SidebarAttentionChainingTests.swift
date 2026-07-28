@@ -76,8 +76,11 @@ import Testing
     }
 
     @Test func renderOrderMatchesNavigationOrder() {
-        // The ⌘-digit LABEL comes from the rendered order and the ⌘-digit ACTION
-        // from WorkspaceNavigationOrder. They must agree or the digits lie.
+        // The ⌘-digit LABEL is indexed off `rotorEntries` in SidebarView.body and
+        // the ⌘-digit ACTION off WorkspaceNavigationOrder. They must agree or the
+        // digits lie. Asserted against `rotorEntries` itself — the expression the
+        // view actually reads — so reordering the production concatenation fails
+        // here rather than only in a hand-copied duplicate of it.
         let a = needy("alpha")
         let b = TerminalSession(title: "beta", workingDirectory: "~")
         let c = TerminalSession(title: "gamma", workingDirectory: "~")
@@ -94,10 +97,12 @@ import Testing
             isFiltering: false,
             searchTopMatch: pinned.topMatch
         )
-        let rendered =
-            attention.attention.map(\.entry.session.id)
-            + pinned.pinned.map(\.entry.session.id)
-            + attention.entries.flatMap { $0.sessions.map(\.session.id) }
+        let rendered = SidebarVisibleRows.rotorEntries(
+            attention: attention.attention,
+            pinned: pinned.pinned,
+            for: attention.entries
+        )
+        .map(\.id)
         let navigation = WorkspaceNavigationOrder.liftedFirstSessionIDs(
             in: [g],
             liftedSessionIDs: [a.id],

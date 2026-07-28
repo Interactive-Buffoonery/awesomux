@@ -128,7 +128,7 @@ struct SidebarSnapshot {
     /// section. Empty when the feature is off. Removed from `entries` by
     /// `SidebarAttentionProjection`.
     let attention: [LiftedSessionEntry]
-    /// Pinned workspaces floated into the synthetic Pinned section, in pin
+    /// Pinned workspaces lifted into the synthetic Pinned section, in pin
     /// order. Removed from `entries` by `SidebarPinnedProjection` (INT-737).
     let pinned: [LiftedSessionEntry]
     /// Highest-ranked filtered session across all groups, used by ⏎ to

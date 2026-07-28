@@ -28,14 +28,14 @@ public final class SessionStore {
     /// (INT-737).
     public internal(set) var pinnedSessionIDs: [TerminalSession.ID] = []
 
-    /// Mirrored from `appearance.promote_workspaces_needing_input` by the app so
-    /// the sidebar, the ⌘-jump order, and the Dock menu resolve the lifted set
-    /// from one place. Off means `liftedSessionIDs` is always empty and no
-    /// sticky is ever captured.
+    /// Mirrored from `appearance.promote_workspaces_needing_input` by
+    /// `SidebarView` — the section's only renderer — so the sidebar, the ⌘-jump
+    /// order, and the Dock menu resolve the lifted set from one place. Off means
+    /// `liftedSessionIDs` is always empty and no sticky is ever captured.
     ///
-    /// Refreshes the sticky on write: the app mirrors the setting after building
-    /// the store, so this is also what arms the sticky at launch, and toggling
-    /// the setting off has to drop a sticky the section no longer renders.
+    /// Refreshes the sticky on write: the sidebar mirrors the setting on appear,
+    /// so this is also what arms the sticky at launch, and toggling the setting
+    /// off has to drop a sticky the section no longer renders.
     public var needsInputSectionEnabled: Bool = false {
         didSet { refreshAttentionSticky() }
     }

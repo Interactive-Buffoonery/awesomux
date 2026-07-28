@@ -129,34 +129,32 @@ struct SidebarView: View {
             SidebarDuplicateDisambiguator.disambiguationBySessionID(for: disambiguationInput)
         let density = SidebarDensity(compact: appSettingsStore.general.value.sidebarCompactMode)
         let visibleGroupIDs = snapshot.entries.map { $0.group.id }
-        // Synthetic sections render above every group, so ⌘1-9 must count them in
-        // render order to keep the on-tile jump digits truthful. This must stay in
-        // lockstep with WorkspaceNavigationOrder.liftedFirstSessionIDs, which the
-        // ⌘-digit ACTION resolves from.
-        let orderedVisibleSessions =
-            snapshot.attention.map(\.entry) + snapshot.pinned.map(\.entry)
-            + snapshot.entries.flatMap(\.sessions)
+        // The rotor already flattens the sidebar in render order — synthetic
+        // sections first, then groups — so it is the single definition of that
+        // order here rather than a second hand-built concatenation that could
+        // drift from it. Jump digits and the search result ring both read it, and
+        // it must stay in lockstep with
+        // WorkspaceNavigationOrder.liftedFirstSessionIDs, which the ⌘-digit ACTION
+        // resolves from (guarded by SidebarAttentionChainingTests).
+        let rotorEntries = SidebarVisibleRows.rotorEntries(
+            attention: snapshot.attention,
+            pinned: snapshot.pinned,
+            for: snapshot.entries
+        )
+        let orderedVisibleSessionIDs = rotorEntries.map(\.id)
         let jumpIndexBySessionID = Dictionary(
-            orderedVisibleSessions
+            orderedVisibleSessionIDs
                 .enumerated()
-                .map { ($0.element.session.id, $0.offset + 1) },
+                .map { ($0.element, $0.offset + 1) },
             uniquingKeysWith: { first, _ in first }
         )
-        let searchResultIDs =
-            isFiltering
-            ? orderedVisibleSessions.map(\.session.id)
-            : []
+        let searchResultIDs = isFiltering ? orderedVisibleSessionIDs : []
         let visibleRows = SidebarVisibleRows.rows(
             attention: snapshot.attention,
             pinned: snapshot.pinned,
             for: snapshot.entries,
             collapsedGroupIDs: collapsedGroupIDs,
             isFiltering: isFiltering
-        )
-        let rotorEntries = SidebarVisibleRows.rotorEntries(
-            attention: snapshot.attention,
-            pinned: snapshot.pinned,
-            for: snapshot.entries
         )
         // Computed once per render and captured by the preference-change
         // closure below, which would otherwise rebuild this set on every
