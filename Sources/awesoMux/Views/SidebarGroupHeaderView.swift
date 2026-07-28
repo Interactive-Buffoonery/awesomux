@@ -462,6 +462,21 @@ struct SidebarGroupHeaderRow: View {
                     activeSessionID: selectedSessionID
                 )
             }
+            // Keyed on the group VALUE, not just the derived signals below.
+            // The card reads `group.name` and `group.sessions` directly, and
+            // neither has its own trigger: a rename fires nothing, and an empty
+            // group gaining its first (immediately pinned) session only fires
+            // `executionSummary` by the accident that pane count crosses zero.
+            // Relying on that coupling means a change to how the summary counts
+            // panes silently staled the card.
+            .onChange(of: group) { _, _ in
+                peekModel.refreshGroup(
+                    group: group,
+                    tint: tint,
+                    sessions: sessions,
+                    activeSessionID: selectedSessionID
+                )
+            }
             .onChange(of: executionSummary) { _, _ in
                 peekModel.refreshGroup(
                     group: group,

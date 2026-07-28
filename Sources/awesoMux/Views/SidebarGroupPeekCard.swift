@@ -13,9 +13,29 @@ struct SidebarGroupPeekCard: View {
     let tint: ProjectTint
     let items: [SessionPeekItem]
     let onSelectSession: (TerminalSession.ID) -> Void
+    let onNewWorkspace: () -> Void
+
+    /// Same guard, and the same reason, as `NewWorkspaceSplitButton`: a plain
+    /// `Button` has no natural debounce, and this card stays hittable through
+    /// its removal transition after the first click hides it — so a double
+    /// click otherwise creates two workspaces and selects only the second.
+    private let doubleClickGuardInterval: Duration = .milliseconds(400)
+    @State private var lastCreateAt: ContinuousClock.Instant?
     /// Pointer entered/left the card — same hover-handoff grace purpose as
     /// `SidebarSessionPeekCard.onHoverChanged`.
     let onHoverChanged: (Bool) -> Void
+
+    private func guardedNewWorkspace() {
+        // ContinuousClock, not wall-clock: a backward step (NTP correction,
+        // wake-from-sleep RTC resync) would make the difference negative —
+        // always under the interval — and silently block every later click.
+        let now = ContinuousClock.now
+        if let lastCreateAt, now - lastCreateAt < doubleClickGuardInterval {
+            return
+        }
+        lastCreateAt = now
+        onNewWorkspace()
+    }
 
     private var executionPresentation: SessionGroupExecutionPresentation {
         SessionGroupExecutionPresentation(
@@ -94,15 +114,69 @@ struct SidebarGroupPeekCard: View {
 
     @ViewBuilder
     private var rowList: some View {
-        // An empty roster (every session pinned out, or — defensively — no
-        // sessions at all) would otherwise render a blank card with no
-        // explanation. "All pinned" is the project owner's own wording for
-        // this state (2026-07-13): pinning is the only path that empties a
-        // non-empty group's roster while the group itself still shows.
+        // An empty roster would otherwise render a blank card with no
+        // explanation, but it has two causes that need different copy. "All
+        // pinned" is the project owner's own wording (2026-07-13) for a group
+        // whose sessions have all been pinned OUT of the roster — it stays
+        // accurate only while the group actually has sessions. `items` is the
+        // pin-filtered projection; `group.sessions` is the full roster, so the
+        // two states are distinguishable.
         if items.isEmpty {
-            Text("All pinned")
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text2)
+            if group.sessions.isEmpty {
+                // A genuinely empty group's card is otherwise a dead end, so
+                // this one state earns an action. Deliberately NOT offered
+                // when the card lists rows: every row there is a jump target,
+                // and a create button among them invites the wrong click.
+                // VoiceOver reaches the same action through the group header's
+                // existing "New Workspace in Group" (the card itself is
+                // `accessibilityHidden`), so this adds no unreachable control.
+                //
+                // Shaped after `NewWorkspaceInGroupRow`, the same action in the
+                // expanded sidebar — same label, same pointer-target floor.
+                //
+                // NOT its `textFaint` foreground, though: that row sits on plain
+                // sidebar surface, while this card is `surface.elevated` under a
+                // 10% tint wash, and on Latte `textFaint` measures 1.69:1 there.
+                // `text2` (3.20:1) and `railText` (4.05:1) are both under the
+                // AA floor too; `text` is the only token that clears it on every
+                // tint (4.58:1 worst case, mauve). The group tint itself is a
+                // fill colour — teal reads 2.23:1 — so it stays out entirely.
+                //
+                // Both labels on this card use `text` for the same reason. They
+                // read as secondary, but no dimmer token survives the tint wash,
+                // and being legible beats matching the sidebar's greyer meta text.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No workspaces")
+                        .awFont(AwFont.UI.meta)
+                        .foregroundStyle(Color.aw.text)
+
+                    Button(action: guardedNewWorkspace) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .bold))
+                                .frame(width: 14)
+
+                            Text("new workspace")
+                                .awFont(AwFont.Mono.pill)
+
+                            Spacer(minLength: 4)
+                        }
+                        .foregroundStyle(Color.aw.text)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: NewWorkspaceInGroupRow.minimumPointerTargetHeight,
+                            alignment: .leading
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("New Workspace in Group")
+                }
+            } else {
+                Text("All pinned")
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(Color.aw.text)
+            }
         } else {
             let rows = VStack(alignment: .leading, spacing: 4) {
                 ForEach(items) { item in

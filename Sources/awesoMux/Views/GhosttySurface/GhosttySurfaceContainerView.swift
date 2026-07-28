@@ -20,6 +20,33 @@ enum GhosttySurfaceFocusReadiness {
     }
 }
 
+/// Clears first responder so a surface mounting moments from now can claim
+/// focus through its own `requestFocusIfWindowHasNoTarget` path.
+///
+/// A sidebar control that creates a workspace is still first responder when the
+/// new surface mounts, and SwiftUI only reconciles that away ~0.5s later
+/// (INT-652). The mount-time reclaim refuses anything that isn't vacant — by
+/// design, or it would steal focus mid-typing — so the new workspace comes up
+/// with a dead keyboard until you click into it (#285).
+///
+/// Selection hands focus over directly instead (`SidebarView.selectSession`).
+/// Creation can't reuse that: the surface does not exist yet at call time, so
+/// there is nothing to make first responder. Vacating lets the surface's own
+/// reclaim do the work when it does exist, rather than adding a second
+/// focus-handoff mechanism that could disagree with the first.
+///
+/// Targets the window rather than `nil`: `makeFirstResponder(nil)` can be
+/// refused and the key-view loop can re-land focus inside the sidebar — same
+/// reasoning as `SidebarSplitController.redirectStrandedSidebarFocusIfNeeded`.
+/// The window is one of the three states the reclaim accepts as vacant.
+@MainActor
+enum NewWorkspaceFocusHandoff {
+    static func vacateFirstResponder(in window: NSWindow? = NSApp.keyWindow) {
+        guard let window else { return }
+        window.makeFirstResponder(window)
+    }
+}
+
 @MainActor
 final class GhosttySurfaceContainerView: NSView {
     private static let terminalDiagnosticsLogger = Logger(
