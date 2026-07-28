@@ -8,7 +8,32 @@ import SwiftUI
 /// `SidebarSessionPeekCard` so the two card types read as one visual
 /// system — only the background differs, washed with the group's own tint
 /// so it's legible at a glance which peek type is showing.
+///
+/// Every label on this card draws in `Color.aw.text`, including the ones that
+/// read as secondary. The tint wash spends most of the card's contrast budget,
+/// and on Latte no dimmer token survives it: at the worst tint (red) `text2`
+/// measures 2.84:1 and `railText` 3.59:1, both under the WCAG 1.4.3 AA floor
+/// of 4.5:1, and `railText`'s own doc notes it was tuned for mantle rather
+/// than this surface. Mocha is not exempt either — at the 10% wash this card
+/// used before #287, `text2` fell to 4.32:1 on the yellow tint there. Reach for
+/// `text` when adding a label here; hierarchy has to come from size and
+/// position instead of colour.
 struct SidebarGroupPeekCard: View {
+    /// Alpha of the group-tint wash over `surface.elevated`.
+    ///
+    /// Latte's `surface.elevated` is `surface0` (#ccd0da), which leaves the
+    /// card barely enough contrast budget for `Color.aw.text` — the darkest
+    /// token in the palette — before the wash is applied at all. At 0.10 the
+    /// red tint pushed it to 4.45:1, under the WCAG 1.4.3 AA floor; 0.08 puts
+    /// the worst tint at 4.58:1 with every other tint above it. The wash is
+    /// still what makes a group peek distinguishable from a session peek at a
+    /// glance, so this is the largest value that keeps the card's own text
+    /// legible rather than the smallest that reads as tinted.
+    ///
+    /// `SidebarGroupPeekCardContrastTests` measures this constant directly —
+    /// raising it needs a palette with more headroom, not just a nicer look.
+    static let tintWashOpacity = 0.08
+
     let group: SessionGroup
     let tint: ProjectTint
     let items: [SessionPeekItem]
@@ -59,7 +84,7 @@ struct SidebarGroupPeekCard: View {
                     // Tint wash: reads as "this card is about a group" at a
                     // glance without fighting the row content's own colors.
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(tint.hue.opacity(0.10))
+                        .fill(tint.hue.opacity(Self.tintWashOpacity))
                 }
                 .overlay(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2)
@@ -97,7 +122,7 @@ struct SidebarGroupPeekCard: View {
                 if let location = executionPresentation.visibleText {
                     Text(location)
                         .awFont(AwFont.Mono.meta)
-                        .foregroundStyle(Color.aw.text2)
+                        .foregroundStyle(Color.aw.text)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -107,7 +132,7 @@ struct SidebarGroupPeekCard: View {
 
             Text("\(items.count)")
                 .awFont(AwFont.Mono.meta)
-                .foregroundStyle(Color.aw.text2)
+                .foregroundStyle(Color.aw.text)
         }
         .allowsHitTesting(false)
     }
@@ -135,16 +160,10 @@ struct SidebarGroupPeekCard: View {
                 // expanded sidebar — same label, same pointer-target floor.
                 //
                 // NOT its `textFaint` foreground, though: that row sits on plain
-                // sidebar surface, while this card is `surface.elevated` under a
-                // 10% tint wash, and on Latte `textFaint` measures 1.69:1 there.
-                // `text2` (3.20:1) and `railText` (4.05:1) are both under the
-                // AA floor too; `text` is the only token that clears it on every
-                // tint (4.58:1 worst case, mauve). The group tint itself is a
-                // fill colour — teal reads 2.23:1 — so it stays out entirely.
-                //
-                // Both labels on this card use `text` for the same reason. They
-                // read as secondary, but no dimmer token survives the tint wash,
-                // and being legible beats matching the sidebar's greyer meta text.
+                // sidebar surface, and on Latte `textFaint` measures 1.49:1 over
+                // this card's washed surface. See the type's own doc comment for
+                // why every label here draws in `text`. The group tint itself is
+                // a fill colour — teal reads 2.23:1 — so it stays out entirely.
                 VStack(alignment: .leading, spacing: 8) {
                     Text("No workspaces")
                         .awFont(AwFont.UI.meta)
@@ -227,11 +246,11 @@ private struct SessionPeekRow: View {
             if let locationText = item.locationText {
                 Image(systemName: "network")
                     .awFont(AwFont.Mono.meta)
-                    .foregroundStyle(Color.aw.text2)
+                    .foregroundStyle(Color.aw.text)
 
                 Text(locationText)
                     .awFont(AwFont.Mono.meta)
-                    .foregroundStyle(Color.aw.text2)
+                    .foregroundStyle(Color.aw.text)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
