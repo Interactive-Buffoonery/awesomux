@@ -239,16 +239,20 @@ struct SidebarView: View {
                                 },
                                 onSelect: selectSession,
                                 onNewSessionInGroup: {
-                                    sessionStore.addSession(groupName: entry.group.name)
+                                    createSession {
+                                        sessionStore.addSession(groupName: entry.group.name)
+                                    }
                                 },
                                 onConnectViaSSH: onConnectViaSSH,
                                 canMakeWorkspaceManaged: canMakeWorkspaceManaged,
                                 onMakeWorkspaceManaged: onMakeWorkspaceManaged,
                                 onNewSessionHere: { session in
-                                    sessionStore.addSession(
-                                        workingDirectory: session.workingDirectory,
-                                        groupName: entry.group.name
-                                    )
+                                    createSession {
+                                        sessionStore.addSession(
+                                            workingDirectory: session.workingDirectory,
+                                            groupName: entry.group.name
+                                        )
+                                    }
                                 },
                                 onNewGroup: onNewWorkspaceGroup,
                                 onRenameGroup: {
@@ -753,19 +757,31 @@ struct SidebarView: View {
         .padding(.bottom, 8)
     }
 
+    /// Every sidebar path that creates a workspace goes through here, for the
+    /// same reason `selectSession` is shared: so the INT-652 first-responder
+    /// handoff can't drift between them (#285). The creating control still holds
+    /// AppKit focus at this point, which would make the new surface's own
+    /// mount-time reclaim decline.
+    private func createSession(_ create: () -> Void) {
+        create()
+        NewWorkspaceFocusHandoff.vacateFirstResponder(in: NSApp.keyWindow)
+    }
+
     private func addWorkspaceInCurrentContext() {
         // INT-330: the top-level "+" button targets the currently selected
         // workspace's group. Cold-start falls back to the configured default.
-        if let selectedSession = sessionStore.selectedSession,
-            let owner = sessionStore.groups.first(where: { group in
-                group.sessions.contains(where: { $0.id == selectedSession.id })
-            })
-        {
-            sessionStore.addSession(groupName: owner.name)
-        } else {
-            sessionStore.addSession(
-                groupName: appSettingsStore.workspaces.value.defaultGroup
-            )
+        createSession {
+            if let selectedSession = sessionStore.selectedSession,
+                let owner = sessionStore.groups.first(where: { group in
+                    group.sessions.contains(where: { $0.id == selectedSession.id })
+                })
+            {
+                sessionStore.addSession(groupName: owner.name)
+            } else {
+                sessionStore.addSession(
+                    groupName: appSettingsStore.workspaces.value.defaultGroup
+                )
+            }
         }
     }
 
@@ -773,7 +789,9 @@ struct SidebarView: View {
         guard let target = sessionStore.groups.first(where: { $0.id == groupID }) else {
             return
         }
-        sessionStore.addSession(groupName: target.name)
+        createSession {
+            sessionStore.addSession(groupName: target.name)
+        }
     }
 
     private func moveKeyboardFocus(offset: Int, visibleRows: [SidebarVisibleRow]) {
@@ -975,10 +993,12 @@ struct SidebarView: View {
         else {
             return
         }
-        sessionStore.addSession(
-            workingDirectory: session.workingDirectory,
-            groupName: origin.name
-        )
+        createSession {
+            sessionStore.addSession(
+                workingDirectory: session.workingDirectory,
+                groupName: origin.name
+            )
+        }
     }
 
     /// Selects a workspace and hands keyboard focus to its active pane. Shared

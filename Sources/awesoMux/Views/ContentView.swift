@@ -519,6 +519,10 @@ struct ContentView: View {
             // `selection: .set(...)`, unlike `onSelectGroupSession` above,
             // which selects an existing session and must set it itself.
             _ = sessionStore.addSession(groupName: group.name)
+            // Same handoff every sidebar creation path needs (#285) — the card's
+            // button holds first responder, so the new surface's mount-time
+            // reclaim would decline and the workspace would come up unfocused.
+            NewWorkspaceFocusHandoff.vacateFirstResponder(in: NSApp.keyWindow)
             peekModel?.hideGroup(for: groupID)
         }
         peekModel.onPointerChanged = sidebarPresentation.peekPointerChanged
