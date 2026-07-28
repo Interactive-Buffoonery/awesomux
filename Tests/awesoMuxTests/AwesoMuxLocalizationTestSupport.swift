@@ -61,6 +61,14 @@ enum AwesoMuxStringCatalog {
     /// literal, so a source that writes `\u{201C}` and a catalog key holding a
     /// real curly quote are the *same* key. Reading the source text back means
     /// undoing that ourselves, or every escaped literal reports false drift.
+    ///
+    /// Today only `DocumentPaneView`'s read-error string needs this, and the
+    /// two curly quotes there could just as well be written literally — eight
+    /// other files already do. It stays because the escapes that will actually
+    /// need it are the *invisible* ones: `GhosttyRuntimeCallbacks` localizes
+    /// with `\u{2068}`/`\u{2069}` (FSI/PDI) bidi isolates, which cannot be
+    /// written literally without becoming unreadable source. Any sweep that
+    /// grows to cover those files needs this to already work.
     private static func unescape(_ literal: String) -> String {
         var result = ""
         var rest = Substring(literal)
@@ -73,10 +81,13 @@ enum AwesoMuxStringCatalog {
             }
             switch rest[afterSlash] {
             case "u":
-                // \u{XXXX} — anything else beginning `\u` is not a valid Swift
-                // escape, so failing to parse it means the regex mis-captured.
+                // `\u` must be followed IMMEDIATELY by `{`. Anchoring `open`
+                // rather than searching for the next brace anywhere matters:
+                // an unanchored search walks past this escape into a later
+                // one, and `\u and later {41} here` silently became `A here`.
+                let open = rest.index(after: afterSlash)
                 guard
-                    let open = rest[afterSlash...].firstIndex(of: "{"),
+                    open < rest.endIndex, rest[open] == "{",
                     let close = rest[open...].firstIndex(of: "}"),
                     let scalar = UInt32(rest[rest.index(after: open)..<close], radix: 16)
                         .flatMap(Unicode.Scalar.init)
@@ -89,6 +100,8 @@ enum AwesoMuxStringCatalog {
                 rest = rest[rest.index(after: close)...]
             case "n": result += "\n"; rest = rest[rest.index(after: afterSlash)...]
             case "t": result += "\t"; rest = rest[rest.index(after: afterSlash)...]
+            case "r": result += "\r"; rest = rest[rest.index(after: afterSlash)...]
+            case "0": result += "\0"; rest = rest[rest.index(after: afterSlash)...]
             case let other: result.append(other); rest = rest[rest.index(after: afterSlash)...]
             }
         }
