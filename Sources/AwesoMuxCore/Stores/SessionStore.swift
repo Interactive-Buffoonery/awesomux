@@ -28,6 +28,25 @@ public final class SessionStore {
     /// (INT-737).
     public internal(set) var pinnedSessionIDs: [TerminalSession.ID] = []
 
+    /// Mirrored from `appearance.promote_workspaces_needing_input` by the app so
+    /// the sidebar, the ⌘-jump order, and the Dock menu resolve the lifted set
+    /// from one place. Off means `liftedSessionIDs` is always empty and no
+    /// sticky is ever captured.
+    ///
+    /// Refreshes the sticky on write: the app mirrors the setting after building
+    /// the store, so this is also what arms the sticky at launch, and toggling
+    /// the setting off has to drop a sticky the section no longer renders.
+    public var needsInputSectionEnabled: Bool = false {
+        didSet { refreshAttentionSticky() }
+    }
+
+    /// The workspace held in the Needs Input section past the point it stopped
+    /// needing input. Written synchronously by the `selectedSessionID` setter —
+    /// a view-local `@State` written in `.onChange` would lag the body that
+    /// reads it, demoting a just-clicked row for one render pass.
+    /// Runtime-only; never persisted.
+    public internal(set) var attentionStickySessionID: TerminalSession.ID?
+
     @ObservationIgnored lazy var localHostnames: Set<String> = LocalHostnames.resolve()
     @ObservationIgnored var index: SessionStoreIndex = .empty
     @ObservationIgnored var shellActivityReducer = ShellActivityReducer()
@@ -73,8 +92,45 @@ public final class SessionStore {
                 storedSelectedSessionID = newValue
             }
             guard changed, !isReplacingState else { return }
+            // Before the dwell is scheduled: the sticky must already reflect the
+            // new selection by the time any observer re-renders.
+            refreshAttentionSticky()
             scheduleAcknowledgementForSelectedSession()
         }
+    }
+
+    /// Recomputed on every selection change; releasing the previous sticky here
+    /// is what lets an acknowledged workspace fall back to its group once the
+    /// user navigates away.
+    private func refreshAttentionSticky() {
+        guard needsInputSectionEnabled,
+            let selected = storedSelectedSessionID,
+            !pinnedSessionIDs.contains(selected),
+            let session = session(id: selected),
+            session.needsUserInput
+        else {
+            attentionStickySessionID = nil
+            return
+        }
+        attentionStickySessionID = selected
+    }
+
+    /// Group order, lifted-only, pinned excluded. The one definition every
+    /// consumer of sidebar order reads.
+    public var liftedSessionIDs: [TerminalSession.ID] {
+        guard needsInputSectionEnabled else { return [] }
+        let pinned = Set(pinnedSessionIDs)
+        return
+            _groups
+            .flatMap(\.sessions)
+            .filter { session in
+                !pinned.contains(session.id)
+                    && SidebarAttentionProjection.isLifted(
+                        session,
+                        stickySessionID: attentionStickySessionID
+                    )
+            }
+            .map(\.id)
     }
 
     public internal(set) var unreadNotificationTotal: Int = 0
@@ -622,10 +678,21 @@ public final class SessionStore {
     /// (`acknowledgeAllPanes(in:)`) clears the whole workspace, and "Clear All
     /// Notifications" (`acknowledgeAllSessions`) clears every workspace. ADR-0003
     /// amendment under INT-504.
-    public func acknowledgeSession(id: TerminalSession.ID) {
+    ///
+    /// - Parameter releasesAttentionSticky: `false` only for the passive
+    ///   selection dwell, which must NOT evict the row the user is reading. Every
+    ///   deliberate gesture (context menu, ⌘⇧K, Clear All Notifications) leaves
+    ///   the default so the row leaves the section immediately.
+    public func acknowledgeSession(
+        id: TerminalSession.ID,
+        releasesAttentionSticky: Bool = true
+    ) {
         guard let position = position(for: id) else { return }
         if id == selectedSessionID {
             acknowledgementCoordinator.cancel()
+        }
+        if releasesAttentionSticky, attentionStickySessionID == id {
+            attentionStickySessionID = nil
         }
         let activePaneID = _groups[position.groupIndex]
             .sessions[position.sessionIndex].activePaneID
@@ -644,6 +711,9 @@ public final class SessionStore {
         if id == selectedSessionID {
             acknowledgementCoordinator.cancel()
         }
+        if attentionStickySessionID == id {
+            attentionStickySessionID = nil
+        }
         let change = WorkspaceAttentionReducer.acknowledgeAllPanes(
             in: &_groups[position.groupIndex].sessions[position.sessionIndex]
         )
@@ -652,6 +722,7 @@ public final class SessionStore {
 
     public func acknowledgeAllSessions() {
         acknowledgementCoordinator.cancel()
+        attentionStickySessionID = nil
         WorkspaceAttentionReducer.acknowledgeAllSessions(in: &_groups)
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
     }
@@ -992,6 +1063,11 @@ public final class SessionStore {
         }
         guard session(id: sessionID) != nil else { return }
         pinnedSessionIDs.append(sessionID)
+        // Pinned wins over lifted by construction, so a surviving sticky would
+        // hijack the tile back into Needs Input the moment it is unpinned.
+        if attentionStickySessionID == sessionID {
+            attentionStickySessionID = nil
+        }
     }
 
     /// Mirrors `WorkspaceTreeReducer.moveGroup`'s index convention exactly so

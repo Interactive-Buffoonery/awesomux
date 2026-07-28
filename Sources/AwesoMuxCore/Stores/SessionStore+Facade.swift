@@ -998,7 +998,9 @@ extension SessionStore {
 
             // Selection dwell acks the ACTIVE pane only — a sibling pane still
             // needing input keeps the workspace row loud (ADR-0003 amendment).
-            self.acknowledgeSession(id: selectedSessionID)
+            // Passive, so it keeps the sticky: the row stays in Needs Input
+            // until the user navigates away or evicts it deliberately.
+            self.acknowledgeSession(id: selectedSessionID, releasesAttentionSticky: false)
         }
     }
 }
