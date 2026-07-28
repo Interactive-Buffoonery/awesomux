@@ -10,12 +10,21 @@ public enum GhosttyRuntimeDefaults {
     /// scroll past the old cap cost nothing new, and the vendored pin returns
     /// free-listed pages to the OS (ghostty #13245) when a filled pane
     /// shrinks again.
+    ///
+    /// This is a *logical* budget. The vendored pin compresses idle offscreen
+    /// pages (`scrollback-compression`, upstream default on), which cuts
+    /// physical memory for cold history without changing how much history is
+    /// retained — so the numbers above still describe retention, not RSS.
     //
-    // ponytail: known ceilings on this number, not yet measured — (1) the
-    // vendored pin excludes upstream's scrollback-compression series, so
-    // retained pages are uncompressed; (2) INT-397 recorded sticky GPU-buffer
-    // growth (IOAccelerator DIRTY+SWAPPED) from scrollback fill at the OLD
-    // cap, and whether that cost scales with the cap is unanswered — re-run
+    // ponytail: known ceilings on this number, not yet measured — (1) only
+    // pages intersecting the viewport (plus the active-boundary page) stay
+    // resident; eligibility is spatial, not time-based, so a page becomes a
+    // compression candidate on the next idle tick after it scrolls off-screen.
+    // Activity postpones the idle timer, so the worst case for a pane being
+    // actively scrolled is still the full uncompressed budget;
+    // (2) INT-397 recorded sticky GPU-buffer growth (IOAccelerator
+    // DIRTY+SWAPPED) from scrollback fill at the OLD cap, and whether that
+    // cost scales with the cap is unanswered — re-run
     // the one-surface Warm-A capture (docs/debugging/perf-traces/) against
     // the committed 5MB baselines before raising this further; (3) the
     // budget is per surface with no app-level total — N concurrently
@@ -25,7 +34,14 @@ public enum GhosttyRuntimeDefaults {
     // full-screen read (GhosttySurfaceAccessibility) and its contents cache
     // are O(this cap) on the main actor under the renderer mutex — their
     // cost and retention scale with this number and are queued for the same
-    // measurement pass.
+    // measurement pass. Compression makes that ceiling worse, not better:
+    // any full-scrollback read (VoiceOver screen contents, Show Scrollback,
+    // full-scrollback search) walks pins through PageList's `Node.page()`,
+    // which decompresses each cold page synchronously and then leaves it
+    // resident — so the read pays LZ4 decode under the renderer mutex AND
+    // undoes the compression for the range it just read until the next idle
+    // pass. Time a cold full-screen read, not just steady-state RSS, when
+    // that measurement pass happens.
     public static let scrollbackLimit = 64_000_000
 
     /// Loaded BEFORE `ghostty_config_load_default_files`, so anything the user

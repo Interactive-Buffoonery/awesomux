@@ -46,6 +46,17 @@ runs:
           exit 1
         fi
 
+        # Mirrors read_ghostty_required_zig_version() in
+        # script/build_ghostty_xcframework.sh and the same derivation in
+        # release.yml — the formula tracks the submodule pin so a Ghostty bump
+        # that moves Zig minors doesn't strand this action on a stale formula.
+        zig_version="$(sed -nE 's/.*\.minimum_zig_version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' vendor/ghostty/build.zig.zon | head -n 1)"
+        if [[ ! "$zig_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "could not read a tagged minimum_zig_version from vendor/ghostty/build.zig.zon (got '$zig_version')" >&2
+          exit 1
+        fi
+        zig_formula="zig@${zig_version%.*}"
+
         swift_pin="$(tr -d '[:space:]' < .swift-version)"
         if [[ -z "$swift_pin" ]]; then
           echo ".swift-version is empty" >&2
@@ -61,6 +72,7 @@ runs:
         echo "AWESOMUX_GHOSTTY_OPTIMIZE=$optimize_mode" >> "$GITHUB_ENV"
         {
           echo "ghostty-sha=$ghostty_sha"
+          echo "zig-formula=$zig_formula"
           echo "swift-pin=$swift_pin"
           echo "xcode-id=$xcode_id"
           echo "optimize-mode=$optimize_mode"
@@ -83,10 +95,11 @@ runs:
         # aws/tap preinstalled — nothing we install comes from it. Non-
         # interactive CI can't answer the trust prompt, so opt out here.
         HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+        ZIG_FORMULA: ${{ steps.context.outputs.zig-formula }}
       run: |
         set -euo pipefail
-        brew install zig@0.15
-        echo "AWESOMUX_ZIG=$(brew --prefix zig@0.15)/bin/zig" >> "$GITHUB_ENV"
+        brew install "$ZIG_FORMULA"
+        echo "AWESOMUX_ZIG=$(brew --prefix "$ZIG_FORMULA")/bin/zig" >> "$GITHUB_ENV"
         if ! xcrun -sdk macosx metal -v >/dev/null 2>&1; then
           xcodebuild -downloadComponent MetalToolchain
         fi

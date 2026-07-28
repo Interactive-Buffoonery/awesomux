@@ -189,6 +189,9 @@ committed perf-trace captures record the 5MB era as measured history).
 The empirical question — which memory bucket dominates the warm baseline
 (graphics / heap / scrollback / framework caches) — is tracked as a follow-up
 to INT-396 and requires release-build vmmap captures rather than code reading.
+Note that scrollback is now compressed while idle (`scrollback-compression`,
+upstream default on), so a scrollback-dominated baseline should show a lower
+resident cost than these pre-compression captures recorded.
 
 ## Decision Table
 

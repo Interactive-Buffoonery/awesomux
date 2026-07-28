@@ -4,7 +4,7 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `ad692f1e858b8c6475aec4539934526a8d783e6d` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `74d0c72fd9318ad3ab95bfb56f6c2d995e267e2e` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
@@ -13,10 +13,26 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > INT-732 measured a ~40x end-to-end win for sustained plain-ASCII output in
 > a single dev session (150MB `cat`: 77–235s before, ~1.8s after; UTF-8-heavy
 > content gains far less — see PR #551 for methodology and caveats).
-> This exact commit is the last `main` commit before upstream's scrollback
-> compression series landed — chosen to take every throughput fix while
-> excluding a then-days-old subsystem still receiving correctness fixes.
-> Revisit the exclusion (and a release tag) on the next pin bump.
+>
+> This pin **includes** upstream's scrollback compression series, which the
+> previous pin deliberately excluded while it was still days old. Idle
+> offscreen pages are LZ4-compressed (`scrollback-compression`, upstream
+> default on), cutting physical memory for cold history without changing how
+> much history is retained. Note the tradeoff: reads that touch a compressed
+> page decompress it synchronously and leave it resident — see the ceiling
+> notes in `Sources/AwesoMuxConfig/GhosttyRuntimeDefaults.swift`.
+>
+> The pin stops short of upstream `main` on purpose. Upstream `f2a7652ab`
+> ("mitchell's touchups") added two Zig-0.16-era workarounds in one commit —
+> `src/quirks_memset.zig`, which exports a hand-vectorized `memset` from
+> `main_c.zig` with hidden visibility, and `src/build/libsystem_override.sh`,
+> an `nmedit` pass that localizes compiler_rt's `_memset` so consumers bind
+> libSystem's. Each is fine alone; together the combined archive carries two
+> private-extern `_memset` definitions and the static link fails with
+> `duplicate symbol '_memset'`. `74d0c72fd` is the newest commit before either
+> file existed, and it keeps `minimum_zig_version = 0.15.2` — so we also avoid
+> needing a second Zig toolchain alongside the `0.15.2` that `vendor/zmx`
+> requires. Revisit (and a release tag) once upstream resolves that collision.
 
 The integration uses Ghostty's Darwin XCFramework output,
 `macos/GhosttyKit.xcframework`, produced under `.build/ghostty/` and linked from
