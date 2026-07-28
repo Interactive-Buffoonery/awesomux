@@ -539,12 +539,13 @@ private struct SendToAgentButton: NSViewRepresentable {
 // MARK: - DocumentPaneView
 
 /// Renders a `DocumentPane` — validates the URL, loads the markdown file, and
-/// displays it using `MarkdownTextView` (Task 3+) with a `MarkdownView`
-/// fallback while the `RenderedDocument` is still being built.
+/// displays it using `MarkdownTextView` (Task 3+). The `MarkdownView` fallback
+/// this used to name is gone: `.loaded` never arrives without a rendered
+/// document, so the branch was unreachable.
 ///
 /// Load lifecycle (PR2 Task 3: read-once on appear, no live reload):
 ///   1. `DocumentURLValidator` checks scheme, extension, and size.
-///   2. `DocumentLoader` reads the file and builds `[MarkdownBlock]`.
+///   2. `DocumentLoader` reads the file and returns its source.
 ///   3. `AttributedMarkdownBuilder` builds the `RenderedDocument` (off-main).
 ///   4. `MarkdownTextView` renders the document via TextKit with custom
 ///      `NSAttributedString` attributes for source-offset mapping and marks.
@@ -708,7 +709,7 @@ struct DocumentPaneView: View {
     }
 
     private var currentSnapshot: MarkdownDocumentSnapshot? {
-        guard case let .loaded(_, _, snapshot) = loadResult else { return nil }
+        guard case let .loaded(_, snapshot) = loadResult else { return nil }
         return snapshot
     }
 
@@ -722,8 +723,8 @@ struct DocumentPaneView: View {
         Group {
             if let result = loadResult {
                 switch result {
-                case let .loaded(blocks, _, snapshot):
-                    loadedView(blocks: blocks, snapshot: snapshot)
+                case let .loaded(_, snapshot):
+                    loadedView(snapshot: snapshot)
 
                 case let .rejected(reason):
                     errorView(message: Self.rejectionMessage(for: reason, pane: pane))
@@ -779,11 +780,7 @@ struct DocumentPaneView: View {
                                 return DocumentLoader.LoadResult.readError(
                                     "The file couldn’t be opened because it isn’t in the correct format.")
                             }
-                            return .loaded(
-                                MarkdownRenderModelBuilder.build(source),
-                                source: source,
-                                snapshot: $0
-                            )
+                            return .loaded(source: source, snapshot: $0)
                         }
                             ?? DocumentLoader.load(reloadTaskID.fileURL)
                     },
@@ -931,7 +928,6 @@ struct DocumentPaneView: View {
 
     @ViewBuilder
     private func loadedView(
-        blocks: [MarkdownBlock],
         snapshot: MarkdownDocumentSnapshot?
     ) -> some View {
         let snapshot = Self.editableSnapshot(snapshot, isBannerShowing: showsOversizeBanner)
@@ -1168,12 +1164,16 @@ struct DocumentPaneView: View {
                 }
             }
         } else {
-            // Structurally-unreachable fallback: retained as a defensive backstop.
-            ScrollView(.vertical) {
-                MarkdownView(blocks: blocks)
-                    .padding(20)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // Unreachable: `.loaded` always arrives with a rendered document.
+            // `loadAndRender` returns a nil document only for non-`.loaded`
+            // results, `DocumentTabMemory.Render.init` traps on the pairing,
+            // and the two are assigned together. Kept as a spinner rather than
+            // a second renderer so this branch cannot rot into a divergent
+            // rendering path — it has no content to show that the real one
+            // would not show better.
+            ProgressView()
+                .accessibilityLabel("Loading document")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

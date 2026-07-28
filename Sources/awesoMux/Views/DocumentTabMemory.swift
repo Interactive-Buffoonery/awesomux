@@ -52,10 +52,10 @@ struct DocumentTabMemory {
         var loadResult: DocumentLoader.LoadResult {
             switch seed {
             case let .rendered(document):
-                // The parsed tree and conflict-safe file snapshot are only
-                // needed during a live load. The cached document bridges the
-                // remount until that background load supplies both again.
-                .loaded([], source: document.source, snapshot: nil)
+                // The conflict-safe file snapshot is only meaningful during a
+                // live load. The cached document bridges the remount until the
+                // background load supplies one again.
+                .loaded(source: document.source, snapshot: nil)
             case let .rejected(reason):
                 .rejected(reason)
             case let .readError(message):

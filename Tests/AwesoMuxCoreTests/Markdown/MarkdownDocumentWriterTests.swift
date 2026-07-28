@@ -7,7 +7,7 @@ import Testing
 @Suite("MarkdownDocumentCommitter")
 struct MarkdownDocumentWriterTests {
     private func snapshot(at file: URL) throws -> MarkdownDocumentSnapshot {
-        guard case let .loaded(_, _, snapshot) = DocumentLoader.load(file), let snapshot else {
+        guard case let .loaded(_, snapshot) = DocumentLoader.load(file), let snapshot else {
             throw CocoaError(.fileReadUnknown)
         }
         return snapshot
