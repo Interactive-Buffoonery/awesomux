@@ -22,15 +22,13 @@ extension EnvironmentValues {
 /// Beyond that, the X carries the same guards as the context menu's
 /// "Close Group" (see `groupContextMenuContent` for the rationale):
 /// suppressed while filtering (the header reflects only the matched
-/// subset, so closing would destroy hidden workspaces), for unresolved
+/// subset, so closing would destroy hidden workspaces), and for unresolved
 /// or stale rows (no resolved group index — an ID-keyed mutation could
-/// hit a different group than the one shown), and for the sole empty
-/// group, where the store refuses to remove the last group so the X
-/// would be a dead control — the same clause the context menu's "Close
-/// Group" disables on. Empty groups among others DO get the X (INT-770):
-/// closing routes through `closeWorkspaceGroup`, which skips the confirm
-/// dialog when there is no remote impact but still confirms loss of an SSH
-/// creation default. This X is the sole pointer path for every group: it rests
+/// hit a different group than the one shown). Every empty group gets the X,
+/// including the last one: closing routes through `closeWorkspaceGroup`,
+/// which skips the confirm dialog when there is no remote impact but still
+/// confirms loss of an SSH creation default. This X is the sole pointer path
+/// for every group: it rests
 /// visible (no hover needed) in an expanded EMPTY group, and is a hover reveal
 /// everywhere else. `NewWorkspaceInGroupRow` used to carry a second persistent
 /// X for empty groups precisely because this one was hover-only; now that the
@@ -67,8 +65,6 @@ enum SidebarGroupClosePolicy {
     ///     ID-keyed mutation could hit a different group than shown.
     ///   - isGroupEmpty: the model's `group.sessions` emptiness (not the
     ///     filtered projection).
-    ///   - totalGroupCount: total groups in the store; feeds the
-    ///     sole-empty-group dead-control clause.
     ///   - isGroupCollapsed: the group's own rows are hidden. An expanded
     ///     empty group shows its emptiness directly, so the count badge is
     ///     redundant there and the X rests in that slot instead of waiting
@@ -84,7 +80,6 @@ enum SidebarGroupClosePolicy {
         isFiltering: Bool,
         hasResolvedGroupIndex: Bool,
         isGroupEmpty: Bool,
-        totalGroupCount: Int,
         isGroupCollapsed: Bool,
         isDragActive: Bool
     ) -> Bool {
@@ -100,16 +95,6 @@ enum SidebarGroupClosePolicy {
             && displayMode != .collapsed
             && !isFiltering
             && hasResolvedGroupIndex
-            && !closeIsDeadControl(isGroupEmpty: isGroupEmpty, totalGroupCount: totalGroupCount)
-    }
-
-    /// True when closing the group would be a no-op: `removeGroup` refuses
-    /// the last group, so the sole empty group's close is a dead control.
-    /// Single source of truth for the hover X, the context menu's "Close
-    /// Group" `.disabled`, and the accessibility action's suppression —
-    /// keep all three routed here so they can't drift apart.
-    static func closeIsDeadControl(isGroupEmpty: Bool, totalGroupCount: Int) -> Bool {
-        isGroupEmpty && totalGroupCount <= 1
     }
 }
 
@@ -243,7 +228,6 @@ struct SidebarGroupHeaderRow: View {
             // exactly the direction that would rest a close X over a group the
             // store then refuses to remove.
             isGroupEmpty: group.sessions.isEmpty,
-            totalGroupCount: totalGroupCount,
             isGroupCollapsed: isCollapsed,
             isDragActive: isDragActive
         )
@@ -668,21 +652,16 @@ struct SidebarGroupHeaderRow: View {
         // silently close hidden workspaces — and for unresolved or
         // stale rows (nil currentGroupIndex), where an ID-keyed
         // mutation could hit a different group than the one shown
-        // (same gating rationale as Move Group above). Disabled
-        // for the sole empty group: the store
-        // refuses to remove the last group, so the action would be
-        // a no-op.
+        // (same gating rationale as Move Group above). No longer
+        // disabled for the sole empty group: the store accepts
+        // removing the last group, leaving the first-launch empty
+        // state.
         if !isFiltering, currentGroupIndex != nil {
             Divider()
 
             Button(SidebarGroupClosePolicy.actionLabel, role: .destructive) {
                 onCloseGroup()
             }
-            .disabled(
-                SidebarGroupClosePolicy.closeIsDeadControl(
-                    isGroupEmpty: group.sessions.isEmpty,
-                    totalGroupCount: totalGroupCount
-                ))
         }
     }
 
@@ -744,12 +723,7 @@ struct SidebarGroupHeaderRow: View {
         // Omitted (rather than disabled) when inapplicable —
         // `.accessibilityActions` has no disabled state. Same
         // filtering + unresolved-row suppression as the context menu.
-        if !isFiltering, currentGroupIndex != nil,
-            !SidebarGroupClosePolicy.closeIsDeadControl(
-                isGroupEmpty: group.sessions.isEmpty,
-                totalGroupCount: totalGroupCount
-            )
-        {
+        if !isFiltering, currentGroupIndex != nil {
             Button(SidebarGroupClosePolicy.actionLabel) {
                 onCloseGroup()
             }
@@ -885,7 +859,7 @@ struct SidebarGroupHeaderRow: View {
         .accessibilityHidden(true)
         // Emptied while hidden — AppKit skips empty tooltips, so the count
         // badge can't pop a close tooltip in the states where the X never
-        // shows (filtering, unresolved row, sole empty group, collapsed rail).
+        // shows (filtering, unresolved row, collapsed rail).
         // "Close Group" matches the context menu and VoiceOver action names
         // for the same operation (consistent identification).
         .help(showsGroupCloseButton ? SidebarGroupClosePolicy.actionLabel : "")

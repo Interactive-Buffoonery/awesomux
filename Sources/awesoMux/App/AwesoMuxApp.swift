@@ -797,8 +797,14 @@ struct AwesoMuxApp: App {
                 }
                 .disabled(isAnySheetPresented)
 
+                // Also disabled with no groups: `SSHWorkspaceGroupTargeting`
+                // ends in `?? groups.first`, so an empty tree resolves to nil
+                // and the command silently does nothing. Closing the last
+                // group is now a deliberate destination rather than a
+                // transient launch state, so that no-op is reachable and
+                // sitting in.
                 Button("Connect via SSH…") { requestConnectViaSSH() }
-                    .disabled(isAnySheetPresented)
+                    .disabled(isAnySheetPresented || sessionStore.groups.isEmpty)
 
                 Button("Make This Workspace Managed…") {
                     requestManagedSSHWorkspaceConversion()
@@ -1472,9 +1478,10 @@ struct AwesoMuxApp: App {
                 showGroupCloseStateChanged()
                 return
             }
-            // `removeGroup` refuses the last group (stale context menu or
-            // double-invoke can reach that here) — only announce a removal
-            // that actually happened.
+            // `removeGroup` refuses a group that gained a workspace between
+            // the context menu rendering and this invoke (the re-fetch above
+            // is what makes that reachable) — only announce a removal that
+            // actually happened.
             if sessionStore.removeGroup(id: current.id) {
                 announceGroupClosed(name: voName)
             }
@@ -1531,10 +1538,6 @@ struct AwesoMuxApp: App {
             // the group couldn't be removed — this action did nothing, so
             // announce nothing.
             return
-        } else if sessionStore.groups.first(where: { $0.id == liveGroup.id })?.sessions.isEmpty == true {
-            // Sole-group case: the store refuses to remove the last group,
-            // so the empty shell survives.
-            announceAllWorkspacesClosed(inGroup: voName)
         } else {
             // A workspace joined mid-modal and keeps the group populated —
             // claiming "all workspaces" closed would be false.
@@ -1961,15 +1964,6 @@ struct AwesoMuxApp: App {
         let announcement = String(
             localized: "Closed workspace group \(name)",
             comment: "VoiceOver announcement after a workspace group is closed; argument is the group name."
-        )
-        postAccessibilityAnnouncement(announcement)
-    }
-
-    private func announceAllWorkspacesClosed(inGroup name: String) {
-        let announcement = String(
-            localized: "Closed all workspaces in \(name)",
-            comment:
-                "VoiceOver announcement after closing every workspace in the sole group, which remains as an empty group; argument is the group name."
         )
         postAccessibilityAnnouncement(announcement)
     }

@@ -104,10 +104,25 @@ struct WorkspaceTreeReducerGroupTests {
         #expect(groups[0].name == "main")
     }
 
-    @Test("removeGroup rejects last group")
-    func removeGroupRejectsLastGroup() {
+    /// An empty tree is the cold-launch state (`SessionStore.init` defaults to
+    /// `groups: []`), not a new one — refusing to reach it by closing only
+    /// made the sole empty group's close a dead control.
+    @Test("removeGroup removes the last group, leaving an empty tree")
+    func removeGroupRemovesLastGroup() {
         var groups = [SessionGroup(name: "main", sessions: [])]
+        #expect(WorkspaceTreeReducer.removeGroup(in: &groups, id: groups[0].id))
+        #expect(groups.isEmpty)
+    }
+
+    /// The emptiness guard is the only refusal left, and it still applies to
+    /// the last group — a populated group is closed through `closeGroup`,
+    /// which empties it first.
+    @Test("removeGroup still rejects a populated last group")
+    func removeGroupRejectsPopulatedLastGroup() {
+        let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .shell)
+        var groups = [SessionGroup(name: "main", sessions: [session])]
         #expect(!WorkspaceTreeReducer.removeGroup(in: &groups, id: groups[0].id))
+        #expect(groups.count == 1)
     }
 
     @Test("removeGroup rejects group with sessions")

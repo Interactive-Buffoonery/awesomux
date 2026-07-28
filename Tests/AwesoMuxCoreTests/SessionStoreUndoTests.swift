@@ -133,7 +133,36 @@ struct SessionStoreUndoTests {
         #expect(store.groups.map(\.name) == ["Before", "After"])
     }
 
-    /// The reducer refuses non-empty groups and the last group. A refused
+    /// Closing down to an empty tree and walking all the way back out.
+    ///
+    /// The redo direction is the reason this exists. `restoreRemovedGroup`
+    /// registers its inverse as `removeGroup`, so redoing the *last* group's
+    /// close re-enters the guard this change relaxed. While the reducer
+    /// refused the last group that redo was silently a no-op — undo would
+    /// bring the group back and redo could not take it away again — and no
+    /// test could reach it, because the close it inverts was itself refused.
+    @Test("closing every group undoes and redoes through the empty tree")
+    func closingEveryGroupUndoesAndRedoesThroughEmpty() {
+        let first = SessionGroup(name: "First", sessions: [])
+        let second = SessionGroup(name: "Second", sessions: [])
+        let (store, undoManager) = makeStore(groups: [first, second])
+
+        performGesture(using: undoManager) { #expect(store.removeGroup(id: first.id)) }
+        performGesture(using: undoManager) { #expect(store.removeGroup(id: second.id)) }
+        #expect(store.groups.isEmpty)
+
+        undoManager.undo()
+        #expect(store.groups.map(\.name) == ["Second"])
+        undoManager.undo()
+        #expect(store.groups.map(\.name) == ["First", "Second"])
+
+        undoManager.redo()
+        #expect(store.groups.map(\.name) == ["Second"], "redo must remove the first group again")
+        undoManager.redo()
+        #expect(store.groups.isEmpty, "redo must be able to empty the tree again")
+    }
+
+    /// The reducer refuses non-empty groups and unknown ids. A refused
     /// removal changed nothing, so it must not leave an inverse behind that
     /// would resurrect a group on the next ⌘Z.
     @Test("refused removals do not register undo")

@@ -15,7 +15,6 @@ struct SidebarGroupClosePolicyTests {
         isFiltering: Bool = false,
         hasResolvedGroupIndex: Bool = true,
         isGroupEmpty: Bool = false,
-        totalGroupCount: Int = 2,
         isGroupCollapsed: Bool = false,
         isDragActive: Bool = false
     ) -> Bool {
@@ -25,7 +24,6 @@ struct SidebarGroupClosePolicyTests {
             isFiltering: isFiltering,
             hasResolvedGroupIndex: hasResolvedGroupIndex,
             isGroupEmpty: isGroupEmpty,
-            totalGroupCount: totalGroupCount,
             isGroupCollapsed: isGroupCollapsed,
             isDragActive: isDragActive
         )
@@ -36,16 +34,6 @@ struct SidebarGroupClosePolicyTests {
         #expect(Self.shows())
     }
 
-    @Test("sole empty group hides the X — the store refuses to remove the last group")
-    func soleEmptyGroupHidesCloseButton() {
-        #expect(!Self.shows(isGroupEmpty: true, totalGroupCount: 1))
-    }
-
-    @Test("sole non-empty group shows the X — closing empties it, which is meaningful")
-    func soleNonEmptyGroupShowsCloseButton() {
-        #expect(Self.shows(totalGroupCount: 1))
-    }
-
     @Test("no hover, no X")
     func unhoveredHidesCloseButton() {
         #expect(!Self.shows(isHeaderHovered: false))
@@ -54,8 +42,8 @@ struct SidebarGroupClosePolicyTests {
     /// The whole point of dropping the `+ new workspace` row's duplicate X:
     /// an expanded empty group's body already shows it is empty, so the count
     /// badge says nothing and the X rests in that slot without needing hover.
-    /// Also the surviving half of INT-770 — an empty group among others is
-    /// closable at all, unlike the sole empty group below.
+    /// Group count no longer enters into it — the store accepts removing the
+    /// last group, so there is no dead-control case left to carve out.
     @Test("expanded empty group rests its X visible without hover")
     func expandedEmptyGroupRestsCloseButtonVisible() {
         #expect(Self.shows(isHeaderHovered: false, isGroupEmpty: true))
@@ -94,12 +82,15 @@ struct SidebarGroupClosePolicyTests {
         #expect(!Self.shows(isHeaderHovered: false, isGroupEmpty: false))
     }
 
-    /// The sole empty group cannot be closed at all, so the resting clause
-    /// must not conjure a dead X — the count badge stays as the slot's only
-    /// occupant, which is also the only thing left to render there.
-    @Test("sole empty group rests nothing — the close would be a dead control")
-    func soleExpandedEmptyGroupRestsNothing() {
-        #expect(!Self.shows(isHeaderHovered: false, isGroupEmpty: true, totalGroupCount: 1))
+    /// The carve-out this replaces: the sole empty group used to rest nothing,
+    /// because `removeGroup` refused the last group and the X would have been
+    /// a dead control. It now rests like any other empty group. Group count is
+    /// no longer an input at all, so this asserts the *absence* of the old
+    /// distinction rather than inverting it.
+    @Test("group count does not change what an empty group rests")
+    func groupCountDoesNotAffectRestingCloseButton() {
+        #expect(Self.shows(isHeaderHovered: false, isGroupEmpty: true))
+        #expect(Self.shows(isGroupEmpty: false))
     }
 
     @Test("collapsed rail renders no badge, so no X")
@@ -119,16 +110,4 @@ struct SidebarGroupClosePolicyTests {
         #expect(!Self.shows(hasResolvedGroupIndex: false, isGroupEmpty: true))
     }
 
-    @Test("defensive zero group count also counts as sole — X hidden")
-    func zeroGroupCountHidesCloseButton() {
-        #expect(!Self.shows(isGroupEmpty: true, totalGroupCount: 0))
-    }
-
-    @Test("dead-control clause: only the sole (or fewer) empty group")
-    func closeIsDeadControlTruthTable() {
-        #expect(SidebarGroupClosePolicy.closeIsDeadControl(isGroupEmpty: true, totalGroupCount: 1))
-        #expect(SidebarGroupClosePolicy.closeIsDeadControl(isGroupEmpty: true, totalGroupCount: 0))
-        #expect(!SidebarGroupClosePolicy.closeIsDeadControl(isGroupEmpty: true, totalGroupCount: 2))
-        #expect(!SidebarGroupClosePolicy.closeIsDeadControl(isGroupEmpty: false, totalGroupCount: 1))
-    }
 }
