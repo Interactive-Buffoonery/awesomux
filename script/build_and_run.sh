@@ -28,6 +28,7 @@ PROD_BUNDLE_ID="$AWESOMUX_PRODUCTION_BUNDLE_ID"
 # subsystem) would match nothing.
 LOG_SUBSYSTEM="$PROD_BUNDLE_ID"
 PROCESS_ENUMERATION_FAILURE=70
+SELF_TERMINATION_REFUSED=71
 
 # BUNDLE_DISPLAY_NAME (CFBundleName) distinguishes the two identities everywhere
 # macOS shows the app by name — System Settings → Notifications, the menu bar,
@@ -172,37 +173,46 @@ app_executable_path() {
 awesomux_candidate_pids() {
   local output status
 
-  if output="$(pgrep -x "$APP_NAME" 2>&1)"; then
-    [[ -n "$output" ]] && printf '%s\n' "$output"
-    return 0
+  # `ps -axo pid=,ucomm=` instead of `pgrep -x "$APP_NAME"`: pgrep excludes
+  # the pgrep process itself and ALL of its ancestors by default (pgrep(1),
+  # -a). Running this script from a pane hosted by a running awesoMux
+  # instance — the ordinary way to dogfood a build from inside the app
+  # itself — makes that instance an ancestor of the pgrep call, so pgrep
+  # silently drops it from the candidate list even though its name matches
+  # exactly (awesomux#281). `ps` has no such exclusion.
+  if output="$(ps -axo pid=,ucomm= 2>&1)"; then
+    :
   else
     status="$?"
+    echo "error: unable to enumerate running $APP_NAME processes (ps exited $status)." >&2
+    [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+    return "$PROCESS_ENUMERATION_FAILURE"
   fi
 
-  # pgrep exits 1 for "no matching process". Any other status means process
-  # enumeration itself failed, and treating that as "not running" can leave an
-  # old installed app alive while --install opens the replacement.
-  if [[ "$status" == 1 ]]; then
-    return 0
-  fi
+  local pid comm
+  while read -r pid comm; do
+    [[ "$comm" == "$APP_NAME" ]] && printf '%s\n' "$pid"
+  done <<< "$output"
 
-  echo "error: unable to enumerate running $APP_NAME processes (pgrep exited $status)." >&2
-  [[ -n "$output" ]] && printf '%s\n' "$output" >&2
-  return "$PROCESS_ENUMERATION_FAILURE"
+  # The loop's last `read` always fails at EOF, which would otherwise become
+  # this function's (mis-signaling) return status regardless of how the
+  # enumeration itself went.
+  return 0
 }
 
 # PIDs whose actual executable IS this bundle's binary.
 #
-# `pgrep -x "$APP_NAME"` finds processes named exactly `awesoMux`, then we
+# `awesomux_candidate_pids` finds processes named exactly `awesoMux`, then we
 # confirm each candidate's real executable path (`ps -o comm=`, which is the
 # absolute exec path on macOS) with a fixed-string compare. We deliberately
-# do NOT use `pgrep -f <path>`: `-f` matches an extended REGEX against the
-# whole command line, so the bundle path's dots are wildcards, an install
-# dir with regex metacharacters breaks the match, and — worst — an `lldb`,
-# `leaks`, editor, or `tail` whose argv merely mentions the path would be
-# treated as the running app (false-positive `--verify`) or get killed by a
-# normal build. Matching the exact exec path of a process named `awesoMux`
-# keeps the dist-vs-installed distinction without those footguns.
+# do NOT match the bundle path with a single `ps -axo pid=,args=` regex (the
+# `pgrep -f` equivalent): that matches the whole command line, so the bundle
+# path's dots are wildcards, an install dir with regex metacharacters breaks
+# the match, and — worst — an `lldb`, `leaks`, editor, or `tail` whose argv
+# merely mentions the path would be treated as the running app
+# (false-positive `--verify`) or get killed by a normal build. Matching the
+# exact exec path of a process named `awesoMux` keeps the dist-vs-installed
+# distinction without those footguns.
 app_bundle_pids() {
   local bundle="$1"
   local executable
@@ -245,6 +255,41 @@ app_bundle_pids() {
   done <<< "$candidate_pids"
 }
 
+# True if this script's own process is a descendant of one of the given pids
+# — i.e. it is running inside one of the very processes it is about to
+# terminate. This became reachable once awesomux_candidate_pids started
+# finding ancestor processes correctly (awesomux#281): a non-command-bridged
+# pane (the default; ADR-0011) has awesoMux itself holding the pane's PTY, so
+# terminating an ancestor SIGHUPs this script's own controlling terminal
+# before it can relaunch anything (ForegroundProcessLiveness.busyShell: "quit
+# would SIGHUP it"). A command-bridged pane survives via amx/zmx and isn't at
+# risk, but this script can't tell which kind of pane it's running in, so it
+# treats every ancestor match as unsafe.
+script_runs_inside_pid() {
+  local targets=" $* "
+  local pid="$$"
+  local ppid_output ppid
+  while [[ "$pid" != "0" && "$pid" != "1" ]]; do
+    [[ "$targets" == *" $pid "* ]] && return 0
+    # A failed or malformed ppid lookup must NOT resolve to "walk complete,
+    # no match" — an ancestor this walk lost track of is still an ancestor.
+    # `set -e` doesn't apply inside this `while` condition's command
+    # substitution, so the fallthrough has to be caught explicitly, not
+    # assumed.
+    if ! ppid_output="$(ps -p "$pid" -o ppid= 2>&1)"; then
+      echo "error: unable to inspect process $pid's parent while checking for self-termination; refusing to continue." >&2
+      return "$PROCESS_ENUMERATION_FAILURE"
+    fi
+    ppid="$(tr -d ' ' <<< "$ppid_output")"
+    if [[ ! "$ppid" =~ ^[0-9]+$ ]]; then
+      echo "error: unexpected ppid output '$ppid_output' for process $pid while checking for self-termination; refusing to continue." >&2
+      return "$PROCESS_ENUMERATION_FAILURE"
+    fi
+    pid="$ppid"
+  done
+  return 1
+}
+
 terminate_app_bundle() {
   local bundle="$1"
   local signal="${2:-TERM}"
@@ -257,6 +302,16 @@ terminate_app_bundle() {
   fi
 
   if [[ -n "$pids" ]]; then
+    local self_check_status=0
+    # shellcheck disable=SC2086
+    script_runs_inside_pid $pids || self_check_status="$?"
+    if [[ "$self_check_status" == 0 ]]; then
+      echo "error: refusing to terminate $bundle — this script is running inside one of its own processes. Killing it would tear down this pane before the script could relaunch anything. Run this from a different window (e.g. Terminal.app) instead." >&2
+      exit "$SELF_TERMINATION_REFUSED"
+    elif [[ "$self_check_status" != 1 ]]; then
+      echo "error: cannot safely determine whether this script is running inside $bundle; refusing to continue." >&2
+      exit "$self_check_status"
+    fi
     # Word-split intentional: one or more PIDs on separate lines.
     # shellcheck disable=SC2086
     kill -s "$signal" $pids >/dev/null 2>&1 || true

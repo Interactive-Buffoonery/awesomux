@@ -9,10 +9,81 @@ struct BuildAndRunScriptTests {
         let script = try Self.contents(of: "script/build_and_run.sh")
 
         #expect(script.contains("awesomux_candidate_pids()"))
-        #expect(script.contains("pgrep -x \"$APP_NAME\" 2>&1"))
-        #expect(script.contains("pgrep exits 1 for \"no matching process\""))
+        #expect(script.contains("ps -axo pid=,ucomm= 2>&1"))
+        #expect(script.contains("unable to enumerate running $APP_NAME processes (ps exited $status)"))
         #expect(script.contains("cannot safely determine whether $bundle is running"))
-        #expect(!script.contains("pgrep -x \"$APP_NAME\" 2>/dev/null || true"))
+        // pgrep -x silently misses a name-matching process that is an
+        // ancestor of the pgrep call itself (pgrep(1) -a) — the ordinary
+        // shape of running this script from inside a running awesoMux pane
+        // (awesomux#281). Nothing should invoke pgrep anymore; explaining
+        // why in a comment is fine, so check for the removed invocation
+        // rather than the bare word.
+        #expect(!script.contains("pgrep -x \"$APP_NAME\" 2>&1"))
+    }
+
+    @Test("candidate pid enumeration finds a name-matching ancestor process")
+    func candidatePIDEnumerationFindsAncestorProcess() throws {
+        // `pgrep -x` silently excludes the pgrep process's own ancestors, so a
+        // running awesoMux instance hosting the very pane this script runs in
+        // never showed up as a candidate (awesomux#281). Reproduce that exact
+        // shape for real: a helper process that forks a child bash (instead of
+        // exec'ing over itself) stays alive under a controlled name while its
+        // child calls the function under test, making the helper a genuine
+        // process-tree ancestor of that call — not just a same-name process.
+        let result = try Self.runCandidatePIDAncestorSnippet()
+
+        #expect(result.exitStatus == 0, "stderr: \(result.error)")
+        #expect(result.output.contains("ancestor_found=yes"), "stdout: \(result.output)")
+    }
+
+    @Test("candidate pid enumeration fails closed when ps itself fails")
+    func candidatePIDEnumerationFailsClosedOnPSFailure() throws {
+        // The rewrite moved the ps-failure handling inline; nothing else in
+        // this suite drives `ps` itself failing (the other enumeration-failure
+        // tests stub `app_bundle_pids`/`app_bundle_is_running` a layer up), so
+        // this is the only test that would catch a regression in that branch.
+        let result = try Self.runCandidatePIDsPSFailureSnippet()
+
+        #expect(result.exitStatus == 70, "stderr: \(result.error)")
+        #expect(result.error.contains("unable to enumerate running awesoMux processes (ps exited"))
+    }
+
+    @Test("terminate_app_bundle refuses to kill a process it is running inside")
+    func terminateAppBundleRefusesSelfTermination() throws {
+        // Fixing the ancestor-detection bug above means an ancestor awesoMux
+        // instance now correctly shows up as a termination candidate — but a
+        // non-command-bridged pane (the default; ADR-0011) has awesoMux
+        // itself holding the pane's PTY, so terminating an ancestor SIGHUPs
+        // this very script before it can relaunch anything. `$PPID` inside
+        // the spawned `bash -c` is genuinely this test process's pid, so
+        // `app_bundle_pids` returning it is a real ancestor relationship, not
+        // a stubbed one.
+        let result = try Self.runSelfTerminationGuardSnippet(targetIsAncestor: true)
+
+        #expect(result.exitStatus == 71, "stderr: \(result.error)")
+        #expect(result.error.contains("refusing to terminate"))
+        #expect(!result.output.contains("kill_called=yes"))
+    }
+
+    @Test("terminate_app_bundle still kills a target that is not an ancestor")
+    func terminateAppBundleKillsNonAncestorTarget() throws {
+        let result = try Self.runSelfTerminationGuardSnippet(targetIsAncestor: false)
+
+        #expect(result.exitStatus == 0, "stderr: \(result.error)")
+        #expect(result.output.contains("kill_called=yes"), "stdout: \(result.output)")
+    }
+
+    @Test("terminate_app_bundle refuses to kill when its own ancestry can't be inspected")
+    func terminateAppBundleRefusesWhenAncestryInspectionFails() throws {
+        // A guard whose entire job is refusing an unsafe kill must not fail
+        // open: if `ps` can't be consulted mid-walk, that must not silently
+        // resolve to "not an ancestor, safe to kill" (found by code review —
+        // the walk originally treated a failed/empty ppid lookup exactly
+        // like reaching pid 1 with no match).
+        let result = try Self.runSelfTerminationGuardAncestryFailureSnippet()
+
+        #expect(result.exitStatus == 70, "stderr: \(result.error)")
+        #expect(!result.output.contains("kill_called=yes"), "stdout: \(result.output)")
     }
 
     @Test("plain run and install keep separate shutdown targets")
@@ -325,6 +396,206 @@ struct BuildAndRunScriptTests {
             range: start..<script.endIndex
         )?.lowerBound)
         return String(script[start..<end])
+    }
+
+    private static func candidatePIDsFunction(from script: String) throws -> String {
+        let start = try #require(script.range(of: "awesomux_candidate_pids() {")?.lowerBound)
+        let end = try #require(script.range(of: "\n\n# PIDs whose actual executable", range: start..<script.endIndex)?.lowerBound)
+        return String(script[start..<end])
+    }
+
+    /// Compiles a tiny helper that forks a child instead of exec'ing over
+    /// itself, then waits for it — so the helper process survives under its
+    /// own compiled-name `comm` while its child (and that child's own `bash
+    /// -c` grandchild, which calls `awesomux_candidate_pids`) runs beneath
+    /// it. That makes the helper a real process-tree ancestor of the
+    /// enumeration call, the exact shape pgrep -x silently excludes.
+    private static func runCandidatePIDAncestorSnippet() throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let function = try candidatePIDsFunction(from: script)
+
+        let tempDir = try TemporaryDirectory()
+        // `tempDir` has no further direct reference after deriving these two
+        // URLs, so ARC is free to run its deinit (which deletes the
+        // directory) before the compile/exec steps below finish with it —
+        // the same bug already fixed at its other call sites in
+        // GhosttyConfigEnvironmentTests.swift and HelperConnectionTests.swift.
+        defer { withExtendedLifetime(tempDir) {} }
+        let helperName = "amxpidtest"
+        let sourceURL = tempDir.url.appendingPathComponent("\(helperName).c")
+        let helperURL = tempDir.url.appendingPathComponent(helperName)
+
+        let source = """
+            #include <unistd.h>
+            #include <sys/wait.h>
+            int main(int argc, char **argv) {
+                pid_t pid = fork();
+                if (pid == 0) {
+                    execvp(argv[1], &argv[1]);
+                    _exit(127);
+                }
+                int status = 0;
+                waitpid(pid, &status, 0);
+                return WEXITSTATUS(status);
+            }
+            """
+        try source.write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let compile = Process()
+        compile.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        compile.arguments = ["-O0", "-o", helperURL.path, sourceURL.path]
+        try compile.run()
+        try compile.waitUntilExitEventually()
+        try #require(compile.terminationStatus == 0, "clang failed to compile the ancestor-process test helper")
+
+        let bash = """
+            set -euo pipefail
+            parent_pid="$PPID"
+            APP_NAME=\(helperName)
+            PROCESS_ENUMERATION_FAILURE=70
+            \(function)
+
+            candidates="$(awesomux_candidate_pids)"
+            ancestor_found=no
+            for pid in $candidates; do
+              [[ "$pid" == "$parent_pid" ]] && ancestor_found=yes
+            done
+            printf 'parent_pid=%s ancestor_found=%s candidates=[%s]\\n' "$parent_pid" "$ancestor_found" "$candidates"
+            """
+
+        let process = Process()
+        process.executableURL = helperURL
+        process.arguments = ["/bin/bash", "-c", bash]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        try process.waitUntilExitEventually()
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
+    private static func runCandidatePIDsPSFailureSnippet() throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let function = try candidatePIDsFunction(from: script)
+
+        let bash = """
+            set -euo pipefail
+            APP_NAME=awesoMux
+            PROCESS_ENUMERATION_FAILURE=70
+            \(function)
+
+            ps() { echo "ps: permission denied" >&2; return 1; }
+            awesomux_candidate_pids
+            """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", bash]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        try process.waitUntilExitEventually()
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
+    private static func selfTerminationGuardFunctions(from script: String) throws -> String {
+        let start = try #require(script.range(of: "script_runs_inside_pid() {")?.lowerBound)
+        let end = try #require(script.range(of: "\napp_bundle_is_running() {", range: start..<script.endIndex)?.lowerBound)
+        return String(script[start..<end])
+    }
+
+    /// `app_bundle_pids` is stubbed to hand back either `$PPID` (this test
+    /// process's real pid — a genuine ancestor of the spawned `bash -c`, not
+    /// a synthetic one) or an unrelated pid, so the same real
+    /// `terminate_app_bundle` body decides whether to refuse. `kill` is
+    /// stubbed rather than actually invoked — this test only needs to know
+    /// whether it was reached, not to signal anything.
+    private static func runSelfTerminationGuardSnippet(targetIsAncestor: Bool) throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let functions = try selfTerminationGuardFunctions(from: script)
+        let targetPID = targetIsAncestor ? "$PPID" : "999999"
+
+        let bash = """
+            set -euo pipefail
+            PROCESS_ENUMERATION_FAILURE=70
+            SELF_TERMINATION_REFUSED=71
+            \(functions)
+
+            app_bundle_pids() { echo \(targetPID); }
+            kill() { KILL_CALLED=yes; return 0; }
+
+            terminate_app_bundle /tmp/fake.app
+            printf 'kill_called=%s\\n' "${KILL_CALLED:-no}"
+            """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", bash]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        try process.waitUntilExitEventually()
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
+    /// `ps` is stubbed to fail outright, simulating the ancestry walk losing
+    /// its ability to inspect a pid mid-walk (a reaped intermediate process,
+    /// a transient `ps` failure). The target pid is unrelated to `$PPID` —
+    /// the point is that the walk can never determine there ISN'T a match
+    /// further up, so it must refuse rather than fall through to "safe."
+    private static func runSelfTerminationGuardAncestryFailureSnippet() throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let functions = try selfTerminationGuardFunctions(from: script)
+
+        let bash = """
+            set -euo pipefail
+            PROCESS_ENUMERATION_FAILURE=70
+            SELF_TERMINATION_REFUSED=71
+            \(functions)
+
+            app_bundle_pids() { echo 999999; }
+            ps() { return 1; }
+            kill() { KILL_CALLED=yes; return 0; }
+
+            terminate_app_bundle /tmp/fake.app
+            printf 'kill_called=%s\\n' "${KILL_CALLED:-no}"
+            """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", bash]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        try process.waitUntilExitEventually()
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
     }
 
     private static func ghosttySHAStampFunction(from script: String) throws -> String {
