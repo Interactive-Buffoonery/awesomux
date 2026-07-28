@@ -49,7 +49,7 @@ public struct StatusDot: View {
                     .frame(width: 13, height: 13)
             }
             .frame(width: 14, height: 14)
-            .shadow(
+            .awSignalGlow(
                 color: state.color.opacity(reduceMotion ? 0.45 : (isPulsing ? 0.65 : 0.25)),
                 radius: reduceMotion ? 4 : (isPulsing ? 7 : 2)
             )

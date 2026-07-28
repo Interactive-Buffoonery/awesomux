@@ -78,8 +78,22 @@ public extension View {
     /// Status / identity glow that respects `accessibilityReduceTransparency`.
     /// Drops the halo entirely under reduced-transparency so users who suppress
     /// vibrancy/blur effects in the OS don't get a residual colored aura.
+    ///
+    /// Every colored halo in the app goes through here or through
+    /// `awSignalGlow`. A bare `.shadow(color:radius:)` looks identical in
+    /// isolation but silently opts out of `appearance.glow_strength`, so the
+    /// user's control stops governing the thing it names.
     func awGlow(color: Color, radius: CGFloat, y: CGFloat = 0) -> some View {
-        modifier(AwGlowModifier(color: color, radius: radius, y: y))
+        modifier(AwGlowModifier(color: color, radius: radius, y: y, isStatusSignal: false))
+    }
+
+    /// A halo that *is* the signal — an attention pulse — rather than decoration
+    /// around one. Unlike `awGlow` it survives Reduce Transparency and Increase
+    /// Contrast: those ask for less decoration, not for a status cue to
+    /// disappear. It still scales with `appearance.glow_strength`, which is a
+    /// deliberate user choice about this exact effect.
+    func awSignalGlow(color: Color, radius: CGFloat, y: CGFloat = 0) -> some View {
+        modifier(AwGlowModifier(color: color, radius: radius, y: y, isStatusSignal: true))
     }
 }
 
@@ -126,6 +140,7 @@ private struct AwGlowModifier: ViewModifier {
     let color: Color
     let radius: CGFloat
     let y: CGFloat
+    let isStatusSignal: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.awGlowStrength) private var glowStrength
@@ -133,8 +148,10 @@ private struct AwGlowModifier: ViewModifier {
     func body(content: Content) -> some View {
         // Glow is a soft identity cue. Under reduced transparency or increased
         // contrast, drop it — callers should communicate state through hard
-        // strokes / color contrast instead.
-        if reduceTransparency || contrast == .increased {
+        // strokes / color contrast instead. Signal glows are exempt: for those
+        // the halo carries the state, so suppressing it removes information
+        // rather than decoration.
+        if !isStatusSignal, reduceTransparency || contrast == .increased {
             content
         } else {
             // Clamp so a hand-edited TOML glow strength cannot blow geometry.

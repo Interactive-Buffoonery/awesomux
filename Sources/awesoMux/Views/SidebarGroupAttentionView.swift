@@ -8,11 +8,11 @@ import SwiftUI
 /// `CollapsedStatusBadge.resolve`, so the rail reads consistently whether a
 /// group is expanded (per-tile badges) or collapsed (this rollup).
 ///
-/// `.needs` / `.error` breathe — the `StatusDot.needs` pulse, driven off
-/// `.shadow` rather than `awGlow` so the signal survives reduce-transparency
-/// and increased-contrast (where `awGlow` drops out entirely). `.thinking`
-/// shows a calm, static dot: "working" isn't "needs you", so it doesn't earn
-/// the urgency pulse.
+/// `.needs` / `.error` breathe — the `StatusDot.needs` pulse, drawn with
+/// `awSignalGlow` so the halo survives reduce-transparency and
+/// increased-contrast (where the decorative `awGlow` drops out entirely) while
+/// still honouring the user's glow strength. `.thinking` shows a calm, static
+/// dot: "working" isn't "needs you", so it doesn't earn the urgency pulse.
 struct RailGroupAttentionBadge: View {
     let state: AwState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -36,7 +36,7 @@ struct RailGroupAttentionBadge: View {
                     .foregroundStyle(Color.aw.status.onLoud)
             }
         }
-        .shadow(
+        .awSignalGlow(
             color: state.color.opacity(breathes ? (reduceMotion ? 0.5 : (isPulsing ? 0.7 : 0.3)) : 0),
             radius: breathes ? (reduceMotion ? 4 : (isPulsing ? 7 : 2)) : 0
         )

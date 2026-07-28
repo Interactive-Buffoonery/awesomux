@@ -50,7 +50,7 @@ private struct AwFocusRingModifier: ViewModifier {
                     .stroke(accentColor, lineWidth: lineWidth)
                     .opacity(isFocused ? 1 : 0)
             }
-            .shadow(
+            .awGlow(
                 color: accentGlowColor.opacity(isFocused && !isHighContrast ? 0.45 : 0),
                 radius: isFocused ? AwFocusRing.glowRadius : 0
             )
