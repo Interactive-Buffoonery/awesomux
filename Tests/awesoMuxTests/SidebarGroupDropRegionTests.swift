@@ -145,7 +145,6 @@ struct SidebarGroupDropRegionTests {
         let row = NewWorkspaceInGroupRow(
             isFiltering: false,
             groupName: "Group",
-            showsRestingBorder: NewWorkspaceInGroupRowPolicy.showsRestingBorder(isGroupEmpty: isGroupEmpty),
             ownsDropDelegate: NewWorkspaceInGroupRowPolicy.ownsDropDelegate(isGroupEmpty: isGroupEmpty),
             activeDragKind: nil,
             activeDragID: nil,
