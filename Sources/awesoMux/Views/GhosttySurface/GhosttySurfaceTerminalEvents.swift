@@ -298,7 +298,77 @@ extension GhosttySurfaceNSView {
     // that used to piggyback on `draw()` now run from one runtime-owned task.
 
     func updateTerminalTitle(_ title: String) {
+        let now = CACurrentMediaTime()
+        let pane = PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
+        let lastWrite = terminalEventState.lastTerminalTitleStoreWrite
+        switch ObservableStoreWriteThrottle.decide(
+            now: now,
+            lastWriteAt: lastWrite?.pane == pane ? lastWrite?.at : nil,
+            minInterval: Self.terminalTitleStoreWriteMinInterval
+        ) {
+        case .writeNow:
+            cancelPendingTerminalTitleWrite(ownedBy: pane)
+            commitTerminalTitle(title, writtenAt: now)
+        case .deferBy(let delay):
+            scheduleThrottledTerminalTitleWrite(title, after: delay)
+        }
+    }
+
+    /// Only this pane's own pending write is superseded. A pending write left
+    /// by the view's previous occupant is that pane's last title, so it fires
+    /// and faces `DeferredPaneEventDispatchGuard` instead.
+    private func cancelPendingTerminalTitleWrite(ownedBy pane: PaneStoreWriteKey) {
+        guard terminalEventState.terminalTitleThrottleWorkItem?.pane == pane else {
+            return
+        }
+        terminalEventState.terminalTitleThrottleWorkItem?.item.cancel()
+        terminalEventState.terminalTitleThrottleWorkItem = nil
+    }
+
+    private func scheduleThrottledTerminalTitleWrite(
+        _ title: String,
+        after delay: TimeInterval
+    ) {
+        let pane = PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
+        cancelPendingTerminalTitleWrite(ownedBy: pane)
+
+        let workItem = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.terminalEventState.terminalTitleThrottleWorkItem?.pane == pane {
+                    self.terminalEventState.terminalTitleThrottleWorkItem = nil
+                }
+                guard
+                    DeferredPaneEventDispatchGuard.shouldApply(
+                        capturedSessionID: pane.sessionID,
+                        capturedPaneID: pane.paneID,
+                        currentSessionID: self.sessionID,
+                        currentPaneID: self.paneID
+                    )
+                else { return }
+                self.commitTerminalTitle(title, writtenAt: CACurrentMediaTime())
+            }
+        }
+        terminalEventState.terminalTitleThrottleWorkItem = (workItem, pane)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func commitTerminalTitle(_ title: String, writtenAt: TimeInterval) {
+        terminalEventState.lastTerminalTitleStoreWrite = (
+            PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), writtenAt
+        )
         sessionStore.updatePane(sessionID: sessionID, paneID: paneID, title: title)
+    }
+
+    /// Flushes rather than cancels: `disposeNativeSurface` also fronts the
+    /// command-bridge heal, where the pane outlives the surface and would
+    /// otherwise keep a spinner frame as its title. The work item's own guard
+    /// still drops it if the view has been repointed.
+    func flushTerminalTitleThrottle() {
+        let pending = terminalEventState.terminalTitleThrottleWorkItem?.item
+        terminalEventState.terminalTitleThrottleWorkItem = nil
+        terminalEventState.lastTerminalTitleStoreWrite = nil
+        pending?.perform()
     }
 
     func updateWorkingDirectory(_ workingDirectory: String) {
@@ -334,7 +404,7 @@ extension GhosttySurfaceNSView {
                 // different pane while the timer was pending — only clear
                 // the pane that actually armed it.
                 guard
-                    ProgressReportDispatchGuard.shouldApply(
+                    DeferredPaneEventDispatchGuard.shouldApply(
                         capturedSessionID: sessionID,
                         capturedPaneID: paneID,
                         currentSessionID: self.sessionID,
@@ -352,10 +422,10 @@ extension GhosttySurfaceNSView {
     }
 
     /// Trailing-edge rate limit for the actual store write. See
-    /// `ProgressReportWriteThrottle`.
+    /// `ObservableStoreWriteThrottle`.
     private func writeProgressReportThrottled(_ progressReport: TerminalProgressReport) {
         let now = CACurrentMediaTime()
-        switch ProgressReportWriteThrottle.decide(
+        switch ObservableStoreWriteThrottle.decide(
             now: now,
             lastWriteAt: terminalEventState.lastProgressReportStoreWriteAt,
             minInterval: Self.progressReportStoreWriteMinInterval
@@ -386,7 +456,7 @@ extension GhosttySurfaceNSView {
                 self.terminalEventState.progressReportThrottleWorkItem = nil
                 // Same pane-recycle hazard as the expiry timer above.
                 guard
-                    ProgressReportDispatchGuard.shouldApply(
+                    DeferredPaneEventDispatchGuard.shouldApply(
                         capturedSessionID: sessionID,
                         capturedPaneID: paneID,
                         currentSessionID: self.sessionID,

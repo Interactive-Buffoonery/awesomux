@@ -19,15 +19,16 @@ private actor FetchCompletionGate {
     }
 }
 
-/// `ProgressReportWriteThrottle.decide` — the trailing-edge rate limit for
-/// `progressReport` store writes (INT-587 review, findings #3/#1). Pure, so
-/// it tests without a live `GhosttySurfaceNSView`/native surface.
-@Suite("ProgressReportWriteThrottle")
-struct ProgressReportWriteThrottleTests {
+/// `ObservableStoreWriteThrottle.decide` — the trailing-edge rate limit for
+/// `progressReport` (INT-587 review, findings #3/#1) and terminal-title store
+/// writes. Pure, so it tests without a live `GhosttySurfaceNSView`/native
+/// surface.
+@Suite("ObservableStoreWriteThrottle")
+struct ObservableStoreWriteThrottleTests {
     @Test("first write (no prior write) commits immediately")
     func firstWriteCommitsImmediately() {
         #expect(
-            ProgressReportWriteThrottle.decide(
+            ObservableStoreWriteThrottle.decide(
                 now: 100,
                 lastWriteAt: nil,
                 minInterval: 0.1
@@ -37,7 +38,7 @@ struct ProgressReportWriteThrottleTests {
     @Test("a write outside the window commits immediately")
     func writeOutsideWindowCommitsImmediately() {
         #expect(
-            ProgressReportWriteThrottle.decide(
+            ObservableStoreWriteThrottle.decide(
                 now: 100.2,
                 lastWriteAt: 100.0,
                 minInterval: 0.1
@@ -51,7 +52,7 @@ struct ProgressReportWriteThrottleTests {
         // than an exact tie (which is inherently float-imprecise, not a
         // meaningful throttle behavior to pin down).
         #expect(
-            ProgressReportWriteThrottle.decide(
+            ObservableStoreWriteThrottle.decide(
                 now: 100.101,
                 lastWriteAt: 100.0,
                 minInterval: 0.1
@@ -60,7 +61,7 @@ struct ProgressReportWriteThrottleTests {
 
     @Test("a write inside the window defers by the remaining time")
     func writeInsideWindowDefers() {
-        let decision = ProgressReportWriteThrottle.decide(
+        let decision = ObservableStoreWriteThrottle.decide(
             now: 100.03,
             lastWriteAt: 100.0,
             minInterval: 0.1
@@ -83,7 +84,7 @@ struct ProgressReportWriteThrottleTests {
         var deadlines: [TimeInterval] = []
         for tick in stride(from: 0.01, through: 0.09, by: 0.01) {
             guard
-                case .deferBy(let delay) = ProgressReportWriteThrottle.decide(
+                case .deferBy(let delay) = ObservableStoreWriteThrottle.decide(
                     now: tick,
                     lastWriteAt: lastWriteAt,
                     minInterval: minInterval
@@ -100,15 +101,15 @@ struct ProgressReportWriteThrottleTests {
     }
 }
 
-/// `ProgressReportDispatchGuard.shouldApply` — the pane-recycle guard for
-/// deferred progress-report effects (throttled writes, the 15s auto-expiry).
-/// Verifies the exact condition used at both call sites in
-/// `GhosttySurfaceTerminalEvents.updateProgressReport`: a report scheduled
-/// for one pane must not land on a different pane if the view gets
-/// re-pointed via `update(session:pane:...)` before the deferred effect
-/// fires (INT-587 review, finding #1).
-@Suite("ProgressReportDispatchGuard")
-struct ProgressReportDispatchGuardTests {
+/// `DeferredPaneEventDispatchGuard.shouldApply` — the pane-recycle guard for
+/// every deferred terminal-event effect: throttled progress-report and
+/// terminal-title writes, and the 15s progress auto-expiry. Verifies the exact
+/// condition used at those call sites: an effect scheduled for one pane must
+/// not land on a different pane if the view gets re-pointed via
+/// `update(session:pane:...)` before the deferred effect fires (INT-587
+/// review, finding #1).
+@Suite("DeferredPaneEventDispatchGuard")
+struct DeferredPaneEventDispatchGuardTests {
     @Test("suspended fetch does not apply after its surface is repointed")
     func suspendedFetchDoesNotApplyAfterRepoint() async {
         let capturedSessionID = TerminalSession.ID()
@@ -116,7 +117,7 @@ struct ProgressReportDispatchGuardTests {
         let gate = FetchCompletionGate()
         let completion = Task {
             await gate.wait()
-            return ProgressReportDispatchGuard.shouldApply(
+            return DeferredPaneEventDispatchGuard.shouldApply(
                 capturedSessionID: capturedSessionID,
                 capturedPaneID: capturedPaneID,
                 currentSessionID: capturedSessionID,
@@ -136,7 +137,7 @@ struct ProgressReportDispatchGuardTests {
         let paneID = TerminalPane.ID()
 
         #expect(
-            ProgressReportDispatchGuard.shouldApply(
+            DeferredPaneEventDispatchGuard.shouldApply(
                 capturedSessionID: sessionID,
                 capturedPaneID: paneID,
                 currentSessionID: sessionID,
@@ -149,7 +150,7 @@ struct ProgressReportDispatchGuardTests {
         let sessionID = TerminalSession.ID()
 
         #expect(
-            !ProgressReportDispatchGuard.shouldApply(
+            !DeferredPaneEventDispatchGuard.shouldApply(
                 capturedSessionID: sessionID,
                 capturedPaneID: TerminalPane.ID(),
                 currentSessionID: sessionID,
@@ -162,7 +163,7 @@ struct ProgressReportDispatchGuardTests {
         let paneID = TerminalPane.ID()
 
         #expect(
-            !ProgressReportDispatchGuard.shouldApply(
+            !DeferredPaneEventDispatchGuard.shouldApply(
                 capturedSessionID: TerminalSession.ID(),
                 capturedPaneID: paneID,
                 currentSessionID: TerminalSession.ID(),

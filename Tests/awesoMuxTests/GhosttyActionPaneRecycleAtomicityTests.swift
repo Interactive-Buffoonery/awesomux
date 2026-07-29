@@ -32,8 +32,101 @@ import Testing
 /// View-local sibling actions and the other deliberately excluded cases are
 /// also outside this test's scope; see the PR description.
 @MainActor
-@Suite("Ghostty actions survive a pane recycle")
+@Suite("Ghostty actions survive a pane recycle", .serialized)
 struct GhosttyActionPaneRecycleAtomicityTests {
+    @Test("rapid terminal titles collapse to the latest trailing write")
+    func rapidTerminalTitlesCollapseToLatestTrailingWrite() async throws {
+        let harness = makeHarness()
+
+        harness.view.updateTerminalTitle("⠋ awesomux")
+        harness.view.updateTerminalTitle("⠙ awesomux")
+        harness.view.updateTerminalTitle("⠹ awesomux")
+
+        #expect(
+            harness.store.session(id: harness.sessionA.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "⠋ awesomux"
+        )
+
+        try await Task.sleep(for: .milliseconds(600))
+
+        #expect(
+            harness.store.session(id: harness.sessionA.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "⠹ awesomux"
+        )
+    }
+
+    @Test("a deferred terminal title never lands on the recycled-in pane")
+    func deferredTerminalTitleNeverLandsOnRecycledInPane() async throws {
+        let harness = makeHarness()
+
+        harness.view.updateTerminalTitle("title written to A")
+        harness.view.updateTerminalTitle("deferred title meant for A")
+        let recycledView = recycle(harness)
+        recycledView.updateTerminalTitle("title written to B")
+
+        #expect(recycledView === harness.view)
+
+        try await Task.sleep(for: .milliseconds(600))
+
+        // B's own write must not cancel A's pending item, so A's deferred write
+        // reaches the guard and is dropped there rather than misattributed.
+        #expect(
+            harness.store.session(id: harness.sessionB.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "title written to B"
+        )
+        #expect(
+            harness.store.session(id: harness.sessionA.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "title written to A"
+        )
+    }
+
+    @Test("a recycled-in pane's first title is not delayed by the outgoing pane")
+    func recycledInPaneDoesNotInheritThrottleDebt() {
+        let harness = makeHarness()
+
+        harness.view.updateTerminalTitle("title written to A")
+        let recycledView = recycle(harness)
+        recycledView.updateTerminalTitle("title written to B")
+
+        // No sleep: B's first write lands synchronously because the throttle
+        // window is keyed on the pane, not on the recycled view.
+        #expect(
+            harness.store.session(id: harness.sessionB.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "title written to B"
+        )
+    }
+
+    @Test("a pending terminal title is flushed when the surface is torn down")
+    func pendingTerminalTitleSurvivesTeardown() {
+        let harness = makeHarness()
+
+        harness.view.updateTerminalTitle("title written to A")
+        harness.view.updateTerminalTitle("final title for A")
+        harness.view.flushTerminalTitleThrottle()
+
+        // The command-bridge heal disposes the surface while the pane lives on,
+        // so the pending title must land rather than be cancelled.
+        #expect(
+            harness.store.session(id: harness.sessionA.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "final title for A"
+        )
+    }
+
+    @Test("a deferred terminal title still lands when the view is not recycled")
+    func deferredTerminalTitleLandsWithoutRecycle() async throws {
+        let harness = makeHarness()
+
+        harness.view.updateTerminalTitle("title written to A")
+        harness.view.updateTerminalTitle("settled title for A")
+
+        try await Task.sleep(for: .milliseconds(600))
+
+        #expect(
+            harness.store.session(id: harness.sessionA.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "settled title for A"
+        )
+    }
+
     @Test("terminal titles stay with the session targeted at handler time")
     func terminalTitleSurvivesRecycle() {
         let harness = makeHarness()

@@ -28,8 +28,8 @@ import Testing
 /// `updateProgressReport` — the throttle's `.deferBy` branch and the 15s
 /// auto-expiry timer, both in `GhosttySurfaceTerminalEvents.swift` — still
 /// legitimately capture identity at schedule time and revalidate it on fire
-/// via `ProgressReportDispatchGuard`; that guard is unrelated to this fix and
-/// already covered by `ProgressReportDispatchGuardTests`.)
+/// via `DeferredPaneEventDispatchGuard`; that guard is unrelated to this fix and
+/// already covered by `DeferredPaneEventDispatchGuardTests`.)
 ///
 /// This test can't reconstruct the actual C callback (`GhosttyRuntime.action`
 /// needs a live `ghostty_target_s` wrapping a real `ghostty_surface_t`, which
@@ -125,11 +125,11 @@ struct ProgressReportPaneRecycleAtomicityTests {
         )
         #expect(recycledView === view)
 
-        // Clear the trailing-edge write throttle's window (`ProgressReportWriteThrottle`,
+        // Clear the trailing-edge write throttle's window (`ObservableStoreWriteThrottle`,
         // `progressReportStoreWriteMinInterval` = 0.1s) so this second call commits
         // immediately via `.writeNow` instead of deferring through
         // `scheduleThrottledProgressReportWrite`. A deferred write is a
-        // DIFFERENT, already-covered guard (`ProgressReportDispatchGuardTests`)
+        // DIFFERENT, already-covered guard (`DeferredPaneEventDispatchGuardTests`)
         // — this test is specifically about the direct/immediate path the
         // fixed `onMainThreadSynchronously` dispatch site exercises.
         try await Task.sleep(nanoseconds: 150_000_000)

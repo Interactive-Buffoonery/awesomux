@@ -35,10 +35,16 @@ final class GhosttySurfaceTerminalEventState {
     var progressReportExpiryWorkItem: DispatchWorkItem?
 
     /// Backs the trailing-edge write throttle in `updateProgressReport` —
-    /// see `ProgressReportWriteThrottle` for the decision logic and
+    /// see `ObservableStoreWriteThrottle` for the decision logic and
     /// `progressReportStoreWriteMinInterval` for the window.
     var progressReportThrottleWorkItem: DispatchWorkItem?
     var lastProgressReportStoreWriteAt: TimeInterval?
+
+    /// Both are keyed on the pane, not the view: views are recycled across
+    /// panes, so a per-view window lets a recycled-in pane inherit the outgoing
+    /// pane's throttle debt and delays its first title by up to a full window.
+    var terminalTitleThrottleWorkItem: (item: DispatchWorkItem, pane: PaneStoreWriteKey)?
+    var lastTerminalTitleStoreWrite: (pane: PaneStoreWriteKey, at: TimeInterval)?
 
     /// Debounces the `.valueChanged` VoiceOver notification posted when the
     /// passive visible-state sampler detects new terminal output. Same
