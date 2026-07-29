@@ -141,7 +141,12 @@ public final class SessionStore {
             reconcileLiftedSessionIDs()
             return
         }
-        attentionStickySessionID = selected
+        // Same publish hazard as the nil branch above: a selected, needy
+        // workspace re-arms the dwell on every setActivePane / focusPane /
+        // window-key change, republishing an identical sticky.
+        if attentionStickySessionID != selected {
+            attentionStickySessionID = selected
+        }
         reconcileLiftedSessionIDs()
     }
 
@@ -251,8 +256,11 @@ public final class SessionStore {
         defer { isReplacingState = false }
         _groups = components.groups
         recentlyClosed = components.recentlyClosed
-        pinnedSessionIDs = components.pinnedSessionIDs
-        lastClosedTransient = nil
+        // Both clears precede the `pinnedSessionIDs` write below, whose observer
+        // reconciles the lifted list against the new `_groups`: leaving them
+        // after it would make the end state depend on the commit that follows
+        // rather than on the clears themselves.
+        //
         // "The user is mid-read of this row" is not state a bulk restore
         // inherits, and the ID-reuse hazard above applies: a surviving sticky
         // could lift a restored workspace that never needed input.
@@ -261,6 +269,8 @@ public final class SessionStore {
         // workspaces by when their pre-restore namesakes asked. The commit below
         // rebuilds it in group order.
         liftedSessionIDs = []
+        pinnedSessionIDs = components.pinnedSessionIDs
+        lastClosedTransient = nil
         shellActivityReducer = ShellActivityReducer()
         runtimeEventReducer = AgentRuntimeEventReducer()
         commit(

@@ -83,6 +83,22 @@ import Testing
         #expect(store.liftedSessionIDs == [a.id])
     }
 
+    /// The off→on direction above leaves the disable path unexercised, and a
+    /// stale list would keep rendering a section the setting just turned off.
+    @Test func disablingTheSectionDrainsTheLiftedListAndSticky() {
+        let calm = TerminalSession(title: "calm", workingDirectory: "~")
+        let a = needy("alpha")
+        let store = SessionStore(groups: [SessionGroup(name: "One", sessions: [calm, a])])
+        store.needsInputSectionEnabled = true
+        store.selectedSessionID = a.id
+        #expect(store.attentionStickySessionID == a.id)
+        #expect(store.liftedSessionIDs == [a.id])
+
+        store.needsInputSectionEnabled = false
+        #expect(store.liftedSessionIDs.isEmpty)
+        #expect(store.attentionStickySessionID == nil)
+    }
+
     @Test func liftedSessionIDsExcludesPinned() {
         let a = needy("alpha")
         let store = SessionStore(groups: [SessionGroup(name: "One", sessions: [a])])
