@@ -1154,23 +1154,44 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         action.hasPrefix("paste_")
     }
 
+    /// A paste with nothing behind it answers no prompt. `paste_from_clipboard`
+    /// reads the general pasteboard; `paste_from_selection` reads Ghostty's own
+    /// selection buffer, which has no AppKit seam here, so only the clipboard
+    /// variant can be pre-checked.
+    private static func pasteActionHasContent(_ action: String) -> Bool {
+        guard action == "paste_from_clipboard" else { return true }
+        return NSPasteboard.general.string(forType: .string)?.isEmpty == false
+    }
+
     @discardableResult
     func performBindingAction(_ action: String) -> Bool {
         guard let surface else {
             return false
         }
 
-        if Self.bindingActionDeliversUserText(action) {
-            markNeedsAttentionPromptAnswered()
-        }
-
-        return action.withCString { cAction in
+        let accepted = action.withCString { cAction in
             ghostty_surface_binding_action(
                 surface,
                 cAction,
                 UInt(action.lengthOfBytes(using: .utf8))
             )
         }
+
+        // Mark the prompt answered only once libghostty has ACCEPTED a paste
+        // that had something to deliver — marking on mere action recognition
+        // cleared the prompt for an empty clipboard or a rejected binding,
+        // dropping the row out of Needs Input with zero bytes sent (INT-819).
+        // Ghostty's unsafe-paste confirmation resolves asynchronously inside
+        // libghostty with no callback out to us, so a paste the user cancels at
+        // that sheet still marks answered; the next real prompt re-raises it.
+        if accepted,
+            Self.bindingActionDeliversUserText(action),
+            Self.pasteActionHasContent(action)
+        {
+            markNeedsAttentionPromptAnswered()
+        }
+
+        return accepted
     }
 
     func writeFromChrome(_ text: String) {

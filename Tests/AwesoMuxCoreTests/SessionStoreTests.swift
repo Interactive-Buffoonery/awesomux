@@ -743,10 +743,13 @@ final class SessionStoreTests: XCTestCase {
         // re-arm the selection dwell so the NEW active pane gets read-then-acked.
         // Without the reschedule the pending dwell (baselined on the old pane)
         // bails and the new active pane stays loud forever.
+        // Uses `.bell` deliberately: the dwell is ack-on-read and no longer
+        // clears a reason that `awaitsExplicitAnswer` (INT-819), so a blocking
+        // reason here would test the exemption rather than the re-arm.
         let paneA = TerminalPane(title: "a", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
         let paneB = TerminalPane(
             title: "b", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .userInputRequired, unreadNotificationCount: 2,
+            attentionReason: .bell, unreadNotificationCount: 2,
             executionPlan: .local
         )
         let session = TerminalSession(
@@ -771,7 +774,7 @@ final class SessionStoreTests: XCTestCase {
         try await Task.sleep(nanoseconds: 30_000_000)
         XCTAssertEqual(
             store.session(id: session.id)?.layout.pane(id: paneB.id)?.attentionReason,
-            .userInputRequired
+            .bell
         )
 
         // Switch active pane to B → the dwell must re-arm and ack B.
@@ -786,6 +789,60 @@ final class SessionStoreTests: XCTestCase {
             store.session(id: session.id)?.layout.pane(id: paneB.id)?.unreadNotificationCount,
             0
         )
+    }
+
+    func testDwellDoesNotClearABlockingPromptButStillClearsABell() async throws {
+        // INT-819: reading a blocking prompt is not answering it. The dwell is
+        // ack-on-read, which fits a bell — seeing it IS the response. A
+        // permission prompt still blocks the agent after being read, so a
+        // passive clear would drop the row out of Needs Input while the agent
+        // sits stalled. Only an explicit ack clears these.
+        let blocking = TerminalSession(
+            title: "blocking",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .permissionPrompt,
+            unreadNotificationCount: 2
+        )
+        let noisy = TerminalSession(
+            title: "noisy",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .bell,
+            unreadNotificationCount: 2
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "main", sessions: [blocking, noisy])],
+            acknowledgementDwellNanoseconds: 10_000_000
+        )
+
+        // Arm the dwell on the blocking workspace, then move to the bell one.
+        // The bell's acknowledgement is the observable proof that the dwell
+        // machinery ran at all — the blocking prompt deliberately produces no
+        // state change, so it offers nothing to poll on.
+        store.selectedSessionID = blocking.id
+        store.selectedSessionID = noisy.id
+        let didAcknowledgeBell = await waitUntilEventually {
+            store.session(id: noisy.id)?.activePane?.attentionReason == nil
+        }
+        XCTAssertTrue(didAcknowledgeBell, "the dwell must still clear a bell")
+
+        // The blocking workspace's own dwell elapsed before the bell's did, and
+        // left the prompt untouched.
+        XCTAssertEqual(
+            store.session(id: blocking.id)?.activePane?.attentionReason,
+            .permissionPrompt,
+            "the dwell must not passively answer a blocking prompt"
+        )
+        XCTAssertEqual(
+            store.session(id: blocking.id)?.activePane?.unreadNotificationCount,
+            2,
+            "an unanswered prompt keeps its unread weight"
+        )
+
+        // An explicit ack is the sanctioned way out of a blocking prompt.
+        store.acknowledgeSession(id: blocking.id)
+        XCTAssertNil(store.session(id: blocking.id)?.activePane?.attentionReason)
     }
 
     func testAcknowledgeAllSessionsClearsAttentionStateAndBadgeCounts() {

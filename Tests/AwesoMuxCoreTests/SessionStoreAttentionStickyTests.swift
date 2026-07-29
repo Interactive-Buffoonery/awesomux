@@ -111,24 +111,59 @@ import Testing
     /// directly, so deleting `releasesAttentionSticky: false` from the dwell's
     /// call site fails here instead of shipping a section that evicts the row
     /// the user is reading.
+    ///
+    /// Post INT-819 the dwell declines to acknowledge a blocking prompt at all,
+    /// so the row survives for two independent reasons — the prompt is still
+    /// live AND the sticky is held. Both are asserted: a regression that
+    /// re-enabled passive clearing would still be caught by the sticky check.
     @Test func theRealDwellAcknowledgesWithoutReleasingTheSticky() async {
         let calm = TerminalSession(title: "calm", workingDirectory: "~")
         let a = needy("alpha")
+        // A second workspace carrying only a bell. Its acknowledgement is the
+        // observable proof that the real dwell fired — a blocking prompt now
+        // produces no state change of its own, so there is nothing to poll on
+        // the workspace under test.
+        var bell = TerminalSession(title: "bell", workingDirectory: "~")
+        bell.layout = bell.layout.mappingPanes { pane in
+            var pane = pane
+            pane.attentionReason = .bell
+            pane.unreadNotificationCount = 1
+            return pane
+        }
         let store = SessionStore(
-            groups: [SessionGroup(name: "One", sessions: [calm, a])],
+            groups: [SessionGroup(name: "One", sessions: [calm, a, bell])],
             acknowledgementDwellNanoseconds: 10_000_000
         )
         store.needsInputSectionEnabled = true
+
         store.selectedSessionID = a.id
         #expect(store.attentionStickySessionID == a.id)
 
+        // Select the bell workspace and wait for ITS dwell to land. The dwell
+        // scheduled for `a` had already elapsed by then.
+        store.selectedSessionID = bell.id
         let dwellRan = await waitUntilEventually {
-            store.session(id: a.id)?.needsUserInput == false
+            store.session(id: bell.id)?.activePane?.attentionReason == nil
         }
-        #expect(dwellRan)
+        #expect(dwellRan, "the dwell must still clear a non-blocking reason")
+
+        #expect(
+            store.session(id: a.id)?.needsUserInput == true,
+            "the dwell must not passively answer a blocking prompt"
+        )
+
+        // Re-select `a` and let its dwell run again: the prompt survives and the
+        // sticky holds the row in place while it is read.
+        store.selectedSessionID = a.id
         #expect(store.attentionStickySessionID == a.id)
-        // Still lifted purely on the sticky's strength — the point of the whole
-        // mechanism.
+        #expect(store.liftedSessionIDs == [a.id])
+
+        // The sticky is what holds the row once the prompt IS answered — the
+        // point of the whole mechanism. Acknowledge without releasing it, the
+        // way the dwell would for a non-blocking reason.
+        store.acknowledgeSession(id: a.id, releasesAttentionSticky: false)
+        #expect(store.session(id: a.id)?.needsUserInput == false)
+        #expect(store.attentionStickySessionID == a.id)
         #expect(store.liftedSessionIDs == [a.id])
     }
 
@@ -160,14 +195,26 @@ import Testing
         #expect(store.attentionStickySessionID == nil)
         #expect(store.liftedSessionIDs == [a.id])
 
-        // The user clicks into the terminal to answer.
+        // The user clicks into the terminal to answer. This arms the dwell
+        // without a selection change — the case only the arming choke point
+        // covers.
         store.setActivePane(id: paneID, in: a.id)
 
-        let dwellRan = await waitUntilEventually {
-            store.session(id: a.id)?.needsUserInput == false
+        // Arming is synchronous, so the sticky is captured immediately; the
+        // dwell itself then declines to clear the blocking prompt (INT-819).
+        #expect(store.attentionStickySessionID == a.id)
+        // The prompt must SURVIVE the dwell, so there is no state change to
+        // poll for. Assert the condition holds continuously across a window the
+        // 10 ms dwell lands well inside: a regression that cleared it would flip
+        // this to false and fail.
+        let promptSurvivedTheDwell = await waitUntilEventually(deadline: .milliseconds(300)) {
+            store.session(id: a.id)?.needsUserInput != true
         }
-        #expect(dwellRan)
-        // The dwell acknowledged, but the row must stay put while it is read.
+        #expect(
+            !promptSurvivedTheDwell,
+            "the dwell must not passively answer a blocking prompt"
+        )
+        // The row must stay put while it is read.
         #expect(store.attentionStickySessionID == a.id)
         #expect(store.liftedSessionIDs == [a.id])
     }

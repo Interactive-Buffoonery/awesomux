@@ -56,7 +56,13 @@ public final class SessionStore {
     /// so this is also what arms the sticky at launch, and toggling the setting
     /// off has to drop a sticky the section no longer renders.
     public var needsInputSectionEnabled: Bool = false {
-        didSet { refreshAttentionSticky() }
+        didSet {
+            // Every other path that forcibly ends a "user is reading this row"
+            // state cancels the dwell first; this one has to as well, or an
+            // in-flight dwell fires against a section that no longer renders.
+            acknowledgementCoordinator.cancel()
+            refreshAttentionSticky()
+        }
     }
 
     /// The workspace held in the Needs Input section past the point it stopped

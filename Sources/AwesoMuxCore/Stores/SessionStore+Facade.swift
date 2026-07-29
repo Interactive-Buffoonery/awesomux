@@ -995,9 +995,7 @@ extension SessionStore {
             let activePane = session.layout.pane(id: session.activePaneID)
             baseline = SelectionAcknowledgementBaseline(
                 activePaneID: session.activePaneID,
-                paneUnreadCount: activePane?.unreadNotificationCount ?? 0,
-                paneAwaitsExplicitAnswer: activePane?.attentionReason?
-                    .awaitsExplicitAnswer == true
+                paneUnreadCount: activePane?.unreadNotificationCount ?? 0
             )
         } else {
             baseline = nil
@@ -1025,18 +1023,16 @@ extension SessionStore {
             guard currentPaneUnread <= baseline.paneUnreadCount else {
                 return
             }
-            // The dwell clears attention the user has SEEN. A prompt raised
-            // after arming has not been seen — the user's attention landed
-            // first — and acknowledging it would answer a question nobody read.
-            // Unread cannot catch this: a prompt on the focused pane adds no
-            // unread by design. Scoped to reasons that block on a human answer;
-            // a `.bell` or background-output `.unknown` still acks as before.
-            // Nothing is stranded by bailing — the next selection change /
-            // `setActivePane` / `focusPane` re-arms with the prompt in baseline.
-            guard
-                baseline.paneAwaitsExplicitAnswer
-                    || currentPane?.attentionReason?.awaitsExplicitAnswer != true
-            else {
+            // Reading a blocking prompt is not answering it. The dwell is
+            // ack-on-read (ADR-0003), which fits a bell or background output —
+            // seeing it IS the whole response. A `.permissionPrompt` /
+            // `.userInputRequired` still blocks the agent after it has been
+            // read, so passively clearing it drops the row out of Needs Input
+            // while the agent sits stalled, and nothing necessarily re-asserts
+            // the reason (a pending bridge permission needs no further count
+            // change). Only an explicit ack — ⌘⇧K, Mark as Read, or actually
+            // answering — clears these.
+            guard currentPane?.attentionReason?.awaitsExplicitAnswer != true else {
                 return
             }
 

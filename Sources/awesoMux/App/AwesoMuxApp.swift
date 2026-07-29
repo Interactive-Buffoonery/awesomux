@@ -179,6 +179,10 @@ struct AwesoMuxApp: App {
     @State private var isSidebarPersistentlyHidden = SidebarPresentationPreferenceStore().isHidden()
     @State private var sidebarCommandTargetAvailability = SidebarCommandTargetAvailability()
     @State private var quickRunToast: QuickRunToast?
+    /// Carries the workspace order across a run of consecutive Previous/Next
+    /// presses so a sticky release mid-walk can't reorder the list underfoot
+    /// (INT-819). Any selection change from another path invalidates it.
+    @State private var workspaceTraversalRun: WorkspaceNavigationOrder.TraversalRun?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
 
     private static let logger = Logger(
@@ -2367,20 +2371,19 @@ struct AwesoMuxApp: App {
     }
 
     private func selectWorkspaceRelative(offset: Int) {
-        let order = workspaceNavigationOrder()
-        guard order.count > 1 else {
-            sessionStore.selectedSessionID = order.first
-            return
-        }
-        guard let current = sessionStore.selectedSessionID,
-            let currentIndex = order.firstIndex(of: current)
+        guard
+            let step = WorkspaceNavigationOrder.step(
+                offset: offset,
+                currentSelection: sessionStore.selectedSessionID,
+                run: workspaceTraversalRun,
+                freshOrder: workspaceNavigationOrder()
+            )
         else {
-            sessionStore.selectedSessionID = order.first
+            workspaceTraversalRun = nil
             return
         }
-        let count = order.count
-        let nextIndex = ((currentIndex + offset) % count + count) % count
-        sessionStore.selectedSessionID = order[nextIndex]
+        sessionStore.selectedSessionID = step.selection
+        workspaceTraversalRun = step.run
     }
 
     /// Pane-scoped title only — no window fallback. The Workspace menu's
