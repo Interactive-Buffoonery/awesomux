@@ -58,7 +58,11 @@ public enum WorkspaceNavigationOrder {
     ) -> (selection: TerminalSession.ID, run: TraversalRun?)? {
         let order: [TerminalSession.ID]
         if let run, run.selection == currentSelection {
-            order = run.order
+            // Closing a workspace other than the selected one leaves the run
+            // alive with an ID that has left the tree; stepping onto it would
+            // select nothing at all.
+            let liveIDs = Set(freshOrder())
+            order = run.order.filter { liveIDs.contains($0) }
         } else {
             order = freshOrder()
         }

@@ -171,6 +171,39 @@ import Testing
         #expect(next?.selection == f.d.id)
     }
 
+    @Test func closingAnUnselectedWorkspaceMidRunNeverSelectsIt() {
+        let f = groups()
+        let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
+            in: f.groups,
+            pinnedSessionIDs: []
+        )
+        let first = WorkspaceNavigationOrder.step(
+            offset: 1,
+            currentSelection: f.a.id,
+            run: nil,
+            freshOrder: order
+        )
+        #expect(first?.selection == f.b.id)
+
+        // c closes while b stays selected, so the run survives — but its
+        // captured order still lists c.
+        let afterClose = WorkspaceNavigationOrder.liftedFirstSessionIDs(
+            in: [
+                SessionGroup(name: "One", sessions: [f.a, f.b]),
+                SessionGroup(name: "Two", sessions: [f.d]),
+            ],
+            pinnedSessionIDs: []
+        )
+        let next = WorkspaceNavigationOrder.step(
+            offset: 1,
+            currentSelection: f.b.id,
+            run: first?.run,
+            freshOrder: afterClose
+        )
+        #expect(next?.selection == f.d.id)
+        #expect(next?.run?.order.contains(f.c.id) == false)
+    }
+
     @Test func traversalWrapsInBothDirections() {
         let f = groups()
         let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
