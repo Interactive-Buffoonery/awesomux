@@ -531,8 +531,13 @@ struct SidebarView: View {
         }
         .onAppear {
             sessionStore.undoManager = undoManager
-            sessionStore.needsInputSectionEnabled =
-                appSettingsStore.appearance.value.promoteWorkspacesNeedingInput
+            // The setter's didSet refreshes the sticky and @Observable publishes
+            // even a false→false write, so the default-off launch would
+            // invalidate the sidebar for nothing.
+            let enabled = appSettingsStore.appearance.value.promoteWorkspacesNeedingInput
+            if sessionStore.needsInputSectionEnabled != enabled {
+                sessionStore.needsInputSectionEnabled = enabled
+            }
         }
         .onChange(of: undoManager) { _, undoManager in
             sessionStore.undoManager = undoManager
@@ -547,7 +552,8 @@ struct SidebarView: View {
             guard let newValue,
                 let group = sessionStore.groups.first(where: { group in
                     group.sessions.contains { $0.id == newValue }
-                })
+                }),
+                let session = group.sessions.first(where: { $0.id == newValue })
             else {
                 return
             }
@@ -557,7 +563,10 @@ struct SidebarView: View {
             // the setting so the default configuration keeps its old behavior.
             let isLifted =
                 sessionStore.needsInputSectionEnabled
-                && sessionStore.attentionStickySessionID == newValue
+                && SidebarAttentionProjection.isLifted(
+                    session,
+                    stickySessionID: sessionStore.attentionStickySessionID
+                )
             guard !sessionStore.isPinned(newValue), !isLifted else {
                 return
             }

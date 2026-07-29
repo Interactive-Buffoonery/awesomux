@@ -48,13 +48,6 @@ struct SidebarAttentionSectionView: View {
             VStack(alignment: .leading, spacing: density.sessionStackSpacing) {
                 ForEach(Array(attention.enumerated()), id: \.element.entry.session.id) { index, item in
                     tile(for: item, at: index)
-                        .help(
-                            String(
-                                localized: "Needs input, from \(item.originGroup.name)",
-                                comment:
-                                    "Tooltip on a lifted sidebar workspace naming the group it returns to."
-                            )
-                        )
                 }
             }
         }
@@ -109,6 +102,13 @@ struct SidebarAttentionSectionView: View {
     @ViewBuilder
     private func tile(for item: LiftedSessionEntry, at index: Int) -> some View {
         let session = item.entry.session
+        // One string for the tooltip and the VoiceOver value fragment: they name
+        // the same thing, so letting them drift would be a bug, not a variant.
+        let originGroupPhrase = String(
+            localized: "Needs input, from \(item.originGroup.name)",
+            comment:
+                "Tooltip and VoiceOver value fragment on a lifted sidebar workspace naming its origin group."
+        )
         SidebarSessionTile(
             session: session,
             match: item.entry.match,
@@ -155,11 +155,7 @@ struct SidebarAttentionSectionView: View {
             onToggleNotificationsMute: { onToggleNotificationsMute(session) },
             isPinned: false,
             onTogglePin: { onTogglePin(session) },
-            originGroupPhrase: String(
-                localized: "Needs input, from \(item.originGroup.name)",
-                comment:
-                    "VoiceOver value fragment on a lifted sidebar workspace naming its origin group."
-            ),
+            originGroupPhrase: originGroupPhrase,
             // A real drag: a lifted tile is an ordinary unpinned workspace, so
             // dragging it into another group must work. Passing an inert stub
             // would leave a draggable tile whose drag can never land.
@@ -170,5 +166,6 @@ struct SidebarAttentionSectionView: View {
         )
         .equatable()
         .id(session.id)
+        .help(originGroupPhrase)
     }
 }
