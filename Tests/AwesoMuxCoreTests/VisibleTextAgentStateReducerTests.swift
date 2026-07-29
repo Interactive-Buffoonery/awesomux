@@ -291,42 +291,14 @@ struct VisibleTextAgentStateReducerTests {
             terminalIsActiveForAttention: false
         )
         #expect(background.shouldApply)
-        // Attention is retracted on the same terms as the unread badge below —
-        // see "a background scrape cannot retract attention the user never saw".
+        // Live repro for the background half: a workspace lifts into the
+        // sidebar's Needs Input section, then a re-scrape ~0.5s later reads a
+        // non-attention viewport and drops the row back out before the user can
+        // click it — unread stuck at 1, cue gone. Attention must survive while
+        // the user is elsewhere, on the same terms as the unread badge.
         #expect(!background.clearsAttention)
         #expect(!background.clearsUnreadNotifications)
         #expect(background.unreadNotificationDelta == 0)
-    }
-
-    @Test("a background scrape cannot retract attention the user never saw")
-    func backgroundScrapeCannotRetractUnseenAttention() {
-        // Live repro: a workspace lifts into the sidebar's Needs Input section,
-        // then a re-scrape ~0.5s later reads a non-attention viewport and drops
-        // the row back out before the user can click it — unread stuck at 1,
-        // cue gone. Attention must survive while the user is elsewhere.
-        let background = reducer.visibleTextDecision(
-            detectedState: .thinking,
-            detectedAgentKind: nil,
-            liveAgentKind: .claudeCode,
-            liveExecutionState: .thinking,
-            liveDisplayState: .needsAttention,
-            terminalIsActiveForAttention: false
-        )
-        #expect(background.shouldApply)
-        #expect(!background.clearsAttention)
-
-        // Paired positive: once the user is actually at the terminal, the same
-        // scrape is allowed to retract it.
-        let active = reducer.visibleTextDecision(
-            detectedState: .thinking,
-            detectedAgentKind: nil,
-            liveAgentKind: .claudeCode,
-            liveExecutionState: .thinking,
-            liveDisplayState: .needsAttention,
-            terminalIsActiveForAttention: true
-        )
-        #expect(active.shouldApply)
-        #expect(active.clearsAttention)
     }
 
     @Test("visible text corrects stale Codex identity from confident Claude cues")

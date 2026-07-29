@@ -274,10 +274,13 @@ longest). Group order would let a new arrival insert above an existing row and
 shove it down under the user's pointer; appending cannot.
 
 `SessionStore.reconcileLiftedSessionIDs()` is the sole writer. It runs once per
-input the lift predicate reads: `commit(_:now:)` for `_groups` (the sole
-derived-state writer, so every attention change, close, and restore routes
-through it), `refreshAttentionSticky()` for the sticky, and the
-`pinnedSessionIDs` observer for pins. It removes IDs that are no longer lifted,
+input the lift predicate reads: `commit(_:now:)` for `_groups`,
+`refreshAttentionSticky()` for the sticky, and the `pinnedSessionIDs` observer
+for pins. `commit` covers this because every writer of a pane's
+`attentionReason` and every change to the session roster routes through it — not
+because every `_groups` write does. Selection, focus, shell activity, the
+freshness stamp, and the per-pane rename/color/mute edits deliberately skip it,
+so a new attention writer modeled on those would drift the section silently. It removes IDs that are no longer lifted,
 no longer live, or now pinned; appends newly lifted IDs in group order so a
 batch is deterministic; and never reorders an ID already present.
 

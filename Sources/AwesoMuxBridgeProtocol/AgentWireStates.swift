@@ -59,13 +59,14 @@ public enum AttentionReason: String, CaseIterable, Codable, Hashable, Sendable {
         }
     }
 
-    /// True for the reasons that block on a human answer. Single definition of
-    /// "high-priority attention", shared by the sidebar's Needs Input gate, the
-    /// dead-pane display override, and the inferred-clear guard in
-    /// `WorkspaceAttentionReducer` / `TerminalPane.applyLegacyAgentState`. These
-    /// reasons are only retractable by an explicit acknowledgement or by the
-    /// bridge resolving the prompt it owns — never by a background inference,
-    /// which would drop the row out of the section before the user can act.
+    /// True for the reasons that block on a human answer: the agent has stopped
+    /// and will not proceed until a person responds, as opposed to a reason that
+    /// merely reports something worth noticing. Single definition of
+    /// "high-priority attention" for every consumer of this protocol.
+    ///
+    /// A consumer may retract one of these only on knowledge that the prompt was
+    /// answered or became unanswerable — never on an inference drawn from the
+    /// agent going quiet, which is exactly what a blocked agent does.
     public var awaitsExplicitAnswer: Bool {
         priority >= AttentionReason.permissionPrompt.priority
     }
