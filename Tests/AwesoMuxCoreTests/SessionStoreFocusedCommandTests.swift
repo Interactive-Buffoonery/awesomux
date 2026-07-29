@@ -171,6 +171,28 @@ struct SessionStoreFocusedCommandTests {
         #expect(store.unreadNotificationTotal == 0)
     }
 
+    @Test("markNeedsAttentionPromptAnswered clears a still-pending permission prompt")
+    func markNeedsAttentionPromptAnsweredClearsPendingPrompt() {
+        // The keystroke path is the user answering the prompt, so it is the one
+        // inference-free clear allowed past the pending-attention guard.
+        let session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .permissionPrompt,
+            unreadNotificationCount: 1
+        )
+        let store = SessionStore(groups: [
+            SessionGroup(name: "main", sessions: [session])
+        ])
+
+        store.markNeedsAttentionPromptAnswered(id: session.id)
+
+        #expect(store.selectedSession?.attentionReason == nil)
+        #expect(store.selectedSession?.needsUserInput == false)
+        #expect(store.selectedSession?.agentState == .thinking)
+    }
+
     @Test("markNeedsAttentionPromptAnswered no-ops outside needs attention")
     func markNeedsAttentionPromptAnsweredNoopsOutsideNeedsAttention() {
         let session = TerminalSession(

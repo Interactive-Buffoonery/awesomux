@@ -179,6 +179,11 @@ struct AgentRuntimeEventReducer: Sendable {
                     agentKind: .shell,
                     agentExecutionState: event.executionState ?? .idle,
                     clearsAttention: true,
+                    // The agent that raised the prompt is gone, so nothing can
+                    // answer it anymore — this is a resolution, not an inference
+                    // from quiet output, and it clears a pending prompt the same
+                    // way it already clears the unread badge.
+                    attentionClearIsAuthoritative: true,
                     clearsUnreadNotifications: true
                 ))
         }

@@ -3,12 +3,16 @@ import Testing
 @testable import AwesoMuxCore
 
 @Suite struct SidebarVisibleRowsPinnedTests {
-    private func fixtures() -> (pinned: [PinnedSessionEntry], entries: [SidebarGroupEntry], pinnedSession: TerminalSession, groupSession: TerminalSession, group: SessionGroup) {
+    private func fixtures() -> (
+        pinned: [LiftedSessionEntry], entries: [SidebarGroupEntry], pinnedSession: TerminalSession, groupSession: TerminalSession,
+        group: SessionGroup
+    ) {
         let pinnedSession = TerminalSession(title: "pinned", workingDirectory: "~")
         let groupSession = TerminalSession(title: "normal", workingDirectory: "~")
         let origin = SessionGroup(name: "Origin", sessions: [pinnedSession])
         let group = SessionGroup(name: "One", sessions: [groupSession])
-        let pinned = [PinnedSessionEntry(
+        let pinned = [
+            LiftedSessionEntry(
             entry: SidebarSessionEntry(session: pinnedSession, match: nil),
             originGroup: origin,
             originGroupUnfilteredIndex: 0

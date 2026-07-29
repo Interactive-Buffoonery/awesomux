@@ -238,6 +238,25 @@ struct AppearanceSettingsPane: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
+
+                SettingsField(
+                    label: String(
+                        localized: "Promote workspaces needing input",
+                        comment: "Settings field label for the sidebar needs-input section toggle"),
+                    hint: String(
+                        localized:
+                            "Move a workspace to a Needs Input section at the top of the sidebar while it waits on your answer. It returns to its group once you've dealt with it. Off by default.",
+                        comment: "Settings field hint for the sidebar needs-input section toggle"),
+                    // Bare .labelsHidden() Toggle — let the field supply its name.
+                    forwardsAccessibilityToControl: true
+                ) {
+                    Toggle(
+                        "Promote workspaces needing input",
+                        isOn: appSettingsStore.appearance.binding(\.promoteWorkspacesNeedingInput)
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
             }
 
             SettingsSection(index: 7, title: String(localized: "Reset", comment: "Appearance settings section title")) {
@@ -341,6 +360,7 @@ struct AppearanceSettingsPane: View {
             appearance.terminalBackgroundColor = defaults.terminalBackgroundColor
             appearance.alwaysShowJumpNumbers = defaults.alwaysShowJumpNumbers
             appearance.tintedHighContrast = defaults.tintedHighContrast
+            appearance.promoteWorkspacesNeedingInput = defaults.promoteWorkspacesNeedingInput
             appearance.sidebarPosition = defaults.sidebarPosition
             appearance.crtScanlines = defaults.crtScanlines
         }
@@ -385,6 +405,7 @@ struct AppearanceSettingsPane: View {
             && appearance.terminalBackgroundColor == defaults.terminalBackgroundColor
             && appearance.alwaysShowJumpNumbers == defaults.alwaysShowJumpNumbers
             && appearance.tintedHighContrast == defaults.tintedHighContrast
+            && appearance.promoteWorkspacesNeedingInput == defaults.promoteWorkspacesNeedingInput
             && appearance.sidebarPosition == defaults.sidebarPosition
             && appearance.crtScanlines == defaults.crtScanlines
             && appSettingsStore.general.value.sidebarCompactMode

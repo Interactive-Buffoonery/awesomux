@@ -36,21 +36,23 @@ public struct SidebarWorkspaceRotorEntry: Equatable, Hashable, Sendable, Identif
 
 public enum SidebarVisibleRows {
     public static func rows(
-        pinned: [PinnedSessionEntry] = [],
+        attention: [LiftedSessionEntry] = [],
+        pinned: [LiftedSessionEntry] = [],
         for entries: [SidebarGroupEntry],
         collapsedGroupIDs: Set<SessionGroup.ID>,
         isFiltering: Bool
     ) -> [SidebarVisibleRow] {
-        // No header row for Pinned: unlike a group, it isn't collapsible, so
-        // it isn't a keyboard-nav target of its own.
-        let pinnedRows = pinned.map { pinnedEntry in
+        // No header row for either synthetic section: unlike a group, neither is
+        // collapsible, so neither is a keyboard-nav target of its own.
+        let liftedRows = (attention + pinned).map { liftedEntry in
             SidebarVisibleRow(
-                target: .session(pinnedEntry.entry.session.id),
-                label: pinnedEntry.entry.session.title,
-                sessionID: pinnedEntry.entry.session.id
+                target: .session(liftedEntry.entry.session.id),
+                label: liftedEntry.entry.session.title,
+                sessionID: liftedEntry.entry.session.id
             )
         }
-        return pinnedRows + entries.flatMap { entry -> [SidebarVisibleRow] in
+        return liftedRows
+            + entries.flatMap { entry -> [SidebarVisibleRow] in
             var rows = [
                 SidebarVisibleRow(
                     target: .group(entry.group.id),
@@ -80,19 +82,22 @@ public enum SidebarVisibleRows {
     /// `collapsedGroupIDs`/`isFiltering` parameters by design: `entries` already
     /// reflects the active search projection, and the rotor deliberately ignores
     /// visual group collapse so VoiceOver can reach every workspace without first
-    /// expanding groups in the source list. (Contrast `rows(for:collapsedGroupIDs:
-    /// isFiltering:)`, which honors collapse for the visible-row walk.)
+    /// expanding groups in the source list. (Contrast
+    /// `rows(attention:pinned:for:collapsedGroupIDs:isFiltering:)`, which honors
+    /// collapse for the visible-row walk.)
     public static func rotorEntries(
-        pinned: [PinnedSessionEntry] = [],
+        attention: [LiftedSessionEntry] = [],
+        pinned: [LiftedSessionEntry] = [],
         for entries: [SidebarGroupEntry]
     ) -> [SidebarWorkspaceRotorEntry] {
-        let pinnedEntries = pinned.map { pinnedEntry in
+        let liftedEntries = (attention + pinned).map { liftedEntry in
             SidebarWorkspaceRotorEntry(
-                id: pinnedEntry.entry.session.id,
-                label: rotorLabel(for: pinnedEntry.entry.session)
+                id: liftedEntry.entry.session.id,
+                label: rotorLabel(for: liftedEntry.entry.session)
             )
         }
-        return pinnedEntries + entries.flatMap { entry in
+        return liftedEntries
+            + entries.flatMap { entry in
             entry.sessions.map { sessionEntry in
                 SidebarWorkspaceRotorEntry(
                     id: sessionEntry.session.id,

@@ -236,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let sessionStore else { return [] }
         return DockRecentWorkspaceMenu.openWorkspaceRows(
             groups: sessionStore.groups,
+            liftedSessionIDs: sessionStore.liftedSessionIDs,
             pinnedSessionIDs: sessionStore.pinnedSessionIDs,
             activeID: sessionStore.selectedSessionID
         ).map { row in

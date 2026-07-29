@@ -2006,6 +2006,40 @@ struct SessionStoreBridgeProcessErrorTests {
         #expect(store.unreadNotificationTotal == 0)
     }
 
+    /// A dead process cannot answer the prompt it raised, so the error record has
+    /// to retract it. Without an authoritative clear the reason survives the
+    /// `awaitsExplicitAnswer` guard, the pane resolves to `.needsAttention`
+    /// instead of `.error`, and the workspace paints peach — holding a Needs
+    /// Input slot for a prompt nobody can answer and hiding the recovery hint.
+    @Test("bridge loss retracts the prompt the dead process can no longer answer")
+    func bridgeLossRetractsPendingPrompt() {
+        var session = TerminalSession(
+            title: "bridge",
+            workingDirectory: "~",
+            agentKind: .claudeCode,
+            agentState: .running
+        )
+        session.layout = session.layout.mappingPanes { pane in
+            var pane = pane
+            pane.attentionReason = .permissionPrompt
+            return pane
+        }
+        let store = makeStore(session)
+
+        let recorded = store.recordPaneProcessError(
+            in: session.id,
+            paneID: session.activePaneID,
+            terminalIsFocused: true
+        )
+
+        let pane = store.selectedSession?.layout.pane(id: session.activePaneID)
+        #expect(recorded)
+        #expect(pane?.attentionReason == nil)
+        #expect(pane?.agentExecutionState == .error)
+        #expect(store.selectedSession?.agentState == .error)
+        #expect(store.selectedSession?.needsUserInput == false)
+    }
+
     private func makeStore(_ session: TerminalSession) -> SessionStore {
         SessionStore(groups: [
             SessionGroup(name: "awesoMux", sessions: [session])

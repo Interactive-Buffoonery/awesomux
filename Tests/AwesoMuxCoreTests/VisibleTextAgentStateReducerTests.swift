@@ -291,7 +291,12 @@ struct VisibleTextAgentStateReducerTests {
             terminalIsActiveForAttention: false
         )
         #expect(background.shouldApply)
-        #expect(background.clearsAttention)
+        // Live repro for the background half: a workspace lifts into the
+        // sidebar's Needs Input section, then a re-scrape ~0.5s later reads a
+        // non-attention viewport and drops the row back out before the user can
+        // click it — unread stuck at 1, cue gone. Attention must survive while
+        // the user is elsewhere, on the same terms as the unread badge.
+        #expect(!background.clearsAttention)
         #expect(!background.clearsUnreadNotifications)
         #expect(background.unreadNotificationDelta == 0)
     }

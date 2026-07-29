@@ -50,13 +50,14 @@ enum DockRecentWorkspaceMenu {
         let isActive: Bool
     }
 
-    /// Flattens open workspaces to Dock-menu rows in sidebar order (pinned
-    /// first, then groups in order, sessions within) — the same order the
-    /// ⌘-jump shortcuts use. Titles are sanitized; the active workspace is
-    /// marked. Pure so the ordering / sanitization / empty-store behavior is
-    /// unit-testable without an AppKit menu.
+    /// Flattens open workspaces to Dock-menu rows in sidebar order (lifted
+    /// first, then pinned, then groups in order, sessions within) — the same
+    /// order the ⌘-jump shortcuts use. Titles are sanitized; the active
+    /// workspace is marked. Pure so the ordering / sanitization / empty-store
+    /// behavior is unit-testable without an AppKit menu.
     static func openWorkspaceRows(
         groups: [SessionGroup],
+        liftedSessionIDs: [TerminalSession.ID] = [],
         pinnedSessionIDs: [TerminalSession.ID],
         activeID: TerminalSession.ID?
     ) -> [OpenWorkspaceRow] {
@@ -64,8 +65,9 @@ enum DockRecentWorkspaceMenu {
             groups.flatMap(\.sessions).map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let orderedIDs = WorkspaceNavigationOrder.pinnedFirstSessionIDs(
+        let orderedIDs = WorkspaceNavigationOrder.liftedFirstSessionIDs(
             in: groups,
+            liftedSessionIDs: liftedSessionIDs,
             pinnedSessionIDs: pinnedSessionIDs
         )
         return orderedIDs.compactMap { id in

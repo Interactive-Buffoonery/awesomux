@@ -10,6 +10,13 @@ struct WorkspaceAttentionReducer: Sendable {
         var agentExecutionState: AgentExecutionState?
         var attentionReason: AttentionReason?
         var clearsAttention: Bool
+        /// True only when the producer KNOWS the prompt is resolved or
+        /// unanswerable — the user typed the answer into the pane
+        /// (`markNeedsAttentionPromptAnswered`), or the agent that raised it
+        /// announced `sessionEnd`. Everything else merely infers the clear from
+        /// the terminal going quiet, and inference must not retract a reason
+        /// that `awaitsExplicitAnswer` — see the guard in `updatePane`.
+        var attentionClearIsAuthoritative: Bool
         var clearsUnreadNotifications: Bool
         var unreadNotificationDelta: Int
 
@@ -21,6 +28,7 @@ struct WorkspaceAttentionReducer: Sendable {
             agentExecutionState: AgentExecutionState? = nil,
             attentionReason: AttentionReason? = nil,
             clearsAttention: Bool = false,
+            attentionClearIsAuthoritative: Bool = false,
             clearsUnreadNotifications: Bool = false,
             unreadNotificationDelta: Int = 0
         ) {
@@ -31,6 +39,7 @@ struct WorkspaceAttentionReducer: Sendable {
             self.agentExecutionState = agentExecutionState
             self.attentionReason = attentionReason
             self.clearsAttention = clearsAttention
+            self.attentionClearIsAuthoritative = attentionClearIsAuthoritative
             self.clearsUnreadNotifications = clearsUnreadNotifications
             self.unreadNotificationDelta = unreadNotificationDelta
         }
@@ -152,7 +161,8 @@ struct WorkspaceAttentionReducer: Sendable {
                 let beforeAttentionReason = pane.attentionReason
                 pane.applyLegacyAgentState(
                     agentState,
-                    clearsAttentionForExecutionState: update.clearsAttention
+                    clearsAttentionForExecutionState: update.clearsAttention,
+                    attentionClearIsAuthoritative: update.attentionClearIsAuthoritative
                 )
                 let stateChanged =
                     pane.agentExecutionState != beforeExecutionState
@@ -163,19 +173,25 @@ struct WorkspaceAttentionReducer: Sendable {
             }
 
             if let attentionReason = update.attentionReason {
-                // A lower-priority reason (e.g. `.bell`) must not clobber a
-                // higher-priority PENDING one (e.g. `.permissionPrompt`) still
-                // awaiting the user (INT-506). Clearing is handled separately
-                // below and always wins.
-                if let current = pane.attentionReason,
-                    current.priority > attentionReason.priority
-                {
-                    // keep current
-                } else if pane.attentionReason != attentionReason {
-                    pane.attentionReason = attentionReason
+                // No-downgrade rule lives on `TerminalPane` so the legacy
+                // display-state path obeys it too (INT-506). Retraction is
+                // handled below and obeys the same priority principle: an
+                // INFERRED clear cannot take back a reason that
+                // `awaitsExplicitAnswer` — only an authoritative one can.
+                if pane.applyAttentionReasonWithoutDowngrade(attentionReason) {
                     didMutate = true
                 }
-            } else if update.clearsAttention, pane.attentionReason != nil {
+            } else if update.clearsAttention, let current = pane.attentionReason,
+                update.attentionClearIsAuthoritative || !current.awaitsExplicitAnswer
+            {
+                // Most producers infer `clearsAttention` from the terminal going
+                // quiet, which happens the instant a blocked agent stops
+                // printing — so an unguarded retraction pulled a live prompt out
+                // of the sidebar's Needs Input section about a second after it
+                // lifted. The acknowledge sweeps (`acknowledgePane`,
+                // `acknowledgeAllPanes`, `acknowledgeAllSessions`) and the
+                // bridge's scoped `updatePermissionPromptAttention` assign `nil`
+                // directly and never reach this branch.
                 pane.attentionReason = nil
                 didMutate = true
             }

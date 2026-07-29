@@ -219,6 +219,9 @@ extension SessionStore {
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentState: .thinking,
                 clearsAttention: true,
+                // The user typed the answer into this pane, so this is the one
+                // clear allowed to retract a still-pending prompt.
+                attentionClearIsAuthoritative: true,
                 clearsUnreadNotifications: true
             )
         )
@@ -366,6 +369,13 @@ extension SessionStore {
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentExecutionState: .error,
                 clearsAttention: true,
+                // The process that raised the prompt is dead, so the prompt is
+                // unanswerable — the other half of the flag's contract, and the
+                // reason this clear may retract a pending permission request. An
+                // inferred clear would leave the pane resolving to
+                // `.needsAttention` over a prompt nobody can answer, masking the
+                // recovery hint the dead pane needs to show.
+                attentionClearIsAuthoritative: true,
                 unreadNotificationDelta: !terminalIsFocused
                     && displacedNonErrorState ? 1 : 0
             ),
@@ -885,6 +895,18 @@ extension SessionStore {
             #endif
         }
 
+        // Every mutation of what the lift predicate reads — a pane's
+        // `attentionReason` and the session roster — routes through here, so
+        // this is where a workspace that just started (or stopped) needing input
+        // enters or leaves the ordered lifted list. NOT every `_groups` write:
+        // selection, focus, shell activity, the freshness stamp, and the
+        // per-pane rename/color/mute edits all mutate `_groups` without
+        // committing. A future attention write modeled on `setActivePane` would
+        // therefore drift the section silently — commit it, or reconcile it
+        // itself. Runs before the selection write so an observer woken by that
+        // write already sees a reconciled section.
+        reconcileLiftedSessionIDs()
+
         if case .set(let sessionID) = effect.selection {
             // Unconditional write: same-value re-assign must still publish (INT-652).
             selectedSessionID = sessionID
@@ -958,15 +980,24 @@ extension SessionStore {
     }
 
     func scheduleAcknowledgementForSelectedSession() {
+        // The dwell can be armed without a selection change — clicking into the
+        // terminal of an already-selected workspace that just started needing
+        // input routes here via `setActivePane`/`focusPane`. Refreshing at the
+        // one choke point every arming path shares captures the sticky before
+        // the dwell can acknowledge the row out from under the reader.
+        refreshAttentionSticky()
+
         let baseline: SelectionAcknowledgementBaseline?
         if let selectedSessionID,
             let position = position(for: selectedSessionID)
         {
             let session = _groups[position.groupIndex].sessions[position.sessionIndex]
+            let activePane = session.layout.pane(id: session.activePaneID)
             baseline = SelectionAcknowledgementBaseline(
                 activePaneID: session.activePaneID,
-                paneUnreadCount: session.layout.pane(id: session.activePaneID)?
-                    .unreadNotificationCount ?? 0
+                paneUnreadCount: activePane?.unreadNotificationCount ?? 0,
+                paneAwaitsExplicitAnswer: activePane?.attentionReason?
+                    .awaitsExplicitAnswer == true
             )
         } else {
             baseline = nil
@@ -989,16 +1020,31 @@ extension SessionStore {
             guard current.activePaneID == baseline.activePaneID else {
                 return
             }
-            let currentPaneUnread =
-                current.layout.pane(id: current.activePaneID)?
-                .unreadNotificationCount ?? 0
+            let currentPane = current.layout.pane(id: current.activePaneID)
+            let currentPaneUnread = currentPane?.unreadNotificationCount ?? 0
             guard currentPaneUnread <= baseline.paneUnreadCount else {
+                return
+            }
+            // The dwell clears attention the user has SEEN. A prompt raised
+            // after arming has not been seen — the user's attention landed
+            // first — and acknowledging it would answer a question nobody read.
+            // Unread cannot catch this: a prompt on the focused pane adds no
+            // unread by design. Scoped to reasons that block on a human answer;
+            // a `.bell` or background-output `.unknown` still acks as before.
+            // Nothing is stranded by bailing — the next selection change /
+            // `setActivePane` / `focusPane` re-arms with the prompt in baseline.
+            guard
+                baseline.paneAwaitsExplicitAnswer
+                    || currentPane?.attentionReason?.awaitsExplicitAnswer != true
+            else {
                 return
             }
 
             // Selection dwell acks the ACTIVE pane only — a sibling pane still
             // needing input keeps the workspace row loud (ADR-0003 amendment).
-            self.acknowledgeSession(id: selectedSessionID)
+            // Passive, so it keeps the sticky: the row stays in Needs Input
+            // until the user navigates away or evicts it deliberately.
+            self.acknowledgeSession(id: selectedSessionID, releasesAttentionSticky: false)
         }
     }
 }

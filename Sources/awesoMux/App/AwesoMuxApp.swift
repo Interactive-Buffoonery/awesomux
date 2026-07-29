@@ -1117,6 +1117,7 @@ struct AwesoMuxApp: App {
 
                 let jumpRows = DockRecentWorkspaceMenu.openWorkspaceRows(
                     groups: sessionStore.groups,
+                    liftedSessionIDs: sessionStore.liftedSessionIDs,
                     pinnedSessionIDs: sessionStore.pinnedSessionIDs,
                     activeID: sessionStore.selectedSessionID
                 )
@@ -1125,7 +1126,7 @@ struct AwesoMuxApp: App {
                     id: \.element.id
                 ) { offset, binding in
                     // Label with the real workspace title ⌘N lands on; both this
-                    // list and the jump action resolve through the same pinned-first
+                    // list and the jump action resolve through the same lifted-first
                     // order, so index ↔ title stays aligned. Out-of-range slots keep
                     // the generic "Jump to Workspace N" and stay disabled.
                     Button(offset < jumpRows.count ? jumpRows[offset].title : binding.action) {
@@ -2345,13 +2346,14 @@ struct AwesoMuxApp: App {
         }
     }
 
-    // ⌘1-9 jump and Previous/Next resolve from the sidebar's pinned-first visual
+    // ⌘1-9 jump and Previous/Next resolve from the sidebar's lifted-first visual
     // order (INT-737) so a ⌘-digit lands on the tile showing that badge. Stays
     // filter-blind — as this action side always was — since the sidebar's
     // filtered badge snapshot is view-local and out of scope to thread here.
     private func workspaceNavigationOrder() -> [TerminalSession.ID] {
-        WorkspaceNavigationOrder.pinnedFirstSessionIDs(
+        WorkspaceNavigationOrder.liftedFirstSessionIDs(
             in: sessionStore.groups,
+            liftedSessionIDs: sessionStore.liftedSessionIDs,
             pinnedSessionIDs: sessionStore.pinnedSessionIDs
         )
     }
