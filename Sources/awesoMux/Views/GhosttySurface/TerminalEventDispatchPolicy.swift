@@ -1,24 +1,22 @@
 import AwesoMuxCore
 import Foundation
 
-/// Pure trailing-edge throttle decision for `progressReport` writes into the
+/// Pure trailing-edge throttle decision for high-frequency writes into the
 /// `@Observable` session store.
 ///
-/// A fast-ticking build tool emits a NEW, DISTINCT percentage on every OSC
-/// 9;4 tick (0%, 1%, 2%, …), so `PaneLayoutReducer.updatePane`'s no-op guard
-/// — which only dedupes IDENTICAL reports — provides zero protection against
-/// the write rate. Without this throttle each tick re-renders the sidebar +
-/// pane chrome at PTY rate (INT-587 review; same shape as the INT-523
-/// path-bar debounce in `TerminalPathBarResolvePolicy`).
+/// Progress reports and terminal-title animations emit a NEW, DISTINCT value
+/// on every tick, so `PaneLayoutReducer.updatePane`'s identical-value guard
+/// provides no protection. Without this throttle each tick re-renders the
+/// sidebar and pane chrome at PTY rate.
 ///
 /// Leading + trailing hybrid: the first write after the window closes lands
 /// immediately (good latency for a bar that just appeared), and any writes
 /// that land WITHIN the window collapse into exactly one deferred write at
 /// the window's close, always carrying the MOST RECENT value — so a fast
-/// finish (…97%, 100%, remove) can't have its terminal state eaten by the
+/// finish (…97%, 100%, remove) or settled terminal title can't be eaten by the
 /// throttle. Side-effect free; tests live in
-/// `ProgressReportDispatchPolicyTests`.
-enum ProgressReportWriteThrottle {
+/// `TerminalEventDispatchPolicyTests`.
+enum ObservableStoreWriteThrottle {
     enum Decision: Equatable {
         /// Commit the store write now and reset the throttle window.
         case writeNow
@@ -45,17 +43,24 @@ enum ProgressReportWriteThrottle {
     }
 }
 
-/// Guards a deferred progress-report side effect (the throttle's trailing
-/// write, or the 15s auto-expiry) against `GhosttySurfaceNSView.update
-/// (session:pane:...)` re-pointing the SAME NSView instance at a different
-/// pane between when the effect was scheduled and when it fires — a real
-/// view-recycle path. Without this, a report scheduled for pane A can land
-/// on pane B if a recycle happens in the gap.
+/// Identifies the pane a throttled store write belongs to, so a recycled view
+/// does not inherit the outgoing pane's throttle window. It does NOT scope
+/// cancellation: a pending write is cancelled whatever pane armed it, because
+/// the single tracking slot is overwritten regardless — see
+/// `GhosttySurfaceNSView.cancelPendingTerminalTitleWrite`.
+struct PaneStoreWriteKey: Equatable {
+    let sessionID: TerminalSession.ID
+    let paneID: TerminalPane.ID
+}
+
+/// Guards a deferred terminal-event side effect against
+/// `GhosttySurfaceNSView.update(session:pane:...)` re-pointing the SAME NSView
+/// instance at a different pane between scheduling and execution.
 ///
 /// Mirrors the snapshot-then-revalidate guard
 /// `CommandBridgeEnactor.beginExitSupervision` already uses for its own
 /// async exit-probe Task (INT-587 review).
-enum ProgressReportDispatchGuard {
+enum DeferredPaneEventDispatchGuard {
     static func shouldApply(
         capturedSessionID: TerminalSession.ID,
         capturedPaneID: TerminalPane.ID,

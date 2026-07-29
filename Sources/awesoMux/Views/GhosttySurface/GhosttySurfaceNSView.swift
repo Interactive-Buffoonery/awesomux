@@ -121,9 +121,19 @@ final class GhosttySurfaceNSView: NSView {
     static let searchNeedleDebounceInterval: DispatchTimeInterval = .milliseconds(300)
 
     /// ~10 writes/sec ceiling for progress-report store writes. See
-    /// `ProgressReportWriteThrottle`'s doc comment for why the reducer's
+    /// `ObservableStoreWriteThrottle`'s doc comment for why the reducer's
     /// existing no-op guard doesn't already cover this.
     static let progressReportStoreWriteMinInterval: TimeInterval = 0.1
+
+    /// Agent TUIs animate OSC titles many times per second. Four observable
+    /// title writes per pane per second keeps the sidebar responsive without
+    /// rebuilding its full projection for every animation frame.
+    ///
+    /// Raising this also slows remote-host detection: `PaneLayoutReducer`
+    /// derives `remoteHost` and consumes `pendingRemoteSSHTarget` from the
+    /// same write. Keep it below `SessionPersistence.debounceInterval` so a
+    /// deferred title still reaches a snapshot.
+    static let terminalTitleStoreWriteMinInterval: TimeInterval = 0.25
 
     /// Backs `terminalAccessibilityScreenContents()` — see
     /// `GhosttySurfaceAccessibilityScreenContentsCache` for why this exists
@@ -282,6 +292,7 @@ final class GhosttySurfaceNSView: NSView {
         terminalEventState.progressReportThrottleWorkItem?.cancel()
         terminalEventState.progressReportThrottleWorkItem = nil
         terminalEventState.lastProgressReportStoreWriteAt = nil
+        flushTerminalTitleThrottle()
         resetSearchStateForSurfaceTeardown()
         runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
         // A VoiceOver accessor firing mid-heal (surface == nil) would

@@ -318,7 +318,7 @@ extension GhosttyRuntime {
             // elsewhere: silently drop, don't tell the user their CURRENT
             // pane failed at something that was actually for a past one).
             guard
-                ProgressReportDispatchGuard.shouldApply(
+                DeferredPaneEventDispatchGuard.shouldApply(
                     capturedSessionID: workspaceID,
                     capturedPaneID: paneID,
                     currentSessionID: view.sessionID,

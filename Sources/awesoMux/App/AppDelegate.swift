@@ -799,6 +799,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "applicationWillTerminate event=\(self.lastTerminateTrigger, privacy: .public) riskySessions=\(riskySessionCount, privacy: .public)"
         )
 
+        // Land throttled titles first so the snapshot below carries them.
+        ghosttyRuntime?.flushPendingTerminalTitleWrites()
         // Drain the persistence debouncer; otherwise a Cmd-Q within the
         // 500 ms window drops the latest snapshot.
         if let sessionStore {

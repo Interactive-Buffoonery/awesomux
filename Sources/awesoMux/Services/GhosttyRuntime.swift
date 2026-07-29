@@ -330,6 +330,15 @@ final class GhosttyRuntime {
         surfaceViews[paneID]
     }
 
+    /// Lands any title still inside its throttle window, so a quit within the
+    /// window persists the pane's real title instead of an animation frame.
+    /// Must run before `SessionPersistence.flush`.
+    func flushPendingTerminalTitleWrites() {
+        for surfaceView in surfaceViews.values {
+            surfaceView.flushTerminalTitleThrottle()
+        }
+    }
+
     func noteSurfaceVisibility(paneID: TerminalPane.ID, isVisible: Bool) {
         if isVisible {
             visibleSurfaceSamplingPaneIDs.insert(paneID)
