@@ -37,7 +37,10 @@ import Testing
         )
         let attention = SidebarAttentionProjection.apply(
             entries: pinned.entries,
-            stickySessionID: nil,
+            // The store drops a pinned ID from its lifted list, and the chain
+            // removes the row before the attention projection ever sees it —
+            // both halves of "pinned wins", neither an explicit precedence check.
+            liftedSessionIDs: [],
             isFiltering: false,
             searchTopMatch: pinned.topMatch
         )
@@ -51,7 +54,7 @@ import Testing
         let needyGroup = SessionGroup(name: "One", sessions: [a, b])
         let lifted = SidebarAttentionProjection.apply(
             entries: [entry(needyGroup, index: 0)],
-            stickySessionID: nil,
+            liftedSessionIDs: [a.id],
             isFiltering: false,
             searchTopMatch: nil
         )
@@ -67,7 +70,7 @@ import Testing
         let calmGroup = SessionGroup(name: "One", sessions: [acknowledged, b])
         let returned = SidebarAttentionProjection.apply(
             entries: [entry(calmGroup, index: 0)],
-            stickySessionID: nil,
+            liftedSessionIDs: [],
             isFiltering: false,
             searchTopMatch: nil
         )
@@ -93,7 +96,7 @@ import Testing
         )
         let attention = SidebarAttentionProjection.apply(
             entries: pinned.entries,
-            stickySessionID: nil,
+            liftedSessionIDs: [a.id],
             isFiltering: false,
             searchTopMatch: pinned.topMatch
         )
@@ -108,6 +111,44 @@ import Testing
             liftedSessionIDs: [a.id],
             pinnedSessionIDs: [c.id]
         )
+        #expect(rendered == navigation)
+    }
+
+    /// The case a group-ordered section would have gotten wrong: the workspace
+    /// that asked SECOND sits earlier in group order. Both sides now read the
+    /// same list, so ⌘1-9 inherits arrival order rather than re-deriving it.
+    @Test func renderOrderMatchesNavigationOrderWhenArrivalDiffersFromGroupOrder() {
+        let a = needy("alpha")
+        let b = needy("beta")
+        let c = TerminalSession(title: "gamma", workingDirectory: "~")
+        let g1 = SessionGroup(name: "One", sessions: [a, c])
+        let g2 = SessionGroup(name: "Two", sessions: [b])
+        // beta (group Two) asked first; alpha (group One) asked second.
+        let arrivalOrder = [b.id, a.id]
+        let pinned = SidebarPinnedProjection.apply(
+            entries: [entry(g1, index: 0), entry(g2, index: 1)],
+            pinnedSessionIDs: [],
+            isFiltering: false,
+            searchTopMatch: nil
+        )
+        let attention = SidebarAttentionProjection.apply(
+            entries: pinned.entries,
+            liftedSessionIDs: arrivalOrder,
+            isFiltering: false,
+            searchTopMatch: pinned.topMatch
+        )
+        let rendered = SidebarVisibleRows.rotorEntries(
+            attention: attention.attention,
+            pinned: pinned.pinned,
+            for: attention.entries
+        )
+        .map(\.id)
+        let navigation = WorkspaceNavigationOrder.liftedFirstSessionIDs(
+            in: [g1, g2],
+            liftedSessionIDs: arrivalOrder,
+            pinnedSessionIDs: []
+        )
+        #expect(rendered == [b.id, a.id, c.id])
         #expect(rendered == navigation)
     }
 }

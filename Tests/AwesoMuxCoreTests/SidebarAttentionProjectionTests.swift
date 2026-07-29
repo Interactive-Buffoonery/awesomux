@@ -26,13 +26,13 @@ import Testing
         )
     }
 
-    @Test func liftsNeedySessionsAndHidesThemFromGroups() {
+    @Test func liftsListedSessionsAndHidesThemFromGroups() {
         let a = needy("alpha")
         let b = calm("beta")
         let g = SessionGroup(name: "One", sessions: [a, b])
         let output = SidebarAttentionProjection.apply(
             entries: [entry(g, index: 0)],
-            stickySessionID: nil,
+            liftedSessionIDs: [a.id],
             isFiltering: false,
             searchTopMatch: nil
         )
@@ -42,31 +42,34 @@ import Testing
         #expect(output.entries.map { $0.sessions.map(\.session.id) } == [[b.id]])
     }
 
-    @Test func preservesGroupOrderAcrossGroups() {
+    /// Was `preservesGroupOrderAcrossGroups`. The section is ordered by ARRIVAL
+    /// now — first to ask sits at the top — so the projection emits the store's
+    /// list order verbatim. Group order here is the reverse of the list, which
+    /// is exactly the case a group-ordered walk would get wrong.
+    @Test func emitsTheStoresArrivalOrderNotGroupOrder() {
         let a = needy("alpha")
         let c = needy("gamma")
         let g1 = SessionGroup(name: "One", sessions: [a])
         let g2 = SessionGroup(name: "Two", sessions: [c])
         let output = SidebarAttentionProjection.apply(
             entries: [entry(g1, index: 0), entry(g2, index: 1)],
-            stickySessionID: nil,
+            liftedSessionIDs: [c.id, a.id],
             isFiltering: false,
             searchTopMatch: nil
         )
-        #expect(output.attention.map(\.entry.session.id) == [a.id, c.id])
+        #expect(output.attention.map(\.entry.session.id) == [c.id, a.id])
     }
 
     @Test func stickySessionStaysLiftedAfterAcknowledgement() {
         // The 500ms dwell clears attentionReason while the user is still on the
-        // row; sticky is what stops it teleporting away mid-read. This is the
-        // ONLY mechanism that keeps a no-longer-needy row lifted — `apply` has
-        // no selection parameter at all, so there is no selection-based test to
-        // write here: reintroducing one is a compile error, not a runtime bug.
+        // row; the store's sticky is what keeps its ID in `liftedSessionIDs`.
+        // The projection must honor that list rather than re-deriving from
+        // `needsUserInput`, or the row teleports away mid-read.
         let a = calm("alpha")
         let g = SessionGroup(name: "One", sessions: [a])
         let output = SidebarAttentionProjection.apply(
             entries: [entry(g, index: 0)],
-            stickySessionID: a.id,
+            liftedSessionIDs: [a.id],
             isFiltering: false,
             searchTopMatch: nil
         )
@@ -74,16 +77,17 @@ import Testing
         #expect(output.entries[0].sessions.isEmpty)
     }
 
-    @Test func staleStickyIDIsIgnored() {
+    @Test func staleIDInTheListIsIgnored() {
         let a = calm("alpha")
         let g = SessionGroup(name: "One", sessions: [a])
         let output = SidebarAttentionProjection.apply(
             entries: [entry(g, index: 0)],
-            stickySessionID: UUID(),
+            liftedSessionIDs: [UUID()],
             isFiltering: false,
             searchTopMatch: nil
         )
         #expect(output.attention.isEmpty)
+        #expect(output.entries[0].sessions.map(\.session.id) == [a.id])
     }
 
     @Test func unfilteredKeepsEmptiedGroupsFilteringDropsThem() {
@@ -91,14 +95,14 @@ import Testing
         let g = SessionGroup(name: "One", sessions: [a])
         let unfiltered = SidebarAttentionProjection.apply(
             entries: [entry(g, index: 0)],
-            stickySessionID: nil,
+            liftedSessionIDs: [a.id],
             isFiltering: false,
             searchTopMatch: nil
         )
         #expect(unfiltered.entries.count == 1)
         let filtering = SidebarAttentionProjection.apply(
             entries: [entry(g, index: 0)],
-            stickySessionID: nil,
+            liftedSessionIDs: [a.id],
             isFiltering: true,
             searchTopMatch: a.id
         )
@@ -111,7 +115,7 @@ import Testing
         let g = SessionGroup(name: "One", sessions: [a, b])
         let output = SidebarAttentionProjection.apply(
             entries: [entry(g, index: 0)],
-            stickySessionID: nil,
+            liftedSessionIDs: [b.id],
             isFiltering: true,
             searchTopMatch: a.id
         )
@@ -123,7 +127,7 @@ import Testing
         let g = SessionGroup(name: "One", sessions: [a])
         let output = SidebarAttentionProjection.apply(
             entries: [entry(g, index: 0)],
-            stickySessionID: nil,
+            liftedSessionIDs: [],
             isFiltering: true,
             searchTopMatch: a.id
         )
@@ -135,7 +139,7 @@ import Testing
         let g = SessionGroup(name: "One", sessions: [a])
         let output = SidebarAttentionProjection.apply(
             entries: [entry(g, index: 0)],
-            stickySessionID: nil,
+            liftedSessionIDs: [a.id],
             isFiltering: false,
             searchTopMatch: nil
         )

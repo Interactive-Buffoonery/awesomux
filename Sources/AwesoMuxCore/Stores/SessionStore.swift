@@ -26,7 +26,26 @@ public final class SessionStore {
     /// = pinned, array order = display order. Sessions stay inside their
     /// origin group; this is a render-time projection input, never a move
     /// (INT-737).
-    public internal(set) var pinnedSessionIDs: [TerminalSession.ID] = []
+    ///
+    /// Pinned wins over lifted, so every pin membership change is also a lifted
+    /// membership change. Reconciling from the observer rather than from
+    /// `togglePin` keeps that coupling structural — a future pin mutator cannot
+    /// forget it.
+    public internal(set) var pinnedSessionIDs: [TerminalSession.ID] = [] {
+        didSet { reconcileLiftedSessionIDs() }
+    }
+
+    /// Ordered lifted list for the sidebar's synthetic Needs Input section.
+    /// Membership = lifted and not pinned, array order = ARRIVAL order: first to
+    /// ask sits at the top and new arrivals append at the bottom, so an existing
+    /// row is never shoved down under the user's pointer. Re-asking while
+    /// already listed does not move a row — it has been waiting longest.
+    ///
+    /// Same shape as `pinnedSessionIDs`, except auto-maintained rather than
+    /// user-curated: `reconcileLiftedSessionIDs()` owns every write.
+    /// Runtime-only; arrival order is not persisted (a relaunch rebuilds it in
+    /// group order from the two attention reasons `SessionRestoreReducer` keeps).
+    public internal(set) var liftedSessionIDs: [TerminalSession.ID] = []
 
     /// Mirrored from `appearance.promote_workspaces_needing_input` by
     /// `SidebarView` — the section's only renderer — so the sidebar, the ⌘-jump
@@ -119,27 +138,49 @@ public final class SessionStore {
             if attentionStickySessionID != nil {
                 attentionStickySessionID = nil
             }
+            reconcileLiftedSessionIDs()
             return
         }
         attentionStickySessionID = selected
+        reconcileLiftedSessionIDs()
     }
 
-    /// Group order, lifted-only, pinned excluded. The one definition every
-    /// consumer of sidebar order reads.
-    public var liftedSessionIDs: [TerminalSession.ID] {
-        guard needsInputSectionEnabled else { return [] }
-        let pinned = Set(pinnedSessionIDs)
-        return
-            _groups
-            .flatMap(\.sessions)
-            .filter { session in
-                !pinned.contains(session.id)
-                    && SidebarAttentionProjection.isLifted(
-                        session,
-                        stickySessionID: attentionStickySessionID
-                    )
+    /// Sole writer of `liftedSessionIDs`. Called once per input that the lift
+    /// predicate reads: `commit(_:now:)` for `_groups`, `refreshAttentionSticky()`
+    /// for the sticky, and `pinnedSessionIDs`' observer for pins.
+    ///
+    /// Order is the whole point. IDs already listed keep their slots, so a
+    /// workspace whose unread goes 1 → 2 does not jump the queue and a new
+    /// arrival can never insert above a row the user is about to click.
+    /// Newcomers append in group order, which keeps a batch deterministic.
+    func reconcileLiftedSessionIDs() {
+        guard needsInputSectionEnabled else {
+            if !liftedSessionIDs.isEmpty {
+                liftedSessionIDs = []
             }
-            .map(\.id)
+            return
+        }
+        let pinned = Set(pinnedSessionIDs)
+        let sticky = attentionStickySessionID
+        var arrivals: [TerminalSession.ID] = []
+        var arrivalSet: Set<TerminalSession.ID> = []
+        for group in _groups {
+            for session in group.sessions
+            where !pinned.contains(session.id)
+                && SidebarAttentionProjection.isLifted(session, stickySessionID: sticky)
+            {
+                arrivals.append(session.id)
+                arrivalSet.insert(session.id)
+            }
+        }
+        // Drops IDs that were acknowledged, closed, or pinned; the filter also
+        // preserves the surviving IDs' relative order for free.
+        var next = liftedSessionIDs.filter { arrivalSet.contains($0) }
+        let held = Set(next)
+        next.append(contentsOf: arrivals.lazy.filter { !held.contains($0) })
+        // @Observable publishes on every set, and this runs on every commit.
+        guard next != liftedSessionIDs else { return }
+        liftedSessionIDs = next
     }
 
     public internal(set) var unreadNotificationTotal: Int = 0
@@ -216,6 +257,10 @@ public final class SessionStore {
         // inherits, and the ID-reuse hazard above applies: a surviving sticky
         // could lift a restored workspace that never needed input.
         attentionStickySessionID = nil
+        // Same ID-reuse hazard: a surviving arrival order would seat restored
+        // workspaces by when their pre-restore namesakes asked. The commit below
+        // rebuilds it in group order.
+        liftedSessionIDs = []
         shellActivityReducer = ShellActivityReducer()
         runtimeEventReducer = AgentRuntimeEventReducer()
         commit(

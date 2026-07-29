@@ -561,12 +561,10 @@ struct SidebarView: View {
             // origin group; silently expanding that origin group would be a
             // surprising side effect (especially on the collapsed rail). Gated on
             // the setting so the default configuration keeps its old behavior.
-            let isLifted =
-                sessionStore.needsInputSectionEnabled
-                && SidebarAttentionProjection.isLifted(
-                    session,
-                    stickySessionID: sessionStore.attentionStickySessionID
-                )
+            // The store's list already resolves the setting, the sticky, and
+            // pinned precedence — re-deriving membership here could disagree
+            // with the section actually on screen.
+            let isLifted = sessionStore.liftedSessionIDs.contains(newValue)
             guard !sessionStore.isPinned(newValue), !isLifted else {
                 return
             }
@@ -955,7 +953,7 @@ struct SidebarView: View {
         // also gets the last word on the filter's top match.
         let attentionProjection = SidebarAttentionProjection.apply(
             entries: pinnedProjection.entries,
-            stickySessionID: sessionStore.attentionStickySessionID,
+            liftedSessionIDs: sessionStore.liftedSessionIDs,
             isFiltering: isFiltering,
             searchTopMatch: pinnedProjection.topMatch
         )

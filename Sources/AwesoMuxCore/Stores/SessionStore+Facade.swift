@@ -888,6 +888,12 @@ extension SessionStore {
             #endif
         }
 
+        // Every `_groups` mutation lands here, so this is where a workspace that
+        // just started (or stopped) needing input enters or leaves the ordered
+        // lifted list. Runs before the selection write so an observer woken by
+        // that write already sees a reconciled section.
+        reconcileLiftedSessionIDs()
+
         if case .set(let sessionID) = effect.selection {
             // Unconditional write: same-value re-assign must still publish (INT-652).
             selectedSessionID = sessionID

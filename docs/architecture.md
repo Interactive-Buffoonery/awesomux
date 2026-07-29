@@ -237,7 +237,8 @@ structurally free.
 
 1. **Needs Input** (`SidebarAttentionProjection`, opt-in via
    `appearance.promote_workspaces_needing_input`, default off). Membership is
-   computed from `TerminalSession.needsUserInput` — deliberately narrower than
+   the ordered `SessionStore.liftedSessionIDs`, reconciled from
+   `TerminalSession.needsUserInput` — deliberately narrower than
    `needsAcknowledgement`, gating on `AttentionReason.priority >= 2`
    (`permissionPrompt`, `userInputRequired`). A bell, desktop notification,
    process error, or stray background output still lights the peach cue but does
@@ -246,6 +247,8 @@ structurally free.
 2. **Pinned** (`SidebarPinnedProjection`, INT-737). Membership is the
    user-ordered `SessionStore.pinnedSessionIDs`.
 
+Both projections CONSUME an ordered ID list rather than recomputing membership;
+the only difference is that pins are user-curated and lifts are auto-maintained.
 The attention projection chains over the pinned projection's reduced output, so
 a pinned workspace is never lifted twice — pinned precedence is a consequence of
 the call order, not an explicit check.
@@ -263,10 +266,30 @@ deliberate acknowledge (⌘⇧K, Clear All Notifications) releases it; the passi
 dwell does not — `acknowledgeSession(id:releasesAttentionSticky:)` defaults to
 releasing, and only the scheduled dwell callback passes `false`.
 
-`SessionStore.liftedSessionIDs` is the single definition of the lifted set.
-`WorkspaceNavigationOrder.liftedFirstSessionIDs` consumes it so ⌘1-9,
-Previous/Next Workspace, and the Dock menu resolve from the same order the
-sidebar draws.
+`SessionStore.liftedSessionIDs` is the single definition of the lifted set, and
+it is **ordered by arrival**: the first workspace to ask sits at the top, new
+arrivals append at the bottom, and a workspace already in the section does not
+move when it asks again (unread 1 → 2 keeps its slot — it has been waiting
+longest). Group order would let a new arrival insert above an existing row and
+shove it down under the user's pointer; appending cannot.
+
+`SessionStore.reconcileLiftedSessionIDs()` is the sole writer. It runs once per
+input the lift predicate reads: `commit(_:now:)` for `_groups` (the sole
+derived-state writer, so every attention change, close, and restore routes
+through it), `refreshAttentionSticky()` for the sticky, and the
+`pinnedSessionIDs` observer for pins. It removes IDs that are no longer lifted,
+no longer live, or now pinned; appends newly lifted IDs in group order so a
+batch is deterministic; and never reorders an ID already present.
+
+Arrival order is runtime-only and deliberately not persisted. A relaunch
+rebuilds it in group order — `SessionRestoreReducer` keeps only
+`.permissionPrompt`/`.userInputRequired` across a relaunch, so that is a small,
+rare set and not worth a schema change. `replaceState` clears the list for the
+same ID-reuse reason it clears the sticky.
+
+`WorkspaceNavigationOrder.liftedFirstSessionIDs` consumes the same list, so ⌘1-9,
+Previous/Next Workspace, and the Dock menu inherit arrival order and resolve from
+the same order the sidebar draws.
 
 Known behaviors, accepted: a background attention clear removes an unselected
 row with no dwell; a split workspace stays lifted while any pane waits, even

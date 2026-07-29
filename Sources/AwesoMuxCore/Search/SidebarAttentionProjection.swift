@@ -2,17 +2,22 @@ import Foundation
 
 /// Post-pinned projection that lifts workspaces awaiting a human answer into the
 /// sidebar's synthetic Needs Input section and hides them inside their origin
-/// groups. Membership is computed, never stored — acknowledging a workspace
-/// flips `needsUserInput` and the row re-renders at its unchanged index in its
-/// group, exactly like unpinning.
+/// groups. Nothing moves in the store — acknowledging a workspace drops its ID
+/// from `SessionStore.liftedSessionIDs` and the row re-renders at its unchanged
+/// index in its group, exactly like unpinning.
+///
+/// Structurally parallel to `SidebarPinnedProjection`: both CONSUME an ordered
+/// ID list the store maintains rather than recomputing membership, which is what
+/// makes the rendered order and `WorkspaceNavigationOrder.liftedFirstSessionIDs`
+/// agree by construction instead of by two implementations happening to match.
 ///
 /// Chained AFTER `SidebarPinnedProjection` over its reduced `entries`, so a
 /// pinned workspace is already gone from the input and can never be lifted
 /// twice: pinned wins by construction, with no precedence check.
 public enum SidebarAttentionProjection {
-    /// The single definition of membership. `SessionStore.liftedSessionIDs`
-    /// reuses it so the rendered section, the ⌘-jump order, and the Dock menu
-    /// can never disagree about what is lifted.
+    /// The single definition of membership, applied by
+    /// `SessionStore.reconcileLiftedSessionIDs()`. Lives here, next to the
+    /// projection it feeds, so the rule and its only renderer stay together.
     ///
     /// Deliberately blind to the selection: the sticky ID is written in reaction
     /// to a selection change, so any render pass can observe a new selection
@@ -43,11 +48,20 @@ public enum SidebarAttentionProjection {
 
     public static func apply(
         entries: [SidebarGroupEntry],
-        stickySessionID: TerminalSession.ID?,
+        liftedSessionIDs: [TerminalSession.ID],
         isFiltering: Bool,
         searchTopMatch: TerminalSession.ID?
     ) -> Output {
-        var attention: [LiftedSessionEntry] = []
+        guard !liftedSessionIDs.isEmpty else {
+            return Output(
+                attention: [],
+                entries: entries,
+                topMatch: isFiltering ? searchTopMatch : nil
+            )
+        }
+
+        let liftedIDSet = Set(liftedSessionIDs)
+        var liftedByID: [TerminalSession.ID: LiftedSessionEntry] = [:]
         var remaining: [SidebarGroupEntry] = []
         remaining.reserveCapacity(entries.count)
 
@@ -55,13 +69,11 @@ public enum SidebarAttentionProjection {
             var kept: [SidebarSessionEntry] = []
             kept.reserveCapacity(groupEntry.sessions.count)
             for sessionEntry in groupEntry.sessions {
-                if isLifted(sessionEntry.session, stickySessionID: stickySessionID) {
-                    attention.append(
-                        LiftedSessionEntry(
-                            entry: sessionEntry,
-                            originGroup: groupEntry.group,
-                            originGroupUnfilteredIndex: groupEntry.unfilteredIndex
-                        )
+                if liftedIDSet.contains(sessionEntry.session.id) {
+                    liftedByID[sessionEntry.session.id] = LiftedSessionEntry(
+                        entry: sessionEntry,
+                        originGroup: groupEntry.group,
+                        originGroupUnfilteredIndex: groupEntry.unfilteredIndex
                     )
                 } else {
                     kept.append(sessionEntry)
@@ -80,6 +92,8 @@ public enum SidebarAttentionProjection {
             )
         }
 
+        // Arrival order comes from the store's list, not from this walk.
+        let attention = liftedSessionIDs.compactMap { liftedByID[$0] }
         // Needs Input renders above every other section, so while filtering the
         // "first visible match" Return commits to is a lifted match when one
         // exists.
