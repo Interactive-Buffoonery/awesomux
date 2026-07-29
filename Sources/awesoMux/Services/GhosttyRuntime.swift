@@ -400,14 +400,33 @@ final class GhosttyRuntime {
                 "nudge probe: no surface view for pane \(paneID.uuidString, privacy: .public)")
             return nil
         }
-        return surfaceView.documentNudgeForegroundComm()
+        let comm = surfaceView.documentNudgeForegroundComm()
+        // Honors this chain's stated policy (ProcessLivenessProbe: "Pids/counts
+        // only — never process names"): the name itself is `.private`, and the
+        // always-visible part is whether it resolved. A denial where every
+        // other probe passes is a name the allowlist doesn't know — npm's
+        // `claude.exe` was exactly that — and `ps -o comm` prints a DIFFERENT
+        // string than `p_comm` for it, so a developer who needs the literal
+        // value must read it here with private-data logging enabled rather than
+        // trust `ps`.
+        Self.nudgeGateLogger.debug(
+            "nudge probe: pane \(paneID.uuidString, privacy: .public) comm resolved \(comm != nil, privacy: .public) name \(comm ?? "nil", privacy: .private)"
+        )
+        return comm
     }
 
     /// CURRENT foreground-process incarnation for a pane, sampled fresh —
     /// pairs with `foregroundComm(in:)` as the other half of the document-nudge
     /// gate's generation check (INT-569 follow-up).
     func foregroundGeneration(in paneID: TerminalPane.ID) -> AgentForegroundIncarnation? {
-        surfaceViews[paneID]?.documentNudgeForegroundGeneration()
+        let observed = surfaceViews[paneID]?.documentNudgeForegroundGeneration()
+        // The generation guard is the only deny in this chain that named no
+        // guard in the log, which left a live "supported agent is waiting"
+        // denial with no way to tell a never-minted stamp from a mismatched one.
+        Self.nudgeGateLogger.debug(
+            "nudge probe: pane \(paneID.uuidString, privacy: .public) observed generation \(observed.map { "pid \($0.pid) started \($0.startedAt)" } ?? "nil", privacy: .public), trusted \(self.verifiedWaitingForegroundGeneration(in: paneID).map { "pid \($0.pid) started \($0.startedAt)" } ?? "nil", privacy: .public)"
+        )
+        return observed
     }
 
     /// The foreground-process incarnation observed the last time a genuine

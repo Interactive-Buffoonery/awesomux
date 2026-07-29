@@ -53,6 +53,34 @@ struct DiagnosticsProcessTests {
         #expect(snapshot.aggregateCPUPercent == 16.2)
     }
 
+    @Test("classifies an npm .exe launcher as an agent, not an unknown process")
+    func classifiesExeLauncherAsAgent() throws {
+        // npm ships Claude Code as `.../bin/claude.exe`, so the raw name carries
+        // the suffix. Without normalization the live agent renders as `.other`.
+        let sessionID = try #require(TerminalSessionID(rawValue: "33333333-3333-3333-3333-333333333333"))
+        let rows = DiagnosticsProcessParser.parse(
+            """
+            100 1 4.0 1000 /Applications/awesoMux.app/Contents/MacOS/awesoMux
+            200 1 1.0 200 /usr/local/bin/amx
+            201 200 3.0 300 /bin/zsh
+            202 201 8.0 400 /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe
+            203 201 2.0 150 /opt/homebrew/lib/node_modules/@openai/codex/bin/codex.exe
+            """
+        )
+        let snapshot = DiagnosticsProcessTree.build(
+            rows: rows,
+            daemons: [LiveDaemon(id: sessionID, pid: 200, createdEpoch: 0, clients: 1)],
+            owners: [sessionID: .init(sessionTitle: "Feature", paneTitle: "Agent", isSelected: true)],
+            appPID: 100,
+            collectedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let processes = snapshot.groups[0].processes
+        #expect(try #require(processes.first { $0.pid == 202 }).kind == .agent)
+        #expect(try #require(processes.first { $0.pid == 203 }).kind == .agent)
+        #expect(try #require(processes.first { $0.pid == 201 }).kind == .shell)
+    }
+
     @Test("excludes the short-lived process sampler from diagnostics")
     func excludesProcessSampler() {
         let rows = DiagnosticsProcessParser.parse(

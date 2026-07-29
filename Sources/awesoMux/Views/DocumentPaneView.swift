@@ -4,6 +4,7 @@ import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
+import os
 
 // MARK: - DocumentPaneSendBar
 
@@ -37,7 +38,54 @@ struct DocumentPaneSendBar: View {
     // instead of waiting on an unrelated render (CodeRabbit finding).
     @Environment(AppSettingsStore.self) private var appSettingsStore
 
+    /// INT-569 field diagnostics: the one line that says why a send bar is
+    /// disabled. Each individual probe already names its own guard, but nothing
+    /// logged the resolved verdict, so a denial whose probes all pass was
+    /// invisible.
+    private nonisolated static let nudgeGateLogger = Logger(
+        subsystem: "com.interactivebuffoonery.awesomux",
+        category: "DocumentNudgeGate"
+    )
+
     private var nudgeResolution: DocumentNudgeTargetResolution {
+        let resolved = resolvedNudgeTarget
+        switch resolved {
+        case .available(let target):
+            Self.nudgeGateLogger.debug(
+                "nudge verdict: document \(pane.id.uuidString, privacy: .public) AVAILABLE via pane \(target.id.uuidString, privacy: .public) kind \(String(describing: target.agentKind), privacy: .public)"
+            )
+        case .unavailable(let reason):
+            // Identity only — the observed `p_comm` is logged by
+            // `GhosttyRuntime.foregroundComm(in:)`, which the resolution above
+            // already called. Re-probing here would issue a second live
+            // process syscall on every render of a disabled send bar.
+            //
+            // The target lookup is a recursive layout walk, so it goes INSIDE
+            // the interpolation: `os_log` arguments are autoclosures and cost
+            // nothing when debug logging is off, but a `let` above the call
+            // would run on every render of every disabled send bar in every
+            // build (review finding). One helper, so it walks once, not once
+            // per field.
+            Self.nudgeGateLogger.debug(
+                "nudge verdict: document \(pane.id.uuidString, privacy: .public) DENIED \(String(describing: reason), privacy: .public); \(Self.deniedTargetDescription(session.layout, pane.id), privacy: .public)"
+            )
+        }
+        return resolved
+    }
+
+    /// One layout walk, rendered lazily from inside the log interpolation.
+    private static func deniedTargetDescription(
+        _ layout: TerminalPaneLayout,
+        _ documentID: DocumentPane.ID
+    ) -> String {
+        guard let target = layout.documentSendTarget(for: documentID) else {
+            return "target pane none"
+        }
+        return
+            "target pane \(target.id.uuidString) kind \(target.agentKind) state \(target.agentState)"
+    }
+
+    private var resolvedNudgeTarget: DocumentNudgeTargetResolution {
         let integrations = appSettingsStore.agentIntegrations.value
         return Self.resolveNudgeTarget(
             in: session.layout,
@@ -85,7 +133,11 @@ struct DocumentPaneSendBar: View {
         guard let observedComm = foregroundComm(target.id) else {
             return .unavailable(.localTerminalUnverified)
         }
-        if observedComm == "ssh" {
+        // Normalized like every other name comparison in this chain. `ssh` is
+        // denied either way (it is on the gate's non-agent list), but this
+        // branch owns the reason the USER reads, and an unnormalized compare
+        // would show them the generic denial instead of "exit SSH".
+        if AgentPromptGate.normalizedForegroundName(observedComm) == "ssh" {
             return .unavailable(.foregroundSSH)
         }
         // Verified-agent-prompt gate (INT-569).

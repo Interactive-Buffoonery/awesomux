@@ -15,11 +15,27 @@ struct AgentProcessRecognitionTests {
         #expect(AgentProcessRecognition.agentKind(forCommand: "grok-arm64") == .grok)
     }
 
+    @Test("recognizes npm-packaged .exe launchers")
+    func recognizesExeLaunchers() {
+        // The pane-identity layer runs BEFORE AgentPromptGate: a pane this
+        // mapper leaves as `.shell` is refused at the gate's first guard, so
+        // both must agree on what a provider binary is called.
+        #expect(AgentProcessRecognition.agentKind(forCommand: "codex.exe") == .codex)
+        #expect(
+            AgentProcessRecognition.agentKind(
+                forCommand: "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.exe") == .codex)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "opencode.exe") == .openCode)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "grok.exe") == .grok)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "CODEX.EXE") == .codex)
+    }
+
     @Test("rejects non-agent foreground commands")
     func rejectsNonAgentForegroundCommands() {
         #expect(AgentProcessRecognition.agentKind(forCommand: nil) == nil)
         #expect(AgentProcessRecognition.agentKind(forCommand: "zsh") == nil)
         #expect(AgentProcessRecognition.agentKind(forCommand: "node") == nil)
         #expect(AgentProcessRecognition.agentKind(forCommand: "my-codex-wrapper") == nil)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "node.exe") == nil)
+        #expect(AgentProcessRecognition.agentKind(forCommand: ".exe") == nil)
     }
 }
