@@ -448,8 +448,8 @@ describe("opencode-review trusted-helper checkout", () => {
   test("keeps comment-triggered permission tied to the allowlisted command author", () => {
     assert.match(
       commentWorkflow,
-      /github\.event\.comment\.body\s*==\s*['"]\/codereview['"]/,
-      "manual review must require the exact /codereview command",
+      /contains\(fromJSON\('\["\/codereview", "\/codereview\\n", "\/codereview\\r\\n", "\/codereview "\]'\),\s*github\.event\.comment\.body\)/,
+      "manual review must require an explicitly allowlisted /codereview spelling",
     );
     assert.match(
       commentWorkflow,
