@@ -7,6 +7,11 @@ import Foundation
 struct SelectionAcknowledgementBaseline: Sendable {
     var activePaneID: TerminalPane.ID
     var paneUnreadCount: Int
+    /// Whether the active pane already held a reason that `awaitsExplicitAnswer`
+    /// when the dwell armed. Unread cannot stand in for this: a prompt raised on
+    /// a FOCUSED pane deliberately adds no unread, so a prompt arriving mid-dwell
+    /// is invisible to `paneUnreadCount` alone.
+    var paneAwaitsExplicitAnswer: Bool
 }
 
 @MainActor

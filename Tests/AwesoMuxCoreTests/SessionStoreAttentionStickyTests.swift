@@ -172,6 +172,69 @@ import Testing
         #expect(store.liftedSessionIDs == [a.id])
     }
 
+    /// Arms the REAL dwell against a calm active pane: baseline unread 0, no
+    /// pending prompt. The calm workspace goes first so `init` seeds selection to
+    /// it and the write below is a genuine change that reaches the arming path.
+    private func storeArmedOnCalmSelection(_ session: TerminalSession) -> SessionStore {
+        let calm = TerminalSession(title: "calm", workingDirectory: "~")
+        let store = SessionStore(
+            groups: [SessionGroup(name: "One", sessions: [calm, session])],
+            acknowledgementDwellNanoseconds: 20_000_000
+        )
+        store.needsInputSectionEnabled = true
+        store.selectedSessionID = session.id
+        return store
+    }
+
+    /// The dwell exists to clear attention the user has actually SEEN. A prompt
+    /// that lands after the dwell armed has not been seen — and because the pane
+    /// is focused, `AgentRuntimeEventReducer` deliberately adds no unread, so the
+    /// baseline's unread-growth guard cannot see it either. Without the
+    /// prompt-at-baseline guard the dwell auto-answers a question nobody read.
+    ///
+    /// The `.bell` control store is the timing witness, not a wall-clock sleep:
+    /// it arms SECOND with the same dwell, so its deadline falls after the
+    /// subject's, and its ack landing proves the subject's dwell has already
+    /// fired. A loaded suite can therefore delay this test but never make it
+    /// pass vacuously.
+    @Test func aPromptArrivingMidDwellIsNotAcknowledged() async {
+        let subjectSession = TerminalSession(title: "subject", workingDirectory: "~")
+        let controlSession = TerminalSession(title: "control", workingDirectory: "~")
+        let subject = storeArmedOnCalmSelection(subjectSession)
+        let control = storeArmedOnCalmSelection(controlSession)
+
+        // Same main-actor run as the arming above, so both land strictly inside
+        // their dwell windows — no dwell task can run until we suspend.
+        subject.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(source: .claudeCode, attentionReason: .permissionPrompt),
+            to: subjectSession.id,
+            paneID: subjectSession.activePaneID,
+            terminalIsFocused: true
+        )
+        control.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(source: .claudeCode, attentionReason: .bell),
+            to: controlSession.id,
+            paneID: controlSession.activePaneID,
+            terminalIsFocused: true
+        )
+        // The exact reason the unread guard is blind to a focused-pane prompt.
+        #expect(subject.session(id: subjectSession.id)?.activePane?.unreadNotificationCount == 0)
+
+        // Negative control: a `.bell` is a notice, not a question, so the dwell
+        // must still acknowledge it — the guard is scoped to reasons that block
+        // on a human answer, not widened to all attention.
+        let controlAcknowledged = await waitUntilEventually {
+            control.session(id: controlSession.id)?.activePane?.attentionReason == nil
+        }
+        #expect(controlAcknowledged)
+
+        #expect(
+            subject.session(id: subjectSession.id)?.activePane?.attentionReason
+                == .permissionPrompt
+        )
+        #expect(subject.session(id: subjectSession.id)?.needsUserInput == true)
+    }
+
     /// A bulk restore can reuse session IDs with different values, so a
     /// surviving sticky would lift a restored workspace that never needed input.
     @Test func replaceStateDropsTheSticky() {
