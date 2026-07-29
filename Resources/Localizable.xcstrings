@@ -210,6 +210,17 @@
     "%arg is empty" : {
 
     },
+    "%arg left Needs Input, returned to %arg" : {
+      "comment" : "VoiceOver announcement when a workspace stops needing input; first placeholder is the workspace title, second is its group name",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg left Needs Input, returned to %2$arg"
+          }
+        }
+      }
+    },
     "%arg needs attention" : {
       "comment" : "Notification title shown when a background agent workspace transitions to needs-attention. Argument is the agent product name (e.g. Claude, Codex, Shell)."
     },
@@ -3478,6 +3489,9 @@
     },
     "Unpin Workspace" : {
       "comment" : "Main-menu action that removes the selected workspace from the sidebar's pinned section."
+    },
+    "Unpinned %arg, moved to Needs Input" : {
+      "comment" : "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
     },
     "Unsafe saved workspace fields were sanitized during restore" : {
       "comment" : "Diagnostics event summary"
