@@ -112,12 +112,18 @@ struct SidebarAttentionSectionView: View {
     @ViewBuilder
     private func tile(for item: LiftedSessionEntry, at index: Int) -> some View {
         let session = item.entry.session
-        // One string for the tooltip and the VoiceOver value fragment: they name
-        // the same thing, so letting them drift would be a bug, not a variant.
+        // Two strings, deliberately: the comma is prosody, not punctuation. The
+        // VoiceOver fragment is appended after "Workspace 2 of 3", where the
+        // comma gives VoiceOver a pause; the pointer tooltip stands alone and
+        // reads better without it. Matches the Pinned section's split.
+        let originGroupTooltip = String(
+            localized: "Needs input from \(item.originGroup.name)",
+            comment: "Tooltip on a lifted sidebar workspace naming the group it returns to."
+        )
         let originGroupPhrase = String(
             localized: "Needs input, from \(item.originGroup.name)",
             comment:
-                "Tooltip and VoiceOver value fragment on a lifted sidebar workspace naming its origin group."
+                "VoiceOver value fragment on a lifted sidebar workspace naming its origin group."
         )
         SidebarSessionTile(
             session: session,
@@ -176,6 +182,6 @@ struct SidebarAttentionSectionView: View {
         )
         .equatable()
         .id(session.id)
-        .help(originGroupPhrase)
+        .help(originGroupTooltip)
     }
 }

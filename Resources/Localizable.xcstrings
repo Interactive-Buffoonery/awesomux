@@ -1827,8 +1827,11 @@
         }
       }
     },
+    "Needs input from %arg" : {
+      "comment" : "Tooltip on a lifted sidebar workspace naming the group it returns to."
+    },
     "Needs input, from %arg" : {
-      "comment" : "Tooltip on a lifted sidebar workspace naming the group it returns to.\nVoiceOver value fragment on a lifted sidebar workspace naming its origin group."
+      "comment" : "VoiceOver value fragment on a lifted sidebar workspace naming its origin group."
     },
     "New Custom Command" : {
       "comment" : "Title of the sheet that creates a custom command"
