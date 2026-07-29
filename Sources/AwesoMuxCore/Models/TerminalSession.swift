@@ -239,10 +239,7 @@ public extension TerminalSession {
     /// still waiting, even though the selection dwell acknowledges only the
     /// active pane.
     var needsUserInput: Bool {
-        panes.contains { pane in
-            guard let reason = pane.attentionReason else { return false }
-            return reason.priority >= AttentionReason.permissionPrompt.priority
-        }
+        panes.contains { $0.attentionReason?.awaitsExplicitAnswer == true }
     }
 
     /// Summed across panes for badge display. Flipped from a stored var to a

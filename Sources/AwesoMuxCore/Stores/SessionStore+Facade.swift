@@ -219,6 +219,9 @@ extension SessionStore {
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentState: .thinking,
                 clearsAttention: true,
+                // The user typed the answer into this pane, so this is the one
+                // clear allowed to retract a still-pending prompt.
+                attentionClearIsAuthoritative: true,
                 clearsUnreadNotifications: true
             )
         )

@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 import Testing
 @testable import AwesoMuxCore
@@ -131,13 +132,196 @@ struct WorkspaceAttentionReducerTests {
         )
         #expect(session.attentionReason == .userInputRequired)
 
-        // Explicit clearing always wins regardless of priority.
+        // An INFERRED clear no longer wins over a pending prompt — that was the
+        // retraction that dropped the row out of Needs Input a second after it
+        // lifted. Only an explicit acknowledgement takes it back.
         _ = WorkspaceAttentionReducer.updatePane(
             &session,
             paneID: session.activePaneID,
             update: .init(clearsAttention: true),
             now: Date(timeIntervalSince1970: 3)
         )
+        #expect(session.attentionReason == .userInputRequired)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: session.activePaneID,
+            update: .init(clearsAttention: true, attentionClearIsAuthoritative: true),
+            now: Date(timeIntervalSince1970: 4)
+        )
+        #expect(session.attentionReason == nil)
+    }
+
+    @Test(
+        "an inferred clear cannot retract a pending prompt",
+        arguments: [AttentionReason.permissionPrompt, .userInputRequired]
+    )
+    func inferredClearKeepsPendingPrompt(reason: AttentionReason) {
+        var session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: reason
+        )
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: session.activePaneID,
+            update: .init(agentExecutionState: .running, clearsAttention: true),
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        #expect(session.attentionReason == reason)
+        #expect(session.needsUserInput)
+    }
+
+    @Test(
+        "an inferred clear still retracts a low-priority reason",
+        arguments: [AttentionReason.bell, .desktopNotification, .processError, .unknown]
+    )
+    func inferredClearRetractsLowPriorityAttention(reason: AttentionReason) {
+        var session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: reason
+        )
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: session.activePaneID,
+            update: .init(agentExecutionState: .running, clearsAttention: true),
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        #expect(session.attentionReason == nil)
+    }
+
+    @Test("an explicit clear retracts a pending prompt")
+    func explicitClearRetractsPendingPrompt() {
+        var session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .permissionPrompt
+        )
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: session.activePaneID,
+            update: .init(
+                agentExecutionState: .thinking,
+                clearsAttention: true,
+                attentionClearIsAuthoritative: true
+            ),
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        #expect(session.attentionReason == nil)
+    }
+
+    @Test(
+        "applyLegacyAgentState keeps a pending prompt but drops a low-priority reason",
+        arguments: [
+            (AttentionReason.permissionPrompt, AttentionReason?.some(.permissionPrompt)),
+            (.userInputRequired, .some(.userInputRequired)),
+            (.bell, nil),
+            (.processError, nil),
+        ]
+    )
+    func legacyAgentStateRespectsPendingPrompt(
+        reason: AttentionReason,
+        expected: AttentionReason?
+    ) {
+        var pane = TerminalPane(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: reason,
+            executionPlan: .local
+        )
+
+        pane.applyLegacyAgentState(.running, clearsAttentionForExecutionState: true)
+
+        #expect(pane.attentionReason == expected)
+        #expect(pane.agentExecutionState == .running)
+    }
+
+    @Test("applyLegacyAgentState honors an explicit clear of a pending prompt")
+    func legacyAgentStateExplicitClear() {
+        var pane = TerminalPane(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
+        )
+
+        pane.applyLegacyAgentState(
+            .thinking,
+            clearsAttentionForExecutionState: true,
+            attentionClearIsAuthoritative: true
+        )
+
+        #expect(pane.attentionReason == nil)
+    }
+
+    @Test("acknowledgePane clears a pending permission prompt")
+    func acknowledgePaneClearsPendingPrompt() {
+        var session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .permissionPrompt
+        )
+
+        _ = WorkspaceAttentionReducer.acknowledgePane(
+            &session,
+            paneID: session.activePaneID
+        )
+
+        #expect(session.attentionReason == nil)
+        #expect(session.needsUserInput == false)
+    }
+
+    @Test("acknowledgeAllPanes and acknowledgeAllSessions clear pending prompts")
+    func explicitSweepsClearPendingPrompts() {
+        var session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .permissionPrompt
+        )
+        _ = WorkspaceAttentionReducer.acknowledgeAllPanes(in: &session)
+        #expect(session.attentionReason == nil)
+
+        let pending = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .userInputRequired
+        )
+        var groups = [SessionGroup(name: "main", sessions: [pending])]
+        WorkspaceAttentionReducer.acknowledgeAllSessions(in: &groups)
+        #expect(groups[0].sessions[0].attentionReason == nil)
+    }
+
+    @Test("updatePermissionPromptAttention still clears its own resolved prompt")
+    func bridgeResolutionClearsPendingPrompt() {
+        var session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .permissionPrompt
+        )
+
+        _ = WorkspaceAttentionReducer.updatePermissionPromptAttention(
+            &session,
+            paneID: session.activePaneID,
+            countDelta: 0,
+            hasPending: false
+        )
+
         #expect(session.attentionReason == nil)
     }
 
@@ -145,11 +329,15 @@ struct WorkspaceAttentionReducerTests {
     func updatePaneIsScopedToOnePane() throws {
         // The regression PR #149 faked with the `isSinglePane` gate: in a split,
         // clearing one pane's attention must NOT touch the sibling's.
+        // `.bell` rather than `.permissionPrompt`: this test is about pane
+        // SCOPING, and only a retractable (low-priority) reason clears through
+        // an inferred update at all — the pending-prompt case is covered by
+        // `inferredClearKeepsPendingPrompt`.
         let needy = TerminalPane(
             title: "codex",
             workingDirectory: "~",
             agentKind: .codex,
-            attentionReason: .permissionPrompt,
+            attentionReason: .bell,
             executionPlan: .local
         )
         let sibling = TerminalPane(

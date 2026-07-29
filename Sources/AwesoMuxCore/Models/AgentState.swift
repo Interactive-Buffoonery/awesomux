@@ -24,8 +24,7 @@ public enum AgentDisplayState: String, CaseIterable, Codable, Hashable, Sendable
         // an unanswered permission request stays loud even on a dead pane.
         if let attentionReason {
             let deadPane = executionState == .done || executionState == .error
-            if !deadPane
-                || attentionReason.priority >= AttentionReason.permissionPrompt.priority {
+            if !deadPane || attentionReason.awaitsExplicitAnswer {
                 self = .needsAttention
                 return
             }

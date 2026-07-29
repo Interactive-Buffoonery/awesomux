@@ -170,13 +170,23 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.unreadNotificationCount = unreadNotificationCount
     }
 
+    /// - Parameter attentionClearIsAuthoritative: `true` only when the prompt is
+    ///   known resolved or unanswerable (see
+    ///   `WorkspaceAttentionReducer.SessionUpdate.attentionClearIsAuthoritative`).
+    ///   An inferred clear must not retract a reason that `awaitsExplicitAnswer`
+    ///   — the legacy path is a full display-state replacement, so any late
+    ///   "still running" inference would otherwise drop a live prompt within a
+    ///   second of it appearing.
     public mutating func applyLegacyAgentState(
         _ state: AgentState,
-        clearsAttentionForExecutionState: Bool
+        clearsAttentionForExecutionState: Bool,
+        attentionClearIsAuthoritative: Bool = false
     ) {
         if let executionState = state.executionState {
             agentExecutionState = executionState
-            if clearsAttentionForExecutionState {
+            if clearsAttentionForExecutionState,
+                attentionClearIsAuthoritative || attentionReason?.awaitsExplicitAnswer != true
+            {
                 attentionReason = nil
             }
         } else if let attentionReason = state.attentionReason {

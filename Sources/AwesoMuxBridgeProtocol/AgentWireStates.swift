@@ -58,4 +58,15 @@ public enum AttentionReason: String, CaseIterable, Codable, Hashable, Sendable {
             0
         }
     }
+
+    /// True for the reasons that block on a human answer. Single definition of
+    /// "high-priority attention", shared by the sidebar's Needs Input gate, the
+    /// dead-pane display override, and the inferred-clear guard in
+    /// `WorkspaceAttentionReducer` / `TerminalPane.applyLegacyAgentState`. These
+    /// reasons are only retractable by an explicit acknowledgement or by the
+    /// bridge resolving the prompt it owns — never by a background inference,
+    /// which would drop the row out of the section before the user can act.
+    public var awaitsExplicitAnswer: Bool {
+        priority >= AttentionReason.permissionPrompt.priority
+    }
 }
