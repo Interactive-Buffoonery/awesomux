@@ -10,9 +10,19 @@ concurrency:
 
 jobs:
   review:
+    # The command must still be the WHOLE comment — a body that merely mentions
+    # `/codereview` alongside prose must not trigger a review. But the trailing
+    # newline every CLI appends is not "extra text": `gh pr comment --body
+    # '/codereview'` posts `/codereview\n`, which failed the old equality check
+    # and left the run reporting `skipped` — indistinguishable on the checks
+    # board from a review that ran and found nothing. Three triggers were lost
+    # that way on PR #309, and the same silent no-op is on record for #191 and
+    # #194. Expressions have no `trim`, so the accepted spellings are listed;
+    # `fromJSON` turns the escapes into real characters.
     if: >-
       github.event.issue.pull_request != null &&
-      github.event.comment.body == '/codereview' &&
+      contains(fromJSON('["/codereview", "/codereview\n", "/codereview\r\n", "/codereview "]'),
+        github.event.comment.body) &&
       contains(fromJSON(vars.MAINTAINER_LOGINS_JSON || '[]'), github.actor)
     runs-on: ubuntu-latest
     timeout-minutes: 15
