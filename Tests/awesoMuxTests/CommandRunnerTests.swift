@@ -148,7 +148,7 @@ struct ProcessCommandRunnerTests {
         let spawnGate = BlockingSpawnGate()
         defer {
             spawnGate.open()
-            delays.advanceAll()
+            delays.advanceOneCycle()
         }
         let runner = ProcessCommandRunner(
             timeout: .seconds(1),
@@ -171,7 +171,7 @@ struct ProcessCommandRunnerTests {
     @Test("a failed spawn does not arm the timeout or hang pipe drains")
     func failedSpawnDoesNotArmTimeout() async throws {
         let delays = ProcessDelayGate()
-        defer { delays.advanceAll() }
+        defer { delays.advanceOneCycle() }
         let runner = ProcessCommandRunner(
             timeout: .seconds(1),
             delay: { duration in try await delays.wait(for: duration) },
@@ -195,7 +195,7 @@ struct ProcessCommandRunnerTests {
         let spawnGate = BlockingSpawnGate()
         defer {
             spawnGate.open()
-            delays.advanceAll()
+            delays.advanceOneCycle()
         }
         let runner = ProcessCommandRunner(
             timeout: .seconds(60),
@@ -220,7 +220,7 @@ struct ProcessCommandRunnerTests {
     @Test("overrunning the timeout escalates from SIGTERM to SIGKILL")
     func timeoutTerminatesChild() async throws {
         let delays = ProcessDelayGate()
-        defer { delays.advanceAll() }
+        defer { delays.advanceOneCycle() }
         let ready = Self.temporaryReadyFile()
         defer { try? FileManager.default.removeItem(at: ready) }
         let completed = EventRecorder<Void>()
@@ -269,7 +269,7 @@ struct ProcessCommandRunnerTests {
         let spawnGate = BlockingSpawnGate()
         defer {
             spawnGate.open()
-            delays.advanceAll()
+            delays.advanceOneCycle()
         }
         let runner = ProcessCommandRunner(
             timeout: .seconds(60),
@@ -294,7 +294,7 @@ struct ProcessCommandRunnerTests {
     @Test("cancellation escalates to SIGKILL and throws CancellationError")
     func cancellationThrowsRatherThanReturning() async throws {
         let delays = ProcessDelayGate()
-        defer { delays.advanceAll() }
+        defer { delays.advanceOneCycle() }
         let ready = Self.temporaryReadyFile()
         defer { try? FileManager.default.removeItem(at: ready) }
         let completed = EventRecorder<Void>()
@@ -334,6 +334,21 @@ struct ProcessCommandRunnerTests {
         #expect(didComplete, "cancellation SIGKILL escalation did not finish the child")
         await #expect(throws: CancellationError.self) {
             _ = try await run.value
+        }
+    }
+
+    @Test("cancelled test delays resume without manual advancement")
+    func cancelledTestDelayResumes() async {
+        let delays = ProcessDelayGate()
+        let wait = Task {
+            try await delays.wait(for: .seconds(1))
+        }
+
+        await delays.waitForRequestCount(1)
+        wait.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await wait.value
         }
     }
 
@@ -407,6 +422,7 @@ struct ProcessCommandRunnerTests {
     }
 
     private static func termIgnoringSleepArguments(ready: URL) -> [String] {
+        // trap '' TERM sets SIG_IGN, which survives exec and forces SIGKILL escalation.
         ["-c", "trap '' TERM; : > \"$1\"; exec /bin/sleep 300", "sh", ready.path]
     }
 
@@ -455,10 +471,11 @@ private final class SpawnObservation: @unchecked Sendable {
 }
 
 private final class ProcessDelayGate: @unchecked Sendable {
+    private typealias DelayContinuation = CheckedContinuation<Void, Error>
     private typealias Continuation = CheckedContinuation<Void, Never>
 
     private let lock = NSLock()
-    private var delayWaiters: [Continuation] = []
+    private var delayWaiters: [(id: UUID, continuation: DelayContinuation)] = []
     private var requestWaiters: [(count: Int, continuation: Continuation)] = []
     private var requests: [Duration] = []
 
@@ -467,16 +484,32 @@ private final class ProcessDelayGate: @unchecked Sendable {
     }
 
     func wait(for duration: Duration) async throws {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            requests.append(duration)
-            delayWaiters.append(continuation)
-            let ready = requestWaiters.filter { requests.count >= $0.count }
-            requestWaiters.removeAll { requests.count >= $0.count }
-            lock.unlock()
-            ready.forEach { $0.continuation.resume() }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: DelayContinuation) in
+                lock.lock()
+                requests.append(duration)
+                let ready = requestWaiters.filter { requests.count >= $0.count }
+                requestWaiters.removeAll { requests.count >= $0.count }
+                guard !Task.isCancelled else {
+                    lock.unlock()
+                    ready.forEach { $0.continuation.resume() }
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                delayWaiters.append((id, continuation))
+                lock.unlock()
+                ready.forEach { $0.continuation.resume() }
+            }
+        } onCancel: {
+            let continuation: DelayContinuation? = lock.withLock {
+                guard let index = delayWaiters.firstIndex(where: { $0.id == id }) else {
+                    return nil
+                }
+                return delayWaiters.remove(at: index).continuation
+            }
+            continuation?.resume(throwing: CancellationError())
         }
-        try Task.checkCancellation()
     }
 
     func waitForRequestCount(_ count: Int) async {
@@ -498,11 +531,7 @@ private final class ProcessDelayGate: @unchecked Sendable {
             delayWaiters.removeAll()
             return continuations
         }
-        continuations.forEach { $0.resume() }
-    }
-
-    func advanceAll() {
-        advanceOneCycle()
+        continuations.forEach { $0.continuation.resume() }
     }
 }
 
