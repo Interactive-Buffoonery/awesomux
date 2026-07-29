@@ -1,3 +1,5 @@
+import AwesoMuxTestSupport
+import Darwin
 import Foundation
 import Testing
 @testable import awesoMux
@@ -115,38 +117,238 @@ struct ProcessCommandRunnerTests {
         }
     }
 
-    @Test("overrunning the timeout throws timedOut and terminates the child")
+    @Test("a pre-cancelled run never spawns")
+    @MainActor
+    func preCancelledRunDoesNotSpawn() async throws {
+        let startGate = AsyncGate()
+        let spawnObservation = SpawnObservation()
+        let runner = ProcessCommandRunner(spawn: { process in
+            spawnObservation.record()
+            try process.run()
+        })
+        let run = Task {
+            await startGate.wait()
+            return try await runner.run(
+                executable: "/usr/bin/true", args: [], env: [:], cwd: nil)
+        }
+
+        #expect(await waitUntil { startGate.waiterCount == 1 })
+        run.cancel()
+        startGate.open()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await run.value
+        }
+        #expect(!spawnObservation.wasInvoked)
+    }
+
+    @Test("timeout is not armed until spawning succeeds")
+    func timeoutStartsAfterSpawn() async throws {
+        let delays = ProcessDelayGate()
+        let spawnGate = BlockingSpawnGate()
+        defer {
+            spawnGate.open()
+            delays.advanceOneCycle()
+        }
+        let runner = ProcessCommandRunner(
+            timeout: .seconds(1),
+            delay: { duration in try await delays.wait(for: duration) },
+            spawn: { process in try spawnGate.run(process) }
+        )
+
+        let run = Task.detached {
+            try await runner.run(executable: "/usr/bin/true", args: [], env: [:], cwd: nil)
+        }
+
+        await spawnGate.waitUntilStarted()
+        #expect(delays.requestedDurations.isEmpty)
+
+        spawnGate.open()
+        let result = try await run.value
+        #expect(result.isSuccess)
+    }
+
+    @Test("a failed spawn does not arm the timeout or hang pipe drains")
+    func failedSpawnDoesNotArmTimeout() async throws {
+        let delays = ProcessDelayGate()
+        defer { delays.advanceOneCycle() }
+        let runner = ProcessCommandRunner(
+            timeout: .seconds(1),
+            delay: { duration in try await delays.wait(for: duration) },
+            spawn: { _ in throw TestSpawnError.failed }
+        )
+
+        do {
+            _ = try await runner.run(executable: "/usr/bin/true", args: [], env: [:], cwd: nil)
+            Issue.record("Expected spawnFailed")
+        } catch CommandRunnerError.spawnFailed(let executable, _) {
+            #expect(executable == "/usr/bin/true")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+        #expect(delays.requestedDurations.isEmpty)
+    }
+
+    @Test("cancellation racing a failed spawn stays cancellation")
+    func cancelledFailedSpawnThrowsCancellation() async throws {
+        let delays = ProcessDelayGate()
+        let spawnGate = BlockingSpawnGate()
+        defer {
+            spawnGate.open()
+            delays.advanceOneCycle()
+        }
+        let runner = ProcessCommandRunner(
+            timeout: .seconds(60),
+            delay: { duration in try await delays.wait(for: duration) },
+            spawn: { _ in try spawnGate.fail(TestSpawnError.failed) }
+        )
+        let run = Task.detached {
+            try await runner.run(executable: "/usr/bin/true", args: [], env: [:], cwd: nil)
+        }
+
+        await spawnGate.waitUntilStarted()
+        run.cancel()
+        #expect(delays.requestedDurations.isEmpty)
+        spawnGate.open()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await run.value
+        }
+        #expect(!delays.requestedDurations.contains(.seconds(60)))
+    }
+
+    @Test("overrunning the timeout escalates from SIGTERM to SIGKILL")
     func timeoutTerminatesChild() async throws {
-        let runner = ProcessCommandRunner(timeout: .milliseconds(200))
-        await #expect(throws: CommandRunnerError.self) {
-            try await runner.run(
-                executable: "/bin/sleep",
-                args: ["30"],
-                env: [:],
-                cwd: nil
-            )
+        let delays = ProcessDelayGate()
+        defer { delays.advanceOneCycle() }
+        let ready = Self.temporaryReadyFile()
+        defer { try? FileManager.default.removeItem(at: ready) }
+        let completed = EventRecorder<Void>()
+        let spawnObservation = SpawnObservation()
+        defer { spawnObservation.forceKill() }
+        let runner = ProcessCommandRunner(
+            timeout: .seconds(1),
+            delay: { duration in try await delays.wait(for: duration) },
+            spawn: { process in try spawnObservation.run(process) }
+        )
+        let run = Task.detached {
+            do {
+                let result = try await runner.run(
+                    executable: "/bin/sh",
+                    args: Self.termIgnoringSleepArguments(ready: ready),
+                    env: [:],
+                    cwd: nil
+                )
+                await completed.record(())
+                return result
+            } catch {
+                await completed.record(())
+                throw error
+            }
+        }
+
+        await delays.waitForRequestCount(1)
+        #expect(await Self.waitForFile(ready))
+        delays.advanceOneCycle()
+        await delays.waitForRequestCount(2)
+        #expect(delays.requestedDurations == [.seconds(1), .seconds(1)])
+        #expect(await completed.values.isEmpty)
+
+        delays.advanceOneCycle()
+        let didComplete = await completed.waitForCount(1, deadline: .seconds(10))
+        if !didComplete { spawnObservation.forceKill() }
+        #expect(didComplete, "SIGKILL escalation did not finish the child")
+        await #expect(throws: CommandRunnerError.timedOut("/bin/sh", .seconds(1))) {
+            _ = try await run.value
         }
     }
 
-    @Test("cancellation propagates as CancellationError, not a returned result")
-    func cancellationThrowsRatherThanReturning() async throws {
-        let runner = ProcessCommandRunner()
-        let task = Task {
-            try await runner.run(
-                executable: "/bin/sleep",
-                args: ["30"],
-                env: [:],
-                cwd: nil
-            )
+    @Test("cancellation during spawn terminates the child after spawn succeeds")
+    func cancellationDuringSpawnTerminatesChild() async throws {
+        let delays = ProcessDelayGate()
+        let spawnGate = BlockingSpawnGate()
+        defer {
+            spawnGate.open()
+            delays.advanceOneCycle()
         }
-        // Let the child spawn, then cancel: the runner SIGTERMs it, which fires
-        // the termination handler. The result must be a thrown CancellationError,
-        // never a CommandResult carrying the signal-derived exit code (which the
-        // caller would misread as an ordinary non-zero op failure).
-        try await Task.sleep(for: .milliseconds(100))
-        task.cancel()
+        let runner = ProcessCommandRunner(
+            timeout: .seconds(60),
+            delay: { duration in try await delays.wait(for: duration) },
+            spawn: { process in try spawnGate.run(process) }
+        )
+        let run = Task.detached {
+            try await runner.run(executable: "/bin/sleep", args: ["30"], env: [:], cwd: nil)
+        }
+
+        await spawnGate.waitUntilStarted()
+        run.cancel()
+        #expect(delays.requestedDurations.isEmpty)
+        spawnGate.open()
+
         await #expect(throws: CancellationError.self) {
-            _ = try await task.value
+            _ = try await run.value
+        }
+        #expect(!delays.requestedDurations.contains(.seconds(60)))
+    }
+
+    @Test("cancellation escalates to SIGKILL and throws CancellationError")
+    func cancellationThrowsRatherThanReturning() async throws {
+        let delays = ProcessDelayGate()
+        defer { delays.advanceOneCycle() }
+        let ready = Self.temporaryReadyFile()
+        defer { try? FileManager.default.removeItem(at: ready) }
+        let completed = EventRecorder<Void>()
+        let spawnObservation = SpawnObservation()
+        defer { spawnObservation.forceKill() }
+        let runner = ProcessCommandRunner(
+            timeout: .seconds(60),
+            delay: { duration in try await delays.wait(for: duration) },
+            spawn: { process in try spawnObservation.run(process) }
+        )
+        let run = Task.detached {
+            do {
+                let result = try await runner.run(
+                    executable: "/bin/sh",
+                    args: Self.termIgnoringSleepArguments(ready: ready),
+                    env: [:],
+                    cwd: nil
+                )
+                await completed.record(())
+                return result
+            } catch {
+                await completed.record(())
+                throw error
+            }
+        }
+
+        await delays.waitForRequestCount(1)
+        #expect(await Self.waitForFile(ready))
+        run.cancel()
+        await delays.waitForRequestCount(2)
+        #expect(delays.requestedDurations == [.seconds(60), .seconds(1)])
+        #expect(await completed.values.isEmpty)
+
+        delays.advanceOneCycle()
+        let didComplete = await completed.waitForCount(1, deadline: .seconds(10))
+        if !didComplete { spawnObservation.forceKill() }
+        #expect(didComplete, "cancellation SIGKILL escalation did not finish the child")
+        await #expect(throws: CancellationError.self) {
+            _ = try await run.value
+        }
+    }
+
+    @Test("cancelled test delays resume without manual advancement")
+    func cancelledTestDelayResumes() async {
+        let delays = ProcessDelayGate()
+        let wait = Task {
+            try await delays.wait(for: .seconds(1))
+        }
+
+        await delays.waitForRequestCount(1)
+        wait.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await wait.value
         }
     }
 
@@ -212,6 +414,157 @@ struct ProcessCommandRunnerTests {
     private static func writeExecutable(at url: URL, body: String) throws {
         _ = FileManager.default.createFile(atPath: url.path, contents: Data(body.utf8))
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private static func temporaryReadyFile() -> URL {
+        FileManager.default.temporaryDirectory
+            .appending(path: "awesomux-command-ready-\(UUID().uuidString)")
+    }
+
+    private static func termIgnoringSleepArguments(ready: URL) -> [String] {
+        // trap '' TERM sets SIG_IGN, which survives exec and forces SIGKILL escalation.
+        ["-c", "trap '' TERM; : > \"$1\"; exec /bin/sleep 300", "sh", ready.path]
+    }
+
+    private static func waitForFile(_ url: URL) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while clock.now < deadline {
+            if FileManager.default.fileExists(atPath: url.path) { return true }
+            try? await clock.sleep(for: .milliseconds(20))
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+}
+
+private enum TestSpawnError: Error {
+    case failed
+}
+
+private final class SpawnObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var invoked = false
+
+    var wasInvoked: Bool {
+        lock.withLock { invoked }
+    }
+
+    func record() {
+        lock.withLock { invoked = true }
+    }
+
+    func run(_ process: Process) throws {
+        lock.withLock {
+            invoked = true
+            self.process = process
+        }
+        try process.run()
+    }
+
+    func forceKill() {
+        let process = lock.withLock { self.process }
+        if let process, process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+    }
+}
+
+private final class ProcessDelayGate: @unchecked Sendable {
+    private typealias DelayContinuation = CheckedContinuation<Void, Error>
+    private typealias Continuation = CheckedContinuation<Void, Never>
+
+    private let lock = NSLock()
+    private var delayWaiters: [(id: UUID, continuation: DelayContinuation)] = []
+    private var requestWaiters: [(count: Int, continuation: Continuation)] = []
+    private var requests: [Duration] = []
+
+    var requestedDurations: [Duration] {
+        lock.withLock { requests }
+    }
+
+    func wait(for duration: Duration) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: DelayContinuation) in
+                lock.lock()
+                requests.append(duration)
+                let ready = requestWaiters.filter { requests.count >= $0.count }
+                requestWaiters.removeAll { requests.count >= $0.count }
+                guard !Task.isCancelled else {
+                    lock.unlock()
+                    ready.forEach { $0.continuation.resume() }
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                delayWaiters.append((id, continuation))
+                lock.unlock()
+                ready.forEach { $0.continuation.resume() }
+            }
+        } onCancel: {
+            let continuation: DelayContinuation? = lock.withLock {
+                guard let index = delayWaiters.firstIndex(where: { $0.id == id }) else {
+                    return nil
+                }
+                return delayWaiters.remove(at: index).continuation
+            }
+            continuation?.resume(throwing: CancellationError())
+        }
+    }
+
+    func waitForRequestCount(_ count: Int) async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            guard requests.count < count else {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            requestWaiters.append((count, continuation))
+            lock.unlock()
+        }
+    }
+
+    func advanceOneCycle() {
+        let continuations = lock.withLock {
+            let continuations = delayWaiters
+            delayWaiters.removeAll()
+            return continuations
+        }
+        continuations.forEach { $0.continuation.resume() }
+    }
+}
+
+private final class BlockingSpawnGate: @unchecked Sendable {
+    private let permit = DispatchSemaphore(value: 0)
+    private let startedSignal = DispatchSemaphore(value: 0)
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            Thread.detachNewThread {
+                self.startedSignal.wait()
+                continuation.resume()
+            }
+        }
+    }
+
+    func run(_ process: Process) throws {
+        waitForPermit()
+        try process.run()
+    }
+
+    func fail(_ error: Error) throws {
+        waitForPermit()
+        throw error
+    }
+
+    func open() {
+        permit.signal()
+    }
+
+    private func waitForPermit() {
+        startedSignal.signal()
+        permit.wait()
     }
 }
 
