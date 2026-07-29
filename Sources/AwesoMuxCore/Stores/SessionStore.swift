@@ -102,14 +102,23 @@ public final class SessionStore {
     /// Recomputed on every selection change; releasing the previous sticky here
     /// is what lets an acknowledged workspace fall back to its group once the
     /// user navigates away.
-    private func refreshAttentionSticky() {
+    ///
+    /// Also called from `scheduleAcknowledgementForSelectedSession()`, the choke
+    /// point every dwell-arming path routes through: a workspace can become needy
+    /// while already selected, so selection changes alone do not cover every case
+    /// where a dwell is about to acknowledge a row the user is reading.
+    func refreshAttentionSticky() {
         guard needsInputSectionEnabled,
             let selected = storedSelectedSessionID,
             !pinnedSessionIDs.contains(selected),
             let session = session(id: selected),
             session.needsUserInput
         else {
-            attentionStickySessionID = nil
+            // @Observable publishes even a nil→nil write, and this runs on every
+            // dwell arm — invalidating every sidebar row for a no-op.
+            if attentionStickySessionID != nil {
+                attentionStickySessionID = nil
+            }
             return
         }
         attentionStickySessionID = selected

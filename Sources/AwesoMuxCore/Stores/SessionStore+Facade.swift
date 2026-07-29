@@ -958,6 +958,13 @@ extension SessionStore {
     }
 
     func scheduleAcknowledgementForSelectedSession() {
+        // The dwell can be armed without a selection change — clicking into the
+        // terminal of an already-selected workspace that just started needing
+        // input routes here via `setActivePane`/`focusPane`. Refreshing at the
+        // one choke point every arming path shares captures the sticky before
+        // the dwell can acknowledge the row out from under the reader.
+        refreshAttentionSticky()
+
         let baseline: SelectionAcknowledgementBaseline?
         if let selectedSessionID,
             let position = position(for: selectedSessionID)

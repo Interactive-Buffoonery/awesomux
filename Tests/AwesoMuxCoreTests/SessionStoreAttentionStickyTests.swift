@@ -116,6 +116,46 @@ import Testing
         #expect(store.liftedSessionIDs == [a.id])
     }
 
+    /// The dwell can be armed without a selection change: a workspace that is
+    /// already selected starts needing input, then the user clicks into its
+    /// terminal (`becomeFirstResponder` → `setActivePane`). Nothing on that path
+    /// touches `selectedSessionID`, so only the arming choke point itself can
+    /// capture the sticky before the dwell acknowledges the row mid-answer.
+    @Test func armingTheDwellCapturesTheStickyForAnAlreadySelectedWorkspace() async throws {
+        let a = TerminalSession(title: "alpha", workingDirectory: "~")
+        let store = SessionStore(
+            groups: [SessionGroup(name: "One", sessions: [a])],
+            acknowledgementDwellNanoseconds: 10_000_000
+        )
+        store.needsInputSectionEnabled = true
+        #expect(store.selectedSessionID == a.id)
+        #expect(store.attentionStickySessionID == nil)
+
+        // The agent raises a permission prompt on the already-selected
+        // workspace. No selection change, so no sticky is captured yet — it
+        // lifts on `needsUserInput` alone.
+        let paneID = try #require(store.session(id: a.id)?.activePaneID)
+        store.updatePermissionPromptAttention(
+            sessionID: a.id,
+            paneID: paneID,
+            countDelta: 1,
+            hasPending: true
+        )
+        #expect(store.attentionStickySessionID == nil)
+        #expect(store.liftedSessionIDs == [a.id])
+
+        // The user clicks into the terminal to answer.
+        store.setActivePane(id: paneID, in: a.id)
+
+        let dwellRan = await waitUntilEventually {
+            store.session(id: a.id)?.needsUserInput == false
+        }
+        #expect(dwellRan)
+        // The dwell acknowledged, but the row must stay put while it is read.
+        #expect(store.attentionStickySessionID == a.id)
+        #expect(store.liftedSessionIDs == [a.id])
+    }
+
     /// A bulk restore can reuse session IDs with different values, so a
     /// surviving sticky would lift a restored workspace that never needed input.
     @Test func replaceStateDropsTheSticky() {
