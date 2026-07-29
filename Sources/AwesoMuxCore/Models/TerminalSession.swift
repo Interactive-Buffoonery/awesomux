@@ -239,7 +239,9 @@ public extension TerminalSession {
     /// still waiting, even though the selection dwell acknowledges only the
     /// active pane.
     var needsUserInput: Bool {
-        panes.contains { $0.attentionReason?.awaitsExplicitAnswer == true }
+        // Walks the layout instead of `panes` — reconcile reads this for every
+        // session on every commit, and `panes` materializes an array per call.
+        layout.contains { $0.attentionReason?.awaitsExplicitAnswer == true }
     }
 
     /// Summed across panes for badge display. Flipped from a stored var to a

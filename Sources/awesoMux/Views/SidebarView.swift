@@ -609,6 +609,35 @@ struct SidebarView: View {
                 }
             }
         }
+        .onChange(of: sessionStore.liftedSessionIDs) { oldIDs, newIDs in
+            // Twin of the pin handler above, for the other synthetic section. A
+            // workspace leaving Needs Input while its origin group is collapsed
+            // otherwise just vanishes — no expand, nothing spoken.
+            // Additions are deliberately silent: the row appearing at the top of
+            // the sidebar is self-evident, and WorkspaceAttentionAnnouncementTracker
+            // already speaks a workspace entering needs-attention.
+            guard
+                let removedID = SidebarLiftedSectionTransition.singleRemoval(
+                    from: oldIDs,
+                    to: newIDs
+                ),
+                let session = sessionStore.session(id: removedID),
+                // A lifted workspace that was pinned moves to the Pinned section,
+                // not back to its group — the pin handler owns that announcement.
+                !sessionStore.isPinned(removedID),
+                let group = sessionStore.groups.first(where: { group in
+                    group.sessions.contains { $0.id == removedID }
+                })
+            else {
+                return
+            }
+            // A closed workspace has no live session → the lookup above fails →
+            // no-op, same as the pin handler's pruned-pin case.
+            collapsedGroupIDs.remove(group.id)
+            accessibilityAnnouncer.announce(
+                "\(session.title) left Needs Input, returned to \(group.name)"
+            )
+        }
         .onChange(of: focusRequestID) { _, requestID in
             if requestID != nil {
                 ShortcutDiagnostics.log("stage=sidebarView receivedFocusRequest=true")

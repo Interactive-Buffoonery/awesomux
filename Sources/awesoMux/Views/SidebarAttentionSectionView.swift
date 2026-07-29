@@ -53,6 +53,14 @@ struct SidebarAttentionSectionView: View {
         }
     }
 
+    /// A sighted user reads the tile count off the section at a glance; without
+    /// this a VoiceOver user hears only "Needs Input, header" and has to arrow
+    /// through counting rows. Same phrase `SidebarGroupHeaderView` speaks for a
+    /// collapsed group, so the two surfaces can't drift.
+    private var countPhrase: String {
+        LocalizedPluralStrings.sidebarAgentsNeedInput(count: attention.count)
+    }
+
     @ViewBuilder
     private var header: some View {
         if displayMode == .collapsed {
@@ -70,6 +78,7 @@ struct SidebarAttentionSectionView: View {
                             "Accessibility label for the needs-input workspaces section header in the collapsed sidebar."
                     )
                 )
+                .accessibilityValue(countPhrase)
                 .accessibilityAddTraits(.isHeader)
         } else {
             // Mirrors SidebarPinnedSectionView.header's typography; tinted peach
@@ -95,6 +104,7 @@ struct SidebarAttentionSectionView: View {
                 Spacer(minLength: 4)
             }
             .accessibilityElement(children: .combine)
+            .accessibilityValue(countPhrase)
             .accessibilityAddTraits(.isHeader)
         }
     }

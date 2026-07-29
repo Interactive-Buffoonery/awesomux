@@ -111,21 +111,24 @@ public final class SessionStore {
                 storedSelectedSessionID = newValue
             }
             guard changed, !isReplacingState else { return }
-            // Before the dwell is scheduled: the sticky must already reflect the
-            // new selection by the time any observer re-renders.
-            refreshAttentionSticky()
+            // No `refreshAttentionSticky()` here on purpose: it is the first
+            // statement of `scheduleAcknowledgementForSelectedSession()`, so the
+            // sticky is still refreshed synchronously before this setter returns
+            // and before any observer can re-render. Calling it here too would
+            // repeat reconcile's O(sessions) walk on every selection change.
             scheduleAcknowledgementForSelectedSession()
         }
     }
 
-    /// Recomputed on every selection change; releasing the previous sticky here
-    /// is what lets an acknowledged workspace fall back to its group once the
-    /// user navigates away.
+    /// Releasing the previous sticky here is what lets an acknowledged workspace
+    /// fall back to its group once the user navigates away.
     ///
-    /// Also called from `scheduleAcknowledgementForSelectedSession()`, the choke
-    /// point every dwell-arming path routes through: a workspace can become needy
-    /// while already selected, so selection changes alone do not cover every case
-    /// where a dwell is about to acknowledge a row the user is reading.
+    /// Called from `scheduleAcknowledgementForSelectedSession()`, the choke point
+    /// every dwell-arming path routes through — including the `selectedSessionID`
+    /// setter, which reaches it synchronously rather than calling here itself. A
+    /// workspace can become needy while already selected, so selection changes
+    /// alone would not cover every case where a dwell is about to acknowledge a
+    /// row the user is reading.
     func refreshAttentionSticky() {
         guard needsInputSectionEnabled,
             let selected = storedSelectedSessionID,
@@ -150,9 +153,15 @@ public final class SessionStore {
         reconcileLiftedSessionIDs()
     }
 
-    /// Sole writer of `liftedSessionIDs`. Called once per input that the lift
-    /// predicate reads: `commit(_:now:)` for `_groups`, `refreshAttentionSticky()`
-    /// for the sticky, and `pinnedSessionIDs`' observer for pins.
+    /// Sole writer of `liftedSessionIDs`. Every input the lift predicate reads
+    /// has a call site that covers it — `commit(_:now:)` for `_groups`,
+    /// `refreshAttentionSticky()` for the sticky, and `pinnedSessionIDs`'
+    /// observer for pins — but that is coverage per kind of input, not an
+    /// invocation count: a selection-changing `commit` reconciles twice (once
+    /// from `commit`, once via the sticky refresh the selection cascade reaches).
+    /// Keep it cheap and idempotent rather than trying to make it run exactly
+    /// once; `commit`'s own call is load-bearing for commits that re-set the
+    /// same selection, where the setter cascade never fires.
     ///
     /// Order is the whole point. IDs already listed keep their slots, so a
     /// workspace whose unread goes 1 → 2 does not jump the queue and a new

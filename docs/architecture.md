@@ -273,10 +273,15 @@ move when it asks again (unread 1 → 2 keeps its slot — it has been waiting
 longest). Group order would let a new arrival insert above an existing row and
 shove it down under the user's pointer; appending cannot.
 
-`SessionStore.reconcileLiftedSessionIDs()` is the sole writer. It runs once per
-input the lift predicate reads: `commit(_:now:)` for `_groups`,
-`refreshAttentionSticky()` for the sticky, and the `pinnedSessionIDs` observer
-for pins. `commit` covers this because every writer of a pane's
+`SessionStore.reconcileLiftedSessionIDs()` is the sole writer. Every input the
+lift predicate reads has a call site that covers it: `commit(_:now:)` for
+`_groups`, `refreshAttentionSticky()` for the sticky, and the `pinnedSessionIDs`
+observer for pins. That is coverage per kind of input, not an invocation count —
+a selection-changing `commit` reconciles twice, once from `commit` and once via
+the sticky refresh the selection cascade reaches. The function is cheap and
+idempotent by design, and `commit`'s own call stays load-bearing: a `commit` that
+re-sets the same selection never fires the setter cascade, so dropping it would
+let the section drift. `commit` covers this because every writer of a pane's
 `attentionReason` and every change to the session roster routes through it — not
 because every `_groups` write does. Selection, focus, shell activity, the
 freshness stamp, and the per-pane rename/color/mute edits deliberately skip it,
