@@ -99,6 +99,91 @@ struct ObservableStoreWriteThrottleTests {
             #expect(abs(deadline - 0.1) < 0.0001)
         }
     }
+
+    /// Replays a title cadence through the throttle and returns how many writes
+    /// actually commit.
+    ///
+    /// Models the WHOLE caller, not just `decide`: a deferred write is a timer
+    /// that fires at `lastWriteAt + minInterval` and commits there, re-anchoring
+    /// the window — so a steady stream commits repeatedly mid-stream, not only
+    /// once at the end. Counting only a final trailing write overstates
+    /// suppression (65.7% vs the real 58.6% at Codex's cadence), which would
+    /// make this test assert behavior the app does not have. Scheduling replaces
+    /// any pending item, matching `scheduleThrottledTerminalTitleWrite`.
+    private func committedWrites(cadence: TimeInterval, over duration: TimeInterval, minInterval: TimeInterval)
+        -> (writes: Int, titles: Int)
+    {
+        var writes = 0
+        var titles = 0
+        var lastWriteAt: TimeInterval?
+        var pendingDeadline: TimeInterval?
+        var now: TimeInterval = 0
+        while now <= duration {
+            titles += 1
+            if let deadline = pendingDeadline, deadline <= now {
+                writes += 1
+                lastWriteAt = deadline
+                pendingDeadline = nil
+            }
+            switch ObservableStoreWriteThrottle.decide(
+                now: now,
+                lastWriteAt: lastWriteAt,
+                minInterval: minInterval
+            ) {
+            case .writeNow:
+                writes += 1
+                lastWriteAt = now
+                pendingDeadline = nil
+            case .deferBy(let delay):
+                pendingDeadline = now + delay
+            }
+            now += cadence
+        }
+        return (pendingDeadline == nil ? writes : writes + 1, titles)
+    }
+
+    /// The window is only worth its complexity if it beats the cadence agents
+    /// actually emit. Both numbers are measured off a real pty (2026-07-29):
+    /// Codex animates an 8-frame braille spinner at a ~102ms median interval,
+    /// Claude Code alternates two glyphs at ~961ms. The suppression asymmetry
+    /// is the point — the win is concentrated entirely in Codex-style panes, so
+    /// raising `terminalTitleStoreWriteMinInterval` past ~100ms is what earns
+    /// anything at all, and a window at or above Codex's cadence is what this
+    /// test exists to stop anyone from quietly reverting.
+    @Test("the shipped window collapses a Codex-cadence title stream")
+    func shippedWindowCollapsesCodexCadence() {
+        // The SHIPPED constant, not a copy — a local literal here would let
+        // someone retune the real window without failing anything.
+        let shipped = GhosttySurfaceNSView.terminalTitleStoreWriteMinInterval
+
+        let codex = committedWrites(cadence: 0.102, over: 10, minInterval: shipped)
+        let codexSuppression = 1 - Double(codex.writes) / Double(codex.titles)
+        // Brackets the shipped 0.25s rather than only flooring it: a window
+        // small enough to stop earning its complexity fails low, and one large
+        // enough to make the sidebar visibly lag a settling title fails high.
+        #expect(codexSuppression > 0.5)
+        #expect(codexSuppression < 0.7)
+
+        // Claude Code's cadence is already slower than the window, so almost
+        // every title takes the leading edge. Documented, not a defect: it is
+        // why this throttle is not the whole fix for the sidebar's per-write
+        // cost. If this starts failing, Claude Code sped its title animation up
+        // and the window should be re-derived against a fresh measurement.
+        let claude = committedWrites(cadence: 0.961, over: 10, minInterval: shipped)
+        let claudeSuppression = 1 - Double(claude.writes) / Double(claude.titles)
+        #expect(claudeSuppression < 0.1)
+    }
+
+    @Test("a window at or below the emitted cadence suppresses nothing")
+    func windowBelowCadenceIsInert() {
+        // The failure mode the measurement was run to rule out: a window chosen
+        // from upper bounds alone can sit under the real frame interval, where
+        // every title takes `.writeNow` and the throttle is pure overhead.
+        // Uses a window comfortably below the cadence rather than one equal to
+        // it — an exact tie is a float-accumulation artifact, not a behavior.
+        let inert = committedWrites(cadence: 0.102, over: 10, minInterval: 0.05)
+        #expect(inert.writes == inert.titles)
+    }
 }
 
 /// `DeferredPaneEventDispatchGuard.shouldApply` — the pane-recycle guard for
