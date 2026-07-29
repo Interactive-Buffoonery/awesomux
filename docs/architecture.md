@@ -252,12 +252,16 @@ the call order, not an explicit check.
 
 `SessionStore.attentionStickySessionID` holds a lifted workspace in the section
 past the point it stops needing input, so the 500 ms selection dwell (ADR-0003)
-can't evict a row the user is reading. It is written synchronously inside the
-`selectedSessionID` setter, not from a view `.onChange` — a view-local write
-would lag the body that reads it and demote a just-clicked row for one render
-pass. A deliberate acknowledge (⌘⇧K, Clear All Notifications) releases it; the
-passive dwell does not — `acknowledgeSession(id:releasesAttentionSticky:)`
-defaults to releasing, and only the scheduled dwell callback passes `false`.
+can't evict a row the user is reading. It is written synchronously in the store —
+from the `selectedSessionID` setter and from
+`scheduleAcknowledgementForSelectedSession()`, the choke point every dwell-arming
+path shares — not from a view `.onChange`, which would lag the body that reads it
+and demote a just-clicked row for one render pass. Arming the dwell has to
+refresh it too: a workspace can start needing input while already selected, and
+clicking into its terminal arms a dwell without any selection change. A
+deliberate acknowledge (⌘⇧K, Clear All Notifications) releases it; the passive
+dwell does not — `acknowledgeSession(id:releasesAttentionSticky:)` defaults to
+releasing, and only the scheduled dwell callback passes `false`.
 
 `SessionStore.liftedSessionIDs` is the single definition of the lifted set.
 `WorkspaceNavigationOrder.liftedFirstSessionIDs` consumes it so ⌘1-9,
@@ -266,8 +270,10 @@ sidebar draws.
 
 Known behaviors, accepted: a background attention clear removes an unselected
 row with no dwell; a split workspace stays lifted while any pane waits, even
-after the active pane is acknowledged; a collapsed origin group's count and
-`.needs` badge drop the lifted workspace.
+after the active pane is acknowledged; the origin group's header derives its
+roster from the projected entries, so its workspace count drops the lifted
+workspace whether the group is expanded or collapsed, and the collapsed rail's
+`.needs` rollup badge drops it too.
 
 ## Agent state contract
 

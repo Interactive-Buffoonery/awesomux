@@ -82,8 +82,9 @@ public enum SidebarVisibleRows {
     /// `collapsedGroupIDs`/`isFiltering` parameters by design: `entries` already
     /// reflects the active search projection, and the rotor deliberately ignores
     /// visual group collapse so VoiceOver can reach every workspace without first
-    /// expanding groups in the source list. (Contrast `rows(for:collapsedGroupIDs:
-    /// isFiltering:)`, which honors collapse for the visible-row walk.)
+    /// expanding groups in the source list. (Contrast
+    /// `rows(attention:pinned:for:collapsedGroupIDs:isFiltering:)`, which honors
+    /// collapse for the visible-row walk.)
     public static func rotorEntries(
         attention: [LiftedSessionEntry] = [],
         pinned: [LiftedSessionEntry] = [],
