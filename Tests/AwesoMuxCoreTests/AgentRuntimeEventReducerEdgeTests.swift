@@ -949,6 +949,400 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(reducer.stateByPaneID[deadPane] == nil)
     }
 
+    @Test("a tool that ends after the turn does not downgrade waiting")
+    func trailingToolEndAfterStopKeepsWaiting() throws {
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        let stopResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .waiting,
+                phase: .stop,
+                eventID: "stop",
+                timestamp: Date(timeIntervalSince1970: 10)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 10)
+        )
+        let stop = try #require(stopResult)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: stop.update, now: Date(timeIntervalSince1970: 10))
+        #expect(session.agentState == .waiting)
+
+        // A background Bash task or a subagent finishing after the turn ended.
+        let trailingResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "trailing",
+                timestamp: Date(timeIntervalSince1970: 12)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 12)
+        )
+        let trailing = try #require(trailingResult)
+        #expect(trailing.update.agentExecutionState == nil)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: trailing.update, now: Date(timeIntervalSince1970: 12))
+        #expect(session.agentState == .waiting)
+    }
+
+    @Test("work that starts after the turn still downgrades waiting")
+    func toolStartAfterStopDowngradesWaiting() throws {
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        let stopResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .waiting,
+                phase: .stop,
+                eventID: "stop",
+                timestamp: Date(timeIntervalSince1970: 10)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 10)
+        )
+        // Required, not discarded: if this Stop were ever dropped the pane would
+        // never reach `.waiting`, the flag would never arm, and every assertion
+        // below would pass while testing nothing.
+        let stop = try #require(stopResult)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: stop.update, now: Date(timeIntervalSince1970: 10))
+        #expect(session.agentState == .waiting)
+
+        let startResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "start",
+                timestamp: Date(timeIntervalSince1970: 11)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 11)
+        )
+        let start = try #require(startResult)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: start.update, now: Date(timeIntervalSince1970: 11))
+        #expect(session.agentState == .thinking)
+
+        // The continuation's own toolEnd is in-turn again, so it applies.
+        let endResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "end",
+                timestamp: Date(timeIntervalSince1970: 12)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 12)
+        )
+        #expect(try #require(endResult).update.agentExecutionState == .thinking)
+    }
+
+    @Test("a new prompt re-arms the turn so its own tool events apply")
+    func promptSubmitAfterStopClearsBetweenTurns() throws {
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        let stop = try #require(
+            reducer.decision(
+                for: AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .waiting,
+                    phase: .stop,
+                    eventID: "stop",
+                    timestamp: Date(timeIntervalSince1970: 10)
+                ),
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: true,
+                now: Date(timeIntervalSince1970: 10)
+            ) as AgentRuntimeEventReducer.Decision?)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: stop.update, now: Date(timeIntervalSince1970: 10))
+        #expect(session.agentState == .waiting)
+
+        let submitResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .promptSubmit,
+                eventID: "submit",
+                timestamp: Date(timeIntervalSince1970: 11)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 11)
+        )
+        let submit = try #require(submitResult)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: submit.update, now: Date(timeIntervalSince1970: 11))
+
+        let endResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "end",
+                timestamp: Date(timeIntervalSince1970: 12)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 12)
+        )
+        let end = try #require(endResult)
+        #expect(end.update.agentExecutionState == .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: end.update, now: Date(timeIntervalSince1970: 12))
+        #expect(session.agentState == .thinking)
+    }
+
+    @Test("a restored waiting pane is between turns before the reducer sees a stop")
+    func restoredWaitingPaneSeedsBetweenTurns() throws {
+        // The reducer's state is rebuilt empty on relaunch, but the pane's
+        // `.waiting` survives — a job that outlived the quit must not downgrade it.
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .waiting)
+        var reducer = AgentRuntimeEventReducer()
+
+        let trailingResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "trailing",
+                timestamp: Date(timeIntervalSince1970: 12)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 12)
+        )
+        let trailing = try #require(trailingResult)
+        #expect(trailing.update.agentExecutionState == nil)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: trailing.update, now: Date(timeIntervalSince1970: 12))
+        #expect(session.agentState == .waiting)
+    }
+
+    @Test("an idle-prompt notification arms the turn boundary like a stop")
+    func waitingNotificationArmsBetweenTurns() throws {
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        let notice = try #require(
+            reducer.decision(
+                for: AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .waiting,
+                    phase: .notification,
+                    eventID: "idle",
+                    timestamp: Date(timeIntervalSince1970: 10)
+                ),
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: true,
+                now: Date(timeIntervalSince1970: 10)
+            ) as AgentRuntimeEventReducer.Decision?)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: notice.update, now: Date(timeIntervalSince1970: 10))
+        #expect(session.agentState == .waiting)
+
+        let trailingResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "trailing",
+                timestamp: Date(timeIntervalSince1970: 11)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 11)
+        )
+        #expect(try #require(trailingResult).update.agentExecutionState == nil)
+    }
+
+    @Test("a blocking prompt on a between-turns tool end still reaches the pane")
+    func betweenTurnsToolEndKeepsItsAttentionReason() throws {
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .waiting)
+        var reducer = AgentRuntimeEventReducer()
+
+        // No bundled provider pairs these today, but the event file is a
+        // documented protocol: a real blocking prompt must not be swallowed.
+        let result = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                attentionReason: .permissionPrompt,
+                phase: .toolEnd,
+                eventID: "prompt",
+                timestamp: Date(timeIntervalSince1970: 12)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 12)
+        )
+        let decision = try #require(result)
+        #expect(decision.update.agentExecutionState == nil)
+        #expect(decision.update.attentionReason == .permissionPrompt)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: decision.update, now: Date(timeIntervalSince1970: 12))
+        #expect(session.agentState == .needsAttention)
+    }
+
+    @Test("a between-turns tool end still records the file it touched")
+    func betweenTurnsToolEndStillRecordsTouchedPath() throws {
+        // Issue #175's recent-link recording is deliberately outside the
+        // suppression: a background subagent's Markdown write still reaches the
+        // palette even though its execution claim is ignored.
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .waiting)
+        var reducer = AgentRuntimeEventReducer()
+
+        let result = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "touched",
+                touchedPath: "/tmp/notes.md",
+                timestamp: Date(timeIntervalSince1970: 12)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 12)
+        )
+        let decision = try #require(result)
+        #expect(decision.update.agentExecutionState == nil)
+        #expect(decision.recentLinkAction == .record("/tmp/notes.md"))
+    }
+
+    @Test("a file-writing tool end does not strand a turn that starts microseconds earlier")
+    func suppressedToolEndWithTouchedPathDoesNotBlockAToolStart() throws {
+        // Every background file write produces a suppressed toolEnd carrying a
+        // touchedPath. If that raised the staleness bar, a `.toolStart` sampled
+        // microseconds earlier (hook events are appended by independent
+        // processes, ~0.6% invert) would be dropped, `isBetweenTurns` would
+        // never clear, and the pane would read `.waiting` for a whole working
+        // turn with the send bar armed (review finding).
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .waiting)
+        var reducer = AgentRuntimeEventReducer()
+
+        let write = try #require(
+            reducer.decision(
+                for: AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .thinking,
+                    phase: .toolEnd,
+                    eventID: "write",
+                    touchedPath: "/tmp/notes.md",
+                    timestamp: Date(timeIntervalSince1970: 20)
+                ),
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: true,
+                now: Date(timeIntervalSince1970: 20)
+            ) as AgentRuntimeEventReducer.Decision?)
+        #expect(write.update.agentExecutionState == nil)
+        #expect(write.recentLinkAction == .record("/tmp/notes.md"))
+
+        // Sampled a hair earlier, appended after — must still re-arm the turn.
+        let startResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "start",
+                timestamp: Date(timeIntervalSince1970: 19.999_999)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 20)
+        )
+        let start = try #require(startResult)
+        #expect(start.update.agentExecutionState == .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: start.update, now: Date(timeIntervalSince1970: 20))
+        #expect(session.agentState == .thinking)
+    }
+
+    @Test("a suppressed tool end does not strand the turn by advancing the watermark")
+    func suppressedToolEndDoesNotBlockALaterToolStart() throws {
+        // Hook events are appended by independent short-lived processes, so
+        // timestamp order can invert against append order by microseconds. An
+        // ignored event must not raise the bar its own disarming toolStart clears.
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .waiting)
+        var reducer = AgentRuntimeEventReducer()
+
+        _ = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "trailing",
+                timestamp: Date(timeIntervalSince1970: 12)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 12)
+        )
+
+        // Sampled a hair earlier than the ignored event, appended after it.
+        let startResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "start",
+                timestamp: Date(timeIntervalSince1970: 11.999_999)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 12)
+        )
+        #expect(try #require(startResult).update.agentExecutionState == .thinking)
+    }
+
     /// Seeds a pane's resting execution state. Post INT-504 agent state lives on
     /// the pane and `TerminalSession.agentExecutionState` is a derived, get-only
     /// rollup, so the prior direct assignment is routed through `updatePane`.

@@ -50,6 +50,11 @@ struct AgentRuntimeEventReducer: Sendable {
         // both post-exit Stop events and an old SessionEnd delivered after a
         // stopped lifecycle has been superseded in the same pane.
         var lifecycle = Lifecycle.active
+        // A turn-end Stop landed and nothing has started new work since.
+        // Narrower than `lifecycle`, which tracks the whole session: this
+        // resets on every `promptSubmit`/`toolStart`, so it means "between
+        // turns", not "session over".
+        var isBetweenTurns = false
         var suppressesHeuristicState = false
         // Grok emits hooks for child agents too. Latch the parent session id so
         // child lifecycle events do not flip the parent tile.
@@ -116,7 +121,16 @@ struct AgentRuntimeEventReducer: Sendable {
             return nil
         }
 
-        var state = stateByPaneID[paneID, default: RuntimeEventState()]
+        // First sight of a pane seeds `isBetweenTurns` from the pane's own
+        // persisted execution state. The reducer's state is in-memory and rebuilt
+        // empty on relaunch, but a restored pane at `.waiting` IS between turns —
+        // without this seed, the first straggling `.toolEnd` from a job that
+        // outlived the quit reproduces the exact bug the flag exists to stop.
+        // Seeding only ever suppresses, so an over-broad `.waiting` (heuristic or
+        // scraped) fails safe.
+        var state =
+            stateByPaneID[paneID]
+            ?? RuntimeEventState(isBetweenTurns: currentPane.agentExecutionState == .waiting)
         // Invariant: the dedup (here) and staleness (below) guards return without
         // writing `state` back. That is only safe because nothing mutates the
         // local `state` before either guard — keep it that way, or persist on the
@@ -277,8 +291,52 @@ struct AgentRuntimeEventReducer: Sendable {
             state.providerSessionID = providerSessionID
         }
 
+        // Turn-boundary tracking for the trailing-`.toolEnd` suppression below.
+        // Exhaustive on purpose: a phase added to `AgentRuntimePhase` later must
+        // be a compile error here, not silently inherit "does not end a turn" —
+        // that inheritance is the exact shape of the bug this flag fixes. The
+        // `.stop`/`.sessionStart` arms duplicate a phase test from the lifecycle
+        // chain above; keep the two in sync.
+        switch event.phase {
+        case .stop:
+            state.isBetweenTurns = true
+        case .notification:
+            // Claude Code's idle-prompt Notification asserts `.waiting` and is
+            // turn-end evidence of the same grade as a Stop; its other subtypes
+            // (permission prompt, input required) are not.
+            state.isBetweenTurns =
+                state.isBetweenTurns || event.assertsWaitingExecutionState
+        case .sessionStart, .promptSubmit, .toolStart:
+            state.isBetweenTurns = false
+        case .toolEnd, .sessionEnd, .rename, .openDocument, nil:
+            break
+        }
+
+        // A tool-lifecycle END that lands after the turn already ended belongs
+        // to work that STARTED before the Stop — a background Bash task, or a
+        // subagent (`SubagentStop` maps to `.toolEnd`) finishing on its own
+        // schedule seconds to minutes later. It reports that a tool finished,
+        // never that the agent went back to work; only `toolStart` and
+        // `promptSubmit` do that. Letting it assert `.thinking` downgraded a
+        // genuinely receptive pane out of `.waiting`, killing the sidebar's
+        // needs-input row and the document pane's send button until the next
+        // turn or Claude Code's ~60s idle Notification re-confirmed waiting.
+        // Observed live in a single-provider trace (stop at t, toolEnd at t+2.2s
+        // and again at t+3min).
+        //
+        // ponytail: this closes the trailing-END half only. A background
+        // producer's `.toolStart` after a Stop still clears the flag and asserts
+        // `.thinking` — measured at 11 of 32 turn-ends in a 4588-event trace,
+        // because subagent tool calls inherit the pane's event file. Discriminating
+        // a background producer needs a payload signal the wire protocol does not
+        // carry yet; revisit when it does (tracked separately). Widening this to
+        // `.toolStart` without that signal would let a hook-forced continuation
+        // read `.waiting` while the agent is genuinely mid-render — the direction
+        // this gate must never fail in.
+        let ignoresTrailingToolEnd = state.isBetweenTurns && event.phase == .toolEnd
+
         let eventExecutionState =
-            state.lifecycle.isEnded
+            state.lifecycle.isEnded || ignoresTrailingToolEnd
             ? nil
             : event.executionState ?? event.state?.executionState
         // Once the pane has seen a session-exit reset, suppress any straggling
@@ -290,6 +348,11 @@ struct AgentRuntimeEventReducer: Sendable {
         // then dedups against (INT-642). An event-file writer claiming it would
         // get its only announcement silently suppressed, so normalize it to
         // `.unknown` — behaviorally identical everywhere else (badge, restore).
+        // An explicit attention reason survives the trailing-`.toolEnd`
+        // suppression: no bundled provider puts one on a `.toolEnd` today, but the
+        // event file is a documented protocol and the bridge forwards the pairing
+        // unchanged, so dropping it would silently swallow a real blocking prompt.
+        // Only the event's claim about *execution* is unreliable here.
         let rawAttentionReason =
             state.lifecycle.isEnded
             ? nil
@@ -301,8 +364,12 @@ struct AgentRuntimeEventReducer: Sendable {
         // Legacy `state` was a full display-state replacement, so an execution
         // update clears prior attention. Modern `executionState` is independent
         // and must not erase an explicit attention reason.
+        // An ignored event must not CLEAR attention either — its execution claim
+        // is what a legacy full-`state` event would clear on, and that claim is
+        // precisely what the suppression rejects.
         let clearsAttention =
-            event.attentionReason == nil
+            !ignoresTrailingToolEnd
+            && event.attentionReason == nil
             && event.state?.executionState != nil
         // A fresh attention episode is either entering attention from none, or
         // a priority UPGRADE of a pending reason (.bell → .permissionPrompt):
@@ -345,7 +412,36 @@ struct AgentRuntimeEventReducer: Sendable {
             resolvedKind = nil
         }
 
-        recordApplied(dedupeKey: dedupeKey, timestamp: event.timestamp, now: now, into: &state)
+        // An event that contributed NOTHING must not raise the staleness
+        // watermark: hook events are appended by independent short-lived
+        // processes that sample their own timestamps, so append order and
+        // timestamp order can invert by microseconds. If an inert event advanced
+        // the bar, the `.toolStart` that would have disarmed `isBetweenTurns`
+        // could be dropped as stale — stranding the pane at `.waiting` for a
+        // whole working turn, the one direction this must never fail in.
+        //
+        // This holds for EVERY suppressed `.toolEnd`, including one that still
+        // delivered an attention reason or a touched path. Two reviews pulled in
+        // opposite directions here and the tie breaks on which way each fails:
+        //
+        // - Holding it always (this) lets a suppressed event replay once the
+        //   capacity-64 dedupe ring evicts its key, re-raising a prompt the user
+        //   already resolved. Noisy, self-correcting, needs 64 intervening events.
+        // - Advancing it for those events lets a `touchedPath` toolEnd — every
+        //   background file write — stale-drop a `.toolStart` sampled microseconds
+        //   earlier. `isBetweenTurns` then never clears, every later `.toolEnd`
+        //   stays suppressed, and the pane reads `.waiting` for a whole working
+        //   turn with the send bar armed into a live composer. Timestamp
+        //   inversions were measured at 0.6% of real events.
+        //
+        // The second is the direction this gate exists to prevent, so it loses.
+        let contributedNothing = ignoresTrailingToolEnd
+        recordApplied(
+            dedupeKey: dedupeKey,
+            timestamp: contributedNothing ? nil : event.timestamp,
+            now: now,
+            into: &state
+        )
         stateByPaneID[paneID] = state
 
         // A Claude Code tool just wrote/edited a Markdown file (issue #175).

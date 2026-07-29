@@ -13,6 +13,9 @@ import Foundation
 /// Claude Node CLI resolve its own sub-tools. Nothing else from the host
 /// environment leaks in.
 struct ProcessCommandRunner: CommandRunner {
+    typealias Delay = @Sendable (Duration) async throws -> Void
+    typealias Spawn = @Sendable (Process) throws -> Void
+
     /// Trusted absolute tool dirs, used as the `PATH` of last resort when the
     /// caller did not supply one.
     static var defaultToolPath: String {
@@ -71,15 +74,21 @@ struct ProcessCommandRunner: CommandRunner {
     var timeout: Duration
     private let defaultPath: String
     private let homeDirectoryURL: URL
+    private let delay: Delay
+    private let spawn: Spawn
 
     init(
         timeout: Duration = .seconds(30),
         defaultPath: String = ProcessCommandRunner.defaultToolPath,
-        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        delay: @escaping Delay = { try await ContinuousClock().sleep(for: $0) },
+        spawn: @escaping Spawn = { try $0.run() }
     ) {
         self.timeout = timeout
         self.defaultPath = defaultPath
         self.homeDirectoryURL = homeDirectoryURL
+        self.delay = delay
+        self.spawn = spawn
     }
 
     func run(
@@ -88,6 +97,8 @@ struct ProcessCommandRunner: CommandRunner {
         env: [String: String],
         cwd: URL?
     ) async throws -> CommandResult {
+        try Task.checkCancellation()
+
         let environment = resolvedEnvironment(env)
         let executableURL = try resolvedExecutableURL(executable: executable, environment: environment)
 
@@ -110,51 +121,76 @@ struct ProcessCommandRunner: CommandRunner {
             execution.stderrPipe.fileHandleForReading.readDataToEndOfFile()
         }
 
-        let timedOut = OneShotFlag()
+        let timeoutState = TimeoutState()
+        let cancellationState = CancellationState()
         let timeout = timeout
+        let delay = delay
+        let spawn = spawn
+        let terminateAfterCancellation: @Sendable () -> Void = {
+            execution.terminate()
+            cancellationState.armEscalation {
+                try? await delay(.seconds(1))
+                execution.kill()
+            }
+        }
 
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 let resume = SingleResume(continuation)
 
-                let timeoutTask = Task {
-                    // A cancelled sleep means the child already exited (the
-                    // termination handler cancels this task); never signal a
-                    // dead/recycled pid.
-                    do { try await Task.sleep(for: timeout) } catch { return }
-                    timedOut.set()
-                    execution.terminate() // SIGTERM
-                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                    execution.kill() // SIGKILL
-                }
-
                 execution.process.terminationHandler = { _ in
-                    timeoutTask.cancel()
+                    timeoutState.finish()
+                    cancellationState.finish()
                     resume.resume(returning: ())
                 }
 
-                do {
-                    try execution.process.run()
-                } catch {
-                    timeoutTask.cancel()
-                    // run() failed after the existence check passed: unblock the
-                    // drain tasks by closing the write ends we still hold, then
-                    // report a spawn failure distinct from a missing binary.
+                guard !Task.isCancelled, !cancellationState.isCancelled else {
+                    _ = cancellationState.cancel()
                     try? execution.stdoutPipe.fileHandleForWriting.close()
                     try? execution.stderrPipe.fileHandleForWriting.close()
-                    resume.resume(throwing: CommandRunnerError.spawnFailed(
-                        executable,
-                        reason: error.localizedDescription
-                    ))
+                    resume.resume(throwing: CancellationError())
+                    return
+                }
+
+                do {
+                    try spawn(execution.process)
+                    if cancellationState.didSpawn(cancelledNow: Task.isCancelled) {
+                        // Cancellation may arrive while spawn is blocked, when
+                        // the cancellation handler has no child to terminate yet.
+                        terminateAfterCancellation()
+                    } else {
+                        timeoutState.arm {
+                            do { try await delay(timeout) } catch { return }
+                            guard timeoutState.claimTimeout(if: { execution.process.isRunning }) else { return }
+                            execution.terminate()  // SIGTERM
+                            do { try await delay(.seconds(1)) } catch { return }
+                            execution.kill()  // SIGKILL
+                        }
+                    }
+                } catch {
+                    timeoutState.finish()
+                    cancellationState.finish()
+                    // A failed spawn leaves parent-owned pipe writers open. Close
+                    // them before resuming so both detached drains reach EOF.
+                    try? execution.stdoutPipe.fileHandleForWriting.close()
+                    try? execution.stderrPipe.fileHandleForWriting.close()
+                    if Task.isCancelled || cancellationState.isCancelled {
+                        resume.resume(throwing: CancellationError())
+                    } else {
+                        resume.resume(
+                            throwing: CommandRunnerError.spawnFailed(
+                                executable,
+                                reason: error.localizedDescription
+                            ))
+                    }
                 }
             }
         } onCancel: {
-            // Own the escalation here too: a cancelled child that ignores SIGTERM
-            // is SIGKILL'd after a grace so cancellation can't leave it running.
-            execution.terminate()
-            Task {
-                try? await Task.sleep(for: .seconds(1))
-                execution.kill()
+            // If spawn is still blocked, didSpawn() starts this escalation once
+            // there is a child. Starting the grace before then could waste it on
+            // no pid and leave a later TERM-ignoring child running forever.
+            if cancellationState.cancel() {
+                terminateAfterCancellation()
             }
         }
 
@@ -169,7 +205,7 @@ struct ProcessCommandRunner: CommandRunner {
         // contract (§3) keeps separate. Cancellation must throw, not return.
         try Task.checkCancellation()
 
-        if timedOut.isSet {
+        if timeoutState.didTimeOut {
             throw CommandRunnerError.timedOut(executable, timeout)
         }
 
@@ -204,6 +240,114 @@ struct ProcessCommandRunner: CommandRunner {
             throw CommandRunnerError.executableNotFound(executable)
         }
         return url
+    }
+}
+
+// MARK: - CancellationState
+
+/// Coordinates cancellation with synchronous spawn. Exactly one side starts
+/// termination: cancellation immediately when a child exists, or the spawn path
+/// after a cancellation that arrived while no child existed.
+private final class CancellationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var spawned = false
+    private var startedTermination = false
+    private var escalationTask: Task<Void, Never>?
+    private var finished = false
+
+    func cancel() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        cancelled = true
+        return claimTerminationIfReady()
+    }
+
+    func didSpawn(cancelledNow: Bool) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        spawned = true
+        cancelled = cancelled || cancelledNow
+        return claimTerminationIfReady()
+    }
+
+    func armEscalation(_ operation: @escaping @Sendable () async -> Void) {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        escalationTask = Task { await operation() }
+        lock.unlock()
+    }
+
+    func finish() {
+        lock.lock()
+        finished = true
+        let escalationTask = escalationTask
+        self.escalationTask = nil
+        lock.unlock()
+        escalationTask?.cancel()
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    private func claimTerminationIfReady() -> Bool {
+        guard cancelled, spawned, !startedTermination else { return false }
+        startedTermination = true
+        return true
+    }
+}
+
+// MARK: - TimeoutState
+
+/// Arms the timeout only after spawn and coordinates it with immediate process
+/// termination. If termination wins the lock before `arm`, no task is created;
+/// if the deadline wins, the termination handler preserves that classification.
+private final class TimeoutState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+    private var finished = false
+    private var timedOut = false
+
+    func arm(_ operation: @escaping @Sendable () async -> Void) {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        task = Task { await operation() }
+        lock.unlock()
+    }
+
+    func claimTimeout(if childIsRunning: () -> Bool) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        // Process may have exited before Foundation dispatches its termination
+        // handler. Do not let handler latency turn that completed child into a
+        // timeout merely because `finished` has not been set yet.
+        guard !finished, childIsRunning() else { return false }
+        timedOut = true
+        return true
+    }
+
+    func finish() {
+        lock.lock()
+        finished = true
+        let task = task
+        self.task = nil
+        lock.unlock()
+        task?.cancel()
+    }
+
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut
     }
 }
 

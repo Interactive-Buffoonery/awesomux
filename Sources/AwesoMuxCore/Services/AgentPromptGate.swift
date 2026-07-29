@@ -17,18 +17,23 @@ import Foundation
 /// through this same policy before staging text.
 ///
 /// **Known window where the gate declines a genuinely ready agent.** A
-/// same-provider trailing `PostToolUse`/`toolEnd` event — from a legitimate
-/// hook-forced continuation after the *user's own* blocking Stop hook vetoes
-/// Claude's first Stop attempt — can leave a pane's `agentState` at `.thinking`
-/// for roughly 60-90s, until Claude Code's idle-prompt `Notification` hook
-/// re-confirms `.waiting`. Confirmed live in a clean single-provider trace;
-/// distinct from cross-provider contamination. Loosening the `agentState ==
-/// .waiting` guard to tolerate this window was considered and rejected:
+/// same-provider background producer — a subagent or background task whose tool
+/// events inherit the pane's event file — keeps emitting tool lifecycle events
+/// after a real Stop, leaving `agentState` at `.thinking` until the next turn or
+/// Claude Code's idle-prompt `Notification` re-confirms `.waiting`.
+///
+/// `AgentRuntimeEventReducer` now closes the trailing-`.toolEnd` half of that:
+/// a tool FINISHING is never evidence the agent went back to work. The
+/// `.toolStart` half is still open — measured at 11 of 32 turn-ends in a live
+/// 4588-event single-provider trace — because nothing in the wire protocol
+/// distinguishes a background producer's `toolStart` from the real agent
+/// resuming, and treating them alike would let a hook-forced continuation read
+/// `.waiting` mid-render.
+///
+/// Loosening the `agentState == .waiting` guard itself stays rejected: only a
+/// real turn-end proves the terminal is back at a receptive prompt, and
 /// `.thinking` can mean the CLI is mid-render and genuinely unsafe to inject
-/// keystrokes into, and only a real Stop proves the terminal is back at a
-/// receptive prompt. This is the gate working as designed. The lever is the
-/// user's own blocking Stop hook — the more aggressively it vetoes a Stop, the
-/// longer the window.
+/// keystrokes into.
 
 /// Identity of one foreground-process incarnation, observed as (pid, start
 /// time). Mirrors `AmxDaemonIncarnation`'s pid+createdAt shape for the same
@@ -164,23 +169,36 @@ public enum AgentPromptGate {
     ///
     /// Matching stays deny-by-default: exact provider names, the provider's
     /// suffixed-launcher prefixes, the bare-version pattern for Claude Code
-    /// only, and the operator-configured binary basename. Wrapper
-    /// interpreters are deliberately NOT accepted — an npm-installed Claude
-    /// Code foregrounds as `node`, and `node` alone is indistinguishable
-    /// from a raw-mode node REPL, exactly what this gate must never inject
-    /// into. That install flavor stays a false negative until the probe can
-    /// read argv; `binary_path` config is the operator escape hatch.
+    /// only, and the operator-configured binary basename. Wrapper interpreters
+    /// are deliberately NOT accepted — a provider launched through a bare
+    /// `node`/`python` is indistinguishable from a raw-mode REPL, exactly what
+    /// this gate must never inject into. Those stay false negatives until the
+    /// probe can read argv; `binary_path` config is the operator escape hatch.
+    ///
+    /// A trailing `.exe` is stripped first: npm-installed Claude Code ships a
+    /// native launcher at `…/@anthropic-ai/claude-code/bin/claude.exe`, so
+    /// `p_comm` reads `claude.exe` on macOS — measured live on a real session,
+    /// where it was the sole reason a genuinely receptive agent was declined.
+    /// (`ps -o comm` prints `claude` for the same process, which is why this
+    /// reads as impossible until you check `p_comm` itself.) Stripping the
+    /// suffix widens nothing: the stripped name still has to clear the same
+    /// per-provider allowlist and the same shell/interpreter deny-list.
     static func foregroundCommandMatches(
         _ kind: AgentKind,
         observedCommand: String,
         configuredBinaryCandidate: () -> String? = { nil }
     ) -> Bool {
-        let name = ShellRecognition.basename(observedCommand).lowercased()
+        let rawName = ShellRecognition.basename(observedCommand).lowercased()
+        let name = normalizedForegroundName(observedCommand)
         guard !name.isEmpty else { return false }
 
         switch kind {
         case .claudeCode:
-            if name == "claude" || name.hasPrefix("claude-") || isBareVersionName(name) {
+            // `isBareVersionName` reads the RAW name: the native installer
+            // executes a version-named file that carries no suffix, so feeding
+            // it the stripped name would newly admit `2.1.214.exe` — a widening
+            // nobody asked for (review finding).
+            if name == "claude" || name.hasPrefix("claude-") || isBareVersionName(rawName) {
                 return true
             }
         case .codex:
@@ -203,15 +221,38 @@ public enum AgentPromptGate {
         // positively known to be shells, interpreters, or common raw-mode
         // TUIs — a misconfigured binary_path must not open the gate to
         // exactly the processes it exists to protect.
+        // `zsh.exe` normalizes into `zsh` and is denied by the `name` checks.
+        // The `rawName` checks are belt and braces: no entry in either list
+        // carries a suffix today, so they cannot currently differ from their
+        // `name` counterparts — they become load-bearing the moment an entry
+        // does (review finding: the earlier comment here claimed they already
+        // were).
         guard !ShellRecognition.recognizedShells.contains(name),
+            !ShellRecognition.recognizedShells.contains(rawName),
             !knownNonAgentForegrounds.contains(name),
-            let candidate = configuredBinaryCandidate()?.lowercased(), !candidate.isEmpty
+            !knownNonAgentForegrounds.contains(rawName),
+            let configured = configuredBinaryCandidate(),
+            case let rawCandidate = ShellRecognition.basename(configured).lowercased(),
+            case let candidate = normalizedForegroundName(configured), !candidate.isEmpty
         else {
             return false
         }
         // The kernel's process name buffer truncates long names, so a long
-        // configured basename may only be observable as its prefix.
-        return name == candidate || (name.count >= 15 && candidate.hasPrefix(name))
+        // configured basename may only be observable as its prefix. That
+        // comparison stays on the RAW pair: truncation can cut mid-suffix
+        // (`…my-agent.ex`), which the stripped forms can no longer match at
+        // either end (review finding). Exact matching uses the normalized pair.
+        return name == candidate
+            || (rawName.count >= 15 && rawCandidate.hasPrefix(rawName))
+    }
+
+    /// Both sides of every comparison run through `ShellRecognition`'s shared
+    /// normalizer: normalizing only the observed name would silently break an
+    /// operator whose configured `binary_path` ends in `.exe` — the escape hatch
+    /// would compare `my-agent` against `my-agent.exe` and never match (review
+    /// finding).
+    public static func normalizedForegroundName(_ command: String) -> String {
+        ShellRecognition.normalizedCommandName(command)
     }
 
     /// Interpreters and raw-mode TUIs that must never satisfy the

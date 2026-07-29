@@ -596,7 +596,11 @@ struct SidebarView: View {
                 // expanding the group would both be wrong.
                 if sessionStore.needsInputSectionEnabled, session.needsUserInput {
                     accessibilityAnnouncer.announce(
-                        "Unpinned \(session.title), moved to Needs Input"
+                        String(
+                            localized: "Unpinned \(session.title), moved to Needs Input",
+                            comment:
+                                "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
+                        )
                     )
                 } else {
                     // Auto-expand the origin group so the returning tile isn't
@@ -635,7 +639,11 @@ struct SidebarView: View {
             // no-op, same as the pin handler's pruned-pin case.
             collapsedGroupIDs.remove(group.id)
             accessibilityAnnouncer.announce(
-                "\(session.title) left Needs Input, returned to \(group.name)"
+                String(
+                    localized: "\(session.title) left Needs Input, returned to \(group.name)",
+                    comment:
+                        "VoiceOver announcement when a workspace stops needing input; first placeholder is the workspace title, second is its group name"
+                )
             )
         }
         .onChange(of: focusRequestID) { _, requestID in

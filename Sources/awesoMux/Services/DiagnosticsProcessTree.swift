@@ -80,7 +80,10 @@ enum DiagnosticsProcessTree {
         appPID: Int32,
         daemonPIDs: Set<Int32>
     ) -> DiagnosticsProcess {
-        let basename = row.name.lowercased()
+        // Same normalization the two name→provider mappers use: an
+        // npm-packaged launcher observes as `claude.exe`, which would otherwise
+        // classify a live agent as `.other` in the process tree.
+        let basename = ShellRecognition.normalizedCommandName(row.name)
         let kind: DiagnosticsProcessKind
         if row.pid == appPID {
             kind = .app
