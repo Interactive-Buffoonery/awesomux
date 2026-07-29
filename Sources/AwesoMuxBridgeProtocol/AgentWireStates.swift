@@ -58,4 +58,16 @@ public enum AttentionReason: String, CaseIterable, Codable, Hashable, Sendable {
             0
         }
     }
+
+    /// True for the reasons that block on a human answer: the agent has stopped
+    /// and will not proceed until a person responds, as opposed to a reason that
+    /// merely reports something worth noticing. Single definition of
+    /// "high-priority attention" for every consumer of this protocol.
+    ///
+    /// A consumer may retract one of these only on knowledge that the prompt was
+    /// answered or became unanswerable — never on an inference drawn from the
+    /// agent going quiet, which is exactly what a blocked agent does.
+    public var awaitsExplicitAnswer: Bool {
+        priority >= AttentionReason.permissionPrompt.priority
+    }
 }

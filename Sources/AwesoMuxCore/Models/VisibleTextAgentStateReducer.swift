@@ -173,11 +173,21 @@ public struct VisibleTextAgentStateReducer: Sendable {
             liveDisplayState == .needsAttention
             && !detectedNeedsAttention
             && terminalIsActiveForAttention
+        // Deliberate symmetry with `clearsUnreadNotifications` two lines above:
+        // both retractions are gated on the user actually being at this
+        // terminal. A background workspace's unread already survived a scrape
+        // because the user hasn't seen it; ungated, attention did not — so a
+        // pane could lift into the sidebar's Needs Input section and be dropped
+        // back out ~0.5s later by the next scrape, before anyone could click it,
+        // stranding the unread badge with no cue. Attention is retracted for a
+        // background pane only by its own runtime hooks or an explicit
+        // acknowledgement, never by a viewport sample.
+        let clearsAttention = !detectedNeedsAttention && terminalIsActiveForAttention
 
         return Decision(
             shouldApply: true,
             agentKind: agentKind,
-            clearsAttention: !detectedNeedsAttention,
+            clearsAttention: clearsAttention,
             clearsUnreadNotifications: clearsUnreadNotifications,
             unreadNotificationDelta: detectedNeedsAttention && !terminalIsActiveForAttention
                 ? 1

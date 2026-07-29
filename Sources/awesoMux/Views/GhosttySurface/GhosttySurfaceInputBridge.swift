@@ -1143,10 +1143,25 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         return scalar.value
     }
 
+    /// Whether a libghostty binding action puts USER-authored text into the
+    /// pane, which answers a pending prompt exactly as typing does. Paste never
+    /// passes through `keyDown` — ⌘V and the Edit menu both route straight to
+    /// the `paste*` IBActions — so `performBindingAction` is the one shared
+    /// choke point all three paste variants funnel through. Copy, select-all
+    /// and search share that funnel and must NOT count: they move nothing into
+    /// the terminal.
+    static func bindingActionDeliversUserText(_ action: String) -> Bool {
+        action.hasPrefix("paste_")
+    }
+
     @discardableResult
     func performBindingAction(_ action: String) -> Bool {
         guard let surface else {
             return false
+        }
+
+        if Self.bindingActionDeliversUserText(action) {
+            markNeedsAttentionPromptAnswered()
         }
 
         return action.withCString { cAction in
@@ -1167,6 +1182,13 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         guard let surface, !text.isEmpty else {
             return
         }
+
+        // The other non-`keyDown` way user text reaches the agent: a text drop
+        // (`performDragOperation` → `insertText`), dictation / the character
+        // viewer (`insertText` outside any keyDown cycle), and chrome-driven
+        // sends (path bar, palette, remote handoff) via `writeFromChrome`. All
+        // of them answer a pending prompt just as typing would.
+        markNeedsAttentionPromptAnswered()
 
         let shouldRefreshShellActivity = session.layout.pane(id: paneID)?.agentKind == .shell
             && text.contains(where: { $0 == "\n" || $0 == "\r" })

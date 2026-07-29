@@ -124,9 +124,13 @@ struct ProjectTint {
 
 struct SidebarSnapshot {
     let entries: [SidebarGroupEntry]
-    /// Pinned workspaces floated into the synthetic Pinned section, in pin
+    /// Workspaces awaiting a human answer, lifted into the synthetic Needs Input
+    /// section. Empty when the feature is off. Removed from `entries` by
+    /// `SidebarAttentionProjection`.
+    let attention: [LiftedSessionEntry]
+    /// Pinned workspaces lifted into the synthetic Pinned section, in pin
     /// order. Removed from `entries` by `SidebarPinnedProjection` (INT-737).
-    let pinned: [PinnedSessionEntry]
+    let pinned: [LiftedSessionEntry]
     /// Highest-ranked filtered session across all groups, used by ⏎ to
     /// commit a search to a selection. Nil when no query is active.
     let topMatchID: TerminalSession.ID?

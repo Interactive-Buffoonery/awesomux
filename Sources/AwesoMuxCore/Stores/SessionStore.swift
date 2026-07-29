@@ -26,7 +26,45 @@ public final class SessionStore {
     /// = pinned, array order = display order. Sessions stay inside their
     /// origin group; this is a render-time projection input, never a move
     /// (INT-737).
-    public internal(set) var pinnedSessionIDs: [TerminalSession.ID] = []
+    ///
+    /// Pinned wins over lifted, so every pin membership change is also a lifted
+    /// membership change. Reconciling from the observer rather than from
+    /// `togglePin` keeps that coupling structural — a future pin mutator cannot
+    /// forget it.
+    public internal(set) var pinnedSessionIDs: [TerminalSession.ID] = [] {
+        didSet { reconcileLiftedSessionIDs() }
+    }
+
+    /// Ordered lifted list for the sidebar's synthetic Needs Input section.
+    /// Membership = lifted and not pinned, array order = ARRIVAL order: first to
+    /// ask sits at the top and new arrivals append at the bottom, so an existing
+    /// row is never shoved down under the user's pointer. Re-asking while
+    /// already listed does not move a row — it has been waiting longest.
+    ///
+    /// Same shape as `pinnedSessionIDs`, except auto-maintained rather than
+    /// user-curated: `reconcileLiftedSessionIDs()` owns every write.
+    /// Runtime-only; arrival order is not persisted (a relaunch rebuilds it in
+    /// group order from the two attention reasons `SessionRestoreReducer` keeps).
+    public internal(set) var liftedSessionIDs: [TerminalSession.ID] = []
+
+    /// Mirrored from `appearance.promote_workspaces_needing_input` by
+    /// `SidebarView` — the section's only renderer — so the sidebar, the ⌘-jump
+    /// order, and the Dock menu resolve the lifted set from one place. Off means
+    /// `liftedSessionIDs` is always empty and no sticky is ever captured.
+    ///
+    /// Refreshes the sticky on write: the sidebar mirrors the setting on appear,
+    /// so this is also what arms the sticky at launch, and toggling the setting
+    /// off has to drop a sticky the section no longer renders.
+    public var needsInputSectionEnabled: Bool = false {
+        didSet { refreshAttentionSticky() }
+    }
+
+    /// The workspace held in the Needs Input section past the point it stopped
+    /// needing input. Written synchronously by the `selectedSessionID` setter —
+    /// a view-local `@State` written in `.onChange` would lag the body that
+    /// reads it, demoting a just-clicked row for one render pass.
+    /// Runtime-only; never persisted.
+    public internal(set) var attentionStickySessionID: TerminalSession.ID?
 
     @ObservationIgnored lazy var localHostnames: Set<String> = LocalHostnames.resolve()
     @ObservationIgnored var index: SessionStoreIndex = .empty
@@ -73,8 +111,90 @@ public final class SessionStore {
                 storedSelectedSessionID = newValue
             }
             guard changed, !isReplacingState else { return }
+            // No `refreshAttentionSticky()` here on purpose: it is the first
+            // statement of `scheduleAcknowledgementForSelectedSession()`, so the
+            // sticky is still refreshed synchronously before this setter returns
+            // and before any observer can re-render. Calling it here too would
+            // repeat reconcile's O(sessions) walk on every selection change.
             scheduleAcknowledgementForSelectedSession()
         }
+    }
+
+    /// Releasing the previous sticky here is what lets an acknowledged workspace
+    /// fall back to its group once the user navigates away.
+    ///
+    /// Called from `scheduleAcknowledgementForSelectedSession()`, the choke point
+    /// every dwell-arming path routes through — including the `selectedSessionID`
+    /// setter, which reaches it synchronously rather than calling here itself. A
+    /// workspace can become needy while already selected, so selection changes
+    /// alone would not cover every case where a dwell is about to acknowledge a
+    /// row the user is reading.
+    func refreshAttentionSticky() {
+        guard needsInputSectionEnabled,
+            let selected = storedSelectedSessionID,
+            !pinnedSessionIDs.contains(selected),
+            let session = session(id: selected),
+            session.needsUserInput
+        else {
+            // @Observable publishes even a nil→nil write, and this runs on every
+            // dwell arm — invalidating every sidebar row for a no-op.
+            if attentionStickySessionID != nil {
+                attentionStickySessionID = nil
+            }
+            reconcileLiftedSessionIDs()
+            return
+        }
+        // Same publish hazard as the nil branch above: a selected, needy
+        // workspace re-arms the dwell on every setActivePane / focusPane /
+        // window-key change, republishing an identical sticky.
+        if attentionStickySessionID != selected {
+            attentionStickySessionID = selected
+        }
+        reconcileLiftedSessionIDs()
+    }
+
+    /// Sole writer of `liftedSessionIDs`. Every input the lift predicate reads
+    /// has a call site that covers it — `commit(_:now:)` for `_groups`,
+    /// `refreshAttentionSticky()` for the sticky, and `pinnedSessionIDs`'
+    /// observer for pins — but that is coverage per kind of input, not an
+    /// invocation count: a selection-changing `commit` reconciles twice (once
+    /// from `commit`, once via the sticky refresh the selection cascade reaches).
+    /// Keep it cheap and idempotent rather than trying to make it run exactly
+    /// once; `commit`'s own call is load-bearing for commits that re-set the
+    /// same selection, where the setter cascade never fires.
+    ///
+    /// Order is the whole point. IDs already listed keep their slots, so a
+    /// workspace whose unread goes 1 → 2 does not jump the queue and a new
+    /// arrival can never insert above a row the user is about to click.
+    /// Newcomers append in group order, which keeps a batch deterministic.
+    func reconcileLiftedSessionIDs() {
+        guard needsInputSectionEnabled else {
+            if !liftedSessionIDs.isEmpty {
+                liftedSessionIDs = []
+            }
+            return
+        }
+        let pinned = Set(pinnedSessionIDs)
+        let sticky = attentionStickySessionID
+        var arrivals: [TerminalSession.ID] = []
+        var arrivalSet: Set<TerminalSession.ID> = []
+        for group in _groups {
+            for session in group.sessions
+            where !pinned.contains(session.id)
+                && SidebarAttentionProjection.isLifted(session, stickySessionID: sticky)
+            {
+                arrivals.append(session.id)
+                arrivalSet.insert(session.id)
+            }
+        }
+        // Drops IDs that were acknowledged, closed, or pinned; the filter also
+        // preserves the surviving IDs' relative order for free.
+        var next = liftedSessionIDs.filter { arrivalSet.contains($0) }
+        let held = Set(next)
+        next.append(contentsOf: arrivals.lazy.filter { !held.contains($0) })
+        // @Observable publishes on every set, and this runs on every commit.
+        guard next != liftedSessionIDs else { return }
+        liftedSessionIDs = next
     }
 
     public internal(set) var unreadNotificationTotal: Int = 0
@@ -145,6 +265,19 @@ public final class SessionStore {
         defer { isReplacingState = false }
         _groups = components.groups
         recentlyClosed = components.recentlyClosed
+        // Both clears precede the `pinnedSessionIDs` write below, whose observer
+        // reconciles the lifted list against the new `_groups`: leaving them
+        // after it would make the end state depend on the commit that follows
+        // rather than on the clears themselves.
+        //
+        // "The user is mid-read of this row" is not state a bulk restore
+        // inherits, and the ID-reuse hazard above applies: a surviving sticky
+        // could lift a restored workspace that never needed input.
+        attentionStickySessionID = nil
+        // Same ID-reuse hazard: a surviving arrival order would seat restored
+        // workspaces by when their pre-restore namesakes asked. The commit below
+        // rebuilds it in group order.
+        liftedSessionIDs = []
         pinnedSessionIDs = components.pinnedSessionIDs
         lastClosedTransient = nil
         shellActivityReducer = ShellActivityReducer()
@@ -622,10 +755,21 @@ public final class SessionStore {
     /// (`acknowledgeAllPanes(in:)`) clears the whole workspace, and "Clear All
     /// Notifications" (`acknowledgeAllSessions`) clears every workspace. ADR-0003
     /// amendment under INT-504.
-    public func acknowledgeSession(id: TerminalSession.ID) {
+    ///
+    /// - Parameter releasesAttentionSticky: `false` only for the passive
+    ///   selection dwell, which must NOT evict the row the user is reading. Every
+    ///   deliberate gesture (context menu, ⌘⇧K, Clear All Notifications) leaves
+    ///   the default so the row leaves the section immediately.
+    public func acknowledgeSession(
+        id: TerminalSession.ID,
+        releasesAttentionSticky: Bool = true
+    ) {
         guard let position = position(for: id) else { return }
         if id == selectedSessionID {
             acknowledgementCoordinator.cancel()
+        }
+        if releasesAttentionSticky, attentionStickySessionID == id {
+            attentionStickySessionID = nil
         }
         let activePaneID = _groups[position.groupIndex]
             .sessions[position.sessionIndex].activePaneID
@@ -644,6 +788,9 @@ public final class SessionStore {
         if id == selectedSessionID {
             acknowledgementCoordinator.cancel()
         }
+        if attentionStickySessionID == id {
+            attentionStickySessionID = nil
+        }
         let change = WorkspaceAttentionReducer.acknowledgeAllPanes(
             in: &_groups[position.groupIndex].sessions[position.sessionIndex]
         )
@@ -652,6 +799,7 @@ public final class SessionStore {
 
     public func acknowledgeAllSessions() {
         acknowledgementCoordinator.cancel()
+        attentionStickySessionID = nil
         WorkspaceAttentionReducer.acknowledgeAllSessions(in: &_groups)
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
     }
@@ -992,6 +1140,11 @@ public final class SessionStore {
         }
         guard session(id: sessionID) != nil else { return }
         pinnedSessionIDs.append(sessionID)
+        // Pinned wins over lifted by construction, so a surviving sticky would
+        // hijack the tile back into Needs Input the moment it is unpinned.
+        if attentionStickySessionID == sessionID {
+            attentionStickySessionID = nil
+        }
     }
 
     /// Mirrors `WorkspaceTreeReducer.moveGroup`'s index convention exactly so

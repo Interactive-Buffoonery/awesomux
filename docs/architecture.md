@@ -228,6 +228,84 @@ the touch-point checklist.
 
 The sidebar/detail divider is a real `NSSplitView` divider in `SidebarSplitController`. The sidebar view mounts full-time in a **single permanent host** (the root-level `sidebarHostView` inside `sidebarHostClipView`) and never moves. The split-pane slot is an empty width reservation for the detail/terminal pane. `⌘\` toggles the sidebar with a one-shot resize; hover-reveal slides the permanent host's layer over a stationary detail pane (an overlap slide, not a divider animation — a per-frame divider animation would rewrap multi-pane terminal content). See [ADR 0025](adr/0025-sidebar-single-host-presentation.md).
 
+### Synthetic sidebar sections
+
+The sidebar renders two synthetic sections above the workspace groups. Neither
+moves a session in the store — both are render-time projections over the
+post-search `SidebarGroupEntry` list, which is what makes "return to origin"
+structurally free.
+
+1. **Needs Input** (`SidebarAttentionProjection`, opt-in via
+   `appearance.promote_workspaces_needing_input`, default off). Membership is
+   the ordered `SessionStore.liftedSessionIDs`, reconciled from
+   `TerminalSession.needsUserInput` — deliberately narrower than
+   `needsAcknowledgement`, gating on `AttentionReason.priority >= 2`
+   (`permissionPrompt`, `userInputRequired`). A bell, desktop notification,
+   process error, or stray background output still lights the peach cue but does
+   not reorder the sidebar.
+
+2. **Pinned** (`SidebarPinnedProjection`, INT-737). Membership is the
+   user-ordered `SessionStore.pinnedSessionIDs`.
+
+Both projections CONSUME an ordered ID list rather than recomputing membership;
+the only difference is that pins are user-curated and lifts are auto-maintained.
+The attention projection chains over the pinned projection's reduced output, so
+a pinned workspace is never lifted twice — pinned precedence is a consequence of
+the call order, not an explicit check.
+
+`SessionStore.attentionStickySessionID` holds a lifted workspace in the section
+past the point it stops needing input, so the 500 ms selection dwell (ADR-0003)
+can't evict a row the user is reading. It is written synchronously in the store —
+from the `selectedSessionID` setter and from
+`scheduleAcknowledgementForSelectedSession()`, the choke point every dwell-arming
+path shares — not from a view `.onChange`, which would lag the body that reads it
+and demote a just-clicked row for one render pass. Arming the dwell has to
+refresh it too: a workspace can start needing input while already selected, and
+clicking into its terminal arms a dwell without any selection change. A
+deliberate acknowledge (⌘⇧K, Clear All Notifications) releases it; the passive
+dwell does not — `acknowledgeSession(id:releasesAttentionSticky:)` defaults to
+releasing, and only the scheduled dwell callback passes `false`.
+
+`SessionStore.liftedSessionIDs` is the single definition of the lifted set, and
+it is **ordered by arrival**: the first workspace to ask sits at the top, new
+arrivals append at the bottom, and a workspace already in the section does not
+move when it asks again (unread 1 → 2 keeps its slot — it has been waiting
+longest). Group order would let a new arrival insert above an existing row and
+shove it down under the user's pointer; appending cannot.
+
+`SessionStore.reconcileLiftedSessionIDs()` is the sole writer. Every input the
+lift predicate reads has a call site that covers it: `commit(_:now:)` for
+`_groups`, `refreshAttentionSticky()` for the sticky, and the `pinnedSessionIDs`
+observer for pins. That is coverage per kind of input, not an invocation count —
+a selection-changing `commit` reconciles twice, once from `commit` and once via
+the sticky refresh the selection cascade reaches. The function is cheap and
+idempotent by design, and `commit`'s own call stays load-bearing: a `commit` that
+re-sets the same selection never fires the setter cascade, so dropping it would
+let the section drift. `commit` covers this because every writer of a pane's
+`attentionReason` and every change to the session roster routes through it — not
+because every `_groups` write does. Selection, focus, shell activity, the
+freshness stamp, and the per-pane rename/color/mute edits deliberately skip it,
+so a new attention writer modeled on those would drift the section silently. It removes IDs that are no longer lifted,
+no longer live, or now pinned; appends newly lifted IDs in group order so a
+batch is deterministic; and never reorders an ID already present.
+
+Arrival order is runtime-only and deliberately not persisted. A relaunch
+rebuilds it in group order — `SessionRestoreReducer` keeps only
+`.permissionPrompt`/`.userInputRequired` across a relaunch, so that is a small,
+rare set and not worth a schema change. `replaceState` clears the list for the
+same ID-reuse reason it clears the sticky.
+
+`WorkspaceNavigationOrder.liftedFirstSessionIDs` consumes the same list, so ⌘1-9,
+Previous/Next Workspace, and the Dock menu inherit arrival order and resolve from
+the same order the sidebar draws.
+
+Known behaviors, accepted: a background attention clear removes an unselected
+row with no dwell; a split workspace stays lifted while any pane waits, even
+after the active pane is acknowledged; the origin group's header derives its
+roster from the projected entries, so its workspace count drops the lifted
+workspace whether the group is expanded or collapsed, and the collapsed rail's
+`.needs` rollup badge drops it too.
+
 ## Agent state contract
 
 `AgentState` is the vocabulary for agent execution and attention. Shell command activity is tracked separately as **Shell activity** so a live login shell does not masquerade as an agent in `running`. `.done` means an agent run or detected agent command completed successfully; terminal process-exit workspace close does not set `.done`.

@@ -46,6 +46,26 @@ struct GhosttySurfaceEditActionValidationTests {
         }
     }
 
+    /// ⌘V / Edit-menu Paste bypasses `keyDown`, so it never reached
+    /// `markNeedsAttentionPromptAnswered` — a user who pasted an answer left the
+    /// workspace stranded in Needs Input. The gate lives in
+    /// `performBindingAction`, the one funnel all three paste variants share;
+    /// this is its truth table. The call site itself needs a live libghostty
+    /// surface and has no unit seam — that stays on the manual GUI smoke list.
+    @Test("only paste binding actions count as delivering user text")
+    func onlyPasteBindingActionsDeliverUserText() {
+        for action in ["paste_from_clipboard", "paste_from_selection"] {
+            #expect(GhosttySurfaceNSView.bindingActionDeliversUserText(action))
+        }
+        // These share `performBindingAction` but move nothing INTO the terminal.
+        for action in [
+            "copy_to_clipboard", "select_all", "search_selection",
+            "start_search", "scroll_to_top", "scroll_to_bottom",
+        ] {
+            #expect(!GhosttySurfaceNSView.bindingActionDeliversUserText(action))
+        }
+    }
+
     @Test("non-gated actions defer regardless of surface/responder state")
     func nonGatedActionsDefer() {
         let deferred: [Selector?] = [

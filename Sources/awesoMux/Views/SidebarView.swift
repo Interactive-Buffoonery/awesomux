@@ -109,50 +109,52 @@ struct SidebarView: View {
         let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let isFiltering = !normalizedQuery.isEmpty
         let snapshot = computedSnapshot(query: normalizedQuery, isFiltering: isFiltering)
-        // Disambiguate across pinned AND in-group tiles, keyed by each pinned
-        // tile's ORIGIN group identity — feeding pinned entries under a
-        // synthetic group would change the "N of M" qualifiers a pinned tile
+        // Disambiguate across lifted AND in-group tiles, keyed by each lifted
+        // tile's ORIGIN group identity — feeding lifted entries under a
+        // synthetic group would change the "N of M" qualifiers a lifted tile
         // shares with its still-in-group twin (INT-737 review).
+        let liftedEntries = snapshot.attention + snapshot.pinned
         let disambiguationInput: [SidebarGroupEntry] =
-            snapshot.pinned.isEmpty
+            liftedEntries.isEmpty
             ? snapshot.entries
             : snapshot.entries
-                + snapshot.pinned.map { pinnedEntry in
+                + liftedEntries.map { liftedEntry in
                     SidebarGroupEntry(
-                        group: pinnedEntry.originGroup,
-                        unfilteredIndex: pinnedEntry.originGroupUnfilteredIndex,
-                        sessions: [pinnedEntry.entry]
+                        group: liftedEntry.originGroup,
+                        unfilteredIndex: liftedEntry.originGroupUnfilteredIndex,
+                        sessions: [liftedEntry.entry]
                     )
                 }
         let duplicateDisambiguationBySessionID =
             SidebarDuplicateDisambiguator.disambiguationBySessionID(for: disambiguationInput)
         let density = SidebarDensity(compact: appSettingsStore.general.value.sidebarCompactMode)
         let visibleGroupIDs = snapshot.entries.map { $0.group.id }
-        // Pinned tiles render above every group, so ⌘1-9 must count them first
-        // to keep the on-tile jump digits truthful (INT-737).
-        let orderedVisibleSessions =
-            snapshot.pinned.isEmpty
-            ? snapshot.entries.flatMap(\.sessions)
-            : snapshot.pinned.map(\.entry) + snapshot.entries.flatMap(\.sessions)
+        // The rotor already flattens the sidebar in render order — synthetic
+        // sections first, then groups — so it is the single definition of that
+        // order here rather than a second hand-built concatenation that could
+        // drift from it. Jump digits and the search result ring both read it, and
+        // it must stay in lockstep with
+        // WorkspaceNavigationOrder.liftedFirstSessionIDs, which the ⌘-digit ACTION
+        // resolves from (guarded by SidebarAttentionChainingTests).
+        let rotorEntries = SidebarVisibleRows.rotorEntries(
+            attention: snapshot.attention,
+            pinned: snapshot.pinned,
+            for: snapshot.entries
+        )
+        let orderedVisibleSessionIDs = rotorEntries.map(\.id)
         let jumpIndexBySessionID = Dictionary(
-            orderedVisibleSessions
+            orderedVisibleSessionIDs
                 .enumerated()
-                .map { ($0.element.session.id, $0.offset + 1) },
+                .map { ($0.element, $0.offset + 1) },
             uniquingKeysWith: { first, _ in first }
         )
-        let searchResultIDs =
-            isFiltering
-            ? orderedVisibleSessions.map(\.session.id)
-            : []
+        let searchResultIDs = isFiltering ? orderedVisibleSessionIDs : []
         let visibleRows = SidebarVisibleRows.rows(
+            attention: snapshot.attention,
             pinned: snapshot.pinned,
             for: snapshot.entries,
             collapsedGroupIDs: collapsedGroupIDs,
             isFiltering: isFiltering
-        )
-        let rotorEntries = SidebarVisibleRows.rotorEntries(
-            pinned: snapshot.pinned,
-            for: snapshot.entries
         )
         // Computed once per render and captured by the preference-change
         // closure below, which would otherwise rebuild this set on every
@@ -189,6 +191,16 @@ struct SidebarView: View {
             GeometryReader { scrollViewport in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: density.groupStackSpacing) {
+                        if !snapshot.attention.isEmpty {
+                            attentionSection(
+                                attention: snapshot.attention,
+                                density: density,
+                                isFiltering: isFiltering,
+                                jumpIndexBySessionID: jumpIndexBySessionID,
+                                duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID
+                            )
+                        }
+
                         if !snapshot.pinned.isEmpty {
                             pinnedSection(
                                 pinned: snapshot.pinned,
@@ -330,7 +342,9 @@ struct SidebarView: View {
 
                         if SidebarSearchModePolicy.showsNoMatches(
                             isFiltering: isFiltering,
-                            hasVisibleResults: !snapshot.entries.isEmpty || !snapshot.pinned.isEmpty,
+                            hasVisibleResults: !snapshot.entries.isEmpty
+                                || !snapshot.pinned.isEmpty
+                                || !snapshot.attention.isEmpty,
                             displayMode: displayMode
                         ) {
                             EmptySidebarFilterView(
@@ -517,9 +531,19 @@ struct SidebarView: View {
         }
         .onAppear {
             sessionStore.undoManager = undoManager
+            // The setter's didSet refreshes the sticky and @Observable publishes
+            // even a false→false write, so the default-off launch would
+            // invalidate the sidebar for nothing.
+            let enabled = appSettingsStore.appearance.value.promoteWorkspacesNeedingInput
+            if sessionStore.needsInputSectionEnabled != enabled {
+                sessionStore.needsInputSectionEnabled = enabled
+            }
         }
         .onChange(of: undoManager) { _, undoManager in
             sessionStore.undoManager = undoManager
+        }
+        .onChange(of: appSettingsStore.appearance.value.promoteWorkspacesNeedingInput) { _, enabled in
+            sessionStore.needsInputSectionEnabled = enabled
         }
         .onChange(of: sessionStore.selectedSessionID) { _, newValue in
             // Selection can land inside a collapsed group via more than
@@ -528,14 +552,20 @@ struct SidebarView: View {
             guard let newValue,
                 let group = sessionStore.groups.first(where: { group in
                     group.sessions.contains { $0.id == newValue }
-                })
+                }),
+                let session = group.sessions.first(where: { $0.id == newValue })
             else {
                 return
             }
-            // A pinned session renders in the Pinned section, not its origin
-            // group; silently expanding that origin group would be a surprising
-            // side effect (especially on the collapsed rail), so skip it.
-            guard !sessionStore.isPinned(newValue) else {
+            // A pinned or lifted session renders in a synthetic section, not its
+            // origin group; silently expanding that origin group would be a
+            // surprising side effect (especially on the collapsed rail). Gated on
+            // the setting so the default configuration keeps its old behavior.
+            // The store's list already resolves the setting, the sticky, and
+            // pinned precedence — re-deriving membership here could disagree
+            // with the section actually on screen.
+            let isLifted = sessionStore.liftedSessionIDs.contains(newValue)
+            guard !sessionStore.isPinned(newValue), !isLifted else {
                 return
             }
             collapsedGroupIDs.remove(group.id)
@@ -561,12 +591,52 @@ struct SidebarView: View {
                     group.sessions.contains { $0.id == removedID }
                 })
             {
-                // Auto-expand the origin group so the returning tile isn't
-                // hidden under a collapsed header. A pin pruned on close has
-                // no live session → this lookup fails → no-op, as intended.
-                collapsedGroupIDs.remove(group.id)
-                accessibilityAnnouncer.announce("Unpinned \(session.title), returned to \(group.name)")
+                // An unpinned workspace that still needs input moves to the Needs
+                // Input section, not back to its group — announcing a return and
+                // expanding the group would both be wrong.
+                if sessionStore.needsInputSectionEnabled, session.needsUserInput {
+                    accessibilityAnnouncer.announce(
+                        "Unpinned \(session.title), moved to Needs Input"
+                    )
+                } else {
+                    // Auto-expand the origin group so the returning tile isn't
+                    // hidden under a collapsed header. A pin pruned on close has
+                    // no live session → this lookup fails → no-op, as intended.
+                    collapsedGroupIDs.remove(group.id)
+                    accessibilityAnnouncer.announce(
+                        "Unpinned \(session.title), returned to \(group.name)"
+                    )
+                }
             }
+        }
+        .onChange(of: sessionStore.liftedSessionIDs) { oldIDs, newIDs in
+            // Twin of the pin handler above, for the other synthetic section. A
+            // workspace leaving Needs Input while its origin group is collapsed
+            // otherwise just vanishes — no expand, nothing spoken.
+            // Additions are deliberately silent: the row appearing at the top of
+            // the sidebar is self-evident, and WorkspaceAttentionAnnouncementTracker
+            // already speaks a workspace entering needs-attention.
+            guard
+                let removedID = SidebarLiftedSectionTransition.singleRemoval(
+                    from: oldIDs,
+                    to: newIDs
+                ),
+                let session = sessionStore.session(id: removedID),
+                // A lifted workspace that was pinned moves to the Pinned section,
+                // not back to its group — the pin handler owns that announcement.
+                !sessionStore.isPinned(removedID),
+                let group = sessionStore.groups.first(where: { group in
+                    group.sessions.contains { $0.id == removedID }
+                })
+            else {
+                return
+            }
+            // A closed workspace has no live session → the lookup above fails →
+            // no-op, same as the pin handler's pruned-pin case.
+            collapsedGroupIDs.remove(group.id)
+            accessibilityAnnouncer.announce(
+                "\(session.title) left Needs Input, returned to \(group.name)"
+            )
         }
         .onChange(of: focusRequestID) { _, requestID in
             if requestID != nil {
@@ -897,10 +967,31 @@ struct SidebarView: View {
             searchTopMatch: projection.topMatch
         )
 
-        return SidebarSnapshot(
+        guard sessionStore.needsInputSectionEnabled else {
+            return SidebarSnapshot(
+                entries: pinnedProjection.entries,
+                attention: [],
+                pinned: pinnedProjection.pinned,
+                topMatchID: pinnedProjection.topMatch
+            )
+        }
+
+        // Runs over the pinned projection's REDUCED entries, so a pinned
+        // workspace is already absent and can never be lifted twice — that is
+        // the whole of "pinned wins". Needs Input renders above Pinned, so it
+        // also gets the last word on the filter's top match.
+        let attentionProjection = SidebarAttentionProjection.apply(
             entries: pinnedProjection.entries,
+            liftedSessionIDs: sessionStore.liftedSessionIDs,
+            isFiltering: isFiltering,
+            searchTopMatch: pinnedProjection.topMatch
+        )
+
+        return SidebarSnapshot(
+            entries: attentionProjection.entries,
+            attention: attentionProjection.attention,
             pinned: pinnedProjection.pinned,
-            topMatchID: pinnedProjection.topMatch
+            topMatchID: attentionProjection.topMatch
         )
     }
 
@@ -925,13 +1016,64 @@ struct SidebarView: View {
         )
     }
 
+    /// The synthetic Needs Input section. Extracted from `body` as a
+    /// `@ViewBuilder` func (matching `pinnedSection`) so its callback closures
+    /// don't push the already-large body expression past the type-checker's
+    /// budget.
+    @ViewBuilder
+    private func attentionSection(
+        attention: [LiftedSessionEntry],
+        density: SidebarDensity,
+        isFiltering: Bool,
+        jumpIndexBySessionID: [TerminalSession.ID: Int],
+        duplicateDisambiguationBySessionID: [TerminalSession.ID: SidebarDuplicateDisambiguation]
+    ) -> some View {
+        SidebarAttentionSectionView(
+            attention: attention,
+            density: density,
+            displayMode: displayMode,
+            isFiltering: isFiltering,
+            selectedSessionID: sessionStore.selectedSessionID,
+            allGroups: sessionStore.groups,
+            jumpIndexBySessionID: jumpIndexBySessionID,
+            workspacesWithBackgroundedFloatingWork: workspacesWithBackgroundedFloatingWork,
+            duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID,
+            onSelect: selectSession,
+            onTogglePin: { session in
+                sessionStore.togglePin(sessionID: session.id)
+            },
+            onClose: onCloseWorkspace,
+            onClear: onClearWorkspace,
+            onRename: onRenameWorkspace,
+            onAcknowledge: { session in
+                sessionStore.acknowledgeSession(id: session.id)
+            },
+            onToggleNotificationsMute: { session in
+                sessionStore.setNotificationsMuted(
+                    id: session.id,
+                    muted: !session.notificationsMuted
+                )
+            },
+            canMakeWorkspaceManaged: canMakeWorkspaceManaged,
+            onMakeWorkspaceManaged: onMakeWorkspaceManaged,
+            onNewSessionHere: newSessionInLiftedOrigin,
+            onMoveToGroup: { sessionID, destinationGroupID in
+                moveSession(sessionID, toGroupID: destinationGroupID, atIndex: SessionStore.appendIndex)
+            },
+            onWorkspaceDragStarted: beginWorkspaceDrag,
+            focusedRowTarget: $focusedRowTarget,
+            focusedSearchSessionID: focusedSearchSessionID,
+            isKeyboardNavigating: $isKeyboardNavigating
+        )
+    }
+
     /// The synthetic Pinned section. Extracted from `body` as a `@ViewBuilder`
     /// func (the file's existing `searchHeader` pattern) so its callback closures
     /// don't push the already-large body expression past the type-checker's
     /// budget.
     @ViewBuilder
     private func pinnedSection(
-        pinned: [PinnedSessionEntry],
+        pinned: [LiftedSessionEntry],
         density: SidebarDensity,
         isFiltering: Bool,
         jumpIndexBySessionID: [TerminalSession.ID: Int],
@@ -965,7 +1107,7 @@ struct SidebarView: View {
             },
             canMakeWorkspaceManaged: canMakeWorkspaceManaged,
             onMakeWorkspaceManaged: onMakeWorkspaceManaged,
-            onNewSessionHere: newSessionInPinnedOrigin,
+            onNewSessionHere: newSessionInLiftedOrigin,
             onMoveToGroup: { sessionID, destinationGroupID in
                 moveSession(sessionID, toGroupID: destinationGroupID, atIndex: SessionStore.appendIndex)
             },
@@ -983,9 +1125,9 @@ struct SidebarView: View {
         )
     }
 
-    /// "New Workspace Here" from a pinned tile lands the new workspace in the
-    /// pinned session's origin group, matching the in-group tile's behavior.
-    private func newSessionInPinnedOrigin(_ session: TerminalSession) {
+    /// "New Workspace Here" from a lifted tile (Needs Input or Pinned) lands the
+    /// new workspace in the session's origin group, matching the in-group tile.
+    private func newSessionInLiftedOrigin(_ session: TerminalSession) {
         guard
             let origin = sessionStore.groups.first(where: { group in
                 group.sessions.contains { $0.id == session.id }

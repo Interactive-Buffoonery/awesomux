@@ -229,6 +229,21 @@ public extension TerminalSession {
         panes.contains { $0.attentionReason != nil }
     }
 
+    /// The narrower gate the sidebar's Needs Input section lifts on: only reasons
+    /// that block on a human answer. A bell, desktop notification, or stray
+    /// background output still lights the peach cue via `needsAcknowledgement`,
+    /// but reordering the sidebar for those would make the section thrash. Same
+    /// two reasons `SessionRestoreReducer` keeps across a relaunch.
+    ///
+    /// Session-wide by design: a split workspace stays lifted while ANY pane is
+    /// still waiting, even though the selection dwell acknowledges only the
+    /// active pane.
+    var needsUserInput: Bool {
+        // Walks the layout instead of `panes` — reconcile reads this for every
+        // session on every commit, and `panes` materializes an array per call.
+        layout.contains { $0.attentionReason?.awaitsExplicitAnswer == true }
+    }
+
     /// Summed across panes for badge display. Flipped from a stored var to a
     /// computed rollup — every former write moved to the owning pane.
     var unreadNotificationCount: Int {

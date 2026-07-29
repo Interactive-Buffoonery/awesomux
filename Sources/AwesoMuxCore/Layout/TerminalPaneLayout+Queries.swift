@@ -81,6 +81,22 @@ public extension TerminalPaneLayout {
         }
     }
 
+    /// Short-circuiting existential over panes in tree order, without the
+    /// `[TerminalPane]` allocation `panes.contains(where:)` pays per call — same
+    /// reason `forEachPane(_:)` exists, plus a genuine early exit a materialized
+    /// array can't give you.
+    func contains(where predicate: (TerminalPane) -> Bool) -> Bool {
+        switch self {
+        case let .pane(pane):
+            predicate(pane)
+        case let .split(split):
+            split.first.contains(where: predicate)
+                || split.second.contains(where: predicate)
+        case .documentGroup:
+            false  // invisible to terminal enumeration
+        }
+    }
+
     func contains(paneID: TerminalPane.ID) -> Bool {
         switch self {
         case let .pane(pane):
