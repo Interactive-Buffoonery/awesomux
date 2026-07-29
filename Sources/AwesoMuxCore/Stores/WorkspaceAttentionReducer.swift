@@ -173,18 +173,12 @@ struct WorkspaceAttentionReducer: Sendable {
             }
 
             if let attentionReason = update.attentionReason {
-                // A lower-priority reason (e.g. `.bell`) must not clobber a
-                // higher-priority PENDING one (e.g. `.permissionPrompt`) still
-                // awaiting the user (INT-506). Retraction is handled below and
-                // obeys the same priority principle: an INFERRED clear cannot
-                // take back a reason that `awaitsExplicitAnswer` — only an
-                // authoritative one can.
-                if let current = pane.attentionReason,
-                    current.priority > attentionReason.priority
-                {
-                    // keep current
-                } else if pane.attentionReason != attentionReason {
-                    pane.attentionReason = attentionReason
+                // No-downgrade rule lives on `TerminalPane` so the legacy
+                // display-state path obeys it too (INT-506). Retraction is
+                // handled below and obeys the same priority principle: an
+                // INFERRED clear cannot take back a reason that
+                // `awaitsExplicitAnswer` — only an authoritative one can.
+                if pane.applyAttentionReasonWithoutDowngrade(attentionReason) {
                     didMutate = true
                 }
             } else if update.clearsAttention, let current = pane.attentionReason,

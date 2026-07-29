@@ -190,8 +190,34 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
                 attentionReason = nil
             }
         } else if let attentionReason = state.attentionReason {
-            self.attentionReason = attentionReason
+            applyAttentionReasonWithoutDowngrade(attentionReason)
         }
+    }
+
+    /// Assigns `reason` unless a higher-priority reason is already pending
+    /// (INT-506). Single definition of the no-downgrade rule, shared by
+    /// `applyLegacyAgentState` above and `WorkspaceAttentionReducer.updatePane`.
+    ///
+    /// The legacy display state `.needsAttention` projects to `.unknown`
+    /// (priority 0), so an unguarded write let any producer merely re-asserting
+    /// "this pane is loud" — generic background output through
+    /// `markSessionNeedsAttention`, or the visible-text detector — demote a
+    /// permission prompt the user still had to answer, dropping the workspace
+    /// out of the sidebar's Needs Input section while it kept painting the full
+    /// attention cue.
+    ///
+    /// Equal priority still writes: the rule is strictly "no downgrade", so
+    /// same-rank reasons stay last-write-wins.
+    ///
+    /// Returns whether the field changed, so callers can track mutation.
+    @discardableResult
+    mutating func applyAttentionReasonWithoutDowngrade(_ reason: AttentionReason) -> Bool {
+        if let current = attentionReason, current.priority > reason.priority {
+            return false
+        }
+        guard attentionReason != reason else { return false }
+        attentionReason = reason
+        return true
     }
 }
 

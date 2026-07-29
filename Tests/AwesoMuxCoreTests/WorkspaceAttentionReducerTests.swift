@@ -266,6 +266,88 @@ struct WorkspaceAttentionReducerTests {
         #expect(pane.attentionReason == nil)
     }
 
+    @Test(
+        "a legacy .needsAttention update cannot downgrade a pending prompt to .unknown",
+        arguments: [AttentionReason.permissionPrompt, .userInputRequired]
+    )
+    func legacyNeedsAttentionCannotDowngradePendingPrompt(reason: AttentionReason) {
+        var pane = TerminalPane(
+            title: "claude",
+            workingDirectory: "~",
+            agentKind: .claudeCode,
+            attentionReason: reason,
+            executionPlan: .local
+        )
+
+        // `.needsAttention` has no execution state, so it lands in the attention
+        // branch carrying `AgentState.attentionReason == .unknown` (priority 0).
+        // Generic background output re-asserting "this pane is loud" must not
+        // demote a prompt the user still has to answer out of Needs Input.
+        pane.applyLegacyAgentState(.needsAttention, clearsAttentionForExecutionState: false)
+
+        #expect(pane.attentionReason == reason)
+        #expect(pane.agentState == .needsAttention)
+    }
+
+    @Test("a legacy .needsAttention update overwrites an equal-priority reason")
+    func legacyNeedsAttentionOverwritesEqualPriorityReason() {
+        var pane = TerminalPane(
+            title: "shell",
+            workingDirectory: "~",
+            agentKind: .shell,
+            attentionReason: .bell,
+            executionPlan: .local
+        )
+
+        // `.bell` and `.unknown` are both priority 0. The rule is strictly
+        // "no DOWNGRADE", so equal priority still writes — same as `updatePane`.
+        pane.applyLegacyAgentState(.needsAttention, clearsAttentionForExecutionState: false)
+
+        #expect(pane.attentionReason == .unknown)
+    }
+
+    @Test("a real permission prompt still upgrades a pane holding .unknown")
+    func realPromptUpgradesUnknownAttention() {
+        var session = TerminalSession(
+            title: "claude",
+            workingDirectory: "~",
+            agentKind: .claudeCode,
+            attentionReason: .unknown
+        )
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: session.activePaneID,
+            update: .init(attentionReason: .permissionPrompt),
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        #expect(session.attentionReason == .permissionPrompt)
+    }
+
+    @Test("markSessionNeedsAttention's update keeps a pending prompt lifted")
+    func markSessionNeedsAttentionKeepsPendingPrompt() {
+        var session = TerminalSession(
+            title: "claude",
+            workingDirectory: "~",
+            agentKind: .claudeCode,
+            attentionReason: .permissionPrompt
+        )
+
+        // Exactly the update `SessionStore.markSessionNeedsAttention` builds for
+        // the generic background-output path in `GhosttySurfaceTerminalEvents`.
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: session.activePaneID,
+            update: .init(agentState: .needsAttention, unreadNotificationDelta: 1),
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        #expect(session.attentionReason == .permissionPrompt)
+        #expect(session.needsUserInput)
+        #expect(session.unreadNotificationCount == 1)
+    }
+
     @Test("acknowledgePane clears a pending permission prompt")
     func acknowledgePaneClearsPendingPrompt() {
         var session = TerminalSession(
