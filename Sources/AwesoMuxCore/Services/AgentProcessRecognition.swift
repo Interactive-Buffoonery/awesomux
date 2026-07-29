@@ -11,7 +11,12 @@ public enum AgentProcessRecognition {
             return nil
         }
 
-        let name = ShellRecognition.basename(command).lowercased()
+        // Same normalization the prompt gate uses: an npm-packaged launcher
+        // observes as `codex.exe`, and a pane this mapper fails to tag stays
+        // `.shell` — which the gate rejects at its FIRST guard, long before the
+        // name matching it was fixed in. Both mappers must agree on what a
+        // provider binary is called (multi-reviewer finding).
+        let name = ShellRecognition.normalizedCommandName(command)
         if name == "codex" || name.hasPrefix("codex-") {
             return .codex
         }

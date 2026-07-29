@@ -309,13 +309,112 @@ struct AgentPromptGateTests {
 
     @Test("wrapper interpreters never match, even with a claude candidate configured")
     func wrapperInterpreterDeclines() {
-        // npm-installed Claude Code foregrounds as `node`; indistinguishable
-        // from a raw-mode node REPL, so it must stay a false negative.
+        // A provider launched through a bare `node` is indistinguishable from a
+        // raw-mode node REPL, so it must stay a false negative.
         #expect(
             !AgentPromptGate.foregroundCommandMatches(
                 .claudeCode,
                 observedCommand: "node",
                 configuredBinaryCandidate: { "claude" }
             ))
+    }
+
+    @Test(
+        "an .exe launcher verifies at the full gate, not just the name matcher",
+        arguments: [
+            (AgentKind.claudeCode, "claude.exe"),
+            (AgentKind.codex, "codex.exe"),
+            (AgentKind.pi, "pi.exe"),
+            (AgentKind.openCode, "opencode.exe"),
+        ]
+    )
+    func exeLauncherVerifiesAtVerdict(kind: AgentKind, comm: String) {
+        // The reported failure was a `verdict()` denial with every other probe
+        // passing; the name-matcher tests below sit one layer beneath it, so
+        // this is the assertion that is red before the fix at the layer where
+        // the bug was actually seen (review finding).
+        #expect(verdict(kind: kind, comm: comm) == .verified(kind))
+    }
+
+    @Test("a doubled suffix is stripped once, not repeatedly")
+    func doubledExeSuffixDeclines() {
+        // Pins `hasSuffix` + `removeLast(4)` against a "simplification" to
+        // replacingOccurrences, which would silently make this match.
+        #expect(!AgentPromptGate.foregroundCommandMatches(.claudeCode, observedCommand: "claude.exe.exe"))
+    }
+
+    @Test(
+        "a native .exe launcher matches its provider",
+        arguments: [
+            (AgentKind.claudeCode, "claude.exe"),
+            // npm ships the launcher at .../@anthropic-ai/claude-code/bin/claude.exe,
+            // so p_comm reads claude.exe even on macOS. Measured live; it was the
+            // sole reason a receptive agent was declined.
+            (.claudeCode, "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"),
+            (.codex, "codex.exe"),
+            (.openCode, "opencode.exe"),
+            (.pi, "pi.exe"),
+        ]
+    )
+    func nativeExeLauncherMatches(kind: AgentKind, command: String) {
+        #expect(AgentPromptGate.foregroundCommandMatches(kind, observedCommand: command))
+    }
+
+    @Test(
+        "stripping .exe does not open the gate to shells or interpreters",
+        arguments: ["node.exe", "zsh.exe", "bash.exe", "python3.exe", "nvim.exe"]
+    )
+    func exeStrippingKeepsDenyList(name: String) {
+        #expect(
+            !AgentPromptGate.foregroundCommandMatches(
+                .claudeCode,
+                observedCommand: name,
+                configuredBinaryCandidate: { String(name.dropLast(4)) }
+            ))
+    }
+
+    @Test("a configured binary path ending in .exe still matches its process")
+    func configuredExeCandidateMatches() {
+        // Both sides normalize, or the escape hatch compares `my-agent` against
+        // `my-agent.exe` and never fires (review finding).
+        #expect(
+            AgentPromptGate.foregroundCommandMatches(
+                .claudeCode,
+                observedCommand: "my-agent.exe",
+                configuredBinaryCandidate: { "my-agent.exe" }
+            ))
+        #expect(
+            AgentPromptGate.foregroundCommandMatches(
+                .claudeCode,
+                observedCommand: "my-agent",
+                configuredBinaryCandidate: { "my-agent.exe" }
+            ))
+    }
+
+    @Test(
+        "stripping .exe does not widen the Claude version pattern",
+        arguments: ["2.1.214.exe", "2.1.214.EXE"]
+    )
+    func versionPatternIgnoresStrippedSuffix(name: String) {
+        // The native installer executes a suffix-less version-named file, so
+        // the version rule reads the raw name; otherwise this would newly match.
+        #expect(!AgentPromptGate.foregroundCommandMatches(.claudeCode, observedCommand: name))
+    }
+
+    @Test("a truncated .exe basename still matches its configured binary")
+    func truncatedExeCandidateMatchesByPrefix() {
+        // p_comm truncates at 16 bytes, which can cut mid-suffix — the stripped
+        // forms cannot prefix-match each other, so the raw pair is compared.
+        #expect(
+            AgentPromptGate.foregroundCommandMatches(
+                .claudeCode,
+                observedCommand: "my-long-agent.ex",
+                configuredBinaryCandidate: { "/opt/tools/my-long-agent.exe" }
+            ))
+    }
+
+    @Test("a bare .exe is not a provider name")
+    func bareExeDeclines() {
+        #expect(!AgentPromptGate.foregroundCommandMatches(.claudeCode, observedCommand: ".exe"))
     }
 }

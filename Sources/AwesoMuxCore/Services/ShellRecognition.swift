@@ -26,4 +26,30 @@ public enum ShellRecognition {
     public static func isRecognizedShell(_ command: String) -> Bool {
         recognizedShells.contains(basename(command))
     }
+
+    /// `basename`, lowercased, with a single trailing `.exe` removed — the form
+    /// every provider-name comparison should match against.
+    ///
+    /// npm ships Claude Code as `…/@anthropic-ai/claude-code/bin/claude.exe`, so
+    /// `p_comm` reads `claude.exe` on macOS while `ps -o comm` prints `claude`
+    /// (ps reports argv0; `p_comm` reports the executed file). Measured live,
+    /// where it was the sole reason a receptive agent was refused.
+    ///
+    /// It lives here, beside `basename`, because BOTH name→provider mappers call
+    /// through this type: `AgentProcessRecognition` (which decides a pane is an
+    /// agent at all) and `AgentPromptGate` (which decides staging is safe). A
+    /// normalizer private to either one is guaranteed to drift from the other —
+    /// it did, and the pane-identity side was the layer that ran first
+    /// (multi-reviewer finding).
+    ///
+    /// Deliberately NOT folded into `basename`: `isRecognizedShell` and the
+    /// quit-risk liveness classifier read raw names, and no macOS shell ships as
+    /// `.exe`. Callers opt in.
+    public static func normalizedCommandName(_ command: String) -> String {
+        var name = basename(command).lowercased()
+        if name.hasSuffix(".exe") {
+            name.removeLast(4)
+        }
+        return name
+    }
 }
