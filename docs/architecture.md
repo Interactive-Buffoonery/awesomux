@@ -228,6 +228,47 @@ the touch-point checklist.
 
 The sidebar/detail divider is a real `NSSplitView` divider in `SidebarSplitController`. The sidebar view mounts full-time in a **single permanent host** (the root-level `sidebarHostView` inside `sidebarHostClipView`) and never moves. The split-pane slot is an empty width reservation for the detail/terminal pane. `⌘\` toggles the sidebar with a one-shot resize; hover-reveal slides the permanent host's layer over a stationary detail pane (an overlap slide, not a divider animation — a per-frame divider animation would rewrap multi-pane terminal content). See [ADR 0025](adr/0025-sidebar-single-host-presentation.md).
 
+### Synthetic sidebar sections
+
+The sidebar renders two synthetic sections above the workspace groups. Neither
+moves a session in the store — both are render-time projections over the
+post-search `SidebarGroupEntry` list, which is what makes "return to origin"
+structurally free.
+
+1. **Needs Input** (`SidebarAttentionProjection`, opt-in via
+   `appearance.promote_workspaces_needing_input`, default off). Membership is
+   computed from `TerminalSession.needsUserInput` — deliberately narrower than
+   `needsAcknowledgement`, gating on `AttentionReason.priority >= 2`
+   (`permissionPrompt`, `userInputRequired`). A bell, desktop notification,
+   process error, or stray background output still lights the peach cue but does
+   not reorder the sidebar.
+
+2. **Pinned** (`SidebarPinnedProjection`, INT-737). Membership is the
+   user-ordered `SessionStore.pinnedSessionIDs`.
+
+The attention projection chains over the pinned projection's reduced output, so
+a pinned workspace is never lifted twice — pinned precedence is a consequence of
+the call order, not an explicit check.
+
+`SessionStore.attentionStickySessionID` holds a lifted workspace in the section
+past the point it stops needing input, so the 500 ms selection dwell (ADR-0003)
+can't evict a row the user is reading. It is written synchronously inside the
+`selectedSessionID` setter, not from a view `.onChange` — a view-local write
+would lag the body that reads it and demote a just-clicked row for one render
+pass. A deliberate acknowledge (⌘⇧K, Clear All Notifications) releases it; the
+passive dwell does not — `acknowledgeSession(id:releasesAttentionSticky:)`
+defaults to releasing, and only the scheduled dwell callback passes `false`.
+
+`SessionStore.liftedSessionIDs` is the single definition of the lifted set.
+`WorkspaceNavigationOrder.liftedFirstSessionIDs` consumes it so ⌘1-9,
+Previous/Next Workspace, and the Dock menu resolve from the same order the
+sidebar draws.
+
+Known behaviors, accepted: a background attention clear removes an unselected
+row with no dwell; a split workspace stays lifted while any pane waits, even
+after the active pane is acknowledged; a collapsed origin group's count and
+`.needs` badge drop the lifted workspace.
+
 ## Agent state contract
 
 `AgentState` is the vocabulary for agent execution and attention. Shell command activity is tracked separately as **Shell activity** so a live login shell does not masquerade as an agent in `running`. `.done` means an agent run or detected agent command completed successfully; terminal process-exit workspace close does not set `.done`.
