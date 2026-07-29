@@ -4,12 +4,19 @@ on:
   issue_comment:
     types: [created]
 
-concurrency:
-  group: opencode-manual-review-${{ github.event.issue.number }}
-  cancel-in-progress: true
-
 jobs:
   review:
+    # Scoped to the job, not the workflow. At workflow level the group is
+    # claimed when the RUN is created — before the `if` below is evaluated — so
+    # every unrelated comment on the pull request entered the group and
+    # cancelled the review in flight. The bot posting its own review comment was
+    # enough to kill the run that produced it (observed on #309: a manual review
+    # started at 16:20:48 and was cancelled six seconds later by the automatic
+    # review's result comment). A job-level group is only claimed by a job that
+    # actually runs, so a non-command comment no longer cancels anything.
+    concurrency:
+      group: opencode-manual-review-${{ github.event.issue.number }}
+      cancel-in-progress: true
     # The command must still be the WHOLE comment — a body that merely mentions
     # `/codereview` alongside prose must not trigger a review. But the trailing
     # newline every CLI appends is not "extra text": `gh pr comment --body
