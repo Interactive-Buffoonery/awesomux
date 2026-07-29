@@ -420,13 +420,22 @@ struct AgentRuntimeEventReducer: Sendable {
         // could be dropped as stale — stranding the pane at `.waiting` for a
         // whole working turn, the one direction this must never fail in.
         //
-        // "Contributed nothing" is the whole test, not just "was suppressed": a
-        // suppressed `.toolEnd` still carries its attention reason and its
-        // touched path, and holding the watermark for one of those would let it
-        // replay once the capacity-64 dedupe ring evicts its key — re-raising a
-        // resolved prompt.
-        let contributedNothing =
-            ignoresTrailingToolEnd && eventAttentionReason == nil && event.touchedPath == nil
+        // This holds for EVERY suppressed `.toolEnd`, including one that still
+        // delivered an attention reason or a touched path. Two reviews pulled in
+        // opposite directions here and the tie breaks on which way each fails:
+        //
+        // - Holding it always (this) lets a suppressed event replay once the
+        //   capacity-64 dedupe ring evicts its key, re-raising a prompt the user
+        //   already resolved. Noisy, self-correcting, needs 64 intervening events.
+        // - Advancing it for those events lets a `touchedPath` toolEnd — every
+        //   background file write — stale-drop a `.toolStart` sampled microseconds
+        //   earlier. `isBetweenTurns` then never clears, every later `.toolEnd`
+        //   stays suppressed, and the pane reads `.waiting` for a whole working
+        //   turn with the send bar armed into a live composer. Timestamp
+        //   inversions were measured at 0.6% of real events.
+        //
+        // The second is the direction this gate exists to prevent, so it loses.
+        let contributedNothing = ignoresTrailingToolEnd
         recordApplied(
             dedupeKey: dedupeKey,
             timestamp: contributedNothing ? nil : event.timestamp,

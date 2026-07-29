@@ -1250,48 +1250,56 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(decision.recentLinkAction == .record("/tmp/notes.md"))
     }
 
-    @Test("a tool end that still carried a prompt keeps its place in the order")
-    func suppressedToolEndCarryingAttentionAdvancesWatermark() throws {
-        // The watermark hold is for INERT events only. One that still delivered
-        // an attention reason must stay ordered, or the capacity-64 dedupe ring
-        // eventually evicts its key and the resolved prompt replays.
-        let session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
+    @Test("a file-writing tool end does not strand a turn that starts microseconds earlier")
+    func suppressedToolEndWithTouchedPathDoesNotBlockAToolStart() throws {
+        // Every background file write produces a suppressed toolEnd carrying a
+        // touchedPath. If that raised the staleness bar, a `.toolStart` sampled
+        // microseconds earlier (hook events are appended by independent
+        // processes, ~0.6% invert) would be dropped, `isBetweenTurns` would
+        // never clear, and the pane would read `.waiting` for a whole working
+        // turn with the send bar armed (review finding).
+        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
         let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .waiting)
         var reducer = AgentRuntimeEventReducer()
-        var seeded = session
-        seedExecutionState(&seeded, paneID: paneID, .waiting)
 
-        _ = reducer.decision(
+        let write = try #require(
+            reducer.decision(
+                for: AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .thinking,
+                    phase: .toolEnd,
+                    eventID: "write",
+                    touchedPath: "/tmp/notes.md",
+                    timestamp: Date(timeIntervalSince1970: 20)
+                ),
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: true,
+                now: Date(timeIntervalSince1970: 20)
+            ) as AgentRuntimeEventReducer.Decision?)
+        #expect(write.update.agentExecutionState == nil)
+        #expect(write.recentLinkAction == .record("/tmp/notes.md"))
+
+        // Sampled a hair earlier, appended after — must still re-arm the turn.
+        let startResult = reducer.decision(
             for: AgentRuntimeEvent(
                 source: .claudeCode,
                 executionState: .thinking,
-                attentionReason: .permissionPrompt,
-                phase: .toolEnd,
-                eventID: "prompt",
-                timestamp: Date(timeIntervalSince1970: 20)
+                phase: .toolStart,
+                eventID: "start",
+                timestamp: Date(timeIntervalSince1970: 19.999_999)
             ),
-            currentSession: seeded,
+            currentSession: session,
             paneID: paneID,
             terminalIsFocused: true,
             now: Date(timeIntervalSince1970: 20)
         )
-
-        // Same event, new id — stands in for the post-eviction replay.
-        let replay = reducer.decision(
-            for: AgentRuntimeEvent(
-                source: .claudeCode,
-                executionState: .thinking,
-                attentionReason: .permissionPrompt,
-                phase: .toolEnd,
-                eventID: "prompt-replayed",
-                timestamp: Date(timeIntervalSince1970: 20)
-            ),
-            currentSession: seeded,
-            paneID: paneID,
-            terminalIsFocused: true,
-            now: Date(timeIntervalSince1970: 21)
-        )
-        #expect(replay == nil)
+        let start = try #require(startResult)
+        #expect(start.update.agentExecutionState == .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: start.update, now: Date(timeIntervalSince1970: 20))
+        #expect(session.agentState == .thinking)
     }
 
     @Test("a suppressed tool end does not strand the turn by advancing the watermark")
