@@ -17,18 +17,23 @@ import Foundation
 /// through this same policy before staging text.
 ///
 /// **Known window where the gate declines a genuinely ready agent.** A
-/// same-provider trailing `PostToolUse`/`toolEnd` event — from a legitimate
-/// hook-forced continuation after the *user's own* blocking Stop hook vetoes
-/// Claude's first Stop attempt — can leave a pane's `agentState` at `.thinking`
-/// for roughly 60-90s, until Claude Code's idle-prompt `Notification` hook
-/// re-confirms `.waiting`. Confirmed live in a clean single-provider trace;
-/// distinct from cross-provider contamination. Loosening the `agentState ==
-/// .waiting` guard to tolerate this window was considered and rejected:
+/// same-provider background producer — a subagent or background task whose tool
+/// events inherit the pane's event file — keeps emitting tool lifecycle events
+/// after a real Stop, leaving `agentState` at `.thinking` until the next turn or
+/// Claude Code's idle-prompt `Notification` re-confirms `.waiting`.
+///
+/// `AgentRuntimeEventReducer` now closes the trailing-`.toolEnd` half of that:
+/// a tool FINISHING is never evidence the agent went back to work. The
+/// `.toolStart` half is still open — measured at 11 of 32 turn-ends in a live
+/// 4588-event single-provider trace — because nothing in the wire protocol
+/// distinguishes a background producer's `toolStart` from the real agent
+/// resuming, and treating them alike would let a hook-forced continuation read
+/// `.waiting` mid-render.
+///
+/// Loosening the `agentState == .waiting` guard itself stays rejected: only a
+/// real turn-end proves the terminal is back at a receptive prompt, and
 /// `.thinking` can mean the CLI is mid-render and genuinely unsafe to inject
-/// keystrokes into, and only a real Stop proves the terminal is back at a
-/// receptive prompt. This is the gate working as designed. The lever is the
-/// user's own blocking Stop hook — the more aggressively it vetoes a Stop, the
-/// longer the window.
+/// keystrokes into.
 
 /// Identity of one foreground-process incarnation, observed as (pid, start
 /// time). Mirrors `AmxDaemonIncarnation`'s pid+createdAt shape for the same
