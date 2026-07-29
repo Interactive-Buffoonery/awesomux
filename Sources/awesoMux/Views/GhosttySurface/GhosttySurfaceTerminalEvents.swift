@@ -349,7 +349,7 @@ extension GhosttySurfaceNSView {
                 self.commitTerminalTitle(title, writtenAt: CACurrentMediaTime())
             }
         }
-        terminalEventState.terminalTitleThrottleWorkItem = (workItem, pane)
+        terminalEventState.terminalTitleThrottleWorkItem = (workItem, pane, title)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
@@ -360,15 +360,27 @@ extension GhosttySurfaceNSView {
         sessionStore.updatePane(sessionID: sessionID, paneID: paneID, title: title)
     }
 
-    /// Flushes rather than cancels: `disposeNativeSurface` also fronts the
+    /// Flushes rather than drops: `disposeNativeSurface` also fronts the
     /// command-bridge heal, where the pane outlives the surface and would
-    /// otherwise keep a spinner frame as its title. The work item's own guard
-    /// still drops it if the view has been repointed.
+    /// otherwise keep a spinner frame as its title.
+    ///
+    /// Commits the title directly instead of via `perform()`, which does not
+    /// consume the pending `asyncAfter` and would leave the item to fire again
+    /// at its original deadline over a newer title.
     func flushTerminalTitleThrottle() {
-        let pending = terminalEventState.terminalTitleThrottleWorkItem?.item
+        guard let pending = terminalEventState.terminalTitleThrottleWorkItem else { return }
         terminalEventState.terminalTitleThrottleWorkItem = nil
         terminalEventState.lastTerminalTitleStoreWrite = nil
-        pending?.perform()
+        pending.item.cancel()
+        guard
+            DeferredPaneEventDispatchGuard.shouldApply(
+                capturedSessionID: pending.pane.sessionID,
+                capturedPaneID: pending.pane.paneID,
+                currentSessionID: sessionID,
+                currentPaneID: paneID
+            )
+        else { return }
+        commitTerminalTitle(pending.title, writtenAt: CACurrentMediaTime())
     }
 
     func updateWorkingDirectory(_ workingDirectory: String) {

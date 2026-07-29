@@ -43,7 +43,9 @@ final class GhosttySurfaceTerminalEventState {
     /// Both are keyed on the pane, not the view: views are recycled across
     /// panes, so a per-view window lets a recycled-in pane inherit the outgoing
     /// pane's throttle debt and delays its first title by up to a full window.
-    var terminalTitleThrottleWorkItem: (item: DispatchWorkItem, pane: PaneStoreWriteKey)?
+    /// `title` is carried so a flush can commit it without `perform()`, which
+    /// would leave the item scheduled to fire a second time.
+    var terminalTitleThrottleWorkItem: (item: DispatchWorkItem, pane: PaneStoreWriteKey, title: String)?
     var lastTerminalTitleStoreWrite: (pane: PaneStoreWriteKey, at: TimeInterval)?
 
     /// Debounces the `.valueChanged` VoiceOver notification posted when the

@@ -112,6 +112,26 @@ struct GhosttyActionPaneRecycleAtomicityTests {
         )
     }
 
+    @Test("a flushed title does not fire again and clobber a newer title")
+    func flushedTerminalTitleDoesNotRefireAfterFlush() async throws {
+        let harness = makeHarness()
+
+        harness.view.updateTerminalTitle("title written to A")
+        harness.view.updateTerminalTitle("deferred title for A")
+        harness.view.flushTerminalTitleThrottle()
+        harness.view.updateTerminalTitle("newest title for A")
+
+        // Past the flushed item's original deadline: `perform()` alone does not
+        // consume the pending `asyncAfter`, so without `cancel()` the stale
+        // deferred title lands here and overwrites the newest one.
+        try await Task.sleep(for: .milliseconds(600))
+
+        #expect(
+            harness.store.session(id: harness.sessionA.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "newest title for A"
+        )
+    }
+
     @Test("a deferred terminal title still lands when the view is not recycled")
     func deferredTerminalTitleLandsWithoutRecycle() async throws {
         let harness = makeHarness()
