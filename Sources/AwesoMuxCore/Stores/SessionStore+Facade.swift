@@ -369,6 +369,13 @@ extension SessionStore {
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentExecutionState: .error,
                 clearsAttention: true,
+                // The process that raised the prompt is dead, so the prompt is
+                // unanswerable — the other half of the flag's contract, and the
+                // reason this clear may retract a pending permission request. An
+                // inferred clear would leave the pane resolving to
+                // `.needsAttention` over a prompt nobody can answer, masking the
+                // recovery hint the dead pane needs to show.
+                attentionClearIsAuthoritative: true,
                 unreadNotificationDelta: !terminalIsFocused
                     && displacedNonErrorState ? 1 : 0
             ),
@@ -888,10 +895,16 @@ extension SessionStore {
             #endif
         }
 
-        // Every `_groups` mutation lands here, so this is where a workspace that
-        // just started (or stopped) needing input enters or leaves the ordered
-        // lifted list. Runs before the selection write so an observer woken by
-        // that write already sees a reconciled section.
+        // Every mutation of what the lift predicate reads — a pane's
+        // `attentionReason` and the session roster — routes through here, so
+        // this is where a workspace that just started (or stopped) needing input
+        // enters or leaves the ordered lifted list. NOT every `_groups` write:
+        // selection, focus, shell activity, the freshness stamp, and the
+        // per-pane rename/color/mute edits all mutate `_groups` without
+        // committing. A future attention write modeled on `setActivePane` would
+        // therefore drift the section silently — commit it, or reconcile it
+        // itself. Runs before the selection write so an observer woken by that
+        // write already sees a reconciled section.
         reconcileLiftedSessionIDs()
 
         if case .set(let sessionID) = effect.selection {
