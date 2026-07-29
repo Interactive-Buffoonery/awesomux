@@ -125,7 +125,7 @@ final class GhosttySurfaceNSView: NSView {
     /// existing no-op guard doesn't already cover this.
     static let progressReportStoreWriteMinInterval: TimeInterval = 0.1
 
-    /// Agent TUIs animate OSC titles many times per second. Two observable
+    /// Agent TUIs animate OSC titles many times per second. Four observable
     /// title writes per pane per second keeps the sidebar responsive without
     /// rebuilding its full projection for every animation frame.
     ///

@@ -68,8 +68,8 @@ struct GhosttyActionPaneRecycleAtomicityTests {
 
         try await Task.sleep(for: .milliseconds(600))
 
-        // B's own write must not cancel A's pending item, so A's deferred write
-        // reaches the guard and is dropped there rather than misattributed.
+        // A's deferred write must not reach B under any route — it is cancelled
+        // when B supersedes the slot, and the guard would drop it regardless.
         #expect(
             harness.store.session(id: harness.sessionB.id)?
                 .layout.pane(id: harness.sharedPaneID)?.title == "title written to B"
@@ -129,6 +129,60 @@ struct GhosttyActionPaneRecycleAtomicityTests {
         #expect(
             harness.store.session(id: harness.sessionA.id)?
                 .layout.pane(id: harness.sharedPaneID)?.title == "newest title for A"
+        )
+    }
+
+    @Test("an orphaned pending title cannot land after the view returns to its pane")
+    func orphanedPendingTitleDoesNotLandOnRepointBack() async throws {
+        let harness = makeHarness()
+
+        harness.view.updateTerminalTitle("title written to A")
+        harness.view.updateTerminalTitle("orphaned title for A")
+
+        // B supersedes the slot. Cancelling only a write this pane OWNS left A's
+        // item queued but untracked, because B overwrites the slot regardless.
+        let recycledView = recycle(harness)
+        recycledView.updateTerminalTitle("title written to B")
+        recycledView.updateTerminalTitle("deferred title for B")
+
+        let restoredView = repointBackToA(harness)
+        restoredView.updateTerminalTitle("newest title for A")
+        #expect(restoredView === harness.view)
+
+        try await Task.sleep(for: .milliseconds(600))
+
+        // The orphan's guard passes again once the view points back at A, so an
+        // uncancelled item commits a title two events stale over the newest one.
+        #expect(
+            harness.store.session(id: harness.sessionA.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "newest title for A"
+        )
+        #expect(
+            harness.store.session(id: harness.sessionB.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "title written to B"
+        )
+    }
+
+    @Test("a pending title is dropped rather than landing stale after a repoint back")
+    func pendingTitleIsDroppedRatherThanLandingStale() async throws {
+        let harness = makeHarness()
+
+        harness.view.updateTerminalTitle("title written to A")
+        harness.view.updateTerminalTitle("pending title for A")
+
+        // B's write cancels A's pending item, and A emits nothing further before
+        // the view returns. Pinning the accepted trade: A keeps its earlier title
+        // instead of the pending one landing late. Preserving that write would
+        // mean re-admitting the orphan that clobbers a NEWER title.
+        let recycledView = recycle(harness)
+        recycledView.updateTerminalTitle("title written to B")
+        _ = repointBackToA(harness)
+
+        try await Task.sleep(for: .milliseconds(600))
+
+        #expect(
+            harness.store.session(id: harness.sessionA.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "title written to A"
         )
     }
 
@@ -277,6 +331,7 @@ struct GhosttyActionPaneRecycleAtomicityTests {
 
         return PaneRecycleHarness(
             sharedPaneID: sharedPaneID,
+            paneInSessionA: paneInSessionA,
             paneInSessionB: paneInSessionB,
             sessionA: sessionA,
             sessionB: sessionB,
@@ -287,10 +342,22 @@ struct GhosttyActionPaneRecycleAtomicityTests {
     }
 
     private func recycle(_ harness: PaneRecycleHarness) -> GhosttySurfaceNSView {
+        repoint(harness, to: harness.sessionB, pane: harness.paneInSessionB)
+    }
+
+    private func repointBackToA(_ harness: PaneRecycleHarness) -> GhosttySurfaceNSView {
+        repoint(harness, to: harness.sessionA, pane: harness.paneInSessionA)
+    }
+
+    private func repoint(
+        _ harness: PaneRecycleHarness,
+        to session: TerminalSession,
+        pane: TerminalPane
+    ) -> GhosttySurfaceNSView {
         harness.runtime.surfaceView(
             sessionStore: harness.store,
-            session: harness.sessionB,
-            pane: harness.paneInSessionB,
+            session: session,
+            pane: pane,
             enabledAgentRuntimeFileDropSources: [],
             grokIconEnabled: false
         )
@@ -300,6 +367,7 @@ struct GhosttyActionPaneRecycleAtomicityTests {
 @MainActor
 private struct PaneRecycleHarness {
     let sharedPaneID: UUID
+    let paneInSessionA: TerminalPane
     let paneInSessionB: TerminalPane
     let sessionA: TerminalSession
     let sessionB: TerminalSession

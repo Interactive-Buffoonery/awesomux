@@ -43,6 +43,16 @@ enum ObservableStoreWriteThrottle {
     }
 }
 
+/// Identifies the pane a throttled store write belongs to, so a recycled view
+/// does not inherit the outgoing pane's throttle window. It does NOT scope
+/// cancellation: a pending write is cancelled whatever pane armed it, because
+/// the single tracking slot is overwritten regardless — see
+/// `GhosttySurfaceNSView.cancelPendingTerminalTitleWrite`.
+struct PaneStoreWriteKey: Equatable {
+    let sessionID: TerminalSession.ID
+    let paneID: TerminalPane.ID
+}
+
 /// Guards a deferred terminal-event side effect against
 /// `GhosttySurfaceNSView.update(session:pane:...)` re-pointing the SAME NSView
 /// instance at a different pane between scheduling and execution.
@@ -50,14 +60,6 @@ enum ObservableStoreWriteThrottle {
 /// Mirrors the snapshot-then-revalidate guard
 /// `CommandBridgeEnactor.beginExitSupervision` already uses for its own
 /// async exit-probe Task (INT-587 review).
-/// Identifies the pane a throttled store write belongs to, so a recycled view
-/// neither inherits the outgoing pane's throttle window nor cancels its
-/// pending write.
-struct PaneStoreWriteKey: Equatable {
-    let sessionID: TerminalSession.ID
-    let paneID: TerminalPane.ID
-}
-
 enum DeferredPaneEventDispatchGuard {
     static func shouldApply(
         capturedSessionID: TerminalSession.ID,

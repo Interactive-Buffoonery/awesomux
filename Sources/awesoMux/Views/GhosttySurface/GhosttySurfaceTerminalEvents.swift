@@ -307,20 +307,29 @@ extension GhosttySurfaceNSView {
             minInterval: Self.terminalTitleStoreWriteMinInterval
         ) {
         case .writeNow:
-            cancelPendingTerminalTitleWrite(ownedBy: pane)
+            cancelPendingTerminalTitleWrite()
             commitTerminalTitle(title, writtenAt: now)
         case .deferBy(let delay):
             scheduleThrottledTerminalTitleWrite(title, after: delay)
         }
     }
 
-    /// Only this pane's own pending write is superseded. A pending write left
-    /// by the view's previous occupant is that pane's last title, so it fires
-    /// and faces `DeferredPaneEventDispatchGuard` instead.
-    private func cancelPendingTerminalTitleWrite(ownedBy pane: PaneStoreWriteKey) {
-        guard terminalEventState.terminalTitleThrottleWorkItem?.pane == pane else {
-            return
-        }
+    /// Cancels the pending write whatever pane armed it, because both call sites
+    /// overwrite the single tracking slot regardless of who owns it. Scoping the
+    /// cancel to the current pane left a foreign item queued but untracked, and a
+    /// later `A → B → A` repoint let that orphan pass the guard a second time and
+    /// commit its stale title over a newer one — while its own pane-keyed cleanup
+    /// cleared the newer entry on the way out, so the quit flush then found
+    /// nothing to land.
+    ///
+    /// Deliberately lossy in one interleaving: if the view leaves a pane mid-window
+    /// and returns without that pane emitting another title, its last title is
+    /// dropped rather than delivered late. Losing the newest title is preferable to
+    /// committing a stale one over it, and a live pane re-emits within the window.
+    /// `pendingTitleIsDroppedRatherThanLandingStale` pins the trade. Upgrade path if
+    /// that ever bites: pane-keyed pending state with bounded eviction, not a
+    /// narrower cancel.
+    private func cancelPendingTerminalTitleWrite() {
         terminalEventState.terminalTitleThrottleWorkItem?.item.cancel()
         terminalEventState.terminalTitleThrottleWorkItem = nil
     }
@@ -330,14 +339,15 @@ extension GhosttySurfaceNSView {
         after delay: TimeInterval
     ) {
         let pane = PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
-        cancelPendingTerminalTitleWrite(ownedBy: pane)
+        cancelPendingTerminalTitleWrite()
 
         let workItem = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if self.terminalEventState.terminalTitleThrottleWorkItem?.pane == pane {
-                    self.terminalEventState.terminalTitleThrottleWorkItem = nil
-                }
+                // Unconditional: every path that replaces or clears the slot now
+                // cancels the item it evicts, and a cancelled item never enters
+                // this body — so the slot can only be holding THIS item here.
+                self.terminalEventState.terminalTitleThrottleWorkItem = nil
                 guard
                     DeferredPaneEventDispatchGuard.shouldApply(
                         capturedSessionID: pane.sessionID,
