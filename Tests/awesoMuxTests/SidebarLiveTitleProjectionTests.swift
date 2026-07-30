@@ -106,7 +106,7 @@ struct SidebarLiveTitleProjectionTests {
         // come from the write.
         #expect(Self.matchedIDs(in: fixture.store, query: "release").isEmpty)
 
-        fixture.retitle("release prep")
+        fixture.retitle("release prep", now: Date())
 
         // The write was silent — but it ticked the generation, which is what
         // re-runs the body that rebuilds this haystack…
@@ -120,7 +120,7 @@ struct SidebarLiveTitleProjectionTests {
         let fixture = Fixture()
         #expect(Self.matchedIDs(in: fixture.store, query: "workspace") == [fixture.sessionID])
 
-        fixture.retitle("release prep")
+        fixture.retitle("release prep", now: Date())
 
         #expect(Self.matchedIDs(in: fixture.store, query: "workspace").isEmpty)
     }
@@ -135,13 +135,16 @@ struct SidebarLiveTitleProjectionTests {
         // exactly what a frozen body would keep handing the rotor.
         let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
 
-        fixture.retitle("release prep")
+        fixture.retitle("release prep", now: Date())
 
         // The row speaks the LIVE title (it renders inside a `LiveTitleScope`).
         let rowLabel = SidebarSessionTile.workspaceIdentityAccessibilityLabel(
             session: staleSession,
             rollup: staleSession.agentRollup(),
-            title: box.workspaceTitle
+            // The channel the ROW reads. Asserting the fine property here would
+            // compare the rotor against a string no sidebar row renders, which
+            // is what this test exists to rule out.
+            title: LiveTitles(box: box, reads: .everything).workspace
         )
 
         // The bug: a rotor built from the stale projection names it differently
@@ -166,7 +169,7 @@ struct SidebarLiveTitleProjectionTests {
 
         // A display-only write collides the first workspace's title with the
         // second's. Both share the group and the cwd, so this is a real duplicate.
-        fixture.retitle("release prep")
+        fixture.retitle("release prep", now: Date())
 
         let ordinals = Self.ordinals(in: fixture.store)
         #expect(ordinals.count == 2)
@@ -180,7 +183,7 @@ struct SidebarLiveTitleProjectionTests {
         let fixture = Fixture()
         let before = Self.activityKey(for: fixture.store)
 
-        fixture.retitle("release prep")
+        fixture.retitle("release prep", now: Date())
 
         // The key folds `groups`, so a body re-run rebuilds it from current
         // storage and the panel's gate opens. (Without the body re-run the key is
@@ -214,7 +217,7 @@ struct SidebarLiveTitleProjectionTests {
             location: .local("~"),
             tint: ProjectTint(groupName: "main", color: nil, index: 0),
             frame: .zero,
-            liveTitles: LiveTitles(box: box)
+            liveTitles: LiveTitles(box: box, reads: .everything)
         )
         #expect(model.workspaceTitle == "release prep")
         #expect(staleSession.title == "workspace")
@@ -229,7 +232,7 @@ struct SidebarLiveTitleProjectionTests {
             session: staleSession,
             location: .local("~"),
             tint: ProjectTint(groupName: "main", color: nil, index: 0),
-            liveTitles: LiveTitles(box: box)
+            liveTitles: LiveTitles(box: box, reads: .everything)
         )
         #expect(model.workspaceTitle == "ship it")
     }
@@ -268,7 +271,11 @@ struct SidebarLiveTitleProjectionTests {
 
         /// A display-only OSC title report: storage moves, `groups` does not
         /// publish, the generation ticks.
-        func retitle(_ title: String, now: Date = Date()) {
+        /// `now` is required, not defaulted. The sidebar renders these titles
+        /// through the coarse channel, so two writes that share a coalescing
+        /// window collapse into one — a defaulted `Date()` would let a future
+        /// test do that silently and assert against a stale title.
+        func retitle(_ title: String, now: Date) {
             store.updatePane(sessionID: sessionID, paneID: paneID, title: title, now: now)
         }
     }

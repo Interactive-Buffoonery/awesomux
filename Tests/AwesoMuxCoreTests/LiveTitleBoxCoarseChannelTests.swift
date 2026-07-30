@@ -184,24 +184,138 @@ struct LiveTitleBoxCoarseChannelTests {
         #expect(box.coarsePaneTitles[fixture.paneID] == "pane")
     }
 
-    /// `adopt` must not consume the coalescing leading edge — if it did, a
-    /// rename would silently cost the next second of title ticks their publish.
-    @Test("an unthrottled publish leaves the next tick's leading edge intact")
-    func adoptDoesNotConsumeTheLeadingEdge() {
+    /// `adopt` must leave the coalescing timestamp exactly as it found it —
+    /// neither ADVANCING it (which would cost the next second of ticks their
+    /// publish) nor CLEARING it (which would hand every rename a free leading
+    /// edge and defeat the coalescing).
+    ///
+    /// Both halves are asserted, because either one alone is satisfiable by a
+    /// broken implementation. `now` runs forward from the CURRENT clock rather
+    /// than from an epoch constant on purpose: with a 1970 base, an `adopt` that
+    /// stamped `Date()` would produce an elapsed of about minus fifty-six years,
+    /// the backwards-clock branch would call it due, and the publish would go
+    /// through — leaving this test green against the exact mutation it names.
+    @Test("an unthrottled publish leaves the coalescing window exactly as it found it")
+    func adoptLeavesTheCoalescingWindowIntact() {
         let fixture = makeFixture()
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let base = Date(timeIntervalSince1970: 1_000_000)
+        let base = Date()
+
+        // Opens the window at `base`.
+        fixture.retitle("frame 0", now: base)
+        #expect(box.coarsePaneTitles[fixture.paneID] == "frame 0")
 
         fixture.store.renameSession(id: fixture.sessionID, title: "release prep")
 
-        // First display-only tick of this box's life. If `adopt` had stamped the
-        // coalescing timestamp, this would be suppressed. Asserted on the pane
-        // title rather than the workspace title because the rename can freeze
-        // workspace-title promotion, which would make the assertion prove
-        // nothing about the leading edge.
-        fixture.retitle("cargo build", now: base)
+        // Did not CLEAR the stamp: still inside the window opened at `base`.
+        fixture.retitle("frame 1", now: base.addingTimeInterval(0.2))
+        #expect(box.coarsePaneTitles[fixture.paneID] == "frame 0")
 
-        #expect(box.coarsePaneTitles[fixture.paneID] == "cargo build")
+        // Did not ADVANCE the stamp: the window still expires one interval after
+        // `base`, not one interval after the rename.
+        fixture.retitle(
+            "frame 2",
+            now: base.addingTimeInterval(LiveTitleBox.coarseCoalescingInterval)
+        )
+        #expect(box.coarsePaneTitles[fixture.paneID] == "frame 2")
+    }
+
+    /// A tick that publishes nothing must not consume the window. Stamping on a
+    /// no-op would push the next real publish out by a further full interval.
+    @Test("a tick that publishes nothing does not consume the coalescing window")
+    func aNoOpTickDoesNotConsumeTheWindow() {
+        let fixture = makeFixture()
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        let base = Date()
+
+        fixture.retitle("frame 0", now: base)
+
+        // A rename carries the coarse mirror to "settled" out of band.
+        fixture.store.renamePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "settled"
+        )
+        fixture.store.resetPaneTitle(sessionID: fixture.sessionID, paneID: fixture.paneID)
+        #expect(box.coarsePaneTitles[fixture.paneID] == "frame 0")
+
+        // Due, but the mirror already carries this exact value — publishes
+        // nothing, so it must not stamp.
+        fixture.retitle("frame 0", now: base.addingTimeInterval(1.0))
+
+        // Only 0.2s after the no-op. If the no-op had stamped, this would be
+        // suppressed and the mirror would sit on "frame 0".
+        fixture.retitle("frame 1", now: base.addingTimeInterval(1.2))
+        #expect(box.coarsePaneTitles[fixture.paneID] == "frame 1")
+    }
+
+    /// The shared window check must stay written as a NEGATION of the original
+    /// suppression predicate. `interval` reaches `bumpLiveTitleGenerationIfDue`
+    /// from a public initializer, and every comparison against `NaN` is false —
+    /// so the positive-looking rewrite `elapsed < 0 || elapsed >= interval`
+    /// returns false forever and freezes the generation counter, where the
+    /// original bumped every time. Sidebar search, duplicate ordinals and the
+    /// VoiceOver rotor all hang off that counter.
+    @Test("a non-finite interval does not freeze the live-title generation")
+    func nonFiniteIntervalDoesNotFreezeTheGeneration() {
+        let fixture = makeFixture(liveTitleGenerationInterval: .nan)
+        let base = Date(timeIntervalSince1970: 1_000_000)
+
+        fixture.retitle("one", now: base)
+        fixture.retitle("two", now: base.addingTimeInterval(0.1))
+        fixture.retitle("three", now: base.addingTimeInterval(0.2))
+
+        #expect(fixture.store.liveTitleGeneration == 3)
+    }
+
+    // MARK: - 4. A restore is a new lifetime for the coalescing window
+
+    /// A bulk restore can reuse a session ID with entirely different content. If
+    /// the box survived, so would its coalescing timestamp, and the restored
+    /// pane's FIRST title report could be suppressed by a window the previous
+    /// occupant opened — indefinitely, if it were that pane's only report.
+    @Test("a restore reusing a session ID starts a fresh coalescing window")
+    func restoreReusingASessionIDResetsTheWindow() throws {
+        let fixture = makeFixture()
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        let base = Date()
+
+        // Opens a window on the OUTGOING content.
+        fixture.retitle("outgoing", now: base)
+        #expect(box.coarseWorkspaceTitle == "outgoing")
+
+        // Same session ID, different content.
+        let restoredPane = TerminalPane(
+            title: "restored pane",
+            workingDirectory: "~",
+            executionPlan: .local
+        )
+        let restored = TerminalSession(
+            id: fixture.sessionID,
+            title: "restored workspace",
+            workingDirectory: "~",
+            layout: .pane(restoredPane),
+            activePaneID: restoredPane.id
+        )
+        _ = fixture.store.replaceState(
+            restoring: SessionSnapshot(
+                groups: [SessionGroup(name: "main", sessions: [restored])],
+                selectedSessionID: fixture.sessionID
+            )
+        )
+
+        let restoredBox = fixture.store.liveTitleBox(for: fixture.sessionID)
+        #expect(restoredBox.coarseWorkspaceTitle == "restored workspace")
+
+        // Well inside the window the outgoing session opened at `base`. It must
+        // publish anyway: this is the restored pane's first report.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: restoredPane.id,
+            title: "first report",
+            now: base.addingTimeInterval(0.2)
+        )
+        #expect(restoredBox.coarsePaneTitles[restoredPane.id] == "first report")
     }
 
     // MARK: - Fixture
@@ -221,7 +335,9 @@ struct LiveTitleBoxCoarseChannelTests {
     /// with, so every assertion keys off the same identities for the whole test
     /// rather than minting fresh UUIDs that would make a lookup vacuously agree
     /// with itself.
-    private func makeFixture() -> Fixture {
+    private func makeFixture(
+        liveTitleGenerationInterval: TimeInterval = SessionStore.defaultLiveTitleGenerationInterval
+    ) -> Fixture {
         let pane = TerminalPane(
             title: "pane",
             workingDirectory: "~",
@@ -233,7 +349,10 @@ struct LiveTitleBoxCoarseChannelTests {
             layout: .pane(pane),
             activePaneID: pane.id
         )
-        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [session])])
+        let store = SessionStore(
+            groups: [SessionGroup(name: "main", sessions: [session])],
+            liveTitleGenerationInterval: liveTitleGenerationInterval
+        )
         store.localHostnames = ["local"]
         return Fixture(store: store, sessionID: session.id, paneID: pane.id)
     }

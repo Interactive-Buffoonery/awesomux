@@ -10,6 +10,15 @@ import Observation
 /// change, DST-adjacent shenanigans); treating that as "not due" would suppress
 /// every publish until the clock caught back up — for a backwards jump of hours,
 /// hours of a frozen sidebar. Two copies of a rule that non-obvious drift.
+///
+/// Written as the negation of the ORIGINAL suppression predicate rather than as
+/// the positive form it looks equivalent to. It is not equivalent: `interval`
+/// reaches `bumpLiveTitleGenerationIfDue` from a public initializer and can be
+/// non-finite, and every comparison against `NaN` is false. `elapsed < 0 ||
+/// elapsed >= interval` would therefore return false for a `NaN` interval and
+/// freeze the generation counter — and with it sidebar search, duplicate
+/// ordinals, and the rotor — permanently after the first write, where the
+/// original bumped every time. Keep this as a negation.
 func liveTitleCoalescingWindowHasElapsed(
     since last: Date?,
     now: Date,
@@ -17,7 +26,7 @@ func liveTitleCoalescingWindowHasElapsed(
 ) -> Bool {
     guard let last else { return true }
     let elapsed = now.timeIntervalSince(last)
-    return elapsed < 0 || elapsed >= interval
+    return !(elapsed >= 0 && elapsed < interval)
 }
 
 /// Fine-grained notification channel for one workspace's chrome titles.
@@ -92,6 +101,16 @@ public final class LiveTitleBox {
 
     init() {}
 
+    /// Reopens the coalescing window, so the next title tick is a leading edge.
+    ///
+    /// For a bulk restore, which can reuse a session ID with entirely different
+    /// content: the box survives (callers may hold it), but the window it was
+    /// keeping belongs to the previous occupant, and inheriting it could suppress
+    /// the restored pane's very first title report.
+    func resetCoalescingWindow() {
+        lastCoarsePublish = nil
+    }
+
     /// Mirrors `session`'s current chrome titles. Both writes are guarded:
     /// `@Observable` publishes on every set, and a title report against a
     /// user-edited pane moves only the live title, which is not displayed.
@@ -159,18 +178,31 @@ public final class LiveTitleBox {
         // Ceiling, stated exactly: a title tick that lands inside the window,
         // with no later tick and no other publish, leaves the coarse mirror one
         // title behind — so a sidebar row can name a workspace by its
-        // second-to-last title until something else publishes. Mitigation, and it
-        // is a mitigation rather than a guarantee: an agent that stops reporting
-        // titles is almost always an agent whose state changed, and attention /
-        // unread / agent-state changes publish `groups`, which routes through
-        // `adopt` and updates the mirror unthrottled.
+        // second-to-last title until something else publishes.
         //
-        // Upgrade path if a lagging row is ever actually observed: fold a
-        // trailing flush into scheduling that already exists — the same
-        // `onDisplayOnlyTitleWrite` hook `liveTitleGeneration` names — rather than
-        // adding a timer here. Not done now because that hook is gated on the
-        // `restoreWorkspaces` setting, and render correctness must not depend on
-        // whether the user persists sessions.
+        // Partial mitigation, and the limits of it matter as much as the
+        // mitigation: attention / unread / agent-state changes publish `groups`,
+        // which routes through `adopt` and updates the mirror unthrottled, so an
+        // AGENT pane that goes quiet is usually corrected. That does NOT cover a
+        // plain foreground process with no agent state — a `vite` / `cargo
+        // watch` / `pytest -f` watcher that titles itself twice per rebuild and
+        // then sits idle publishes no `groups` at all (`updateShellActivity`
+        // fires only on an activity CHANGE, and the shell stays busy). For that
+        // pane the mirror can name the previous rebuild's outcome for as long as
+        // the user leaves it alone. That is a real, ordinary case, not a
+        // theoretical one; it is accepted here rather than hidden.
+        //
+        // Upgrade path if it is ever actually reported: fold a trailing flush
+        // into scheduling that already exists — the same `onDisplayOnlyTitleWrite`
+        // hook `liveTitleGeneration` names — rather than adding a timer here. Not
+        // done now because that hook is gated on the `restoreWorkspaces` setting,
+        // and render correctness must not depend on whether the user persists
+        // sessions.
+        //
+        // Any consumer that uses these titles as an edge-triggered SIGNAL rather
+        // than as text must stay on the fine channel — a coalesced channel drops
+        // intermediate values, and a dropped edge is not a late edge. See
+        // `LiveTitleReads.workspaceAndPaneTitle`.
         guard
             liveTitleCoalescingWindowHasElapsed(
                 since: lastCoarsePublish,
@@ -178,18 +210,30 @@ public final class LiveTitleBox {
                 interval: Self.coarseCoalescingInterval
             )
         else { return }
-        lastCoarsePublish = now
-        publishCoarse()
+        // Stamped only when something was actually published. Stamping on a
+        // no-op would let a tick that changed nothing consume the window and
+        // push the next REAL publish out by a further full interval — up to 2x
+        // the documented staleness, bought for an invalidation nobody paid.
+        if publishCoarse() {
+            lastCoarsePublish = now
+        }
     }
 
     /// Value-guarded like the fine writes above, so a tick that moved a title
     /// the coarse channel already carries publishes nothing.
-    private func publishCoarse() {
+    ///
+    /// Returns whether either property was actually written.
+    @discardableResult
+    private func publishCoarse() -> Bool {
+        var published = false
         if coarseWorkspaceTitle != workspaceTitle {
             coarseWorkspaceTitle = workspaceTitle
+            published = true
         }
         if coarsePaneTitles != paneTitles {
             coarsePaneTitles = paneTitles
+            published = true
         }
+        return published
     }
 }

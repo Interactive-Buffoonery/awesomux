@@ -492,7 +492,7 @@ struct SidebarSessionTileEquatableTests {
             paneID: fixture.paneID,
             title: "cargo build"
         )
-        let liveTitles = LiveTitles(box: box)
+        let liveTitles = LiveTitles(box: box, reads: .everything)
         #expect(liveTitles.workspace == "cargo build")
 
         // No title match: the row renders the LIVE title, so the label must too.
@@ -539,13 +539,62 @@ struct SidebarSessionTileEquatableTests {
         let fixture = store()
         let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let before = tile(session: staleSession, liveTitles: LiveTitles(box: box))
+        let before = tile(session: staleSession, liveTitles: LiveTitles(box: box, reads: .everything))
 
         fixture.store.renameSession(id: fixture.sessionID, title: "release prep")
 
         #expect(box.workspaceTitle == "release prep")
         #expect(box.paneTitles[fixture.paneID] == "pane")
-        #expect(tile(session: staleSession, liveTitles: LiveTitles(box: box)) != before)
+        #expect(tile(session: staleSession, liveTitles: LiveTitles(box: box, reads: .everything)) != before)
+    }
+
+    /// On a title match the row renders the STRUCT title (search ranges are
+    /// indices into the string the projection scored), while the live channel it
+    /// otherwise renders is coarse. The key has to follow the same branch: keying
+    /// the coarse title on the match branch compares two strings the row is not
+    /// showing, and for a prefix query the `match` scores identically across
+    /// both, so the gate suppresses the repaint and a FILTERED row keeps a
+    /// superseded title.
+    @Test("a filtered row re-renders when the matched struct title moves")
+    func filteredRowFollowsTheStructTitle() throws {
+        let fixture = store()
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        let base = Date()
+
+        // Leading edge: coarse and storage agree.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "cargo build [3/9]",
+            now: base
+        )
+        let firstSession = try #require(fixture.store.session(id: fixture.sessionID))
+
+        // Inside the window: storage moves, the coarse mirror does not. The row
+        // is still handed a fresh struct, because the search projection re-runs
+        // off `groups` on the coalesced generation tick.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "cargo build [7/9]",
+            now: base.addingTimeInterval(0.2)
+        )
+        let secondSession = try #require(fixture.store.session(id: fixture.sessionID))
+
+        #expect(firstSession.title != secondSession.title)
+        // Premise: the coarse channel really did NOT move, so the assertion below
+        // is carried by the struct branch and not by the live title drifting.
+        #expect(box.coarseWorkspaceTitle == "cargo build [3/9]")
+
+        // A prefix query scores identically against both titles, so `match`
+        // itself cannot carry the difference.
+        let match = SessionMatch(field: .title, score: 100, ranges: [])
+        let liveTitles = LiveTitles(box: box, reads: .everything)
+
+        #expect(
+            tile(session: firstSession, match: match, liveTitles: liveTitles)
+                != tile(session: secondSession, match: match, liveTitles: liveTitles)
+        )
     }
 
     @Test("a display-only workspace-title write compares NOT equal")
@@ -557,7 +606,7 @@ struct SidebarSessionTileEquatableTests {
         // can only tell the two apart via the box.
         let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let before = tile(session: staleSession, liveTitles: LiveTitles(box: box))
+        let before = tile(session: staleSession, liveTitles: LiveTitles(box: box, reads: .everything))
 
         fixture.store.updatePane(
             sessionID: fixture.sessionID,
@@ -565,7 +614,7 @@ struct SidebarSessionTileEquatableTests {
             title: "cargo build"
         )
 
-        let after = tile(session: staleSession, liveTitles: LiveTitles(box: box))
+        let after = tile(session: staleSession, liveTitles: LiveTitles(box: box, reads: .everything))
         #expect(before != after)
 
         // Control, and the exact failure this gate exists to prevent: with no
@@ -586,7 +635,7 @@ struct SidebarSessionTileEquatableTests {
             staleSession.panes.first { $0.id != staleSession.activePaneID }?.id
         )
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let before = tile(session: staleSession, liveTitles: LiveTitles(box: box))
+        let before = tile(session: staleSession, liveTitles: LiveTitles(box: box, reads: .everything))
 
         fixture.store.updatePane(
             sessionID: fixture.sessionID,
@@ -597,7 +646,7 @@ struct SidebarSessionTileEquatableTests {
         // An inactive pane is not promoted into the workspace title, so this
         // isolates `PaneChromeKey.title` — the per-pane half of the gate.
         #expect(box.workspaceTitle == staleSession.title)
-        #expect(tile(session: staleSession, liveTitles: LiveTitles(box: box)) != before)
+        #expect(tile(session: staleSession, liveTitles: LiveTitles(box: box, reads: .everything)) != before)
     }
 
     @Test("session-level workingDirectory difference compares NOT equal")

@@ -96,14 +96,19 @@ struct LiveTitleReadsChannelTests {
         fixture.store.renameSession(id: fixture.sessionID, title: "release prep")
 
         #expect(everythingWoke.value)
-        #expect(LiveTitles(box: box).workspace == "release prep")
+        #expect(LiveTitles(box: box, reads: .everything).workspace == "release prep")
     }
 
     // MARK: - Fixture
 
+    /// Lock-guarded rather than a bare `var` behind `@unchecked Sendable`:
+    /// `withObservationTracking`'s `onChange` is `@Sendable`, so the promise has
+    /// to be earned. Same shape as `TrackingFlag` in `AwesoMuxCoreTests`.
     private final class Flag: @unchecked Sendable {
-        private(set) var value = false
-        func set() { value = true }
+        private let lock = NSLock()
+        private var storage = false
+        var value: Bool { lock.withLock { storage } }
+        func set() { lock.withLock { storage = true } }
     }
 
     private struct Fixture {

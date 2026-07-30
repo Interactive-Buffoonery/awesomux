@@ -553,6 +553,22 @@ public final class SessionStore {
         acknowledgementCoordinator.cancel()
         isReplacingState = true
         defer { isReplacingState = false }
+        // Same ID-reuse hazard as the undo registrations above, applied to the
+        // live-title channels' coalescing state. `reconcileLiveTitleBoxes` keeps
+        // any box whose session ID still exists, so a restore that reuses an ID
+        // hands the new content the previous occupant's coarse window. The
+        // restored pane's FIRST title report would then be suppressed by a window
+        // the user's previous session opened — and if it were that pane's only
+        // report, the sidebar would name the workspace by its restored-at title
+        // indefinitely.
+        //
+        // The boxes themselves are deliberately kept: `bulkRestoreRefreshesBoxes`
+        // pins that a box held across a restore lands current, and the `_groups`
+        // write below re-seeds every survivor through `adopt`. Only the window is
+        // a new lifetime.
+        for box in liveTitles.values {
+            box.resetCoalescingWindow()
+        }
         _groups = components.groups
         recentlyClosed = components.recentlyClosed
         // Both clears precede the `pinnedSessionIDs` write below, whose observer
