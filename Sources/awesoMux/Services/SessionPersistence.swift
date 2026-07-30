@@ -104,7 +104,9 @@ enum SessionPersistence {
     // per-session use-time collapse, rather than tripping the model's decode
     // guard and quarantining the whole snapshot — preserve that ordering.
     nonisolated static let maxSnapshotNestingDepth = 256
-    nonisolated private static let debounceInterval: Duration = .milliseconds(500)
+    // Not `private` so a test asserting "no write landed" can size its wait
+    // against the real interval instead of a literal that goes stale silently.
+    nonisolated static let debounceInterval: Duration = .milliseconds(500)
     nonisolated private static let jsonEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
         // Sorted keys keep the digest stable if any Dictionary ever enters
@@ -136,7 +138,31 @@ enum SessionPersistence {
         supportDirectoryURL: AppRuntimeProfile.current.supportDirectoryURL
     )
     private static var pendingWrite: Task<Void, Never>?
-    private static var blockedRecoveryWarningID: UUID?
+    /// Non-nil = a snapshot on disk is protected against automatic writes.
+    ///
+    /// The sites that raise it cancel `pendingWrite` through this `didSet`
+    /// rather than each doing it themselves: `save` hands its captured snapshot
+    /// to a detached task that cannot re-read this flag from off the MainActor,
+    /// so a warning raised anywhere inside the debounce window would otherwise
+    /// leave that whole window plus its write free to land on the protected
+    /// snapshot. Cancellation is the one signal `writeSnapshot` re-checks inside
+    /// its lock — but only up to that check, so a warning landing between it and
+    /// the write still loses.
+    ///
+    /// Cancellation-only is a deliberate ceiling. Closing the remaining
+    /// check-to-write gap means taking `lastWrittenDigestLock` here, which is
+    /// held across the file write, so the MainActor would block on disk I/O.
+    /// That is not worth paying while all three raise sites sit inside `load()`,
+    /// which runs once before any `SessionStore` exists to save — no production
+    /// ordering can currently schedule a write before the gate rises. Revisit if
+    /// the gate is ever raised from outside `load()`.
+    private static var blockedRecoveryWarningID: UUID? {
+        didSet {
+            guard blockedRecoveryWarningID != nil else { return }
+            pendingWrite?.cancel()
+            pendingWrite = nil
+        }
+    }
     private static var activeRecoveryReplacementWarningID: UUID?
     nonisolated private static let recoveryWriteCoordinator = RecoverySnapshotWriteCoordinator()
     nonisolated(unsafe) private static var digestWriteGate = StableDataDigestWriteGate()
@@ -490,11 +516,9 @@ enum SessionPersistence {
         _ store: SessionStore,
         completion: (@MainActor @Sendable (Result<Void, RecoverySnapshotReplacementError>) -> Void)? = nil
     ) {
-        guard blockedRecoveryWarningID == nil else {
-            pendingWrite?.cancel()
-            pendingWrite = nil
-            return
-        }
+        // No `pendingWrite` can outlive the gate going up: every transition into
+        // the blocked state cancels one. See `blockedRecoveryWarningID`.
+        guard blockedRecoveryWarningID == nil else { return }
         let snapshot = store.snapshot()
         pendingWrite?.cancel()
         pendingWrite = Task.detached(priority: .utility) {
