@@ -36,23 +36,27 @@ enum BoundedProcessRunner {
 
         let outputTooLarge = OneShotFlag()
         let stdoutTask = Task.detached { @Sendable in
-            var output = Data()
-            let reader = execution.stdoutPipe.fileHandleForReading
-            while let chunk = try? reader.read(upToCount: 8 * 1024), !chunk.isEmpty {
-                guard output.count + chunk.count <= maximumOutputByteCount else {
-                    outputTooLarge.set()
-                    execution.terminateThenKill()
-                    break
+            await runBlocking {
+                var output = Data()
+                let reader = execution.stdoutPipe.fileHandleForReading
+                while let chunk = try? reader.read(upToCount: 8 * 1024), !chunk.isEmpty {
+                    guard output.count + chunk.count <= maximumOutputByteCount else {
+                        outputTooLarge.set()
+                        execution.terminateThenKill()
+                        break
+                    }
+                    output.append(chunk)
                 }
-                output.append(chunk)
+                return output
             }
-            return output
         }
 
         let writerTask = Task.detached { @Sendable in
-            let wroteAllBytes = write(input, to: execution.stdinPipe.fileHandleForWriting.fileDescriptor)
-            try? execution.stdinPipe.fileHandleForWriting.close()
-            return wroteAllBytes
+            await runBlocking {
+                let wroteAllBytes = write(input, to: execution.stdinPipe.fileHandleForWriting.fileDescriptor)
+                try? execution.stdinPipe.fileHandleForWriting.close()
+                return wroteAllBytes
+            }
         }
         let timedOut = OneShotFlag()
         let timeoutTimer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
@@ -62,7 +66,9 @@ enum BoundedProcessRunner {
             execution.terminateThenKill()
         }
         timeoutTimer.resume()
-        let waitTask = Task.detached { @Sendable in execution.waitForExit() }
+        let waitTask = Task.detached { @Sendable in
+            await runBlocking { execution.waitForExit() }
+        }
 
         let result = await withTaskCancellationHandler {
             let status = await waitTask.value
@@ -90,6 +96,16 @@ enum BoundedProcessRunner {
             throw ExecError.inputFailed
         }
         return result.stdout
+    }
+
+    private static func runBlocking<Result: Sendable>(
+        _ operation: @escaping @Sendable () -> Result
+    ) async -> Result {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: operation())
+            }
+        }
     }
 
     private static func write(_ input: Input, to outputFD: Int32) -> Bool {

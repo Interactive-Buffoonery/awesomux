@@ -14,6 +14,7 @@ import Foundation
 /// environment leaks in.
 struct ProcessCommandRunner: CommandRunner {
     typealias Delay = @Sendable (Duration) async throws -> Void
+    typealias Schedule = @Sendable (@escaping @Sendable () -> Void) -> Void
     typealias Spawn = @Sendable (Process) throws -> Void
 
     /// Trusted absolute tool dirs, used as the `PATH` of last resort when the
@@ -75,6 +76,7 @@ struct ProcessCommandRunner: CommandRunner {
     private let defaultPath: String
     private let homeDirectoryURL: URL
     private let delay: Delay
+    private let schedule: Schedule
     private let spawn: Spawn
 
     init(
@@ -82,12 +84,16 @@ struct ProcessCommandRunner: CommandRunner {
         defaultPath: String = ProcessCommandRunner.defaultToolPath,
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         delay: @escaping Delay = { try await ContinuousClock().sleep(for: $0) },
+        schedule: @escaping Schedule = {
+            DispatchQueue.global(qos: .userInitiated).async(execute: $0)
+        },
         spawn: @escaping Spawn = { try $0.run() }
     ) {
         self.timeout = timeout
         self.defaultPath = defaultPath
         self.homeDirectoryURL = homeDirectoryURL
         self.delay = delay
+        self.schedule = schedule
         self.spawn = spawn
     }
 
@@ -114,17 +120,14 @@ struct ProcessCommandRunner: CommandRunner {
 
         // Drain both streams to EOF on background threads. Both reads return once
         // the child exits (or is killed on timeout) and the write ends close.
-        let stdoutTask = Task.detached {
-            execution.stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        }
-        let stderrTask = Task.detached {
-            execution.stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        }
+        let stdoutTask = Self.readToEnd(execution.stdoutPipe.fileHandleForReading)
+        let stderrTask = Self.readToEnd(execution.stderrPipe.fileHandleForReading)
 
         let timeoutState = TimeoutState()
         let cancellationState = CancellationState()
         let timeout = timeout
         let delay = delay
+        let schedule = schedule
         let spawn = spawn
         let terminateAfterCancellation: @Sendable () -> Void = {
             execution.terminate()
@@ -152,36 +155,46 @@ struct ProcessCommandRunner: CommandRunner {
                     return
                 }
 
-                do {
-                    try spawn(execution.process)
-                    if cancellationState.didSpawn(cancelledNow: Task.isCancelled) {
-                        // Cancellation may arrive while spawn is blocked, when
-                        // the cancellation handler has no child to terminate yet.
-                        terminateAfterCancellation()
-                    } else {
-                        timeoutState.arm {
-                            do { try await delay(timeout) } catch { return }
-                            guard timeoutState.claimTimeout(if: { execution.process.isRunning }) else { return }
-                            execution.terminate()  // SIGTERM
-                            do { try await delay(.seconds(1)) } catch { return }
-                            execution.kill()  // SIGKILL
-                        }
-                    }
-                } catch {
-                    timeoutState.finish()
-                    cancellationState.finish()
-                    // A failed spawn leaves parent-owned pipe writers open. Close
-                    // them before resuming so both detached drains reach EOF.
-                    try? execution.stdoutPipe.fileHandleForWriting.close()
-                    try? execution.stderrPipe.fileHandleForWriting.close()
-                    if Task.isCancelled || cancellationState.isCancelled {
+                schedule {
+                    guard !cancellationState.isCancelled else {
+                        timeoutState.finish()
+                        cancellationState.finish()
+                        try? execution.stdoutPipe.fileHandleForWriting.close()
+                        try? execution.stderrPipe.fileHandleForWriting.close()
                         resume.resume(throwing: CancellationError())
-                    } else {
-                        resume.resume(
-                            throwing: CommandRunnerError.spawnFailed(
-                                executable,
-                                reason: error.localizedDescription
-                            ))
+                        return
+                    }
+                    do {
+                        try spawn(execution.process)
+                        if cancellationState.didSpawn(cancelledNow: false) {
+                            // Cancellation may arrive while spawn is blocked, when
+                            // the cancellation handler has no child to terminate yet.
+                            terminateAfterCancellation()
+                        } else {
+                            timeoutState.arm {
+                                do { try await delay(timeout) } catch { return }
+                                guard timeoutState.claimTimeout(if: { execution.process.isRunning }) else { return }
+                                execution.terminate()  // SIGTERM
+                                do { try await delay(.seconds(1)) } catch { return }
+                                execution.kill()  // SIGKILL
+                            }
+                        }
+                    } catch {
+                        timeoutState.finish()
+                        cancellationState.finish()
+                        // A failed spawn leaves parent-owned pipe writers open. Close
+                        // them before resuming so both drains reach EOF.
+                        try? execution.stdoutPipe.fileHandleForWriting.close()
+                        try? execution.stderrPipe.fileHandleForWriting.close()
+                        if cancellationState.isCancelled {
+                            resume.resume(throwing: CancellationError())
+                        } else {
+                            resume.resume(
+                                throwing: CommandRunnerError.spawnFailed(
+                                    executable,
+                                    reason: error.localizedDescription
+                                ))
+                        }
                     }
                 }
             }
@@ -214,6 +227,16 @@ struct ProcessCommandRunner: CommandRunner {
             stdout: String(decoding: stdout, as: UTF8.self),
             stderr: String(decoding: stderr, as: UTF8.self)
         )
+    }
+
+    private static func readToEnd(_ handle: FileHandle) -> Task<Data, Never> {
+        Task {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(returning: handle.readDataToEndOfFile())
+                }
+            }
+        }
     }
 
     /// A minimal base environment plus the caller's keys. `PATH` is always

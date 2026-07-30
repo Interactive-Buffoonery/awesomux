@@ -72,6 +72,17 @@ public final class UnixSocketClient: @unchecked Sendable {
         }
     }
 
+    public func readLine(timeoutMilliseconds: Int32 = 2_000) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(
+                    with: Result {
+                        try self.readLine(timeoutMilliseconds: timeoutMilliseconds)
+                    })
+            }
+        }
+    }
+
     public func disconnect() {
         _ = Darwin.shutdown(fileDescriptor, SHUT_RDWR)
     }
@@ -82,10 +93,26 @@ public final class UnixSocketClient: @unchecked Sendable {
         return Darwin.recv(fileDescriptor, &byte, 1, MSG_PEEK) == 0
     }
 
+    public func waitForEOF(timeoutMilliseconds: Int32) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: self.waitForEOF(timeoutMilliseconds: timeoutMilliseconds))
+            }
+        }
+    }
+
     public func waitForReadable(timeoutMilliseconds: Int32) -> Bool {
         setReceiveTimeout(milliseconds: timeoutMilliseconds)
         var byte: UInt8 = 0
         return Darwin.recv(fileDescriptor, &byte, 1, MSG_PEEK) >= 0
+    }
+
+    public func waitForReadable(timeoutMilliseconds: Int32) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: self.waitForReadable(timeoutMilliseconds: timeoutMilliseconds))
+            }
+        }
     }
 
     private func setReceiveTimeout(milliseconds: Int32) {

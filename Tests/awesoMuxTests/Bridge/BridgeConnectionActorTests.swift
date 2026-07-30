@@ -50,7 +50,7 @@ struct BridgeConnectionActorTests {
         await actor.start()
         defer { Task { await actor.shutdown() } }
         let squatter = try UnixSocketClient(path: actor.socketPath)
-        #expect(squatter.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await squatter.waitForEOF(timeoutMilliseconds: 10_000))
 
         let replacement = try UnixSocketClient(path: actor.socketPath)
         try replacement.write(helloLine)
@@ -77,7 +77,7 @@ struct BridgeConnectionActorTests {
             ).encodedLine())
         _ = try await nextFrame(from: actor.frames)
 
-        #expect(squatter.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await squatter.waitForEOF(timeoutMilliseconds: 10_000))
 
         let replacement = try UnixSocketClient(path: actor.socketPath)
         try replacement.write(helloLine)
@@ -101,7 +101,7 @@ struct BridgeConnectionActorTests {
 
         try client.write(helloLine)
 
-        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("inbound hello ack closes the connection")
@@ -116,7 +116,7 @@ struct BridgeConnectionActorTests {
                 session: "session", proto: "awesomux-bridge-v1", ts: 1
             ).encodedLine())
 
-        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("a non-hello first frame closes the connection")
@@ -127,7 +127,7 @@ struct BridgeConnectionActorTests {
         let client = try UnixSocketClient(path: actor.socketPath)
         try client.write(try envelope(.paneRename(title: "premature"), id: "before-hello").encodedLine())
 
-        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("connection cap allows one active plus one handshaking")
@@ -146,7 +146,7 @@ struct BridgeConnectionActorTests {
         _ = try await nextFrame(from: actor.frames)
 
         let refused = try UnixSocketClient(path: actor.socketPath)
-        #expect(refused.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await refused.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("app surfaces inbound permission-resolved and drops app→helper decisions")
@@ -204,12 +204,12 @@ struct BridgeConnectionActorTests {
 
         #expect(second.replacedConnection == oldHello.connection)
         #expect(second.generation != first.generation)
-        #expect(oldClient.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await oldClient.waitForEOF(timeoutMilliseconds: 10_000))
         #expect(await actor.send(.helloAck(session: "session", proto: "awesomux-bridge-v1", ts: 2), generation: first.generation) == false)
-        #expect(newClient.waitForReadable(timeoutMilliseconds: 50) == false)
+        #expect(await newClient.waitForReadable(timeoutMilliseconds: 50) == false)
         #expect(await actor.send(.helloAck(session: "session", proto: "awesomux-bridge-v1", ts: 2), generation: second.generation))
         #expect(
-            BridgeHandshake.parse(line: try newClient.readLine())
+            BridgeHandshake.parse(line: try await newClient.readLine())
                 == .helloAck(
                     session: "session", proto: "awesomux-bridge-v1", ts: 2
                 ))
@@ -225,7 +225,7 @@ struct BridgeConnectionActorTests {
 
         await actor.shutdown()
 
-        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
         #expect(!FileManager.default.fileExists(atPath: socketPath))
         #expect(!FileManager.default.fileExists(atPath: directoryPath))
     }

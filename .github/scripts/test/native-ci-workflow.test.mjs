@@ -39,6 +39,7 @@ const nativeCleanupWorkflow = readFileSync(
   join(repoRoot, ".github/workflows/native-ci-cleanup.yml"),
   "utf8",
 );
+const nativeTestScript = readFileSync(join(repoRoot, "script/test.sh"), "utf8");
 
 test("native CI commands map exact spellings to supported scopes", () => {
   assert.equal(parseNativeCICommand("/ci"), "all");
@@ -257,6 +258,11 @@ test("native CI executes captured PR code with read-only permissions and restore
   assert.match(nativeJob, /save-cache: "false"/);
 
   assert.match(nativeJob, /\.\/script\/test\.sh "\$GROUP" --xunit-output "\$XUNIT_PATH"/);
+  assert.match(
+    nativeJob,
+    /swift_testing_xunit_path="\$\{XUNIT_PATH%\.xml\}-swift-testing\.xml"/,
+  );
+  assert.match(nativeJob, /mv "\$swift_testing_xunit_path" "\$XUNIT_PATH"/);
   assert.match(nativeJob, /\.build\/test-results\/native-ci\.xml/);
   assert.match(nativeJob, /\.build\/test-results\/native-ci\.log/);
   assert.doesNotMatch(nativeJob, /\.\/script\/build_and_run\.sh --stage-release/);
@@ -284,6 +290,7 @@ test("native CI splits scope=all across isolated timing/nontiming test processes
   assert.match(nativeJob, /strategy:\n\s+fail-fast: false\n\s+matrix:\n\s+group: \$\{\{ fromJson\(needs\.resolve\.outputs\.groups\) \}\}/);
   assert.match(nativeJob, /concurrency:\n\s+group: native-pr-.*-\$\{\{ matrix\.group \}\}/);
   assert.match(nativeJob, /name: native-ci-\$\{\{ matrix\.group \}\}-\$\{\{ needs\.resolve\.outputs\.target-sha \}\}/);
+  assert.match(nativeTestScript, /timing_pattern=.*BoundedProcessRunnerTests/);
 });
 
 test("native release build runs once for scope=all after both test legs succeed", () => {

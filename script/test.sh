@@ -19,7 +19,7 @@ EOF
 # for the whole binary (see issue #162). `timing`/`nontiming` split them into
 # their own process so they stop contending with everything else and with
 # each other in bulk.
-timing_pattern='awesoMuxTests\.(ProcessCommandRunnerTests|BoundedCommandRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentPluginRunnerTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests|AwesoMuxTestSupportTests\.(EventRecorderTests|ProcessBoundedWaitTests)'
+timing_pattern='awesoMuxTests\.(ProcessCommandRunnerTests|BoundedCommandRunnerTests|BoundedProcessRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentPluginRunnerTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests|AwesoMuxTestSupportTests\.(EventRecorderTests|ProcessBoundedWaitTests)'
 
 group="${1:-}"
 if [[ -z "$group" ]]; then

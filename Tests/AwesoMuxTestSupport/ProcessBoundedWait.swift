@@ -75,6 +75,23 @@ extension Process {
         ) { self.isRunning }
     }
 
+    /// Async variant for concurrent suites. Sleeping cooperatively avoids
+    /// pinning the executor thread that must deliver another test's progress.
+    public func waitUntilExitEventually(deadline: Duration = .seconds(30)) async throws {
+        let clock = ContinuousClock()
+        let end = clock.now.advanced(by: deadline)
+        while isRunning {
+            guard clock.now < end else {
+                guard isRunning else { return }
+                throw ProcessWaitTimeout(
+                    deadline: deadline,
+                    command: executableURL?.lastPathComponent
+                )
+            }
+            try await clock.sleep(for: .milliseconds(10))
+        }
+    }
+
     /// Deadline loop behind ``waitUntilExitEventually(deadline:)``, split out so
     /// the stuck-forever case (`isRunning` permanently `true`) is directly
     /// testable — a dropped termination event cannot be provoked on demand.

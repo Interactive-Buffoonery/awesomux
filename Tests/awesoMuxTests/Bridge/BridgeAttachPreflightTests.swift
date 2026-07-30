@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -348,7 +349,7 @@ struct BridgeAttachPreflightTests {
     @MainActor
     @Test("delayed retirement does not cancel an admitted same-session replacement")
     func delayedRetirementPreservesAdmittedReplacement() async throws {
-        let replacementCommitted = TaskCompletionSignal()
+        let replacementCommitted = EventRecorder<Void>()
         let timeline = TimelineLog()
         let listenerCounter = ListenerCounter()
         let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
@@ -401,10 +402,11 @@ struct BridgeAttachPreflightTests {
         )
         let replacement = Task.detached {
             let outcome = await replacementActor.attach(Self.request)
-            replacementCommitted.signal()
+            await replacementCommitted.record(())
             return outcome
         }
-        try #require(replacementCommitted.wait())
+        defer { replacement.cancel() }
+        try #require(await replacementCommitted.waitForCount(1, deadline: .seconds(10)))
         guard case .ready = await replacement.value else {
             Issue.record("an admitted replacement must survive stale retirement")
             return
@@ -642,10 +644,10 @@ struct BridgeAttachPreflightTests {
             workspaceSessionID: session.id,
             sessionStore: store
         )
-        let replacementFinished = TaskCompletionSignal()
+        let replacementFinished = EventRecorder<Void>()
         let replacement = Task.detached {
             let outcome = await replacementActor.attachForSurfaceLifecycle(Self.request)
-            replacementFinished.signal()
+            await replacementFinished.record(())
             return outcome
         }
 
@@ -669,7 +671,10 @@ struct BridgeAttachPreflightTests {
         }
         await teardownGate.waitUntilSuspended()
 
-        let replacementFinishedBeforeRemoteCleanup = replacementFinished.wait()
+        let replacementFinishedBeforeRemoteCleanup = await replacementFinished.waitForCount(
+            1,
+            deadline: .seconds(10)
+        )
         await teardownGate.release()
         await staleCleanup.value
         #expect(replacementFinishedBeforeRemoteCleanup)
@@ -789,18 +794,6 @@ private actor PublishGate {
     func release() {
         continuation?.resume()
         continuation = nil
-    }
-}
-
-private final class TaskCompletionSignal: @unchecked Sendable {
-    private let semaphore = DispatchSemaphore(value: 0)
-
-    func signal() {
-        semaphore.signal()
-    }
-
-    func wait() -> Bool {
-        semaphore.wait(timeout: .now() + 2) == .success
     }
 }
 

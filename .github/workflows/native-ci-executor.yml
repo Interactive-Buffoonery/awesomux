@@ -228,6 +228,11 @@ jobs:
             fi
           fi
 
+          swift_testing_xunit_path="${XUNIT_PATH%.xml}-swift-testing.xml"
+          if [[ ! -s "$XUNIT_PATH" && -s "$swift_testing_xunit_path" ]]; then
+            mv "$swift_testing_xunit_path" "$XUNIT_PATH"
+          fi
+
           if [[ ! -s "$XUNIT_PATH" ]]; then
             echo "Native validation did not produce an xUnit report." | tee -a "$LOG_PATH" >&2
             result=failure
