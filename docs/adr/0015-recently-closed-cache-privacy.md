@@ -48,6 +48,26 @@ could not get into `session-state.json`, and like the others it is written
 only while `restoreWorkspaces` is on, so the declined-toggle rationale below
 continues to hold.
 
+Re-affirmed (#335, 2026-07-30) now that the quit-time family exists: still
+count-capped, still no age sweep, still no in-app "forget my saved sessions"
+action. Retention for `session-state.unsaved-*` preserves the earliest capture
+rather than the latest (#333), which raises the *value* of what is retained
+without changing how much is retained or for how long. Archive paths are
+logged by filename only across all four families, so a log export no longer
+carries the account short name.
+
+One narrowing of "only while `restoreWorkspaces` is on" (#334): the terminate
+flush also runs when an explicit, user-approved recovery replacement is still
+outstanding, because that write was requested specifically and the mid-session
+continuation already completes it regardless of the setting. If that flush
+fails, an `unsaved-` archive can therefore be written with the toggle off.
+Reachable only by disabling restore in the gap between approving the
+replacement and the detached write resolving, and it retains state the user
+had just asked to be written to disk anyway. That gap is bounded by the write
+completing (`open`/`write`/`fsync`/`rename`), not by anything instantaneous —
+on a contended or network-backed home directory it can stretch, which widens
+the window rather than changing what lands in it.
+
 Addendum (INT-773, 2026-07-09): `recentlyClosed` entries also capture the
 owning group's declared SSH target (`groupRemote`, a `user`/`host` pair) so
 a deleted remote group reopens remote instead of silently local. This
