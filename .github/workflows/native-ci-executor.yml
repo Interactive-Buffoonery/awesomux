@@ -347,6 +347,16 @@ jobs:
         with:
           save-cache: "false"
 
+      - name: Install Zig for cached release build
+        if: steps.prepare.outcome == 'success' && steps.prepare.outputs.cache-hit == 'true'
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+          ZIG_FORMULA: ${{ steps.prepare.outputs.zig-formula }}
+        run: |
+          set -euo pipefail
+          brew install "$ZIG_FORMULA"
+          echo "AWESOMUX_ZIG=$(brew --prefix "$ZIG_FORMULA")/bin/zig" >> "$GITHUB_ENV"
+
       - name: Stage release build and verify signature
         id: build
         if: always()
