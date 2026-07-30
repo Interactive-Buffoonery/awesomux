@@ -136,17 +136,15 @@ enum SessionPersistence {
         supportDirectoryURL: AppRuntimeProfile.current.supportDirectoryURL
     )
     private static var pendingWrite: Task<Void, Never>?
-    /// Non-nil = a snapshot on disk is protected and no automatic write may
-    /// replace it.
+    /// Non-nil = a snapshot on disk is protected against automatic writes.
     ///
-    /// Cancelling `pendingWrite` from `didSet` rather than from each of the
-    /// three assignment sites is what makes the protection hold against the
-    /// debounced writer: `save` captures the store's state at the debounce
-    /// boundary, so a warning raised anywhere in that window — before the
-    /// capture or after it, while the encode is already running — would
-    /// otherwise be raced by a task that has no way to re-read this flag from
-    /// off the MainActor. Cancellation is the one signal `writeSnapshot` does
-    /// re-check inside its own lock.
+    /// The sites that raise it cancel `pendingWrite` through this `didSet`
+    /// rather than each doing it themselves: `save` captures at the debounce
+    /// boundary, so a warning raised anywhere in that window races a task that
+    /// cannot re-read this flag from off the MainActor. Cancellation is the one
+    /// signal `writeSnapshot` re-checks inside its lock — but only up to that
+    /// check, so a warning landing between it and the write still loses.
+    /// Clearing sites reach the same `didSet` as deliberate no-ops.
     private static var blockedRecoveryWarningID: UUID? {
         didSet {
             guard blockedRecoveryWarningID != nil else { return }
@@ -504,17 +502,23 @@ enum SessionPersistence {
     ///
     /// The store is snapshotted at the *debounce boundary*, not at call time, so
     /// a burst of N signals costs one `snapshot()` rather than N (#316). Eager
-    /// capture is the more obvious shape and is a trap: the snapshot itself is
-    /// O(1) thanks to COW, but the pending Task then *retains* it, so the next
-    /// mutation has to detach the outer `groups` array and the affected group's
-    /// `sessions` array — turning a free copy into a per-signal one at the ~4 Hz
-    /// display-only title rate (#306, #313).
+    /// capture is the more obvious shape and is a trap: the pending Task
+    /// *retains* the snapshot, so the next mutation has to detach the outer
+    /// `groups` array and the affected group's `sessions` array — a per-signal
+    /// copy at the ~4 Hz display-only title rate (#306, #313). Retention is
+    /// shortened rather than removed: the winning task still holds its snapshot
+    /// across encode and write.
     ///
-    /// What deferral costs: the write carries state from one MainActor turn
+    /// Two deliberate costs. The write carries state from one MainActor turn
     /// after the debounce elapses rather than from the turn that requested it.
-    /// Clean quit is unaffected — `flush` re-snapshots synchronously — and a
-    /// crash inside that turn loses the same title a crash during the 500 ms
-    /// debounce already loses.
+    /// And the task holds `store` strongly for that window — no cycle, unlike
+    /// the Scene's stored `[weak]` handler, and the store outlives it anyway.
+    ///
+    /// This is a debounce, so it bounds nothing on its own: display-only titles
+    /// arrive faster than the interval (0.25 s against 500 ms), so a spinning
+    /// pane keeps resetting it and anything durable queued behind waits for the
+    /// burst to pause. Unchanged by this coalescing, and why `flush` at quit is
+    /// load-bearing rather than a nicety.
     ///
     /// - Parameter afterSnapshotCapture: Runs on the MainActor immediately after
     ///   each capture. Exists so a test can count captures across a burst; the
@@ -737,18 +741,15 @@ enum SessionPersistence {
             // `flush()`'s `task.cancel()` happens-before its own synchronous
             // `writeSnapshot`, so whichever holder wins this lock, the debounced
             // task either writes first (then flush overwrites) or sees cancelled
-            // and skips. `flush()` passes the default `{ false }`, so its write
-            // is never suppressed by ambient cancellation of the terminate
-            // context.
+            // and skips — it can never clobber flush's newer snapshot with stale
+            // bytes. `flush()` passes the default `{ false }`, so its write is
+            // never suppressed by ambient cancellation of the terminate context.
             //
-            // Since #316 the debounced task snapshots at the debounce boundary,
-            // which inverts what this guard defends against: its bytes are no
-            // longer stale-but-harmless, they are *newer* than flush's and were
-            // captured after `applicationWillTerminate` began tearing state
-            // down. Cancellation is also the only channel through which a
-            // recovery warning raised mid-write can stop it — the off-MainActor
-            // writer cannot re-read `blockedRecoveryWarningID`. Removing this
-            // check now loses data on both paths.
+            // Since #316 this is also the only channel that can stop a writer
+            // whose capture is already behind it: a recovery warning raised
+            // mid-encode cancels `pendingWrite` (see `blockedRecoveryWarningID`),
+            // and this code runs off the MainActor, so it cannot read that flag
+            // for itself.
             guard !isCancelled() else { return .success(()) }
             let snapshotPath = snapshotURL.path
             let snapshotIsUsable =

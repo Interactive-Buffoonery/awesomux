@@ -775,8 +775,8 @@ extension SessionStore {
             if displayedTitleMoved {
                 publishLiveTitle(paneID: paneID, in: session)
                 bumpLiveTitleGenerationIfDue(sessionID: sessionID, now: now)
-                // Last, so a handler that snapshots the store sees the new title
-                // and a fully caught-up live-title channel.
+                // Last, so the handler runs against storage and the live-title
+                // channel already caught up to this report.
                 onDisplayOnlyTitleWrite?()
             }
         }

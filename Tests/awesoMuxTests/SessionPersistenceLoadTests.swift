@@ -1099,7 +1099,7 @@ struct SessionPersistenceLoadTests {
                 SessionPersistence.save(
                     store,
                     afterSnapshotCapture: { recorder.recordCapture() },
-                    completion: { _ in recorder.completeWrite() }
+                    completion: { _ in recorder.recordWrite() }
                 )
             }
             for frame in 0..<5 {
@@ -1107,9 +1107,11 @@ struct SessionPersistenceLoadTests {
             }
             #expect(recorder.captureCount == 0, "the burst must not snapshot while it is still arriving")
 
-            await recorder.waitForWrite()
+            let wrote = await waitUntilEventually { recorder.writeCount > 0 }
+            #expect(wrote, "the debounced write never reported")
 
             #expect(recorder.captureCount == 1)
+            #expect(recorder.writeCount == 1)
         }
     }
 
@@ -1127,10 +1129,11 @@ struct SessionPersistenceLoadTests {
             let groupID = try #require(store.groups.first?.id)
             let recorder = SaveRecorder()
 
-            SessionPersistence.save(store, completion: { _ in recorder.completeWrite() })
+            SessionPersistence.save(store, completion: { _ in recorder.recordWrite() })
             #expect(store.renameGroup(id: groupID, to: "renamed after scheduling"))
 
-            await recorder.waitForWrite()
+            let wrote = await waitUntilEventually { recorder.writeCount > 0 }
+            #expect(wrote, "the debounced write never reported")
 
             let written = try SessionSnapshot.decode(
                 from: Data(contentsOf: tempDir.appending(path: "session-state.json"))
@@ -1139,12 +1142,14 @@ struct SessionPersistenceLoadTests {
         }
     }
 
-    /// Acceptance criterion 2. Deferring the capture must not widen the
-    /// crash-loss window past a clean quit: `applicationWillTerminate` lands
-    /// throttled titles and then calls `flush`, which cancels the debounced task
-    /// and re-snapshots synchronously. Nothing here waits on the 500 ms
-    /// debounce — if the final title only reached disk via the debounced task,
-    /// this would fail rather than pass slowly.
+    /// Acceptance criterion 2, pinned as a `flush` regression test rather than
+    /// as evidence about the capture point — it passes under eager capture too.
+    /// What it holds down is the property criterion 2 leans on: quit does not
+    /// wait on the debounce, because `applicationWillTerminate` lands throttled
+    /// titles and then `flush` cancels the pending task and re-snapshots
+    /// synchronously. That matters more after this change, not less: the
+    /// debounce resets on every title, so a spinning pane may never fire it at
+    /// all and `flush` is the only thing that persists the burst.
     @Test("flush after a title burst persists the final title without waiting")
     func flushAfterATitleBurstPersistsTheFinalTitle() throws {
         try Self.withTemporarySupportDirectory { tempDir in
@@ -1550,31 +1555,25 @@ struct SessionPersistenceLoadTests {
 
 // MARK: - Coalescing test support
 
-/// Counts `SessionPersistence.save` snapshot captures and parks the test until
-/// the debounced write reports.
+/// Tallies `SessionPersistence.save` snapshot captures and completed writes.
 ///
-/// Resume is one-shot because `save` installs a fresh completion on every call:
-/// a burst leaves four cancelled tasks behind, and a cancellation that lands
-/// after the write would resume a `CheckedContinuation` a second time and trap.
+/// Waiting is left to `waitUntilEventually` rather than a continuation on
+/// purpose. `SessionPersistence`'s temporary-support-directory override is
+/// process-global and `resetWriteState` cancels whatever write is pending, so a
+/// test in any *other* suite entering that override during this test's 500 ms
+/// debounce cancels the one task that would ever resume a continuation. Bounded
+/// waiting turns that interference into a legible failure instead of a suite
+/// that hangs until CI times out.
 @MainActor
 private final class SaveRecorder {
     private(set) var captureCount = 0
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var didComplete = false
+    private(set) var writeCount = 0
 
     func recordCapture() {
         captureCount += 1
     }
 
-    func completeWrite() {
-        guard !didComplete else { return }
-        didComplete = true
-        continuation?.resume()
-        continuation = nil
-    }
-
-    func waitForWrite() async {
-        guard !didComplete else { return }
-        await withCheckedContinuation { continuation = $0 }
+    func recordWrite() {
+        writeCount += 1
     }
 }

@@ -295,9 +295,10 @@ public final class SessionStore {
     /// Deliberately fires once per write, uncoalesced. Coalescing belongs
     /// downstream, in `SessionPersistence.save`, which snapshots at its debounce
     /// boundary — so a burst costs one snapshot no matter how many signals
-    /// arrive (#316). Coalescing *here* instead would be actively wrong: the
-    /// debounce would then start from the first title of a burst and persist
-    /// that one, leaving every later title unwritten until an unrelated publish.
+    /// arrive (#316). Suppressing signals *here* instead would anchor the
+    /// debounce to whichever write opened the window, and a title arriving after
+    /// that boundary would then schedule nothing at all — sitting unpersisted
+    /// until some unrelated publish happened along.
     @ObservationIgnored public var onDisplayOnlyTitleWrite: (@MainActor () -> Void)?
 
     /// Ordered pin list for the sidebar's synthetic Pinned section. Membership
