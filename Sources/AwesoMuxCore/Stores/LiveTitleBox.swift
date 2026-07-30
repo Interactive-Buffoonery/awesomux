@@ -210,10 +210,17 @@ public final class LiveTitleBox {
                 interval: Self.coarseCoalescingInterval
             )
         else { return }
-        // Stamped only when something was actually published. Stamping on a
-        // no-op would let a tick that changed nothing consume the window and
-        // push the next REAL publish out by a further full interval — up to 2x
-        // the documented staleness, bought for an invalidation nobody paid.
+        // Stamped only when something was actually published: the window caps
+        // publishes, not clock reads, and stamping on a no-op would let a tick
+        // that changed nothing push the next REAL publish out by a further full
+        // interval.
+        //
+        // Deliberately belt-and-braces — no reachable no-op exists TODAY.
+        // `PaneLayoutReducer.updatePane` returns nil for an `.unchanged` pane, so
+        // the store never reaches this method unless a displayed title actually
+        // moved, and `coarse*` is only ever assigned from the fine values. It is
+        // written this way so a future caller that does not come through that
+        // reducer cannot silently double the documented staleness.
         if publishCoarse() {
             lastCoarsePublish = now
         }

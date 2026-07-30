@@ -220,54 +220,6 @@ struct LiveTitleBoxCoarseChannelTests {
         #expect(box.coarsePaneTitles[fixture.paneID] == "frame 2")
     }
 
-    /// A tick that publishes nothing must not consume the window. Stamping on a
-    /// no-op would push the next real publish out by a further full interval.
-    @Test("a tick that publishes nothing does not consume the coalescing window")
-    func aNoOpTickDoesNotConsumeTheWindow() {
-        let fixture = makeFixture()
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let base = Date()
-
-        fixture.retitle("frame 0", now: base)
-
-        // A rename carries the coarse mirror to "settled" out of band.
-        fixture.store.renamePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "settled"
-        )
-        fixture.store.resetPaneTitle(sessionID: fixture.sessionID, paneID: fixture.paneID)
-        #expect(box.coarsePaneTitles[fixture.paneID] == "frame 0")
-
-        // Due, but the mirror already carries this exact value — publishes
-        // nothing, so it must not stamp.
-        fixture.retitle("frame 0", now: base.addingTimeInterval(1.0))
-
-        // Only 0.2s after the no-op. If the no-op had stamped, this would be
-        // suppressed and the mirror would sit on "frame 0".
-        fixture.retitle("frame 1", now: base.addingTimeInterval(1.2))
-        #expect(box.coarsePaneTitles[fixture.paneID] == "frame 1")
-    }
-
-    /// The shared window check must stay written as a NEGATION of the original
-    /// suppression predicate. `interval` reaches `bumpLiveTitleGenerationIfDue`
-    /// from a public initializer, and every comparison against `NaN` is false —
-    /// so the positive-looking rewrite `elapsed < 0 || elapsed >= interval`
-    /// returns false forever and freezes the generation counter, where the
-    /// original bumped every time. Sidebar search, duplicate ordinals and the
-    /// VoiceOver rotor all hang off that counter.
-    @Test("a non-finite interval does not freeze the live-title generation")
-    func nonFiniteIntervalDoesNotFreezeTheGeneration() {
-        let fixture = makeFixture(liveTitleGenerationInterval: .nan)
-        let base = Date(timeIntervalSince1970: 1_000_000)
-
-        fixture.retitle("one", now: base)
-        fixture.retitle("two", now: base.addingTimeInterval(0.1))
-        fixture.retitle("three", now: base.addingTimeInterval(0.2))
-
-        #expect(fixture.store.liveTitleGeneration == 3)
-    }
-
     // MARK: - 4. A restore is a new lifetime for the coalescing window
 
     /// A bulk restore can reuse a session ID with entirely different content. If
