@@ -521,7 +521,7 @@ struct SessionPersistenceDocumentTests {
     @Test("flush creates the support directory with private permissions")
     func flushCreatesSupportDirectoryWithPrivatePermissions() throws {
         try withTemporarySupportDirectory { tempDir in
-            SessionPersistence.flush(SessionStore())
+            _ = SessionPersistence.flush(SessionStore())
 
             let attributes = try FileManager.default.attributesOfItem(atPath: tempDir.path)
             #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)

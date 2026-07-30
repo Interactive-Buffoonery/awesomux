@@ -558,9 +558,10 @@ struct SessionPersistenceLoadTests {
             #expect(try Data(contentsOf: snapshotURL) == replacementData)
 
             SessionPersistence.acknowledgeRecoveryWarning(
-                try #require(result.recoveryWarning)
+                try #require(result.recoveryWarning),
+                thenSaving: nil
             )
-            SessionPersistence.flush(
+            _ = SessionPersistence.flush(
                 SessionStore(restoring: Self.snapshot(groupName: "must stay blocked"))
             )
             #expect(try Data(contentsOf: snapshotURL) == replacementData)
@@ -616,22 +617,149 @@ struct SessionPersistenceLoadTests {
             let protectedResult = SessionPersistence.load()
             #expect(protectedResult.recoveryWarning?.preventsInitialSave == true)
 
-            SessionPersistence.flush(
+            _ = SessionPersistence.flush(
                 SessionStore(restoring: Self.snapshot(groupName: "must not overwrite"))
             )
             #expect(try Data(contentsOf: snapshotURL) == corruptedData)
 
             SessionPersistence.acknowledgeRecoveryWarning(
-                try #require(protectedResult.recoveryWarning)
+                try #require(protectedResult.recoveryWarning),
+                thenSaving: nil
             )
 
-            SessionPersistence.flush(
+            _ = SessionPersistence.flush(
                 SessionStore(restoring: Self.snapshot(groupName: "after recovery"))
             )
             let savedSnapshot = try SessionSnapshot.decode(
                 from: Data(contentsOf: snapshotURL)
             )
             #expect(savedSnapshot.groups.map(\.name) == ["after recovery"])
+            // Exactly one: the blocked flush above parked its state, and the
+            // successful one after acknowledgement did not. A quit-time net
+            // that fired on success too would make that assertion prove nothing.
+            #expect(try Self.unsavedArchives(in: tempDir).count == 1)
+        }
+    }
+
+    /// A blocked flush used to be the end of the session: `.warningNotActive`
+    /// went back to a `@discardableResult` call site during teardown and the
+    /// state was gone. The gate must still refuse the live file, but the state
+    /// has to land somewhere a user can get it back from.
+    @Test("a termination flush the recovery gate refuses parks the session in an archive")
+    func blockedTerminationFlushArchivesUnsavedSession() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let corruptedData = Data("{not-json".utf8)
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try corruptedData.write(to: snapshotURL)
+
+            let protectedResult = SessionPersistence.load()
+            #expect(protectedResult.recoveryWarning?.preventsInitialSave == true)
+
+            let flushResult = SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "unsaved at quit"))
+            )
+
+            guard case .failure(.warningNotActive) = flushResult else {
+                Issue.record("expected the recovery gate to refuse the live snapshot write")
+                return
+            }
+            // The gate's whole job: the protected bytes are untouched.
+            #expect(try Data(contentsOf: snapshotURL) == corruptedData)
+
+            // Asserted against the directory this test owns, not a recomputed
+            // `supportDirectoryURL`: a concurrent suite swapping the
+            // process-wide environment mid-flush then reads as a failure here
+            // rather than as a pass on somebody else's write (awesomux#325).
+            let archives = try Self.unsavedArchives(in: tempDir)
+            #expect(archives.count == 1)
+            let archiveURL = try #require(archives.first)
+            let parked = try SessionSnapshot.decode(from: Data(contentsOf: archiveURL))
+            #expect(parked.groups.map(\.name) == ["unsaved at quit"])
+            // It mirrors the same cwds the live snapshot would, so same mode.
+            let permissions =
+                try FileManager.default
+                .attributesOfItem(atPath: archiveURL.path)[.posixPermissions] as? NSNumber
+            #expect(permissions?.int16Value == 0o600)
+        }
+    }
+
+    /// Toggling "Restore workspaces" on never went through `load`, so the first
+    /// save afterwards overwrote whatever was on disk with no archive and no
+    /// gate — the one bypass that skipped every protection at once.
+    @Test("enabling restore mid-session archives and protects an unreadable snapshot")
+    func enablingRestoreMidSessionProtectsUnreadableSnapshot() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let corruptedData = Data("{not-json".utf8)
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try corruptedData.write(to: snapshotURL)
+
+            // Deliberately no `load()`: that is precisely what launching with
+            // restore disabled skips.
+            let warning = try #require(
+                SessionPersistence.validateSnapshotForNewlyEnabledRestore()
+            )
+            #expect(warning.preventsInitialSave)
+            // Synchronous and race-free: the archive is taken before the toggle
+            // is allowed to cost anything.
+            let archiveURL = try #require(warning.archivedSnapshotURL)
+            #expect(warning.archiveError == nil)
+            #expect(try Data(contentsOf: archiveURL) == corruptedData)
+
+            await confirmation(
+                "no write lands on the newly validated snapshot",
+                expectedCount: 0
+            ) { wrote in
+                SessionPersistence.save(
+                    SessionStore(restoring: Self.snapshot(groupName: "live session"))
+                ) { _ in wrote() }
+                try? await Task.sleep(for: SessionPersistence.debounceInterval * 3)
+            }
+
+            #expect(try Data(contentsOf: snapshotURL) == corruptedData)
+        }
+    }
+
+    /// Releasing the gate is not persistence. `replaceSnapshotAfterRecovery`
+    /// always knew that; acknowledgement left the state waiting for whatever
+    /// unrelated mutation happened to schedule a write next.
+    @Test("acknowledging a recovery warning persists the live session")
+    func acknowledgementSchedulesCatchUpSave() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try Data("{not-json".utf8).write(to: snapshotURL)
+
+            let protectedResult = SessionPersistence.load()
+            let warning = try #require(protectedResult.recoveryWarning)
+
+            // The completion is the load-bearing assertion: it fires wherever
+            // `writeSnapshot` ran, so it cannot pass vacuously if a concurrent
+            // suite swaps the process-wide support directory during the wait.
+            await confirmation("the acknowledged state is written") { wrote in
+                let acknowledged = SessionPersistence.acknowledgeRecoveryWarning(
+                    warning,
+                    thenSaving: SessionStore(
+                        restoring: Self.snapshot(groupName: "acknowledged")
+                    ),
+                    completion: { _ in wrote() }
+                )
+                #expect(acknowledged)
+                try? await Task.sleep(for: SessionPersistence.debounceInterval * 3)
+            }
+
+            let saved = try SessionSnapshot.decode(from: Data(contentsOf: snapshotURL))
+            #expect(saved.groups.map(\.name) == ["acknowledged"])
         }
     }
 
@@ -656,8 +784,8 @@ struct SessionPersistenceLoadTests {
             try FileManager.default.removeItem(at: snapshotURL)
             try replacementData.write(to: snapshotURL)
 
-            #expect(!SessionPersistence.acknowledgeRecoveryWarning(warning))
-            SessionPersistence.flush(
+            #expect(!SessionPersistence.acknowledgeRecoveryWarning(warning, thenSaving: nil))
+            _ = SessionPersistence.flush(
                 SessionStore(restoring: Self.snapshot(groupName: "must stay blocked"))
             )
 
@@ -826,7 +954,7 @@ struct SessionPersistenceLoadTests {
             #expect(try Data(contentsOf: #require(archiveURL)) == openedData)
             #expect(result.store.groups.map(\.name) == ["opened"])
             result.store.addSession(groupName: "mutated")
-            SessionPersistence.flush(result.store)
+            _ = SessionPersistence.flush(result.store)
             #expect(try Data(contentsOf: snapshotURL) == replacementData)
             #expect(FileManager.default.fileExists(atPath: openedCacheURL.path))
             #expect(FileManager.default.fileExists(atPath: replacementCacheURL.path))
@@ -863,7 +991,7 @@ struct SessionPersistenceLoadTests {
 
             let result = SessionPersistence.load()
             let warning = try #require(result.recoveryWarning)
-            SessionPersistence.flush(
+            _ = SessionPersistence.flush(
                 SessionStore(restoring: Self.snapshot(groupName: "blocked"))
             )
             #expect(try Data(contentsOf: targetURL) == targetData)
@@ -922,7 +1050,7 @@ struct SessionPersistenceLoadTests {
                 Issue.record("expected an oversized recovery replacement failure")
                 return
             }
-            SessionPersistence.flush(
+            _ = SessionPersistence.flush(
                 SessionStore(restoring: Self.snapshot(groupName: "must stay blocked"))
             )
             #expect(try Data(contentsOf: snapshotURL) == corruptedData)
@@ -964,7 +1092,7 @@ struct SessionPersistenceLoadTests {
                 Issue.record("expected an I/O recovery replacement failure")
                 return
             }
-            SessionPersistence.flush(replacementStore)
+            _ = SessionPersistence.flush(replacementStore)
             var isDirectory: ObjCBool = false
             #expect(FileManager.default.fileExists(atPath: snapshotURL.path, isDirectory: &isDirectory))
             #expect(isDirectory.boolValue)
@@ -1434,6 +1562,16 @@ struct SessionPersistenceLoadTests {
             includingPropertiesForKeys: nil
         ).filter {
             $0.lastPathComponent.hasPrefix("session-state.corrupted-")
+                && $0.pathExtension == "json"
+        }
+    }
+
+    private static func unsavedArchives(in tempDir: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
+            at: tempDir,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("session-state.unsaved-")
                 && $0.pathExtension == "json"
         }
     }

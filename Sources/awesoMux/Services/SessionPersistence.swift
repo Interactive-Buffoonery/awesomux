@@ -152,10 +152,13 @@ enum SessionPersistence {
     /// Cancellation-only is a deliberate ceiling. Closing the remaining
     /// check-to-write gap means taking `lastWrittenDigestLock` here, which is
     /// held across the file write, so the MainActor would block on disk I/O.
-    /// That is not worth paying while all three raise sites sit inside `load()`,
-    /// which runs once before any `SessionStore` exists to save — no production
-    /// ordering can currently schedule a write before the gate rises. Revisit if
-    /// the gate is ever raised from outside `load()`.
+    /// Every raise site is still textually inside `load()`, but `load()` is no
+    /// longer launch-only: `validateSnapshotForNewlyEnabledRestore` runs it
+    /// mid-session against a live `SessionStore`. The ceiling still holds there
+    /// because writes are gated on the same setting being validated — nothing
+    /// can have scheduled one — and that helper cancels `pendingWrite` before
+    /// re-entering `load()` rather than relying on it. Revisit if the gate is
+    /// ever raised while automatic writes were permitted moments earlier.
     private static var blockedRecoveryWarningID: UUID? {
         didSet {
             guard blockedRecoveryWarningID != nil else { return }
@@ -534,10 +537,32 @@ enum SessionPersistence {
     /// write. If an explicit recovery replacement is outstanding, wait for its
     /// captured snapshot, transfer the recovery gate after success, then write
     /// the latest quit-time state. Call from `applicationWillTerminate`.
-    @discardableResult
+    ///
+    /// Any failure to reach `session-state.json` parks the quit-time state in a
+    /// `session-state.unsaved-` archive first. The result still reports why the
+    /// live file was not replaced — the archive is a safety net, not a
+    /// substitute — so the caller must handle it (hence no `@discardableResult`;
+    /// it went missing at `applicationWillTerminate` for exactly that reason).
     static func flush(
         _ store: SessionStore,
         whileWaitingForRecoveryWrite: () -> Void = {}
+    ) -> Result<Void, RecoverySnapshotReplacementError> {
+        let result = writeLiveSnapshotForTermination(
+            store,
+            whileWaitingForRecoveryWrite: whileWaitingForRecoveryWrite
+        )
+        // One call site, so no return path can be added that forgets it. The
+        // recovery gate is the reachable cause, but a plain write failure loses
+        // the same quit-time delta and deserves the same net.
+        if case .failure = result {
+            archiveUnsavedSnapshot(store.snapshot())
+        }
+        return result
+    }
+
+    private static func writeLiveSnapshotForTermination(
+        _ store: SessionStore,
+        whileWaitingForRecoveryWrite: () -> Void
     ) -> Result<Void, RecoverySnapshotReplacementError> {
         if let task = pendingWrite {
             pendingWrite = nil
@@ -570,8 +595,79 @@ enum SessionPersistence {
         return writeSnapshot(store.snapshot())
     }
 
+    /// Best-effort quit-time copy of state that could not reach
+    /// `session-state.json`. Deliberately does NOT go through `writeSnapshot`:
+    /// that records the written digest, and a sidecar teaching the digest gate
+    /// that the live file already holds these bytes would suppress the next
+    /// real write. Joins the recovery-archive family — same directory, same
+    /// owner-only mode, same ten-file retention cap.
+    ///
+    /// Ceiling: on the `.snapshotTooLarge` path this always fails the same cap
+    /// that blocked the live write, and on `.writeFailed` it is targeting the
+    /// filesystem that just refused one. Both log; neither is recoverable here.
+    /// The gate path is the one this reliably rescues.
+    nonisolated private static func archiveUnsavedSnapshot(_ snapshot: SessionSnapshot) {
+        let archiveURL = supportDirectoryURL.appending(
+            path: "session-state.unsaved-\(archiveTimestamp())-\(UUID().uuidString.prefix(8)).json"
+        )
+        do {
+            let data = try encodeSnapshot(snapshot)
+            guard data.count <= maxSnapshotBytes else {
+                logger.error(
+                    "refusing to archive unsaved session state because it exceeds maximum supported size: \(data.count, privacy: .public) bytes"
+                )
+                return
+            }
+            try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
+            try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
+            try FileManager.default.writeOwnerOnlyFile(at: archiveURL, contents: data)
+            logger.error("archived unsaved session state to \(archiveURL.path, privacy: .public)")
+            pruneQuarantineArchives(prefix: "session-state.unsaved-")
+        } catch {
+            logger.error(
+                "failed to archive unsaved session state: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    /// Re-runs `load`'s validation without adopting the store it restores.
+    /// Enabling "Restore workspaces" mid-session reaches `save` without ever
+    /// passing through `load`, so an unreadable snapshot would be overwritten
+    /// with no archive taken and no gate raised. The live session is
+    /// authoritative here, so only the warning survives.
+    ///
+    /// Returns `nil` — validating nothing — when a gate is already up or a
+    /// replacement is in flight. Re-entering `load` then would clear that gate,
+    /// strand the replacement on a warning ID that no longer matches, and write
+    /// a duplicate archive whose prune could evict genuine older evidence.
+    static func validateSnapshotForNewlyEnabledRestore() -> SessionRecoveryWarning? {
+        guard
+            blockedRecoveryWarningID == nil,
+            activeRecoveryReplacementWarningID == nil
+        else {
+            return nil
+        }
+        // `load` only raises the gate after it has read and archived, so cancel
+        // by construction here rather than trusting that the setting being
+        // toggled on is also the one that kept `save` from scheduling.
+        if let task = pendingWrite {
+            pendingWrite = nil
+            task.cancel()
+        }
+        return load(remoteMarkdownPrune: { _ in }).recoveryWarning
+    }
+
+    /// - Parameter store: the state to persist once the gate is released, or
+    ///   `nil` to only release it. Acknowledgement is reachable long after
+    ///   launch through the recovery-review affordance, by which point the user
+    ///   may have turned "Restore workspaces" off — forcing a write then would
+    ///   ignore that opt-out.
     @discardableResult
-    static func acknowledgeRecoveryWarning(_ warning: SessionRecoveryWarning) -> Bool {
+    static func acknowledgeRecoveryWarning(
+        _ warning: SessionRecoveryWarning,
+        thenSaving store: SessionStore?,
+        completion: (@MainActor @Sendable (Result<Void, RecoverySnapshotReplacementError>) -> Void)? = nil
+    ) -> Bool {
         guard
             blockedRecoveryWarningID == warning.id,
             warning.allowsAutomaticWritesAfterAcknowledgement,
@@ -581,6 +677,12 @@ enum SessionPersistence {
             return false
         }
         blockedRecoveryWarningID = nil
+        // Symmetric with `replaceSnapshotAfterRecovery`: releasing the gate is
+        // not persistence. Without this the acknowledged state waits for some
+        // unrelated mutation to happen to schedule a write.
+        if let store {
+            save(store, completion: completion)
+        }
         return true
     }
 
@@ -615,10 +717,6 @@ enum SessionPersistence {
             return .failure(.warningNotActive)
         }
         activeRecoveryReplacementWarningID = warning.id
-        if let task = pendingWrite {
-            pendingWrite = nil
-            task.cancel()
-        }
 
         // Capture the store's COW snapshot on MainActor, then keep JSONEncoder,
         // hashing, and filesystem I/O off the UI thread. JSONEncoder exposes no

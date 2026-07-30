@@ -599,8 +599,15 @@ struct AwesoMuxApp: App {
             .onChange(of: sessionStore.unreadNotificationTotal) { _, total in
                 appDelegate.updateDockBadge(total: total)
             }
-            .onChange(of: appSettingsStore.general.value.showMenuBarMiniStatus) { _, _ in
-                appDelegate.syncMenuBarMiniStatusItem()
+            // Both general-config reactions share one modifier: this chain is
+            // already at the type-checker's limit and one more tips it over.
+            .onChange(of: appSettingsStore.general.value) { previous, current in
+                if previous.showMenuBarMiniStatus != current.showMenuBarMiniStatus {
+                    appDelegate.syncMenuBarMiniStatusItem()
+                }
+                if !previous.restoreWorkspaces, current.restoreWorkspaces {
+                    validateSnapshotForNewlyEnabledRestore()
+                }
             }
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
                 appDelegate.evaluateAndPostNotifications()
@@ -4507,6 +4514,21 @@ extension AwesoMuxApp {
         }
     }
 
+    /// Launching with restore disabled never reads `session-state.json`, so the
+    /// first save after the user turns it back on would overwrite whatever is
+    /// there — corrupt or not — un-archived. Validate it the way launch does.
+    private func validateSnapshotForNewlyEnabledRestore() {
+        guard !isRecoveryReplacementInProgress else { return }
+        let warning = SessionPersistence.validateSnapshotForNewlyEnabledRestore()
+        // Only a warning that actually paused saving is worth raising here. The
+        // restored store is discarded, so a sanitization notice would be
+        // describing workspaces the user is never going to see.
+        guard warning?.preventsInitialSave == true else { return }
+        recoveryWarning = warning
+        didPresentRecoveryWarning = false
+        presentRecoveryWarningIfNeeded()
+    }
+
     private func presentRecoveryWarningIfNeeded() {
         guard let warning = recoveryWarning, !didPresentRecoveryWarning else {
             return
@@ -4530,7 +4552,12 @@ extension AwesoMuxApp {
                 allowsAutomaticWritesAfterAcknowledgement:
                     warning.allowsAutomaticWritesAfterAcknowledgement
             ) {
-                if SessionPersistence.acknowledgeRecoveryWarning(warning) {
+                if SessionPersistence.acknowledgeRecoveryWarning(
+                    warning,
+                    thenSaving: appSettingsStore.general.value.restoreWorkspaces
+                        ? sessionStore : nil,
+                    completion: handleSessionSaveResult
+                ) {
                     recoveryWarning = nil
                 }
             } else if !warning.preventsInitialSave {
