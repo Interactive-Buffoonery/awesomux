@@ -744,7 +744,10 @@ struct SessionPersistenceLoadTests {
         try await Self.withTemporarySupportDirectoryAsync { tempDir in
             let existingData = try Self.write(Self.snapshot(groupName: "opted out"), to: tempDir)
             let snapshotURL = tempDir.appending(path: "session-state.json")
-            _ = SessionPersistence.load()
+            // Precondition, not scenery: a load that raised the gate would make
+            // `save` refuse on its own and the assertions below would hold
+            // without the cancellation ever being exercised.
+            #expect(SessionPersistence.load().recoveryWarning == nil)
 
             await confirmation(
                 "the captured write never lands",
@@ -753,7 +756,7 @@ struct SessionPersistenceLoadTests {
                 SessionPersistence.save(
                     SessionStore(restoring: Self.snapshot(groupName: "after opt out"))
                 ) { _ in wrote() }
-                SessionPersistence.cancelPendingWrite()
+                SessionPersistence.restoreWorkspacesDidTurnOff()
                 try? await Task.sleep(for: SessionPersistence.debounceInterval * 3)
             }
 

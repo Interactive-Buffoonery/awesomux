@@ -156,13 +156,18 @@ enum SessionPersistence {
     /// longer launch-only: it now also runs mid-session against a live
     /// `SessionStore`, from `validateSnapshotOnDiskIfNeeded` and from
     /// `validateSnapshotForNewlyEnabledRestore`. Neither widens this ceiling.
-    /// The first runs only while `hasValidatedSnapshotOnDisk` is false, which
-    /// implies no `save` has ever scheduled a write; the second cancels
-    /// `pendingWrite` itself before re-entering `load()`. What neither can stop
-    /// is a write already past the cancellation check inside `writeSnapshot`'s
-    /// lock while `load()` reads and archives — closing that means holding
-    /// `lastWrittenDigestLock` from the MainActor across a file write, which is
-    /// the trade being declined.
+    /// The first runs only while `hasValidatedSnapshotOnDisk` is false. Both
+    /// sites that clear that latch cancel `pendingWrite` in the same breath —
+    /// `restoreWorkspacesDidTurnOff` and `resetWriteState` — so a false latch
+    /// means no debounced write is outstanding. The second cancels
+    /// `pendingWrite` itself before re-entering `load()`.
+    ///
+    /// What neither can stop is a write already past the cancellation check
+    /// inside `writeSnapshot`'s lock while `load()` reads and archives. Closing
+    /// that means holding `lastWrittenDigestLock` from the MainActor across a
+    /// file write, which is the trade being declined. Note this covers the
+    /// debounced write only: the synchronous terminate write and the detached
+    /// recovery replacement are held off by different invariants.
     private static var blockedRecoveryWarningID: UUID? {
         didSet {
             guard blockedRecoveryWarningID != nil else { return }
@@ -174,6 +179,10 @@ enum SessionPersistence {
     /// False until `load` has inspected whatever is on disk. See
     /// `validateSnapshotOnDiskIfNeeded`.
     private static var hasValidatedSnapshotOnDisk = false
+    /// The warning from a validation that ran at the write chokepoint, where
+    /// there is no caller to hand it to. Lets the settings toggle still surface
+    /// a gate that a save raised first.
+    private static var lastRaisedRecoveryWarning: SessionRecoveryWarning?
     nonisolated private static let recoveryWriteCoordinator = RecoverySnapshotWriteCoordinator()
     nonisolated(unsafe) private static var digestWriteGate = StableDataDigestWriteGate()
 
@@ -524,7 +533,9 @@ enum SessionPersistence {
     /// Coalesces high-frequency mutations (title/cwd updates that fire on every
     /// shell prompt) into a single atomic write. `snapshot()` is O(1) on the
     /// MainActor side because `[SessionGroup]` is COW, so eager capture is
-    /// cheap and lets the detached Task stay isolation-free.
+    /// cheap and lets the detached Task stay isolation-free. The exception is
+    /// the first call after a launch that skipped `load` — that one reads and
+    /// may archive the file on disk before it schedules anything.
     static func save(
         _ store: SessionStore,
         completion: (@MainActor @Sendable (Result<Void, RecoverySnapshotReplacementError>) -> Void)? = nil
@@ -663,13 +674,14 @@ enum SessionPersistence {
     /// replacement on a warning ID that no longer matches, and write a duplicate
     /// archive whose prune could evict genuine older evidence.
     static func validateSnapshotForNewlyEnabledRestore() -> SessionRecoveryWarning? {
-        guard
-            !hasValidatedSnapshotOnDisk,
-            blockedRecoveryWarningID == nil,
-            activeRecoveryReplacementWarningID == nil
-        else {
-            return nil
+        guard activeRecoveryReplacementWarningID == nil else { return nil }
+        // Already validated — by a save that beat the toggle to it, or by
+        // launch. Re-entering `load` would clear a live gate and duplicate an
+        // archive, so hand back what that validation found instead.
+        guard !hasValidatedSnapshotOnDisk else {
+            return blockedRecoveryWarningID == nil ? nil : lastRaisedRecoveryWarning
         }
+        guard blockedRecoveryWarningID == nil else { return nil }
         // `load` reads and archives before it raises the gate, so a write
         // scheduled moments ago could still fire into that window. Cancelling
         // closes the schedulable half; the rest is the ceiling documented on
@@ -693,17 +705,25 @@ enum SessionPersistence {
     /// Anchoring the guard to the trigger left those writers uncovered.
     private static func validateSnapshotOnDiskIfNeeded() {
         guard !hasValidatedSnapshotOnDisk else { return }
-        _ = load(remoteMarkdownPrune: { _ in })
+        // Kept rather than discarded: this runs from `save`, which has no
+        // return path to the UI, and the toggle handler would otherwise find
+        // the snapshot already validated and have nothing to show.
+        lastRaisedRecoveryWarning = load(remoteMarkdownPrune: { _ in }).recoveryWarning
     }
 
-    /// Drops a debounced write the user has just opted out of. `save` hands its
+    /// Both halves of turning "Restore workspaces" off. `save` hands its
     /// captured snapshot to a detached task that cannot re-read the setting, so
-    /// turning "Restore workspaces" off leaves a write in flight that would
-    /// clobber the very snapshot the opt-out exists to preserve.
-    static func cancelPendingWrite() {
-        guard let task = pendingWrite else { return }
-        pendingWrite = nil
-        task.cancel()
+    /// opting out leaves a write in flight that would clobber the very snapshot
+    /// the opt-out exists to preserve.
+    static func restoreWorkspacesDidTurnOff() {
+        if let task = pendingWrite {
+            pendingWrite = nil
+            task.cancel()
+        }
+        // Re-arm validation. Nothing watches the file while restore is off, so
+        // it may be replaced or corrupted before the user opts back in; a
+        // once-per-process latch would let that land un-archived.
+        hasValidatedSnapshotOnDisk = false
     }
 
     /// - Parameter store: the state to persist once the gate is released, or
@@ -1174,11 +1194,13 @@ enum SessionPersistence {
         digestWriteGate = StableDataDigestWriteGate()
         lastWrittenDigestLock.unlock()
         blockedRecoveryWarningID = nil
-        // Both were left set across support-directory swaps. Inert until the
-        // new guards started reading them; now they would leak one suite's
-        // state into the next.
+        // A support-directory swap makes a different file authoritative, so
+        // every piece of per-file state has to go with it. These three were
+        // left behind; the validation latch in particular would tell the next
+        // suite a file it has never read is already checked.
         activeRecoveryReplacementWarningID = nil
         hasValidatedSnapshotOnDisk = false
+        lastRaisedRecoveryWarning = nil
     }
 
     nonisolated private static var snapshotURL: URL {

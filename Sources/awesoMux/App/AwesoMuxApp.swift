@@ -4515,12 +4515,14 @@ extension AwesoMuxApp {
     }
 
     /// The setting's two edges are not symmetric. Turning it ON is a chance to
-    /// tell the user that the snapshot on disk is unreadable — `save` will
-    /// validate regardless, but silently. Turning it OFF has to drop a write the
-    /// debouncer already captured, which no longer re-reads the setting.
+    /// tell the user that the snapshot on disk is unreadable — `save` validates
+    /// regardless, but has no return path to the UI. Turning it OFF has to drop
+    /// a write the debouncer already captured, which no longer re-reads the
+    /// setting, and re-arm validation so a later opt-in re-inspects a file that
+    /// may have changed while nothing was watching it.
     private func restoreWorkspacesSettingDidChange(isEnabled: Bool) {
         guard isEnabled else {
-            SessionPersistence.cancelPendingWrite()
+            SessionPersistence.restoreWorkspacesDidTurnOff()
             return
         }
         guard !isRecoveryReplacementInProgress else { return }
@@ -4528,13 +4530,13 @@ extension AwesoMuxApp {
         // Only a warning that actually paused saving is worth raising. The
         // restored store is discarded, so a sanitization notice would be
         // describing workspaces the user is never going to see.
-        guard warning?.preventsInitialSave == true else {
-            // Validation cancelled any queued write on its way through. Nothing
-            // is blocking, so re-schedule rather than leaving the newly opted-in
-            // session waiting for an unrelated mutation.
-            saveSessionIfRestoreEnabled()
-            return
-        }
+        //
+        // Deliberately no catch-up save on the clean path. Launching with
+        // restore off builds a bare `SessionStore`, so saving here would write
+        // that empty store over a healthy saved session inside the debounce
+        // window — the exact clobber `saveSessionIfRestoreEnabled`'s own doc
+        // comment exists to prevent. The next real mutation persists.
+        guard warning?.preventsInitialSave == true else { return }
         recoveryWarning = warning
         didPresentRecoveryWarning = false
         // Hopped off the view update: `presentRecoveryWarningIfNeeded` spins a
