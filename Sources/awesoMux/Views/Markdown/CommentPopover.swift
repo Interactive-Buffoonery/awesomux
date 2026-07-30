@@ -243,10 +243,15 @@ struct FullCommentPopover: View {
                     )
 
                     if let reason = annotationHandoff.unavailableDescription {
+                        // The button's accessibilityHint above already speaks
+                        // the same string; hide the caption from VoiceOver so
+                        // the reason isn't announced twice (matches the send
+                        // bar's caption in DocumentPaneSendBar).
                         Text(reason)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityHidden(true)
                     }
                 }
                 .padding(.horizontal, 12)

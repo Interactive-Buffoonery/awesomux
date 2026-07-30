@@ -251,7 +251,11 @@ struct DocumentGroupView: View {
                     onRevision: { diff in
                         revisionMonitor.recordSelected(diff, for: document)
                     },
-                    annotationHandoff: annotationHandoffPresentation,
+                    // Lazy: the projection issues a live foreground probe, so
+                    // it is evaluated only when a comment popover is about to
+                    // open — not on every body recomputation (one live probe
+                    // per user action, matching the send bar's resolution).
+                    annotationHandoffProvider: { annotationHandoffPresentation },
                     onSendAnnotation: { annotationID, openAnnotationIDs in
                         presentComposer(
                             selectedAnnotationID: annotationID,

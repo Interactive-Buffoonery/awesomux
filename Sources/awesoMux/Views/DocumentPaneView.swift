@@ -639,10 +639,11 @@ struct DocumentPaneView: View {
     /// Reports external file edits so the parent chrome can surface a transient
     /// plan-revised indicator without tying UI state to reload logic.
     var onRevision: (LineDiffCount.ExternalEdit) -> Void = { _ in }
-    /// The already-projected provider handoff state for annotation popovers.
-    /// DocumentPaneView presents it but does not duplicate the runtime/status
-    /// state machine that produced it.
-    var annotationHandoff: AnnotationHandoffPresentation?
+    /// Produces the provider handoff state for annotation popovers on demand.
+    /// Invoked only when a comment popover is about to open: the projection
+    /// issues a live foreground probe, so it must not run per render. Nil
+    /// (callers that never pass a provider) keeps the section hidden.
+    var annotationHandoffProvider: (() -> AnnotationHandoffPresentation)?
     /// Opens the existing composer with the clicked annotation prioritized.
     /// The rendered document supplies its current open-id projection so the
     /// handoff does not depend on session-memory timing.
@@ -720,7 +721,7 @@ struct DocumentPaneView: View {
         onRenderCompleted: ((DocumentTabMemory.Render) -> Void)? = nil,
         onOpenDocumentLink: ((URL) -> Void)? = nil,
         onRevision: @escaping (LineDiffCount.ExternalEdit) -> Void = { _ in },
-        annotationHandoff: AnnotationHandoffPresentation? = nil,
+        annotationHandoffProvider: (() -> AnnotationHandoffPresentation)? = nil,
         onSendAnnotation: @escaping (String, [String]) -> Void = { _, _ in },
         onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil
     ) {
@@ -729,7 +730,7 @@ struct DocumentPaneView: View {
         self.onRenderCompleted = onRenderCompleted
         self.onOpenDocumentLink = onOpenDocumentLink
         self.onRevision = onRevision
-        self.annotationHandoff = annotationHandoff
+        self.annotationHandoffProvider = annotationHandoffProvider
         self.onSendAnnotation = onSendAnnotation
         self.onRegisterScrollAnchorCapture = onRegisterScrollAnchorCapture
         _loadResult = State(initialValue: cachedRender?.loadResult)
@@ -1425,7 +1426,7 @@ struct DocumentPaneView: View {
                         isSubmitting: isSubmitting
                     )
                 },
-                annotationHandoff: annotationHandoff,
+                annotationHandoff: annotationHandoffProvider?(),
                 onSendToAgent: { [weak popover] in
                     popover?.close()
                     onSendAnnotation(markID, doc.openAnnotationIDs)
