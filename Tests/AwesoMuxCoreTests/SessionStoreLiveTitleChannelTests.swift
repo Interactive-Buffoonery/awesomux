@@ -398,6 +398,41 @@ struct SessionStoreLiveTitleChannelTests {
         #expect(box.paneTitles[fixture.paneID] == "cargo build")
     }
 
+    /// The same gap one level deeper (issue #315). Titles now live in one
+    /// observable per pane, so "the box was refreshed" is no longer the whole
+    /// question — the write has to reach THIS pane's channel, and reach the
+    /// channel that readers are already registered on. Tracking the read is
+    /// what distinguishes a refreshed channel from a replaced one; a value
+    /// assertion alone passes either way.
+    @Test("a publishing write reaches an already-created box's per-pane channel")
+    func publishingWriteWakesExistingPaneChannel() throws {
+        let fixture = makeFixture()
+        // Two panes, so the pane under test is inactive: this has to fail if
+        // only the workspace title is refreshed.
+        _ = try #require(fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        #expect(box.paneTitle(fixture.paneID) == "pane")
+
+        let woken = TrackingFlag()
+        withObservationTracking {
+            _ = box.paneTitle(fixture.paneID)
+        } onChange: {
+            woken.set()
+        }
+
+        // Title and cwd in one report — the publishing branch, against a box
+        // created BEFORE the write.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "cargo build",
+            workingDirectory: NSHomeDirectory()
+        )
+
+        #expect(woken.value)
+        #expect(box.paneTitle(fixture.paneID) == "cargo build")
+    }
+
     @Test("a structural mutation refreshes an existing box's pane roster")
     func structuralMutationRefreshesBox() throws {
         let fixture = makeFixture()

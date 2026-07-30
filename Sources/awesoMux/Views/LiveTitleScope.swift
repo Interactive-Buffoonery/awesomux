@@ -33,15 +33,14 @@ struct LiveTitles: Equatable {
             panes = [:]
         case let .paneTitle(paneID):
             workspace = nil
-            // Narrowed to the one entry the content renders. This does NOT
-            // narrow the *observation*: `@Observable` publishes per property, so
-            // subscripting still registers the whole `paneTitles` dictionary and
-            // a sibling pane's tick still re-runs this scope. What it buys is
-            // skipping `workspaceTitle` — a workspace rename no longer wakes
-            // every pane title bar in the session. Per-pane observation would
-            // need per-pane storage on `LiveTitleBox`; revisit only if a
-            // many-pane split measures worse than the box redesign.
-            panes = (box?.paneTitles[paneID]).map { [paneID: $0] } ?? [:]
+            // `paneTitle(_:)`, never `paneTitles[paneID]`: the box stores one
+            // observable per pane, so this registers a dependency on that pane
+            // alone (issue #315). Reading the dictionary would register every
+            // pane and put the sibling fan-out straight back — a sibling's
+            // spinner frame would re-run this scope, and only the child
+            // `.equatable()` gate downstream would reject the work, after the
+            // scope evaluation and comparison had already been paid.
+            panes = box?.paneTitle(paneID).map { [paneID: $0] } ?? [:]
         case .everything:
             workspace = box?.workspaceTitle
             panes = box?.paneTitles ?? [:]
@@ -57,12 +56,13 @@ struct LiveTitles: Equatable {
     }
 }
 
-/// Which of `LiveTitleBox`'s two observable properties a scope reads.
+/// Which of a `LiveTitleBox`'s observable properties a scope reads.
 ///
 /// `@Observable` invalidates per property, so this is a real observation
 /// boundary and not bookkeeping: the app titlebar renders only the workspace
 /// title, and declaring that keeps an INACTIVE pane's spinner from waking it at
-/// all. Pick the narrowest case the content can render from.
+/// all. `.paneTitle` narrows further, to the one pane's own channel. Pick the
+/// narrowest case the content can render from.
 enum LiveTitleReads: Equatable {
     /// `workspaceTitle` only — the app titlebar.
     case workspaceTitle
