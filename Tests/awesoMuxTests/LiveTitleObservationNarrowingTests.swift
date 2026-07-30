@@ -92,11 +92,11 @@ struct LiveTitleObservationNarrowingTests {
     }
 
     /// The narrowing has to hold on the PUBLISHING branch too, not only the
-    /// silent one. A refresh that replaced just the changed pane's channel
+    /// silent one. `adopt` walks every pane on a publishing write, reusing each
+    /// channel; a refresh that replaced the changed pane's channel instead
     /// would write `paneChannels`, wake every pane scope in the session, and
-    /// still deliver the right value — so every other gate here would stay
-    /// green while the fan-out came back on exactly the writes that walk all
-    /// the panes.
+    /// still deliver the right value — so the value-only gates would stay green
+    /// while the fan-out came back on exactly the writes that walk all panes.
     @Test("a sibling pane's publishing title write does not wake a pane-scoped read")
     func siblingPanePublishingWriteDoesNotWakePaneScope() throws {
         let fixture = try makeSplitFixture()

@@ -404,8 +404,9 @@ struct SessionStoreLiveTitleChannelTests {
     ///
     /// This is NOT a channel-replacement gate: a replaced channel wakes the
     /// reader through `paneChannels` too, so the wake fires either way. The
-    /// replacement gate is `publishingMutationWithoutTitleMoveDoesNotWakePaneScope`
-    /// in the app-target suite, and it owns that invariant alone.
+    /// replacement invariant is owned by the app-target suite — by
+    /// `publishingMutationWithoutTitleMoveDoesNotWakePaneScope` and by
+    /// `siblingPanePublishingWriteDoesNotWakePaneScope`.
     @Test("a publishing write reaches an already-created box's per-pane channel")
     func publishingWriteWakesExistingPaneChannel() throws {
         let fixture = makeFixture()
@@ -450,10 +451,9 @@ struct SessionStoreLiveTitleChannelTests {
     /// The prune direction, which nothing else asserts: every other test here
     /// covers the roster GROWING. Without this, deleting the prune outright,
     /// loosening its guard, or reordering the loop it depends on all leave the
-    /// suite green — and the cost is not only leaked channels. Once the count
-    /// guard is permanently unequal, the filter and its session-wide publish
-    /// run on every publishing write forever, which is the sibling fan-out
-    /// issue #315 removed.
+    /// suite green, and a box accumulates one dead channel per closed pane for
+    /// its lifetime. `paneTitles` is computed over those channels, so a leaked
+    /// one keeps a closed pane's title visible to every `.everything` reader.
     @Test("closing a pane drops its channel from an existing box")
     func closingPaneDropsItsChannel() throws {
         let fixture = makeFixture()
