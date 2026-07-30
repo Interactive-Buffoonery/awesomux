@@ -405,6 +405,7 @@ struct BridgeAttachPreflightTests {
             await replacementCommitted.record(())
             return outcome
         }
+        defer { replacement.cancel() }
         try #require(await replacementCommitted.waitForCount(1, deadline: .seconds(10)))
         guard case .ready = await replacement.value else {
             Issue.record("an admitted replacement must survive stale retirement")
