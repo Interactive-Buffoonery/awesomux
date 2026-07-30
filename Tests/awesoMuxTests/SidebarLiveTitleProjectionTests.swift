@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 
@@ -16,10 +17,10 @@ import Testing
 /// actually be checked:
 ///
 /// 1. `sidebarBodyReadsTheLiveTitleGeneration` — the wiring is present. Deleting
-///    the read from `SidebarView.body` fails this test (the same source-contract
-///    shape `SidebarAttentionCuePolicyTests.edgeTabSourceContract` uses; a
-///    SwiftUI `body`'s observation dependencies are not otherwise reachable
-///    without hosting the whole sidebar).
+///    the read from `SidebarView.body` fails this test. Source-scraped like
+///    `SidebarAttentionCuePolicyTests.edgeTabSourceContract`, because a SwiftUI
+///    `body`'s observation dependencies are not otherwise reachable without
+///    hosting the whole sidebar — see the note on the test itself.
 /// 2. everything else — once the body DOES re-run, each derived value genuinely
 ///    re-derives to the silently-written title. Each carries its own
 ///    before-the-write control, so a passing assertion is the write's doing.
@@ -29,15 +30,46 @@ struct SidebarLiveTitleProjectionTests {
 
     // MARK: - 1. The dependency is wired
 
+    /// Source-scraped on purpose, and staying that way. A SwiftUI `body`'s
+    /// observation dependencies are not reachable without hosting the whole
+    /// sidebar, and hosted sidebar tests in this repository have a documented
+    /// history of going vacuously green — passing while asserting nothing. A
+    /// hosted replacement here would be less trustworthy than this, not more.
+    ///
+    /// `SourceContract.declarationBody` brace-balances the region instead of
+    /// slicing between two incidental sibling members, so renaming or reordering
+    /// an unrelated member cannot silently widen or narrow what is asserted, and
+    /// a missing anchor names itself in the failure.
     @Test("SidebarView.body reads the live-title generation")
     func sidebarBodyReadsTheLiveTitleGeneration() throws {
-        let source = try Self.source(of: "Sources/awesoMux/Views/SidebarView.swift")
-        let body = try #require(
-            source
-                .split(separator: "var body: some View {", maxSplits: 1).last?
-                .split(separator: "private var searchFieldAppearsFocused", maxSplits: 1).first
+        let path = "Sources/awesoMux/Views/SidebarView.swift"
+        let source = try SourceContract.source(at: path)
+        // Two steps because the file declares three `body`s; this pins the read to
+        // `SidebarView`'s own, not a nested helper view's.
+        let type = try SourceContract.declarationBody(
+            after: "struct SidebarView: View {",
+            in: source,
+            path: path
         )
-        #expect(body.contains("sessionStore.liveTitleGeneration"))
+        let body = try SourceContract.declarationBody(
+            after: "var body: some View {",
+            in: type,
+            path: "\(path) (SidebarView)"
+        )
+
+        #expect(
+            body.contains("sessionStore.liveTitleGeneration"),
+            """
+            `SidebarView.body` no longer reads `sessionStore.liveTitleGeneration`. \
+            That read is the body's only dependency on a display-only title write, \
+            so without it everything `body` derives — the search haystack, \
+            duplicate ordinals, VoiceOver rotor labels, the agent panel's \
+            invalidation key — freezes at the last `groups` publish while the rows \
+            beside it keep repainting through their own `LiveTitleScope`s (#311). \
+            Moving the read into a helper called from `body` is fine; this test \
+            then needs to follow it there.
+            """
+        )
     }
 
     @Test("the pop-up terminal's corner tab reads the live-title generation")
@@ -45,13 +77,23 @@ struct SidebarLiveTitleProjectionTests {
         // Different `SessionStore` instance (`PopUpTerminalStoreFactory`), same
         // class — so the same channel, and the same freeze without it. The tab
         // names itself after the active pane's title.
-        let source = try Self.source(of: "Sources/awesoMux/Views/PopUpTerminalCornerTabView.swift")
-        let state = try #require(
-            source
-                .split(separator: "private var state: CornerTabState {", maxSplits: 1).last?
-                .split(separator: "@ViewBuilder", maxSplits: 1).first
+        let path = "Sources/awesoMux/Views/PopUpTerminalCornerTabView.swift"
+        let source = try SourceContract.source(at: path)
+        let state = try SourceContract.declarationBody(
+            after: "private var state: CornerTabState {",
+            in: source,
+            path: path
         )
-        #expect(state.contains("sessionStore.liveTitleGeneration"))
+
+        #expect(
+            state.contains("sessionStore.liveTitleGeneration"),
+            """
+            `CornerTabState`'s computed `state` no longer reads \
+            `sessionStore.liveTitleGeneration`, so the pop-up terminal's corner \
+            tab keeps showing the active pane's title as of the last `groups` \
+            publish (#311).
+            """
+        )
     }
 
     // MARK: - 2. Search
@@ -257,14 +299,4 @@ struct SidebarLiveTitleProjectionTests {
         )
     }
 
-    private static func source(of relativePath: String) throws -> String {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        return try String(
-            contentsOf: root.appendingPathComponent(relativePath),
-            encoding: .utf8
-        )
-    }
 }

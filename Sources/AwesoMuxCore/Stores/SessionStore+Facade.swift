@@ -752,8 +752,10 @@ extension SessionStore {
         // Classified by comparing the pane the reducer produced against the one
         // it started from, not by which arguments were non-nil: `title:` alone
         // can move remote identity through `RemoteSessionDetector`, and the
-        // reducer's own sanitisation decides what actually changed.
-        if paneNeedsPublish(old: oldSession.layout.pane(id: paneID), new: session.layout.pane(id: paneID)) {
+        // reducer's own sanitisation decides what actually changed. The reducer
+        // gates its own early-out on the same function, so the two cannot
+        // disagree about what a durable field is.
+        if paneChangeKind(in: oldSession, and: session, paneID: paneID) == .durable {
             // The box refresh rides `_groups`' accessors — see
             // `refreshLiveTitleBoxes`. A publishing report moves a title too
             // (title + cwd in one report is an ordinary `cd` in a prompt hook),
@@ -790,20 +792,21 @@ extension SessionStore {
         }
     }
 
-    /// True when `updatePane`'s result moved something other than chrome text,
-    /// i.e. a field with runtime behaviour behind it. Missing panes publish:
-    /// the reducer only returns a session when the pane exists, so a nil here
-    /// means an assumption broke and the safe answer is the old behaviour.
-    private func paneNeedsPublish(old: TerminalPane?, new: TerminalPane?) -> Bool {
-        guard let old, let new else { return true }
-        return new.workingDirectory != old.workingDirectory
-            || new.remoteHost != old.remoteHost
-            || new.remoteSSHTarget != old.remoteSSHTarget
-            || new.pendingRemoteSSHTarget != old.pendingRemoteSSHTarget
-            || new.hasConsumedManagedSSHWorkspaceOffer != old.hasConsumedManagedSSHWorkspaceOffer
-            || new.remoteWorkingDirectory != old.remoteWorkingDirectory
-            || new.remoteConnectionHealth != old.remoteConnectionHealth
-            || new.progressReport != old.progressReport
+    /// Lifts `PaneLayoutReducer.paneChangeKind` to the two sessions the facade
+    /// has in hand. A missing pane reports `.durable`: the reducer only returns
+    /// a session when the pane exists, so a nil here means an assumption broke
+    /// and the safe answer is the old always-publish behaviour.
+    private func paneChangeKind(
+        in oldSession: TerminalSession,
+        and newSession: TerminalSession,
+        paneID: TerminalPane.ID
+    ) -> PaneLayoutReducer.PaneChangeKind {
+        guard let old = oldSession.layout.pane(id: paneID),
+            let new = newSession.layout.pane(id: paneID)
+        else {
+            return .durable
+        }
+        return PaneLayoutReducer.paneChangeKind(from: old, to: new)
     }
 
     public func noteSubmittedCommand(
