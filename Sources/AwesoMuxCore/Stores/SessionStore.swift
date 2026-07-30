@@ -290,9 +290,14 @@ public final class SessionStore {
     /// A plain callback and not an `@Observable` property: an observable bump
     /// would wake the Scene body at the title throttle rate (~4×/sec, #306),
     /// reintroducing exactly the app-wide invalidation issue #311 exists to
-    /// remove. That is also why it needs no coalescing here — the handler's
-    /// `SessionPersistence.save` already cancels and re-debounces its pending
-    /// write, so the per-call cost is one COW snapshot and no view work.
+    /// remove.
+    ///
+    /// Deliberately fires once per write, uncoalesced. Coalescing belongs
+    /// downstream, in `SessionPersistence.save`, which snapshots at its debounce
+    /// boundary — so a burst costs one snapshot no matter how many signals
+    /// arrive (#316). Coalescing *here* instead would be actively wrong: the
+    /// debounce would then start from the first title of a burst and persist
+    /// that one, leaving every later title unwritten until an unrelated publish.
     @ObservationIgnored public var onDisplayOnlyTitleWrite: (@MainActor () -> Void)?
 
     /// Ordered pin list for the sidebar's synthetic Pinned section. Membership

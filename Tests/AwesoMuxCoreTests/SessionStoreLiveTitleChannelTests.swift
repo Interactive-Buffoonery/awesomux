@@ -283,7 +283,15 @@ struct SessionStoreLiveTitleChannelTests {
     /// A silent write fires no `groups` observer, so the save it still needs
     /// rides `onDisplayOnlyTitleWrite` instead — synchronously, so the handler
     /// sees the title it is being asked to persist.
-    @Test("a display-only title write calls the save handler once per write")
+    ///
+    /// One signal per write is the intended contract, not un-coalesced waste
+    /// left over from #313. Coalescing lives downstream in
+    /// `SessionPersistence.save`, which snapshots at its debounce boundary, so a
+    /// burst costs one snapshot however many signals arrive (#316). Coalescing
+    /// here instead would start the debounce from the FIRST title of a burst and
+    /// persist that one, stranding every later title — so this count staying at
+    /// N is what keeps the downstream debounce anchored to the latest write.
+    @Test("a display-only title write signals the save handler once per write")
     func displayOnlyWriteCallsSaveHandler() {
         let fixture = makeFixture()
         let saves = CallCounter()

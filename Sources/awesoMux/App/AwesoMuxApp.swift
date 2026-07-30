@@ -4472,9 +4472,12 @@ extension AwesoMuxApp {
             failure.wrappedValue = nil
             return
         }
-        SessionPersistence.save(store) { result in
-            record(result, in: failure)
-        }
+        SessionPersistence.save(
+            store,
+            completion: { result in
+                record(result, in: failure)
+            }
+        )
     }
 
     private func handleSessionSaveResult(

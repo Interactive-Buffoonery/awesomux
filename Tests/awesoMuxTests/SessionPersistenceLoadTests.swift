@@ -1060,15 +1060,113 @@ struct SessionPersistenceLoadTests {
             )
 
             let writeResult = await withCheckedContinuation { continuation in
-                SessionPersistence.save(store) { result in
-                    continuation.resume(returning: result)
-                }
+                SessionPersistence.save(
+                    store,
+                    completion: { result in
+                        continuation.resume(returning: result)
+                    }
+                )
             }
 
             guard case .failure(.snapshotTooLarge) = writeResult else {
                 Issue.record("expected debounced oversized snapshot failure")
                 return
             }
+        }
+    }
+
+    // MARK: - Display-only title coalescing (#316)
+
+    /// The acceptance criterion for #316: an agent spinner drives
+    /// `onDisplayOnlyTitleWrite` at ~4 Hz per pane, and each signal used to cost
+    /// a full `store.snapshot()` on the MainActor plus a retained COW copy that
+    /// forced the next title mutation to detach two arrays.
+    ///
+    /// Counted through `afterSnapshotCapture` rather than a proxy: `SessionStore`
+    /// is `final` and `snapshot()` has no observable side effect, so nothing
+    /// else distinguishes one capture from five. A proxy assertion here would
+    /// pass under the un-coalesced implementation this test exists to reject.
+    @Test("a burst of display-only title writes takes one snapshot")
+    func burstOfDisplayOnlyTitleWritesTakesOneSnapshot() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { _ in
+            let store = SessionStore(restoring: Self.snapshot(groupName: "burst"))
+            let sessionID = try #require(store.groups.first?.sessions.first?.id)
+            let paneID = try #require(store.session(id: sessionID)?.activePaneID)
+            let recorder = SaveRecorder()
+
+            store.onDisplayOnlyTitleWrite = { [weak store] in
+                guard let store else { return }
+                SessionPersistence.save(
+                    store,
+                    afterSnapshotCapture: { recorder.recordCapture() },
+                    completion: { _ in recorder.completeWrite() }
+                )
+            }
+            for frame in 0..<5 {
+                store.updatePane(sessionID: sessionID, paneID: paneID, title: "frame \(frame)")
+            }
+            #expect(recorder.captureCount == 0, "the burst must not snapshot while it is still arriving")
+
+            await recorder.waitForWrite()
+
+            #expect(recorder.captureCount == 1)
+        }
+    }
+
+    /// Guards the seam above from drifting off the real path: `afterSnapshotCapture`
+    /// could count faithfully while `save` still captured eagerly somewhere else.
+    ///
+    /// No `onDisplayOnlyTitleWrite` handler is installed, deliberately. If the
+    /// post-scheduling mutation went through that handler it would schedule a
+    /// second, newer save and the eager implementation would persist the later
+    /// title too — a vacuous pass.
+    @Test("a debounced save snapshots at the debounce boundary, not at call time")
+    func debouncedSaveSnapshotsAtTheDebounceBoundary() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            let store = SessionStore(restoring: Self.snapshot(groupName: "scheduled"))
+            let groupID = try #require(store.groups.first?.id)
+            let recorder = SaveRecorder()
+
+            SessionPersistence.save(store, completion: { _ in recorder.completeWrite() })
+            #expect(store.renameGroup(id: groupID, to: "renamed after scheduling"))
+
+            await recorder.waitForWrite()
+
+            let written = try SessionSnapshot.decode(
+                from: Data(contentsOf: tempDir.appending(path: "session-state.json"))
+            )
+            #expect(written.groups.map(\.name) == ["renamed after scheduling"])
+        }
+    }
+
+    /// Acceptance criterion 2. Deferring the capture must not widen the
+    /// crash-loss window past a clean quit: `applicationWillTerminate` lands
+    /// throttled titles and then calls `flush`, which cancels the debounced task
+    /// and re-snapshots synchronously. Nothing here waits on the 500 ms
+    /// debounce — if the final title only reached disk via the debounced task,
+    /// this would fail rather than pass slowly.
+    @Test("flush after a title burst persists the final title without waiting")
+    func flushAfterATitleBurstPersistsTheFinalTitle() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let store = SessionStore(restoring: Self.snapshot(groupName: "quit"))
+            let sessionID = try #require(store.groups.first?.sessions.first?.id)
+            let paneID = try #require(store.session(id: sessionID)?.activePaneID)
+
+            store.onDisplayOnlyTitleWrite = { [weak store] in
+                guard let store else { return }
+                SessionPersistence.save(store)
+            }
+            for frame in 0..<5 {
+                store.updatePane(sessionID: sessionID, paneID: paneID, title: "frame \(frame)")
+            }
+
+            #expect(throws: Never.self) { try SessionPersistence.flush(store).get() }
+
+            let written = try SessionSnapshot.decode(
+                from: Data(contentsOf: tempDir.appending(path: "session-state.json"))
+            )
+            let pane = try #require(written.groups.first?.sessions.first?.layout.pane(id: paneID))
+            #expect(pane.title == "frame 4")
         }
     }
 
@@ -1447,5 +1545,36 @@ struct SessionPersistenceLoadTests {
             groups: [SessionGroup(name: groupName, sessions: [session])],
             selectedSessionID: session.id
         )
+    }
+}
+
+// MARK: - Coalescing test support
+
+/// Counts `SessionPersistence.save` snapshot captures and parks the test until
+/// the debounced write reports.
+///
+/// Resume is one-shot because `save` installs a fresh completion on every call:
+/// a burst leaves four cancelled tasks behind, and a cancellation that lands
+/// after the write would resume a `CheckedContinuation` a second time and trap.
+@MainActor
+private final class SaveRecorder {
+    private(set) var captureCount = 0
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var didComplete = false
+
+    func recordCapture() {
+        captureCount += 1
+    }
+
+    func completeWrite() {
+        guard !didComplete else { return }
+        didComplete = true
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func waitForWrite() async {
+        guard !didComplete else { return }
+        await withCheckedContinuation { continuation = $0 }
     }
 }

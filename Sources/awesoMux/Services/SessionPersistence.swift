@@ -136,7 +136,24 @@ enum SessionPersistence {
         supportDirectoryURL: AppRuntimeProfile.current.supportDirectoryURL
     )
     private static var pendingWrite: Task<Void, Never>?
-    private static var blockedRecoveryWarningID: UUID?
+    /// Non-nil = a snapshot on disk is protected and no automatic write may
+    /// replace it.
+    ///
+    /// Cancelling `pendingWrite` from `didSet` rather than from each of the
+    /// three assignment sites is what makes the protection hold against the
+    /// debounced writer: `save` captures the store's state at the debounce
+    /// boundary, so a warning raised anywhere in that window — before the
+    /// capture or after it, while the encode is already running — would
+    /// otherwise be raced by a task that has no way to re-read this flag from
+    /// off the MainActor. Cancellation is the one signal `writeSnapshot` does
+    /// re-check inside its own lock.
+    private static var blockedRecoveryWarningID: UUID? {
+        didSet {
+            guard blockedRecoveryWarningID != nil else { return }
+            pendingWrite?.cancel()
+            pendingWrite = nil
+        }
+    }
     private static var activeRecoveryReplacementWarningID: UUID?
     nonisolated private static let recoveryWriteCoordinator = RecoverySnapshotWriteCoordinator()
     nonisolated(unsafe) private static var digestWriteGate = StableDataDigestWriteGate()
@@ -483,23 +500,49 @@ enum SessionPersistence {
     }
 
     /// Coalesces high-frequency mutations (title/cwd updates that fire on every
-    /// shell prompt) into a single atomic write. `snapshot()` is O(1) on the
-    /// MainActor side because `[SessionGroup]` is COW, so eager capture is
-    /// cheap and lets the detached Task stay isolation-free.
+    /// shell prompt) into a single atomic write.
+    ///
+    /// The store is snapshotted at the *debounce boundary*, not at call time, so
+    /// a burst of N signals costs one `snapshot()` rather than N (#316). Eager
+    /// capture is the more obvious shape and is a trap: the snapshot itself is
+    /// O(1) thanks to COW, but the pending Task then *retains* it, so the next
+    /// mutation has to detach the outer `groups` array and the affected group's
+    /// `sessions` array — turning a free copy into a per-signal one at the ~4 Hz
+    /// display-only title rate (#306, #313).
+    ///
+    /// What deferral costs: the write carries state from one MainActor turn
+    /// after the debounce elapses rather than from the turn that requested it.
+    /// Clean quit is unaffected — `flush` re-snapshots synchronously — and a
+    /// crash inside that turn loses the same title a crash during the 500 ms
+    /// debounce already loses.
+    ///
+    /// - Parameter afterSnapshotCapture: Runs on the MainActor immediately after
+    ///   each capture. Exists so a test can count captures across a burst; the
+    ///   coalescing guarantee is otherwise unobservable from outside, and
+    ///   `SessionStore` is `final` so `snapshot()` cannot be intercepted.
     static func save(
         _ store: SessionStore,
+        afterSnapshotCapture: @escaping @MainActor @Sendable () -> Void = {},
         completion: (@MainActor @Sendable (Result<Void, RecoverySnapshotReplacementError>) -> Void)? = nil
     ) {
-        guard blockedRecoveryWarningID == nil else {
-            pendingWrite?.cancel()
-            pendingWrite = nil
-            return
-        }
-        let snapshot = store.snapshot()
+        // No `pendingWrite` can exist while the gate is up: every transition
+        // into the blocked state cancels one. See `blockedRecoveryWarningID`.
+        guard blockedRecoveryWarningID == nil else { return }
         pendingWrite?.cancel()
         pendingWrite = Task.detached(priority: .utility) {
             try? await Task.sleep(for: debounceInterval)
             guard !Task.isCancelled else { return }
+            // Re-checked *inside* the hop as well as around it: a task
+            // superseded while this job waited in the MainActor queue would
+            // otherwise still pay the full `snapshot()` that deferring it here
+            // exists to avoid.
+            let snapshot = await MainActor.run { () -> SessionSnapshot? in
+                guard !Task.isCancelled else { return nil }
+                let captured = store.snapshot()
+                afterSnapshotCapture()
+                return captured
+            }
+            guard !Task.isCancelled, let snapshot else { return }
             let result = writeSnapshot(snapshot, isCancelled: { Task.isCancelled })
             guard !Task.isCancelled else { return }
             await completion?(result)
@@ -694,9 +737,18 @@ enum SessionPersistence {
             // `flush()`'s `task.cancel()` happens-before its own synchronous
             // `writeSnapshot`, so whichever holder wins this lock, the debounced
             // task either writes first (then flush overwrites) or sees cancelled
-            // and skips — it can never clobber flush's newer snapshot with stale
-            // bytes. `flush()` passes the default `{ false }`, so its write is
-            // never suppressed by ambient cancellation of the terminate context.
+            // and skips. `flush()` passes the default `{ false }`, so its write
+            // is never suppressed by ambient cancellation of the terminate
+            // context.
+            //
+            // Since #316 the debounced task snapshots at the debounce boundary,
+            // which inverts what this guard defends against: its bytes are no
+            // longer stale-but-harmless, they are *newer* than flush's and were
+            // captured after `applicationWillTerminate` began tearing state
+            // down. Cancellation is also the only channel through which a
+            // recovery warning raised mid-write can stop it — the off-MainActor
+            // writer cannot re-read `blockedRecoveryWarningID`. Removing this
+            // check now loses data on both paths.
             guard !isCancelled() else { return .success(()) }
             let snapshotPath = snapshotURL.path
             let snapshotIsUsable =
