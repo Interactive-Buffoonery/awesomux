@@ -3,6 +3,17 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
+// MARK: - Annotation handoff
+
+/// The provider-aware handoff affordance projected by the document group. The
+/// popover only presents this value; it does not inspect installation or runtime
+/// state itself.
+struct AnnotationHandoffPresentation {
+    let title: String
+    let isEnabled: Bool
+    let unavailableDescription: String?
+}
+
 // MARK: - FullCommentPopover
 
 /// Bigfoot-style annotation view shown when the user clicks a `•••` pill on an
@@ -23,6 +34,10 @@ struct FullCommentPopover: View {
     let onReply: (String) async -> AnnotationSaveOutcome
     var allowsEditing: Bool = true
     var onSubmissionChanged: (Bool) -> Void = { _ in }
+    /// The action uses the existing composer; this popover supplies only the
+    /// selected annotation id and never stages bytes itself.
+    var annotationHandoff: AnnotationHandoffPresentation? = nil
+    var onSendToAgent: (() -> Void)? = nil
 
     @State private var isEditing = false
     @State private var draft = ""
@@ -195,6 +210,47 @@ struct FullCommentPopover: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
+            }
+
+            if let annotationHandoff {
+                Divider()
+                    .padding(.horizontal, 12)
+                VStack(alignment: .leading, spacing: 5) {
+                    Button {
+                        onSendToAgent?()
+                    } label: {
+                        Label(annotationHandoff.title, systemImage: "paperplane")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.aw.mauve)
+                    .disabled(!annotationHandoff.isEnabled || onSendToAgent == nil)
+                    .help(
+                        annotationHandoff.unavailableDescription
+                            ?? String(
+                                localized: "Open the handoff composer for this annotation",
+                                comment: "Help text for the annotation send-to-agent button"
+                            )
+                    )
+                    .accessibilityHint(
+                        Text(
+                            annotationHandoff.unavailableDescription
+                                ?? String(
+                                    localized: "Opens the handoff composer with this annotation prioritized",
+                                    comment: "Accessibility hint for the annotation send-to-agent button"
+                                )
+                        )
+                    )
+
+                    if let reason = annotationHandoff.unavailableDescription {
+                        Text(reason)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
             }
 
             // Thread notes

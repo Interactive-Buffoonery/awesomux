@@ -279,7 +279,7 @@ struct DocumentNudgeForegroundGateTests {
         #expect(
             DocumentPaneSendBar.sendButtonTitle(
                 for: .unavailable(.agentNotReceptive(.claudeCode))
-            ) == "Send to Claude"
+            ) == "Send to Claude Code"
         )
         #expect(
             DocumentPaneSendBar.sendButtonTitle(

@@ -159,6 +159,13 @@ public struct RenderedDocument: Sendable {
         annotations.count { $0.anchor == .span && $0.status == .open }
     }
 
+    /// Open annotation ids in source/document order for provider handoff. This
+    /// includes the single document-level note as well as span annotations;
+    /// ids are the only annotation data that crosses into the staged prompt.
+    public var openAnnotationIDs: [String] {
+        annotations.filter { $0.status == .open }.map(\.id)
+    }
+
     /// Ids of resolved span annotations, for de-emphasized highlight rendering.
     public var resolvedAnnotationIDs: Set<String> {
         Set(annotations.filter { $0.anchor == .span && $0.status == .resolved }.map(\.id))
