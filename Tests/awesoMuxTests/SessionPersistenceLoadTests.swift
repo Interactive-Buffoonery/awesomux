@@ -567,6 +567,41 @@ struct SessionPersistenceLoadTests {
         }
     }
 
+    @Test("raising the recovery gate cancels a write that is already scheduled")
+    func recoveryGateCancelsAlreadyScheduledWrite() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let corruptedData = Data("{not-json".utf8)
+            try corruptedData.write(to: snapshotURL)
+
+            // The completion is the load-bearing assertion, not the bytes: it
+            // fires only once `writeSnapshot` has run, whatever directory the
+            // process-wide support-directory environment named by then. The byte
+            // check alone would pass vacuously if a concurrent suite swapped
+            // that environment during the wait below.
+            await confirmation("no write lands on the protected snapshot", expectedCount: 0) { wrote in
+                // A debounced write is already in flight when the gate goes up.
+                // The guard in `save` cannot see it: that write was scheduled
+                // while automatic writes were still allowed.
+                SessionPersistence.save(
+                    SessionStore(restoring: Self.snapshot(groupName: "in flight"))
+                ) { _ in wrote() }
+                let result = SessionPersistence.load()
+                #expect(result.recoveryWarning?.preventsInitialSave == true)
+
+                // Well past the debounce interval, so an uncancelled write has
+                // had its chance to clobber the protected snapshot.
+                try? await Task.sleep(for: SessionPersistence.debounceInterval * 3)
+            }
+
+            #expect(try Data(contentsOf: snapshotURL) == corruptedData)
+        }
+    }
+
     @Test("successful archive blocks termination flush until recovery is acknowledged")
     func successfulArchiveBlocksFlushUntilAcknowledged() throws {
         try Self.withTemporarySupportDirectory { tempDir in
