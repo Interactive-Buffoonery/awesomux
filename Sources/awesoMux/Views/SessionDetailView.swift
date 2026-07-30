@@ -23,6 +23,12 @@ struct SessionDetailView: View {
     let edgeTabVisibilitySource: SidebarVisibilitySource
     let sidebarPosition: AppearanceConfig.SidebarPosition
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    // Read here (ungated) and passed into the path bar as compared snapshots —
+    // an in-view environment read stales behind its `.equatable()` gate
+    // (PR #428). Free: `ContentView` above already reads `controlActiveState`,
+    // so this body was already re-running on every window activation.
+    @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.awAccent) private var accentResolver
     @State private var presentedPathBarMenu: PathBarMenu?
 
     var body: some View {
@@ -85,19 +91,34 @@ struct SessionDetailView: View {
                     }
                 }
 
-                TerminalPathBarView(
-                    session: session,
-                    sendTextToActivePane: { text in
-                        ghosttyRuntime.sendText(text, toPane: session.activePaneID)
-                    },
-                    sessionStore: sessionStore,
-                    isCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
-                    openInIDE: onOpenSelectedWorkspaceInIDE,
-                    openInIDEWithApp: onOpenSelectedWorkspaceInIDEWithApp,
-                    isOpenInIDEEnabled: appSettingsStore.workspaces.value.openInIDEEnabled,
-                    idePriority: appSettingsStore.workspaces.value.defaultIDEPriority,
-                    presentedMenu: $presentedPathBarMenu
-                )
+                // The scope, not the bar, is what a display-only title write
+                // invalidates (issue #311): it hands the bar a COMPARED
+                // `LiveTitles` value so its `.equatable()` gate can tell an
+                // active-pane title move (which must re-key the resolve — the
+                // only `git checkout` signal, INT-523) from a background pane's
+                // spinner (which must not re-diff this bar's ~30-node tree).
+                // `controlActiveState` and the accent are read out here for the
+                // same reason: an environment read made INSIDE a gated view
+                // stales behind the gate (PR #428).
+                LiveTitleScope(sessionID: session.id) { liveTitles in
+                    TerminalPathBarView(
+                        session: session,
+                        sendTextToActivePane: { text in
+                            ghosttyRuntime.sendText(text, toPane: session.activePaneID)
+                        },
+                        sessionStore: sessionStore,
+                        isCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
+                        openInIDE: onOpenSelectedWorkspaceInIDE,
+                        openInIDEWithApp: onOpenSelectedWorkspaceInIDEWithApp,
+                        isOpenInIDEEnabled: appSettingsStore.workspaces.value.openInIDEEnabled,
+                        idePriority: appSettingsStore.workspaces.value.defaultIDEPriority,
+                        isWindowActive: controlActiveState != .inactive,
+                        accent: accentResolver.accent,
+                        liveTitles: liveTitles,
+                        presentedMenu: $presentedPathBarMenu
+                    )
+                    .equatable()
+                }
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.size.height
                 } action: { height in

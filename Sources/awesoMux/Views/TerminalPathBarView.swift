@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -21,10 +22,23 @@ struct TerminalPathBarView: View {
     var openInIDEWithApp: ((URL, InstalledIDE) -> Void)?
     var isOpenInIDEEnabled = false
     var idePriority: [String] = []
+    /// Window-active state, snapshotted by the ungated mount site instead of read
+    /// from `@Environment` here: this view sits behind `.equatable()`, and an
+    /// environment read made inside a gated view stales behind the gate (PR #428)
+    /// — which would silently drop the re-resolve that catches a `git checkout`
+    /// made while the window was in the background.
+    var isWindowActive: Bool = true
+    /// Same `.equatable()` treatment for the accent the branch / open-target
+    /// foldouts tint themselves with.
+    var accent: AwAccent = .peach
+    /// The workspace's CURRENT titles, snapshotted by the enclosing
+    /// `LiveTitleScope`. A display-only OSC title write updates store storage
+    /// without publishing `groups` (issue #311), so `session` here can carry a
+    /// title minutes old — and this bar's title inputs are the ONLY signal that
+    /// an in-place `git checkout` reaches the branch chip (INT-523).
+    var liveTitles: LiveTitles = .unavailable
     @Binding var presentedMenu: PathBarMenu?
 
-    @Environment(\.controlActiveState) private var controlActiveState
-    @Environment(\.awAccent) private var accentResolver
     @State private var model: TerminalPathBarModel = .placeholder
     @State private var installedIDEs: [InstalledIDE] = []
     @State private var ideTargetURLForOpenMenu: URL?
@@ -79,14 +93,14 @@ struct TerminalPathBarView: View {
             // were in the background. Live HEAD watching remains a tracked follow-up.
             // Bridge-pane cwd poll — independent of `resolveKey`. Runs ONLY when
             // the command-bridge feature is on AND the active pane carries an
-            // established bridge session. The key intentionally omits
-            // `workingDirectory`: for a bridge pane that's the stale value (the
-            // daemon shell never emits OSC 7), so keying on it would prevent the
-            // poll from restarting after a cwd update writes back. Re-keying on
-            // pane identity + focus is enough: a pane switch or feature-toggle
-            // restarts the loop, and `.task(id:)` cancels the old loop on any key
-            // change, stopping the poll when the view disappears or the pane
-            // loses focus. The polled value tracks the FOREGROUND JOB's cwd
+            // established bridge session — which it does not on first render, so
+            // the key has to carry the establishment flag or this task is never
+            // re-created and the poll never starts (see `bridgePollKey`). The key
+            // intentionally omits `workingDirectory`: for a bridge pane that's
+            // the stale value (the daemon shell never emits OSC 7), so keying on
+            // it would restart the poll on every write-back. `.task(id:)` cancels
+            // the old loop on any key change, stopping the poll when the view
+            // disappears or the pane loses focus. The polled value tracks the FOREGROUND JOB's cwd
             // (not just the shell's), so the bar can legitimately move without
             // a user `cd` — e.g. while an agent or build works elsewhere.
             .task(id: bridgePollKey) {
@@ -113,14 +127,13 @@ struct TerminalPathBarView: View {
                     // (store churn + redundant SwiftUI invalidation). The store's
                     // current value reflects prior write-backs.
                     //
-                    // Also RE-CHECK bridge-pane status here: when a daemon errors
-                    // out or falls back to a local shell, terminalBackendMetadata
-                    // is cleared to .empty — but bridgePollKey deliberately omits
-                    // metadata, so this already-running loop is NOT cancelled by
-                    // that change (only a NEW task instance would re-evaluate the
-                    // start guard). Without this, the poll keeps spawning
-                    // `amx cwd <dead-id>` every ~4s on a latched/exited pane for
-                    // the view's whole lifetime. Stop when it's no longer a bridge.
+                    // Also RE-CHECK bridge-pane status here. A cleared
+                    // `terminalBackendMetadata` now moves `bridgePollKey`, so that
+                    // case tears the loop down immediately; what this covers is
+                    // the case where the daemon dies and the STORE is never told,
+                    // so no key field moves at all. Without it the poll keeps
+                    // spawning `amx cwd <dead-id>` every ~4 s on a latched/exited
+                    // pane for the view's whole lifetime.
                     guard
                         let livePane = sessionStore?.session(id: workspaceID)?
                             .layout.pane(id: paneID),
@@ -176,7 +189,7 @@ struct TerminalPathBarView: View {
                     executionPlan: activeExecutionPlan,
                     remoteHost: activeHost,
                     remoteConnectionHealth: activeHealth,
-                    isActive: controlActiveState != .inactive
+                    isActive: isWindowActive
                 )
 
                 // Remote (SSH) pane: the local cwd/branch/git state is the STALE
@@ -328,14 +341,41 @@ struct TerminalPathBarView: View {
             }
     }
 
+    /// The DISPLAYED workspace title — the live one where a channel supplied it.
+    ///
+    /// `nonisolated` because `renderKey` feeds `Equatable.==`, which is not
+    /// main-actor; it reads only value types, so there is nothing to isolate.
+    nonisolated private var displayedWorkspaceTitle: String {
+        liveTitles.workspaceTitle(for: session)
+    }
+
+    /// The DISPLAYED title of the ACTIVE pane only.
+    ///
+    /// Deliberately not a fold over every pane: a background pane's spinner must
+    /// not move this bar's inputs (issue #311). It is also the load-bearing half
+    /// of INT-523 — an in-place `git checkout` leaves the cwd alone and moves
+    /// only the prompt-embedded title of the pane the user typed in, which is
+    /// this one.
+    /// `nonisolated` for the same reason as `displayedWorkspaceTitle`.
+    nonisolated private var displayedActivePaneTitle: String {
+        guard let pane = session.activePane else { return displayedWorkspaceTitle }
+        return liveTitles.paneTitle(for: pane)
+    }
+
     private var resolveKey: ResolveKey {
         let pane = session.activePane
+        // Live titles, not the struct's. A display-only OSC title write doesn't
+        // publish `groups`, so `session` here can carry a title minutes old —
+        // and this key's title inputs are the ONLY signal that an in-place
+        // `git checkout` (cwd unchanged, prompt title changed) reaches the
+        // branch chip (INT-523). The settle debounce in the resolve task still
+        // absorbs the churn; what must not happen is never hearing it at all.
         return ResolveKey(
             activePaneID: pane?.id,
             workingDirectory: pane?.workingDirectory ?? session.workingDirectory,
-            paneTitle: pane?.title ?? session.title,
-            fallbackProject: session.title,
-            isActive: controlActiveState != .inactive,
+            paneTitle: displayedActivePaneTitle,
+            fallbackProject: displayedWorkspaceTitle,
+            isActive: isWindowActive,
             executionPlan: pane?.executionPlan ?? .local,
             remoteHost: pane?.remotePresentationHost,
             remoteConnectionHealth: pane?.remoteConnectionHealth ?? .active
@@ -357,14 +397,33 @@ struct TerminalPathBarView: View {
     ///
     /// Deliberately omits `workingDirectory`: for a bridge pane that is always
     /// the stale OSC-7 value, so including it would cause the poll to restart on
-    /// every write-back, spinning forever. Pane identity + feature flag + focus
-    /// state is the correct minimal key: a pane switch, feature toggle, or window
-    /// focus change restarts the poll; everything else lets it run uninterrupted.
-    private var bridgePollKey: BridgePollKey {
-        BridgePollKey(
-            activePaneID: session.activePane?.id,
+    /// every write-back, spinning forever. That is the only field whose churn is
+    /// self-inflicted; everything the task body *captures* has to be here.
+    ///
+    /// It therefore includes the establishment flag and the AMX session id. A
+    /// normal surface renders first with `.empty` metadata and only publishes
+    /// `established` after spawning, so `empty → established` is the ONLY moment
+    /// the poll can legitimately begin — and a key that cannot see it leaves the
+    /// task never re-created and the poll never started.
+    ///
+    /// The falling edge (`established → empty`, e.g. a daemon that fell back to a
+    /// local shell) now also re-creates the task, which immediately fails the
+    /// start guard and returns. That replaces the in-loop re-check's ≤4 s
+    /// detection with an immediate teardown; the in-loop re-check stays as the
+    /// backstop for a session that dies WITHOUT the store being told, where no
+    /// key field moves at all.
+    /// Not `private` so the render-gate tests can assert it directly: this key is
+    /// only reachable through `body`, which the `.equatable()` gate can suppress,
+    /// so "the key is right" and "the key is reached" are separate claims.
+    var bridgePollKey: BridgePollKey {
+        let pane = session.activePane
+        return BridgePollKey(
+            activePaneID: pane?.id,
+            terminalSessionID: pane?.terminalSessionID,
+            isBridgeEstablished: pane?.terminalBackendMetadata
+                == AmxBackend.establishedSessionMetadata,
             isCommandBridgeEnabled: isCommandBridgeEnabled,
-            isActive: controlActiveState != .inactive
+            isActive: isWindowActive
         )
     }
 
@@ -591,7 +650,7 @@ struct TerminalPathBarView: View {
                                 currentBranch: currentBranchForMenu,
                                 otherBranches: branchesForMenu,
                                 canInsertCheckout: session.activeAgentKind == .shell,
-                                accent: Color.aw.accent(accentResolver.accent),
+                                accent: Color.aw.accent(accent),
                                 onSelect: { selected in
                                     presentedMenu = nil
                                     if session.activeAgentKind == .shell {
@@ -774,7 +833,7 @@ struct TerminalPathBarView: View {
                         OpenTargetMenu(
                             installedIDEs: orderedInstalledIDEs,
                             showsIDEOptions: ideTargetURLForOpenMenu != nil,
-                            accent: Color.aw.accent(accentResolver.accent),
+                            accent: Color.aw.accent(accent),
                             appIcon: { AnyView(appIcon(for: $0)) },
                             onOpenInIDEWithApp: { ide in
                                 presentedMenu = nil
@@ -974,5 +1033,124 @@ struct TerminalPathBarView: View {
     private func copyURL(_ url: URL) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    }
+}
+
+// MARK: - Render gate
+
+extension TerminalPathBarView: Equatable {
+    /// Everything `body` renders or keys a `.task` on that is NOT `@State`.
+    ///
+    /// Full non-closure stored-property enumeration of `TerminalPathBarView`, so
+    /// a reviewer can diff key fields against stored properties without leaving
+    /// this comment:
+    ///   session, sendTextToActivePane (closure), sessionStore (stable ref),
+    ///   isCommandBridgeEnabled, openInIDE (closure), openInIDEWithApp (closure),
+    ///   isOpenInIDEEnabled, idePriority, isWindowActive, accent, liveTitles,
+    ///   presentedMenu (@Binding), and the twelve `@State`s.
+    ///
+    /// `@State` needs no field: a state write invalidates this view directly, so
+    /// `model`'s resolve results still paint through the gate. `sessionStore` is
+    /// a stable reference held for the bar's whole lifetime. The closures capture
+    /// only stable references plus `session.activePaneID`, which IS keyed — so a
+    /// pane switch rebuilds them rather than leaving a stale capture.
+    ///
+    /// **Getting this list wrong freezes the bar silently.** Two fields carry the
+    /// change's own risk:
+    ///
+    /// - `activePaneTitle` is the ONLY route by which an in-place `git checkout`
+    ///   (cwd unchanged, prompt-embedded title changed) reaches the branch chip
+    ///   (INT-523). Drop it and the chip shows the pre-checkout branch until
+    ///   something else moves.
+    /// - It is deliberately the ACTIVE pane's title alone. Folding every pane
+    ///   would put this bar's ~30-node accessibility-heavy tree back on a
+    ///   BACKGROUND pane's spinner, which is the cost this gate removes
+    ///   (issue #311).
+    ///
+    /// Both `bridgePollKey` fields that are not already shared with `resolveKey`
+    /// are keyed here too, and they have to be: this gate runs FIRST. `body` is
+    /// what evaluates `.task(id: bridgePollKey)`, so a `bridgePollKey` field the
+    /// render key omits is a field `.task(id:)` never re-reads — the poll key
+    /// would be correct and unreachable. That is what made a bridge pane's poll
+    /// never start: `empty → established` moved nothing either key compared.
+    ///
+    /// Coverage of the three derived keys `body` builds, so the audit is
+    /// mechanical rather than remembered:
+    ///   - `resolveKey`: activePaneID, activePaneWorkingDirectory /
+    ///     sessionWorkingDirectory, activePaneTitle, workspaceTitle,
+    ///     isWindowActive, executionPlan, remoteHost, remoteConnectionHealth.
+    ///   - `menuDismissKey`: a subset of the above.
+    ///   - `bridgePollKey`: activePaneID, activePaneTerminalSessionID,
+    ///     isActivePaneBridgeEstablished, isCommandBridgeEnabled, isWindowActive.
+    ///     Its deliberate omission (`workingDirectory`) is keyed here, which is
+    ///     correct: the bar DISPLAYS the path even though the poll must not
+    ///     restart on it.
+    /// Everything else the body reads off `session` is `activeAgentKind` (chip
+    /// command-injection gate) and `PathBarExecutionAnnouncementState`, which is
+    /// derived from executionPlan + remoteConnectionHealth. Both keyed.
+    nonisolated private var renderKey: RenderKey {
+        let pane = session.activePane
+        return RenderKey(
+            sessionID: session.id,
+            activePaneID: pane?.id,
+            activePaneTerminalSessionID: pane?.terminalSessionID,
+            isActivePaneBridgeEstablished: pane?.terminalBackendMetadata
+                == AmxBackend.establishedSessionMetadata,
+            sessionWorkingDirectory: session.workingDirectory,
+            activePaneWorkingDirectory: pane?.workingDirectory,
+            executionPlan: pane?.executionPlan ?? .local,
+            remoteHost: pane?.remotePresentationHost,
+            remoteConnectionHealth: pane?.remoteConnectionHealth ?? .active,
+            activeAgentKind: session.activeAgentKind,
+            workspaceTitle: displayedWorkspaceTitle,
+            activePaneTitle: displayedActivePaneTitle,
+            isCommandBridgeEnabled: isCommandBridgeEnabled,
+            isOpenInIDEEnabled: isOpenInIDEEnabled,
+            idePriority: idePriority,
+            // Read through the wrapper storage: the `presentedMenu` accessor is
+            // main-actor isolated, and this key feeds a nonisolated `==`.
+            presentedMenu: _presentedMenu.wrappedValue,
+            isWindowActive: isWindowActive,
+            accent: accent
+        )
+    }
+
+    fileprivate struct RenderKey: Equatable {
+        let sessionID: TerminalSession.ID
+        let activePaneID: TerminalPane.ID?
+        /// `bridgePollKey` field. The AMX session the cwd poll queries; a
+        /// same-pane replacement swaps it without moving `activePaneID`.
+        let activePaneTerminalSessionID: TerminalSessionID?
+        /// `bridgePollKey` field. The poll's start guard, and the one that
+        /// flips AFTER first render — see `renderKey`'s doc comment.
+        let isActivePaneBridgeEstablished: Bool
+        /// The fallback `resolveKey`, `menuDismissKey`, and the IDE target all
+        /// use when the active pane has no cwd of its own.
+        let sessionWorkingDirectory: String
+        let activePaneWorkingDirectory: String?
+        let executionPlan: PaneExecutionPlan
+        let remoteHost: String?
+        /// Drives the remote indicator's icon/copy AND the spoken
+        /// `PathBarExecutionAnnouncement` transition.
+        let remoteConnectionHealth: RemoteConnectionHealth
+        /// Gates whether the PR / CI / branch foldouts may TYPE a command into
+        /// the pane. A shell→agent transition that skipped the gate would keep
+        /// offering to inject into an agent's stdin.
+        let activeAgentKind: AgentKind
+        let workspaceTitle: String
+        let activePaneTitle: String
+        let isCommandBridgeEnabled: Bool
+        let isOpenInIDEEnabled: Bool
+        let idePriority: [String]
+        /// The `@Binding`'s VALUE: the parent owns the presented-menu state, so
+        /// without this the foldouts would never open (the parent re-creates this
+        /// view, the gate compares equal, and `body` never re-runs).
+        let presentedMenu: PathBarMenu?
+        let isWindowActive: Bool
+        let accent: AwAccent
+    }
+
+    nonisolated static func == (lhs: TerminalPathBarView, rhs: TerminalPathBarView) -> Bool {
+        lhs.renderKey == rhs.renderKey
     }
 }

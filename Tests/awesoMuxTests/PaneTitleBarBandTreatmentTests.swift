@@ -128,4 +128,44 @@ struct PaneTitleBarBandTreatmentTests {
         #expect(remotePane.remotePresentationHost == "alice@buildbox")
         #expect(local != remote)
     }
+
+    @Test("a display-only title write participates in equality (#311)")
+    func liveTitleParticipatesInEquality() throws {
+        let pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        let session = TerminalSession(
+            title: "workspace",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "group", sessions: [session])])
+        let coordinator = PaneDragCoordinator()
+        let runtime = GhosttyRuntime()
+        let box = store.liveTitleBox(for: session.id)
+
+        // `session`/`pane` are the values the ungated parent last handed down.
+        // A display-only title write doesn't publish `groups`, so they stay
+        // exactly as captured — only the box moves.
+        func bar(_ liveTitles: LiveTitles) -> PaneTitleBarView {
+            PaneTitleBarView(
+                session: session,
+                pane: pane,
+                sessionStore: store,
+                dragCoordinator: coordinator,
+                runtime: runtime,
+                reduceTransparency: false,
+                liveTitles: liveTitles
+            )
+        }
+
+        let before = bar(LiveTitles(box: box))
+        store.updatePane(sessionID: session.id, paneID: pane.id, title: "cargo build")
+
+        #expect(box.paneTitles[pane.id] == "cargo build")
+        #expect(bar(LiveTitles(box: box)) != before)
+        #expect(bar(LiveTitles(box: box)).displayedTitle == "cargo build")
+        // Control: with no channel the same pair compares EQUAL — the bar
+        // would freeze at the title of the last unrelated store publish.
+        #expect(bar(.unavailable) == bar(.unavailable))
+    }
 }

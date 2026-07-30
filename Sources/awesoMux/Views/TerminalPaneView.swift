@@ -61,6 +61,10 @@ struct TerminalPaneView: View {
                 abutsWindowTop: abutsWindowTop
             )
             .background(Color.aw.surface.terminal)
+            // Injected here rather than at one app root: the floating panel and
+            // pop-up terminal host their own detached SwiftUI trees, and every
+            // one of them reaches its pane title bars through this view.
+            .liveTitleChannels(from: sessionStore)
             // Reading the runtime's resolved background here (not deeper) keeps
             // the @Observable dependency at this layer so the stripe restyles
             // when the terminal theme changes.
@@ -185,17 +189,24 @@ struct TerminalPaneLayoutView: View {
                     .frame(height: PaneFocusAccent.reservedHeight)
 
                     if isMultiPane {
-                        PaneTitleBarView(
-                            session: session,
-                            pane: pane,
-                            sessionStore: sessionStore,
-                            dragCoordinator: dragCoordinator,
-                            runtime: runtime,
-                            reduceTransparency: reduceTransparency
-                        )
-                        // Skip re-render when this bar's inputs are unchanged —
-                        // a sibling-pane retitle re-evaluates this whole tree.
-                        .equatable()
+                        // The scope, not this body, is what a display-only
+                        // title write invalidates — reading the box here would
+                        // re-run the surface representable's `updateNSView`
+                        // on every spinner frame (issue #311).
+                        LiveTitleScope(sessionID: session.id, reads: .paneTitle(pane.id)) { liveTitles in
+                            PaneTitleBarView(
+                                session: session,
+                                pane: pane,
+                                sessionStore: sessionStore,
+                                dragCoordinator: dragCoordinator,
+                                runtime: runtime,
+                                reduceTransparency: reduceTransparency,
+                                liveTitles: liveTitles
+                            )
+                            // Skip re-render when this bar's inputs are unchanged —
+                            // a sibling-pane retitle re-evaluates this whole tree.
+                            .equatable()
+                        }
                     }
 
                     // Nested GeometryReader so the surface gets its TRUE remaining

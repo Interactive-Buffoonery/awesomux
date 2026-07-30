@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -38,6 +39,17 @@ struct MenuDismissKey: Equatable {
 /// the poll on every write-back, creating a spin loop.
 struct BridgePollKey: Equatable {
     let activePaneID: TerminalPane.ID?
+    /// The AMX session the loop QUERIES. A same-pane replacement (recycle,
+    /// respawn, restore-time regeneration) keeps `activePaneID` and swaps this,
+    /// and the task captures it once at start — so without it the loop keeps
+    /// polling `amx cwd` against the retired session id forever.
+    let terminalSessionID: TerminalSessionID?
+    /// Whether the active pane carries established bridge metadata — the poll's
+    /// own start guard. A surface publishes `established` only AFTER it spawns,
+    /// so a pane's first render is always `.empty`; without this field the
+    /// reconstructed key compares equal on that flip, `.task(id:)` never
+    /// re-evaluates, and the poll never starts at all.
+    let isBridgeEstablished: Bool
     let isCommandBridgeEnabled: Bool
     let isActive: Bool
 }

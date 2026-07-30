@@ -718,7 +718,8 @@ extension SessionStore {
         paneID: TerminalPane.ID,
         title: String? = nil,
         workingDirectory: String? = nil,
-        progressReport: TerminalProgressReport? = nil
+        progressReport: TerminalProgressReport? = nil,
+        now: Date = Date()
     ) {
         guard let position = position(for: sessionID) else {
             return
@@ -740,16 +741,72 @@ extension SessionStore {
         }
 
         let isRemote = session.layout.pane(id: paneID)?.remotePresentationHost != nil
-        _groups[position.groupIndex].sessions[position.sessionIndex] = session
-        var remoteMembership: [TerminalPane.ID: Bool] = [:]
-        if isRemote {
-            remoteMembership[paneID] = true
-        } else if wasRemote {
-            remoteMembership[paneID] = false
+
+        // An agent spinner reports ~10 titles/sec. Publishing `groups` for one
+        // is what costs ~100 ms of app-wide invalidation (issue #311), so a
+        // report that moved nothing but chrome text lands silently and notifies
+        // the session's own live-title channel instead. Storage stays current
+        // either way, so every reader that takes `title` off the struct is
+        // unaffected — it simply stops being *re-run* by a spinner frame.
+        //
+        // Classified by comparing the pane the reducer produced against the one
+        // it started from, not by which arguments were non-nil: `title:` alone
+        // can move remote identity through `RemoteSessionDetector`, and the
+        // reducer's own sanitisation decides what actually changed. The reducer
+        // gates its own early-out on the same function, so the two cannot
+        // disagree about what a durable field is.
+        if paneChangeKind(in: oldSession, and: session, paneID: paneID) == .durable {
+            // The box refresh rides `_groups`' accessors — see
+            // `refreshLiveTitleBoxes`. A publishing report moves a title too
+            // (title + cwd in one report is an ordinary `cd` in a prompt hook),
+            // and leaving the channel behind here would let it shadow the
+            // struct forever.
+            _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        } else {
+            // A report against an inactive, user-edited pane moves nothing but
+            // `liveTerminalTitle`, which is runtime-only and rendered nowhere —
+            // `resetPaneTitle` is its only reader. Storage still takes it, so
+            // reset keeps working; the notification and the save do not, because
+            // there is nothing to repaint and nothing new to persist.
+            let displayedTitleMoved =
+                session.title != oldSession.title
+                || session.layout.pane(id: paneID)?.title != oldSession.layout.pane(id: paneID)?.title
+            withSilentGroupMutation { $0[position.groupIndex].sessions[position.sessionIndex] = session }
+            if displayedTitleMoved {
+                publishLiveTitle(paneID: paneID, in: session)
+                bumpLiveTitleGenerationIfDue(sessionID: sessionID, now: now)
+                // Last, so a handler that snapshots the store sees the new title
+                // and a fully caught-up live-title channel.
+                onDisplayOnlyTitleWrite?()
+            }
         }
-        if !remoteMembership.isEmpty {
-            commit(WorkspaceMutationEffect(remotePaneMembership: remoteMembership))
+
+        // Only on an actual transition. Emitting membership on every remote
+        // title report (as this did) would commit — and therefore publish
+        // `groups` via the lifted-list reconcile — for every spinner frame on
+        // an SSH workspace, leaving remote panes paying the full cost. Both
+        // `remotePaneIDs` edits are set insert/remove, so re-emitting an
+        // unchanged membership was a no-op for the index.
+        if isRemote != wasRemote {
+            commit(WorkspaceMutationEffect(remotePaneMembership: [paneID: isRemote]))
         }
+    }
+
+    /// Lifts `PaneLayoutReducer.paneChangeKind` to the two sessions the facade
+    /// has in hand. A missing pane reports `.durable`: the reducer only returns
+    /// a session when the pane exists, so a nil here means an assumption broke
+    /// and the safe answer is the old always-publish behaviour.
+    private func paneChangeKind(
+        in oldSession: TerminalSession,
+        and newSession: TerminalSession,
+        paneID: TerminalPane.ID
+    ) -> PaneLayoutReducer.PaneChangeKind {
+        guard let old = oldSession.layout.pane(id: paneID),
+            let new = newSession.layout.pane(id: paneID)
+        else {
+            return .durable
+        }
+        return PaneLayoutReducer.paneChangeKind(from: old, to: new)
     }
 
     public func noteSubmittedCommand(
@@ -939,6 +996,7 @@ extension SessionStore {
         if pinnedSessionIDs.contains(where: { index.positionsBySessionID[$0] == nil }) {
             pinnedSessionIDs.removeAll { index.positionsBySessionID[$0] == nil }
         }
+        reconcileLiveTitleBoxes()
     }
 
     func recordRecentlyClosed(_ entry: RecentlyClosedWorkspace, now: Date) {

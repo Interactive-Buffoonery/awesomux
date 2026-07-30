@@ -38,7 +38,15 @@ struct PopUpTerminalCornerTabView: View {
     }
 
     private var state: CornerTabState {
-        CornerTabState.resolve(
+        // `resolve` names the tab after the active pane's title, which a
+        // display-only OSC write moves without publishing `groups` (issue #311)
+        // — so the minimized tab would keep advertising whatever command was
+        // running at the last unrelated publish. Read for the dependency only:
+        // `resolve` re-reads the pane below. The pop-up terminal runs its own
+        // `SessionStore` instance (`PopUpTerminalStoreFactory`), but it is the
+        // same class, so the same generation channel applies.
+        _ = sessionStore.liveTitleGeneration
+        return CornerTabState.resolve(
             session: sessionStore.selectedSession,
             fallbackCommand: fallbackCommandLabel,
             fallbackDirectory: WorkingDirectoryValidator.canonicalHomeDirectory

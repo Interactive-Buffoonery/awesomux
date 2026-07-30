@@ -74,6 +74,12 @@ struct SidebarSessionTile: View {
     /// equal and the field is inert. A plain `Bool` captured per-instance
     /// doesn't have that problem.
     let isKeyboardNavigatingValue: Bool
+    /// The workspace's CURRENT titles, snapshotted by the enclosing
+    /// `LiveTitleScope`. A display-only OSC title write updates store storage
+    /// without publishing `groups` (issue #311), so `session` here can carry a
+    /// title several seconds old — these are what the row renders, and what
+    /// `RenderKey` compares so the row actually repaints when they move.
+    var liveTitles: LiveTitles = .unavailable
     /// Write-only plumbing: every read of keyboard-navigation state goes
     /// through `isKeyboardNavigatingValue` above. This binding exists solely
     /// so the tap handler and hover handler can clear keyboard-modality
@@ -213,7 +219,8 @@ struct SidebarSessionTile: View {
                         location: location,
                         tint: tint,
                         frame: tileFrame,
-                        position: appSettingsStore.appearance.value.sidebarPosition
+                        position: appSettingsStore.appearance.value.sidebarPosition,
+                        liveTitles: liveTitles
                     )
                 } else if session.layout.paneCount > 1 {
                     // Multi-pane card is hittable — graced hide so the pointer
@@ -236,7 +243,13 @@ struct SidebarSessionTile: View {
                 // change while the pointer rests on the rail tile. Keyed on the
                 // peek's render projection, NOT `session` equality, so a shell
                 // idle↔busy flip (excluded from `==`) still refreshes the card (S4).
-                peekModel.refresh(session: session, location: session.sidebarLocation, tint: tint)
+                refreshPeek()
+            }
+            // A display-only title write leaves `peekRefreshKey` untouched, so
+            // the open card would keep naming panes by their last published
+            // title while the pointer rests on the row (issue #311).
+            .onChange(of: liveTitles) { _, _ in
+                refreshPeek()
             }
             .onDisappear {
                 isHovered = false
@@ -302,7 +315,7 @@ struct SidebarSessionTile: View {
                 // Reuse the same wired closure the card's row clicks use, so select
                 // + focus + per-pane ack stays identical across mouse and VoiceOver.
                 if session.layout.paneCount > 1 {
-                    ForEach(PanePeekItem.items(for: session)) { item in
+                    ForEach(PanePeekItem.items(for: session, liveTitles: liveTitles)) { item in
                         Button(paneJumpActionLabel(item)) {
                             peekModel.onSelectPane?(session.id, item.id)
                         }
@@ -454,6 +467,17 @@ struct SidebarSessionTile: View {
     /// shows everything inline, so a card there would just restate it.
     private var canPeek: Bool {
         displayMode == .collapsed || session.layout.paneCount > 1
+    }
+
+    /// Re-publishes this row's peek content. Id-guarded inside the model, so
+    /// calling it for a row that doesn't own the card is a no-op.
+    private func refreshPeek() {
+        peekModel.refresh(
+            session: session,
+            location: session.sidebarLocation,
+            tint: tint,
+            liveTitles: liveTitles
+        )
     }
 
     private func updatePeekVisibility() {
@@ -610,13 +634,41 @@ struct SidebarSessionTile: View {
     /// was the matched haystack, plain Text otherwise. Base color is baked
     /// into the AttributedString so search-match emphasis keeps an accessible
     /// foreground instead of falling back to a lower-contrast accent token.
+    /// Keep in lockstep with `accessibilityTitleOverride` below — the two must
+    /// take the SAME branch, or VoiceOver names a workspace differently from the
+    /// text on screen.
     private var titleText: Text {
         if let match, match.field == .title {
+            // Deliberately the STRUCT title, not the live one: `match.ranges`
+            // are `String.Index`es into the title the search projection scored,
+            // and `highlighted` asserts when a range doesn't map into the
+            // string it's given. The projection re-runs on `groups` publishes
+            // and on the coalesced live-title generation, so a live title can
+            // still be ahead of its ranges within one tick — provenance has to
+            // win over freshness for the two to stay in agreement.
             Text(highlighted(session.title, ranges: match.ranges, base: Color.aw.text))
         } else {
-            Text(session.title)
+            Text(liveTitles.workspaceTitle(for: session))
                 .foregroundStyle(Color.aw.text)
         }
+    }
+
+    /// The title the row's accessibility label must speak, branching exactly as
+    /// `titleText` renders.
+    ///
+    /// `nil` on the search-match branch so the label falls back to
+    /// `session.displayTitle(bundle:locale:)` — the same struct title the
+    /// highlighted text shows, via the localized synthetic-title path a raw
+    /// string would bypass.
+    ///
+    /// `internal` so the branch pairing is testable: `titleText` returns a `Text`,
+    /// whose string is not readable back, so this is the only side of the pair a
+    /// test can pin.
+    var accessibilityTitleOverride: String? {
+        if let match, match.field == .title {
+            return nil
+        }
+        return liveTitles.workspace
     }
 
     @ViewBuilder
@@ -875,7 +927,11 @@ struct SidebarSessionTile: View {
         rollup: SessionAgentRollup
     ) -> String {
         var parts = [
-            Self.workspaceIdentityAccessibilityLabel(session: session, rollup: rollup),
+            Self.workspaceIdentityAccessibilityLabel(
+                session: session,
+                rollup: rollup,
+                title: accessibilityTitleOverride
+            ),
             locationAccessibilityLabel(location: location),
         ]
 
@@ -902,14 +958,19 @@ struct SidebarSessionTile: View {
         return parts.joined(separator: ", ")
     }
 
+    /// `title` overrides the session's own title with the live one when a
+    /// channel is available — VoiceOver must hear the title the row shows, not
+    /// the one the last `groups` publish left behind. The synthetic-title
+    /// localization path stays on `session` for callers that pass nil.
     static func workspaceIdentityAccessibilityLabel(
         session: TerminalSession,
         rollup: SessionAgentRollup,
+        title: String? = nil,
         bundle: Bundle = .main,
         locale: Locale = .current
     ) -> String {
         SidebarVisibleRows.workspaceAccessibilityLabel(
-            title: session.displayTitle(bundle: bundle, locale: locale),
+            title: title ?? session.displayTitle(bundle: bundle, locale: locale),
             agentKind: rollup.winningAgentKind,
             state: rollup.state,
             bundle: bundle,
@@ -1143,7 +1204,12 @@ extension SidebarSessionTile: Equatable {
     nonisolated private var renderKey: RenderKey {
         RenderKey(
             sessionID: session.id,
-            title: session.title,
+            // The DISPLAYED titles, not the struct's — a display-only OSC title
+            // write never publishes `groups`, so a key built from `session`
+            // alone compares equal forever and the row never repaints while an
+            // agent spinner runs (issue #311, the change's highest-consequence
+            // failure mode).
+            title: liveTitles.workspaceTitle(for: session),
             location: session.sidebarLocation,
             notificationsMuted: session.notificationsMuted,
             sessionWorkingDirectory: session.workingDirectory,
@@ -1156,7 +1222,7 @@ extension SidebarSessionTile: Equatable {
                     unread: pane.unreadNotificationCount,
                     attentionReason: pane.attentionReason,
                     progressReport: pane.progressReport,
-                    title: pane.title,
+                    title: liveTitles.paneTitle(for: pane),
                     remoteHost: pane.remotePresentationHost,
                     workingDirectory: pane.workingDirectory
                 )

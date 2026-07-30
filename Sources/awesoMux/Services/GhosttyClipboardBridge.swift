@@ -201,7 +201,13 @@ extension GhosttyRuntime {
                 await resolveClipboardConfirmationRequest(
                     data: requestData,
                     requestKind: requestKind,
-                    paneTitle: view.pane.title,
+                    // The LIVE title, not the cached `pane`: this dialog asks the
+                    // user to authorise a clipboard read *for a named pane*, and
+                    // `pane` is only refreshed by `updateNSView`, which a
+                    // display-only title write no longer triggers (issue #311).
+                    // Naming a title the user can no longer see on screen makes
+                    // the permission decision unjudgeable.
+                    paneTitle: view.liveTitle,
                     parentWindow: view.window,
                     confirmClipboardRead: confirmClipboardRead
                 ) { data, confirmed in

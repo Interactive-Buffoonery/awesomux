@@ -25,6 +25,11 @@ struct PaneTitleBarView: View {
     /// Passed from the ungated pane-layout parent so a live accessibility
     /// environment update crosses this view's `.equatable()` optimization.
     let reduceTransparency: Bool
+    /// The workspace's CURRENT pane titles, snapshotted by the enclosing
+    /// `LiveTitleScope`. Display-only OSC title writes don't publish `groups`
+    /// (issue #311), so `pane` here can carry a stale title — these are what
+    /// the bar shows, and what `==` compares so it repaints when they move.
+    var liveTitles: LiveTitles = .unavailable
 
     @State private var isEditing = false
     @State private var draft = ""
@@ -39,7 +44,7 @@ struct PaneTitleBarView: View {
         // Computed once — used by both the Text and its a11y label below; this
         // body re-runs whenever ANY pane in the tree is retitled (the session
         // struct flows down by value), so avoid the double string alloc.
-        let title = Self.displayTitle(for: pane)
+        let title = displayedTitle
         return HStack(spacing: 6) {
             // No leading agent glyph in v1: `AwAgentIcon` has no plain
             // `systemImageName` (Codex-verified), and the agent state is already
@@ -305,10 +310,24 @@ struct PaneTitleBarView: View {
     /// `nonisolated` so the pure logic is callable off the main actor (the view
     /// itself is implicitly `@MainActor`); the unit test exercises it directly.
     nonisolated static func displayTitle(for pane: TerminalPane) -> String {
-        let trimmed = pane.title.trimmingCharacters(in: .whitespaces)
+        displayTitle(title: pane.title, workingDirectory: pane.workingDirectory)
+    }
+
+    /// Same derivation against a title supplied separately, for callers holding
+    /// a live title that the `pane` value hasn't caught up with (issue #311).
+    nonisolated static func displayTitle(title: String, workingDirectory: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty { return trimmed }
-        let basename = (pane.workingDirectory as NSString).lastPathComponent
-        return basename.isEmpty ? pane.workingDirectory : basename
+        let basename = (workingDirectory as NSString).lastPathComponent
+        return basename.isEmpty ? workingDirectory : basename
+    }
+
+    /// What the bar renders — the live title when a channel supplied one.
+    nonisolated var displayedTitle: String {
+        Self.displayTitle(
+            title: liveTitles.paneTitle(for: pane),
+            workingDirectory: pane.workingDirectory
+        )
     }
 
     nonisolated static func accessibilityLabel(for pane: TerminalPane, title: String) -> String {
@@ -420,6 +439,11 @@ struct PaneTitleBarView: View {
         // first to fire flips isEditing false and the rest no-op.
         guard isEditing else { return }
         defer { isEditing = false }
+        // `pane.title`, not the live one: the only outcome `current` decides is
+        // `.noChange`, which `resolveCommit` gates on `isUserEdited` — and a
+        // user-edited pane's title is frozen, so no display-only write can have
+        // moved it out from under the struct. Every other input renames, where
+        // `current` is irrelevant.
         switch Self.resolveCommit(
             input: draft,
             current: pane.title,
@@ -443,6 +467,11 @@ extension PaneTitleBarView: Equatable {
     // and not on the stable store/coordinator/runtime references.
     nonisolated static func == (lhs: PaneTitleBarView, rhs: PaneTitleBarView) -> Bool {
         lhs.pane.id == rhs.pane.id
+            // The DISPLAYED title, not just the struct's: a display-only OSC
+            // title write leaves `pane.title` untouched here (it doesn't
+            // publish `groups`), so comparing the struct alone would report
+            // "equal" forever and freeze the bar mid-spinner (issue #311).
+            && lhs.displayedTitle == rhs.displayedTitle
             && lhs.pane.title == rhs.pane.title
             && lhs.pane.workingDirectory == rhs.pane.workingDirectory
             && lhs.pane.isTitleUserEdited == rhs.pane.isTitleUserEdited

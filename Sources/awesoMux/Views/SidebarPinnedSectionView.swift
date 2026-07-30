@@ -225,6 +225,23 @@ struct SidebarPinnedSectionView: View {
     @ViewBuilder
     private func tile(for item: LiftedSessionEntry, at index: Int) -> some View {
         let session = item.entry.session
+        // Only this scope's body re-runs on a display-only title write — not
+        // the section, and not its other rows.
+        LiveTitleScope(sessionID: session.id) { liveTitles in
+            row(for: item, at: index, liveTitles: liveTitles)
+        }
+        .id(session.id)
+    }
+
+    /// The row itself. Separate from the scope above so its construction does
+    /// not nest a level deeper.
+    @ViewBuilder
+    private func row(
+        for item: LiftedSessionEntry,
+        at index: Int,
+        liveTitles: LiveTitles
+    ) -> some View {
+        let session = item.entry.session
         SidebarSessionTile(
             session: session,
             match: item.entry.match,
@@ -277,6 +294,7 @@ struct SidebarPinnedSectionView: View {
             onDragStarted: { onWorkspaceDragStarted(session.id) },
             focusedRowTarget: focusedRowTarget,
             isKeyboardNavigatingValue: isKeyboardNavigating,
+            liveTitles: liveTitles,
             isKeyboardNavigating: $isKeyboardNavigating
         )
         // Skips re-running this row's `body` (including its
@@ -284,6 +302,5 @@ struct SidebarPinnedSectionView: View {
         // unrelated row's store publish reconstructs this tile with
         // identical rendered inputs — see `SidebarSessionTile.RenderKey`.
         .equatable()
-        .id(session.id)
     }
 }

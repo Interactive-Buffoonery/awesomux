@@ -7,6 +7,46 @@ struct PaneLayoutReducer: Sendable {
         var discardedPaneID: TerminalPane.ID
     }
 
+    /// How far apart two revisions of the same pane are, for the two decisions
+    /// that have to agree about it: whether `updatePane` produced anything at
+    /// all, and whether `SessionStore` publishes `groups` for it (issue #311).
+    enum PaneChangeKind: Sendable {
+        case unchanged
+        /// Only chrome text moved, so the write can route to the live-title
+        /// channel instead of invalidating the app.
+        case displayOnly
+        /// A field with runtime behaviour behind it moved, so consumers that are
+        /// not on the live-title channel have to be told.
+        case durable
+    }
+
+    /// Deliberately one list serving both decisions. They were hand-maintained
+    /// complements, and a field added to only one of them would be classified
+    /// display-only and land silently — the exact freeze #311 fixed. Adding a
+    /// field `updatePane` can move now means editing this function and nothing
+    /// else; `PaneChangeClassificationTests` scrapes the assignments below to
+    /// prove the two stay in step.
+    ///
+    /// `TerminalPane ==` cannot stand in here: it is a render-only subset and
+    /// would miss live-title and connection-health changes entirely.
+    static func paneChangeKind(from old: TerminalPane, to new: TerminalPane) -> PaneChangeKind {
+        if new.workingDirectory != old.workingDirectory
+            || new.remoteHost != old.remoteHost
+            || new.remoteSSHTarget != old.remoteSSHTarget
+            || new.hasConsumedManagedSSHWorkspaceOffer != old.hasConsumedManagedSSHWorkspaceOffer
+            || new.pendingRemoteSSHTarget != old.pendingRemoteSSHTarget
+            || new.remoteWorkingDirectory != old.remoteWorkingDirectory
+            || new.remoteConnectionHealth != old.remoteConnectionHealth
+            || new.progressReport != old.progressReport
+        {
+            return .durable
+        }
+        if new.title != old.title || new.liveTerminalTitle != old.liveTerminalTitle {
+            return .displayOnly
+        }
+        return .unchanged
+    }
+
     /// Seeds a fresh pane from the live title, never a pinned custom title.
     private static func freshPaneSeedTitle(from source: TerminalPane) -> String {
         if let live = source.liveTerminalTitle, !live.isEmpty {
@@ -663,20 +703,7 @@ struct PaneLayoutReducer: Sendable {
             pane.progressReport = progressReport.isVisible ? progressReport : nil
         }
 
-        // Compare the fields this reducer can touch. `TerminalPane ==` is a
-        // render-only subset and would miss live-title and health changes.
-        guard
-            pane.title != originalPane.title
-                || pane.liveTerminalTitle != originalPane.liveTerminalTitle
-                || pane.workingDirectory != originalPane.workingDirectory
-                || pane.remoteHost != originalPane.remoteHost
-                || pane.remoteSSHTarget != originalPane.remoteSSHTarget
-                || pane.hasConsumedManagedSSHWorkspaceOffer != originalPane.hasConsumedManagedSSHWorkspaceOffer
-                || pane.pendingRemoteSSHTarget != originalPane.pendingRemoteSSHTarget
-                || pane.remoteWorkingDirectory != originalPane.remoteWorkingDirectory
-                || pane.remoteConnectionHealth != originalPane.remoteConnectionHealth
-                || pane.progressReport != originalPane.progressReport
-        else {
+        guard paneChangeKind(from: originalPane, to: pane) != .unchanged else {
             return nil
         }
 

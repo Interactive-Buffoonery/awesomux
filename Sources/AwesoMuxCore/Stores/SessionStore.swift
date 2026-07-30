@@ -14,13 +14,286 @@ public final class SessionStore {
     //   4. No-commit family: rename group, set color, set active pane, pin reorder,
     //      markAgentActivityObserved (INT-420/523), updateShellActivity (INT-523).
     nonisolated public static let defaultAcknowledgementDwellNanoseconds: UInt64 = 500_000_000
+    /// See `liveTitleGeneration`. ~1 Hz: fast enough that a title an agent just
+    /// set is searchable before the user finishes typing a query, slow enough
+    /// that a 10 Hz spinner cannot drive sidebar-wide re-derivation.
+    nonisolated public static let defaultLiveTitleGenerationInterval: TimeInterval = 1
     nonisolated public static let maxRecentlyClosed: Int = RecentlyClosedWorkspaceReducer.maxRecentlyClosed
     nonisolated public static let recentlyClosedTTL: TimeInterval = RecentlyClosedWorkspaceReducer.recentlyClosedTTL
     nonisolated public static let appendIndex: Int = .max
     nonisolated public static let shellActivityBusyDebounceInterval: TimeInterval = 0.25
     nonisolated public static let shellActivityIdleDebounceInterval: TimeInterval = 0.10
 
-    var _groups: [SessionGroup]
+    @ObservationIgnored private var groupStorage: [SessionGroup]
+
+    // Hand-written stand-in for what @Observable synthesizes for a stored
+    // property, so that storage can also be written *without* publishing — see
+    // `withSilentGroupMutation` below (issue #311).
+    // Same manual-conformance shape as `selectedSessionID`.
+    //
+    // `get` and `_modify` match the macro expansion. `set` deliberately does
+    // NOT: the real macro guards the publish with `shouldNotifyObservers(old,
+    // new)`, suppressing a same-value assignment, and this one always
+    // publishes. That is safe only because both whole-array call sites
+    // (`replaceState`, `updateShellActivity`) already know the value changed
+    // before assigning — which makes the guard's O(tree) equality walk pure
+    // waste here. **Obligation on any new whole-array assignment: gate it on
+    // change yourself, or add the guard.**
+    //
+    // `_modify` is not optional here: without it Swift falls back to
+    // get-modify-writeback, which adds a whole array-buffer copy to every
+    // in-place mutation (`_groups[i].sessions[j] = …`) at ~150 call sites.
+    var _groups: [SessionGroup] {
+        get {
+            access(keyPath: \._groups)
+            return groupStorage
+        }
+        set {
+            withMutation(keyPath: \._groups) {
+                groupStorage = newValue
+            }
+            refreshLiveTitleBoxes()
+        }
+        _modify {
+            access(keyPath: \._groups)
+            _$observationRegistrar.willSet(self, keyPath: \._groups)
+            defer {
+                _$observationRegistrar.didSet(self, keyPath: \._groups)
+                refreshLiveTitleBoxes()
+            }
+            yield &groupStorage
+        }
+    }
+
+    /// Mutates group storage in place **without** publishing: no `access`, no
+    /// `withMutation`, so no observer of `groups` is woken.
+    ///
+    /// Exclusively for display-only OSC title writes (issue #311). Storage stays
+    /// current, so every consumer that reads `session.title` / `pane.title` off
+    /// the struct still sees the new value on its next render — the write simply
+    /// stops *being* the thing that schedules that render, which is the whole
+    /// point when an agent spinner reports 10 titles/sec.
+    ///
+    /// The caller must guarantee no observer needs waking for the write it makes
+    /// here. `withObservationTracking` cannot catch misuse: to the tracking
+    /// machinery a silent write is indistinguishable from no write at all, so a
+    /// misclassified publishing write surfaces as a frozen view rather than as a
+    /// test failure.
+    func withSilentGroupMutation<T>(_ body: (inout [SessionGroup]) -> T) -> T {
+        body(&groupStorage)
+    }
+
+    /// Per-session live-title channels, created on demand by their only
+    /// consumers (the views that must repaint on a title tick) and pruned in
+    /// `rebuildDerivedState`.
+    @ObservationIgnored private var liveTitles: [TerminalSession.ID: LiveTitleBox] = [:]
+
+    /// The `LiveTitleBox` for `sessionID`, seeded from current storage so a
+    /// restored pane renders its persisted title rather than sitting blank
+    /// until its first OSC report.
+    ///
+    /// Reads storage directly rather than `session(id:)`: a view that only
+    /// wants the box must not pick up a dependency on `groups` on the way in,
+    /// which would hand back the per-tick invalidation this channel exists to
+    /// remove.
+    public func liveTitleBox(for sessionID: TerminalSession.ID) -> LiveTitleBox {
+        if let existing = liveTitles[sessionID] {
+            return existing
+        }
+        let box = LiveTitleBox()
+        // Bounds- and identity-checked for symmetry with `refreshLiveTitleBoxes`,
+        // the other reader of the same index → storage path: both are `public`
+        // or `public`-reachable (`LiveTitleScope.body` calls this one), and
+        // neither has a way to know whether `commit` has repaired `index` yet.
+        // No caller is known to reach here mid-structural-mutation today; an
+        // unguarded subscript that only holds because of that is the wrong thing
+        // to leave next to a guarded sibling.
+        if let session = storedSessionForLiveTitleBox(sessionID) {
+            box.adopt(session)
+        }
+        liveTitles[sessionID] = box
+        return box
+    }
+
+    /// Storage lookup for a live-title box, bounds- and identity-checked.
+    ///
+    /// `index` is repaired by `commit`, which runs *after* the write, so
+    /// mid-structural-mutation the index can still name a removed session or a
+    /// position that has shifted. `reconcileLiveTitleBoxes` corrects the boxes
+    /// once the index is rebuilt; until then this returns nil rather than
+    /// trapping or adopting a neighbour's title.
+    private func storedSessionForLiveTitleBox(
+        _ sessionID: TerminalSession.ID
+    ) -> TerminalSession? {
+        guard let position = index.positionsBySessionID[sessionID],
+            groupStorage.indices.contains(position.groupIndex),
+            groupStorage[position.groupIndex].sessions.indices.contains(position.sessionIndex)
+        else {
+            return nil
+        }
+        let session = groupStorage[position.groupIndex].sessions[position.sessionIndex]
+        return session.id == sessionID ? session : nil
+    }
+
+    /// Publishes one pane's displayed title — and the workspace title its
+    /// promotion may have moved — to the session's channel, if anything is
+    /// listening. Never creates a box: an unobserved session has no one to
+    /// notify.
+    ///
+    /// The narrow counterpart to `refreshLiveTitleBoxes`, for the silent OSC
+    /// path, which is the only writer that both knows exactly which pane moved
+    /// and runs often enough for the difference to matter.
+    func publishLiveTitle(paneID: TerminalPane.ID, in session: TerminalSession) {
+        guard let box = liveTitles[session.id],
+            let pane = session.layout.pane(id: paneID)
+        else {
+            return
+        }
+        box.adoptPaneTitle(pane.id, title: pane.title, workspaceTitle: session.title)
+    }
+
+    /// Re-seeds every live box from storage.
+    ///
+    /// Called from `_groups`' `set` and `_modify` rather than from the mutators
+    /// themselves, because "remembered to refresh the box" is exactly the kind
+    /// of per-call-site obligation that four of five writers had already
+    /// forgotten. A box that shadows storage is worse than no box at all —
+    /// `LiveTitles.workspaceTitle(for:)` prefers it over the struct, so a stale
+    /// box shows a superseded title *indefinitely*, not for one frame. Hanging
+    /// the refresh off the storage accessor makes forgetting impossible: any
+    /// write a future mutator makes through `_groups` is covered by
+    /// construction.
+    ///
+    /// Affordable because it rides the PUBLISHING path only — the silent OSC
+    /// path bypasses these accessors by design and uses `publishLiveTitle`
+    /// instead. A write that reaches here already committed to waking every
+    /// `groups` observer (~100 ms of SwiftUI invalidation, issue #311); walking
+    /// the handful of boxes belonging to *rendered* rows is noise beside it.
+    /// `adopt` is value-guarded, so an unrelated mutation publishes nothing.
+    ///
+    /// Bounds and identity come from `storedSessionForLiveTitleBox` — see there
+    /// for why the index can be wrong at this point.
+    ///
+    /// Precondition: no observer of a `LiveTitleBox` mutates `_groups`
+    /// synchronously from inside its `onChange`. `adopt` publishes while the
+    /// enclosing `_groups` write is still on the stack, so such an observer
+    /// could land a newer value and refresh the box to it, only for the outer
+    /// write to resume and overwrite storage with its own captured session. No
+    /// production observer does this — every box consumer is a SwiftUI body that
+    /// schedules a render — and the assumption is recorded here rather than
+    /// defended in code because the defence (deferring the refresh out of the
+    /// accessor) would give back the "a writer forgot" class of bug this
+    /// placement exists to remove.
+    private func refreshLiveTitleBoxes() {
+        guard !liveTitles.isEmpty else { return }
+        for (sessionID, box) in liveTitles {
+            guard let session = storedSessionForLiveTitleBox(sessionID) else { continue }
+            box.adopt(session)
+        }
+    }
+
+    /// Drops boxes for sessions that no longer exist and re-seeds the survivors
+    /// from storage — a bulk restore can reuse a session ID with entirely
+    /// different content, and a structural mutation can add or close panes.
+    /// Called only from `rebuildDerivedState`, which every structural mutation
+    /// already routes through, so no per-callsite cleanup can be missed.
+    func reconcileLiveTitleBoxes() {
+        // Same lifetime as the boxes, and pruned at the same choke point: the
+        // coalescing timestamps are keyed by session ID, so without this a
+        // long-lived window that opens and closes workspaces all day accumulates
+        // one dead entry per closed workspace forever.
+        if !lastLiveTitleBumpBySessionID.isEmpty {
+            lastLiveTitleBumpBySessionID = lastLiveTitleBumpBySessionID.filter {
+                index.positionsBySessionID[$0.key] != nil
+            }
+        }
+        guard !liveTitles.isEmpty else { return }
+        liveTitles = liveTitles.filter { index.positionsBySessionID[$0.key] != nil }
+        refreshLiveTitleBoxes()
+    }
+
+    /// Coarse "some workspace's displayed title moved" tick for values DERIVED
+    /// from titles inside a body that a silent write no longer re-runs — the
+    /// sidebar's search haystack, duplicate "N of M" ordinals, VoiceOver rotor
+    /// labels, the agent activity panel. Those must not go stale, but they also
+    /// do not need to be right within one animation frame, which is what makes
+    /// a coarse counter the right currency: one shared counter, so an observer
+    /// pays a single invalidation however many workspaces moved.
+    ///
+    /// Leading-edge on a time check taken at write time — deliberately not a
+    /// timer or a debounce task, because coalescing that trails the last write
+    /// needs a scheduled wake-up and the repo ratchets against new
+    /// sleeps/polling in production (`script/check_test_waits.sh`).
+    ///
+    /// The counter is shared but the coalescing is **per session** — see
+    /// `bumpLiveTitleGenerationIfDue`. Coalescing globally made one workspace's
+    /// churn able to swallow another's only title change outright.
+    ///
+    /// Ceiling — the surviving leading-edge gap, stated exactly: a session's
+    /// projections lag when its FINAL event is a display-only title write that
+    /// landed less than `liveTitleGenerationInterval` after that same session's
+    /// previous bump, and nothing publishes afterwards. "Nothing" is strict: no
+    /// attention / unread / agent-state change, no structural mutation, no
+    /// selection change, and no later title write by any session (the counter is
+    /// shared, so any other session's bump re-derives this one's projections
+    /// too). While it holds, sidebar search cannot find that workspace by the
+    /// name it displays.
+    ///
+    /// Mitigation, and it is a mitigation rather than a guarantee: an agent that
+    /// stops reporting titles is almost always an agent whose state changed, and
+    /// attention / unread / agent-state changes all route through `commit`, which
+    /// publishes `groups` and re-derives every projection from storage.
+    ///
+    /// Upgrade path if a lagging projection is ever actually observed: fold the
+    /// trailing flush into scheduling that already exists rather than adding a
+    /// timer here — `onDisplayOnlyTitleWrite` already kicks the debounced
+    /// `SessionPersistence.save`, which is a real trailing edge. Not done now
+    /// because that path is gated on the `restoreWorkspaces` setting, and render
+    /// correctness must not depend on whether the user persists sessions.
+    public internal(set) var liveTitleGeneration: Int = 0
+
+    @ObservationIgnored private let liveTitleGenerationInterval: TimeInterval
+    /// Leading-edge coalescing timestamps, keyed by session.
+    ///
+    /// One shared timestamp cross-suppressed unrelated workspaces: a workspace
+    /// whose agent spins at 10 Hz kept the store permanently "not due", so a
+    /// second workspace's single title change never bumped the counter and its
+    /// derived projections never re-ran. Pruned in `reconcileLiveTitleBoxes`.
+    ///
+    /// Cost of the split: N spinning workspaces can bump N times per interval
+    /// instead of once. Bounded by the number of workspaces reporting titles,
+    /// and the alternative is a workspace that search cannot find by its own
+    /// displayed name.
+    @ObservationIgnored private var lastLiveTitleBumpBySessionID: [TerminalSession.ID: Date] = [:]
+
+    func bumpLiveTitleGenerationIfDue(sessionID: TerminalSession.ID, now: Date) {
+        if let last = lastLiveTitleBumpBySessionID[sessionID] {
+            let elapsed = now.timeIntervalSince(last)
+            // A negative elapsed means the wall clock went backwards (NTP step,
+            // manual clock change, DST-adjacent shenanigans). Treating that as
+            // "not due" would suppress every bump until the clock caught back
+            // up — for a backwards jump of hours, hours of frozen projections.
+            if elapsed >= 0, elapsed < liveTitleGenerationInterval { return }
+        }
+        lastLiveTitleBumpBySessionID[sessionID] = now
+        liveTitleGeneration += 1
+    }
+
+    /// Called after a display-only title write has landed silently, so the app
+    /// can schedule the session save that the suppressed `groups` publish would
+    /// otherwise have triggered. Without it a title-only change would schedule
+    /// no save at all, widening the crash-loss window to "until the next
+    /// unrelated publish" — which, for a workspace running an agent, is
+    /// minutes. Clean quit is unaffected: `SessionPersistence.flush`
+    /// re-snapshots unconditionally.
+    ///
+    /// A plain callback and not an `@Observable` property: an observable bump
+    /// would wake the Scene body at the title throttle rate (~4×/sec, #306),
+    /// reintroducing exactly the app-wide invalidation issue #311 exists to
+    /// remove. That is also why it needs no coalescing here — the handler's
+    /// `SessionPersistence.save` already cancels and re-debounces its pending
+    /// write, so the per-call cost is one COW snapshot and no view work.
+    @ObservationIgnored public var onDisplayOnlyTitleWrite: (@MainActor () -> Void)?
 
     /// Ordered pin list for the sidebar's synthetic Pinned section. Membership
     /// = pinned, array order = display order. Sessions stay inside their
@@ -212,11 +485,15 @@ public final class SessionStore {
         selectedSessionID: TerminalSession.ID? = nil,
         recentlyClosed: [RecentlyClosedWorkspace] = [],
         pinnedSessionIDs: [TerminalSession.ID] = [],
-        acknowledgementDwellNanoseconds: UInt64 = SessionStore.defaultAcknowledgementDwellNanoseconds
+        acknowledgementDwellNanoseconds: UInt64 = SessionStore.defaultAcknowledgementDwellNanoseconds,
+        liveTitleGenerationInterval: TimeInterval = SessionStore.defaultLiveTitleGenerationInterval
     ) {
-        self._groups = groups
+        // Through storage, not the computed `_groups`: its setter calls
+        // `withMutation` on a not-yet-initialized `self`.
+        self.groupStorage = groups
         self.storedSelectedSessionID = selectedSessionID ?? groups.first?.sessions.first?.id
         self.recentlyClosed = recentlyClosed
+        self.liveTitleGenerationInterval = liveTitleGenerationInterval
         self.acknowledgementCoordinator = SelectionAcknowledgementCoordinator(
             dwellNanoseconds: acknowledgementDwellNanoseconds
         )

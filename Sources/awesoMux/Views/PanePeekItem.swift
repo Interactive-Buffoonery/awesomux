@@ -37,14 +37,24 @@ extension PanePeekItem {
     /// per id (which is O(panes²) — the exact anti-pattern `appendPanes`' own
     /// doc-comment warns against). This runs per collapsed tile per render via
     /// `peekRefreshKey`, so the walk count matters.
-    static func items(for session: TerminalSession) -> [PanePeekItem] {
+    ///
+    /// `liveTitles` supplies the displayed titles for callers that render
+    /// inside a `LiveTitleScope`; without it the peek would name whatever the
+    /// last `groups` publish left in `session` (issue #311).
+    static func items(
+        for session: TerminalSession,
+        liveTitles: LiveTitles = .unavailable
+    ) -> [PanePeekItem] {
         var panes: [TerminalPane] = []
         session.layout.appendPanes(into: &panes)
         return panes.enumerated().map { index, pane in
             PanePeekItem(
                 id: pane.id,
                 paneNumber: index + 1,
-                title: PaneTitleBarView.displayTitle(for: pane),
+                title: PaneTitleBarView.displayTitle(
+                    title: liveTitles.paneTitle(for: pane),
+                    workingDirectory: pane.workingDirectory
+                ),
                 agent: pane.agentKind.awAgentIcon,
                 agentShortName: pane.agentKind.shortName,
                 state: pane.effectiveChromeState.awState,

@@ -5,6 +5,11 @@ import SwiftUI
 
 struct SidebarSessionPeekCard: View {
     let session: TerminalSession
+    /// The DISPLAYED workspace title. Supplied by the peek model rather than
+    /// read off `session`, which is only as fresh as the last `groups` publish
+    /// (issue #311) — the pane rows below already carry live titles, so a
+    /// struct-read header named the workspace inconsistently with its own rows.
+    let title: String
     let location: SidebarSessionLocation
     let tint: ProjectTint
     /// Pre-walked rows for the multi-pane list. Empty on the single-pane path.
@@ -75,7 +80,7 @@ struct SidebarSessionPeekCard: View {
             )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.title)
+                Text(title)
                     .awFont(AwFont.UI.label)
                     .foregroundStyle(Color.aw.text)
                     .lineLimit(2)
