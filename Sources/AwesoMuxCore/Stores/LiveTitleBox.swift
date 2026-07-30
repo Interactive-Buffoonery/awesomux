@@ -29,14 +29,23 @@ public final class LiveTitleBox {
     /// that render THAT pane.
     ///
     /// Observable on purpose, rather than `@ObservationIgnored`. Membership
-    /// moves only when the pane roster does, which is always a structural
-    /// mutation that publishes `groups` anyway, so it costs nothing per tick —
-    /// and it closes the two ways per-pane storage could otherwise freeze a
-    /// title bar permanently: a reader that resolved no channel would hold no
-    /// dependency at all and could never learn that one appeared, and a
-    /// replaced channel would orphan every reader already registered on the old
-    /// one. Under `@ObservationIgnored` both are permanent, because the channel
-    /// is preferred over the session struct wherever one exists.
+    /// moves when the pane roster does — normally a structural mutation that
+    /// publishes `groups` anyway, so it costs nothing per tick. (The one
+    /// exception is `adoptPaneTitle` seeding a pane's first channel on the
+    /// silent path; see there. It is bounded at one wake per pane.)
+    ///
+    /// Keeping it observable closes the two ways per-pane storage could
+    /// otherwise freeze a title bar permanently: a reader that resolved no
+    /// channel would hold no dependency at all and could never learn that one
+    /// appeared, and a replaced channel would orphan every reader already
+    /// registered on the old one. Under `@ObservationIgnored` both are
+    /// permanent, because a channel is preferred over the session struct
+    /// wherever one exists.
+    ///
+    /// Both read paths below touch this property before resolving a channel, so
+    /// no reader can hold a channel dependency without also holding the roster
+    /// dependency. That is what makes the two freezes above unreachable, and it
+    /// is a feature rather than an imprecision in those two doc comments.
     private var paneChannels: [TerminalPane.ID: LivePaneTitle] = [:]
 
     /// Displayed title per pane — the frozen custom title while
@@ -47,13 +56,25 @@ public final class LiveTitleBox {
     ///
     /// Reading this registers a dependency on EVERY pane, which is what a
     /// consumer that renders every pane wants and what a single title bar must
-    /// avoid — that one uses `paneTitle(_:)`.
+    /// avoid — that one uses `paneTitle(for:)`.
+    ///
+    /// Ceiling, accepted deliberately: computing this allocates a fresh P-entry
+    /// dictionary per read, and the resulting `LiveTitles` comparison loses
+    /// `Dictionary.==`'s identical-storage fast path, so an unchanged compare
+    /// walks the keys instead of comparing one pointer. Immaterial at the P a
+    /// real split reaches, and the alternative — keeping a stored mirror —
+    /// would be a second shadowing surface with its own refresh obligation,
+    /// which is the bug class this whole subsystem exists to avoid. If a
+    /// many-pane split ever measures worse, narrow the `.everything` call sites
+    /// rather than caching.
     public var paneTitles: [TerminalPane.ID: String] {
         paneChannels.mapValues(\.title)
     }
 
-    /// One pane's displayed title, registering a dependency on that pane alone.
-    public func paneTitle(_ paneID: TerminalPane.ID) -> String? {
+    /// One pane's displayed title, registering a dependency on that pane's own
+    /// channel plus the roster (see `paneChannels`) — and on no sibling pane,
+    /// which is the point.
+    public func paneTitle(for paneID: TerminalPane.ID) -> String? {
         paneChannels[paneID]?.title
     }
 
@@ -111,10 +132,14 @@ public final class LiveTitleBox {
                 channel.title = title
             }
         } else {
-            // No known path reaches here — `adopt` seeds a channel for every
-            // pane before any report can name one. Kept because the fallback of
-            // dropping the title would be a frozen title bar rather than a
-            // one-frame lag, and seeding costs one session-wide wake once.
+            // Load-bearing, NOT dead — do not delete it as unreachable.
+            // `SessionStore.liveTitleBox(for:)` caches a new box
+            // unconditionally but only adopts when
+            // `storedSessionForLiveTitleBox` finds the session, which it
+            // deliberately does not mid-structural-mutation. That box has no
+            // channels, and the next silent report lands right here. Dropping
+            // the title instead would freeze that pane's bar until the next
+            // publish; seeding costs one session-wide wake, once per pane.
             paneChannels[paneID] = LivePaneTitle(title: title)
         }
     }
@@ -124,10 +149,12 @@ public final class LiveTitleBox {
 /// only the views rendering that pane.
 ///
 /// File-private, and `LiveTitleBox.paneChannels` is private, so a reference
-/// cannot escape the box: `adopt` replaces channels when the roster changes, and
-/// a captured stale channel would freeze whatever registered on it. That is the
-/// one obligation this design could have left to a future caller to remember,
-/// and the visibility removes it rather than documenting it.
+/// cannot escape the box. `adopt` reuses a live pane's channel, but a channel is
+/// dropped when its pane closes and a pane that returns gets a fresh one — so a
+/// captured reference can outlive the channel the box actually writes to, and
+/// whatever registered on it would freeze. That is the one obligation this
+/// design could have left to a future caller to remember, and the visibility
+/// removes it rather than documenting it.
 @MainActor
 @Observable
 private final class LivePaneTitle {

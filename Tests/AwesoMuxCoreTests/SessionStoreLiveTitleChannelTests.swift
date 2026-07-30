@@ -400,10 +400,12 @@ struct SessionStoreLiveTitleChannelTests {
 
     /// The same gap one level deeper (issue #315). Titles now live in one
     /// observable per pane, so "the box was refreshed" is no longer the whole
-    /// question — the write has to reach THIS pane's channel, and reach the
-    /// channel that readers are already registered on. Tracking the read is
-    /// what distinguishes a refreshed channel from a replaced one; a value
-    /// assertion alone passes either way.
+    /// question — the write has to reach THIS pane's channel.
+    ///
+    /// This is NOT a channel-replacement gate: a replaced channel wakes the
+    /// reader through `paneChannels` too, so the wake fires either way. The
+    /// replacement gate is `publishingMutationWithoutTitleMoveDoesNotWakePaneScope`
+    /// in the app-target suite, and it owns that invariant alone.
     @Test("a publishing write reaches an already-created box's per-pane channel")
     func publishingWriteWakesExistingPaneChannel() throws {
         let fixture = makeFixture()
@@ -411,11 +413,11 @@ struct SessionStoreLiveTitleChannelTests {
         // only the workspace title is refreshed.
         _ = try #require(fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        #expect(box.paneTitle(fixture.paneID) == "pane")
+        #expect(box.paneTitle(for: fixture.paneID) == "pane")
 
         let woken = TrackingFlag()
         withObservationTracking {
-            _ = box.paneTitle(fixture.paneID)
+            _ = box.paneTitle(for: fixture.paneID)
         } onChange: {
             woken.set()
         }
@@ -430,7 +432,7 @@ struct SessionStoreLiveTitleChannelTests {
         )
 
         #expect(woken.value)
-        #expect(box.paneTitle(fixture.paneID) == "cargo build")
+        #expect(box.paneTitle(for: fixture.paneID) == "cargo build")
     }
 
     @Test("a structural mutation refreshes an existing box's pane roster")
@@ -443,6 +445,29 @@ struct SessionStoreLiveTitleChannelTests {
         )
 
         #expect(box.paneTitles[addedPaneID] != nil)
+    }
+
+    /// The prune direction, which nothing else asserts: every other test here
+    /// covers the roster GROWING. Without this, deleting the prune outright,
+    /// loosening its guard, or reordering the loop it depends on all leave the
+    /// suite green — and the cost is not only leaked channels. Once the count
+    /// guard is permanently unequal, the filter and its session-wide publish
+    /// run on every publishing write forever, which is the sibling fan-out
+    /// issue #315 removed.
+    @Test("closing a pane drops its channel from an existing box")
+    func closingPaneDropsItsChannel() throws {
+        let fixture = makeFixture()
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        let addedPaneID = try #require(
+            fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID)
+        )
+        #expect(box.paneTitles.count == 2)
+
+        _ = try #require(fixture.store.closePane(id: addedPaneID, in: fixture.sessionID))
+
+        #expect(box.paneTitle(for: addedPaneID) == nil)
+        #expect(box.paneTitles.count == 1)
+        #expect(box.paneTitle(for: fixture.paneID) == "pane")
     }
 
     /// The refresh rides `_groups`' accessors, which run BEFORE `commit`

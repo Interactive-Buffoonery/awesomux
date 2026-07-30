@@ -33,14 +33,14 @@ struct LiveTitles: Equatable {
             panes = [:]
         case let .paneTitle(paneID):
             workspace = nil
-            // `paneTitle(_:)`, never `paneTitles[paneID]`: the box stores one
-            // observable per pane, so this registers a dependency on that pane
-            // alone (issue #315). Reading the dictionary would register every
-            // pane and put the sibling fan-out straight back — a sibling's
-            // spinner frame would re-run this scope, and only the child
-            // `.equatable()` gate downstream would reject the work, after the
-            // scope evaluation and comparison had already been paid.
-            panes = box?.paneTitle(paneID).map { [paneID: $0] } ?? [:]
+            // `paneTitle(for:)`, never `paneTitles[paneID]`: the box stores one
+            // observable per pane, so this depends on that pane's channel and
+            // the pane roster, and on no sibling pane (issue #315). Reading the
+            // dictionary would register every pane and put the sibling fan-out
+            // straight back — a sibling's spinner frame would re-run this scope,
+            // and only the child `.equatable()` gate downstream would reject the
+            // work, after the scope evaluation and comparison had been paid.
+            panes = box?.paneTitle(for: paneID).map { [paneID: $0] } ?? [:]
         case .everything:
             workspace = box?.workspaceTitle
             panes = box?.paneTitles ?? [:]

@@ -91,6 +91,46 @@ struct LiveTitleObservationNarrowingTests {
         #expect(fixture.box.paneTitles[fixture.paneB] == "cargo build")
     }
 
+    /// The narrowing has to hold on the PUBLISHING branch too, not only the
+    /// silent one. A refresh that replaced just the changed pane's channel
+    /// would write `paneChannels`, wake every pane scope in the session, and
+    /// still deliver the right value — so every other gate here would stay
+    /// green while the fan-out came back on exactly the writes that walk all
+    /// the panes.
+    @Test("a sibling pane's publishing title write does not wake a pane-scoped read")
+    func siblingPanePublishingWriteDoesNotWakePaneScope() throws {
+        let fixture = try makeSplitFixture()
+
+        let woken = TrackingFlag()
+        var observed: LiveTitles?
+        withObservationTracking {
+            observed = LiveTitles(box: fixture.box, reads: .paneTitle(fixture.paneB))
+        } onChange: {
+            woken.set()
+        }
+        #expect(observed?.panes[fixture.paneB] != nil)
+
+        let published = TrackingFlag()
+        withObservationTracking {
+            _ = fixture.store.groups
+        } onChange: {
+            published.set()
+        }
+
+        // Title AND working directory: an ordinary `cd` in a prompt hook, which
+        // takes the publishing branch and re-seeds every channel.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneA,
+            title: "cargo build",
+            workingDirectory: NSHomeDirectory()
+        )
+
+        #expect(published.value)
+        #expect(fixture.box.paneTitles[fixture.paneA] == "cargo build")
+        #expect(!woken.value)
+    }
+
     // MARK: - The narrowing did not overshoot
 
     @Test("an everything-scoped read is still woken by any pane's report")
@@ -135,6 +175,11 @@ struct LiveTitleObservationNarrowingTests {
             title: "cargo build"
         )
 
+        // Anti-vacuity: prove the report actually landed on the channel the
+        // workspace scope is deliberately not watching. Without this, a write
+        // that quietly became a no-op leaves the negative assertion below green
+        // while measuring nothing.
+        #expect(fixture.box.paneTitle(for: fixture.paneA) == "cargo build")
         #expect(!woken.value)
     }
 
@@ -151,11 +196,16 @@ struct LiveTitleObservationNarrowingTests {
         let fixture = try makeSplitFixture()
 
         let woken = TrackingFlag()
+        var observed: LiveTitles?
         withObservationTracking {
-            _ = LiveTitles(box: fixture.box, reads: .paneTitle(fixture.paneB))
+            observed = LiveTitles(box: fixture.box, reads: .paneTitle(fixture.paneB))
         } onChange: {
             woken.set()
         }
+        // Anti-vacuity: if this read ever resolved nil it would register on the
+        // roster alone, silently downgrading the strongest gate in this suite
+        // from "the channel object was reused" to "the roster was not rewritten".
+        #expect(observed?.panes[fixture.paneB] != nil)
 
         let published = TrackingFlag()
         withObservationTracking {
@@ -189,10 +239,12 @@ struct LiveTitleObservationNarrowingTests {
         let fixture = try makeSplitFixture()
         // A restore is the one path that names a pane the box has never seen
         // while keeping the session — and therefore the box, and therefore any
-        // scope already registered on it — alive. It is also the only way this
-        // test can know the future pane's ID in advance, which is what makes it
-        // a gate on the REQUESTED pane rather than on "some dictionary write
-        // woke a missing-key reader".
+        // scope already registered on it — alive.
+        //
+        // The wake itself cannot discriminate: it fires on the `paneChannels`
+        // write, so any pane's channel appearing would wake this reader. What
+        // ties the gate to the REQUESTED pane is the value assertion at the end,
+        // which is why it is not optional here.
         let arriving = TerminalPane(title: "restored pane", workingDirectory: "~", executionPlan: .local)
 
         let woken = TrackingFlag()
