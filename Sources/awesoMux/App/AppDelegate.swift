@@ -806,7 +806,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // every other save is: quitting with restore off used to write the
         // session anyway, clobbering the snapshot the opt-out exists to keep,
         // and it would now also leave a quit-time recovery archive behind.
-        if let sessionStore, appSettingsStore?.general.value.restoreWorkspaces ?? true {
+        if let sessionStore, let appSettingsStore,
+            appSettingsStore.general.value.restoreWorkspaces
+        {
             // The recovery gate can refuse this write. `flush` parks the state
             // in a `session-state.unsaved-` archive when it does, but nothing
             // else is left to surface the failure at this point in teardown.

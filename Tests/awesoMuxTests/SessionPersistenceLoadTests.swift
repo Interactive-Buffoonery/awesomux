@@ -687,11 +687,17 @@ struct SessionPersistenceLoadTests {
         }
     }
 
-    /// Toggling "Restore workspaces" on never went through `load`, so the first
-    /// save afterwards overwrote whatever was on disk with no archive and no
-    /// gate — the one bypass that skipped every protection at once.
-    @Test("enabling restore mid-session archives and protects an unreadable snapshot")
-    func enablingRestoreMidSessionProtectsUnreadableSnapshot() async throws {
+    /// Launching with "Restore workspaces" off never goes through `load`, so a
+    /// save afterwards — from the settings toggle, or from the store-owned title
+    /// callback that no view modifier can see — overwrote whatever was on disk
+    /// with no archive and no gate. The one bypass that skipped every
+    /// protection at once.
+    ///
+    /// Drives `save` rather than the validation helper on purpose: the helper
+    /// could be correct while nothing called it. `save` is where every writer
+    /// actually arrives.
+    @Test("a save with no prior load archives and protects an unreadable snapshot")
+    func saveWithoutPriorLoadProtectsUnreadableSnapshot() async throws {
         try await Self.withTemporarySupportDirectoryAsync { tempDir in
             let snapshotURL = tempDir.appending(path: "session-state.json")
             let corruptedData = Data("{not-json".utf8)
@@ -703,27 +709,55 @@ struct SessionPersistenceLoadTests {
 
             // Deliberately no `load()`: that is precisely what launching with
             // restore disabled skips.
-            let warning = try #require(
-                SessionPersistence.validateSnapshotForNewlyEnabledRestore()
-            )
-            #expect(warning.preventsInitialSave)
-            // Synchronous and race-free: the archive is taken before the toggle
-            // is allowed to cost anything.
-            let archiveURL = try #require(warning.archivedSnapshotURL)
-            #expect(warning.archiveError == nil)
-            #expect(try Data(contentsOf: archiveURL) == corruptedData)
-
-            await confirmation(
-                "no write lands on the newly validated snapshot",
+            try await confirmation(
+                "no write lands on the never-validated snapshot",
                 expectedCount: 0
             ) { wrote in
                 SessionPersistence.save(
                     SessionStore(restoring: Self.snapshot(groupName: "live session"))
                 ) { _ in wrote() }
+
+                // Deterministic half, asserted before any waiting: an
+                // unvalidated save must have archived the bytes it refused to
+                // overwrite. Without the chokepoint check no archive exists here
+                // at all, whatever the wait below goes on to observe.
+                let archives = try Self.corruptedArchives(in: tempDir)
+                #expect(archives.count == 1)
+                let archiveURL = try #require(archives.first)
+                #expect(try Data(contentsOf: archiveURL) == corruptedData)
+
+                // Timing half: a save that scheduled instead of refusing lands
+                // one debounce interval later, so the byte check below would
+                // pass vacuously without this.
                 try? await Task.sleep(for: SessionPersistence.debounceInterval * 3)
             }
 
             #expect(try Data(contentsOf: snapshotURL) == corruptedData)
+        }
+    }
+
+    /// `save` hands its captured snapshot to a detached task that cannot re-read
+    /// the setting. Turning restore off left that write free to land on the
+    /// snapshot the opt-out exists to preserve.
+    @Test("turning restore off drops a write the debouncer already captured")
+    func disablingRestoreCancelsCapturedWrite() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            let existingData = try Self.write(Self.snapshot(groupName: "opted out"), to: tempDir)
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            _ = SessionPersistence.load()
+
+            await confirmation(
+                "the captured write never lands",
+                expectedCount: 0
+            ) { wrote in
+                SessionPersistence.save(
+                    SessionStore(restoring: Self.snapshot(groupName: "after opt out"))
+                ) { _ in wrote() }
+                SessionPersistence.cancelPendingWrite()
+                try? await Task.sleep(for: SessionPersistence.debounceInterval * 3)
+            }
+
+            #expect(try Data(contentsOf: snapshotURL) == existingData)
         }
     }
 
@@ -743,9 +777,9 @@ struct SessionPersistenceLoadTests {
             let protectedResult = SessionPersistence.load()
             let warning = try #require(protectedResult.recoveryWarning)
 
-            // The completion is the load-bearing assertion: it fires wherever
-            // `writeSnapshot` ran, so it cannot pass vacuously if a concurrent
-            // suite swaps the process-wide support directory during the wait.
+            // The completion proves a write ran at all; the decode below proves
+            // it ran *here*. Neither alone is enough — a concurrent suite can
+            // swap the process-wide support directory during the wait.
             await confirmation("the acknowledged state is written") { wrote in
                 let acknowledged = SessionPersistence.acknowledgeRecoveryWarning(
                     warning,

@@ -38,10 +38,15 @@ show as reopenable past 24h until the next prune trigger) — UI-level TTL
 awareness is a follow-up, not a privacy exposure.
 
 Known residual surfaces, accepted: quarantine archives
-(`session-state.corrupted-*` / `session-state.sanitized-*`) freeze their
+(`session-state.corrupted-*`, `session-state.sanitized-*`,
+`session-state.conflict-*`, and `session-state.unsaved-*`) freeze their
 contents at archive time and are count-capped, not age-capped; they carry
 open-workspace paths too, so they are part of the whole-file exposure this
-ADR declines to gold-plate.
+ADR declines to gold-plate. `session-state.unsaved-*` is the only one of the
+four written at quit rather than at load: it holds state a termination flush
+could not get into `session-state.json`, and like the others it is written
+only while `restoreWorkspaces` is on, so the declined-toggle rationale below
+continues to hold.
 
 Addendum (INT-773, 2026-07-09): `recentlyClosed` entries also capture the
 owning group's declared SSH target (`groupRemote`, a `user`/`host` pair) so

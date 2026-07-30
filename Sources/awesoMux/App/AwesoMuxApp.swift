@@ -605,8 +605,8 @@ struct AwesoMuxApp: App {
                 if previous.showMenuBarMiniStatus != current.showMenuBarMiniStatus {
                     appDelegate.syncMenuBarMiniStatusItem()
                 }
-                if !previous.restoreWorkspaces, current.restoreWorkspaces {
-                    validateSnapshotForNewlyEnabledRestore()
+                if previous.restoreWorkspaces != current.restoreWorkspaces {
+                    restoreWorkspacesSettingDidChange(isEnabled: current.restoreWorkspaces)
                 }
             }
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
@@ -4514,19 +4514,35 @@ extension AwesoMuxApp {
         }
     }
 
-    /// Launching with restore disabled never reads `session-state.json`, so the
-    /// first save after the user turns it back on would overwrite whatever is
-    /// there — corrupt or not — un-archived. Validate it the way launch does.
-    private func validateSnapshotForNewlyEnabledRestore() {
+    /// The setting's two edges are not symmetric. Turning it ON is a chance to
+    /// tell the user that the snapshot on disk is unreadable — `save` will
+    /// validate regardless, but silently. Turning it OFF has to drop a write the
+    /// debouncer already captured, which no longer re-reads the setting.
+    private func restoreWorkspacesSettingDidChange(isEnabled: Bool) {
+        guard isEnabled else {
+            SessionPersistence.cancelPendingWrite()
+            return
+        }
         guard !isRecoveryReplacementInProgress else { return }
         let warning = SessionPersistence.validateSnapshotForNewlyEnabledRestore()
-        // Only a warning that actually paused saving is worth raising here. The
+        // Only a warning that actually paused saving is worth raising. The
         // restored store is discarded, so a sanitization notice would be
         // describing workspaces the user is never going to see.
-        guard warning?.preventsInitialSave == true else { return }
+        guard warning?.preventsInitialSave == true else {
+            // Validation cancelled any queued write on its way through. Nothing
+            // is blocking, so re-schedule rather than leaving the newly opted-in
+            // session waiting for an unrelated mutation.
+            saveSessionIfRestoreEnabled()
+            return
+        }
         recoveryWarning = warning
         didPresentRecoveryWarning = false
-        presentRecoveryWarningIfNeeded()
+        // Hopped off the view update: `presentRecoveryWarningIfNeeded` spins a
+        // nested modal runloop, and the replacement path re-enters `runModal` in
+        // a retry loop. Running that inside a SwiftUI change body is a wedge.
+        Task { @MainActor in
+            presentRecoveryWarningIfNeeded()
+        }
     }
 
     private func presentRecoveryWarningIfNeeded() {
