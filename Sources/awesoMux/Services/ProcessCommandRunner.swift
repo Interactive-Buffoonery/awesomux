@@ -114,12 +114,8 @@ struct ProcessCommandRunner: CommandRunner {
 
         // Drain both streams to EOF on background threads. Both reads return once
         // the child exits (or is killed on timeout) and the write ends close.
-        let stdoutTask = Task.detached {
-            execution.stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        }
-        let stderrTask = Task.detached {
-            execution.stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        }
+        let stdoutTask = Self.readToEnd(execution.stdoutPipe.fileHandleForReading)
+        let stderrTask = Self.readToEnd(execution.stderrPipe.fileHandleForReading)
 
         let timeoutState = TimeoutState()
         let cancellationState = CancellationState()
@@ -152,36 +148,38 @@ struct ProcessCommandRunner: CommandRunner {
                     return
                 }
 
-                do {
-                    try spawn(execution.process)
-                    if cancellationState.didSpawn(cancelledNow: Task.isCancelled) {
-                        // Cancellation may arrive while spawn is blocked, when
-                        // the cancellation handler has no child to terminate yet.
-                        terminateAfterCancellation()
-                    } else {
-                        timeoutState.arm {
-                            do { try await delay(timeout) } catch { return }
-                            guard timeoutState.claimTimeout(if: { execution.process.isRunning }) else { return }
-                            execution.terminate()  // SIGTERM
-                            do { try await delay(.seconds(1)) } catch { return }
-                            execution.kill()  // SIGKILL
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        try spawn(execution.process)
+                        if cancellationState.didSpawn(cancelledNow: false) {
+                            // Cancellation may arrive while spawn is blocked, when
+                            // the cancellation handler has no child to terminate yet.
+                            terminateAfterCancellation()
+                        } else {
+                            timeoutState.arm {
+                                do { try await delay(timeout) } catch { return }
+                                guard timeoutState.claimTimeout(if: { execution.process.isRunning }) else { return }
+                                execution.terminate()  // SIGTERM
+                                do { try await delay(.seconds(1)) } catch { return }
+                                execution.kill()  // SIGKILL
+                            }
                         }
-                    }
-                } catch {
-                    timeoutState.finish()
-                    cancellationState.finish()
-                    // A failed spawn leaves parent-owned pipe writers open. Close
-                    // them before resuming so both detached drains reach EOF.
-                    try? execution.stdoutPipe.fileHandleForWriting.close()
-                    try? execution.stderrPipe.fileHandleForWriting.close()
-                    if Task.isCancelled || cancellationState.isCancelled {
-                        resume.resume(throwing: CancellationError())
-                    } else {
-                        resume.resume(
-                            throwing: CommandRunnerError.spawnFailed(
-                                executable,
-                                reason: error.localizedDescription
-                            ))
+                    } catch {
+                        timeoutState.finish()
+                        cancellationState.finish()
+                        // A failed spawn leaves parent-owned pipe writers open. Close
+                        // them before resuming so both drains reach EOF.
+                        try? execution.stdoutPipe.fileHandleForWriting.close()
+                        try? execution.stderrPipe.fileHandleForWriting.close()
+                        if cancellationState.isCancelled {
+                            resume.resume(throwing: CancellationError())
+                        } else {
+                            resume.resume(
+                                throwing: CommandRunnerError.spawnFailed(
+                                    executable,
+                                    reason: error.localizedDescription
+                                ))
+                        }
                     }
                 }
             }
@@ -214,6 +212,16 @@ struct ProcessCommandRunner: CommandRunner {
             stdout: String(decoding: stdout, as: UTF8.self),
             stderr: String(decoding: stderr, as: UTF8.self)
         )
+    }
+
+    private static func readToEnd(_ handle: FileHandle) -> Task<Data, Never> {
+        Task {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(returning: handle.readDataToEndOfFile())
+                }
+            }
+        }
     }
 
     /// A minimal base environment plus the caller's keys. `PATH` is always

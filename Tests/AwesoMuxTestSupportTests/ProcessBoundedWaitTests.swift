@@ -26,6 +26,13 @@ struct ProcessBoundedWaitTests {
         #expect(process.terminationStatus == 0)
     }
 
+    @Test("async waiting leaves the cooperative executor available")
+    func asyncExitSucceeds() async throws {
+        let process = try Self.startSleep("0")
+        try await process.waitUntilExitEventually(deadline: .seconds(30))
+        #expect(process.terminationStatus == 0)
+    }
+
     /// Guards the regression that motivated the whole change: the poll must not
     /// depend on the calling thread pumping a run loop, or every wait in the
     /// suite would sit until its deadline.

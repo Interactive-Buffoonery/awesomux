@@ -387,7 +387,7 @@ struct BridgeAttachAssemblyTests {
                 controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: successor
             )
         )
-        try Self.runShell(
+        try await Self.runShell(
             try #require(AmxBackend.bridgeStateFileWriteRemoteScript(channel: oldChannel)),
             stdin: oldWrite.stdinData
         )
@@ -421,16 +421,19 @@ struct BridgeAttachAssemblyTests {
         )
         try #require(await Self.waitForFile(enteredURL))
 
-        let successorCompletion = ProcessCompletionSignal()
+        let successorCompletion = EventRecorder<Void>()
         let successorWriteProcess = try Self.startShell(
             try #require(AmxBackend.bridgeStateFileWriteRemoteScript(channel: successor)),
             stdin: successorWrite.stdinData,
             completion: successorCompletion,
         )
-        let successorFinishedBeforeDelete = successorCompletion.wait(timeout: 0.3)
+        let successorFinishedBeforeDelete = await successorCompletion.waitForCount(
+            1,
+            deadline: .milliseconds(300)
+        )
         try Data().write(to: releaseURL)
-        try staleDelete.waitUntilExitEventually()
-        try successorWriteProcess.waitUntilExitEventually()
+        try await staleDelete.waitUntilExitEventually()
+        try await successorWriteProcess.waitUntilExitEventually()
 
         #expect(!successorFinishedBeforeDelete)
         #expect(staleDelete.terminationStatus == 0)
@@ -486,13 +489,13 @@ struct BridgeAttachAssemblyTests {
 
         first.terminate()
         try #require(await Self.waitForFile(secondEnteredURL))
-        try first.waitUntilExitEventually()
+        try await first.waitUntilExitEventually()
         #expect(first.terminationStatus != 0)
         #expect(fileManager.fileExists(atPath: lockURL.path))
         #expect(second.isRunning)
 
         try Data().write(to: secondReleaseURL)
-        try second.waitUntilExitEventually()
+        try await second.waitUntilExitEventually()
         #expect(second.terminationStatus == 0)
         #expect(!fileManager.fileExists(atPath: lockURL.path))
     }
@@ -551,11 +554,11 @@ struct BridgeAttachAssemblyTests {
         let parentPublished = await Self.waitForFile(parentPublishedURL)
         if !parentPublished {
             try Data().write(to: releasePublisherURL)
-            try first.waitUntilExitEventually()
+            try await first.waitUntilExitEventually()
         }
         try #require(parentPublished)
 
-        let secondCompletion = ProcessCompletionSignal()
+        let secondCompletion = EventRecorder<Void>()
         let second = try Self.startShell(
             AmxBackend.bridgeStateFileLockedRemoteScript(
                 stateFilePath: stateURL.path,
@@ -563,11 +566,14 @@ struct BridgeAttachAssemblyTests {
             ),
             completion: secondCompletion
         )
-        let secondFinishedBeforePublication = secondCompletion.wait(timeout: 0.3)
+        let secondFinishedBeforePublication = await secondCompletion.waitForCount(
+            1,
+            deadline: .milliseconds(300)
+        )
         let secondEnteredBeforePublication = fileManager.fileExists(atPath: secondEnteredURL.path)
         try Data().write(to: releasePublisherURL)
-        try first.waitUntilExitEventually()
-        try second.waitUntilExitEventually()
+        try await first.waitUntilExitEventually()
+        try await second.waitUntilExitEventually()
 
         #expect(!secondFinishedBeforePublication)
         #expect(!secondEnteredBeforePublication)
@@ -579,7 +585,7 @@ struct BridgeAttachAssemblyTests {
     }
 
     @Test("an abandoned empty lock parent fails closed after the bounded wait")
-    func abandonedEmptyParentFailsClosed() throws {
+    func abandonedEmptyParentFailsClosed() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("awesomux-lock-abandoned-\(UUID().uuidString)", isDirectory: true)
@@ -596,7 +602,7 @@ struct BridgeAttachAssemblyTests {
         let enteredURL = root.appendingPathComponent("entered")
         try fileManager.createDirectory(at: lockURL, withIntermediateDirectories: false)
 
-        let completion = ProcessCompletionSignal()
+        let completion = EventRecorder<Void>()
         let process = try Self.startShell(
             AmxBackend.bridgeStateFileLockedRemoteScript(
                 stateFilePath: stateURL.path,
@@ -604,9 +610,9 @@ struct BridgeAttachAssemblyTests {
             ),
             completion: completion
         )
-        let finishedWithinBound = completion.wait(timeout: 45)
+        let finishedWithinBound = await completion.waitForCount(1, deadline: .seconds(45))
         if !finishedWithinBound { process.terminate() }
-        try process.waitUntilExitEventually()
+        try await process.waitUntilExitEventually()
 
         #expect(finishedWithinBound)
         #expect(process.terminationStatus != 0)
@@ -645,7 +651,7 @@ struct BridgeAttachAssemblyTests {
         let firstEntered = await Self.waitForFile(firstEnteredURL)
         if !firstEntered {
             try Data().write(to: releaseFirstURL)
-            try first.waitUntilExitEventually()
+            try await first.waitUntilExitEventually()
         }
         try #require(firstEntered)
 
@@ -676,8 +682,8 @@ struct BridgeAttachAssemblyTests {
         let lookupAttempted = await Self.waitForFile(lookupAttemptedURL)
         let secondEnteredWhileFirstHeldLease = fileManager.fileExists(atPath: secondEnteredURL.path)
         try Data().write(to: releaseFirstURL)
-        try first.waitUntilExitEventually()
-        try second.waitUntilExitEventually()
+        try await first.waitUntilExitEventually()
+        try await second.waitUntilExitEventually()
 
         #expect(lookupAttempted)
         #expect(!secondEnteredWhileFirstHeldLease)
@@ -687,7 +693,7 @@ struct BridgeAttachAssemblyTests {
     }
 
     @Test("a reused live PID with a different process identity is stale")
-    func reusedPIDLeaseIsRecovered() throws {
+    func reusedPIDLeaseIsRecovered() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("awesomux-lock-pid-reuse-\(UUID().uuidString)", isDirectory: true)
@@ -709,7 +715,7 @@ struct BridgeAttachAssemblyTests {
         try fileManager.createDirectory(at: staleLeaseURL, withIntermediateDirectories: false)
         let acquiredURL = root.appendingPathComponent("acquired")
 
-        try Self.runShell(
+        try await Self.runShell(
             AmxBackend.bridgeStateFileLockedRemoteScript(
                 stateFilePath: stateURL.path,
                 criticalSection: ": > \(Self.shellQuote(acquiredURL.path))"
@@ -1040,9 +1046,9 @@ struct BridgeAttachAssemblyTests {
         return process.terminationStatus == 0 && fileManager.fileExists(atPath: stateURL.path)
     }
 
-    private static func runShell(_ script: String, stdin: Data? = nil) throws {
+    private static func runShell(_ script: String, stdin: Data? = nil) async throws {
         let process = try startShell(script, stdin: stdin)
-        try process.waitUntilExitEventually()
+        try await process.waitUntilExitEventually()
         guard process.terminationStatus == 0 else {
             throw ShellRaceError.failed(process.terminationStatus)
         }
@@ -1052,7 +1058,7 @@ struct BridgeAttachAssemblyTests {
         _ script: String,
         stdin: Data? = nil,
         environment: [String: String]? = nil,
-        completion: ProcessCompletionSignal? = nil,
+        completion: EventRecorder<Void>? = nil,
     ) throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -1061,7 +1067,9 @@ struct BridgeAttachAssemblyTests {
             process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
         }
         if let completion {
-            process.terminationHandler = { _ in completion.signal() }
+            process.terminationHandler = { _ in
+                Task { await completion.record(()) }
+            }
         }
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -1094,16 +1102,4 @@ struct BridgeAttachAssemblyTests {
 
 private enum ShellRaceError: Error {
     case failed(Int32)
-}
-
-private final class ProcessCompletionSignal: @unchecked Sendable {
-    private let semaphore = DispatchSemaphore(value: 0)
-
-    func signal() {
-        semaphore.signal()
-    }
-
-    func wait(timeout: TimeInterval) -> Bool {
-        semaphore.wait(timeout: .now() + timeout) == .success
-    }
 }

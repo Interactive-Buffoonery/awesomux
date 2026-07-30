@@ -19,7 +19,7 @@ struct BridgeConnectionSupervisorTests {
         let client = try UnixSocketClient(path: actor.socketPath)
         try client.write(helloLine)
 
-        let ackLine = try client.readLine()
+        let ackLine = try await client.readLine()
         #expect(
             BridgeHandshake.parse(line: ackLine)
                 == .helloAck(
@@ -41,11 +41,11 @@ struct BridgeConnectionSupervisorTests {
                 proto: "awesomux-bridge-v2", token: "token", session: "session", ts: 1, helper: "test"
             ).encodedLine())
 
-        let nackLine = try client.readLine()
+        let nackLine = try await client.readLine()
         #expect(BridgeHandshake.parse(line: nackLine) == .helloNack(supported: BridgeConnectionSupervisor.supportedProtocols))
         // The nack is the mandatory, and only, reply — the connection closes
         // right after it, no further bytes.
-        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("unsupported proto still nacks even when the token is also wrong — proto is checked first")
@@ -65,9 +65,9 @@ struct BridgeConnectionSupervisorTests {
                 proto: "awesomux-bridge-v2", token: "also-wrong", session: "session", ts: 1, helper: "test"
             ).encodedLine())
 
-        let nackLine = try client.readLine()
+        let nackLine = try await client.readLine()
         #expect(BridgeHandshake.parse(line: nackLine) == .helloNack(supported: BridgeConnectionSupervisor.supportedProtocols))
-        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("wrong token closes silently with no reply")
@@ -85,7 +85,7 @@ struct BridgeConnectionSupervisorTests {
             ).encodedLine())
 
         // First readable event is EOF itself — no ack, no nack, nothing.
-        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
         #expect(await recorder.lostConnections.values.isEmpty)
     }
 
@@ -103,7 +103,7 @@ struct BridgeConnectionSupervisorTests {
                 proto: "awesomux-bridge-v1", token: "token", session: "wrong-session", ts: 1, helper: "test"
             ).encodedLine())
 
-        #expect(client.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("a second valid hello replaces the first and fires the connection-lost sink")
@@ -116,13 +116,13 @@ struct BridgeConnectionSupervisorTests {
 
         let oldClient = try UnixSocketClient(path: actor.socketPath)
         try oldClient.write(helloLine)
-        _ = try oldClient.readLine()
+        _ = try await oldClient.readLine()
 
         let newClient = try UnixSocketClient(path: actor.socketPath)
         try newClient.write(helloLine)
-        _ = try newClient.readLine()
+        _ = try await newClient.readLine()
 
-        #expect(oldClient.waitForEOF(timeoutMilliseconds: 10_000))
+        #expect(await oldClient.waitForEOF(timeoutMilliseconds: 10_000))
         #expect(await recorder.lostConnections.waitForCount(1, deadline: .seconds(10)))
 
         // The replacement, not merely a stray extra event: exactly one loss,
@@ -143,7 +143,7 @@ struct BridgeConnectionSupervisorTests {
 
         let client = try UnixSocketClient(path: actor.socketPath)
         try client.write(helloLine)
-        _ = try client.readLine()
+        _ = try await client.readLine()
         client.disconnect()
 
         #expect(await recorder.lostConnections.waitForCount(1, deadline: .seconds(10)))
@@ -159,7 +159,7 @@ struct BridgeConnectionSupervisorTests {
 
         let firstClient = try UnixSocketClient(path: actor.socketPath)
         try firstClient.write(helloLine)
-        _ = try firstClient.readLine()
+        _ = try await firstClient.readLine()
 
         // Give the handshake a beat to (not) leak into the frame sink before
         // any envelope is ever sent.
@@ -175,7 +175,7 @@ struct BridgeConnectionSupervisorTests {
         // not a constant.
         let secondClient = try UnixSocketClient(path: actor.socketPath)
         try secondClient.write(helloLine)
-        _ = try secondClient.readLine()
+        _ = try await secondClient.readLine()
         try secondClient.write(try envelope(.paneRename(title: "second"), id: "second-id").encodedLine())
         #expect(await recorder.frames.waitForCount(2, deadline: .seconds(10)))
 
