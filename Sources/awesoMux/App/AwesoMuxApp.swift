@@ -599,8 +599,15 @@ struct AwesoMuxApp: App {
             .onChange(of: sessionStore.unreadNotificationTotal) { _, total in
                 appDelegate.updateDockBadge(total: total)
             }
-            .onChange(of: appSettingsStore.general.value.showMenuBarMiniStatus) { _, _ in
-                appDelegate.syncMenuBarMiniStatusItem()
+            // Both general-config reactions share one modifier: this chain is
+            // already at the type-checker's limit and one more tips it over.
+            .onChange(of: appSettingsStore.general.value) { previous, current in
+                if previous.showMenuBarMiniStatus != current.showMenuBarMiniStatus {
+                    appDelegate.syncMenuBarMiniStatusItem()
+                }
+                if previous.restoreWorkspaces != current.restoreWorkspaces {
+                    restoreWorkspacesSettingDidChange(isEnabled: current.restoreWorkspaces)
+                }
             }
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
                 appDelegate.evaluateAndPostNotifications()
@@ -4507,6 +4514,39 @@ extension AwesoMuxApp {
         }
     }
 
+    /// The setting's two edges are not symmetric. Turning it ON is a chance to
+    /// tell the user that the snapshot on disk is unreadable — `save` validates
+    /// regardless, but has no return path to the UI. Turning it OFF has to drop
+    /// a write the debouncer already captured, which no longer re-reads the
+    /// setting, and re-arm validation so a later opt-in re-inspects a file that
+    /// may have changed while nothing was watching it.
+    private func restoreWorkspacesSettingDidChange(isEnabled: Bool) {
+        guard isEnabled else {
+            SessionPersistence.restoreWorkspacesDidTurnOff()
+            return
+        }
+        guard !isRecoveryReplacementInProgress else { return }
+        let warning = SessionPersistence.validateSnapshotForNewlyEnabledRestore()
+        // Only a warning that actually paused saving is worth raising. The
+        // restored store is discarded, so a sanitization notice would be
+        // describing workspaces the user is never going to see.
+        //
+        // Deliberately no catch-up save on the clean path. Launching with
+        // restore off builds a bare `SessionStore`, so saving here would write
+        // that empty store over a healthy saved session inside the debounce
+        // window — the exact clobber `saveSessionIfRestoreEnabled`'s own doc
+        // comment exists to prevent. The next real mutation persists.
+        guard warning?.preventsInitialSave == true else { return }
+        recoveryWarning = warning
+        didPresentRecoveryWarning = false
+        // Hopped off the view update: `presentRecoveryWarningIfNeeded` spins a
+        // nested modal runloop, and the replacement path re-enters `runModal` in
+        // a retry loop. Running that inside a SwiftUI change body is a wedge.
+        Task { @MainActor in
+            presentRecoveryWarningIfNeeded()
+        }
+    }
+
     private func presentRecoveryWarningIfNeeded() {
         guard let warning = recoveryWarning, !didPresentRecoveryWarning else {
             return
@@ -4530,7 +4570,12 @@ extension AwesoMuxApp {
                 allowsAutomaticWritesAfterAcknowledgement:
                     warning.allowsAutomaticWritesAfterAcknowledgement
             ) {
-                if SessionPersistence.acknowledgeRecoveryWarning(warning) {
+                if SessionPersistence.acknowledgeRecoveryWarning(
+                    warning,
+                    thenSaving: appSettingsStore.general.value.restoreWorkspaces
+                        ? sessionStore : nil,
+                    completion: handleSessionSaveResult
+                ) {
                     recoveryWarning = nil
                 }
             } else if !warning.preventsInitialSave {
