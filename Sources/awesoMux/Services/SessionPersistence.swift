@@ -145,6 +145,14 @@ enum SessionPersistence {
     /// signal `writeSnapshot` re-checks inside its lock — but only up to that
     /// check, so a warning landing between it and the write still loses.
     /// Clearing sites reach the same `didSet` as deliberate no-ops.
+    ///
+    /// Cancellation-only is a deliberate ceiling, and still a tightening: before
+    /// #316 raising this flag did not touch an already-scheduled write at all,
+    /// leaving the whole debounce window plus the write unprotected. Closing the
+    /// remaining check-to-write gap means taking `lastWrittenDigestLock` here,
+    /// which is held across the file write — so the MainActor would block on
+    /// disk I/O to defend a path only `load()` can reach, once, before any store
+    /// exists to save. Revisit if a second raiser ever appears.
     private static var blockedRecoveryWarningID: UUID? {
         didSet {
             guard blockedRecoveryWarningID != nil else { return }
