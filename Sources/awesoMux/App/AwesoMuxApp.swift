@@ -4864,7 +4864,11 @@ extension AwesoMuxApp {
                         "awesoMux checked the saved workspace file and found data that could not be restored safely. Your open workspaces are untouched.",
                     comment: "Lead line for a sanitized-restore warning raised mid-session"
                 )
-                : "awesoMux reopened your saved workspaces, but cleaned up data that could not be restored safely."
+                : String(
+                    localized:
+                        "awesoMux reopened your saved workspaces, but cleaned up data that could not be restored safely.",
+                    comment: "Lead line for a sanitized-restore warning raised at launch"
+                )
         ]
         informativeLines.append(contentsOf: warning.sanitizationSummary?.severitySummaryLines ?? [])
         if warning.archivedSnapshotURL != nil {
