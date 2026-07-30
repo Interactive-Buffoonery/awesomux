@@ -196,8 +196,15 @@ struct SidebarLiveTitleProjectionTests {
         let model = SidebarPeekModel()
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
         let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
+        // The peek is shown from a sidebar row's scope, which reads
+        // `LiveTitleReads.everything` — the coarse channel. The two writes below
+        // are therefore spaced across the coalescing window on purpose: this
+        // test is about `show`/`refresh` carrying the channel's title through to
+        // the header, and back-to-back writes would coalesce into one and make
+        // the second assertion prove nothing about `refresh`.
+        let base = Date(timeIntervalSince1970: 1_000_000)
 
-        fixture.retitle("release prep")
+        fixture.retitle("release prep", now: base)
 
         // The hovering tile re-shows from its (stale) struct plus the live
         // channel — the pane rows were already wired this way; the header read
@@ -214,7 +221,10 @@ struct SidebarLiveTitleProjectionTests {
 
         // `refresh` is the path a title tick actually takes while the pointer
         // rests on the row, so it has to carry the title too.
-        fixture.retitle("ship it")
+        fixture.retitle(
+            "ship it",
+            now: base.addingTimeInterval(LiveTitleBox.coarseCoalescingInterval)
+        )
         model.refresh(
             session: staleSession,
             location: .local("~"),
@@ -258,8 +268,8 @@ struct SidebarLiveTitleProjectionTests {
 
         /// A display-only OSC title report: storage moves, `groups` does not
         /// publish, the generation ticks.
-        func retitle(_ title: String) {
-            store.updatePane(sessionID: sessionID, paneID: paneID, title: title)
+        func retitle(_ title: String, now: Date = Date()) {
+            store.updatePane(sessionID: sessionID, paneID: paneID, title: title, now: now)
         }
     }
 

@@ -7,9 +7,10 @@ import SwiftUI
 /// A display-only OSC title report writes `SessionStore` group storage
 /// *silently* (issue #311), so the `TerminalSession` value a view was handed
 /// at its last render can name a title several seconds stale. These are the
-/// displayed titles as of this render; the fallbacks keep call sites correct
-/// wherever no channel is injected (tests, previews, detached roots), where
-/// the struct's own title is by definition the freshest thing available.
+/// displayed titles as of this render — or as of the last coarse publish, for
+/// `reads: .everything`. The fallbacks keep call sites correct wherever no
+/// channel is injected (tests, previews, detached roots), where the struct's
+/// own title is by definition the freshest thing available.
 struct LiveTitles: Equatable {
     /// No channel available — every lookup falls back to the struct.
     static let unavailable = LiveTitles(workspace: nil, panes: [:])
@@ -43,8 +44,13 @@ struct LiveTitles: Equatable {
             // many-pane split measures worse than the box redesign.
             panes = (box?.paneTitles[paneID]).map { [paneID: $0] } ?? [:]
         case .everything:
-            workspace = box?.workspaceTitle
-            panes = box?.paneTitles ?? [:]
+            // The COARSE mirror, not the fine properties the other two cases
+            // read. `.everything` is exactly the consumers that render a NAME —
+            // sidebar rows and the path bar — where a second of staleness is not
+            // observable but the per-tick re-layout is the measured residual
+            // cost. See `LiveTitleBox.coarseWorkspaceTitle`.
+            workspace = box?.coarseWorkspaceTitle
+            panes = box?.coarsePaneTitles ?? [:]
         }
     }
 
@@ -57,20 +63,28 @@ struct LiveTitles: Equatable {
     }
 }
 
-/// Which of `LiveTitleBox`'s two observable properties a scope reads.
+/// Which of `LiveTitleBox`'s observable properties a scope reads.
 ///
 /// `@Observable` invalidates per property, so this is a real observation
 /// boundary and not bookkeeping: the app titlebar renders only the workspace
 /// title, and declaring that keeps an INACTIVE pane's spinner from waking it at
 /// all. Pick the narrowest case the content can render from.
+///
+/// It also picks the CHANNEL. `.workspaceTitle` and `.paneTitle` read the
+/// fine-grained properties and repaint on every title report; `.everything`
+/// reads the ~1 Hz coarse mirror. That is a product decision as much as a
+/// performance one — an agent spinner in a pane title bar has to animate, a
+/// workspace name in a sidebar row does not.
 enum LiveTitleReads: Equatable {
-    /// `workspaceTitle` only — the app titlebar.
+    /// `workspaceTitle` only — the app titlebar. Fine-grained.
     case workspaceTitle
-    /// One pane's title only — a pane title bar.
+    /// One pane's title only — a pane title bar. Fine-grained, so a spinner
+    /// stays smooth.
     case paneTitle(TerminalPane.ID)
     /// Both, for content that renders the workspace title AND pane titles (a
     /// sidebar row keys every pane; the path bar needs the active pane's title
-    /// plus the workspace title as its project fallback).
+    /// plus the workspace title as its project fallback). Reads the coarse
+    /// mirror.
     case everything
 }
 

@@ -143,13 +143,18 @@ public final class SessionStore {
     /// The narrow counterpart to `refreshLiveTitleBoxes`, for the silent OSC
     /// path, which is the only writer that both knows exactly which pane moved
     /// and runs often enough for the difference to matter.
-    func publishLiveTitle(paneID: TerminalPane.ID, in session: TerminalSession) {
+    func publishLiveTitle(paneID: TerminalPane.ID, in session: TerminalSession, now: Date) {
         guard let box = liveTitles[session.id],
             let pane = session.layout.pane(id: paneID)
         else {
             return
         }
-        box.adoptPaneTitle(pane.id, title: pane.title, workspaceTitle: session.title)
+        box.adoptPaneTitle(
+            pane.id,
+            title: pane.title,
+            workspaceTitle: session.title,
+            now: now
+        )
     }
 
     /// Re-seeds every live box from storage.
@@ -267,14 +272,16 @@ public final class SessionStore {
     @ObservationIgnored private var lastLiveTitleBumpBySessionID: [TerminalSession.ID: Date] = [:]
 
     func bumpLiveTitleGenerationIfDue(sessionID: TerminalSession.ID, now: Date) {
-        if let last = lastLiveTitleBumpBySessionID[sessionID] {
-            let elapsed = now.timeIntervalSince(last)
-            // A negative elapsed means the wall clock went backwards (NTP step,
-            // manual clock change, DST-adjacent shenanigans). Treating that as
-            // "not due" would suppress every bump until the clock caught back
-            // up — for a backwards jump of hours, hours of frozen projections.
-            if elapsed >= 0, elapsed < liveTitleGenerationInterval { return }
-        }
+        // Backwards-clock handling lives in the shared check — see
+        // `liveTitleCoalescingWindowHasElapsed`, which `LiveTitleBox`'s coarse
+        // mirror uses for the same reason.
+        guard
+            liveTitleCoalescingWindowHasElapsed(
+                since: lastLiveTitleBumpBySessionID[sessionID],
+                now: now,
+                interval: liveTitleGenerationInterval
+            )
+        else { return }
         lastLiveTitleBumpBySessionID[sessionID] = now
         liveTitleGeneration += 1
     }
