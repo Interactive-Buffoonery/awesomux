@@ -17,7 +17,12 @@ struct GeneralSettingsPane: View {
             SettingsSection(index: 1, title: "Startup", subtitle: "What awesoMux does the moment you launch it.") {
                 SettingsField(
                     label: "Restore workspaces",
-                    hint: "Reopen the sidebar groups and sessions from the previous launch. Applies on next launch.",
+                    // The hint is forwarded as the toggle's VoiceOver hint, so
+                    // "Applies on next launch" was actively wrong for screen
+                    // reader users: turning this on now validates the saved
+                    // file immediately, and can pause saving as a result.
+                    hint:
+                        "Reopen the sidebar groups and sessions from the previous launch. Restoring happens at the next launch; turning this on checks the saved file right away.",
                     isFirst: true,
                     forwardsAccessibilityToControl: true
                 ) {
