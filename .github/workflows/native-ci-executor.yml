@@ -347,12 +347,25 @@ jobs:
         with:
           save-cache: "false"
 
+      - name: Install Zig for cached release build
+        id: zig
+        if: steps.prepare.outcome == 'success' && steps.prepare.outputs.cache-hit == 'true'
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+          ZIG_FORMULA: ${{ steps.prepare.outputs.zig-formula }}
+        run: |
+          set -euo pipefail
+          brew install "$ZIG_FORMULA"
+          echo "AWESOMUX_ZIG=$(brew --prefix "$ZIG_FORMULA")/bin/zig" >> "$GITHUB_ENV"
+
       - name: Stage release build and verify signature
         id: build
         if: always()
         env:
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          CACHE_HIT: ${{ steps.prepare.outputs.cache-hit }}
+          ZIG_OUTCOME: ${{ steps.zig.outcome }}
           LOG_PATH: .build/test-results/native-ci.log
         run: |
           set -euo pipefail
@@ -363,6 +376,9 @@ jobs:
             result=failure
           elif [[ "$PREPARE_OUTCOME" != "success" ]]; then
             echo "Native preparation failed; release build was not executed." | tee -a "$LOG_PATH" >&2
+            result=failure
+          elif [[ "$CACHE_HIT" == "true" && "$ZIG_OUTCOME" != "success" ]]; then
+            echo "Zig installation failed; release build was not executed." | tee -a "$LOG_PATH" >&2
             result=failure
           else
             set +e

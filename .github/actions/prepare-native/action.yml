@@ -21,6 +21,9 @@ outputs:
   cache-hit:
     description: Whether an exact Ghostty artifact cache was restored.
     value: ${{ steps.ghostty-cache.outputs.cache-hit }}
+  zig-formula:
+    description: Homebrew Zig formula required by the checked-out native sources.
+    value: ${{ steps.context.outputs.zig-formula }}
 
 runs:
   using: composite
