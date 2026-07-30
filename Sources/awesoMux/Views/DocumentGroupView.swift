@@ -522,9 +522,16 @@ struct DocumentGroupView: View {
     private var annotationHandoffPresentation: AnnotationHandoffPresentation {
         switch resolveSendTarget(for: document.id) {
         case .available(let target):
+            guard let provider = PlanAnnotationAuthor(agentKind: target.agentKind) else {
+                // Annotation authorship requires a PlanAnnotationAuthor mapping;
+                // providers outside the annotation protocol (Grok, shells)
+                // present the generic disabled affordance instead of a "Send
+                // to Grok" button that presentComposer would silently refuse.
+                return Self.unmappedProviderHandoffPresentation
+            }
             return AnnotationHandoffPresentation(
                 title: String(
-                    localized: "Send to \(target.agentKind.displayName)",
+                    localized: "Send to \(provider.displayName)",
                     comment: "Annotation handoff button naming the verified target provider"
                 ),
                 isEnabled: true,
@@ -540,6 +547,22 @@ struct DocumentGroupView: View {
                 unavailableDescription: DocumentPaneSendBar.unavailableDescription(for: reason)
             )
         }
+    }
+
+    /// Disabled handoff affordance for a target outside the annotation
+    /// protocol, shaped like the generic unavailable presentation.
+    static var unmappedProviderHandoffPresentation: AnnotationHandoffPresentation {
+        AnnotationHandoffPresentation(
+            title: String(
+                localized: "Send to Agent",
+                comment: "Disabled annotation handoff button when no verified provider is available"
+            ),
+            isEnabled: false,
+            unavailableDescription: String(
+                localized: "This agent doesn't support review annotations",
+                comment: "Disabled annotation handoff reason when the document's agent has no annotation protocol mapping"
+            )
+        )
     }
 
     /// Opens the existing composer, pinning the document + resolved target it
