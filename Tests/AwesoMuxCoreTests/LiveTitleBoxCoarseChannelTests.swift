@@ -220,6 +220,25 @@ struct LiveTitleBoxCoarseChannelTests {
         #expect(box.coarsePaneTitles[fixture.paneID] == "frame 2")
     }
 
+    /// The shared window check must stay written as a NEGATION of the original
+    /// suppression predicate. `interval` reaches `bumpLiveTitleGenerationIfDue`
+    /// from a public initializer, and every comparison against `NaN` is false —
+    /// so the positive-looking rewrite `elapsed < 0 || elapsed >= interval`
+    /// returns false forever and freezes the generation counter, where the
+    /// original bumped every time. Sidebar search, duplicate ordinals and the
+    /// VoiceOver rotor all hang off that counter.
+    @Test("a non-finite interval does not freeze the live-title generation")
+    func nonFiniteIntervalDoesNotFreezeTheGeneration() {
+        let fixture = makeFixture(liveTitleGenerationInterval: .nan)
+        let base = Date(timeIntervalSince1970: 1_000_000)
+
+        fixture.retitle("one", now: base)
+        fixture.retitle("two", now: base.addingTimeInterval(0.1))
+        fixture.retitle("three", now: base.addingTimeInterval(0.2))
+
+        #expect(fixture.store.liveTitleGeneration == 3)
+    }
+
     // MARK: - 4. A restore is a new lifetime for the coalescing window
 
     /// A bulk restore can reuse a session ID with entirely different content. If
@@ -261,6 +280,7 @@ struct LiveTitleBoxCoarseChannelTests {
 
         // Well inside the window the outgoing session opened at `base`. It must
         // publish anyway: this is the restored pane's first report.
+        let generationBefore = fixture.store.liveTitleGeneration
         fixture.store.updatePane(
             sessionID: fixture.sessionID,
             paneID: restoredPane.id,
@@ -268,6 +288,11 @@ struct LiveTitleBoxCoarseChannelTests {
             now: base.addingTimeInterval(0.2)
         )
         #expect(restoredBox.coarsePaneTitles[restoredPane.id] == "first report")
+
+        // The generation counter coalesces on the same boundary with its own
+        // per-session stamps. Resetting only the box's window would move the row
+        // while leaving every title-derived projection un-rebuilt.
+        #expect(fixture.store.liveTitleGeneration > generationBefore)
     }
 
     // MARK: - Fixture

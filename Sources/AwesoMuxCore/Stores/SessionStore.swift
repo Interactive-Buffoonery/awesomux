@@ -569,6 +569,14 @@ public final class SessionStore {
         for box in liveTitles.values {
             box.resetCoalescingWindow()
         }
+        // The generation counter coalesces on the SAME boundary with its own
+        // per-session stamps, and `reconcileLiveTitleBoxes` prunes that map by
+        // surviving ID — so a reused ID would keep its old window here too, and
+        // the restored pane's first title report would move the row while
+        // leaving every title-DERIVED projection (search haystack, duplicate
+        // ordinals, rotor labels) un-rebuilt until something else published.
+        // Resetting one clock and not the other just moves the bug.
+        lastLiveTitleBumpBySessionID.removeAll()
         _groups = components.groups
         recentlyClosed = components.recentlyClosed
         // Both clears precede the `pinnedSessionIDs` write below, whose observer
