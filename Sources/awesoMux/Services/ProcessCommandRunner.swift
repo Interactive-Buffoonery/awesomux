@@ -14,6 +14,7 @@ import Foundation
 /// environment leaks in.
 struct ProcessCommandRunner: CommandRunner {
     typealias Delay = @Sendable (Duration) async throws -> Void
+    typealias Schedule = @Sendable (@escaping @Sendable () -> Void) -> Void
     typealias Spawn = @Sendable (Process) throws -> Void
 
     /// Trusted absolute tool dirs, used as the `PATH` of last resort when the
@@ -75,6 +76,7 @@ struct ProcessCommandRunner: CommandRunner {
     private let defaultPath: String
     private let homeDirectoryURL: URL
     private let delay: Delay
+    private let schedule: Schedule
     private let spawn: Spawn
 
     init(
@@ -82,12 +84,16 @@ struct ProcessCommandRunner: CommandRunner {
         defaultPath: String = ProcessCommandRunner.defaultToolPath,
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         delay: @escaping Delay = { try await ContinuousClock().sleep(for: $0) },
+        schedule: @escaping Schedule = {
+            DispatchQueue.global(qos: .userInitiated).async(execute: $0)
+        },
         spawn: @escaping Spawn = { try $0.run() }
     ) {
         self.timeout = timeout
         self.defaultPath = defaultPath
         self.homeDirectoryURL = homeDirectoryURL
         self.delay = delay
+        self.schedule = schedule
         self.spawn = spawn
     }
 
@@ -121,6 +127,7 @@ struct ProcessCommandRunner: CommandRunner {
         let cancellationState = CancellationState()
         let timeout = timeout
         let delay = delay
+        let schedule = schedule
         let spawn = spawn
         let terminateAfterCancellation: @Sendable () -> Void = {
             execution.terminate()
@@ -148,7 +155,15 @@ struct ProcessCommandRunner: CommandRunner {
                     return
                 }
 
-                DispatchQueue.global(qos: .userInitiated).async {
+                schedule {
+                    guard !cancellationState.isCancelled else {
+                        timeoutState.finish()
+                        cancellationState.finish()
+                        try? execution.stdoutPipe.fileHandleForWriting.close()
+                        try? execution.stderrPipe.fileHandleForWriting.close()
+                        resume.resume(throwing: CancellationError())
+                        return
+                    }
                     do {
                         try spawn(execution.process)
                         if cancellationState.didSpawn(cancelledNow: false) {

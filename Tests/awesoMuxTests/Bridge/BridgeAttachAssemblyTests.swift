@@ -421,16 +421,12 @@ struct BridgeAttachAssemblyTests {
         )
         try #require(await Self.waitForFile(enteredURL))
 
-        let successorCompletion = EventRecorder<Void>()
         let successorWriteProcess = try Self.startShell(
             try #require(AmxBackend.bridgeStateFileWriteRemoteScript(channel: successor)),
-            stdin: successorWrite.stdinData,
-            completion: successorCompletion,
+            stdin: successorWrite.stdinData
         )
-        let successorFinishedBeforeDelete = await successorCompletion.waitForCount(
-            1,
-            deadline: .milliseconds(300)
-        )
+        try await ContinuousClock().sleep(for: .milliseconds(300))
+        let successorFinishedBeforeDelete = !successorWriteProcess.isRunning
         try Data().write(to: releaseURL)
         try await staleDelete.waitUntilExitEventually()
         try await successorWriteProcess.waitUntilExitEventually()
@@ -558,18 +554,14 @@ struct BridgeAttachAssemblyTests {
         }
         try #require(parentPublished)
 
-        let secondCompletion = EventRecorder<Void>()
         let second = try Self.startShell(
             AmxBackend.bridgeStateFileLockedRemoteScript(
                 stateFilePath: stateURL.path,
                 criticalSection: ": > \(Self.shellQuote(secondEnteredURL.path))"
-            ),
-            completion: secondCompletion
+            )
         )
-        let secondFinishedBeforePublication = await secondCompletion.waitForCount(
-            1,
-            deadline: .milliseconds(300)
-        )
+        try await ContinuousClock().sleep(for: .milliseconds(300))
+        let secondFinishedBeforePublication = !second.isRunning
         let secondEnteredBeforePublication = fileManager.fileExists(atPath: secondEnteredURL.path)
         try Data().write(to: releasePublisherURL)
         try await first.waitUntilExitEventually()
