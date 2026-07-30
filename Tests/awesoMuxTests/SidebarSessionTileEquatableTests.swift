@@ -108,6 +108,7 @@ struct SidebarSessionTileEquatableTests {
     /// comment).
     private func tile(
         session: TerminalSession,
+        match: SessionMatch? = nil,
         isActive: Bool = false,
         isKeyboardFocused: Bool = false,
         showsSearchFocusCue: Bool = false,
@@ -127,12 +128,13 @@ struct SidebarSessionTileEquatableTests {
         canMakeWorkspaceManaged: Bool = false,
         tintedHighContrast: Bool = false,
         alwaysShowJumpNumbers: Bool = false,
-        canReorderWithinGroup: Bool = true
+        canReorderWithinGroup: Bool = true,
+        liveTitles: LiveTitles = .unavailable
     ) -> SidebarSessionTile {
         let focusState = FocusState<SidebarVisibleRowTarget?>()
         return SidebarSessionTile(
             session: session,
-            match: nil,
+            match: match,
             tint: ProjectTint(groupName: "Test", color: nil, index: 0),
             isActive: isActive,
             displayMode: .expanded,
@@ -171,8 +173,19 @@ struct SidebarSessionTileEquatableTests {
             onDragStarted: { UUID() },
             focusedRowTarget: focusState.projectedValue,
             isKeyboardNavigatingValue: isKeyboardNavigating,
+            liveTitles: liveTitles,
             isKeyboardNavigating: isKeyboardNavigatingBinding ?? .constant(isKeyboardNavigating)
         )
+    }
+
+    /// One workspace, one pane, in a real store — so the live-title tests below
+    /// drive the actual `updatePane` → silent storage write → `LiveTitleBox`
+    /// path rather than a hand-built snapshot.
+    private func store() -> (store: SessionStore, sessionID: UUID, paneID: UUID) {
+        let onePane = pane(title: "pane")
+        let sessionValue = session(panes: [onePane])
+        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [sessionValue])])
+        return (store, sessionValue.id, onePane.id)
     }
 
     // MARK: - Tests
@@ -463,6 +476,128 @@ struct SidebarSessionTileEquatableTests {
         let tileB = tile(session: sessionValue, canMakeWorkspaceManaged: true)
 
         #expect(tileA != tileB)
+    }
+
+    // MARK: - Live title channel (#311)
+
+    @Test("the row's accessibility title follows the visible text's branch")
+    func accessibilityTitleFollowsVisibleBranch() throws {
+        // `titleText` and `rowAccessibilityLabel` must take the SAME branch, or
+        // VoiceOver names a workspace differently from the text on screen.
+        let fixture = store()
+        let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "cargo build"
+        )
+        let liveTitles = LiveTitles(box: box)
+        #expect(liveTitles.workspace == "cargo build")
+
+        // No title match: the row renders the LIVE title, so the label must too.
+        #expect(
+            tile(session: staleSession, liveTitles: liveTitles)
+                .accessibilityTitleOverride == "cargo build"
+        )
+
+        // Title match: the row renders the STRUCT title (the highlight ranges are
+        // `String.Index`es into it and `highlighted` asserts when they don't map),
+        // so the label must fall back to the same string. `nil` is that fallback —
+        // it routes to `session.displayTitle(bundle:locale:)`, keeping the
+        // localized synthetic-title path a raw override would bypass.
+        let matched = tile(
+            session: staleSession,
+            match: SessionMatch(field: .title, score: 10, ranges: []),
+            liveTitles: liveTitles
+        )
+        #expect(matched.accessibilityTitleOverride == nil)
+
+        // A non-title match still renders the live workspace title, so it keeps
+        // the override — the branch is on the matched FIELD, not on matching.
+        #expect(
+            tile(
+                session: staleSession,
+                match: SessionMatch(field: .location, score: 10, ranges: []),
+                liveTitles: liveTitles
+            ).accessibilityTitleOverride == "cargo build"
+        )
+    }
+
+    @Test("a workspace-title move alone compares NOT equal")
+    func liveWorkspaceTitleFieldIsIsolated() throws {
+        // ISOLATES `RenderKey.title`. `liveWorkspaceTitleChangeRerenders` below
+        // does not: an active-pane report is PROMOTED into the workspace title
+        // (`syncSessionChromeToActivePane`), so it moves `PaneChromeKey.title`
+        // too and passes even with the workspace field removed from the key —
+        // verified by deleting the field and watching that test stay green.
+        //
+        // A rename moves the workspace title and nothing else. It publishes
+        // `groups`, so in production the row is also handed a fresh struct; the
+        // stale struct is reused here precisely so the ONLY thing that can carry
+        // the assertion is the workspace half of the key.
+        let fixture = store()
+        let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        let before = tile(session: staleSession, liveTitles: LiveTitles(box: box))
+
+        fixture.store.renameSession(id: fixture.sessionID, title: "release prep")
+
+        #expect(box.workspaceTitle == "release prep")
+        #expect(box.paneTitles[fixture.paneID] == "pane")
+        #expect(tile(session: staleSession, liveTitles: LiveTitles(box: box)) != before)
+    }
+
+    @Test("a display-only workspace-title write compares NOT equal")
+    func liveWorkspaceTitleChangeRerenders() throws {
+        let fixture = store()
+        // Captured BEFORE the write and reused for BOTH tiles on purpose: a
+        // display-only title write doesn't publish `groups`, so in production
+        // this stale struct is exactly what the row gets rebuilt from. The key
+        // can only tell the two apart via the box.
+        let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        let before = tile(session: staleSession, liveTitles: LiveTitles(box: box))
+
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "cargo build"
+        )
+
+        let after = tile(session: staleSession, liveTitles: LiveTitles(box: box))
+        #expect(before != after)
+
+        // Control, and the exact failure this gate exists to prevent: with no
+        // channel wired, the same two renders compare EQUAL and the row never
+        // repaints. It also proves the assertion above is carried by the box
+        // and not by some other field drifting underneath the fixture.
+        #expect(tile(session: staleSession) == tile(session: staleSession))
+    }
+
+    @Test("an inactive pane's display-only title write compares NOT equal")
+    func livePaneTitleChangeRerenders() throws {
+        let fixture = store()
+        _ = try #require(
+            fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID)
+        )
+        let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
+        let inactivePaneID = try #require(
+            staleSession.panes.first { $0.id != staleSession.activePaneID }?.id
+        )
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        let before = tile(session: staleSession, liveTitles: LiveTitles(box: box))
+
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: inactivePaneID,
+            title: "vim"
+        )
+
+        // An inactive pane is not promoted into the workspace title, so this
+        // isolates `PaneChromeKey.title` — the per-pane half of the gate.
+        #expect(box.workspaceTitle == staleSession.title)
+        #expect(tile(session: staleSession, liveTitles: LiveTitles(box: box)) != before)
     }
 
     @Test("session-level workingDirectory difference compares NOT equal")

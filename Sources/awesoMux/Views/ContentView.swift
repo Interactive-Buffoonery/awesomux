@@ -143,6 +143,11 @@ struct ContentView: View {
     var body: some View {
         content(sidebarWidth: sidebarWidth)
             .ignoresSafeArea(.container)
+            // Live-title channels for the sidebar rows and the workspace
+            // titlebar below (issue #311). Resolving a box costs no `groups`
+            // dependency, so this injection does not put ContentView back on
+            // the per-title-tick invalidation path it was just taken off.
+            .liveTitleChannels(from: sessionStore)
             .background(WindowAccessor { hostingWindow = $0 })
             // The always-mounted sweep for document-group revision monitors:
             // a group closed while its session is unmounted has no group view
@@ -729,7 +734,12 @@ struct AppTitlebarView: View {
     private func contentColumn(geometry: AppTitlebarLayoutGeometry) -> some View {
         HStack(spacing: 0) {
             if let session {
-                workspaceCluster(session)
+                // Scoped to the cluster so a spinner frame doesn't re-run the
+                // geometry reader, the brand lockup, or the window-drag
+                // background alongside it.
+                LiveTitleScope(sessionID: session.id, reads: .workspaceTitle) { liveTitles in
+                    workspaceCluster(session, title: liveTitles.workspaceTitle(for: session))
+                }
             } else {
                 Text("no workspace")
                     .awFont(AwFont.Mono.meta)
@@ -761,14 +771,19 @@ struct AppTitlebarView: View {
         isEditingTitle = true
     }
 
-    private func commitTitle(for session: TerminalSession) {
+    private func commitTitle(for session: TerminalSession, current: String) {
         // Guard so the focus-loss `onChange` and ⏎ can't double-commit: the
         // first to fire flips the flag and the rest no-op.
         guard isEditingTitle else { return }
         defer { isEditingTitle = false }
+        // `current` is the DISPLAYED title, not `session.title`. Unlike the
+        // pane bar, `.noChange` here does not require a user-edited title — so
+        // against a stale struct, typing exactly what the titlebar shows would
+        // resolve to "no change" and silently drop the user's request to pin
+        // that name, leaving the workspace still tracking its terminal.
         switch WorkspaceTitleCommit.resolveWorkspaceTitleCommit(
             input: titleDraft,
-            current: session.title
+            current: current
         ) {
         case let .rename(title):
             sessionStore.renameSession(id: session.id, title: title)
@@ -778,8 +793,8 @@ struct AppTitlebarView: View {
     }
 
     @ViewBuilder
-    private func workspaceCluster(_ session: TerminalSession) -> some View {
-        let cluster = clusterBody(session)
+    private func workspaceCluster(_ session: TerminalSession, title: String) -> some View {
+        let cluster = clusterBody(session, title: title)
         // `.combine` while idle flattens folder icon + label into one
         // VoiceOver stop; while editing that same flattening would swallow the
         // live TextField into the element, leaving nothing focusable and the
@@ -795,7 +810,7 @@ struct AppTitlebarView: View {
             cluster
                 .help("Drag to move window · double-click to rename")
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel(session.title)
+                .accessibilityLabel(title)
                 // Double-click is pointer-only; expose the same rename as a
                 // named action so assistive-tech users reach it too (mirrors
                 // the sidebar tile).
@@ -805,7 +820,7 @@ struct AppTitlebarView: View {
         }
     }
 
-    private func clusterBody(_ session: TerminalSession) -> some View {
+    private func clusterBody(_ session: TerminalSession, title: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "folder.fill")
                 .font(.system(size: 13, weight: .medium))
@@ -822,7 +837,7 @@ struct AppTitlebarView: View {
                     // A content-sized field jitters wider on every keystroke;
                     // the cap keeps it from reaching for the window edge.
                     .frame(minWidth: 160, idealWidth: 280, maxWidth: 420)
-                    .onSubmit { commitTitle(for: session) }
+                    .onSubmit { commitTitle(for: session, current: title) }
                     .onExitCommand { isEditingTitle = false }
                     // Clicking away commits rather than stranding the titlebar
                     // in edit mode with the window-drag handle suppressed.
@@ -834,7 +849,7 @@ struct AppTitlebarView: View {
                             isSuppressingTitleBlurCommit = false
                             return
                         }
-                        commitTitle(for: session)
+                        commitTitle(for: session, current: title)
                     }
                     .onAppear {
                         // `@FocusState` won't re-fire (won't re-run AppKit's
@@ -869,7 +884,7 @@ struct AppTitlebarView: View {
                         }
                     }
             } else {
-                Text(session.title)
+                Text(title)
                     .awFont(AwFont.UI.label)
                     .foregroundStyle(Color.aw.text)
                     .lineLimit(1)
@@ -1021,6 +1036,7 @@ private struct SidebarPeekCardOverlay: View {
                 let interactive = session.layout.paneCount > 1
                 SidebarSessionPeekCard(
                     session: session,
+                    title: model.workspaceTitle,
                     location: location,
                     tint: tint,
                     paneItems: model.paneItems,

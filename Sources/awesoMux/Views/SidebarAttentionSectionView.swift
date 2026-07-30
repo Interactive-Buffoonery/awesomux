@@ -113,13 +113,32 @@ struct SidebarAttentionSectionView: View {
     private func tile(for item: LiftedSessionEntry, at index: Int) -> some View {
         let session = item.entry.session
         // Two strings, deliberately: the comma is prosody, not punctuation. The
-        // VoiceOver fragment is appended after "Workspace 2 of 3", where the
-        // comma gives VoiceOver a pause; the pointer tooltip stands alone and
-        // reads better without it. Matches the Pinned section's split.
+        // VoiceOver fragment (built in `row` below) is appended after
+        // "Workspace 2 of 3", where the comma gives VoiceOver a pause; the
+        // pointer tooltip stands alone and reads better without it. Matches the
+        // Pinned section's split.
         let originGroupTooltip = String(
             localized: "Needs input from \(item.originGroup.name)",
             comment: "Tooltip on a lifted sidebar workspace naming the group it returns to."
         )
+        // Only this scope's body re-runs on a display-only title write — not
+        // the section, and not its other rows.
+        LiveTitleScope(sessionID: session.id) { liveTitles in
+            row(for: item, at: index, liveTitles: liveTitles)
+        }
+        .id(session.id)
+        .help(originGroupTooltip)
+    }
+
+    /// The row itself. Separate from the scope above so its construction does
+    /// not nest a level deeper.
+    @ViewBuilder
+    private func row(
+        for item: LiftedSessionEntry,
+        at index: Int,
+        liveTitles: LiveTitles
+    ) -> some View {
+        let session = item.entry.session
         let originGroupPhrase = String(
             localized: "Needs input, from \(item.originGroup.name)",
             comment:
@@ -178,10 +197,9 @@ struct SidebarAttentionSectionView: View {
             onDragStarted: { onWorkspaceDragStarted(session.id) },
             focusedRowTarget: focusedRowTarget,
             isKeyboardNavigatingValue: isKeyboardNavigating,
+            liveTitles: liveTitles,
             isKeyboardNavigating: $isKeyboardNavigating
         )
         .equatable()
-        .id(session.id)
-        .help(originGroupTooltip)
     }
 }

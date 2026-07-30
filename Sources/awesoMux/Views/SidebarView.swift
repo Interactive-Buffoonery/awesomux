@@ -100,6 +100,27 @@ struct SidebarView: View {
     }
 
     var body: some View {
+        // A display-only OSC title write updates storage without publishing
+        // `groups` (issue #311), so nothing below re-derives on its own — the
+        // rows repaint through their own `LiveTitleScope`s, but everything this
+        // body COMPUTES from `sessionStore.groups` would freeze at the last
+        // publish. Reading the coalesced generation is the single dependency
+        // that keeps all of it current at the bounded ~1 Hz tick:
+        //
+        //   - the search haystack (`searchProjection`), so a workspace is
+        //     findable by the name its agent just set — without this, search
+        //     cannot match the text visibly on the row;
+        //   - duplicate "N of M" ordinals, keyed on title + location;
+        //   - `rotorEntries`' and `visibleRows`' spoken labels, which must name
+        //     a workspace the same way the row you land on does (WCAG 4.1.2);
+        //   - `SidebarActivityInvalidationKey.groups`, the agent panel's gate;
+        //   - the per-group `sessions` / `group` values the roster peek's
+        //     `onChange` handlers refresh a live card from.
+        //
+        // Deliberately a read for its dependency alone: every consumer above
+        // re-derives from `sessionStore.groups` further down this body, so there
+        // is nothing to thread through.
+        _ = sessionStore.liveTitleGeneration
         // Trim once at the body and thread the normalized query through every
         // dependent computation. Two readers of `searchText` previously
         // disagreed on whether whitespace-only input meant "filtering": the
@@ -1005,7 +1026,11 @@ struct SidebarView: View {
 
     /// Kept as one recognizable projection call so search-haystack additions
     /// remain localized (including the agent-state token work in PR #116).
-    fileprivate static func searchProjection(
+    ///
+    /// `internal` so the haystack can be exercised against a real store's
+    /// `groups` — the search-after-a-display-only-title-write case (issue #311)
+    /// has to run the SAME projection the body does, not a re-declared copy.
+    static func searchProjection(
         groups: [SessionGroup],
         query: String
     ) -> SidebarSearchProjection.Output {

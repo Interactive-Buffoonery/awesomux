@@ -208,79 +208,16 @@ struct SidebarGroupView: View {
                 VStack(spacing: density.sessionStackSpacing) {
                     ForEach(Array(entries.enumerated()), id: \.element.session.id) { offset, entry in
                         let session = entry.session
-                        SidebarSessionTile(
-                            session: session,
-                            match: entry.match,
-                            tint: tint,
-                            isActive: selectedSessionID == session.id,
-                            displayMode: displayMode,
-                            isKeyboardFocused: focusedRowTarget.wrappedValue == .session(session.id),
-                            showsSearchFocusCue: focusedSearchSessionID == session.id,
-                            jumpIndex: jumpIndexBySessionID[session.id],
-                            hasBackgroundedFloatingWork:
-                                workspacesWithBackgroundedFloatingWork.contains(session.id),
-                            isPromotedInsertion: promotedSessionID == session.id,
-                            isPromotionPulseActive: promotionPulseSessionID == session.id,
-                            isFiltering: isFiltering,
-                            duplicateDisambiguation:
-                                duplicateDisambiguationBySessionID[session.id],
-                            indexInGroup: offset,
-                            sessionCountInGroup: entries.count,
-                            ownerGroupIndex: resolvedGroupIndex,
-                            previousNeighborGroup: previousNeighborGroup,
-                            nextNeighborGroup: nextNeighborGroup,
-                            otherGroups: rowOtherGroups,
-                            verticalPadding: density.sessionTileVerticalPadding,
-                            tintedHighContrast: appSettingsStore.appearance.value.tintedHighContrast,
-                            alwaysShowJumpNumbers: appSettingsStore.appearance.value.alwaysShowJumpNumbers,
-                            onSelect: {
-                                onSelect(session)
-                            },
-                            onNewSessionHere: {
-                                onNewSessionHere(session)
-                            },
-                            onAcknowledge: {
-                                onAcknowledge(session)
-                            },
-                            onMoveWithinGroup: { newIndex in
-                                onMoveSession(session.id, group.id, newIndex)
-                            },
-                            onMoveToGroup: { destinationGroupID in
-                                onMoveSession(session.id, destinationGroupID, SessionStore.appendIndex)
-                            },
-                            onClose: {
-                                onClose(session)
-                            },
-                            onClear: {
-                                onClear(session)
-                            },
-                            onRename: {
-                                onRename(session)
-                            },
-                            canMakeWorkspaceManaged: canMakeWorkspaceManaged(session),
-                            onMakeWorkspaceManaged: {
-                                onMakeWorkspaceManaged(session)
-                            },
-                            onToggleNotificationsMute: {
-                                onToggleNotificationsMute(session)
-                            },
-                            isPinned: false,
-                            onTogglePin: {
-                                onTogglePin(session)
-                            },
-                            onDragStarted: {
-                                onWorkspaceDragStarted(session.id)
-                            },
-                            focusedRowTarget: focusedRowTarget,
-                            isKeyboardNavigatingValue: isKeyboardNavigating,
-                            isKeyboardNavigating: $isKeyboardNavigating
-                        )
-                        // Skips re-running this row's `body` (including its
-                        // `.accessibilityElement(children: .combine)` node)
-                        // when an unrelated row's store publish reconstructs
-                        // this tile with identical rendered inputs — see
-                        // `SidebarSessionTile.RenderKey`.
-                        .equatable()
+                        // Only this scope's body re-runs on a display-only
+                        // title write — not the group, and not its other rows.
+                        LiveTitleScope(sessionID: session.id) { liveTitles in
+                            sessionRow(
+                                entry: entry,
+                                offset: offset,
+                                rowOtherGroups: rowOtherGroups,
+                                liveTitles: liveTitles
+                            )
+                        }
                         .id(session.id)
                         // Per-tile frame cache for y-hit-test. One coordinate
                         // space scoped to the group avoids cross-group
@@ -496,4 +433,90 @@ struct SidebarGroupView: View {
         activeDragID != nil && activeDragID == suppressedWorkspaceDragID
     }
 
+    /// One workspace row. Split out of the `ForEach` above so the row can sit
+    /// inside a `LiveTitleScope` without nesting its whole construction one
+    /// level deeper.
+    @ViewBuilder
+    private func sessionRow(
+        entry: SidebarSessionEntry,
+        offset: Int,
+        rowOtherGroups: [SessionGroup],
+        liveTitles: LiveTitles
+    ) -> some View {
+        let session = entry.session
+        SidebarSessionTile(
+            session: session,
+            match: entry.match,
+            tint: tint,
+            isActive: selectedSessionID == session.id,
+            displayMode: displayMode,
+            isKeyboardFocused: focusedRowTarget.wrappedValue == .session(session.id),
+            showsSearchFocusCue: focusedSearchSessionID == session.id,
+            jumpIndex: jumpIndexBySessionID[session.id],
+            hasBackgroundedFloatingWork:
+                workspacesWithBackgroundedFloatingWork.contains(session.id),
+            isPromotedInsertion: promotedSessionID == session.id,
+            isPromotionPulseActive: promotionPulseSessionID == session.id,
+            isFiltering: isFiltering,
+            duplicateDisambiguation:
+                duplicateDisambiguationBySessionID[session.id],
+            indexInGroup: offset,
+            sessionCountInGroup: entries.count,
+            ownerGroupIndex: resolvedGroupIndex,
+            previousNeighborGroup: previousNeighborGroup,
+            nextNeighborGroup: nextNeighborGroup,
+            otherGroups: rowOtherGroups,
+            verticalPadding: density.sessionTileVerticalPadding,
+            tintedHighContrast: appSettingsStore.appearance.value.tintedHighContrast,
+            alwaysShowJumpNumbers: appSettingsStore.appearance.value.alwaysShowJumpNumbers,
+            onSelect: {
+                onSelect(session)
+            },
+            onNewSessionHere: {
+                onNewSessionHere(session)
+            },
+            onAcknowledge: {
+                onAcknowledge(session)
+            },
+            onMoveWithinGroup: { newIndex in
+                onMoveSession(session.id, group.id, newIndex)
+            },
+            onMoveToGroup: { destinationGroupID in
+                onMoveSession(session.id, destinationGroupID, SessionStore.appendIndex)
+            },
+            onClose: {
+                onClose(session)
+            },
+            onClear: {
+                onClear(session)
+            },
+            onRename: {
+                onRename(session)
+            },
+            canMakeWorkspaceManaged: canMakeWorkspaceManaged(session),
+            onMakeWorkspaceManaged: {
+                onMakeWorkspaceManaged(session)
+            },
+            onToggleNotificationsMute: {
+                onToggleNotificationsMute(session)
+            },
+            isPinned: false,
+            onTogglePin: {
+                onTogglePin(session)
+            },
+            onDragStarted: {
+                onWorkspaceDragStarted(session.id)
+            },
+            focusedRowTarget: focusedRowTarget,
+            isKeyboardNavigatingValue: isKeyboardNavigating,
+            liveTitles: liveTitles,
+            isKeyboardNavigating: $isKeyboardNavigating
+        )
+        // Skips re-running this row's `body` (including its
+        // `.accessibilityElement(children: .combine)` node)
+        // when an unrelated row's store publish reconstructs
+        // this tile with identical rendered inputs — see
+        // `SidebarSessionTile.RenderKey`.
+        .equatable()
+    }
 }

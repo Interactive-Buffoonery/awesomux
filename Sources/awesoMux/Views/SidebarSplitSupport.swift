@@ -199,6 +199,12 @@ final class SidebarPeekModel {
     private(set) var session: TerminalSession?
     private(set) var location: SidebarSessionLocation?
     private(set) var tint: ProjectTint?
+    /// The DISPLAYED workspace title for the card header. Stored separately from
+    /// `session` because the snapshot above is only as fresh as the last `groups`
+    /// publish, while `show`/`refresh` are also driven by the live-title channel
+    /// (issue #311) — the header used to read `session.title` and named the
+    /// workspace by a title the rail beside it had already stopped showing.
+    private(set) var workspaceTitle: String = ""
     /// Pre-walked per-pane rows for the multi-pane card (INT-538). Rebuilt in
     /// `show`/`refresh` so a pane added/closed or a per-pane state change while
     /// hovering repaints. Empty for a single-pane workspace (card shows the
@@ -276,7 +282,8 @@ final class SidebarPeekModel {
         location: SidebarSessionLocation,
         tint: ProjectTint,
         frame: CGRect,
-        position: AppearanceConfig.SidebarPosition = .left
+        position: AppearanceConfig.SidebarPosition = .left,
+        liveTitles: LiveTitles = .unavailable
     ) {
         hideGraceTask?.cancel()
         hideGraceTask = nil
@@ -291,7 +298,8 @@ final class SidebarPeekModel {
         self.session = session
         self.location = location
         self.tint = tint
-        self.paneItems = PanePeekItem.items(for: session)
+        self.workspaceTitle = liveTitles.workspaceTitle(for: session)
+        self.paneItems = PanePeekItem.items(for: session, liveTitles: liveTitles)
         anchorY = frame.minY
         tileHeight = frame.height
         updateAnchor(frame: frame, position: position)
@@ -315,12 +323,21 @@ final class SidebarPeekModel {
     /// a session *snapshot*, so without this a title/cwd/agent-state change while
     /// hovering would leave the card stale (the old in-tile card re-rendered with
     /// the row). Id-guarded like the others.
-    func refresh(session: TerminalSession, location: SidebarSessionLocation, tint: ProjectTint) {
+    /// `liveTitles` carries the displayed titles: a display-only OSC title
+    /// write never moves `peekRefreshKey` (it doesn't publish `groups`), so the
+    /// hovering tile refreshes on the channel instead (issue #311).
+    func refresh(
+        session: TerminalSession,
+        location: SidebarSessionLocation,
+        tint: ProjectTint,
+        liveTitles: LiveTitles = .unavailable
+    ) {
         guard self.session?.id == session.id else { return }
         self.session = session
         self.location = location
         self.tint = tint
-        self.paneItems = PanePeekItem.items(for: session)
+        self.workspaceTitle = liveTitles.workspaceTitle(for: session)
+        self.paneItems = PanePeekItem.items(for: session, liveTitles: liveTitles)
     }
 
     /// Clear only if this tile owns the peek — guards the hover hand-off
@@ -333,6 +350,7 @@ final class SidebarPeekModel {
         session = nil
         location = nil
         tint = nil
+        workspaceTitle = ""
         paneItems = []
     }
 
@@ -380,6 +398,7 @@ final class SidebarPeekModel {
         setPointerOverCardState(false)
         session = nil
         location = nil
+        workspaceTitle = ""
         paneItems = []
         self.group = group
         self.tint = tint
@@ -410,6 +429,7 @@ final class SidebarPeekModel {
         location = nil
         group = nil
         tint = nil
+        workspaceTitle = ""
         paneItems = []
         groupSessionItems = []
     }

@@ -553,12 +553,26 @@ final class GhosttySurfaceNSView: NSView {
         }
     }
 
+    /// The pane's CURRENT title. `pane` is refreshed only by `updateNSView`,
+    /// which a display-only OSC title write deliberately no longer triggers
+    /// (issue #311) — so every spoken label below reads the live channel
+    /// instead, or VoiceOver would announce the title as of the last unrelated
+    /// store publish. Accessibility reads are pull-based, so this costs
+    /// nothing until assistive tech actually asks.
+    ///
+    /// Not `private`: `GhosttyClipboardBridge` names the pane in the OSC 52
+    /// clipboard-read permission prompt, and a prompt that names a title the
+    /// user can no longer see on screen is a prompt they cannot judge.
+    var liveTitle: String {
+        sessionStore.liveTitleBox(for: sessionID).paneTitles[paneID] ?? pane.title
+    }
+
     func accessibilityPaneLabel(isActive: Bool) -> String {
         let activePrefix = isActive ? "Active " : ""
-        // `pane.title` is set from OSC 0/2 by the child process — sanitize it the
+        // The title is set from OSC 0/2 by the child process — sanitize it the
         // same way the formatter sanitizes the cwd, so a hostile title can't
         // fragment the spoken label with control bytes.
-        let title = TerminalAccessibilityPathFormatter.sanitizedForSpeech(pane.title)
+        let title = TerminalAccessibilityPathFormatter.sanitizedForSpeech(liveTitle)
         let path = TerminalAccessibilityPathFormatter.format(pane.workingDirectory)
         guard !path.isEmpty else {
             return "\(activePrefix)terminal pane, \(title)"
@@ -581,8 +595,8 @@ final class GhosttySurfaceNSView: NSView {
         let location: String
         if !pane.workingDirectory.isEmpty {
             location = pane.workingDirectory
-        } else if !pane.title.isEmpty {
-            location = pane.title
+        } else if !liveTitle.isEmpty {
+            location = liveTitle
         } else {
             location = "pane \(String(self.paneID.uuidString.prefix(8)))"
         }
@@ -591,7 +605,7 @@ final class GhosttySurfaceNSView: NSView {
     }
 
     override func accessibilityLabel() -> String? {
-        "Terminal output, \(TerminalAccessibilityPathFormatter.sanitizedForSpeech(pane.title))"
+        "Terminal output, \(TerminalAccessibilityPathFormatter.sanitizedForSpeech(liveTitle))"
     }
 
     override func setAccessibilityFocused(_ accessibilityFocused: Bool) {

@@ -540,6 +540,7 @@ struct AwesoMuxApp: App {
                     openSettings: { openSettingsWindow() },
                     openPrimaryWindow: { openPrimaryWindow() }
                 )
+                installDisplayOnlyTitleSaveHandler()
                 appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
                 appDelegate.syncMenuBarMiniStatusItem()
                 appDelegate.requestNotificationAuthorizationIfNeeded()
@@ -4449,22 +4450,60 @@ extension AwesoMuxApp {
     /// onChange would clobber the previous session-state.json and make
     /// re-enabling restore unable to recover the prior state.
     private func saveSessionIfRestoreEnabled() {
-        guard appSettingsStore.general.value.restoreWorkspaces else {
-            sessionSaveFailure = nil
+        Self.saveSessionIfRestoreEnabled(
+            sessionStore,
+            settings: appSettingsStore,
+            failure: $sessionSaveFailure
+        )
+    }
+
+    /// The same save, reachable without an `AwesoMuxApp` value. The store holds
+    /// `onDisplayOnlyTitleWrite` for its whole lifetime, so that closure
+    /// captures these three references rather than a copy of the App struct —
+    /// a struct copy carries the Scene's `@State` boxes, one of which owns the
+    /// store, and would close the cycle back onto it.
+    @MainActor
+    static func saveSessionIfRestoreEnabled(
+        _ store: SessionStore,
+        settings: AppSettingsStore,
+        failure: Binding<SessionPersistence.RecoverySnapshotReplacementError?>
+    ) {
+        guard settings.general.value.restoreWorkspaces else {
+            failure.wrappedValue = nil
             return
         }
-        SessionPersistence.save(sessionStore, completion: handleSessionSaveResult)
+        SessionPersistence.save(store) { result in
+            record(result, in: failure)
+        }
     }
 
     private func handleSessionSaveResult(
         _ result: Result<Void, SessionPersistence.RecoverySnapshotReplacementError>
     ) {
+        Self.record(result, in: $sessionSaveFailure)
+    }
+
+    private static func record(
+        _ result: Result<Void, SessionPersistence.RecoverySnapshotReplacementError>,
+        in failure: Binding<SessionPersistence.RecoverySnapshotReplacementError?>
+    ) {
         switch result {
         case .success:
-            sessionSaveFailure = nil
+            failure.wrappedValue = nil
         case let .failure(error):
             guard error != .warningNotActive else { return }
-            sessionSaveFailure = error
+            failure.wrappedValue = error
+        }
+    }
+
+    /// Installed once, on the store the Scene owns: a display-only title write
+    /// is deliberately invisible to `.onChange(of: sessionStore.groups)`
+    /// (issue #311), so it schedules its own save here instead.
+    private func installDisplayOnlyTitleSaveHandler() {
+        sessionStore.onDisplayOnlyTitleWrite = {
+            [weak sessionStore, appSettingsStore, failure = $sessionSaveFailure] in
+            guard let sessionStore else { return }
+            Self.saveSessionIfRestoreEnabled(sessionStore, settings: appSettingsStore, failure: failure)
         }
     }
 
