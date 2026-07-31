@@ -196,8 +196,13 @@ changes them.
 - Real sleeps and polling are allowed only in the current system-test bucket,
   `Tests/awesoMuxTests`, and must remain bounded.
 - `script/check_test_waits.sh` checks added Swift lines for direct sleeps,
-  `poll`, and `eventually` calls. Existing occurrences are baseline debt and do
-  not fail the guard until changed.
+  `poll`, and `eventually` calls. Existing system-test occurrences do not fail
+  the guard until changed.
+
+The existing system-test waits were audited on 2026-07-31. Each is finite and
+either exercises real process, file, socket, debounce, or dispatch behavior, or
+is an injected delay used to control that behavior. The selection-dwell unit
+tests use `TestScheduler` instead of elapsed time.
 
 ### Waiting on a child process
 
