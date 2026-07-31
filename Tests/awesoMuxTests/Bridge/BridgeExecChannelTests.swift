@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -19,7 +20,7 @@ struct BridgeExecChannelTests {
             _ = try await BridgeExecChannel.run(
                 command: "/usr/bin/yes x",
                 stdin: nil,
-                timeout: .seconds(2)
+                timeout: realSpawnTimeout
             )
         }
     }

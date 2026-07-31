@@ -97,7 +97,7 @@ struct RemoteHelperInstallerTests {
                 remote: remote,
                 controlPath: "/tmp/control/%C",
                 executableURL: unsupported,
-                timeout: .seconds(2)
+                timeout: realSpawnTimeout
             )
         }
         await #expect(throws: RemoteHelperInstaller.Failure.platformProbeFailed) {
@@ -105,7 +105,7 @@ struct RemoteHelperInstallerTests {
                 remote: remote,
                 controlPath: "/tmp/control/%C",
                 executableURL: transportFailure,
-                timeout: .seconds(2)
+                timeout: realSpawnTimeout
             )
         }
     }
@@ -386,7 +386,7 @@ struct RemoteHelperInstallerTests {
             arguments: ["--version"],
             input: .data(Data()),
             maximumOutputByteCount: 1024,
-            timeout: .seconds(2)
+            timeout: realSpawnTimeout
         )
         #expect(String(decoding: version, as: UTF8.self).contains("awesomux-bridge-v1"))
         #expect(String(decoding: version, as: UTF8.self).contains("awesomux-handoff-v1"))
@@ -488,7 +488,7 @@ struct RemoteHelperInstallerTests {
                 controlPath: "/tmp/control/%C",
                 remoteHome: "/Users/me",
                 executableURL: executable,
-                timeout: .seconds(2)
+                timeout: realSpawnTimeout
             )
         }
     }
