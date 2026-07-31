@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import Foundation
 import Testing
@@ -63,5 +64,81 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix(" ssh devbox"))
         #expect(!GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix("ssh-keygen"))
         #expect(!GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix("echo ssh devbox"))
+    }
+
+    @Test("Ctrl-C and Ctrl-U identify line resets from NSEvent")
+    func controlLineResetsUseKeyAndModifierPath() {
+        #expect(
+            GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x08, modifiers: [.control], characters: "\u{3}")
+            )
+        )
+        #expect(
+            GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x20, modifiers: [.control], characters: "\u{15}")
+            )
+        )
+    }
+
+    @Test("Command-C/U and unmodified C/U are not line resets")
+    func nonControlLineKeysDoNotReset() {
+        #expect(
+            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x08, modifiers: [.command], characters: "c")
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x20, modifiers: [.command], characters: "u")
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x08, modifiers: [], characters: "c")
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x20, modifiers: [], characters: "u")
+            )
+        )
+    }
+
+    @Test("line reset clears stale capture and allows continued capture")
+    func lineResetClearsStaleCaptureAndAllowsContinuedCapture() {
+        let inputState = GhosttySurfaceInputState()
+
+        for keyCode in [UInt16(0x08), UInt16(0x20)] {
+            inputState.submittedSSHCommandBuffer = "ssh stale"
+            inputState.submittedSSHCommandCaptureDisabled = true
+
+            let event = keyEvent(keyCode: keyCode, modifiers: [.control], characters: "")
+            if GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(event) {
+                inputState.resetSubmittedSSHCommandCapture()
+            }
+            inputState.submittedSSHCommandBuffer.append("ssh fresh")
+
+            #expect(inputState.submittedSSHCommandBuffer == "ssh fresh")
+            #expect(!inputState.submittedSSHCommandCaptureDisabled)
+        }
+    }
+
+    private func keyEvent(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        characters: String
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
     }
 }

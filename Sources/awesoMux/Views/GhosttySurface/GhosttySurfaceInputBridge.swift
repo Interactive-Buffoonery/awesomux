@@ -420,6 +420,16 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             || text?.contains(where: { $0 == "\u{7f}" || $0 == "\u{8}" }) == true
     }
 
+    static func isSubmittedSSHCommandLineReset(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifiers.contains(.control),
+            modifiers.isDisjoint(with: [.command, .option, .shift])
+        else {
+            return false
+        }
+        return event.keyCode == 0x08 || event.keyCode == 0x20  // C / U
+    }
+
     static func isPossibleSubmittedSSHCommandPrefix(_ input: String) -> Bool {
         let trimmed = input.drop(while: \.isWhitespace)
         guard !trimmed.isEmpty else {
@@ -1003,6 +1013,11 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         return handled
     }
 
+    /// Best-effort safety/presentation signal: printable input, Backspace, and
+    /// the common Ctrl-C/Ctrl-U line resets are observed, but cursor movement,
+    /// history, terminal modes, custom `stty` bindings, and readline/zsh editing
+    /// are not modeled. The declared `PaneExecutionPlan` remains the authority
+    /// for remote work.
     func observeSubmittedSSHCommandInput(
         action: ghostty_input_action_e,
         event: NSEvent,
@@ -1016,8 +1031,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
         if isCommandSubmit {
             let command = inputState.submittedSSHCommandBuffer
-            inputState.submittedSSHCommandBuffer = ""
-            inputState.submittedSSHCommandCaptureDisabled = false
+            inputState.resetSubmittedSSHCommandCapture()
             if !command.isEmpty {
                 sessionStore.noteSubmittedCommand(
                     sessionID: sessionID,
@@ -1025,6 +1039,11 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
                     command: command
                 )
             }
+            return
+        }
+
+        if Self.isSubmittedSSHCommandLineReset(event) {
+            inputState.resetSubmittedSSHCommandCapture()
             return
         }
 
