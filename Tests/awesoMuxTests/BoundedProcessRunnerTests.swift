@@ -19,6 +19,10 @@ struct BoundedProcessRunnerTests {
             )
         }
 
-        #expect(started.duration(to: clock.now) < .seconds(2))
+        // Not a latency budget: `terminateThenKill` waits a hard second between
+        // SIGTERM and SIGKILL, so a 50 ms timeout plus that escalation plus
+        // scheduling can legitimately approach two seconds under contention. The
+        // bound only has to prove the child does not outlive the runner.
+        #expect(started.duration(to: clock.now) < .seconds(10))
     }
 }
