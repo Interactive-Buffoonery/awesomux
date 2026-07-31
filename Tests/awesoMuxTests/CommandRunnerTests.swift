@@ -142,6 +142,31 @@ struct ProcessCommandRunnerTests {
         #expect(!spawnObservation.wasInvoked)
     }
 
+    @Test("cancellation while spawn is queued never launches the command")
+    func cancellationWhileSpawnIsQueuedDoesNotSpawn() async throws {
+        let scheduleGate = ScheduledOperationGate()
+        let spawnObservation = SpawnObservation()
+        let runner = ProcessCommandRunner(
+            schedule: { scheduleGate.schedule($0) },
+            spawn: { process in
+                spawnObservation.record()
+                try process.run()
+            }
+        )
+        let run = Task.detached {
+            try await runner.run(executable: "/usr/bin/true", args: [], env: [:], cwd: nil)
+        }
+
+        #expect(await waitUntil { scheduleGate.hasOperation })
+        run.cancel()
+        scheduleGate.run()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await run.value
+        }
+        #expect(!spawnObservation.wasInvoked)
+    }
+
     @Test("timeout is not armed until spawning succeeds")
     func timeoutStartsAfterSpawn() async throws {
         let delays = ProcessDelayGate()
@@ -565,6 +590,27 @@ private final class BlockingSpawnGate: @unchecked Sendable {
     private func waitForPermit() {
         startedSignal.signal()
         permit.wait()
+    }
+}
+
+private final class ScheduledOperationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var operation: (@Sendable () -> Void)?
+
+    var hasOperation: Bool {
+        lock.withLock { operation != nil }
+    }
+
+    func schedule(_ operation: @escaping @Sendable () -> Void) {
+        lock.withLock { self.operation = operation }
+    }
+
+    func run() {
+        lock.withLock {
+            let operation = self.operation
+            self.operation = nil
+            return operation
+        }?()
     }
 }
 

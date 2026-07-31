@@ -100,7 +100,10 @@ struct SessionDetailView: View {
                 // `controlActiveState` and the accent are read out here for the
                 // same reason: an environment read made INSIDE a gated view
                 // stales behind the gate (PR #428).
-                LiveTitleScope(sessionID: session.id) { liveTitles in
+                LiveTitleScope(
+                    sessionID: session.id,
+                    reads: .workspaceAndPaneTitle(session.activePaneID)
+                ) { liveTitles in
                     TerminalPathBarView(
                         session: session,
                         sendTextToActivePane: { text in

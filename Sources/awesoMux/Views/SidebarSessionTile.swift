@@ -1209,7 +1209,17 @@ extension SidebarSessionTile: Equatable {
             // alone compares equal forever and the row never repaints while an
             // agent spinner runs (issue #311, the change's highest-consequence
             // failure mode).
-            title: liveTitles.workspaceTitle(for: session),
+            //
+            // Branches exactly as `titleText` does, and must keep doing so. On a
+            // title match the row renders the STRUCT title (for range
+            // provenance) while the live channel is coarse, so keying the live
+            // title there compares two strings the row is not showing: for a
+            // prefix query `match` scores identically across both titles, the
+            // gate suppresses the repaint, and a FILTERED row keeps a superseded
+            // title. Key what you render.
+            title: match?.field == .title
+                ? session.title
+                : liveTitles.workspaceTitle(for: session),
             location: session.sidebarLocation,
             notificationsMuted: session.notificationsMuted,
             sessionWorkingDirectory: session.workingDirectory,

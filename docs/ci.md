@@ -175,19 +175,15 @@ Swift CodeQL runs on `macos-26` (or `NATIVE_CI_RUNNER`) every Tuesday at
 the committed Ghostty exact-pin preparation, but does not run on pull requests
 or every `main` push.
 
-## Rollout status
+## Native CI policy
 
-Automatic native execution on `main` and the daily native canary are not yet
-enabled. Before enabling them, the manual workflow must produce five consecutive
-successful full runs covering at least three distinct pull-request head SHAs,
-including one during ordinary concurrent repository activity. Those runs must
-need no retries, blanket serialization, or timeout increases; their xUnit
-artifacts must contain the complete suite; and their staged app and signature
-checks must pass.
+Native Swift CI is intentionally advisory and on demand. It runs only after an
+allowlisted maintainer posts an exact `/ci` command on an eligible pull request
+or starts a manual dispatch. It does not run automatically on pull requests,
+pushes to `main`, or a recurring schedule.
 
-A deterministic product or test defect restarts that count after a focused fix.
-Native CI remains advisory after canaries are enabled. Making it a required
-merge check requires a separate reliability review.
+Making native CI automatic or a required merge check requires a separate
+reliability and cost review.
 
 ## Troubleshooting
 

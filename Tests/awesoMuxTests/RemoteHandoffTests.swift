@@ -236,7 +236,7 @@ struct RemoteHandoffTests {
             helperPath: "/home/me/.awesomux/bin/awesomux-bridge-helper",
             sessionID: sessionID,
             executableURL: executable,
-            timeout: .seconds(2)
+            timeout: realSpawnTimeout
         )
 
         #expect(try Data(contentsOf: capturedInput) == payload)
@@ -266,7 +266,7 @@ struct RemoteHandoffTests {
                 helperPath: "/remote/helper",
                 sessionID: harness.sessionID,
                 executableURL: harness.executable,
-                timeout: .seconds(2)
+                timeout: realSpawnTimeout
             )
         }
     }
@@ -310,7 +310,7 @@ struct RemoteHandoffTests {
                 helperPath: "/remote/helper",
                 sessionID: harness.sessionID,
                 executableURL: harness.executable,
-                timeout: .seconds(2)
+                timeout: realSpawnTimeout
             )
         }
         // Gate on the child having spawned (marker touched) before cancelling, so
@@ -401,7 +401,7 @@ struct RemoteHandoffTests {
                 helperPath: "/home/me/.awesomux/bin/awesomux-bridge-helper",
                 sessionID: sessionID,
                 executableURL: executable,
-                timeout: .seconds(2)
+                timeout: realSpawnTimeout
             )
         }
         defer { transfer.cancel() }

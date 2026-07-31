@@ -21,6 +21,23 @@ import Testing
 @Suite("TerminalPathBarView render gate (#311 / INT-523)")
 struct TerminalPathBarEquatableTests {
 
+    /// The bar as the path bar's own scope builds it: `.workspaceAndPaneTitle`
+    /// is the case `SessionDetailView` mounts it with, and the fine channel it
+    /// names is what keeps the INT-523 checkout signal from being coalesced away.
+    private func bar(
+        _ fixture: Fixture,
+        _ session: TerminalSession,
+        _ box: LiveTitleBox
+    ) -> TerminalPathBarView {
+        fixture.bar(
+            session: session,
+            liveTitles: LiveTitles(
+                box: box,
+                reads: .workspaceAndPaneTitle(session.activePaneID)
+            )
+        )
+    }
+
     // MARK: - The live-title half
 
     @Test("an ACTIVE-pane display-only title move compares NOT equal")
@@ -37,7 +54,7 @@ struct TerminalPathBarEquatableTests {
         // bar from. Only the box can tell the two apart.
         let staleSession = fixture.session
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let before = fixture.bar(session: staleSession, liveTitles: LiveTitles(box: box))
+        let before = bar(fixture, staleSession, box)
 
         fixture.store.updatePane(
             sessionID: fixture.sessionID,
@@ -49,7 +66,7 @@ struct TerminalPathBarEquatableTests {
         #expect(box.paneTitles[staleSession.activePaneID] == "~/repo (release/1.2)")
         #expect(box.workspaceTitle == "release prep")
 
-        let after = fixture.bar(session: staleSession, liveTitles: LiveTitles(box: box))
+        let after = bar(fixture, staleSession, box)
         #expect(before != after)
 
         // Control, and the exact failure this half exists to prevent: with no
@@ -60,6 +77,54 @@ struct TerminalPathBarEquatableTests {
         )
     }
 
+    /// The regression guard this suite was missing, and the reason a coarse
+    /// channel silently reached the path bar: every other case here performs ONE
+    /// write against a freshly created box, which always rides a coalescing
+    /// leading edge, so no test ever entered a coalescing window at all.
+    ///
+    /// A checkout emits its titles in a burst — one when the command starts, one
+    /// when the prompt returns — typically a few hundred milliseconds apart. The
+    /// SECOND is the one carrying the new branch. On a coalesced channel it is
+    /// dropped rather than delayed, `resolveKey` never moves, and the branch chip
+    /// (plus the PR and CI lookups keyed off it) keeps naming the pre-checkout
+    /// branch indefinitely.
+    @Test("a SECOND active-pane title inside one coalescing window still compares NOT equal")
+    func burstOfActivePaneTitlesStillRerenders() throws {
+        let fixture = try Fixture(split: true, frozenWorkspaceTitle: "release prep")
+        let staleSession = fixture.session
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        let base = Date()
+
+        func bar() -> TerminalPathBarView {
+            fixture.bar(
+                session: staleSession,
+                liveTitles: LiveTitles(
+                    box: box,
+                    reads: .workspaceAndPaneTitle(staleSession.activePaneID)
+                )
+            )
+        }
+
+        // Command start. Consumes the coalescing leading edge.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: staleSession.activePaneID,
+            title: "git checkout release/2.0",
+            now: base
+        )
+        let afterCommandStart = bar()
+
+        // Prompt returns carrying the new branch, well inside the window.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: staleSession.activePaneID,
+            title: "~/repo (release/2.0)",
+            now: base.addingTimeInterval(0.2)
+        )
+
+        #expect(bar() != afterCommandStart)
+    }
+
     @Test("an INACTIVE pane's display-only title move compares EQUAL")
     func inactivePaneLiveTitleMoveIsIgnored() throws {
         let fixture = try Fixture(split: true)
@@ -68,7 +133,7 @@ struct TerminalPathBarEquatableTests {
             staleSession.panes.first { $0.id != staleSession.activePaneID }?.id
         )
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let before = fixture.bar(session: staleSession, liveTitles: LiveTitles(box: box))
+        let before = bar(fixture, staleSession, box)
 
         fixture.store.updatePane(
             sessionID: fixture.sessionID,
@@ -82,7 +147,7 @@ struct TerminalPathBarEquatableTests {
         // An inactive pane is not promoted into the workspace title either, so
         // this isolates the per-pane half.
         #expect(box.workspaceTitle == staleSession.title)
-        #expect(fixture.bar(session: staleSession, liveTitles: LiveTitles(box: box)) == before)
+        #expect(bar(fixture, staleSession, box) == before)
     }
 
     @Test("a workspace-title move compares NOT equal")
@@ -92,12 +157,12 @@ struct TerminalPathBarEquatableTests {
         let fixture = try Fixture(split: true)
         let staleSession = fixture.session
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let before = fixture.bar(session: staleSession, liveTitles: LiveTitles(box: box))
+        let before = bar(fixture, staleSession, box)
 
         fixture.store.renameSession(id: fixture.sessionID, title: "release prep")
 
         #expect(box.workspaceTitle == "release prep")
-        #expect(fixture.bar(session: staleSession, liveTitles: LiveTitles(box: box)) != before)
+        #expect(bar(fixture, staleSession, box) != before)
     }
 
     // MARK: - Everything else the body renders but does not own as @State

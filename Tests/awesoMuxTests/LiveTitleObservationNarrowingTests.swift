@@ -67,6 +67,32 @@ struct LiveTitleObservationNarrowingTests {
         #expect(!woken.value)
     }
 
+    @Test("a sibling pane's title report does not wake the path bar read")
+    func siblingPaneReportDoesNotWakeWorkspaceAndPaneScope() throws {
+        let fixture = try makeSplitFixture()
+        let woken = TrackingFlag()
+        var observed: LiveTitles?
+        withObservationTracking {
+            observed = LiveTitles(
+                box: fixture.box,
+                reads: .workspaceAndPaneTitle(fixture.paneB)
+            )
+        } onChange: {
+            woken.set()
+        }
+        #expect(observed?.workspace != nil)
+        #expect(observed?.panes[fixture.paneB] != nil)
+
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneA,
+            title: "cargo build"
+        )
+
+        #expect(fixture.box.paneTitle(for: fixture.paneA) == "cargo build")
+        #expect(!woken.value)
+    }
+
     @Test("a pane's own title report wakes its pane-scoped read")
     func ownPaneReportWakesPaneScope() throws {
         let fixture = try makeSplitFixture()

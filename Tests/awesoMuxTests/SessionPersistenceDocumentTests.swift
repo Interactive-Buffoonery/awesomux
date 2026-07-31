@@ -521,7 +521,13 @@ struct SessionPersistenceDocumentTests {
     @Test("flush creates the support directory with private permissions")
     func flushCreatesSupportDirectoryWithPrivatePermissions() throws {
         try withTemporarySupportDirectory { tempDir in
-            SessionPersistence.flush(SessionStore())
+            // The mode is only meaningful if the write it guards actually
+            // happened. `flush` creates the directory before it writes, so
+            // discarding the result leaves this green on a failed write.
+            guard case .success = SessionPersistence.flush(SessionStore()) else {
+                Issue.record("expected the termination flush to write")
+                return
+            }
 
             let attributes = try FileManager.default.attributesOfItem(atPath: tempDir.path)
             #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)

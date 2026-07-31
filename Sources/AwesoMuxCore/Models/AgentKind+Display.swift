@@ -36,6 +36,23 @@ extension AgentKind {
         }
     }
 
+    /// Full brand name for visual copy that names the agent in a sentence
+    /// ("Send to Claude Code", "Enable the Claude Code integration…"): the
+    /// complete `rawValue` brand for agent kinds, localized text for `.shell`.
+    /// Distinct from `spokenName`, which is reserved for VoiceOver/announcement
+    /// contexts; visual copy must use this so the spoken variant can evolve for
+    /// speech without dragging UI strings along.
+    public var displayName: String {
+        localizedDisplayName()
+    }
+
+    public func localizedDisplayName(
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String {
+        self == .shell ? localizedShortName(bundle: bundle, locale: locale) : rawValue
+    }
+
     /// Full display name for spoken/announcement contexts (e.g. VoiceOver attention
     /// announcements): `rawValue`'s full brand name ("Claude Code") for agent kinds,
     /// but `shortName`'s localized text for `.shell` — `rawValue`'s "Shell" is the

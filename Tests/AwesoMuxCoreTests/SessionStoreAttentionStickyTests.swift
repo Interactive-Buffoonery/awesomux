@@ -219,14 +219,14 @@ import Testing
         #expect(store.liftedSessionIDs == [a.id])
     }
 
-    /// Arms the REAL dwell against a calm active pane: baseline unread 0, no
+    /// Arms acknowledgement against a calm active pane: baseline unread 0, no
     /// pending prompt. The calm workspace goes first so `init` seeds selection to
     /// it and the write below is a genuine change that reaches the arming path.
     private func storeArmedOnCalmSelection(_ session: TerminalSession) -> SessionStore {
         let calm = TerminalSession(title: "calm", workingDirectory: "~")
         let store = SessionStore(
             groups: [SessionGroup(name: "One", sessions: [calm, session])],
-            acknowledgementDwellNanoseconds: 20_000_000
+            acknowledgementDwellNanoseconds: 0
         )
         store.needsInputSectionEnabled = true
         store.selectedSessionID = session.id
@@ -239,11 +239,8 @@ import Testing
     /// baseline's unread-growth guard cannot see it either. Without the
     /// prompt-at-baseline guard the dwell auto-answers a question nobody read.
     ///
-    /// The `.bell` control store is the timing witness, not a wall-clock sleep:
-    /// it arms SECOND with the same dwell, so its deadline falls after the
-    /// subject's, and its ack landing proves the subject's dwell has already
-    /// fired. A loaded suite can therefore delay this test but never make it
-    /// pass vacuously.
+    /// The `.bell` control store is the scheduler witness: its ack landing proves
+    /// the subject's acknowledgement task has also had a chance to run.
     @Test func aPromptArrivingMidDwellIsNotAcknowledged() async {
         let subjectSession = TerminalSession(title: "subject", workingDirectory: "~")
         let controlSession = TerminalSession(title: "control", workingDirectory: "~")

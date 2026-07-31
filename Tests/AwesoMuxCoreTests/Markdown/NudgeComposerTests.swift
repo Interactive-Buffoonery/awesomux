@@ -33,9 +33,65 @@ struct NudgeComposerTests {
         #expect(text.contains("<mark>"))
     }
 
-    @Test("nudge text has no trailing newline (staged, not sent)")
-    func noTrailingNewline() {
-        let text = NudgeComposer.text(displayPath: "any.md")
+    @Test("verified runtime providers map to exact annotation authors")
+    func providerAuthorMapping() {
+        #expect(PlanAnnotationAuthor(agentKind: .claudeCode) == .claudeCode)
+        #expect(PlanAnnotationAuthor(agentKind: .codex) == .codex)
+        #expect(PlanAnnotationAuthor(agentKind: .pi) == .pi)
+        #expect(PlanAnnotationAuthor(agentKind: .openCode) == .opencode)
+        #expect(PlanAnnotationAuthor(agentKind: .grok) == nil)
+        #expect(PlanAnnotationAuthor(agentKind: .shell) == nil)
+    }
+
+    @Test("provider-aware handoff names the provider and exact reply id")
+    func providerIdentity() {
+        let text = NudgeComposer.text(
+            AnnotationHandoffInput(
+                provider: .pi,
+                displayPath: "plan.md",
+                openAnnotationIDs: ["q3k7"]
+            )
+        )
+        #expect(text.contains("You are Pi"))
+        #expect(text.contains("provider id pi"))
+        #expect(text.contains("by=pi"))
+    }
+
+    @Test("selected annotation is first and is not repeated in the open list")
+    func selectedAnnotationOrdering() {
+        let text = NudgeComposer.text(
+            AnnotationHandoffInput(
+                provider: .claudeCode,
+                displayPath: "plan.md",
+                selectedAnnotationID: "q3k7",
+                openAnnotationIDs: ["w8p2", "q3k7", "w8p2"]
+            )
+        )
+        #expect(text.contains("Prioritize annotation q3k7 first"))
+        #expect(text.contains("Other open annotation ids, in document order: w8p2"))
+        #expect(!text.contains("w8p2, q3k7"))
+    }
+
+    @Test("handoff includes ids but never annotation payloads")
+    func idsWithoutPayloads() {
+        let text = NudgeComposer.text(
+            AnnotationHandoffInput(
+                provider: .codex,
+                displayPath: "plan.md",
+                selectedAnnotationID: "q3k7",
+                openAnnotationIDs: ["q3k7", "w8p2"]
+            )
+        )
+        #expect(text.contains("q3k7"))
+        #expect(text.contains("w8p2"))
+        #expect(!text.contains("secret review payload"))
+    }
+
+    @Test("provider-aware handoff has no trailing newline")
+    func providerHandoffHasNoTrailingNewline() {
+        let text = NudgeComposer.text(
+            AnnotationHandoffInput(provider: .opencode, displayPath: "any.md")
+        )
         #expect(!text.hasSuffix("\n"))
     }
 

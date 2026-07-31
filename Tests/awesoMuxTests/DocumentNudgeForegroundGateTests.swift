@@ -279,7 +279,7 @@ struct DocumentNudgeForegroundGateTests {
         #expect(
             DocumentPaneSendBar.sendButtonTitle(
                 for: .unavailable(.agentNotReceptive(.claudeCode))
-            ) == "Send to Claude"
+            ) == "Send to Claude Code"
         )
         #expect(
             DocumentPaneSendBar.sendButtonTitle(
@@ -307,6 +307,29 @@ struct DocumentNudgeForegroundGateTests {
             DocumentPaneSendBar.sendButtonTitle(for: .unavailable(.terminalUnavailable))
                 == "Send to Agent"
         )
+    }
+
+    @Test("a provider without an annotation-protocol mapping projects a disabled generic handoff")
+    func unmappedProviderHandoffPresentation() {
+        // Grok and shells have no PlanAnnotationAuthor (NudgeComposer mapping),
+        // so DocumentGroupView presents them as unavailable rather than an
+        // enabled "Send to Grok" the composer would silently refuse.
+        #expect(PlanAnnotationAuthor(agentKind: .grok) == nil)
+        let presentation = DocumentGroupView.unmappedProviderHandoffPresentation
+        #expect(presentation.title == "Send to Agent")
+        #expect(!presentation.isEnabled)
+        #expect(presentation.unavailableDescription?.isEmpty == false)
+    }
+
+    @Test("mapped providers keep a working annotation-protocol mapping")
+    func mappedProvidersStayMapped() {
+        // If a supported provider loses its PlanAnnotationAuthor mapping, the
+        // group view silently degrades it to the disabled generic handoff —
+        // keep this pinned to AgentPromptGate.supportedProviders (internal to
+        // AwesoMuxCore, hence the explicit list).
+        for kind in [AgentKind.claudeCode, .codex, .pi, .openCode] {
+            #expect(PlanAnnotationAuthor(agentKind: kind) != nil)
+        }
     }
 
     /// Matching by default: these fixtures test the SSH/comm/consent/receptive

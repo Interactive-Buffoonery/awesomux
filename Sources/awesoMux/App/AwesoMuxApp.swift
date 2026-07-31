@@ -155,6 +155,18 @@ struct AwesoMuxApp: App {
     @State private var sheetWedgeReconciliationWorkItem: DispatchWorkItem?
     @State private var recoveryWarning: SessionPersistence.SessionRecoveryWarning?
     @State private var didPresentRecoveryWarning = false
+    /// The alerts are worded for launch, which is where the gate used to be
+    /// only reachable from. Turning "Restore workspaces" on now validates the
+    /// snapshot mid-session, with the user's workspaces sitting right there —
+    /// so the launch wording ("opened with fresh workspaces") would read as
+    /// though awesoMux had just wiped them.
+    ///
+    /// One-way for the rest of the process, not per-warning: the launch
+    /// warning is assigned at `init` before any of this can run, and every
+    /// warning raised after the first toggle is itself mid-session, so there is
+    /// nothing to reset it for. A future site that assigns `recoveryWarning`
+    /// directly would inherit the last value — set it explicitly there.
+    @State private var recoveryWarningAppearedMidSession = false
     @State private var isRecoveryReplacementInProgress = false
     @State private var sessionSaveFailure: SessionPersistence.RecoverySnapshotReplacementError?
     @State private var floatingPanelController = TerminalPanelController(mode: .floating)
@@ -599,8 +611,15 @@ struct AwesoMuxApp: App {
             .onChange(of: sessionStore.unreadNotificationTotal) { _, total in
                 appDelegate.updateDockBadge(total: total)
             }
-            .onChange(of: appSettingsStore.general.value.showMenuBarMiniStatus) { _, _ in
-                appDelegate.syncMenuBarMiniStatusItem()
+            // Both general-config reactions share one modifier: this chain is
+            // already at the type-checker's limit and one more tips it over.
+            .onChange(of: appSettingsStore.general.value) { previous, current in
+                if previous.showMenuBarMiniStatus != current.showMenuBarMiniStatus {
+                    appDelegate.syncMenuBarMiniStatusItem()
+                }
+                if previous.restoreWorkspaces != current.restoreWorkspaces {
+                    restoreWorkspacesSettingDidChange(isEnabled: current.restoreWorkspaces)
+                }
             }
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
                 appDelegate.evaluateAndPostNotifications()
@@ -4507,6 +4526,40 @@ extension AwesoMuxApp {
         }
     }
 
+    /// The setting's two edges are not symmetric. Turning it ON is a chance to
+    /// tell the user that the snapshot on disk is unreadable — `save` validates
+    /// regardless, but has no return path to the UI. Turning it OFF has to drop
+    /// a write the debouncer already captured, which no longer re-reads the
+    /// setting, and re-arm validation so a later opt-in re-inspects a file that
+    /// may have changed while nothing was watching it.
+    private func restoreWorkspacesSettingDidChange(isEnabled: Bool) {
+        guard isEnabled else {
+            SessionPersistence.restoreWorkspacesDidTurnOff()
+            return
+        }
+        guard !isRecoveryReplacementInProgress else { return }
+        let warning = SessionPersistence.validateSnapshotForNewlyEnabledRestore()
+        // Only a warning that actually paused saving is worth raising. The
+        // restored store is discarded, so a sanitization notice would be
+        // describing workspaces the user is never going to see.
+        //
+        // Deliberately no catch-up save on the clean path. Launching with
+        // restore off builds a bare `SessionStore`, so saving here would write
+        // that empty store over a healthy saved session inside the debounce
+        // window — the exact clobber `saveSessionIfRestoreEnabled`'s own doc
+        // comment exists to prevent. The next real mutation persists.
+        guard warning?.preventsInitialSave == true else { return }
+        recoveryWarning = warning
+        recoveryWarningAppearedMidSession = true
+        didPresentRecoveryWarning = false
+        // Hopped off the view update: `presentRecoveryWarningIfNeeded` spins a
+        // nested modal runloop, and the replacement path re-enters `runModal` in
+        // a retry loop. Running that inside a SwiftUI change body is a wedge.
+        Task { @MainActor in
+            presentRecoveryWarningIfNeeded()
+        }
+    }
+
     private func presentRecoveryWarningIfNeeded() {
         guard let warning = recoveryWarning, !didPresentRecoveryWarning else {
             return
@@ -4530,7 +4583,12 @@ extension AwesoMuxApp {
                 allowsAutomaticWritesAfterAcknowledgement:
                     warning.allowsAutomaticWritesAfterAcknowledgement
             ) {
-                if SessionPersistence.acknowledgeRecoveryWarning(warning) {
+                if SessionPersistence.acknowledgeRecoveryWarning(
+                    warning,
+                    thenSaving: appSettingsStore.general.value.restoreWorkspaces
+                        ? sessionStore : nil,
+                    completion: handleSessionSaveResult
+                ) {
                     recoveryWarning = nil
                 }
             } else if !warning.preventsInitialSave {
@@ -4648,17 +4706,37 @@ extension AwesoMuxApp {
     ) -> RecoveryWarningDecision {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(
-            localized: "Couldn't reopen your last workspaces",
-            comment: "Title for the session snapshot recovery warning"
-        )
-        if warning.archivedSnapshotURL != nil, warning.archiveError == nil {
+        alert.messageText =
+            recoveryWarningAppearedMidSession
+            ? String(
+                localized: "Couldn't read your saved workspace file",
+                comment: "Title for the session snapshot recovery warning raised mid-session"
+            )
+            : String(
+                localized: "Couldn't reopen your last workspaces",
+                comment: "Title for the session snapshot recovery warning"
+            )
+        let wasArchived = warning.archivedSnapshotURL != nil && warning.archiveError == nil
+        switch (recoveryWarningAppearedMidSession, wasArchived) {
+        case (true, true):
+            alert.informativeText = String(
+                localized:
+                    "awesoMux checked the saved workspace file and couldn't read it. An exact copy was archived for recovery. Your open workspaces are untouched, but automatic session saving is paused so the saved file is not replaced without your approval.",
+                comment: "Recovery warning shown mid-session after unreadable workspace data was archived"
+            )
+        case (true, false):
+            alert.informativeText = String(
+                localized:
+                    "awesoMux checked the saved workspace file and couldn't read it, and couldn't archive a copy either, so it was left untouched. Your open workspaces are unaffected. Automatic session saving is paused. Keep that file, or explicitly replace it with the workspaces currently open in awesoMux.",
+                comment: "Recovery warning shown mid-session when unreadable workspace data could not be archived"
+            )
+        case (false, true):
             alert.informativeText = String(
                 localized:
                     "We couldn't read your saved workspace data, so awesoMux opened with fresh workspaces. An exact copy was archived for recovery. Automatic session saving is paused so the live saved file is not replaced without your approval.",
                 comment: "Recovery warning shown after unreadable workspace data was archived"
             )
-        } else {
+        case (false, false):
             alert.informativeText = String(
                 localized:
                     "We couldn't read your saved workspace data, so awesoMux opened with fresh workspaces and left the live saved file untouched. Automatic session saving is paused. Keep that file, or explicitly replace it with the workspaces currently open in awesoMux.",
@@ -4676,17 +4754,39 @@ extension AwesoMuxApp {
     ) -> RecoveryWarningDecision {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(
-            localized: "Saved workspace data changed during restore",
-            comment: "Title for a session snapshot path-conflict warning"
-        )
-        if warning.archivedSnapshotURL != nil, warning.archiveError == nil {
+        alert.messageText =
+            recoveryWarningAppearedMidSession
+            ? String(
+                localized: "Saved workspace data changed while awesoMux was reading it",
+                comment: "Title for a session snapshot path-conflict warning raised mid-session"
+            )
+            : String(
+                localized: "Saved workspace data changed during restore",
+                comment: "Title for a session snapshot path-conflict warning"
+            )
+        let wasArchived = warning.archivedSnapshotURL != nil && warning.archiveError == nil
+        switch (recoveryWarningAppearedMidSession, wasArchived) {
+        case (true, true):
+            alert.informativeText = String(
+                localized:
+                    "Something replaced the saved workspace file while awesoMux was checking it. awesoMux preserved the version it had already read in a recovery file. Your open workspaces are untouched, but automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux.",
+                comment:
+                    "Recovery warning shown mid-session when saved workspace data changed while being read and the opened bytes were archived"
+            )
+        case (true, false):
+            alert.informativeText = String(
+                localized:
+                    "Something replaced the saved workspace file while awesoMux was checking it, and awesoMux could not preserve the version it had already read. Your open workspaces are untouched, but automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux.",
+                comment:
+                    "Recovery warning shown mid-session when saved workspace data changed while being read and the opened bytes could not be archived"
+            )
+        case (false, true):
             alert.informativeText = String(
                 localized:
                     "awesoMux reopened the version it had already read and preserved those bytes in a recovery file. The live saved file changed during restore, so automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux.",
                 comment: "Recovery warning shown when saved workspace data changed during restore and the opened bytes were archived"
             )
-        } else {
+        case (false, false):
             alert.informativeText = String(
                 localized:
                     "The live saved file changed while awesoMux was reopening it, and awesoMux could not preserve the version it had already read. Automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux.",
@@ -4754,8 +4854,21 @@ extension AwesoMuxApp {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Some workspace data was adjusted"
+        // Mid-session the restored store is discarded — only the warning
+        // survives — so "reopened your saved workspaces" would describe
+        // workspaces the user is never shown.
         var informativeLines = [
-            "awesoMux reopened your saved workspaces, but cleaned up data that could not be restored safely."
+            recoveryWarningAppearedMidSession
+                ? String(
+                    localized:
+                        "awesoMux checked the saved workspace file and found data that could not be restored safely. Your open workspaces are untouched.",
+                    comment: "Lead line for a sanitized-restore warning raised mid-session"
+                )
+                : String(
+                    localized:
+                        "awesoMux reopened your saved workspaces, but cleaned up data that could not be restored safely.",
+                    comment: "Lead line for a sanitized-restore warning raised at launch"
+                )
         ]
         informativeLines.append(contentsOf: warning.sanitizationSummary?.severitySummaryLines ?? [])
         if warning.archivedSnapshotURL != nil {

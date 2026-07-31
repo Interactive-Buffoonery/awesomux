@@ -158,12 +158,20 @@ struct PaneTitleBarBandTreatmentTests {
             )
         }
 
-        let before = bar(LiveTitles(box: box))
+        // `.paneTitle` is the channel production mounts this bar on
+        // (`TerminalPaneView`), and the one the whole design keeps unthrottled so
+        // an agent spinner animates. Reading `.everything` here would test the
+        // coarse channel this view deliberately does not use.
+        func liveTitles() -> LiveTitles {
+            LiveTitles(box: box, reads: .paneTitle(pane.id))
+        }
+
+        let before = bar(liveTitles())
         store.updatePane(sessionID: session.id, paneID: pane.id, title: "cargo build")
 
         #expect(box.paneTitles[pane.id] == "cargo build")
-        #expect(bar(LiveTitles(box: box)) != before)
-        #expect(bar(LiveTitles(box: box)).displayedTitle == "cargo build")
+        #expect(bar(liveTitles()) != before)
+        #expect(bar(liveTitles()).displayedTitle == "cargo build")
         // Control: with no channel the same pair compares EQUAL — the bar
         // would freeze at the title of the last unrelated store publish.
         #expect(bar(.unavailable) == bar(.unavailable))

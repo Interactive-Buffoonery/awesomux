@@ -39,6 +39,7 @@ const nativeCleanupWorkflow = readFileSync(
   join(repoRoot, ".github/workflows/native-ci-cleanup.yml"),
   "utf8",
 );
+const nativeTestScript = readFileSync(join(repoRoot, "script/test.sh"), "utf8");
 
 test("native CI commands map exact spellings to supported scopes", () => {
   assert.equal(parseNativeCICommand("/ci"), "all");
@@ -134,7 +135,7 @@ test("native preparation exposes exact-pin restore and opt-in save behavior", ()
 
   assert.match(action, /save-cache:[\s\S]*?default: "false"/);
   assert.match(action, /cache-namespace:[\s\S]*?default: native-ghostty-v1/);
-  for (const output of ["ghostty-sha", "xcode-id", "cache-hit"]) {
+  for (const output of ["ghostty-sha", "xcode-id", "cache-hit", "zig-formula"]) {
     assert.match(action, new RegExp(`^  ${output}:`, "m"));
   }
 
@@ -257,6 +258,11 @@ test("native CI executes captured PR code with read-only permissions and restore
   assert.match(nativeJob, /save-cache: "false"/);
 
   assert.match(nativeJob, /\.\/script\/test\.sh "\$GROUP" --xunit-output "\$XUNIT_PATH"/);
+  assert.match(
+    nativeJob,
+    /swift_testing_xunit_path="\$\{XUNIT_PATH%\.xml\}-swift-testing\.xml"/,
+  );
+  assert.match(nativeJob, /mv "\$swift_testing_xunit_path" "\$XUNIT_PATH"/);
   assert.match(nativeJob, /\.build\/test-results\/native-ci\.xml/);
   assert.match(nativeJob, /\.build\/test-results\/native-ci\.log/);
   assert.doesNotMatch(nativeJob, /\.\/script\/build_and_run\.sh --stage-release/);
@@ -284,6 +290,7 @@ test("native CI splits scope=all across isolated timing/nontiming test processes
   assert.match(nativeJob, /strategy:\n\s+fail-fast: false\n\s+matrix:\n\s+group: \$\{\{ fromJson\(needs\.resolve\.outputs\.groups\) \}\}/);
   assert.match(nativeJob, /concurrency:\n\s+group: native-pr-.*-\$\{\{ matrix\.group \}\}/);
   assert.match(nativeJob, /name: native-ci-\$\{\{ matrix\.group \}\}-\$\{\{ needs\.resolve\.outputs\.target-sha \}\}/);
+  assert.match(nativeTestScript, /timing_pattern=.*BoundedProcessRunnerTests/);
 });
 
 test("native release build runs once for scope=all after both test legs succeed", () => {
@@ -299,6 +306,21 @@ test("native release build runs once for scope=all after both test legs succeed"
   assert.match(releaseJob, /permissions:\n\s+contents: read/);
   assert.doesNotMatch(releaseJob, /checks: write|issues: write|secrets\./);
   assert.match(releaseJob, /uses: \.\/_trusted\/\.github\/actions\/prepare-native/);
+  assert.match(
+    releaseJob,
+    /if: steps\.prepare\.outcome == 'success' && steps\.prepare\.outputs\.cache-hit == 'true'/,
+  );
+  assert.match(releaseJob, /id: zig/);
+  assert.match(releaseJob, /ZIG_FORMULA: \$\{\{ steps\.prepare\.outputs\.zig-formula \}\}/);
+  assert.match(releaseJob, /brew install "\$ZIG_FORMULA"/);
+  assert.match(releaseJob, /echo "AWESOMUX_ZIG=.*" >> "\$GITHUB_ENV"/);
+  assert.match(releaseJob, /CACHE_HIT: \$\{\{ steps\.prepare\.outputs\.cache-hit \}\}/);
+  assert.match(releaseJob, /ZIG_OUTCOME: \$\{\{ steps\.zig\.outcome \}\}/);
+  assert.match(
+    releaseJob,
+    /elif \[\[ "\$CACHE_HIT" == "true" && "\$ZIG_OUTCOME" != "success" \]\]; then/,
+  );
+  assert.match(releaseJob, /Zig installation failed; release build was not executed\./);
   assert.match(releaseJob, /\.\/script\/build_and_run\.sh --stage-release/);
   assert.match(releaseJob, /codesign --verify --deep --strict/);
   assert.match(releaseJob, /Signature=adhoc/);

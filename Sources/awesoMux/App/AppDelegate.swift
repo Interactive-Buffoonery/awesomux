@@ -802,9 +802,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Land throttled titles first so the snapshot below carries them.
         ghosttyRuntime?.flushPendingTerminalTitleWrites()
         // Drain the persistence debouncer; otherwise a Cmd-Q within the
-        // 500 ms window drops the latest snapshot.
-        if let sessionStore {
-            SessionPersistence.flush(sessionStore)
+        // 500 ms window drops the latest snapshot. Gated on the same setting
+        // every other save is: quitting with restore off used to write the
+        // session anyway, clobbering the snapshot the opt-out exists to keep,
+        // and it would now also leave a quit-time recovery archive behind.
+        //
+        // An outstanding recovery replacement overrides that gate. It is an
+        // explicit, user-approved write of their current workspaces over a
+        // protected file, and `flush` is the only thing that drains one. The
+        // mid-session continuation already completes it regardless of the
+        // setting, so honouring it at quit is the consistent behaviour rather
+        // than a new exception. Narrow either way: the user has to disable
+        // restore in the gap between dismissing the modal and the detached
+        // write resolving.
+        if let sessionStore, let appSettingsStore,
+            appSettingsStore.general.value.restoreWorkspaces
+                || SessionPersistence.hasOutstandingRecoveryReplacement
+        {
+            // The recovery gate can refuse this write. `flush` parks the state
+            // in a `session-state.unsaved-` archive when it does, but nothing
+            // else is left to surface the failure at this point in teardown.
+            if case let .failure(error) = SessionPersistence.flush(sessionStore) {
+                logger.error(
+                    "applicationWillTerminate sessionFlushFailed reason=\(String(describing: error), privacy: .public)"
+                )
+            }
         }
         // Flush the coalesced window-frame save so a Cmd-Q within the debounce
         // window still persists the final frame.

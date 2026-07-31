@@ -227,7 +227,7 @@ struct SidebarPinnedSectionView: View {
         let session = item.entry.session
         // Only this scope's body re-runs on a display-only title write — not
         // the section, and not its other rows.
-        LiveTitleScope(sessionID: session.id) { liveTitles in
+        LiveTitleScope(sessionID: session.id, reads: .everything) { liveTitles in
             row(for: item, at: index, liveTitles: liveTitles)
         }
         .id(session.id)

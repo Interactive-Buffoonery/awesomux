@@ -143,13 +143,18 @@ public final class SessionStore {
     /// The narrow counterpart to `refreshLiveTitleBoxes`, for the silent OSC
     /// path, which is the only writer that both knows exactly which pane moved
     /// and runs often enough for the difference to matter.
-    func publishLiveTitle(paneID: TerminalPane.ID, in session: TerminalSession) {
+    func publishLiveTitle(paneID: TerminalPane.ID, in session: TerminalSession, now: Date) {
         guard let box = liveTitles[session.id],
             let pane = session.layout.pane(id: paneID)
         else {
             return
         }
-        box.adoptPaneTitle(pane.id, title: pane.title, workspaceTitle: session.title)
+        box.adoptPaneTitle(
+            pane.id,
+            title: pane.title,
+            workspaceTitle: session.title,
+            now: now
+        )
     }
 
     /// Re-seeds every live box from storage.
@@ -267,14 +272,16 @@ public final class SessionStore {
     @ObservationIgnored private var lastLiveTitleBumpBySessionID: [TerminalSession.ID: Date] = [:]
 
     func bumpLiveTitleGenerationIfDue(sessionID: TerminalSession.ID, now: Date) {
-        if let last = lastLiveTitleBumpBySessionID[sessionID] {
-            let elapsed = now.timeIntervalSince(last)
-            // A negative elapsed means the wall clock went backwards (NTP step,
-            // manual clock change, DST-adjacent shenanigans). Treating that as
-            // "not due" would suppress every bump until the clock caught back
-            // up — for a backwards jump of hours, hours of frozen projections.
-            if elapsed >= 0, elapsed < liveTitleGenerationInterval { return }
-        }
+        // Backwards-clock handling lives in the shared check — see
+        // `liveTitleCoalescingWindowHasElapsed`, which `LiveTitleBox`'s coarse
+        // mirror uses for the same reason.
+        guard
+            liveTitleCoalescingWindowHasElapsed(
+                since: lastLiveTitleBumpBySessionID[sessionID],
+                now: now,
+                interval: liveTitleGenerationInterval
+            )
+        else { return }
         lastLiveTitleBumpBySessionID[sessionID] = now
         liveTitleGeneration += 1
     }
@@ -546,6 +553,30 @@ public final class SessionStore {
         acknowledgementCoordinator.cancel()
         isReplacingState = true
         defer { isReplacingState = false }
+        // Same ID-reuse hazard as the undo registrations above, applied to the
+        // live-title channels' coalescing state. `reconcileLiveTitleBoxes` keeps
+        // any box whose session ID still exists, so a restore that reuses an ID
+        // hands the new content the previous occupant's coarse window. The
+        // restored pane's FIRST title report would then be suppressed by a window
+        // the user's previous session opened — and if it were that pane's only
+        // report, the sidebar would name the workspace by its restored-at title
+        // indefinitely.
+        //
+        // The boxes themselves are deliberately kept: `bulkRestoreRefreshesBoxes`
+        // pins that a box held across a restore lands current, and the `_groups`
+        // write below re-seeds every survivor through `adopt`. Only the window is
+        // a new lifetime.
+        for box in liveTitles.values {
+            box.resetCoalescingWindow()
+        }
+        // The generation counter coalesces on the SAME boundary with its own
+        // per-session stamps, and `reconcileLiveTitleBoxes` prunes that map by
+        // surviving ID — so a reused ID would keep its old window here too, and
+        // the restored pane's first title report would move the row while
+        // leaving every title-DERIVED projection (search haystack, duplicate
+        // ordinals, rotor labels) un-rebuilt until something else published.
+        // Resetting one clock and not the other just moves the bug.
+        lastLiveTitleBumpBySessionID.removeAll()
         _groups = components.groups
         recentlyClosed = components.recentlyClosed
         // Both clears precede the `pinnedSessionIDs` write below, whose observer
