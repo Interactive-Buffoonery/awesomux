@@ -9,14 +9,16 @@ enum BridgeExecChannel {
     static func run(
         command: String,
         stdin: Data?,
-        timeout: DispatchTimeInterval = .seconds(15)
+        timeout: Duration = .seconds(15),
+        delay: BoundedProcessRunner.Delay? = nil
     ) async throws -> Data {
         try await BoundedProcessRunner.run(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", command],
             input: .data(stdin ?? Data()),
             maximumOutputByteCount: maximumOutputByteCount,
-            timeout: timeout
+            timeout: timeout,
+            delay: delay
         )
     }
 }

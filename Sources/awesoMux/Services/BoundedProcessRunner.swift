@@ -3,6 +3,23 @@ import Dispatch
 import Foundation
 
 enum BoundedProcessRunner {
+    /// Test-only seam over the waits this runner performs — the overall timeout and
+    /// the SIGTERM-to-SIGKILL escalation. A test can stall one, both, or neither by
+    /// discriminating on the duration it is handed, which is what lets it assert
+    /// which of two competing terminations fired without racing a real clock.
+    ///
+    /// Deliberately optional, and deliberately not the production path. When it is
+    /// nil the waits run on `DispatchSource`/`DispatchQueue`, which cannot be starved
+    /// by blocked cooperative-pool threads. A timeout is the mechanism that stops a
+    /// wedged child hanging the caller; routing it through the cooperative pool would
+    /// make the hang guard itself starvable, which is a worse failure than the
+    /// scheduling flake the seam exists to remove.
+    typealias Delay = @Sendable (Duration) async throws -> Void
+
+    /// How long a terminated child has to honour SIGTERM before SIGKILL follows.
+    /// Exposed so tests can recognise the escalation wait by its duration.
+    static let terminationEscalation: Duration = .seconds(1)
+
     enum ExecError: Error, Equatable {
         case spawnFailed
         case nonzeroExit(Int32)
@@ -21,13 +38,18 @@ enum BoundedProcessRunner {
         arguments: [String],
         input: Input,
         maximumOutputByteCount: Int,
-        timeout: DispatchTimeInterval
+        timeout: Duration,
+        delay: Delay? = nil
     ) async throws -> Data {
         try Task.checkCancellation()
         let execution: Execution
         do {
             try Task.checkCancellation()
-            execution = try Execution(executableURL: executableURL, arguments: arguments)
+            execution = try Execution(
+                executableURL: executableURL,
+                arguments: arguments,
+                delay: delay
+            )
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -58,14 +80,32 @@ enum BoundedProcessRunner {
                 return wroteAllBytes
             }
         }
+        // Armed only after the spawn above succeeded, so a slow launch cannot eat the
+        // budget. Production stays on a `DispatchSource` timer: it fires from a
+        // Dispatch queue that blocked cooperative-pool threads cannot starve, which
+        // is exactly what a hang guard needs. Tests supply `delay` to take control of
+        // when — or whether — it fires.
         let timedOut = OneShotFlag()
-        let timeoutTimer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
-        timeoutTimer.schedule(deadline: .now() + timeout)
-        timeoutTimer.setEventHandler {
+        let fireTimeout = { @Sendable in
             timedOut.set()
             execution.terminateThenKill()
         }
-        timeoutTimer.resume()
+        // Built only on the branch that resumes it: a `DispatchSource` starts
+        // suspended, and releasing one that was never resumed traps in libdispatch.
+        var timeoutTimer: DispatchSourceTimer?
+        var timeoutTask: Task<Void, Never>?
+        if let delay {
+            timeoutTask = Task.detached { @Sendable in
+                do { try await delay(timeout) } catch { return }
+                fireTimeout()
+            }
+        } else {
+            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+            timer.schedule(deadline: .now() + dispatchInterval(timeout))
+            timer.setEventHandler(handler: fireTimeout)
+            timer.resume()
+            timeoutTimer = timer
+        }
         let waitTask = Task.detached { @Sendable in
             await runBlocking { execution.waitForExit() }
         }
@@ -79,7 +119,8 @@ enum BoundedProcessRunner {
         } onCancel: {
             execution.terminateThenKill()
         }
-        timeoutTimer.cancel()
+        timeoutTimer?.cancel()
+        timeoutTask?.cancel()
 
         try Task.checkCancellation()
 
@@ -96,6 +137,20 @@ enum BoundedProcessRunner {
             throw ExecError.inputFailed
         }
         return result.stdout
+    }
+
+    /// `DispatchTime` has no `+` for `Duration`, and the Dispatch paths above are the
+    /// ones that must keep working when the cooperative pool is jammed.
+    fileprivate static func dispatchInterval(_ duration: Duration) -> DispatchTimeInterval {
+        let (seconds, attoseconds) = duration.components
+        let (wholeNanoseconds, secondsOverflow) = seconds.multipliedReportingOverflow(by: 1_000_000_000)
+        let (nanoseconds, additionOverflow) = wholeNanoseconds.addingReportingOverflow(
+            attoseconds / 1_000_000_000
+        )
+        guard !secondsOverflow, !additionOverflow else {
+            return .nanoseconds(duration < .zero ? .min : .max)
+        }
+        return .nanoseconds(Int(clamping: nanoseconds))
     }
 
     private static func runBlocking<Result: Sendable>(
@@ -149,11 +204,13 @@ enum BoundedProcessRunner {
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         private let lock = NSLock()
+        private let delay: Delay?
         private var processID: pid_t = 0
         private var pipesFinished = false
         private var terminationStarted = false
 
-        init(executableURL: URL, arguments: [String]) throws {
+        init(executableURL: URL, arguments: [String], delay: Delay?) throws {
+            self.delay = delay
             var fileActions: posix_spawn_file_actions_t? = nil
             guard posix_spawn_file_actions_init(&fileActions) == 0 else {
                 throw ExecError.spawnFailed
@@ -238,13 +295,31 @@ enum BoundedProcessRunner {
             lock.unlock()
 
             Darwin.kill(-processID, SIGTERM)
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1) { [self] in
-                lock.lock()
-                let shouldKill = !pipesFinished
-                lock.unlock()
-                guard shouldKill else { return }
+            let escalate = { @Sendable [self] in
+                guard stillRunning() else { return }
                 Darwin.kill(-processID, SIGKILL)
             }
+            // Same reasoning as the timeout: the default path stays on Dispatch so a
+            // wedged child is always reaped, even when the cooperative pool is jammed.
+            guard let delay else {
+                DispatchQueue.global(qos: .userInitiated)
+                    .asyncAfter(
+                        deadline: .now() + BoundedProcessRunner.dispatchInterval(terminationEscalation),
+                        execute: escalate
+                    )
+                return
+            }
+            Task.detached { @Sendable in
+                do { try await delay(terminationEscalation) } catch { return }
+                escalate()
+            }
+        }
+
+        /// Kept synchronous because `NSLock` cannot be taken from an async context.
+        private func stillRunning() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return !pipesFinished
         }
 
         func markPipesFinished() {
