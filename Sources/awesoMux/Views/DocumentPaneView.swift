@@ -209,12 +209,12 @@ struct DocumentPaneSendBar: View {
             )
         case .agentIntegrationDisabled(let kind):
             return String(
-                localized: "Enable the \(kind.shortName) integration in Settings to send",
+                localized: "Enable the \(kind.displayName) integration in Settings to send",
                 comment: "Unavailable reason when the target agent's integration is disabled in settings"
             )
         case .agentNotReceptive(let kind):
             return String(
-                localized: "\(kind.shortName) isn't waiting for input yet",
+                localized: "\(kind.displayName) isn't waiting for input yet",
                 comment: "Unavailable reason when the target agent is not currently waiting at its prompt"
             )
         }
@@ -247,7 +247,7 @@ struct DocumentPaneSendBar: View {
             )
         }
         return String(
-            localized: "Send to \(namedKind.shortName)",
+            localized: "Send to \(namedKind.displayName)",
             comment: "Send-bar button title naming the agent identified in the target terminal"
         )
     }
@@ -639,6 +639,15 @@ struct DocumentPaneView: View {
     /// Reports external file edits so the parent chrome can surface a transient
     /// plan-revised indicator without tying UI state to reload logic.
     var onRevision: (LineDiffCount.ExternalEdit) -> Void = { _ in }
+    /// Produces the provider handoff state for annotation popovers on demand.
+    /// Invoked only when a comment popover is about to open: the projection
+    /// issues a live foreground probe, so it must not run per render. Nil
+    /// (callers that never pass a provider) keeps the section hidden.
+    var annotationHandoffProvider: (() -> AnnotationHandoffPresentation)?
+    /// Opens the existing composer with the clicked annotation prioritized.
+    /// The rendered document supplies its current open-id projection so the
+    /// handoff does not depend on session-memory timing.
+    var onSendAnnotation: (String, [String]) -> Void = { _, _ in }
     /// Surfaces the coordinator's scroll-anchor capture to the group view so it
     /// can snapshot the outgoing tab's position on a tab switch (INT-748 PR2).
     var onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)?
@@ -712,6 +721,8 @@ struct DocumentPaneView: View {
         onRenderCompleted: ((DocumentTabMemory.Render) -> Void)? = nil,
         onOpenDocumentLink: ((URL) -> Void)? = nil,
         onRevision: @escaping (LineDiffCount.ExternalEdit) -> Void = { _ in },
+        annotationHandoffProvider: (() -> AnnotationHandoffPresentation)? = nil,
+        onSendAnnotation: @escaping (String, [String]) -> Void = { _, _ in },
         onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil
     ) {
         self.pane = pane
@@ -719,6 +730,8 @@ struct DocumentPaneView: View {
         self.onRenderCompleted = onRenderCompleted
         self.onOpenDocumentLink = onOpenDocumentLink
         self.onRevision = onRevision
+        self.annotationHandoffProvider = annotationHandoffProvider
+        self.onSendAnnotation = onSendAnnotation
         self.onRegisterScrollAnchorCapture = onRegisterScrollAnchorCapture
         _loadResult = State(initialValue: cachedRender?.loadResult)
         _renderedDoc = State(initialValue: cachedRender?.renderedDoc)
@@ -1412,6 +1425,11 @@ struct DocumentPaneView: View {
                     popover?.behavior = AnnotationPopoverLifecycle.behavior(
                         isSubmitting: isSubmitting
                     )
+                },
+                annotationHandoff: annotationHandoffProvider?(),
+                onSendToAgent: { [weak popover] in
+                    popover?.close()
+                    onSendAnnotation(markID, doc.openAnnotationIDs)
                 }
             ))
         // Size the popover to the SwiftUI content's intrinsic height. Without this,

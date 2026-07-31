@@ -61,4 +61,16 @@ struct SessionStoreTextTests {
         #expect(AgentKind.openCode.spokenName == "OpenCode")
         #expect(AgentKind.pi.spokenName == "Pi")
     }
+
+    @Test("AgentKind.displayName gives visual copy the full brand name and the localized shell name")
+    func displayNamePicksLocalizedShellOrFullRawValue() throws {
+        // Visual copy ("Send to Claude Code") uses displayName, not spokenName — the
+        // spoken variant stays free to evolve for speech without dragging UI strings.
+        #expect(AgentKind.shell.displayName == AgentKind.shell.shortName)
+        #expect(AgentKind.claudeCode.displayName == "Claude Code")
+        #expect(AgentKind.codex.displayName == "Codex")
+        #expect(AgentKind.openCode.displayName == "OpenCode")
+        #expect(AgentKind.pi.displayName == "Pi")
+        #expect(AgentKind.grok.displayName == "Grok")
+    }
 }

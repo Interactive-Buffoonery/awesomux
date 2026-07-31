@@ -251,6 +251,17 @@ struct DocumentGroupView: View {
                     onRevision: { diff in
                         revisionMonitor.recordSelected(diff, for: document)
                     },
+                    // Lazy: the projection issues a live foreground probe, so
+                    // it is evaluated only when a comment popover is about to
+                    // open — not on every body recomputation (one live probe
+                    // per user action, matching the send bar's resolution).
+                    annotationHandoffProvider: { annotationHandoffPresentation },
+                    onSendAnnotation: { annotationID, openAnnotationIDs in
+                        presentComposer(
+                            selectedAnnotationID: annotationID,
+                            openAnnotationIDs: openAnnotationIDs
+                        )
+                    },
                     onRegisterScrollAnchorCapture: { capture in
                         scrollAnchorCapture = (document.id, capture)
                     }
@@ -261,7 +272,7 @@ struct DocumentGroupView: View {
                     session: session,
                     runtime: runtime,
                     showAllResolvedNotice: $showAllResolvedNotice,
-                    onCompose: presentComposer
+                    onCompose: { presentComposer() }
                 )
                 // Fresh identity per tab so a failure state (Peach button) from
                 // one tab never bleeds into the next tab's healthy send bar. A
@@ -299,7 +310,7 @@ struct DocumentGroupView: View {
         .sheet(item: $composerContext, onDismiss: restoreFocusAfterComposer) { context in
             RichInputComposerSheet(
                 seed: context.seed,
-                title: String(localized: "Send to Agent", comment: "Title of the multiline prompt composer"),
+                title: context.title,
                 onSend: { stageComposerText($0, in: context) },
                 onClose: { composerContext = nil }
             )
@@ -512,20 +523,86 @@ struct DocumentGroupView: View {
 
     // MARK: - Composer
 
-    /// Opens the composer, pinning the document + resolved target it targets.
-    /// Silently no-ops if the target is ineligible at open (the send button
-    /// already gated on availability; this only loses the rare open-time race).
-    private func presentComposer() {
-        guard case .available(let target) = resolveSendTarget(for: document.id) else { return }
+    private var annotationHandoffPresentation: AnnotationHandoffPresentation {
+        switch resolveSendTarget(for: document.id) {
+        case .available(let target):
+            guard let provider = PlanAnnotationAuthor(agentKind: target.agentKind) else {
+                // Annotation authorship requires a PlanAnnotationAuthor mapping;
+                // providers outside the annotation protocol (Grok, shells)
+                // present the generic disabled affordance instead of a "Send
+                // to Grok" button that presentComposer would silently refuse.
+                return Self.unmappedProviderHandoffPresentation
+            }
+            return AnnotationHandoffPresentation(
+                title: String(
+                    localized: "Send to \(provider.displayName)",
+                    comment: "Annotation handoff button naming the verified target provider"
+                ),
+                isEnabled: true,
+                unavailableDescription: nil
+            )
+        case .unavailable(let reason):
+            return AnnotationHandoffPresentation(
+                title: String(
+                    localized: "Send to Agent",
+                    comment: "Disabled annotation handoff button when no verified provider is available"
+                ),
+                isEnabled: false,
+                unavailableDescription: DocumentPaneSendBar.unavailableDescription(for: reason)
+            )
+        }
+    }
+
+    /// Disabled handoff affordance for a target outside the annotation
+    /// protocol, shaped like the generic unavailable presentation.
+    static var unmappedProviderHandoffPresentation: AnnotationHandoffPresentation {
+        AnnotationHandoffPresentation(
+            title: String(
+                localized: "Send to Agent",
+                comment: "Disabled annotation handoff button when no verified provider is available"
+            ),
+            isEnabled: false,
+            unavailableDescription: String(
+                localized: "This agent doesn't support review annotations",
+                comment: "Disabled annotation handoff reason when the document's agent has no annotation protocol mapping"
+            )
+        )
+    }
+
+    /// Opens the existing composer, pinning the document + resolved target it
+    /// targets. An optional annotation id makes the popover action an explicit
+    /// priority without adding another modal picker.
+    private func presentComposer(
+        selectedAnnotationID: String? = nil,
+        openAnnotationIDs: [String]? = nil
+    ) {
+        guard case .available(let target) = resolveSendTarget(for: document.id),
+            let provider = PlanAnnotationAuthor(agentKind: target.agentKind)
+        else { return }
         let displayPath = DocumentPaneSendBar.resolveDisplayPath(
             for: document.fileURL,
             relativeTo: target.workingDirectory
         )
+        let resolvedOpenAnnotationIDs =
+            openAnnotationIDs
+            ?? tabMemory.render(for: document)?.renderedDoc?.openAnnotationIDs
+            ?? []
         composerFocusPaneID = target.id
         composerContext = ComposerContext(
             documentID: document.id,
             targetPaneID: target.id,
-            seed: NudgeComposer.text(displayPath: displayPath)
+            title: String(
+                localized: "Send to \(target.agentKind.displayName)",
+                comment: "Title of the multiline provider handoff composer"
+            ),
+            seed: NudgeComposer.text(
+                AnnotationHandoffInput(
+                    provider: provider,
+                    displayPath: displayPath,
+                    selectedAnnotationID: selectedAnnotationID,
+                    openAnnotationIDs: resolvedOpenAnnotationIDs
+                )
+            )
         )
     }
 
@@ -629,6 +706,7 @@ private struct ComposerContext: Identifiable {
     let id = UUID()
     let documentID: DocumentPane.ID
     let targetPaneID: TerminalPane.ID
+    let title: String
     let seed: String
 }
 
