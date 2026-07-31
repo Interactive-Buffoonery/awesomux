@@ -15,12 +15,11 @@ public enum AgentLivenessPolicy {
     /// has exited, so the agent chrome (glyph, execution state, attention)
     /// must reset to plain shell.
     ///
-    /// Only `.idleShell` (recognized shell in the foreground, zero children)
-    /// is positive evidence the agent is gone. Everything else stays put:
-    /// `.liveCommand` may be the agent itself, `.busyShell` may be the agent
-    /// running as a background child, `.bridged` daemon panes keep the agent
-    /// alive detached, and `.exited`/`.indeterminate`/`.unsampled` carry no
-    /// evidence the shell outlived the agent.
+    /// `.idleShell` and `.bridged` are positive evidence the agent is gone:
+    /// both mean a recognized shell was found with zero children, with
+    /// `.bridged` deriving that proof from the daemon process tree. Everything
+    /// else stays put: live/busy states may still contain the agent, while
+    /// exited/indeterminate/unsampled states do not prove the shell outlived it.
     // Two named ceilings. False-retain: a stale glyph over a busy
     // shell (agent exited, unrelated background job remains) — tightening it
     // needs child-process identification. False-reset: a live agent parked
@@ -36,6 +35,6 @@ public enum AgentLivenessPolicy {
         agentKind: AgentKind,
         liveness: ForegroundProcessLiveness
     ) -> Bool {
-        agentKind != .shell && liveness == .idleShell
+        agentKind != .shell && (liveness == .idleShell || liveness == .bridged)
     }
 }
