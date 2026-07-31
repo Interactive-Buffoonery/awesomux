@@ -8,8 +8,7 @@ import Testing
 /// `LiveTitleReads` picks the observation CHANNEL, not just which fields get
 /// copied out: `.paneTitle` registers a dependency on the fine-grained
 /// properties and repaints on every OSC report, while `.everything` — the
-/// sidebar rows and the path bar — registers on the ~1 Hz coarse mirror and does
-/// not.
+/// sidebar rows — registers on the ~1 Hz coarse mirror and does not.
 ///
 /// Asserted with `withObservationTracking` because that is the only place the
 /// distinction is real. Copying the right *value* out would still repaint the
@@ -46,7 +45,7 @@ struct LiveTitleReadsChannelTests {
 
         // The pane title bar repaints — an agent spinner has to animate.
         #expect(paneTitleWoke.value)
-        // The sidebar row and the path bar do not. This is the recovered work.
+        // The sidebar row does not. This is the recovered work.
         #expect(!everythingWoke.value)
     }
 

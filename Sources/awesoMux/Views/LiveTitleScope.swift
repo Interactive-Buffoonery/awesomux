@@ -35,26 +35,25 @@ struct LiveTitles: Equatable {
             panes = [:]
         case let .paneTitle(paneID):
             workspace = nil
-            // Narrowed to the one entry the content renders. This does NOT
-            // narrow the *observation*: `@Observable` publishes per property, so
-            // subscripting still registers the whole `paneTitles` dictionary and
-            // a sibling pane's tick still re-runs this scope. What it buys is
-            // skipping `workspaceTitle` — a workspace rename no longer wakes
-            // every pane title bar in the session. Per-pane observation would
-            // need per-pane storage on `LiveTitleBox`; revisit only if a
-            // many-pane split measures worse than the box redesign.
-            panes = (box?.paneTitles[paneID]).map { [paneID: $0] } ?? [:]
+            // `paneTitle(for:)`, never `paneTitles[paneID]`: the box stores one
+            // observable per pane, so this depends on that pane's channel and
+            // the pane roster, and on no sibling pane (issue #315). Reading the
+            // dictionary would register every pane and put the sibling fan-out
+            // straight back — a sibling's spinner frame would re-run this scope,
+            // and only the child `.equatable()` gate downstream would reject the
+            // work, after the scope evaluation and comparison had been paid.
+            panes = box?.paneTitle(for: paneID).map { [paneID: $0] } ?? [:]
         case let .workspaceAndPaneTitle(paneID):
             // FINE for both, deliberately. See the case's own doc comment: this
             // exists because the path bar's titles are an edge-triggered signal,
             // and the coarse channel drops intermediate values rather than
             // delaying them.
             workspace = box?.workspaceTitle
-            panes = (box?.paneTitles[paneID]).map { [paneID: $0] } ?? [:]
+            panes = box?.paneTitle(for: paneID).map { [paneID: $0] } ?? [:]
         case .everything:
             // The COARSE mirror, not the fine properties the other two cases
             // read. `.everything` is exactly the consumers that render a NAME —
-            // sidebar rows and the path bar — where a second of staleness is not
+            // sidebar rows — where a second of staleness is not
             // observable but the per-tick re-layout is the measured residual
             // cost. See `LiveTitleBox.coarseWorkspaceTitle`.
             workspace = box?.coarseWorkspaceTitle
@@ -76,13 +75,14 @@ struct LiveTitles: Equatable {
 /// `@Observable` invalidates per property, so this is a real observation
 /// boundary and not bookkeeping: the app titlebar renders only the workspace
 /// title, and declaring that keeps an INACTIVE pane's spinner from waking it at
-/// all. Pick the narrowest case the content can render from.
+/// all. `.paneTitle` narrows further, to the one pane's own channel. Pick the
+/// narrowest case the content can render from.
 ///
-/// It also picks the CHANNEL. `.workspaceTitle` and `.paneTitle` read the
-/// fine-grained properties and repaint on every title report; `.everything`
-/// reads the ~1 Hz coarse mirror. That is a product decision as much as a
-/// performance one — an agent spinner in a pane title bar has to animate, a
-/// workspace name in a sidebar row does not.
+/// It also picks the CHANNEL. The first three cases read the fine-grained
+/// properties and repaint on every relevant title report; `.everything` reads
+/// the ~1 Hz coarse mirror. That is a product decision as much as a performance
+/// one — an agent spinner in a pane title bar has to animate, a workspace name
+/// in a sidebar row does not.
 enum LiveTitleReads: Equatable {
     /// `workspaceTitle` only — the app titlebar. Fine-grained.
     case workspaceTitle
