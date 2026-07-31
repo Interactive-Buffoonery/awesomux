@@ -455,15 +455,13 @@ enum SessionPersistence {
         let cacheDirectoryURL =
             supportDirectoryURL
             .appending(path: "remote-markdown", directoryHint: .isDirectory)
-        Task.detached(priority: .utility) {
-            RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDirectoryURL)
-                .pruneUnreferencedSnapshots(keeping: urls)
-        }
+        RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDirectoryURL)
+            .schedulePruneUnreferencedSnapshots(keeping: urls)
     }
 
     static func pruneRemoteMarkdownSnapshotsForTesting(keeping store: SessionStore) {
         RemoteMarkdownSnapshotFetcher()
-            .pruneUnreferencedSnapshots(keeping: remoteMarkdownSnapshotURLs(keeping: store))
+            .pruneUnreferencedSnapshotsImmediately(keeping: remoteMarkdownSnapshotURLs(keeping: store))
     }
 
     private static func remoteMarkdownSnapshotURLs(keeping store: SessionStore) -> Set<URL> {

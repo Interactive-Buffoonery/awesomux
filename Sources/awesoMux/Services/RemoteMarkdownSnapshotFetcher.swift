@@ -148,7 +148,7 @@ enum RemoteMarkdownFetchOutcome: Equatable, Sendable {
     }
 }
 
-private actor RemoteMarkdownFetchCoordinator {
+private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
     struct Key: Hashable, Sendable {
         let identity: ResourceIdentity
         let cacheDirectoryPath: String
@@ -156,22 +156,131 @@ private actor RemoteMarkdownFetchCoordinator {
 
     static let shared = RemoteMarkdownFetchCoordinator()
 
+    // Synchronous registration reserves a prune turn before its caller returns;
+    // an actor method could let a later fetch enqueue first while the call is
+    // suspended at the actor boundary.
+    private let lock = NSLock()
     private var inFlight: [Key: Task<RemoteMarkdownFetchOutcome?, Never>] = [:]
+    private struct DirectoryTail {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
+    private struct DirectoryRegistration {
+        let path: String
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
+    private var directoryTails: [String: DirectoryTail] = [:]
 
     func value(
         for key: Key,
         onCoalesced: (@Sendable () async -> Void)? = nil,
+        onRegistered: (@Sendable () async -> Void)? = nil,
         operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
     ) async -> RemoteMarkdownFetchOutcome? {
-        if let existing = inFlight[key] {
+        switch registerFetch(for: key, operation: operation) {
+        case .existing(let existing):
             await onCoalesced?()
             return await existing.value
+        case let .new(task, path, id):
+            await onRegistered?()
+            let result = await task.value
+            finishFetch(for: key, directoryPath: path, directoryID: id)
+            return result
         }
-        let task = Task(operation: operation)
+    }
+
+    private enum FetchRegistration {
+        case existing(Task<RemoteMarkdownFetchOutcome?, Never>)
+        case new(Task<RemoteMarkdownFetchOutcome?, Never>, path: String, id: UUID)
+    }
+
+    private func registerFetch(
+        for key: Key,
+        operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
+    ) -> FetchRegistration {
+        lock.lock()
+        defer { lock.unlock() }
+        if let existing = inFlight[key] {
+            return .existing(existing)
+        }
+        let previous = directoryTails[key.cacheDirectoryPath]
+        let id = UUID()
+        let task = Task<RemoteMarkdownFetchOutcome?, Never> {
+            await previous?.task.value
+            return await operation()
+        }
         inFlight[key] = task
-        let result = await task.value
+        let tail = Task {
+            _ = await task.value
+        }
+        directoryTails[key.cacheDirectoryPath] = DirectoryTail(id: id, task: tail)
+        return .new(task, path: key.cacheDirectoryPath, id: id)
+    }
+
+    private func finishFetch(for key: Key, directoryPath: String, directoryID: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
         inFlight[key] = nil
-        return result
+        if directoryTails[directoryPath]?.id == directoryID {
+            directoryTails[directoryPath] = nil
+        }
+    }
+
+    func schedulePrune(
+        for cacheDirectoryPath: String,
+        operation: @escaping @Sendable () async -> Void
+    ) {
+        let registration = registerPrune(for: cacheDirectoryPath, operation: operation)
+        Task.detached(priority: .utility) {
+            await registration.task.value
+            self.finishDirectoryOperation(
+                for: registration.path,
+                id: registration.id
+            )
+        }
+    }
+
+    private func registerPrune(
+        for cacheDirectoryPath: String,
+        operation: @escaping @Sendable () async -> Void
+    ) -> DirectoryRegistration {
+        lock.lock()
+        defer { lock.unlock() }
+        let previous = directoryTails[cacheDirectoryPath]
+        let id = UUID()
+        let task = Task.detached(priority: .utility) {
+            await previous?.task.value
+            await operation()
+        }
+        let tail = Task {
+            _ = await task.value
+        }
+        directoryTails[cacheDirectoryPath] = DirectoryTail(id: id, task: tail)
+        return DirectoryRegistration(
+            path: cacheDirectoryPath,
+            id: id,
+            task: task
+        )
+    }
+
+    func prune(
+        for cacheDirectoryPath: String,
+        operation: @escaping @Sendable () async -> Void
+    ) async {
+        let registration = registerPrune(for: cacheDirectoryPath, operation: operation)
+        await registration.task.value
+        finishDirectoryOperation(for: registration.path, id: registration.id)
+    }
+
+    private func finishDirectoryOperation(for path: String, id: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        if directoryTails[path]?.id == id {
+            directoryTails[path] = nil
+        }
     }
 }
 
@@ -188,6 +297,8 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     var fileManager: FileManager = .default
     var fetchOverride: (@Sendable (RemoteMarkdownReference) async -> BoundedCommandResult)?
     var onCoalescedFetch: (@Sendable () async -> Void)?
+    var onFetchRegistered: (@Sendable () async -> Void)?
+    var onPruneEnumerated: (@Sendable () async -> Void)?
 
     func fetch(_ reference: RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? {
         let key = RemoteMarkdownFetchCoordinator.Key(
@@ -196,7 +307,8 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         )
         return await RemoteMarkdownFetchCoordinator.shared.value(
             for: key,
-            onCoalesced: onCoalescedFetch
+            onCoalesced: onCoalescedFetch,
+            onRegistered: onFetchRegistered
         ) {
             await fetchUncoordinated(reference)
         }
@@ -265,8 +377,43 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         }
     }
 
-    func pruneUnreferencedSnapshots(keeping referencedFileURLs: Set<URL>) {
-        guard let cacheDirectoryURL = validatedCacheDirectory(createIfMissing: false) else { return }
+    func schedulePruneUnreferencedSnapshots(keeping referencedFileURLs: Set<URL>) {
+        let fetcher = self
+        RemoteMarkdownFetchCoordinator.shared.schedulePrune(
+            for: cacheDirectoryURL.standardizedFileURL.path
+        ) {
+            await fetcher.pruneUnreferencedSnapshotsUncoordinated(keeping: referencedFileURLs)
+        }
+    }
+
+    func pruneUnreferencedSnapshots(keeping referencedFileURLs: Set<URL>) async {
+        let fetcher = self
+        await RemoteMarkdownFetchCoordinator.shared.prune(
+            for: cacheDirectoryURL.standardizedFileURL.path
+        ) {
+            await fetcher.pruneUnreferencedSnapshotsUncoordinated(keeping: referencedFileURLs)
+        }
+    }
+
+    private func pruneUnreferencedSnapshotsUncoordinated(
+        keeping referencedFileURLs: Set<URL>
+    ) async {
+        guard let entries = unreferencedSnapshotEntries(keeping: referencedFileURLs) else {
+            return
+        }
+        await onPruneEnumerated?()
+        removeSnapshotEntries(entries)
+    }
+
+    func pruneUnreferencedSnapshotsImmediately(keeping referencedFileURLs: Set<URL>) {
+        guard let entries = unreferencedSnapshotEntries(keeping: referencedFileURLs) else {
+            return
+        }
+        removeSnapshotEntries(entries)
+    }
+
+    private func unreferencedSnapshotEntries(keeping referencedFileURLs: Set<URL>) -> [URL]? {
+        guard let cacheDirectoryURL = validatedCacheDirectory(createIfMissing: false) else { return nil }
         guard
             let entries = try? fileManager.contentsOfDirectory(
                 at: cacheDirectoryURL,
@@ -274,13 +421,22 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
                 options: [.skipsHiddenFiles]
             )
         else {
-            return
+            return nil
         }
         let referencedPaths = Set(referencedFileURLs.map { $0.standardizedFileURL.path })
-        for entry in entries where !referencedPaths.contains(entry.standardizedFileURL.path) {
-            guard ((try? entry.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile) == true else {
-                continue
+        return entries.filter { entry in
+            guard !referencedPaths.contains(entry.standardizedFileURL.path) else {
+                return false
             }
+            guard ((try? entry.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile) == true else {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func removeSnapshotEntries(_ entries: [URL]) {
+        for entry in entries {
             try? fileManager.removeItem(at: entry)
         }
     }
