@@ -207,7 +207,7 @@ enum RemoteHandoff {
         helperPath: String,
         sessionID: TerminalSessionID,
         executableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
-        timeout: DispatchTimeInterval = .seconds(90)
+        timeout: Duration = .seconds(90)
     ) async throws -> Data {
         try Task.checkCancellation()
         let sourceContents = try source.snapshotValidatedContents()

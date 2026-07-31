@@ -182,7 +182,7 @@ enum RemoteHelperInstaller {
         remote: RemoteTarget,
         controlPath: String,
         executableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
-        timeout: DispatchTimeInterval = .seconds(15)
+        timeout: Duration = .seconds(15)
     ) async throws {
         let output: Data
         do {
@@ -233,7 +233,7 @@ enum RemoteHelperInstaller {
         controlPath: String,
         remoteHome: String,
         executableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
-        timeout: DispatchTimeInterval = .seconds(90)
+        timeout: Duration = .seconds(90)
     ) async throws {
         guard remoteHome.hasPrefix("/"),
             !UnicodeHygiene.containsUnsafePathScalars(remoteHome),

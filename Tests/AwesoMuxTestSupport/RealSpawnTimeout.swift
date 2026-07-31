@@ -13,4 +13,9 @@ import Dispatch
 /// A generous ceiling costs passing runs nothing: the work these tests wait on
 /// completes in milliseconds once scheduled. Tests where the timeout *is* the subject
 /// keep their short values.
-public let realSpawnTimeout: DispatchTimeInterval = .seconds(30)
+///
+/// Use this only where the test asserts no ordering — it drives a fixture that exits
+/// promptly and checks what came back, and the timeout is purely a hang guard. A test
+/// that asserts *which* of two terminations fired wants `BoundedProcessRunner.Delay`
+/// instead, which removes the race rather than making it improbable.
+public let realSpawnTimeout: Duration = .seconds(30)
