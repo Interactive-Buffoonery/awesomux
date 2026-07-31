@@ -4,6 +4,7 @@ import Testing
 @testable import DesignSystem
 
 @Suite("AwColor")
+@MainActor
 struct AwColorTests {
     @Test("awDynamic resolves aqua to latte and darkAqua to mocha")
     func awDynamicResolvesAppearanceToCorrectHex() throws {

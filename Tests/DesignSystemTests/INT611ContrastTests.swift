@@ -4,6 +4,7 @@ import Testing
 @testable import DesignSystem
 
 @Suite("INT-611 idle badges and attention pills")
+@MainActor
 struct INT611ContrastTests {
     @Test("idle omits the status badge in full and collapsed agent tiles")
     func idleOmitsStatusBadge() {

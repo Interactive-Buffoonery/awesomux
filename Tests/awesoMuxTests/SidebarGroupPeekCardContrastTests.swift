@@ -15,6 +15,7 @@ import Testing
 /// on the specified sRGB colors. The composite below is the same source-over
 /// the card's `.overlay` performs, evaluated on those specified colors.
 @Suite("Sidebar group peek card contrast")
+@MainActor
 struct SidebarGroupPeekCardContrastTests {
     private static let aaFloor = 4.5
 
