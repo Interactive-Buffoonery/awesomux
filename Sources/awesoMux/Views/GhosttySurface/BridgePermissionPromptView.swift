@@ -26,8 +26,8 @@ import UnicodeHygiene
 ///   focused or not. The one keyboard path to Allow is ⌘⏎ or the plain `A` key,
 ///   and only while the prompt is deliberately focused via
 ///   `focusPermissionPrompt` (USER RULING, INT-698 addendum) — never reachable
-///   by a stray keystroke aimed at the terminal. Escape→deny works focused or
-///   not, via `BridgePermissionPromptKey`.
+///   by a stray keystroke aimed at the terminal. Escape→deny is also gated on
+///   deliberate prompt focus via `BridgePermissionPromptKey`.
 /// - **Escape denies via the early-deny path**, through a scoped local
 ///   `NSEvent` key monitor active only while the banner is deliberately focused
 ///   (the documented-gotcha alternative to `.onExitCommand`) — so a terminal
@@ -37,41 +37,85 @@ import UnicodeHygiene
 ///   stringsdict plural and shown as a badge.
 struct BridgePermissionPromptView: View {
     @Bindable var coordinator: BridgePermissionCoordinator
+    let onFocusReturned: () -> Void
 
     @AccessibilityFocusState private var promptAccessibilityFocused: Bool
     @FocusState private var bannerFocused: Bool
     @State private var keyMonitor = BridgePermissionKeyMonitor()
+    @State private var focusRestoredForPromptID: String?
+
+    init(
+        coordinator: BridgePermissionCoordinator,
+        onFocusReturned: @escaping () -> Void = {}
+    ) {
+        self.coordinator = coordinator
+        self.onFocusReturned = onFocusReturned
+    }
 
     var body: some View {
-        if let prompt = coordinator.activePrompt {
-            banner(prompt)
-                // The deliberate, user-initiated focus move — the ONLY time the
-                // banner grabs focus. Bumped by `requestFocus()` (the palette /
-                // shortcut command), never on arrival.
-                .onChange(of: coordinator.focusRequestToken) {
-                    bannerFocused = true
-                    promptAccessibilityFocused = true
-                }
-                // Escape monitor is live only while the banner is deliberately
-                // focused, so a terminal user's Escape stays with the terminal
-                // until they move focus here.
-                .onChange(of: bannerFocused) { _, focused in
-                    if focused {
-                        keyMonitor.start(coordinator: coordinator)
-                    } else {
-                        keyMonitor.stop()
-                        // Focus returned to the terminal (Tab/click away) —
-                        // clear the coordinator's own focused flag directly.
-                        // Don't rely on SwiftUI resetting `bannerFocused` on
-                        // the banner's disappear/reappear cycle across
-                        // prompts to keep this in sync; that's a stale-state
-                        // risk, so the coordinator's flag has its own
-                        // explicit clear here as well as in `publish()`.
-                        coordinator.clearPromptFocus()
+        Group {
+            if let prompt = coordinator.activePrompt {
+                banner(prompt)
+                    // The deliberate, user-initiated focus move — the ONLY time the
+                    // banner grabs focus. Bumped by `requestFocus()` (the palette /
+                    // shortcut command), never on arrival.
+                    .onChange(of: coordinator.focusRequestToken) {
+                        bannerFocused = true
+                        promptAccessibilityFocused = true
                     }
-                }
-                .onDisappear { keyMonitor.stop() }
+                    // Escape monitor is live only while the banner is deliberately
+                    // focused, so a terminal user's Escape stays with the terminal
+                    // until they move focus here.
+                    .onChange(of: bannerFocused) { _, focused in
+                        if focused {
+                            keyMonitor.start(coordinator: coordinator)
+                        } else {
+                            keyMonitor.stop()
+                            // Focus returned to the terminal (Tab/click away) —
+                            // clear the coordinator's own focused flag directly.
+                            // Don't rely on SwiftUI resetting `bannerFocused` on
+                            // the banner's disappear/reappear cycle across
+                            // prompts to keep this in sync; that's a stale-state
+                            // risk, so the coordinator's flag has its own
+                            // explicit clear here as well as in `publish()`.
+                            coordinator.clearPromptFocus()
+                            restoreFocus(for: coordinator.activePrompt?.id)
+                        }
+                    }
+            }
         }
+        .onChange(of: coordinator.activePrompt) { previous, current in
+            // A resolution may advance straight to another prompt without
+            // removing this view. Treat that as a fresh, unfocused prompt and
+            // return the responder to Ghostty. This observer lives outside the
+            // conditional so it also sees the final prompt disappear.
+            guard let previous, previous.id != current?.id else { return }
+            bannerFocused = false
+            promptAccessibilityFocused = false
+            keyMonitor.stop()
+            coordinator.clearPromptFocus()
+            restoreFocus(for: previous.id)
+            focusRestoredForPromptID = current?.id
+        }
+        .onDisappear {
+            bannerFocused = false
+            promptAccessibilityFocused = false
+            keyMonitor.stop()
+            // The prompt can disappear without a SwiftUI focus transition when
+            // its pane/session is switched or the bridge tears down. Clear the
+            // same-prompt authorization and return focus to its surface.
+            coordinator.clearPromptFocus()
+            restoreFocus(for: coordinator.activePrompt?.id)
+        }
+    }
+
+    private func restoreFocus(for promptID: String?) {
+        guard let promptID, focusRestoredForPromptID != promptID else { return }
+        focusRestoredForPromptID = promptID
+        // Let SwiftUI apply the false focus bindings before AppKit receives the
+        // terminal handoff; otherwise its stale KeyViewProxy can reclaim the
+        // responder in the same update.
+        DispatchQueue.main.async { onFocusReturned() }
     }
 
     @ViewBuilder
@@ -288,8 +332,8 @@ struct BridgePermissionPromptView: View {
     }
 }
 
-/// The key mapping the banner honors. Escape denies (the early-deny path)
-/// unconditionally, focused or not. Bare Return (36) and keypad Enter (76)
+/// The key mapping the banner honors. Escape denies (the early-deny path) only
+/// while the prompt owns interaction. Bare Return (36) and keypad Enter (76)
 /// NEVER map to anything — that half of "Return never maps to Allow" is
 /// inviolable and does not depend on `focused`. The one keyboard path to
 /// Allow is ⌘⏎ or the plain `A` key (keyCode 0), and ONLY when `focused` is
@@ -310,7 +354,7 @@ enum BridgePermissionPromptKey {
         focused: Bool = false
     ) -> Action? {
         switch keyCode {
-        case 53: // Escape — always, focused or not
+        case 53 where focused:  // Escape — focused only
             return .deny
         case 36 where focused && modifierFlags.contains(.command): // ⌘Return, focused only
             return .allow
