@@ -143,7 +143,14 @@ enum BoundedProcessRunner {
     /// ones that must keep working when the cooperative pool is jammed.
     fileprivate static func dispatchInterval(_ duration: Duration) -> DispatchTimeInterval {
         let (seconds, attoseconds) = duration.components
-        return .nanoseconds(Int(seconds * 1_000_000_000 + attoseconds / 1_000_000_000))
+        let (wholeNanoseconds, secondsOverflow) = seconds.multipliedReportingOverflow(by: 1_000_000_000)
+        let (nanoseconds, additionOverflow) = wholeNanoseconds.addingReportingOverflow(
+            attoseconds / 1_000_000_000
+        )
+        guard !secondsOverflow, !additionOverflow else {
+            return .nanoseconds(duration < .zero ? .min : .max)
+        }
+        return .nanoseconds(Int(clamping: nanoseconds))
     }
 
     private static func runBlocking<Result: Sendable>(

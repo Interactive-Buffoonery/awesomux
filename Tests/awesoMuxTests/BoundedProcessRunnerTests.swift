@@ -4,6 +4,19 @@ import Testing
 
 @Suite("Bounded process runner")
 struct BoundedProcessRunnerTests {
+    @Test("clamps a timeout beyond the dispatch nanosecond range")
+    func clampsOversizedTimeout() async throws {
+        let output = try await BoundedProcessRunner.run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/true"),
+            arguments: [],
+            input: .data(Data()),
+            maximumOutputByteCount: 1024,
+            timeout: .seconds(Int64.max)
+        )
+
+        #expect(output.isEmpty)
+    }
+
     @Test("a background child holding stdout is terminated at the timeout")
     func descendantHoldingStdoutDoesNotHang() async {
         let clock = ContinuousClock()
