@@ -67,6 +67,17 @@ struct AgentLivenessPolicyTests {
         #expect(AgentLivenessPolicy.shouldResetAgentChrome(agentKind: kind, liveness: .idleShell))
     }
 
+    @Test("verified idle bridged shell resets agent chrome")
+    func verifiedIdleBridgedShellResets() {
+        let liveness = ForegroundProcessLiveness.classifyBridged(
+            rootComm: "-zsh",
+            rootHasChildren: false
+        )
+
+        #expect(liveness == .bridged)
+        #expect(AgentLivenessPolicy.shouldResetAgentChrome(agentKind: .codex, liveness: liveness))
+    }
+
     @Test("a shell pane never resets, even over an idle shell")
     func shellKindNeverResets() {
         for liveness: ForegroundProcessLiveness in [
@@ -78,13 +89,13 @@ struct AgentLivenessPolicyTests {
     }
 
     @Test(
-        "non-idle-shell liveness never resets an agent pane",
+        "live or unproven liveness never resets an agent pane",
         arguments: [
-            ForegroundProcessLiveness.unsampled, .bridged, .bridgedBusy, .bridgedIndeterminate,
+            ForegroundProcessLiveness.unsampled, .bridgedBusy, .bridgedIndeterminate,
             .exited, .busyShell, .liveCommand, .indeterminate,
         ]
     )
-    func onlyIdleShellIsPositiveEvidence(liveness: ForegroundProcessLiveness) {
+    func liveOrUnprovenLivenessDoesNotReset(liveness: ForegroundProcessLiveness) {
         #expect(!AgentLivenessPolicy.shouldResetAgentChrome(agentKind: .openCode, liveness: liveness))
     }
 }
