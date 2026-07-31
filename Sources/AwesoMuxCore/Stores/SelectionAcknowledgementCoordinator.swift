@@ -11,15 +11,26 @@ struct SelectionAcknowledgementBaseline: Sendable {
 
 @MainActor
 final class SelectionAcknowledgementCoordinator {
+    typealias Delay = @MainActor @Sendable (UInt64) async throws -> Void
+
     private let dwellNanoseconds: UInt64
+    var delay: Delay
     private var task: Task<Void, Never>?
 
     deinit {
         task?.cancel()
     }
 
-    init(dwellNanoseconds: UInt64) {
+    init(
+        dwellNanoseconds: UInt64,
+        delay: @escaping Delay = {
+            try await ContinuousClock().sleep(
+                for: .nanoseconds(Int64(clamping: $0))
+            )
+        }
+    ) {
         self.dwellNanoseconds = dwellNanoseconds
+        self.delay = delay
     }
 
     func cancel() {
@@ -41,9 +52,10 @@ final class SelectionAcknowledgementCoordinator {
             return
         }
 
-        task = Task { @MainActor [dwellNanoseconds] in
+        let delay = delay
+        task = Task { @MainActor [dwellNanoseconds, delay] in
             do {
-                try await Task.sleep(nanoseconds: dwellNanoseconds)
+                try await delay(dwellNanoseconds)
             } catch {
                 return
             }

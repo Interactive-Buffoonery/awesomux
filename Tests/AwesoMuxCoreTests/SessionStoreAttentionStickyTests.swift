@@ -107,10 +107,10 @@ import Testing
         #expect(store.liftedSessionIDs.isEmpty)
     }
 
-    /// Drives the REAL 500 ms dwell rather than calling `acknowledgeSession`
-    /// directly, so deleting `releasesAttentionSticky: false` from the dwell's
-    /// call site fails here instead of shipping a section that evicts the row
-    /// the user is reading.
+    /// Drives the dwell through its scheduler rather than calling
+    /// `acknowledgeSession` directly, so deleting
+    /// `releasesAttentionSticky: false` from the dwell's call site fails here
+    /// instead of shipping a section that evicts the row the user is reading.
     ///
     /// Post INT-819 the dwell declines to acknowledge a blocking prompt at all,
     /// so the row survives for two independent reasons — the prompt is still
@@ -120,7 +120,7 @@ import Testing
         let calm = TerminalSession(title: "calm", workingDirectory: "~")
         let a = needy("alpha")
         // A second workspace carrying only a bell. Its acknowledgement is the
-        // observable proof that the real dwell fired — a blocking prompt now
+        // observable proof that the dwell fired — a blocking prompt now
         // produces no state change of its own, so there is nothing to poll on
         // the workspace under test.
         var bell = TerminalSession(title: "bell", workingDirectory: "~")
@@ -134,15 +134,17 @@ import Testing
             groups: [SessionGroup(name: "One", sessions: [calm, a, bell])],
             acknowledgementDwellNanoseconds: 10_000_000
         )
+        let scheduler = store.controlAcknowledgementDwell()
         store.needsInputSectionEnabled = true
 
         store.selectedSessionID = a.id
         #expect(store.attentionStickySessionID == a.id)
 
-        // Select the bell workspace and wait for ITS dwell to land. The dwell
-        // scheduled for `a` had already elapsed by then.
+        // Select the bell workspace and drive its dwell.
         store.selectedSessionID = bell.id
-        let dwellRan = await waitUntilEventually {
+        #expect(await waitUntil { scheduler.sleeperCount >= 1 })
+        scheduler.advanceOneCycle()
+        let dwellRan = await waitUntil {
             store.session(id: bell.id)?.activePane?.attentionReason == nil
         }
         #expect(dwellRan, "the dwell must still clear a non-blocking reason")
@@ -155,6 +157,9 @@ import Testing
         // Re-select `a` and let its dwell run again: the prompt survives and the
         // sticky holds the row in place while it is read.
         store.selectedSessionID = a.id
+        #expect(await waitUntil { scheduler.sleepCallCount >= 2 })
+        scheduler.advance()
+        await drainMainQueue()
         #expect(store.attentionStickySessionID == a.id)
         #expect(store.liftedSessionIDs == [a.id])
 
@@ -178,6 +183,7 @@ import Testing
             groups: [SessionGroup(name: "One", sessions: [a])],
             acknowledgementDwellNanoseconds: 10_000_000
         )
+        let scheduler = store.controlAcknowledgementDwell()
         store.needsInputSectionEnabled = true
         #expect(store.selectedSessionID == a.id)
         #expect(store.attentionStickySessionID == nil)
@@ -203,17 +209,10 @@ import Testing
         // Arming is synchronous, so the sticky is captured immediately; the
         // dwell itself then declines to clear the blocking prompt (INT-819).
         #expect(store.attentionStickySessionID == a.id)
-        // The prompt must SURVIVE the dwell, so there is no state change to
-        // poll for. Assert the condition holds continuously across a window the
-        // 10 ms dwell lands well inside: a regression that cleared it would flip
-        // this to false and fail.
-        let promptSurvivedTheDwell = await waitUntilEventually(deadline: .milliseconds(300)) {
-            store.session(id: a.id)?.needsUserInput != true
-        }
-        #expect(
-            !promptSurvivedTheDwell,
-            "the dwell must not passively answer a blocking prompt"
-        )
+        #expect(await waitUntil { scheduler.sleeperCount == 1 })
+        scheduler.advance()
+        await drainMainQueue()
+        #expect(store.session(id: a.id)?.needsUserInput == true)
         // The row must stay put while it is read.
         #expect(store.attentionStickySessionID == a.id)
         #expect(store.liftedSessionIDs == [a.id])
@@ -222,15 +221,18 @@ import Testing
     /// Arms acknowledgement against a calm active pane: baseline unread 0, no
     /// pending prompt. The calm workspace goes first so `init` seeds selection to
     /// it and the write below is a genuine change that reaches the arming path.
-    private func storeArmedOnCalmSelection(_ session: TerminalSession) -> SessionStore {
+    private func storeArmedOnCalmSelection(
+        _ session: TerminalSession
+    ) -> (store: SessionStore, scheduler: TestScheduler) {
         let calm = TerminalSession(title: "calm", workingDirectory: "~")
         let store = SessionStore(
             groups: [SessionGroup(name: "One", sessions: [calm, session])],
             acknowledgementDwellNanoseconds: 0
         )
+        let scheduler = store.controlAcknowledgementDwell()
         store.needsInputSectionEnabled = true
         store.selectedSessionID = session.id
-        return store
+        return (store, scheduler)
     }
 
     /// The dwell exists to clear attention the user has actually SEEN. A prompt
@@ -249,34 +251,38 @@ import Testing
 
         // Same main-actor run as the arming above, so both land strictly inside
         // their dwell windows — no dwell task can run until we suspend.
-        subject.applyAgentRuntimeEvent(
+        subject.store.applyAgentRuntimeEvent(
             AgentRuntimeEvent(source: .claudeCode, attentionReason: .permissionPrompt),
             to: subjectSession.id,
             paneID: subjectSession.activePaneID,
             terminalIsFocused: true
         )
-        control.applyAgentRuntimeEvent(
+        control.store.applyAgentRuntimeEvent(
             AgentRuntimeEvent(source: .claudeCode, attentionReason: .bell),
             to: controlSession.id,
             paneID: controlSession.activePaneID,
             terminalIsFocused: true
         )
         // The exact reason the unread guard is blind to a focused-pane prompt.
-        #expect(subject.session(id: subjectSession.id)?.activePane?.unreadNotificationCount == 0)
+        #expect(subject.store.session(id: subjectSession.id)?.activePane?.unreadNotificationCount == 0)
 
         // Negative control: a `.bell` is a notice, not a question, so the dwell
         // must still acknowledge it — the guard is scoped to reasons that block
         // on a human answer, not widened to all attention.
-        let controlAcknowledged = await waitUntilEventually {
-            control.session(id: controlSession.id)?.activePane?.attentionReason == nil
+        #expect(await waitUntil { subject.scheduler.sleeperCount == 1 })
+        #expect(await waitUntil { control.scheduler.sleeperCount == 1 })
+        subject.scheduler.advance()
+        control.scheduler.advance()
+        let controlAcknowledged = await waitUntil {
+            control.store.session(id: controlSession.id)?.activePane?.attentionReason == nil
         }
         #expect(controlAcknowledged)
 
         #expect(
-            subject.session(id: subjectSession.id)?.activePane?.attentionReason
+            subject.store.session(id: subjectSession.id)?.activePane?.attentionReason
                 == .permissionPrompt
         )
-        #expect(subject.session(id: subjectSession.id)?.needsUserInput == true)
+        #expect(subject.store.session(id: subjectSession.id)?.needsUserInput == true)
     }
 
     /// A bulk restore can reuse session IDs with different values, so a

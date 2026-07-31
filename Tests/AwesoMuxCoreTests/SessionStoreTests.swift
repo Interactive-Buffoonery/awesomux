@@ -620,11 +620,17 @@ final class SessionStoreTests: XCTestCase {
             groups: [
                 SessionGroup(name: "main", sessions: [firstSession, secondSession])
             ], acknowledgementDwellNanoseconds: 10_000_000)
+        let scheduler = store.controlAcknowledgementDwell()
 
         store.selectedSessionID = secondSession.id
 
         XCTAssertEqual(store.selectedSession?.agentState, .needsAttention)
         XCTAssertEqual(store.selectedSession?.unreadNotificationCount, 2)
+
+        let dwellStarted = await waitUntil { scheduler.sleeperCount == 1 }
+        XCTAssertTrue(dwellStarted)
+        XCTAssertEqual(scheduler.requestedDurations, [.milliseconds(10)])
+        scheduler.advance()
 
         let didAcknowledgeSelection = await waitUntil {
             store.selectedSession?.agentState == .running
@@ -660,6 +666,7 @@ final class SessionStoreTests: XCTestCase {
             groups: [
                 SessionGroup(name: "main", sessions: [firstSession, secondSession, thirdSession])
             ], acknowledgementDwellNanoseconds: 30_000_000)
+        let scheduler = store.controlAcknowledgementDwell()
 
         store.selectNextSession()
         XCTAssertEqual(store.selectedSessionID, secondSession.id)
@@ -667,7 +674,10 @@ final class SessionStoreTests: XCTestCase {
         store.selectNextSession()
         XCTAssertEqual(store.selectedSessionID, thirdSession.id)
 
-        try await Task.sleep(nanoseconds: 60_000_000)
+        let dwellStarted = await waitUntil { scheduler.sleeperCount >= 1 }
+        XCTAssertTrue(dwellStarted)
+        scheduler.advance()
+        await drainMainQueue()
 
         let skippedSession = store.groups[0].sessions[1]
         XCTAssertEqual(skippedSession.agentState, .needsAttention)
@@ -692,14 +702,17 @@ final class SessionStoreTests: XCTestCase {
             groups: [
                 SessionGroup(name: "main", sessions: [firstSession, secondSession])
             ], acknowledgementDwellNanoseconds: 250_000_000)
+        let scheduler = store.controlAcknowledgementDwell()
 
         store.selectedSessionID = secondSession.id
+        let dwellStarted = await waitUntil { scheduler.sleeperCount == 1 }
+        XCTAssertTrue(dwellStarted)
 
         // New notification arrives during the dwell window.
-        try await Task.sleep(nanoseconds: 25_000_000)
         store.markSessionNeedsAttention(id: secondSession.id, unreadNotificationDelta: 1)
 
-        try await Task.sleep(nanoseconds: 300_000_000)
+        scheduler.advance()
+        await drainMainQueue()
 
         XCTAssertEqual(store.selectedSession?.agentState, .needsAttention)
         XCTAssertEqual(store.selectedSession?.unreadNotificationCount, 2)
@@ -723,14 +736,18 @@ final class SessionStoreTests: XCTestCase {
             groups: [
                 SessionGroup(name: "main", sessions: [firstSession, secondSession])
             ], acknowledgementDwellNanoseconds: 30_000_000)
+        let scheduler = store.controlAcknowledgementDwell()
 
         store.selectedSessionID = secondSession.id
+        let dwellStarted = await waitUntil { scheduler.sleeperCount == 1 }
+        XCTAssertTrue(dwellStarted)
         store.acknowledgeSession(id: secondSession.id)
 
         // A new notification arrives before the original dwell would have fired.
         store.markSessionNeedsAttention(id: secondSession.id, unreadNotificationDelta: 1)
 
-        try await Task.sleep(nanoseconds: 60_000_000)
+        scheduler.advance()
+        await drainMainQueue()
 
         // The original dwell must have been cancelled — the new notification
         // is preserved, not wiped by a stale timer.
@@ -767,11 +784,11 @@ final class SessionStoreTests: XCTestCase {
             groups: [
                 SessionGroup(name: "main", sessions: [session])
             ], acknowledgementDwellNanoseconds: 10_000_000)
+        let scheduler = store.controlAcknowledgementDwell()
 
         store.selectedSessionID = session.id
 
-        // First dwell acks the active pane A (nothing to clear); B stays loud.
-        try await Task.sleep(nanoseconds: 30_000_000)
+        // B starts loud while A is active.
         XCTAssertEqual(
             store.session(id: session.id)?.layout.pane(id: paneB.id)?.attentionReason,
             .bell
@@ -779,6 +796,9 @@ final class SessionStoreTests: XCTestCase {
 
         // Switch active pane to B → the dwell must re-arm and ack B.
         store.setActivePane(id: paneB.id, in: session.id)
+        let dwellStarted = await waitUntil { scheduler.sleepCallCount == 1 }
+        XCTAssertTrue(dwellStarted)
+        scheduler.advance()
         let didAcknowledgePaneB = await waitUntil {
             store.session(id: session.id)?.layout.pane(id: paneB.id)?.attentionReason == nil
                 && store.session(id: session.id)?.layout.pane(id: paneB.id)?.unreadNotificationCount == 0
@@ -815,6 +835,7 @@ final class SessionStoreTests: XCTestCase {
             groups: [SessionGroup(name: "main", sessions: [blocking, noisy])],
             acknowledgementDwellNanoseconds: 10_000_000
         )
+        let scheduler = store.controlAcknowledgementDwell()
 
         // Arm the dwell on the blocking workspace, then move to the bell one.
         // The bell's acknowledgement is the observable proof that the dwell
@@ -822,7 +843,10 @@ final class SessionStoreTests: XCTestCase {
         // state change, so it offers nothing to poll on.
         store.selectedSessionID = blocking.id
         store.selectedSessionID = noisy.id
-        let didAcknowledgeBell = await waitUntilEventually {
+        let dwellStarted = await waitUntil { scheduler.sleeperCount >= 1 }
+        XCTAssertTrue(dwellStarted)
+        scheduler.advance()
+        let didAcknowledgeBell = await waitUntil {
             store.session(id: noisy.id)?.activePane?.attentionReason == nil
         }
         XCTAssertTrue(didAcknowledgeBell, "the dwell must still clear a bell")
