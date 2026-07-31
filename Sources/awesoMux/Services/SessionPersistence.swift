@@ -41,6 +41,14 @@ private final class RecoverySnapshotWriteCoordinator: @unchecked Sendable {
         return writeIsActive
     }
 
+    /// Ceiling: an unbounded `wait()`, called from `applicationWillTerminate`,
+    /// so a stalled replacement write blocks the main thread until it finishes.
+    /// Bounded in practice by `maxSnapshotBytes` and normal disk throughput,
+    /// but not by anything in code — a degraded or network-backed home
+    /// directory has no cap. `wait(until:)` with `.writeFailed` on timeout is
+    /// the upgrade path, and `flush`'s archive fallback would catch the state;
+    /// left alone until a slow-volume report justifies changing what a quit
+    /// does. Since #334 this is reachable with "Restore workspaces" off too.
     func waitForCompletion() -> (warningID: UUID, outcome: RecoverySnapshotWriteOutcome)? {
         condition.lock()
         defer { condition.unlock() }
@@ -569,22 +577,56 @@ enum SessionPersistence {
         _ store: SessionStore,
         whileWaitingForRecoveryWrite: () -> Void = {}
     ) -> Result<Void, RecoverySnapshotReplacementError> {
+        // ONE capture for the whole terminate path. `SessionStore.snapshot()`
+        // filters `recentlyClosed` against a fresh `Date()`, so two calls
+        // straddling the 24h TTL boundary disagree — and the archive would then
+        // test one snapshot's emptiness while writing the other's bytes,
+        // dropping exactly the state this net exists to keep. Nothing can mutate
+        // the store in between regardless: the wait below blocks the main
+        // thread rather than yielding a MainActor turn.
+        let snapshot = store.snapshot()
+        // Reuse whatever `writeSnapshot` already encoded. Both destinations take
+        // the same bytes, and this runs synchronously on the MainActor inside
+        // `applicationWillTerminate`, under a system kill deadline — a second
+        // full `JSONEncoder` pass there buys nothing. Stays nil on the branches
+        // that never reached an encode (gate up, or a failure carrying the
+        // replacement's payload), where the archive encodes for the first time.
+        var encodedSnapshot: Data?
         let result = writeLiveSnapshotForTermination(
-            store,
-            whileWaitingForRecoveryWrite: whileWaitingForRecoveryWrite
+            snapshot,
+            whileWaitingForRecoveryWrite: whileWaitingForRecoveryWrite,
+            capturingEncodedSnapshot: { encodedSnapshot = $0 }
         )
         // One call site, so no return path can be added that forgets it. The
         // recovery gate is the reachable cause, but a plain write failure loses
         // the same quit-time delta and deserves the same net.
         if case .failure = result {
-            archiveUnsavedSnapshot(store.snapshot())
+            archiveUnsavedSnapshot(snapshot, encodedSnapshot: encodedSnapshot)
         }
         return result
     }
 
+    /// True while an explicit, user-approved recovery replacement has not yet
+    /// resolved, so the terminate path knows to call `flush` even when
+    /// automatic persistence is off. `flush` triggers the drain rather than
+    /// performing it: the gate transfer only lands when
+    /// `replaceSnapshotAfterRecovery`'s continuation resumes, which process
+    /// exit may preempt — harmless, because the durable write already
+    /// happened by then.
+    ///
+    /// Ceiling: this goes true inside `replaceSnapshotAfterRecovery`, one
+    /// MainActor turn after the user approves the replacement, so a system
+    /// quit landing in that gap still abandons it — the pre-#334 behaviour,
+    /// which fails safe. Move the marker to the approval site if that gap ever
+    /// shows up in a report.
+    static var hasOutstandingRecoveryReplacement: Bool {
+        activeRecoveryReplacementWarningID != nil
+    }
+
     private static func writeLiveSnapshotForTermination(
-        _ store: SessionStore,
-        whileWaitingForRecoveryWrite: () -> Void
+        _ snapshot: SessionSnapshot,
+        whileWaitingForRecoveryWrite: () -> Void,
+        capturingEncodedSnapshot: (Data) -> Void = { _ in }
     ) -> Result<Void, RecoverySnapshotReplacementError> {
         validateSnapshotOnDiskIfNeeded()
         if let task = pendingWrite {
@@ -600,7 +642,10 @@ enum SessionPersistence {
             switch completion.outcome {
             case .success:
                 blockedRecoveryWarningID = nil
-                let latestResult = writeSnapshot(store.snapshot())
+                let latestResult = writeSnapshot(
+                    snapshot,
+                    capturingEncodedSnapshot: capturingEncodedSnapshot
+                )
                 recoveryWriteCoordinator.transferGate(
                     for: completion.warningID,
                     latestWriteOutcome: writeOutcome(for: latestResult)
@@ -615,7 +660,10 @@ enum SessionPersistence {
         guard blockedRecoveryWarningID == nil else {
             return .failure(.warningNotActive)
         }
-        return writeSnapshot(store.snapshot())
+        return writeSnapshot(
+            snapshot,
+            capturingEncodedSnapshot: capturingEncodedSnapshot
+        )
     }
 
     /// Best-effort quit-time copy of state that could not reach
@@ -631,7 +679,10 @@ enum SessionPersistence {
     /// coordinator branches the failure carries the *replacement's* payload, so
     /// this store may archive fine. Every outcome logs. The gate path is the one
     /// it rescues reliably.
-    nonisolated private static func archiveUnsavedSnapshot(_ snapshot: SessionSnapshot) {
+    nonisolated private static func archiveUnsavedSnapshot(
+        _ snapshot: SessionSnapshot,
+        encodedSnapshot: Data? = nil
+    ) {
         // A blocked load hands back an empty `SessionStore`, and a quit on that
         // store has nothing worth keeping. Archiving it anyway would spend one
         // of ten retained slots and, on repeated stuck launches, evict the one
@@ -645,7 +696,7 @@ enum SessionPersistence {
             return
         }
         do {
-            let data = try encodeSnapshot(snapshot)
+            let data = try encodedSnapshot ?? encodeSnapshot(snapshot)
             guard data.count <= maxSnapshotBytes else {
                 logger.error(
                     "refusing to archive unsaved session state because it exceeds maximum supported size: \(data.count, privacy: .public) bytes"
@@ -655,8 +706,10 @@ enum SessionPersistence {
             try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
             try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
             try FileManager.default.writeOwnerOnlyFile(at: archiveURL, contents: data)
-            logger.error("archived unsaved session state to \(archiveURL.path, privacy: .public)")
-            pruneQuarantineArchives(prefix: "session-state.unsaved-")
+            logger.error(
+                "archived unsaved session state to \(archiveURL.lastPathComponent, privacy: .public)"
+            )
+            pruneQuarantineArchives(prefix: "session-state.unsaved-", preservingEarliest: true)
         } catch {
             logger.error(
                 "failed to archive unsaved session state: \(error.localizedDescription, privacy: .public)"
@@ -704,6 +757,19 @@ enum SessionPersistence {
     /// of which is co-located with the view modifier observing the setting.
     /// Anchoring the guard to the trigger left those writers uncovered.
     private static func validateSnapshotOnDiskIfNeeded() {
+        // Same guard `validateSnapshotForNewlyEnabledRestore` carries, and for
+        // the same reason: `load()` clears `blockedRecoveryWarningID` on its
+        // first line and re-derives it, so re-entering it mid-replacement
+        // installs a NEW warning ID. The outstanding write then completes
+        // against an ID nothing matches — `flush`'s gate transfer is skipped and
+        // the approved replacement is reported `.warningNotActive`.
+        //
+        // The guard belongs here rather than at either caller: `save` reaches
+        // this from a store-owned callback, and the terminate flush reaches it
+        // after `restoreWorkspacesDidTurnOff` re-armed the latch. Deferring is
+        // safe — the latch stays false, so the next writer validates once the
+        // replacement has resolved.
+        guard activeRecoveryReplacementWarningID == nil else { return }
         guard !hasValidatedSnapshotOnDisk else { return }
         // Kept rather than discarded: this runs from `save`, which has no
         // return path to the UI, and the toggle handler would otherwise find
@@ -857,13 +923,17 @@ enum SessionPersistence {
     nonisolated private static func writeSnapshot(
         _ snapshot: SessionSnapshot,
         forceWrite: Bool = false,
-        isCancelled: () -> Bool = { false }
+        isCancelled: () -> Bool = { false },
+        capturingEncodedSnapshot: (Data) -> Void = { _ in }
     ) -> Result<Void, RecoverySnapshotReplacementError> {
         do {
             try FileManager.default.createOwnerOnlyDirectory(at: supportDirectoryURL)
             try FileManager.default.setOwnerOnlyPermissions(onDirectoryAt: supportDirectoryURL)
 
             let data = try encodeSnapshot(snapshot)
+            // Handed to `flush`'s archive fallback so the failure path doesn't
+            // encode the same snapshot a second time.
+            capturingEncodedSnapshot(data)
             guard data.count <= maxSnapshotBytes else {
                 logger.error(
                     "refusing to save session snapshot because encoded state exceeds maximum supported size: \(data.count, privacy: .public) bytes"
@@ -1001,7 +1071,14 @@ enum SessionPersistence {
             // a path-based remove after validation can delete a replacement.
             // The exact opened bytes are archived above, and the recovery
             // warning blocks the initial save until the user acknowledges it.
-            logger.error("archived unreadable session snapshot to \(archiveURL.path, privacy: .public)")
+            // Filename only, `.public`, across all four families: it carries the
+            // family, timestamp and id a bug report needs, while the enclosing
+            // support directory sits under the user's home and would put their
+            // account short name into any sysdiagnose or log export. The alert
+            // still shows the full path to the user who owns it.
+            logger.error(
+                "archived unreadable session snapshot to \(archiveURL.lastPathComponent, privacy: .public)"
+            )
             pruneQuarantineArchives(prefix: "session-state.corrupted-")
             return (archiveURL, nil)
         } catch {
@@ -1049,7 +1126,9 @@ enum SessionPersistence {
                 pruneQuarantineArchives(prefix: "session-state.sanitized-")
                 return (archiveURL, message)
             }
-            logger.error("archived sanitized session snapshot to \(archiveURL.path, privacy: .public)")
+            logger.error(
+                "archived sanitized session snapshot to \(archiveURL.lastPathComponent, privacy: .public)"
+            )
             pruneQuarantineArchives(prefix: "session-state.sanitized-")
             return (archiveURL, nil)
         } catch {
@@ -1073,7 +1152,9 @@ enum SessionPersistence {
                 at: archiveURL,
                 contents: openedData
             )
-            logger.error("archived conflicted session snapshot to \(archiveURL.path, privacy: .public)")
+            logger.error(
+                "archived conflicted session snapshot to \(archiveURL.lastPathComponent, privacy: .public)"
+            )
             pruneQuarantineArchives(prefix: "session-state.conflict-")
             return (archiveURL, nil)
         } catch {
@@ -1103,13 +1184,34 @@ enum SessionPersistence {
         archiveDateFormatter.string(from: Date())
     }
 
-    /// Keep only the most recent `maxQuarantineArchives` `session-state.<kind>-`
-    /// files so repeated truncations (power loss, disk full) can't accumulate
-    /// quarantine files indefinitely. Best-effort: sort by creation date and
-    /// trash the oldest excess.
+    /// Keep only `maxQuarantineArchives` `session-state.<kind>-` files so
+    /// repeated truncations (power loss, disk full) can't accumulate quarantine
+    /// files indefinitely. Best-effort: sort by creation date and trash the
+    /// excess.
+    ///
+    /// Anyone changing the cap should change it knowing which end matters. The
+    /// three load-time families re-archive the *same* bad snapshot on every
+    /// relaunch into it, so their oldest copy is the most redundant and plain
+    /// oldest-first eviction is right. `session-state.unsaved-` inverts that:
+    /// each file is a different session captured at a different quit, and the
+    /// earliest is the one taken closest to the incident — the last good state
+    /// before things went wrong. It passes `preservingEarliest` so the cap
+    /// thins the middle instead of deleting the most valuable copy first.
+    ///
+    /// Ceiling: `preservingEarliest` pins the earliest file *on disk*, which is
+    /// the earliest of the current incident only while there has been one
+    /// incident. Two incidents far apart and the pinned slot holds the older
+    /// incident's first capture forever, while the live incident's earliest is
+    /// evicted — the case this policy exists to protect. Accepted because
+    /// nothing here tracks incident boundaries and both policies #333 proposed
+    /// share it; re-anchor the pinned slot after a run of clean quits if a real
+    /// report shows the stale copy mattering.
     nonisolated static let maxQuarantineArchives = 10
 
-    nonisolated private static func pruneQuarantineArchives(prefix: String) {
+    nonisolated private static func pruneQuarantineArchives(
+        prefix: String,
+        preservingEarliest: Bool = false
+    ) {
         guard
             let entries = try? FileManager.default.contentsOfDirectory(
                 at: supportDirectoryURL,
@@ -1126,7 +1228,8 @@ enum SessionPersistence {
             let rhs = (try? $1.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
             return lhs < rhs
         }
-        for stale in byOldestFirst.prefix(archives.count - maxQuarantineArchives) {
+        let evictable = preservingEarliest ? Array(byOldestFirst.dropFirst()) : byOldestFirst
+        for stale in evictable.prefix(archives.count - maxQuarantineArchives) {
             try? FileManager.default.removeItem(at: stale)
         }
     }

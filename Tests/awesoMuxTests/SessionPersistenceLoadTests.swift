@@ -1237,6 +1237,83 @@ struct SessionPersistenceLoadTests {
         }
     }
 
+    /// Turning "Restore workspaces" off re-arms `hasValidatedSnapshotOnDisk`.
+    /// Once the terminate path started flushing for an outstanding replacement
+    /// (#334), that latch sent `flush` back through `load()`, which clears the
+    /// gate on its first line and re-derives a NEW warning ID — so the
+    /// completing write no longer matched, the gate transfer was skipped, and
+    /// the approved replacement was reported `.warningNotActive`.
+    @Test("a quit during a replacement does not revalidate the snapshot out from under it")
+    func terminationFlushDoesNotRevalidateDuringReplacement() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            let loadResult = SessionPersistence.load()
+            let warning = try #require(loadResult.recoveryWarning)
+            #expect(SessionPersistence.hasOutstandingRecoveryReplacement == false)
+
+            let replacementStore = SessionStore(
+                restoring: Self.snapshot(groupName: "durable replacement")
+            )
+            let writerStarted = DispatchSemaphore(value: 0)
+            let permitWriterToFinish = DispatchSemaphore(value: 0)
+
+            let replacementTask = Task {
+                await SessionPersistence.replaceSnapshotAfterRecovery(
+                    with: replacementStore,
+                    warning: warning,
+                    snapshotWriter: { snapshot in
+                        writerStarted.signal()
+                        permitWriterToFinish.wait()
+                        do {
+                            try JSONEncoder().encode(snapshot).write(
+                                to: snapshotURL,
+                                options: .atomic
+                            )
+                            return .success(())
+                        } catch {
+                            return .failure(.writeFailed)
+                        }
+                    }
+                )
+            }
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().async {
+                    writerStarted.wait()
+                    continuation.resume()
+                }
+            }
+
+            // The write is in flight, so the terminate path must know to flush
+            // even though the next line opts out of automatic persistence.
+            #expect(SessionPersistence.hasOutstandingRecoveryReplacement)
+            SessionPersistence.restoreWorkspacesDidTurnOff()
+
+            let flushResult = SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "quit-time state")),
+                whileWaitingForRecoveryWrite: {
+                    permitWriterToFinish.signal()
+                }
+            )
+
+            // The gate transferred rather than being replaced by a fresh
+            // warning ID mid-flight, so the quit-time state reached the live
+            // file instead of being parked in an archive.
+            #expect(throws: Never.self) { try flushResult.get() }
+            let durableSnapshot = try SessionSnapshot.decode(
+                from: Data(contentsOf: snapshotURL)
+            )
+            #expect(durableSnapshot.groups.map(\.name) == ["quit-time state"])
+            #expect(try Self.unsavedArchives(in: tempDir).isEmpty)
+            try await replacementTask.value.get()
+            #expect(SessionPersistence.hasOutstandingRecoveryReplacement == false)
+        }
+    }
+
     @Test("debounced save reports an oversized snapshot")
     func debouncedSaveReportsOversizedSnapshot() async throws {
         try await Self.withTemporarySupportDirectoryAsync { _ in
@@ -1373,6 +1450,60 @@ struct SessionPersistenceLoadTests {
 
             let archives = try Self.corruptedArchives(in: tempDir)
             #expect(archives.count == SessionPersistence.maxQuarantineArchives)
+        }
+    }
+
+    /// The three load-time families re-archive the same bad snapshot every
+    /// relaunch, so their oldest copy is the most redundant. The quit-time
+    /// family inverts that: each file is a different session, and the earliest
+    /// is the one taken closest to the incident. Oldest-first eviction there
+    /// deletes the most valuable copy first.
+    @Test("quit-time archive retention keeps the earliest capture and thins the middle")
+    func unsavedArchiveRetentionPreservesEarliestCapture() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            #expect(SessionPersistence.load().recoveryWarning?.preventsInitialSave == true)
+
+            // `archiveTimestamp()` only has second resolution and these flushes
+            // land inside one second, so pin each archive's creation date by
+            // hand rather than trusting the sort to break real-world ties.
+            // Dates are in the past, which also keeps the freshly written file
+            // genuinely newest at every prune.
+            let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+            var dated: Set<URL> = []
+            let quitCount = SessionPersistence.maxQuarantineArchives + 2
+            for index in 0..<quitCount {
+                let flushResult = SessionPersistence.flush(
+                    SessionStore(restoring: Self.snapshot(groupName: "quit \(index)"))
+                )
+                guard case .failure(.warningNotActive) = flushResult else {
+                    Issue.record("expected the recovery gate to refuse quit \(index)")
+                    return
+                }
+                for archive in try Self.unsavedArchives(in: tempDir) where !dated.contains(archive) {
+                    try FileManager.default.setAttributes(
+                        [.creationDate: epoch.addingTimeInterval(TimeInterval(index))],
+                        ofItemAtPath: archive.path
+                    )
+                    dated.insert(archive)
+                }
+            }
+
+            let survivors = try Self.unsavedArchives(in: tempDir).map {
+                try SessionSnapshot.decode(from: Data(contentsOf: $0)).groups.map(\.name).joined()
+            }
+            #expect(survivors.count == SessionPersistence.maxQuarantineArchives)
+            // The pre-incident capture survives, the newest survives, and the
+            // two evictions came out of the middle.
+            #expect(survivors.contains("quit 0"))
+            #expect(survivors.contains("quit \(quitCount - 1)"))
+            #expect(!survivors.contains("quit 1"))
+            #expect(!survivors.contains("quit 2"))
         }
     }
 

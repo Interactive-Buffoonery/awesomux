@@ -806,8 +806,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // every other save is: quitting with restore off used to write the
         // session anyway, clobbering the snapshot the opt-out exists to keep,
         // and it would now also leave a quit-time recovery archive behind.
+        //
+        // An outstanding recovery replacement overrides that gate. It is an
+        // explicit, user-approved write of their current workspaces over a
+        // protected file, and `flush` is the only thing that drains one. The
+        // mid-session continuation already completes it regardless of the
+        // setting, so honouring it at quit is the consistent behaviour rather
+        // than a new exception. Narrow either way: the user has to disable
+        // restore in the gap between dismissing the modal and the detached
+        // write resolving.
         if let sessionStore, let appSettingsStore,
             appSettingsStore.general.value.restoreWorkspaces
+                || SessionPersistence.hasOutstandingRecoveryReplacement
         {
             // The recovery gate can refuse this write. `flush` parks the state
             // in a `session-state.unsaved-` archive when it does, but nothing
