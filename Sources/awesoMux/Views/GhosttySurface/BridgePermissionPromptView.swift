@@ -79,7 +79,7 @@ struct BridgePermissionPromptView: View {
                             // risk, so the coordinator's flag has its own
                             // explicit clear here as well as in `publish()`.
                             coordinator.clearPromptFocus()
-                            restoreFocus(for: coordinator.activePrompt?.id)
+                            restoreFocus(for: prompt.id)
                         }
                     }
             }
@@ -95,7 +95,6 @@ struct BridgePermissionPromptView: View {
             keyMonitor.stop()
             coordinator.clearPromptFocus()
             restoreFocus(for: previous.id)
-            focusRestoredForPromptID = current?.id
         }
         .onDisappear {
             bannerFocused = false
