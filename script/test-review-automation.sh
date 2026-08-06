@@ -21,6 +21,7 @@ node --test \
     .github/scripts/test/opencode-review-trust-boundary.test.mjs \
     .github/scripts/test/parse-review-findings.test.mjs \
     .github/scripts/test/public-pr-workflows.test.mjs \
+    .github/scripts/test/release-workflow.test.mjs \
     .github/scripts/test/update-homebrew-cask.test.mjs \
     .github/scripts/test/validate-pr-body.test.mjs
 bash .github/actions/run-opencode/test/guard_test.sh

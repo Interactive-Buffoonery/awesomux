@@ -18,6 +18,12 @@ IDENTITY="Developer ID Application"
 NOTARY_PROFILE="awesomux-notary"
 OUTPUT_DIR="$ROOT_DIR/dist/release"
 UNSIGNED=0
+SIGNING_IDENTITY="ad-hoc"
+TEAM_ID=""
+SUBMISSION_ID=""
+CODESIGN_VALIDATED=false
+GATEKEEPER_VALIDATED=false
+STAPLER_VALIDATED=false
 
 usage() {
   cat <<'USAGE'
@@ -140,6 +146,24 @@ for exe in awesoMux awesoMuxAgentHook awesoMuxBridgeHelper amx; do
   fi
 done
 
+required_bundle_paths=(
+  "Contents/Resources/AppIcon.icns"
+  "Contents/Resources/Assets.car"
+  "Contents/Resources/AgentIntegrations"
+  "Contents/Resources/Fonts/HackNerdFontMono"
+  "Contents/Resources/Licenses/Ghostty/LICENSE"
+  "Contents/Resources/ghostty/shell-integration"
+  "Contents/Resources/terminfo/78/xterm-ghostty"
+  "Contents/Resources/en.lproj/Localizable.strings"
+  "Contents/Resources/en.lproj/Localizable.stringsdict"
+)
+for path in "${required_bundle_paths[@]}"; do
+  if [[ ! -e "$APP_BUNDLE/$path" ]]; then
+    echo "error: required staged bundle resource is missing: $path" >&2
+    exit 1
+  fi
+done
+
 # dist/awesoMux.app is shared with every build_and_run.sh mode; a dev build
 # started during the (long) notarization wait would mutate it mid-release.
 # Work on a private copy so nothing can race the release.
@@ -187,6 +211,7 @@ done
 codesign "${SIGN_ARGS[@]}" "$APP_BUNDLE"
 
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+CODESIGN_VALIDATED=true
 
 # ADR-0019: entitlements start empty — on every signed executable, not just
 # the outer bundle. Fail loudly if any sneak in.
@@ -205,6 +230,13 @@ if [[ "$UNSIGNED" -eq 0 ]]; then
   # Assert the signature is the one we meant: Developer ID authority, secure
   # timestamp, Hardened Runtime — before spending a notarization round-trip.
   SIGN_INFO="$(codesign -dvvv "$APP_BUNDLE" 2>&1)"
+  SIGNING_IDENTITY="$(awk -F= '/^Authority=/{print $2; exit}' <<<"$SIGN_INFO")"
+  TEAM_ID="$(awk -F= '/^TeamIdentifier=/{print $2; exit}' <<<"$SIGN_INFO")"
+  if [[ -z "$SIGNING_IDENTITY" || -z "$TEAM_ID" ]]; then
+    echo "error: bundle signature did not expose a signing identity and Team ID" >&2
+    echo "$SIGN_INFO" >&2
+    exit 1
+  fi
   for want in "Authority=Developer ID Application" "Timestamp=" "runtime"; do
     if ! grep -q "$want" <<<"$SIGN_INFO"; then
       echo "error: bundle signature missing expected marker: $want" >&2
@@ -299,6 +331,8 @@ if [[ "$UNSIGNED" -eq 0 ]]; then
   echo "Assessing Gatekeeper acceptance (a failure right after stapling can be transient ticket propagation — re-running this step in a minute is safe; the DMG is already built)..."
   spctl --assess --type execute --verbose "$DMG_MOUNT/awesoMux.app"
   xcrun stapler validate "$DMG_PATH"
+  GATEKEEPER_VALIDATED=true
+  STAPLER_VALIDATED=true
 fi
 hdiutil detach "$DMG_MOUNT" -quiet
 DMG_MOUNT=""
@@ -311,9 +345,36 @@ if [[ -n "$(git -C "$ROOT_DIR" status --porcelain | grep -v '^??' || true)" || "
   exit 1
 fi
 
+if [[ ! -s "$DMG_PATH" || ! -s "$DMG_PATH.sha256" ]]; then
+  echo "error: validated release artifact or checksum is missing" >&2
+  exit 1
+fi
+
+SUMMARY_PATH="${DMG_PATH%.dmg}.verification.json"
+SUMMARY_SHA256="$(awk '{print $1}' "$DMG_PATH.sha256")"
+if [[ -z "$SUMMARY_SHA256" ]]; then
+  echo "error: release checksum is empty" >&2
+  exit 1
+fi
+printf '%s\n' \
+  '{' \
+  "  \"marketing_version\": \"$VERSION\"," \
+  "  \"build_number\": \"$BUILD_NUMBER\"," \
+  "  \"source_commit\": \"$RELEASE_COMMIT\"," \
+  "  \"artifact_filename\": \"$(basename "$DMG_PATH")\"," \
+  "  \"sha256\": \"$SUMMARY_SHA256\"," \
+  "  \"signing_identity\": \"$SIGNING_IDENTITY\"," \
+  "  \"team_id\": $(if [[ -n "$TEAM_ID" ]]; then printf '\"%s\"' "$TEAM_ID"; else printf 'null'; fi)," \
+  "  \"notarization_submission_id\": $(if [[ -n "$SUBMISSION_ID" ]]; then printf '\"%s\"' "$SUBMISSION_ID"; else printf 'null'; fi)," \
+  "  \"gatekeeper_validation_passed\": $GATEKEEPER_VALIDATED," \
+  "  \"codesign_validation_passed\": $CODESIGN_VALIDATED," \
+  "  \"stapler_validation_passed\": $STAPLER_VALIDATED" \
+  '}' > "$SUMMARY_PATH"
+
 echo
 echo "Release artifact: $DMG_PATH"
 echo "Checksum:         $DMG_PATH.sha256"
+echo "Verification:     $SUMMARY_PATH"
 echo "Version:          $VERSION ($BUILD_NUMBER)"
 echo "Commit:           $RELEASE_COMMIT  <- tag exactly this"
 if [[ "$UNSIGNED" -eq 1 ]]; then
