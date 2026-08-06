@@ -659,20 +659,32 @@ struct BridgePermissionCoordinatorTests {
         defer { window.orderOut(nil) }
 
         #expect(window.makeFirstResponder(terminal))
-        for _ in 0..<10 {
-            window.layoutIfNeeded()
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(
+            await waitUntil {
+                window.layoutIfNeeded()
+                return host.view.window === window
+            })
         h.coordinator.requestFocus()
         h.coordinator.denyActive()
-        for _ in 0..<10 {
-            window.layoutIfNeeded()
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(
+            await waitUntil {
+                window.layoutIfNeeded()
+                return handoffCount == 1
+            })
 
         #expect(h.coordinator.activePrompt?.id == "r2")
         #expect(!h.coordinator.promptFocused)
         #expect(handoffCount == 1)
+        #expect(window.firstResponder === terminal)
+
+        h.clock.advance(by: BridgeTunables.permissionDecisionArmDelay)
+        h.coordinator.denyActive()
+        #expect(
+            await waitUntil {
+                window.layoutIfNeeded()
+                return handoffCount == 2
+            })
+        #expect(h.coordinator.activePrompt == nil)
         #expect(window.firstResponder === terminal)
     }
 }
