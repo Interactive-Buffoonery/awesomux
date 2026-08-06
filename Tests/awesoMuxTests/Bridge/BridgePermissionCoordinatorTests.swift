@@ -3,6 +3,7 @@ import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import AwesoMuxTestSupport
 import Foundation
+import SwiftUI
 import Testing
 @testable import awesoMux
 
@@ -417,9 +418,10 @@ struct BridgePermissionCoordinatorTests {
 
     // MARK: - Return-never-Allow contract
 
-    @Test("Escape denies and Return/Enter map to nothing — Allow has no key mapping")
+    @Test("Escape only denies while focused; Return/Enter map to nothing")
     func returnNeverMapsToAllow() {
-        #expect(BridgePermissionPromptKey.action(forKeyCode: 53) == .deny)  // Escape
+        #expect(BridgePermissionPromptKey.action(forKeyCode: 53) == nil)  // unfocused Escape
+        #expect(BridgePermissionPromptKey.action(forKeyCode: 53, focused: true) == .deny)
         #expect(BridgePermissionPromptKey.action(forKeyCode: 36) == nil)  // Return
         #expect(BridgePermissionPromptKey.action(forKeyCode: 76) == nil)  // keypad Enter
         #expect(BridgePermissionPromptKey.action(forKeyCode: 49) == nil)  // Space
@@ -427,12 +429,12 @@ struct BridgePermissionCoordinatorTests {
 
     // MARK: - Focused keyboard-Allow (INT-698 addendum, USER RULING)
 
-    @Test("unfocused: Return, ⌘Return, and A all map to nothing; Escape still denies")
+    @Test("unfocused: Return, ⌘Return, A, and Escape all map to nothing")
     func unfocusedKeyMapNeverAllows() {
         #expect(BridgePermissionPromptKey.action(forKeyCode: 36, modifierFlags: [], focused: false) == nil)
         #expect(BridgePermissionPromptKey.action(forKeyCode: 36, modifierFlags: .command, focused: false) == nil)
         #expect(BridgePermissionPromptKey.action(forKeyCode: 0, modifierFlags: [], focused: false) == nil)
-        #expect(BridgePermissionPromptKey.action(forKeyCode: 53, modifierFlags: [], focused: false) == .deny)
+        #expect(BridgePermissionPromptKey.action(forKeyCode: 53, modifierFlags: [], focused: false) == nil)
     }
 
     @Test("focused: ⌘Return and A allow; bare Return and keypad Enter still map to nothing; Escape still denies")
@@ -625,9 +627,74 @@ struct BridgePermissionCoordinatorTests {
         #expect(many.contains("2"))
         #expect(many.contains("requests waiting"))
     }
+
+    @Test("prompt disappearance clears focus and restores the terminal responder")
+    func promptDisappearanceRestoresTerminalResponder() async {
+        let h = makeHarness()
+        await deliver(request(id: "r1", expiresAtOffset: 1000), generation: gen(1), to: h)
+        await deliver(request(id: "r2", expiresAtOffset: 1000), generation: gen(1), to: h)
+
+        let frame = CGRect(x: 0, y: 0, width: 640, height: 360)
+        let terminal = PermissionPromptTestResponder(frame: frame)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let root = NSView(frame: frame)
+        root.addSubview(terminal)
+        var handoffCount = 0
+        let host = NSHostingController(
+            rootView: BridgePermissionPromptView(coordinator: h.coordinator) {
+                handoffCount += 1
+                window.makeFirstResponder(terminal)
+            }
+        )
+        host.view.frame = root.bounds
+        root.addSubview(host.view)
+        window.contentView = root
+        window.alphaValue = 0
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        #expect(window.makeFirstResponder(terminal))
+        #expect(
+            await waitUntil {
+                window.layoutIfNeeded()
+                return host.view.window === window
+            })
+        h.coordinator.requestFocus()
+        h.coordinator.denyActive()
+        #expect(
+            await waitUntil {
+                window.layoutIfNeeded()
+                return handoffCount == 1
+            })
+
+        #expect(h.coordinator.activePrompt?.id == "r2")
+        #expect(!h.coordinator.promptFocused)
+        #expect(handoffCount == 1)
+        #expect(window.firstResponder === terminal)
+
+        h.clock.advance(by: BridgeTunables.permissionDecisionArmDelay)
+        h.coordinator.denyActive()
+        #expect(
+            await waitUntil {
+                window.layoutIfNeeded()
+                return handoffCount == 2
+            })
+        #expect(h.coordinator.activePrompt == nil)
+        #expect(window.firstResponder === terminal)
+    }
 }
 
 @MainActor
 private final class PermissionGate {
     var enabled = true
+}
+
+@MainActor
+private final class PermissionPromptTestResponder: NSView {
+    override var acceptsFirstResponder: Bool { true }
 }
