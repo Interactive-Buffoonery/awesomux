@@ -22,6 +22,7 @@ import Testing
 /// on contrast ratio — rather than pinning either the formula or the constant,
 /// so any correct implementation passes.
 @Suite("Appearance settings preview contrast")
+@MainActor
 struct AppearanceSettingsPreviewContrastTests {
     /// Greys either side of the real crossover plus both shipped extremes.
     /// `#7A7A7A` is the one the original implementation got wrong; `#808080`
