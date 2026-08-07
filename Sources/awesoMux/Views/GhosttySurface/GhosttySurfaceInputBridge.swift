@@ -427,7 +427,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         else {
             return false
         }
-        return event.keyCode == 0x08 || event.keyCode == 0x20  // C / U
+        return event.characters == "\u{3}"  // Ctrl-C
     }
 
     static func isPossibleSubmittedSSHCommandPrefix(_ input: String) -> Bool {
@@ -1014,10 +1014,12 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     /// Best-effort safety/presentation signal: printable input, Backspace, and
-    /// the common Ctrl-C/Ctrl-U line resets are observed, but cursor movement,
+    /// Ctrl-C line resets are observed, but cursor movement,
     /// history, terminal modes, custom `stty` bindings, and readline/zsh editing
     /// are not modeled. The declared `PaneExecutionPlan` remains the authority
     /// for remote work.
+    /// ponytail: Ctrl-U is excluded because tracking it safely requires cursor
+    /// and retained-suffix state; add it only with authoritative line state.
     func observeSubmittedSSHCommandInput(
         action: ghostty_input_action_e,
         event: NSEvent,
