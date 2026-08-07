@@ -446,8 +446,8 @@ struct SessionPersistenceLoadTests {
     }
 
     @Test("remote markdown cache pruning refuses symlinked cache root")
-    func remoteMarkdownCachePruningRefusesSymlinkedCacheRoot() throws {
-        try Self.withTemporarySupportDirectory { tempDir in
+    func remoteMarkdownCachePruningRefusesSymlinkedCacheRoot() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
             let targetDir = tempDir.appending(path: "target", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
             let victim = targetDir.appending(path: "victim.md")
@@ -455,7 +455,7 @@ struct SessionPersistenceLoadTests {
             let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
             try FileManager.default.createSymbolicLink(at: cacheDir, withDestinationURL: targetDir)
 
-            RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDir)
+            await RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDir)
                 .pruneUnreferencedSnapshots(keeping: [])
 
             #expect(FileManager.default.fileExists(atPath: victim.path))

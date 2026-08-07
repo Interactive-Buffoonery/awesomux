@@ -62,6 +62,10 @@ struct RemoteMarkdownReferenceTests {
             guard !isSignaled else { return }
             await withCheckedContinuation { waiters.append($0) }
         }
+
+        func wasSignaled() -> Bool {
+            isSignaled
+        }
     }
 
     private func remotePane(
@@ -754,6 +758,51 @@ struct RemoteMarkdownReferenceTests {
         #expect(await counter.count == 2)
         #expect(results[0]?.snapshot.fileURL.deletingLastPathComponent().lastPathComponent == "first")
         #expect(results[1]?.snapshot.fileURL.deletingLastPathComponent().lastPathComponent == "second")
+    }
+
+    @Test func pruneWaitsForFetchRegisteredInTheSameCacheDirectory() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())
+        )
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+
+        let pruneEnumerated = AsyncSignal()
+        let fetchRegistered = AsyncSignal()
+        let fetchEntered = AsyncSignal()
+        let pruneGate = AsyncGate()
+        let fetcher = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in
+                await fetchEntered.signal()
+                return .success(Data("fresh plan".utf8))
+            },
+            onFetchRegistered: { await fetchRegistered.signal() },
+            onPruneEnumerated: {
+                await pruneEnumerated.signal()
+                await pruneGate.enterAndWait()
+            }
+        )
+        let targetURL = cacheDirectory.appending(path: fetcher.cacheFileName(for: reference))
+        let orphanURL = cacheDirectory.appending(path: "orphan.md")
+        try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        try Data("stale plan".utf8).write(to: targetURL)
+        try Data("orphan".utf8).write(to: orphanURL)
+
+        fetcher.schedulePruneUnreferencedSnapshots(keeping: [])
+        await pruneEnumerated.wait()
+
+        let fetchTask = Task { await fetcher.fetch(reference) }
+        await fetchRegistered.wait()
+        #expect(!(await fetchEntered.wasSignaled()))
+
+        await pruneGate.release()
+        let outcome = try #require(await fetchTask.value)
+        #expect(outcome.snapshot.fileURL == targetURL)
+        #expect(FileManager.default.fileExists(atPath: targetURL.path))
+        #expect(try Data(contentsOf: targetURL) == Data("fresh plan".utf8))
+        #expect(!FileManager.default.fileExists(atPath: orphanURL.path))
     }
 }
 
