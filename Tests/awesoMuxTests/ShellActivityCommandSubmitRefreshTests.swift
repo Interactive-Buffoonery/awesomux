@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import Foundation
 import Testing
@@ -63,5 +64,69 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix(" ssh devbox"))
         #expect(!GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix("ssh-keygen"))
         #expect(!GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix("echo ssh devbox"))
+    }
+
+    @Test("Ctrl-C identifies line resets by logical character")
+    func controlCLineResetUsesLogicalCharacter() {
+        #expect(
+            GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x2A, modifiers: [.control], characters: "\u{3}")
+            )
+        )
+    }
+
+    @Test("Ctrl-U, Command-C, and unmodified C are not line resets")
+    func nonControlLineKeysDoNotReset() {
+        #expect(
+            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x20, modifiers: [.control], characters: "\u{15}")
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x08, modifiers: [.command], characters: "c")
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
+                keyEvent(keyCode: 0x08, modifiers: [], characters: "c")
+            )
+        )
+    }
+
+    @Test("line reset clears stale capture and allows continued capture")
+    func lineResetClearsStaleCaptureAndAllowsContinuedCapture() {
+        let inputState = GhosttySurfaceInputState()
+
+        inputState.submittedSSHCommandBuffer = "ssh stale"
+        inputState.submittedSSHCommandCaptureDisabled = true
+
+        let event = keyEvent(keyCode: 0x2A, modifiers: [.control], characters: "\u{3}")
+        if GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(event) {
+            inputState.resetSubmittedSSHCommandCapture()
+        }
+        inputState.submittedSSHCommandBuffer.append("ssh fresh")
+
+        #expect(inputState.submittedSSHCommandBuffer == "ssh fresh")
+        #expect(!inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    private func keyEvent(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        characters: String
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
     }
 }
