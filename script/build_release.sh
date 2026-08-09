@@ -351,9 +351,9 @@ if [[ ! -s "$DMG_PATH" || ! -s "$DMG_PATH.sha256" ]]; then
 fi
 
 SUMMARY_PATH="${DMG_PATH%.dmg}.verification.json"
-SUMMARY_SHA256="$(awk '{print $1}' "$DMG_PATH.sha256")"
-if [[ -z "$SUMMARY_SHA256" ]]; then
-  echo "error: release checksum is empty" >&2
+read -r SUMMARY_SHA256 SUMMARY_FILENAME SUMMARY_EXTRA < "$DMG_PATH.sha256"
+if [[ ! "$SUMMARY_SHA256" =~ ^[[:xdigit:]]{64}$ || "$SUMMARY_FILENAME" != "$(basename "$DMG_PATH")" || -n "${SUMMARY_EXTRA:-}" ]]; then
+  echo "error: release checksum must contain the artifact's SHA-256 and exact filename" >&2
   exit 1
 fi
 printf '%s\n' \

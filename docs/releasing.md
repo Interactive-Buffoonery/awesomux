@@ -74,7 +74,7 @@ bundle-version handling are changed to support them first.
 ## Common setup checklist
 
 - [x] Confirm Apple Developer Program team access for release owners.
-- [x] Decide release owner and backup owner: Sarah is primary; Ed is backup.
+- [x] Assign primary and backup release maintainers through protected environment access.
 - [ ] Decide the public release cadence: ad hoc, milestone-based, or calendar.
 - [x] Add release metadata support to the staged `Info.plist`:
   - [x] `CFBundleShortVersionString`
@@ -198,10 +198,10 @@ a draft and verify its downloaded DMG on another Mac before the next tag.
 
 ### Maintainer release operations
 
-The primary release owner is Sarah. Ed is the backup owner. Before a release,
-the primary confirms that the backup can access the protected `release`
-environment and the local notary profile; the backup takes over only when the
-primary explicitly hands off the run.
+Before a release, the primary release maintainer confirms that the backup can
+access the protected `release` environment and the local notary profile; the
+backup takes over only when the primary explicitly hands off the run. Current
+ownership is defined by protected environment access rather than this document.
 
 Developer ID setup is maintainer-only. Install the Developer ID Application
 certificate in the maintainer keychain, then confirm it is visible without
@@ -486,7 +486,7 @@ cask declares `depends_on arch: :arm64`.
 
 ```ruby
 cask "awesomux" do
-  version "0.12.0"
+  version "X.Y.Z"
   sha256 "<sha256-of-release-artifact>"
 
   url "https://github.com/Interactive-Buffoonery/awesomux/releases/download/v#{version}/awesoMux-#{version}.dmg",
