@@ -66,48 +66,61 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(!GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix("echo ssh devbox"))
     }
 
-    @Test("Ctrl-C identifies line resets by logical character")
-    func controlCLineResetUsesLogicalCharacter() {
-        #expect(
-            GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
-                keyEvent(keyCode: 0x2A, modifiers: [.control], characters: "\u{3}")
-            )
-        )
-    }
-
-    @Test("Ctrl-U, Command-C, and unmodified C are not line resets")
-    func nonControlLineKeysDoNotReset() {
-        #expect(
-            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
-                keyEvent(keyCode: 0x20, modifiers: [.control], characters: "\u{15}")
-            )
-        )
-        #expect(
-            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
-                keyEvent(keyCode: 0x08, modifiers: [.command], characters: "c")
-            )
-        )
-        #expect(
-            !GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(
-                keyEvent(keyCode: 0x08, modifiers: [], characters: "c")
-            )
-        )
-    }
-
-    @Test("line reset clears stale capture and allows continued capture")
-    func lineResetClearsStaleCaptureAndAllowsContinuedCapture() {
+    @Test("Ctrl-C clears and re-arms capture")
+    func controlCClearsAndRearmsCapture() {
         let inputState = GhosttySurfaceInputState()
-
         inputState.submittedSSHCommandBuffer = "ssh stale"
         inputState.submittedSSHCommandCaptureDisabled = true
 
-        let event = keyEvent(keyCode: 0x2A, modifiers: [.control], characters: "\u{3}")
-        if GhosttySurfaceNSView.isSubmittedSSHCommandLineReset(event) {
-            inputState.resetSubmittedSSHCommandCapture()
-        }
-        inputState.submittedSSHCommandBuffer.append("ssh fresh")
+        #expect(
+            GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x2A, modifiers: [.control], characters: "\u{3}"),
+                to: inputState
+            )
+        )
+        #expect(inputState.submittedSSHCommandBuffer.isEmpty)
+        #expect(!inputState.submittedSSHCommandCaptureDisabled)
+    }
 
-        #expect(inputState.submittedSSHCommandBuffer == "ssh fresh")
+    @Test("Ctrl-U clears and disables capture until submit")
+    func controlUClearsAndDisablesCapture() {
+        let inputState = GhosttySurfaceInputState()
+        inputState.submittedSSHCommandBuffer = "ssh stale"
+
+        #expect(
+            GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x20, modifiers: [.control], characters: "\u{15}"),
+                to: inputState
+            )
+        )
+        #expect(inputState.submittedSSHCommandBuffer.isEmpty)
+        #expect(inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    @Test("Command-C/U and unmodified C do not change capture")
+    func nonControlLineKeysDoNotChangeCapture() {
+        let inputState = GhosttySurfaceInputState()
+        inputState.submittedSSHCommandBuffer = "ssh devbox"
+
+        #expect(
+            !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x08, modifiers: [.command], characters: "c"),
+                to: inputState
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x20, modifiers: [.command], characters: "u"),
+                to: inputState
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x08, modifiers: [], characters: "c"),
+                to: inputState
+            )
+        )
+        #expect(inputState.submittedSSHCommandBuffer == "ssh devbox")
         #expect(!inputState.submittedSSHCommandCaptureDisabled)
     }
 

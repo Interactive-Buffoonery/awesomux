@@ -55,6 +55,11 @@ final class GhosttySurfaceInputState {
         submittedSSHCommandCaptureDisabled = false
     }
 
+    func disableSubmittedSSHCommandCapture() {
+        submittedSSHCommandBuffer = ""
+        submittedSSHCommandCaptureDisabled = true
+    }
+
     /// Timestamp of a command/control-modified key deferred by
     /// `performKeyEquivalent` to let AppKit's own responder chain try first.
     /// `doCommand` reads this to know whether to redispatch the event back
