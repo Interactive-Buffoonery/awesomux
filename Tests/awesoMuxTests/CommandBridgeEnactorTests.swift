@@ -602,13 +602,15 @@ struct CommandBridgeEnactorTests {
         }
 
         enactor.sessionID = fixture.sessionID
+        #expect(enactor.statusWatcher == nil)
+
+        #expect(fixture.view.handleChildExited())
+        // libghostty can deliver COMMAND_FINISHED on its queued main-actor hop
+        // after the synchronous child-exited decision.
         fixture.view.commandExitCache.record(
             exitCode: 0,
             at: Date().timeIntervalSinceReferenceDate
         )
-        #expect(enactor.statusWatcher == nil)
-
-        #expect(fixture.view.handleChildExited())
         #expect(enactor.sessionID == fixture.sessionID)
         #expect(!enactor.exitProbeInFlight)
 

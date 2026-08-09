@@ -529,12 +529,12 @@ final class CommandBridgeEnactor {
         // Latches against a second child-exited before the hop lands;
         // `beginExitSupervision` clears it.
         exitResolutionPending = true
-        // Capture the existing legacy exit-code evidence before supervision
-        // clears the cache. An armed status feed ignores this value; a
-        // statusless bridge attach needs it for the existing probe fallback.
-        let exitCode = host.commandExitCache.exitCode
         Task { @MainActor [weak self] in
-            self?.beginExitSupervision(exitCode: exitCode)
+            guard let self else { return }
+            // COMMAND_FINISHED is also delivered on a main-actor task and may
+            // land after child-exited. Read the cache on this deferred turn so
+            // statusless supervision sees that exit code before clearing it.
+            self.beginExitSupervision(exitCode: self.host.commandExitCache.exitCode)
         }
         return true
     }
