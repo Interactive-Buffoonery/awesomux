@@ -5,6 +5,7 @@ import Testing
 @testable import DesignSystem
 
 @Suite("AwState")
+@MainActor
 struct AwStateTests {
     @Test("sorts by design priority")
     func sortsByPriority() {
