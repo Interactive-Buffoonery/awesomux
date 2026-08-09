@@ -178,23 +178,24 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         for key: Key,
         onCoalesced: (@Sendable () async -> Void)? = nil,
         onRegistered: (@Sendable () async -> Void)? = nil,
+        onFinished: (@Sendable () async -> Void)? = nil,
         operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
     ) async -> RemoteMarkdownFetchOutcome? {
         switch registerFetch(for: key, operation: operation) {
         case .existing(let existing):
             await onCoalesced?()
             return await existing.value
-        case let .new(task, path, id):
+        case .new(let task):
             await onRegistered?()
             let result = await task.value
-            finishFetch(for: key, directoryPath: path, directoryID: id)
+            await onFinished?()
             return result
         }
     }
 
     private enum FetchRegistration {
         case existing(Task<RemoteMarkdownFetchOutcome?, Never>)
-        case new(Task<RemoteMarkdownFetchOutcome?, Never>, path: String, id: UUID)
+        case new(Task<RemoteMarkdownFetchOutcome?, Never>)
     }
 
     private func registerFetch(
@@ -210,14 +211,20 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         let id = UUID()
         let task = Task<RemoteMarkdownFetchOutcome?, Never> {
             await previous?.task.value
-            return await operation()
+            let result = await operation()
+            self.finishFetch(
+                for: key,
+                directoryPath: key.cacheDirectoryPath,
+                directoryID: id
+            )
+            return result
         }
         inFlight[key] = task
         let tail = Task {
             _ = await task.value
         }
         directoryTails[key.cacheDirectoryPath] = DirectoryTail(id: id, task: tail)
-        return .new(task, path: key.cacheDirectoryPath, id: id)
+        return .new(task)
     }
 
     private func finishFetch(for key: Key, directoryPath: String, directoryID: UUID) {
@@ -298,6 +305,7 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     var fetchOverride: (@Sendable (RemoteMarkdownReference) async -> BoundedCommandResult)?
     var onCoalescedFetch: (@Sendable () async -> Void)?
     var onFetchRegistered: (@Sendable () async -> Void)?
+    var onFetchFinished: (@Sendable () async -> Void)?
     var onPruneEnumerated: (@Sendable () async -> Void)?
 
     func fetch(_ reference: RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? {
@@ -308,7 +316,8 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         return await RemoteMarkdownFetchCoordinator.shared.value(
             for: key,
             onCoalesced: onCoalescedFetch,
-            onRegistered: onFetchRegistered
+            onRegistered: onFetchRegistered,
+            onFinished: onFetchFinished
         ) {
             await fetchUncoordinated(reference)
         }

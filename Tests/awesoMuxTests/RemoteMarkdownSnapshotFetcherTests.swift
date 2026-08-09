@@ -721,6 +721,45 @@ struct RemoteMarkdownReferenceTests {
         #expect(try Data(contentsOf: #require(results[0]?.snapshot.fileURL)) == Data("current".utf8))
     }
 
+    @Test func completedFetchIsRemovedBeforeItsCallerFinishes() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())
+        )
+        let counter = CallCounter()
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let firstFinished = AsyncGate()
+        let secondRegistered = AsyncSignal()
+        let first = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in
+                await counter.record()
+                return .success(Data("first".utf8))
+            },
+            onFetchFinished: { await firstFinished.enterAndWait() }
+        )
+        let second = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in
+                await counter.record()
+                return .success(Data("second".utf8))
+            },
+            onCoalescedFetch: { await secondRegistered.signal() },
+            onFetchRegistered: { await secondRegistered.signal() }
+        )
+
+        let firstResult = Task { await first.fetch(reference) }
+        await firstFinished.waitForEntries(1)
+        let secondResult = Task { await second.fetch(reference) }
+        await secondRegistered.wait()
+        await firstFinished.release()
+
+        #expect(await firstResult.value != nil)
+        #expect(await secondResult.value != nil)
+        #expect(await counter.count == 2)
+    }
+
     @Test func differentCacheDirectoriesDoNotShareInFlightResults() async throws {
         let reference = try #require(
             RemoteMarkdownReference.make(
