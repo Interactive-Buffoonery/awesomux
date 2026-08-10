@@ -62,17 +62,25 @@ struct SessionDetailView: View {
                             let coordinator = ghosttyRuntime.bridgeCoordinatorStore.coordinator(for: terminalSessionID)
                         {
                             BridgePermissionPromptView(coordinator: coordinator) {
+                                [
+                                    sessionID = session.id,
+                                    paneID = session.activePaneID
+                                ] in
                                 // A prompt can disappear while its pane is no
                                 // longer active. Do not steal focus from the new
                                 // active pane in that case.
                                 guard
-                                    sessionStore.selectedSessionID == session.id,
-                                    sessionStore.session(id: session.id)?.activePaneID == session.activePaneID
+                                    sessionStore.selectedSessionID == sessionID,
+                                    sessionStore.session(id: sessionID)?.activePaneID == paneID
                                 else {
                                     return
                                 }
-                                ghosttyRuntime.focusSurface(toPane: session.activePaneID)
+                                ghosttyRuntime.focusSurface(toPane: paneID)
                             }
+                            // A pane switch must tear down the old prompt view
+                            // with its original coordinator before mounting the
+                            // new pane's authorization state.
+                            .id(terminalSessionID)
                         }
 
                         TerminalPaneView(

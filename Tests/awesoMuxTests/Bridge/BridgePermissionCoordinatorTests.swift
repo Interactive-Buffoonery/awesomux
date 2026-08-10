@@ -687,6 +687,21 @@ struct BridgePermissionCoordinatorTests {
         #expect(h.coordinator.activePrompt == nil)
         #expect(window.firstResponder === terminal)
     }
+
+    @Test("blur never consumes the prompt's one resolution handoff")
+    func blurDoesNotConsumeResolutionHandoff() {
+        var handoff = BridgePermissionFocusHandoff()
+
+        let firstBlur = handoff.shouldRestore(promptID: "r1", reason: .blur)
+        let secondBlur = handoff.shouldRestore(promptID: "r1", reason: .blur)
+        let resolution = handoff.shouldRestore(promptID: "r1", reason: .promptEnded)
+        let duplicateResolution = handoff.shouldRestore(promptID: "r1", reason: .promptEnded)
+
+        #expect(!firstBlur)
+        #expect(!secondBlur)
+        #expect(resolution)
+        #expect(!duplicateResolution)
+    }
 }
 
 @MainActor

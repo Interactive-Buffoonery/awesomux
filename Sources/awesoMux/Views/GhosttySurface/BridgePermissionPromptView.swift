@@ -42,7 +42,8 @@ struct BridgePermissionPromptView: View {
     @AccessibilityFocusState private var promptAccessibilityFocused: Bool
     @FocusState private var bannerFocused: Bool
     @State private var keyMonitor = BridgePermissionKeyMonitor()
-    @State private var focusRestoredForPromptID: String?
+    @State private var focusHandoff = BridgePermissionFocusHandoff()
+    @State private var presentedPromptID: String?
 
     init(
         coordinator: BridgePermissionCoordinator,
@@ -63,6 +64,7 @@ struct BridgePermissionPromptView: View {
                         bannerFocused = true
                         promptAccessibilityFocused = true
                     }
+                    .onAppear { presentedPromptID = prompt.id }
                     // Escape monitor is live only while the banner is deliberately
                     // focused, so a terminal user's Escape stays with the terminal
                     // until they move focus here.
@@ -79,7 +81,7 @@ struct BridgePermissionPromptView: View {
                             // risk, so the coordinator's flag has its own
                             // explicit clear here as well as in `publish()`.
                             coordinator.clearPromptFocus()
-                            restoreFocus(for: prompt.id)
+                            restoreFocus(for: prompt.id, reason: .blur)
                         }
                     }
             }
@@ -94,7 +96,8 @@ struct BridgePermissionPromptView: View {
             promptAccessibilityFocused = false
             keyMonitor.stop()
             coordinator.clearPromptFocus()
-            restoreFocus(for: previous.id)
+            restoreFocus(for: previous.id, reason: .promptEnded)
+            presentedPromptID = current?.id
         }
         .onDisappear {
             bannerFocused = false
@@ -104,13 +107,16 @@ struct BridgePermissionPromptView: View {
             // its pane/session is switched or the bridge tears down. Clear the
             // same-prompt authorization and return focus to its surface.
             coordinator.clearPromptFocus()
-            restoreFocus(for: coordinator.activePrompt?.id)
+            restoreFocus(for: presentedPromptID, reason: .promptEnded)
+            presentedPromptID = nil
         }
     }
 
-    private func restoreFocus(for promptID: String?) {
-        guard let promptID, focusRestoredForPromptID != promptID else { return }
-        focusRestoredForPromptID = promptID
+    private func restoreFocus(
+        for promptID: String?,
+        reason: BridgePermissionFocusHandoff.Reason
+    ) {
+        guard focusHandoff.shouldRestore(promptID: promptID, reason: reason) else { return }
         // Let SwiftUI apply the false focus bindings before AppKit receives the
         // terminal handoff; otherwise its stale KeyViewProxy can reclaim the
         // responder in the same update.
@@ -328,6 +334,26 @@ struct BridgePermissionPromptView: View {
         UnicodeHygiene.hasSuspiciousScriptMixing(tool)
             || UnicodeHygiene.hasSuspiciousScriptMixing(target)
             || (summary.map(UnicodeHygiene.hasSuspiciousScriptMixing) ?? false)
+    }
+}
+
+struct BridgePermissionFocusHandoff {
+    enum Reason {
+        case blur
+        case promptEnded
+    }
+
+    private var restoredPromptID: String?
+
+    mutating func shouldRestore(promptID: String?, reason: Reason) -> Bool {
+        guard reason == .promptEnded,
+            let promptID,
+            restoredPromptID != promptID
+        else {
+            return false
+        }
+        restoredPromptID = promptID
+        return true
     }
 }
 
