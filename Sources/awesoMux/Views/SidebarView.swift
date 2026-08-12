@@ -573,8 +573,7 @@ struct SidebarView: View {
             guard let newValue,
                 let group = sessionStore.groups.first(where: { group in
                     group.sessions.contains { $0.id == newValue }
-                }),
-                let session = group.sessions.first(where: { $0.id == newValue })
+                })
             else {
                 return
             }
