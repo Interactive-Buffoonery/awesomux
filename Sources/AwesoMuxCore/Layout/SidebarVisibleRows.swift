@@ -117,14 +117,25 @@ public enum SidebarVisibleRows {
         for liftedEntry: LiftedSessionEntry,
         liftedBecause reason: SidebarLiftReason
     ) -> SidebarWorkspaceRotorEntry {
-        SidebarWorkspaceRotorEntry(
-            id: liftedEntry.entry.session.id,
+        let session = liftedEntry.entry.session
+        let originGroupName = liftedEntry.originGroup.name
+        // The rotor label ends with the agent state, and a row genuinely waiting
+        // on a human reads that state as "Needs input" — the same words the
+        // lifted phrase opens with, so appending the tile's full phrase here
+        // stutters them back to back. The tile escapes this because its value
+        // puts "Workspace 1 of 3" between the two; the rotor has no such cushion.
+        // Narrow on purpose: a pinned row, or one the Needs Input section still
+        // holds by selection stickiness, has had no reason spoken yet and keeps
+        // the full phrase.
+        let stateAlreadyNamedTheReason =
+            reason == .needsInput && session.agentRollup().state == .needsAttention
+        return SidebarWorkspaceRotorEntry(
+            id: session.id,
             label: rotorLabel(
-                for: liftedEntry.entry.session,
-                originGroupPhrase: originGroupPhrase(
-                    liftedBecause: reason,
-                    originGroupName: liftedEntry.originGroup.name
-                )
+                for: session,
+                originGroupPhrase: stateAlreadyNamedTheReason
+                    ? originPhrase(originGroupName: originGroupName)
+                    : originGroupPhrase(liftedBecause: reason, originGroupName: originGroupName)
             )
         )
     }
@@ -137,9 +148,8 @@ public enum SidebarVisibleRows {
     ///
     /// - Parameter originGroupPhrase: appended for a row lifted into a synthetic
     ///   section, so the rotor says why it sits above its group instead of
-    ///   leaving the reordering unexplained. Built by
-    ///   `originGroupPhrase(liftedBecause:originGroupName:)`, the same wording the
-    ///   lifted tile speaks.
+    ///   leaving the reordering unexplained. `rotorEntry(for:liftedBecause:)`
+    ///   picks between the tile's full wording and the origin alone.
     static func rotorLabel(
         for session: TerminalSession,
         originGroupPhrase: String? = nil,
@@ -179,7 +189,7 @@ public enum SidebarVisibleRows {
                 bundle: bundle,
                 locale: locale,
                 comment:
-                    "Spoken on a lifted sidebar workspace (row value and rotor label) on a lifted sidebar workspace naming its origin group."
+                    "Spoken on a workspace lifted into the sidebar's Needs Input section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
             )
         case .pinned:
             String(
@@ -187,9 +197,26 @@ public enum SidebarVisibleRows {
                 bundle: bundle,
                 locale: locale,
                 comment:
-                    "Spoken on a lifted sidebar workspace (row value and rotor label) on a pinned sidebar workspace naming its origin group."
+                    "Spoken on a pinned sidebar workspace — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
             )
         }
+    }
+
+    /// The origin alone, for the rotor row whose state fragment has already said
+    /// why it was lifted. Same home as `originGroupPhrase(liftedBecause:…)` so
+    /// both wordings stay one edit apart.
+    static func originPhrase(
+        originGroupName: String,
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String {
+        String(
+            localized: "from \(originGroupName)",
+            bundle: bundle,
+            locale: locale,
+            comment:
+                "Appended to a lifted sidebar workspace's VoiceOver rotor label when the state it just spoke already named why the row was lifted, so only the group it returns to is left to say. The argument is a user-chosen group name."
+        )
     }
 
     public static func workspaceAccessibilityLabel(

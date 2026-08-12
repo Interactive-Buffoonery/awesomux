@@ -226,8 +226,9 @@ public extension TerminalSession {
     }
 
     var needsAcknowledgement: Bool {
-        // Mirrors `needsUserInput`: walks the layout so the rollup allocates
-        // no pane array. Cold badge path — consistency, not a measurable win.
+        // Mirrors `needsUserInput`: walks the layout so no pane array is
+        // allocated. Read per store commit and per body eval, but still not a
+        // measurable win — consistency with its sibling is the point.
         layout.contains { $0.attentionReason != nil }
     }
 

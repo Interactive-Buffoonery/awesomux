@@ -992,10 +992,13 @@ struct SidebarSessionTile: View {
         guard let originGroupPhrase else {
             return position
         }
-        // `.help()` origin tooltip is pointer-only; VoiceOver hears the origin
-        // here so a lifted tile still answers "which project is this?". The
-        // caller owns the wording — each synthetic section names its own reason
-        // for lifting the row.
+        // The accessibility VALUE is the origin's carrier, not the section's
+        // `.help()` tooltip: `help(_:)` sets an accessibility hint as well as a
+        // help tag, and a hint is suppressible in VoiceOver's verbosity settings
+        // and is meant for "how to operate", not identity. Those call sites
+        // clear their hint so a lifted row does not say its origin twice in two
+        // wordings. The caller owns the value's wording — each synthetic section
+        // names its own reason for lifting the row.
         return position + ", " + originGroupPhrase
     }
 

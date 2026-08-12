@@ -127,7 +127,11 @@ struct SidebarAttentionSectionView: View {
             row(for: item, at: index, liveTitles: liveTitles)
         }
         .id(session.id)
+        // `help(_:)` sets an accessibility hint as well as a pointer tooltip.
+        // The tile's accessibility value already carries the origin, so leaving
+        // the hint would speak it twice in two different wordings.
         .help(originGroupTooltip)
+        .accessibilityHint("")
     }
 
     /// The row itself. Separate from the scope above so its construction does
