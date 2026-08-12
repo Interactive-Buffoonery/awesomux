@@ -39,7 +39,16 @@ private struct SurfaceSearchBar: View {
     private var accentSoftColor: Color { Color.aw.accentSoft(accentResolver.accent) }
 
     var body: some View {
-        Group {
+        ZStack {
+            // SwiftUI will not present a sheet whose host renders nothing.
+            // This sheet's only host was the find bar, so with the bar closed —
+            // the ordinary state — Show Scrollback (⇧⌘F) silently did nothing,
+            // and started working only once ⌘F had mounted the bar. A clear
+            // base outside the conditional keeps the host mounted; hit testing
+            // stays off so it cannot swallow clicks on the terminal surface
+            // this overlay sits on top of.
+            Color.clear
+                .allowsHitTesting(false)
             if searchState.isPresented {
                 bar
             }
