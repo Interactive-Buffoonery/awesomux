@@ -139,10 +139,9 @@ struct SidebarAttentionSectionView: View {
         liveTitles: LiveTitles
     ) -> some View {
         let session = item.entry.session
-        let originGroupPhrase = String(
-            localized: "Needs input, from \(item.originGroup.name)",
-            comment:
-                "VoiceOver value fragment on a lifted sidebar workspace naming its origin group."
+        let originGroupPhrase = SidebarVisibleRows.originGroupPhrase(
+            liftedBecause: .needsInput,
+            originGroupName: item.originGroup.name
         )
         SidebarSessionTile(
             session: session,

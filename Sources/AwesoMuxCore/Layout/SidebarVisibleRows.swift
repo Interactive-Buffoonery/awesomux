@@ -34,6 +34,15 @@ public struct SidebarWorkspaceRotorEntry: Equatable, Hashable, Sendable, Identif
     }
 }
 
+/// Why a session was lifted out of its origin group into one of the sidebar's
+/// synthetic top sections. Carried rather than a `Bool` because the two sections
+/// announce different reasons, and a flag would make the rotor call a pinned row
+/// "Needs input" — worse than the silence it replaces.
+public enum SidebarLiftReason: Equatable, Hashable, Sendable {
+    case needsInput
+    case pinned
+}
+
 public enum SidebarVisibleRows {
     public static func rows(
         attention: [LiftedSessionEntry] = [],
@@ -90,12 +99,9 @@ public enum SidebarVisibleRows {
         pinned: [LiftedSessionEntry] = [],
         for entries: [SidebarGroupEntry]
     ) -> [SidebarWorkspaceRotorEntry] {
-        let liftedEntries = (attention + pinned).map { liftedEntry in
-            SidebarWorkspaceRotorEntry(
-                id: liftedEntry.entry.session.id,
-                label: rotorLabel(for: liftedEntry.entry.session)
-            )
-        }
+        let liftedEntries =
+            attention.map { rotorEntry(for: $0, liftedBecause: .needsInput) }
+            + pinned.map { rotorEntry(for: $0, liftedBecause: .pinned) }
         return liftedEntries
             + entries.flatMap { entry in
             entry.sessions.map { sessionEntry in
@@ -107,26 +113,83 @@ public enum SidebarVisibleRows {
         }
     }
 
+    private static func rotorEntry(
+        for liftedEntry: LiftedSessionEntry,
+        liftedBecause reason: SidebarLiftReason
+    ) -> SidebarWorkspaceRotorEntry {
+        SidebarWorkspaceRotorEntry(
+            id: liftedEntry.entry.session.id,
+            label: rotorLabel(
+                for: liftedEntry.entry.session,
+                originGroupPhrase: originGroupPhrase(
+                    liftedBecause: reason,
+                    originGroupName: liftedEntry.originGroup.name
+                )
+            )
+        )
+    }
+
     /// VoiceOver rotor announcement for a workspace: title + agent + state, so
     /// cycling the rotor conveys what each workspace is and whether it needs
     /// attention — not just an opaque name. Mirrors the sidebar row's own
     /// accessibility phrasing (`title, agent, state`), using `effectiveChromeState`
     /// so a shell reads as Idle/Running rather than a raw agent state.
+    ///
+    /// - Parameter originGroupPhrase: appended for a row lifted into a synthetic
+    ///   section, so the rotor says why it sits above its group instead of
+    ///   leaving the reordering unexplained. Built by
+    ///   `originGroupPhrase(liftedBecause:originGroupName:)`, the same wording the
+    ///   lifted tile speaks.
     static func rotorLabel(
         for session: TerminalSession,
+        originGroupPhrase: String? = nil,
         bundle: Bundle = .main,
         locale: Locale = .current
     ) -> String {
         // The agent name follows the rollup's winning pane so it matches the
         // state being announced — not the active pane's kind (INT-504 R1).
         let rollup = session.agentRollup()
-        return workspaceAccessibilityLabel(
+        let label = workspaceAccessibilityLabel(
             title: session.displayTitle(bundle: bundle, locale: locale),
             agentKind: rollup.winningAgentKind,
             state: rollup.state,
             bundle: bundle,
             locale: locale
         )
+        guard let originGroupPhrase else {
+            return label
+        }
+        return label + ", " + originGroupPhrase
+    }
+
+    /// The VoiceOver fragment naming why a row was lifted and where it returns
+    /// to. Lives here, in the one type both the rotor and the two synthetic
+    /// section views already depend on, so each phrase has a single literal and
+    /// the rotor cannot drift out of sync with the tile it describes.
+    public static func originGroupPhrase(
+        liftedBecause reason: SidebarLiftReason,
+        originGroupName: String,
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String {
+        switch reason {
+        case .needsInput:
+            String(
+                localized: "Needs input, from \(originGroupName)",
+                bundle: bundle,
+                locale: locale,
+                comment:
+                    "Spoken on a lifted sidebar workspace (row value and rotor label) on a lifted sidebar workspace naming its origin group."
+            )
+        case .pinned:
+            String(
+                localized: "Pinned, from \(originGroupName)",
+                bundle: bundle,
+                locale: locale,
+                comment:
+                    "Spoken on a lifted sidebar workspace (row value and rotor label) on a pinned sidebar workspace naming its origin group."
+            )
+        }
     }
 
     public static func workspaceAccessibilityLabel(

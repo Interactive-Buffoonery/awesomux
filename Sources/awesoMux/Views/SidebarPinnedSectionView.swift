@@ -287,9 +287,9 @@ struct SidebarPinnedSectionView: View {
             onToggleNotificationsMute: { onToggleNotificationsMute(session) },
             isPinned: true,
             onTogglePin: { onTogglePin(session) },
-            originGroupPhrase: String(
-                localized: "Pinned, from \(item.originGroup.name)",
-                comment: "VoiceOver value fragment on a pinned sidebar workspace naming its origin group."
+            originGroupPhrase: SidebarVisibleRows.originGroupPhrase(
+                liftedBecause: .pinned,
+                originGroupName: item.originGroup.name
             ),
             onDragStarted: { onWorkspaceDragStarted(session.id) },
             focusedRowTarget: focusedRowTarget,

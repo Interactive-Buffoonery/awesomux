@@ -73,4 +73,27 @@ import Testing
         )
         #expect(entries.map(\.id) == [a.id, b.id, c.id])
     }
+
+    /// A lifted row sits above its group for a reason the rotor used to keep to
+    /// itself. The two synthetic sections lift for DIFFERENT reasons, so the
+    /// labels must differ — announcing a pinned row as needing input would be a
+    /// worse regression than the original silence.
+    @Test func rotorNamesWhyEachRowIsLifted() {
+        let a = TerminalSession(title: "alpha", workingDirectory: "~", agentKind: .shell)
+        let b = TerminalSession(title: "beta", workingDirectory: "~", agentKind: .shell)
+        let c = TerminalSession(title: "gamma", workingDirectory: "~", agentKind: .shell)
+        let g = SessionGroup(name: "One", sessions: [c])
+        let entries = SidebarVisibleRows.rotorEntries(
+            attention: [lifted(a, from: g)],
+            pinned: [lifted(b, from: g)],
+            for: [entry(g, index: 0)]
+        )
+
+        #expect(
+            entries.map(\.label) == [
+                "alpha, Shell, Idle, Needs input, from One",
+                "beta, Shell, Idle, Pinned, from One",
+                "gamma, Shell, Idle",
+            ])
+    }
 }
