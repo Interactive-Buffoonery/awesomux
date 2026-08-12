@@ -16,8 +16,12 @@ struct SurfaceSearchOverlaySheetHostTests {
 
     private static let path = "Sources/awesoMux/Views/GhosttySurface/SurfaceSearchOverlay.swift"
 
-    @Test("the scrollback sheet's host is unconditional")
-    func sheetHostIsUnconditional() throws {
+    /// One assertion, not two. Splitting "the base is positioned ahead of every
+    /// conditional" from "a base somewhere in the file disables hit testing" let
+    /// a bare `Color.clear` in the host plus a hit-test-disabled one anywhere
+    /// else satisfy both while every terminal click was swallowed.
+    @Test("the scrollback sheet's host is an inert unconditional base")
+    func sheetHostIsUnconditionalAndInert() throws {
         let source = try SourceContract.source(at: Self.path)
         let type = try SourceContract.declarationBody(
             after: "private struct SurfaceSearchBar: View {",
@@ -34,36 +38,31 @@ struct SurfaceSearchOverlaySheetHostTests {
             "`SurfaceSearchBar.body` no longer attaches a `.sheet(`."
         )
 
-        // Position, not presence: a `Color.clear` moved *inside* the `if` would
-        // still appear in this region while the bug it guards against is back.
-        let base = hostRegion.ranges(of: "Color.clear").first?.lowerBound
-        let conditional = hostRegion.ranges(of: "if ").first?.lowerBound
+        // Position, not presence: a base moved *inside* the `if` would still
+        // appear in this region while the bug it guards against is back.
+        //
+        // Both patterns are regexes rather than substrings. `\s*` between the
+        // modifiers tolerates `swift format` joining them onto one line, and
+        // anchoring the conditional to the start of a line keeps a prose word
+        // merely ending in "if" from masquerading as one.
+        let base = try hostRegion.firstMatch(
+            of: Regex(#"Color\.clear\s*\.allowsHitTesting\(false\)\s*\.accessibilityHidden\(true\)"#)
+        )?.range.lowerBound
+        let conditional = try hostRegion.firstMatch(
+            of: Regex(#"(?m)^[ \t]*if\b"#)
+        )?.range.lowerBound
 
         #expect(
             base != nil && (conditional == nil || base! < conditional!),
             """
-            The scrollback sheet's host in `SurfaceSearchBar.body` is conditional \
-            again. SwiftUI never presents a sheet attached to a view that renders \
+            The scrollback sheet's host in `SurfaceSearchBar.body` is no longer an \
+            unconditional, inert `Color.clear` base ahead of every conditional. \
+            SwiftUI never presents a sheet attached to a view that renders \
             nothing, so with the find bar closed Show Scrollback (⇧⌘F) becomes a \
-            silently dead menu item. Keep an unconditional view — a `Color.clear` \
-            base — in the host, ahead of every `if`.
-            """
-        )
-    }
-
-    @Test("the clear base cannot swallow terminal clicks")
-    func clearBasesDisableHitTesting() throws {
-        // All whitespace stripped, not collapsed: `swift format` may join these
-        // onto one line, leaving zero whitespace between them.
-        let source = try SourceContract.source(at: Self.path)
-            .replacingOccurrences(of: #"\s"#, with: "", options: .regularExpression)
-
-        #expect(
-            source.ranges(of: "Color.clear.allowsHitTesting(false)").count == 1,
-            """
-            The sheet-host `Color.clear` in \(Self.path) lost its \
-            `.allowsHitTesting(false)`. It fills the terminal pane it is \
-            overlaid on, so without it every click on the surface is eaten.
+            silently dead menu item — and the base fills the terminal pane it is \
+            overlaid on, so without `.allowsHitTesting(false)` every click on the \
+            surface is eaten and without `.accessibilityHidden(true)` it is only \
+            incidentally absent from the accessibility tree.
             """
         )
     }

@@ -39,23 +39,32 @@ private struct SurfaceSearchBar: View {
     private var accentSoftColor: Color { Color.aw.accentSoft(accentResolver.accent) }
 
     var body: some View {
-        ZStack {
+        // Read here, not inside the binding's getter: that getter is an escaping
+        // closure run outside the `withObservationTracking` scope wrapping
+        // `body`, so it registers no dependency. The sheet presents anyway
+        // because SwiftUI re-reads the binding from its own attribute node —
+        // undocumented, and exactly the kind of thing an OS point release moves.
+        let dumpText = searchState.scrollbackDumpText
+        return ZStack {
             // SwiftUI will not present a sheet whose host renders nothing.
             // This sheet's only host was the find bar, so with the bar closed —
             // the ordinary state — Show Scrollback (⇧⌘F) silently did nothing,
             // and started working only once ⌘F had mounted the bar. A clear
             // base outside the conditional keeps the host mounted; hit testing
             // stays off so it cannot swallow clicks on the terminal surface
-            // this overlay sits on top of.
+            // this overlay sits on top of, and it stays out of the
+            // accessibility tree by declaration rather than by `Color` happening
+            // to expose no element.
             Color.clear
                 .allowsHitTesting(false)
+                .accessibilityHidden(true)
             if searchState.isPresented {
                 bar
             }
         }
         .sheet(
             isPresented: Binding(
-                get: { searchState.scrollbackDumpText != nil },
+                get: { dumpText != nil },
                 set: { isPresented in
                     if !isPresented {
                         surfaceView.dismissScrollbackDump()
@@ -73,7 +82,7 @@ private struct SurfaceSearchBar: View {
             }
         ) {
             ScrollbackDumpSheet(
-                text: searchState.scrollbackDumpText ?? "",
+                text: dumpText ?? "",
                 onDismiss: { surfaceView.dismissScrollbackDump() }
             )
         }
