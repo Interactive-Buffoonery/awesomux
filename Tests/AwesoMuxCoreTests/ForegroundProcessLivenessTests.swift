@@ -55,6 +55,13 @@ struct ForegroundProcessLivenessTests {
             ForegroundProcessLiveness.classifyBridged(rootComm: nil, rootHasChildren: nil)
                 == .bridgedIndeterminate)
     }
+
+    @Test("bridged shell with unresolved children is unverified, never silently idle")
+    func bridgedUnresolvedChildren() {
+        #expect(
+            ForegroundProcessLiveness.classifyBridged(rootComm: "-zsh", rootHasChildren: nil)
+                == .bridgedIndeterminate)
+    }
 }
 
 @Suite("AgentLivenessPolicy.shouldResetAgentChrome (INT-552)")
