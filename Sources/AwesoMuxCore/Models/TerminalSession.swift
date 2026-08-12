@@ -226,7 +226,9 @@ public extension TerminalSession {
     }
 
     var needsAcknowledgement: Bool {
-        panes.contains { $0.attentionReason != nil }
+        // Mirrors `needsUserInput`: walks the layout so the rollup allocates
+        // no pane array. Cold badge path — consistency, not a measurable win.
+        layout.contains { $0.attentionReason != nil }
     }
 
     /// The narrower gate the sidebar's Needs Input section lifts on: only reasons
