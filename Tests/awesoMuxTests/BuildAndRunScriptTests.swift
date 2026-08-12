@@ -112,7 +112,8 @@ struct BuildAndRunScriptTests {
 
         let perfInstallCase = try #require(script.range(of: "--perf-install|perf-install)"))
         let nextCase = try #require(script.range(of: "\n  --verify|verify)", range: perfInstallCase.upperBound..<script.endIndex))
-        #expect(script[perfInstallCase.upperBound..<nextCase.lowerBound].contains("terminate_app_bundle_and_wait \"$INSTALLED_APP_BUNDLE\""))
+        #expect(
+            script[perfInstallCase.upperBound..<nextCase.lowerBound].contains("terminate_app_bundle_and_wait \"$INSTALLED_APP_BUNDLE\""))
     }
 
     @Test("installed builds require Ghostty artifacts from the pinned revision")
@@ -227,12 +228,12 @@ struct BuildAndRunScriptTests {
         let result = try Self.runProcessStateSnippet(
             appRunningStatuses: [70],
             command: """
-            set +e
-            app_bundle_in_state /tmp/fake.app running
-            status=$?
-            printf 'status=%s calls=%s\\n' "$status" "$APP_RUNNING_CALLS"
-            exit "$status"
-            """
+                set +e
+                app_bundle_in_state /tmp/fake.app running
+                status=$?
+                printf 'status=%s calls=%s\\n' "$status" "$APP_RUNNING_CALLS"
+                exit "$status"
+                """
         )
 
         #expect(result.exitStatus == 70)
@@ -244,12 +245,12 @@ struct BuildAndRunScriptTests {
         let result = try Self.runProcessStateSnippet(
             appRunningStatuses: [1, 0],
             command: """
-            set +e
-            wait_for_app_bundle_state /tmp/fake.app running 2 0
-            status=$?
-            printf 'status=%s calls=%s\\n' "$status" "$APP_RUNNING_CALLS"
-            exit "$status"
-            """
+                set +e
+                wait_for_app_bundle_state /tmp/fake.app running 2 0
+                status=$?
+                printf 'status=%s calls=%s\\n' "$status" "$APP_RUNNING_CALLS"
+                exit "$status"
+                """
         )
 
         #expect(result.exitStatus == 0)
@@ -261,12 +262,12 @@ struct BuildAndRunScriptTests {
         let result = try Self.runProcessStateSnippet(
             appRunningStatuses: [70],
             command: """
-            set +e
-            wait_for_app_bundle_state /tmp/fake.app running 2 0
-            status=$?
-            printf 'status=%s calls=%s\\n' "$status" "$APP_RUNNING_CALLS"
-            exit "$status"
-            """
+                set +e
+                wait_for_app_bundle_state /tmp/fake.app running 2 0
+                status=$?
+                printf 'status=%s calls=%s\\n' "$status" "$APP_RUNNING_CALLS"
+                exit "$status"
+                """
         )
 
         #expect(result.exitStatus == 70)
@@ -315,12 +316,12 @@ struct BuildAndRunScriptTests {
         let result = try Self.runTerminationSnippet(
             appRunningStatuses: [0, 0, 1],
             command: """
-            set +e
-            terminate_app_bundle_and_wait /tmp/fake.app
-            status=$?
-            printf 'status=%s signals=%s\\n' "$status" "$TERMINATE_SIGNALS"
-            exit "$status"
-            """
+                set +e
+                terminate_app_bundle_and_wait /tmp/fake.app
+                status=$?
+                printf 'status=%s signals=%s\\n' "$status" "$TERMINATE_SIGNALS"
+                exit "$status"
+                """
         )
 
         #expect(result.exitStatus == 0)
@@ -334,12 +335,12 @@ struct BuildAndRunScriptTests {
         let result = try Self.runTerminationSnippet(
             appRunningStatuses: Array(repeating: Int32(0), count: 21) + [1],
             command: """
-            set +e
-            terminate_app_bundle_and_wait /tmp/fake.app
-            status=$?
-            printf 'status=%s signals=%s\\n' "$status" "$TERMINATE_SIGNALS"
-            exit "$status"
-            """
+                set +e
+                terminate_app_bundle_and_wait /tmp/fake.app
+                status=$?
+                printf 'status=%s signals=%s\\n' "$status" "$TERMINATE_SIGNALS"
+                exit "$status"
+                """
         )
 
         #expect(result.exitStatus == 0)
@@ -353,12 +354,12 @@ struct BuildAndRunScriptTests {
         let result = try Self.runTerminationSnippet(
             appRunningStatuses: Array(repeating: Int32(0), count: 30),
             command: """
-            set +e
-            terminate_app_bundle_and_wait /tmp/fake.app
-            status=$?
-            printf 'status=%s signals=%s\\n' "$status" "$TERMINATE_SIGNALS"
-            exit "$status"
-            """
+                set +e
+                terminate_app_bundle_and_wait /tmp/fake.app
+                status=$?
+                printf 'status=%s signals=%s\\n' "$status" "$TERMINATE_SIGNALS"
+                exit "$status"
+                """
         )
 
         #expect(result.exitStatus == 3)
@@ -370,12 +371,12 @@ struct BuildAndRunScriptTests {
         let result = try Self.runTerminationSnippet(
             appRunningStatuses: [70],
             command: """
-            set +e
-            terminate_app_bundle_and_wait /tmp/fake.app
-            status=$?
-            printf 'status=%s signals=%s\\n' "$status" "$TERMINATE_SIGNALS"
-            exit "$status"
-            """
+                set +e
+                terminate_app_bundle_and_wait /tmp/fake.app
+                status=$?
+                printf 'status=%s signals=%s\\n' "$status" "$TERMINATE_SIGNALS"
+                exit "$status"
+                """
         )
 
         #expect(result.exitStatus == 70)
@@ -421,10 +422,11 @@ struct BuildAndRunScriptTests {
 
     private static func pidResolutionFunctions(from script: String) throws -> String {
         let start = try #require(script.range(of: "single_app_bundle_pid() {")?.lowerBound)
-        let end = try #require(script.range(
-            of: "\nvalidate_perf_sample_interval() {",
-            range: start..<script.endIndex
-        )?.lowerBound)
+        let end = try #require(
+            script.range(
+                of: "\nvalidate_perf_sample_interval() {",
+                range: start..<script.endIndex
+            )?.lowerBound)
         return String(script[start..<end])
     }
 
@@ -638,27 +640,27 @@ struct BuildAndRunScriptTests {
         let script = try contents(of: "script/ensure_ghostty_artifacts.sh")
         let function = try ghosttySHAStampFunction(from: script)
         let bash = """
-        set -euo pipefail
-        \(function)
+            set -euo pipefail
+            \(function)
 
-        ROOT_DIR=/tmp/awesomux-sha-stamp-test
-        REQUIRE_GHOSTTY_PIN_MATCH=1
-        ARTIFACT_DIR="$(mktemp -d)"
-        trap 'trash "$ARTIFACT_DIR"' EXIT
-        expected_sha=0123456789abcdef0123456789abcdef01234567
+            ROOT_DIR=/tmp/awesomux-sha-stamp-test
+            REQUIRE_GHOSTTY_PIN_MATCH=1
+            ARTIFACT_DIR="$(mktemp -d)"
+            trap 'trash "$ARTIFACT_DIR"' EXIT
+            expected_sha=0123456789abcdef0123456789abcdef01234567
 
-        git() { printf '%s\n' "$expected_sha"; }
+            git() { printf '%s\n' "$expected_sha"; }
 
-        printf '%s\r\n' "$expected_sha" > "$ARTIFACT_DIR/.built-from-sha"
-        _ghostty_sha_stamp_matches "$ARTIFACT_DIR"
+            printf '%s\r\n' "$expected_sha" > "$ARTIFACT_DIR/.built-from-sha"
+            _ghostty_sha_stamp_matches "$ARTIFACT_DIR"
 
-        printf '%s\r\n' fedcba9876543210fedcba9876543210fedcba98 > "$ARTIFACT_DIR/.built-from-sha"
-        if _ghostty_sha_stamp_matches "$ARTIFACT_DIR"; then
-          exit 1
-        fi
+            printf '%s\r\n' fedcba9876543210fedcba9876543210fedcba98 > "$ARTIFACT_DIR/.built-from-sha"
+            if _ghostty_sha_stamp_matches "$ARTIFACT_DIR"; then
+              exit 1
+            fi
 
-        printf 'matching=accepted mismatching=rejected\n'
-        """
+            printf 'matching=accepted mismatching=rejected\n'
+            """
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -682,18 +684,18 @@ struct BuildAndRunScriptTests {
         let functions = try pidResolutionFunctions(from: script)
         let output = pids.joined(separator: "\\n")
         let bash = """
-        set -euo pipefail
-        \(functions)
+            set -euo pipefail
+            \(functions)
 
-        open_app() { :; }
-        wait_for_app_bundle() { return 0; }
-        app_bundle_pids() {
-          printf '%b' '\(output)'
-          return \(status)
-        }
+            open_app() { :; }
+            wait_for_app_bundle() { return 0; }
+            app_bundle_pids() {
+              printf '%b' '\(output)'
+              return \(status)
+            }
 
-        launch_app_and_resolve_pid /tmp/fake.app
-        """
+            launch_app_and_resolve_pid /tmp/fake.app
+            """
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -728,30 +730,30 @@ struct BuildAndRunScriptTests {
         let functions = try terminationHelperFunctions(from: script)
         let statuses = appRunningStatuses.map(String.init).joined(separator: " ")
         let bash = """
-        set -euo pipefail
-        \(functions)
+            set -euo pipefail
+            \(functions)
 
-        APP_RUNNING_CALLS=0
-        APP_RUNNING_STATUSES=(\(statuses))
-        APP_RUNNING_DEFAULT_STATUS=0
+            APP_RUNNING_CALLS=0
+            APP_RUNNING_STATUSES=(\(statuses))
+            APP_RUNNING_DEFAULT_STATUS=0
 
-        app_bundle_is_running() {
-          APP_RUNNING_CALLS=$((APP_RUNNING_CALLS + 1))
-          local index=$((APP_RUNNING_CALLS - 1))
-          local status="${APP_RUNNING_STATUSES[$index]:-$APP_RUNNING_DEFAULT_STATUS}"
-          return "$status"
-        }
+            app_bundle_is_running() {
+              APP_RUNNING_CALLS=$((APP_RUNNING_CALLS + 1))
+              local index=$((APP_RUNNING_CALLS - 1))
+              local status="${APP_RUNNING_STATUSES[$index]:-$APP_RUNNING_DEFAULT_STATUS}"
+              return "$status"
+            }
 
-        TERMINATE_SIGNALS=""
-        terminate_app_bundle() {
-          local signal="${2:-TERM}"
-          TERMINATE_SIGNALS="${TERMINATE_SIGNALS:+$TERMINATE_SIGNALS,}$signal"
-        }
+            TERMINATE_SIGNALS=""
+            terminate_app_bundle() {
+              local signal="${2:-TERM}"
+              TERMINATE_SIGNALS="${TERMINATE_SIGNALS:+$TERMINATE_SIGNALS,}$signal"
+            }
 
-        sleep() { :; }
+            sleep() { :; }
 
-        \(command)
-        """
+            \(command)
+            """
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -775,24 +777,24 @@ struct BuildAndRunScriptTests {
         let functions = try processStateFunctions(from: script)
         let statuses = appRunningStatuses.map(String.init).joined(separator: " ")
         let bash = """
-        set -euo pipefail
-        \(functions)
+            set -euo pipefail
+            \(functions)
 
-        APP_RUNNING_CALLS=0
-        APP_RUNNING_STATUSES=(\(statuses))
-        APP_RUNNING_DEFAULT_STATUS=1
+            APP_RUNNING_CALLS=0
+            APP_RUNNING_STATUSES=(\(statuses))
+            APP_RUNNING_DEFAULT_STATUS=1
 
-        app_bundle_is_running() {
-          APP_RUNNING_CALLS=$((APP_RUNNING_CALLS + 1))
-          local index=$((APP_RUNNING_CALLS - 1))
-          local status="${APP_RUNNING_STATUSES[$index]:-$APP_RUNNING_DEFAULT_STATUS}"
-          return "$status"
-        }
+            app_bundle_is_running() {
+              APP_RUNNING_CALLS=$((APP_RUNNING_CALLS + 1))
+              local index=$((APP_RUNNING_CALLS - 1))
+              local status="${APP_RUNNING_STATUSES[$index]:-$APP_RUNNING_DEFAULT_STATUS}"
+              return "$status"
+            }
 
-        sleep() { :; }
+            sleep() { :; }
 
-        \(command)
-        """
+            \(command)
+            """
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
