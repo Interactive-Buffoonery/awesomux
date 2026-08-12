@@ -79,6 +79,58 @@ struct BuildScriptHelpTests {
         #expect(!script.contains("ZIP_PATH"))
     }
 
+    @Test("release build rejects missing version before staging")
+    func releaseBuildRejectsMissingVersionBeforeStaging() throws {
+        let result = try Self.run(script: "script/build_release.sh", arguments: ["--unsigned"])
+
+        #expect(result.exitStatus == 2)
+        #expect(result.output.contains("--version X.Y.Z is required"))
+        #expect(!result.output.contains("build_and_run.sh"))
+    }
+
+    @Test("release build rejects invalid version and build number before staging")
+    func releaseBuildRejectsInvalidVersionAndBuildNumberBeforeStaging() throws {
+        let invalidVersion = try Self.run(
+            script: "script/build_release.sh",
+            arguments: ["--unsigned", "--version", "0.12.0-rc1"]
+        )
+        let invalidBuild = try Self.run(
+            script: "script/build_release.sh",
+            arguments: ["--unsigned", "--version", "0.12.0", "--build-number", "abc"]
+        )
+
+        #expect(invalidVersion.exitStatus == 2)
+        #expect(invalidVersion.output.contains("--version must be X.Y.Z"))
+        #expect(!invalidVersion.output.contains("build_and_run.sh"))
+        #expect(invalidBuild.exitStatus == 2)
+        #expect(invalidBuild.output.contains("--build-number must be a positive integer"))
+        #expect(!invalidBuild.output.contains("build_and_run.sh"))
+    }
+
+    @Test("release build rejects a dirty worktree before staging")
+    func releaseBuildRejectsDirtyWorktreeBeforeStaging() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("awesomux-release-git-test-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let fakeGit = directory.appendingPathComponent("git")
+        try "#!/bin/sh\nprintf ' M tracked-file\\n'\n".write(to: fakeGit, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeGit.path)
+
+        let path = "\(directory.path):\(ProcessInfo.processInfo.environment["PATH"] ?? "")"
+        let result = try Self.run(
+            script: "script/build_release.sh",
+            arguments: ["--unsigned", "--version", "0.12.0", "--build-number", "722"],
+            environment: ["PATH": path]
+        )
+
+        #expect(result.exitStatus == 1)
+        #expect(result.output.contains("worktree is not clean"))
+        #expect(!result.output.contains("build_and_run.sh"))
+    }
+
     private static let scripts = [
         "script/build_and_run.sh",
         "script/build_ghostty_xcframework.sh",
@@ -86,14 +138,24 @@ struct BuildScriptHelpTests {
     ]
 
     private static func runHelp(script: String, argument: String) throws -> ShellResult {
+        try run(
+            script: script,
+            arguments: [argument],
+            environment: ["AWESOMUX_GHOSTTY_OPTIMIZE": "invalid-test-value"]
+        )
+    }
+
+    private static func run(
+        script: String,
+        arguments: [String],
+        environment: [String: String] = [:]
+    ) throws -> ShellResult {
         let root = try packageRootURL()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [root.appendingPathComponent(script).path, argument]
+        process.arguments = [root.appendingPathComponent(script).path] + arguments
         process.currentDirectoryURL = root
-        process.environment = ProcessInfo.processInfo.environment.merging([
-            "AWESOMUX_GHOSTTY_OPTIMIZE": "invalid-test-value",
-        ]) { _, testValue in testValue }
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, testValue in testValue }
 
         let stdout = Pipe()
         let stderr = Pipe()
