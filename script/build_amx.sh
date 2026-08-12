@@ -9,8 +9,8 @@ set -euo pipefail
 #
 # zmx links NONE of our vendor/ghostty: it pins its own ghostty via the Zig
 # package manager and ships a standalone binary that talks to our surface over a
-# PTY byte stream. So this build is independent of build_ghostty_xcframework.sh
-# beyond needing the same Zig toolchain (both pin 0.15.x).
+# PTY byte stream. Its Zig requirement is therefore selected independently from
+# build_ghostty_xcframework.sh.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ZMX_DIR="$ROOT_DIR/vendor/zmx"
@@ -96,8 +96,7 @@ read_required_zig_version() {
   echo "$version"
 }
 
-# Compatible == same major.minor and patch >= required. zmx and ghostty both pin
-# 0.15.x today; keeping this independent avoids coupling the two build scripts.
+# Compatible == same major.minor and patch >= required.
 zig_is_compatible() {
   local candidate="$1" required="$2" version
   [[ -x "$candidate" ]] || return 1
@@ -115,12 +114,21 @@ select_zig() {
   IFS='.' read -r major minor _ <<<"$required"
   formula="zig@$major.$minor"
 
+  if [[ -n "${AWESOMUX_ZMX_ZIG:-}" ]]; then
+    candidate="${AWESOMUX_ZMX_ZIG}"
+    [[ "$candidate" == */* ]] || candidate="$(command -v "$candidate" 2>/dev/null || echo "$candidate")"
+    if zig_is_compatible "$candidate" "$required"; then echo "$candidate"; return 0; fi
+    echo "AWESOMUX_ZMX_ZIG ('$AWESOMUX_ZMX_ZIG') is not compatible with zmx (needs $major.$minor.x >= $required)." >&2
+    exit 1
+  fi
+
+  # Backwards-compatible fallback for callers that still provide one shared
+  # Zig override. A mismatch is not fatal: Ghostty and zmx may require
+  # different minors, so continue on to zmx's own candidates.
   if [[ -n "${AWESOMUX_ZIG:-}" ]]; then
     candidate="${AWESOMUX_ZIG}"
     [[ "$candidate" == */* ]] || candidate="$(command -v "$candidate" 2>/dev/null || echo "$candidate")"
     if zig_is_compatible "$candidate" "$required"; then echo "$candidate"; return 0; fi
-    echo "AWESOMUX_ZIG ('$AWESOMUX_ZIG') is not compatible with zmx (needs $major.$minor.x >= $required)." >&2
-    exit 1
   fi
 
   local candidates=()
@@ -139,7 +147,7 @@ select_zig() {
   cat >&2 <<EOF
 zmx requires Zig $major.$minor.x (>= $required), but no compatible Zig was found.
 Install it with:  brew install $formula
-Or set AWESOMUX_ZIG=/path/to/zig before running the build.
+Or set AWESOMUX_ZMX_ZIG=/path/to/zig before running the build.
 EOF
   exit 1
 }

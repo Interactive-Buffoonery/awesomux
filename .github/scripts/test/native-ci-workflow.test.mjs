@@ -306,21 +306,19 @@ test("native release build runs once for scope=all after both test legs succeed"
   assert.match(releaseJob, /permissions:\n\s+contents: read/);
   assert.doesNotMatch(releaseJob, /checks: write|issues: write|secrets\./);
   assert.match(releaseJob, /uses: \.\/_trusted\/\.github\/actions\/prepare-native/);
-  assert.match(
-    releaseJob,
-    /if: steps\.prepare\.outcome == 'success' && steps\.prepare\.outputs\.cache-hit == 'true'/,
-  );
+  assert.match(releaseJob, /if: steps\.prepare\.outcome == 'success'/);
   assert.match(releaseJob, /id: zig/);
-  assert.match(releaseJob, /ZIG_FORMULA: \$\{\{ steps\.prepare\.outputs\.zig-formula \}\}/);
-  assert.match(releaseJob, /brew install "\$ZIG_FORMULA"/);
+  assert.match(releaseJob, /GHOSTTY_ZIG_FORMULA: \$\{\{ steps\.prepare\.outputs\.zig-formula \}\}/);
+  assert.match(releaseJob, /ZMX_ZIG_FORMULA: \$\{\{ steps\.prepare\.outputs\.zmx-zig-formula \}\}/);
+  assert.match(releaseJob, /brew install "\$ZMX_ZIG_FORMULA"/);
   assert.match(releaseJob, /echo "AWESOMUX_ZIG=.*" >> "\$GITHUB_ENV"/);
-  assert.match(releaseJob, /CACHE_HIT: \$\{\{ steps\.prepare\.outputs\.cache-hit \}\}/);
+  assert.match(releaseJob, /echo "AWESOMUX_ZMX_ZIG=.*" >> "\$GITHUB_ENV"/);
   assert.match(releaseJob, /ZIG_OUTCOME: \$\{\{ steps\.zig\.outcome \}\}/);
   assert.match(
     releaseJob,
-    /elif \[\[ "\$CACHE_HIT" == "true" && "\$ZIG_OUTCOME" != "success" \]\]; then/,
+    /elif \[\[ "\$ZIG_OUTCOME" != "success" \]\]; then/,
   );
-  assert.match(releaseJob, /Zig installation failed; release build was not executed\./);
+  assert.match(releaseJob, /Native toolchain installation failed; release build was not executed\./);
   assert.match(releaseJob, /\.\/script\/build_and_run\.sh --stage-release/);
   assert.match(releaseJob, /codesign --verify --deep --strict/);
   assert.match(releaseJob, /Signature=adhoc/);

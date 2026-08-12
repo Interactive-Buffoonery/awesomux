@@ -347,16 +347,21 @@ jobs:
         with:
           save-cache: "false"
 
-      - name: Install Zig for cached release build
+      - name: Install native toolchains for release build
         id: zig
-        if: steps.prepare.outcome == 'success' && steps.prepare.outputs.cache-hit == 'true'
+        if: steps.prepare.outcome == 'success'
         env:
           HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
-          ZIG_FORMULA: ${{ steps.prepare.outputs.zig-formula }}
+          GHOSTTY_ZIG_FORMULA: ${{ steps.prepare.outputs.zig-formula }}
+          ZMX_ZIG_FORMULA: ${{ steps.prepare.outputs.zmx-zig-formula }}
         run: |
           set -euo pipefail
-          brew install "$ZIG_FORMULA"
-          echo "AWESOMUX_ZIG=$(brew --prefix "$ZIG_FORMULA")/bin/zig" >> "$GITHUB_ENV"
+          if [[ "${{ steps.prepare.outputs.cache-hit }}" == "true" ]]; then
+            brew install "$GHOSTTY_ZIG_FORMULA"
+            echo "AWESOMUX_ZIG=$(brew --prefix "$GHOSTTY_ZIG_FORMULA")/bin/zig" >> "$GITHUB_ENV"
+          fi
+          brew install "$ZMX_ZIG_FORMULA"
+          echo "AWESOMUX_ZMX_ZIG=$(brew --prefix "$ZMX_ZIG_FORMULA")/bin/zig" >> "$GITHUB_ENV"
 
       - name: Stage release build and verify signature
         id: build
@@ -364,7 +369,6 @@ jobs:
         env:
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
-          CACHE_HIT: ${{ steps.prepare.outputs.cache-hit }}
           ZIG_OUTCOME: ${{ steps.zig.outcome }}
           LOG_PATH: .build/test-results/native-ci.log
         run: |
@@ -377,8 +381,8 @@ jobs:
           elif [[ "$PREPARE_OUTCOME" != "success" ]]; then
             echo "Native preparation failed; release build was not executed." | tee -a "$LOG_PATH" >&2
             result=failure
-          elif [[ "$CACHE_HIT" == "true" && "$ZIG_OUTCOME" != "success" ]]; then
-            echo "Zig installation failed; release build was not executed." | tee -a "$LOG_PATH" >&2
+          elif [[ "$ZIG_OUTCOME" != "success" ]]; then
+            echo "Native toolchain installation failed; release build was not executed." | tee -a "$LOG_PATH" >&2
             result=failure
           else
             set +e

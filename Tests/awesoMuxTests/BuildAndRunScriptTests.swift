@@ -179,6 +179,15 @@ struct BuildAndRunScriptTests {
         #expect(initialization.lowerBound < pinCheck.lowerBound)
     }
 
+    @Test("AMX build selects zmx Zig independently from Ghostty")
+    func amxBuildSelectsIndependentZig() throws {
+        let script = try Self.contents(of: "script/build_amx.sh")
+
+        #expect(script.contains("AWESOMUX_ZMX_ZIG"))
+        #expect(script.contains("Ghostty and zmx may require"))
+        #expect(!script.contains("both pin 0.15.x"))
+    }
+
     @Test("compiles the English string catalog into the app bundle")
     func compilesEnglishStringCatalog() throws {
         let script = try Self.contents(of: "script/build_and_run.sh")
