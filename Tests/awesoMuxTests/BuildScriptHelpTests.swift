@@ -45,6 +45,7 @@ struct BuildScriptHelpTests {
         #expect(result.output.contains("--debug, debug"))
         #expect(result.output.contains("--install, install"))
         #expect(result.output.contains("AWESOMUX_INSTALL_DIR"))
+        #expect(result.output.contains("AWESOMUX_ZMX_ZIG"))
         #expect(result.output.contains("AWESOMUX_PERF_SAMPLE_INTERVAL_SECONDS"))
         #expect(result.output.contains("AWESOMUX_PERF_SAMPLE_PORTS"))
     }

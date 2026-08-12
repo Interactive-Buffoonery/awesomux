@@ -113,8 +113,10 @@ in **Consequences**.
 ## Spike findings (evidence)
 
 Build/toolchain (Experiment A):
-- zmx and our `vendor/ghostty` both pin **`minimum_zig_version = 0.15.2`**;
-  installed `zig 0.15.2`. `zig build` → standalone `amx`/`zmx` binary in one shot.
+- zmx and `vendor/ghostty` both pinned `minimum_zig_version = 0.15.2` at the
+  time of the spike; installed `zig 0.15.2`. Current builds select each
+  submodule's declared Zig requirement independently. `zig build` → standalone
+  `amx`/`zmx` binary in one shot.
 - zmx pins its **own** ghostty via the Zig package manager and links **none** of
   our `vendor/ghostty`. The bridge is two independent VT parsers over a PTY byte
   stream, so the feared "libghostty-vt version coupling" is **not an ABI coupling

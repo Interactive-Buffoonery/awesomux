@@ -30,9 +30,9 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > libSystem's. Each is fine alone; together the combined archive carries two
 > private-extern `_memset` definitions and the static link fails with
 > `duplicate symbol '_memset'`. `74d0c72fd` is the newest commit before either
-> file existed, and it keeps `minimum_zig_version = 0.15.2` — so we also avoid
-> needing a second Zig toolchain alongside the `0.15.2` that `vendor/zmx`
-> requires. Revisit (and a release tag) once upstream resolves that collision.
+> file existed, and it keeps `minimum_zig_version = 0.15.2`. The zmx and
+> Ghostty builds select their declared Zig toolchains independently. Revisit
+> this pin (and a release tag) once upstream resolves that collision.
 
 The integration uses Ghostty's Darwin XCFramework output,
 `macos/GhosttyKit.xcframework`, produced under `.build/ghostty/` and linked from

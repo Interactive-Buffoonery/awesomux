@@ -108,6 +108,7 @@ Environment:
                                        defaults this to Debug when it is not set.
   AWESOMUX_ZIG                         Compatible Zig binary used when Ghostty artifacts
                                        need to be built.
+  AWESOMUX_ZMX_ZIG                     Compatible Zig binary used when amx needs to be built.
   AWESOMUX_INSTALL_DIR                 Install destination (default: ~/Applications).
   AWESOMUX_PERF_SAMPLE_INTERVAL_SECONDS
                                        Perf sample interval from 1 to 3600 seconds
