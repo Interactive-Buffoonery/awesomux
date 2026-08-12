@@ -819,9 +819,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appSettingsStore.general.value.restoreWorkspaces
                 || SessionPersistence.hasOutstandingRecoveryReplacement
         {
-            // The recovery gate can refuse this write. `flush` parks the state
-            // in a `session-state.unsaved-` archive when it does, but nothing
-            // else is left to surface the failure at this point in teardown.
+            // The recovery gate can refuse this write. `flush` waits at most
+            // two seconds for an approved replacement. On timeout it performs
+            // no second write to the same slow directory, so termination does
+            // not look hung indefinitely; other failures still use the
+            // `session-state.unsaved-` archive safety net.
             if case let .failure(error) = SessionPersistence.flush(sessionStore) {
                 logger.error(
                     "applicationWillTerminate sessionFlushFailed reason=\(String(describing: error), privacy: .public)"

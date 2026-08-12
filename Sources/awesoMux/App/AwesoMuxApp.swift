@@ -88,6 +88,23 @@ enum RecoveryReplacementFailurePresentation: Equatable {
     case retryOrKeep
 }
 
+enum RecoveryReplacementIndicatorState: Equatable {
+    case hidden
+    case review
+    case replacing
+    case replaced
+
+    static func resolve(
+        hasWarning: Bool,
+        isReplacing: Bool,
+        didSucceed: Bool
+    ) -> Self {
+        if isReplacing { return .replacing }
+        if hasWarning { return .review }
+        return didSucceed ? .replaced : .hidden
+    }
+}
+
 func recoveryReplacementFailurePresentation(
     for error: SessionPersistence.RecoverySnapshotReplacementError
 ) -> RecoveryReplacementFailurePresentation {
@@ -168,6 +185,7 @@ struct AwesoMuxApp: App {
     /// directly would inherit the last value — set it explicitly there.
     @State private var recoveryWarningAppearedMidSession = false
     @State private var isRecoveryReplacementInProgress = false
+    @State private var recoveryReplacementSuccessID: UUID?
     @State private var sessionSaveFailure: SessionPersistence.RecoverySnapshotReplacementError?
     @State private var floatingPanelController = TerminalPanelController(mode: .floating)
     @State private var popUpTerminalController = TerminalPanelController(mode: .companion)
@@ -359,7 +377,11 @@ struct AwesoMuxApp: App {
                 onManagedSSHWorkspaceOffer: requestManagedSSHWorkspaceOffer,
                 onReopenClosedWorkspace: reopenMostRecentlyClosedWorkspace,
                 hasRecoveryWarning: recoveryWarning != nil,
-                isRecoveryReplacementInProgress: isRecoveryReplacementInProgress,
+                recoveryReplacementIndicatorState: RecoveryReplacementIndicatorState.resolve(
+                    hasWarning: recoveryWarning != nil,
+                    isReplacing: isRecoveryReplacementInProgress,
+                    didSucceed: recoveryReplacementSuccessID != nil
+                ),
                 onReviewRecoveryWarning: reviewRecoveryWarning,
                 hasSessionSaveFailure: sessionSaveFailure != nil,
                 onRetrySessionSave: saveSessionIfRestoreEnabled,
@@ -4604,7 +4626,14 @@ extension AwesoMuxApp {
         _ warning: SessionPersistence.SessionRecoveryWarning
     ) {
         guard !isRecoveryReplacementInProgress else { return }
+        recoveryReplacementSuccessID = nil
         isRecoveryReplacementInProgress = true
+        postAccessibilityAnnouncement(
+            String(
+                localized: "Replacing saved workspace data",
+                comment: "VoiceOver announcement when a recovery replacement starts"
+            )
+        )
         Task { @MainActor in
             await completeRecoveryReplacement(warning)
             isRecoveryReplacementInProgress = false
@@ -4623,9 +4652,27 @@ extension AwesoMuxApp {
             ) {
             case .success:
                 recoveryWarning = nil
+                showRecoveryReplacementSuccess()
                 return
             case let .failure(error):
                 replacementDecision = presentRecoveryReplacementFailure(error)
+            }
+        }
+    }
+
+    private func showRecoveryReplacementSuccess() {
+        let successID = UUID()
+        recoveryReplacementSuccessID = successID
+        postAccessibilityAnnouncement(
+            String(
+                localized: "Saved workspace data replaced",
+                comment: "VoiceOver announcement after a recovery replacement succeeds"
+            )
+        )
+        Task { @MainActor in
+            try? await ContinuousClock().sleep(for: .seconds(5))
+            if recoveryReplacementSuccessID == successID {
+                recoveryReplacementSuccessID = nil
             }
         }
     }
