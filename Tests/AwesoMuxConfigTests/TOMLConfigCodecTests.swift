@@ -187,6 +187,32 @@ struct TOMLConfigCodecTests {
         #expect(!decoded.workspaces.confirmDestructivePaneActionWithRunningAgent)
     }
 
+    @Test("missing managed SSH offer fields use safe defaults")
+    func missingManagedSSHOfferFieldsUseDefaults() throws {
+        let decoded = try codec.decode(Self.v1DefaultTOML)
+
+        #expect(decoded.workspaces.managedSSHOffersEnabled)
+        #expect(decoded.workspaces.managedSSHOfferIgnoredDestinations.isEmpty)
+    }
+
+    @Test("managed SSH offer preferences round-trip")
+    func managedSSHOfferPreferencesRoundTrip() throws {
+        let config = AwesoMuxConfig(
+            workspaces: WorkspaceConfig(
+                managedSSHOffersEnabled: false,
+                managedSSHOfferIgnoredDestinations: ["build-box", "deploy@server-alias"]
+            )
+        )
+
+        let encoded = try codec.encodeString(config)
+        let decoded = try codec.decode(encoded)
+
+        #expect(encoded.contains("managed_ssh_offers_enabled = false"))
+        #expect(encoded.contains(#"managed_ssh_offer_ignored_destinations = ["build-box", "deploy@server-alias"]"#))
+        #expect(!decoded.workspaces.managedSSHOffersEnabled)
+        #expect(decoded.workspaces.managedSSHOfferIgnoredDestinations == ["build-box", "deploy@server-alias"])
+    }
+
     @Test("missing terminal table decodes clipboard writes to ask")
     func missingTerminalTableDecodesClipboardWritesToAsk() throws {
         let decoded = try codec.decode(Self.v1DefaultTOML)
