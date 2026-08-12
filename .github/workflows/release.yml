@@ -670,7 +670,7 @@ jobs:
             --arg artifact "$DMG_NAME" \
             --arg checksum "$expected_checksum" \
             '(.marketing_version == $version)
-             and (.build_number | type == "string")
+             and (.build_number | type == "string" and length > 0)
              and (.source_commit == $commit)
              and (.artifact_filename == $artifact)
              and (.sha256 == $checksum)

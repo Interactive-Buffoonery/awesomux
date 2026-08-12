@@ -734,7 +734,10 @@ distribution concern at once.
 - [x] Signing secrets never run on `pull_request` from forks.
 - [x] Release workflows use protected environments.
 - [x] Release workflows check out trusted refs only.
-- [x] Any artifact uploaded to GitHub is built from the tagged commit.
+- [x] Every artifact uploaded to GitHub is built from the approved protected
+      release ref: the exact `v*` tag commit for a tag release, or the exact
+      `main` commit approved through the `release` environment for a maintainer
+      dispatch.
 - [x] Generated artifacts include checksums and a non-secret verification summary.
 - [x] Release scripts do not read or print private signing credentials.
 - [x] Temporary keychains are deleted after CI signing.

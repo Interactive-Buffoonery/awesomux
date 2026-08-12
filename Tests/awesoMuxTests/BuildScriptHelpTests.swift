@@ -143,8 +143,11 @@ struct BuildScriptHelpTests {
         #expect(script.contains("Contents/Resources/Assets.car"))
         #expect(script.contains("Contents/Resources/terminfo/78/xterm-ghostty"))
         #expect(script.contains("read -r SUMMARY_SHA256 SUMMARY_FILENAME SUMMARY_EXTRA < \"$DMG_PATH.sha256\""))
-        #expect(script.contains("\"$SUMMARY_SHA256\" =~ ^[[:xdigit:]]{64}$"))
+        #expect(script.contains("\"$SUMMARY_SHA256\" =~ ^[0-9a-f]{64}$"))
         #expect(script.contains("\"$SUMMARY_FILENAME\" != \"$(basename \"$DMG_PATH\")\""))
+        #expect(script.contains("encoded = json.dumps(summary"))
+        #expect(script.contains("if json.loads(encoded) != summary:"))
+        #expect(!script.contains("\\\"signing_identity\\\": \\\"$SIGNING_IDENTITY\\\""))
         #expect(script.contains("gatekeeper_validation_passed"))
         #expect(script.contains("codesign_validation_passed"))
         #expect(script.contains("stapler_validation_passed"))
@@ -156,6 +159,53 @@ struct BuildScriptHelpTests {
         #expect(script.contains("if [[ \"$UNSIGNED\" -eq 0 ]]; then"))
         #expect(script.contains("NOTARY_STDERR=\"$OUTPUT_DIR/notarytool-submit-$VERSION.stderr.log\""))
         #expect(script.contains("if [[ \"$UNSIGNED\" -eq 0 ]]; then\n  echo \"Assessing Gatekeeper"))
+    }
+
+    @Test("release verification serializer escapes strings and preserves nulls")
+    func releaseVerificationSerializerEscapesStringsAndPreservesNulls() throws {
+        let script = try Self.contents(of: "script/build_release.sh")
+        let marker = "<<'PY'\n"
+        let start = try #require(script.range(of: marker)).upperBound
+        let end = try #require(script.range(of: "\nPY\n", range: start..<script.endIndex)).lowerBound
+        let serializer = String(script[start..<end])
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("awesomux-release-summary-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appendingPathComponent("verification.json")
+        let signingIdentity = #"Developer ID Application: A "B"\C"#
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "python3", "-", output.path, "1.2.3", "123",
+            "0123456789abcdef0123456789abcdef01234567", "awesoMux-1.2.3.dmg",
+            String(repeating: "a", count: 64), signingIdentity, "", "", "false", "true", "false",
+        ]
+        let input = Pipe()
+        let stderr = Pipe()
+        process.standardInput = input
+        process.standardError = stderr
+
+        try process.run()
+        input.fileHandleForWriting.write(Data(serializer.utf8))
+        try input.fileHandleForWriting.close()
+        try process.waitUntilExitEventually()
+
+        let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        if process.terminationStatus != 0 {
+            Issue.record("verification serializer failed: \(error)")
+        }
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: output)) as? [String: Any]
+        )
+        #expect(object["signing_identity"] as? String == signingIdentity)
+        #expect(object["team_id"] is NSNull)
+        #expect(object["notarization_submission_id"] is NSNull)
+        #expect(object["gatekeeper_validation_passed"] as? Bool == false)
+        #expect(object["codesign_validation_passed"] as? Bool == true)
+        #expect(object["stapler_validation_passed"] as? Bool == false)
     }
 
     private static let scripts = [

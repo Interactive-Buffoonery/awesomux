@@ -16,6 +16,7 @@ test("release workflow validates the DMG, checksum, and summary before publicati
   assert.match(verification, /CHECKSUM_PATH="\$DMG_PATH\.sha256"/);
   assert.match(verification, /SUMMARY_PATH="dist\/release\/awesoMux-\$RELEASE_VERSION\.verification\.json"/);
   assert.match(verification, /shasum -a 256 -c/);
+  assert.match(verification, /\.build_number \| type == "string" and length > 0/);
   assert.match(verification, /\.gatekeeper_validation_passed == true/);
   assert.match(verification, /\.codesign_validation_passed == true/);
   assert.match(verification, /\.stapler_validation_passed == true/);

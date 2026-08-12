@@ -352,24 +352,68 @@ fi
 
 SUMMARY_PATH="${DMG_PATH%.dmg}.verification.json"
 read -r SUMMARY_SHA256 SUMMARY_FILENAME SUMMARY_EXTRA < "$DMG_PATH.sha256"
-if [[ ! "$SUMMARY_SHA256" =~ ^[[:xdigit:]]{64}$ || "$SUMMARY_FILENAME" != "$(basename "$DMG_PATH")" || -n "${SUMMARY_EXTRA:-}" ]]; then
+if [[ ! "$SUMMARY_SHA256" =~ ^[0-9a-f]{64}$ || "$SUMMARY_FILENAME" != "$(basename "$DMG_PATH")" || -n "${SUMMARY_EXTRA:-}" ]]; then
   echo "error: release checksum must contain the artifact's SHA-256 and exact filename" >&2
   exit 1
 fi
-printf '%s\n' \
-  '{' \
-  "  \"marketing_version\": \"$VERSION\"," \
-  "  \"build_number\": \"$BUILD_NUMBER\"," \
-  "  \"source_commit\": \"$RELEASE_COMMIT\"," \
-  "  \"artifact_filename\": \"$(basename "$DMG_PATH")\"," \
-  "  \"sha256\": \"$SUMMARY_SHA256\"," \
-  "  \"signing_identity\": \"$SIGNING_IDENTITY\"," \
-  "  \"team_id\": $(if [[ -n "$TEAM_ID" ]]; then printf '\"%s\"' "$TEAM_ID"; else printf 'null'; fi)," \
-  "  \"notarization_submission_id\": $(if [[ -n "$SUBMISSION_ID" ]]; then printf '\"%s\"' "$SUBMISSION_ID"; else printf 'null'; fi)," \
-  "  \"gatekeeper_validation_passed\": $GATEKEEPER_VALIDATED," \
-  "  \"codesign_validation_passed\": $CODESIGN_VALIDATED," \
-  "  \"stapler_validation_passed\": $STAPLER_VALIDATED" \
-  '}' > "$SUMMARY_PATH"
+python3 - \
+  "$SUMMARY_PATH" \
+  "$VERSION" \
+  "$BUILD_NUMBER" \
+  "$RELEASE_COMMIT" \
+  "$(basename "$DMG_PATH")" \
+  "$SUMMARY_SHA256" \
+  "$SIGNING_IDENTITY" \
+  "$TEAM_ID" \
+  "$SUBMISSION_ID" \
+  "$GATEKEEPER_VALIDATED" \
+  "$CODESIGN_VALIDATED" \
+  "$STAPLER_VALIDATED" <<'PY'
+import json
+import sys
+
+(
+    output_path,
+    marketing_version,
+    build_number,
+    source_commit,
+    artifact_filename,
+    sha256,
+    signing_identity,
+    team_id,
+    notarization_submission_id,
+    gatekeeper_validated,
+    codesign_validated,
+    stapler_validated,
+) = sys.argv[1:]
+
+
+def parse_boolean(value):
+    if value not in {"true", "false"}:
+        raise ValueError(f"invalid verification boolean: {value}")
+    return value == "true"
+
+
+summary = {
+    "marketing_version": marketing_version,
+    "build_number": build_number,
+    "source_commit": source_commit,
+    "artifact_filename": artifact_filename,
+    "sha256": sha256,
+    "signing_identity": signing_identity,
+    "team_id": team_id or None,
+    "notarization_submission_id": notarization_submission_id or None,
+    "gatekeeper_validation_passed": parse_boolean(gatekeeper_validated),
+    "codesign_validation_passed": parse_boolean(codesign_validated),
+    "stapler_validation_passed": parse_boolean(stapler_validated),
+}
+encoded = json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True)
+if json.loads(encoded) != summary:
+    raise ValueError("release verification summary did not round-trip")
+with open(output_path, "w", encoding="utf-8") as output:
+    output.write(encoded)
+    output.write("\n")
+PY
 
 echo
 echo "Release artifact: $DMG_PATH"
