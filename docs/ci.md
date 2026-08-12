@@ -69,12 +69,13 @@ Maintainers may also dispatch the workflow manually and select `all`, `unit`,
 SHA. They are restore-only and do not populate caches.
 
 The `all` scope runs the existing interfaces rather than introducing another
-build system, split across two parallel jobs plus a release-build job:
+build system, split across three parallel jobs plus a release-build job:
 
 ```sh
 ./script/test.sh timing      # one runner, one swift test process
-./script/test.sh nontiming   # a second runner, a second swift test process
-./script/build_and_run.sh --stage-release   # after both test jobs succeed
+./script/test.sh sidebar     # a second runner, AppKit-heavy sidebar suites
+./script/test.sh nontiming   # a third runner, all remaining tests
+./script/build_and_run.sh --stage-release   # after all test jobs succeed
 codesign --verify --deep --strict --verbose=2 dist/awesoMux.app
 ```
 
@@ -84,17 +85,18 @@ own `swift test` process. Swift Testing schedules `@Test`s concurrently within
 one process regardless of the `swift test --parallel` flag; when those
 blocking calls and ~4600 unrelated tests share one process on a
 CPU-constrained hosted runner, the shared Swift Concurrency thread pool starves
-and even unrelated tests can miss real-clock deadlines. Splitting the run in
-two removes that cross-suite contention. `nontiming` is the complement (`all`
-minus the `timing` suites). Local `./script/test.sh all` and
-`./script/preflight.sh` run the same two shards sequentially, reusing the first
-shard's build for the second. This also keeps blocking timing tests from
-exhausting AppKit animation workers while main-actor UI suites are active.
+and even unrelated tests can miss real-clock deadlines. Isolating those suites
+removes that cross-suite contention. The `sidebar` shard separately bounds
+concurrent AppKit animation waits; those suites can reach the dispatch thread
+soft limit when scheduled with the rest of the target even without the timing
+suites. `nontiming` contains the remaining tests (`all` minus `timing` and
+`sidebar`). Local `./script/test.sh all` and `./script/preflight.sh` run the same
+three shards sequentially, reusing the first shard's build for the other two.
 
 Passing additional `swift test` arguments to `./script/test.sh all` preserves
 the direct single-process behavior so output options such as `--xunit-output`
-still produce one complete report. Use `timing` and `nontiming` explicitly when
-combining custom arguments with process isolation.
+still produce one complete report. Use `timing`, `sidebar`, and `nontiming`
+explicitly when combining custom arguments with process isolation.
 
 Manual `unit`/`adapter`/`system` dispatches stay single jobs, unaffected by the
 split.

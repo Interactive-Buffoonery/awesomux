@@ -274,7 +274,7 @@ test("native CI executes captured PR code with read-only permissions and restore
   }
 });
 
-test("native CI splits scope=all across isolated timing/nontiming test processes", () => {
+test("native CI splits scope=all across isolated timing/sidebar/nontiming processes", () => {
   const workflow = nativeExecutorWorkflow;
   const resolveJob = workflow.match(/\n  resolve:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
   const nativeJob = workflow.match(/\n  native:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
@@ -284,16 +284,18 @@ test("native CI splits scope=all across isolated timing/nontiming test processes
   // Splitting real-blocking-OS-call suites (sockets, subprocesses, file
   // watchers/locks) into their own swift test process keeps them from
   // starving Swift Concurrency's process-wide thread pool for ~4600
-  // unrelated tests on a CPU-constrained hosted runner (issue #162).
-  assert.match(resolveJob, /groups='\["timing","nontiming"\]'/);
+  // unrelated tests on a CPU-constrained hosted runner (issue #162). Sidebar
+  // isolation separately bounds concurrent AppKit animation waits.
+  assert.match(resolveJob, /groups='\["timing","sidebar","nontiming"\]'/);
   assert.match(resolveJob, /groups="\[\\"\$SCOPE\\"\]"/);
   assert.match(nativeJob, /strategy:\n\s+fail-fast: false\n\s+matrix:\n\s+group: \$\{\{ fromJson\(needs\.resolve\.outputs\.groups\) \}\}/);
   assert.match(nativeJob, /concurrency:\n\s+group: native-pr-.*-\$\{\{ matrix\.group \}\}/);
   assert.match(nativeJob, /name: native-ci-\$\{\{ matrix\.group \}\}-\$\{\{ needs\.resolve\.outputs\.target-sha \}\}/);
   assert.match(nativeTestScript, /timing_pattern=.*BoundedProcessRunnerTests/);
+  assert.match(nativeTestScript, /sidebar_pattern='awesoMuxTests\\\.Sidebar/);
 });
 
-test("native release build runs once for scope=all after both test legs succeed", () => {
+test("native release build runs once for scope=all after all test legs succeed", () => {
   const workflow = nativeExecutorWorkflow;
   const releaseJob = workflow.match(
     /\n  native-release-build:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/,

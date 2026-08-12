@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
     cat <<'EOF'
-Usage: ./script/test.sh <unit|adapter|system|timing|nontiming|all> [swift test arguments]
+Usage: ./script/test.sh <unit|adapter|system|timing|sidebar|nontiming|all> [swift test arguments]
 EOF
 }
 
@@ -18,8 +18,11 @@ EOF
 # firing concurrently on a CPU-constrained hosted runner starves that pool
 # for the whole binary (see issue #162). `timing`/`nontiming` split them into
 # their own process so they stop contending with everything else and with
-# each other in bulk.
+# each other in bulk. AppKit-heavy Sidebar suites also get their own process:
+# concurrent NSAnimation waits can independently exhaust the dispatch thread
+# soft limit even after the real-blocking suites are removed.
 timing_pattern='awesoMuxTests\.(ProcessCommandRunnerTests|BoundedCommandRunnerTests|BoundedProcessRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentPluginRunnerTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests|AwesoMuxTestSupportTests\.(EventRecorderTests|ProcessBoundedWaitTests)'
+sidebar_pattern='awesoMuxTests\.Sidebar[^/]*'
 
 group="${1:-}"
 if [[ -z "$group" ]]; then
@@ -43,12 +46,16 @@ case "$group" in
     timing)
         filter="^($timing_pattern)/"
         ;;
+    sidebar)
+        filter="^($sidebar_pattern)/"
+        ;;
     nontiming)
-        skip="^($timing_pattern)/"
+        skip="^($timing_pattern|$sidebar_pattern)/"
         ;;
     all)
         if [[ "$#" -eq 0 ]]; then
             "$ROOT_DIR/script/test.sh" timing
+            "$ROOT_DIR/script/test.sh" sidebar --skip-build
             exec "$ROOT_DIR/script/test.sh" nontiming --skip-build
         fi
         exec "$ROOT_DIR/script/swift-test.sh" "$@"
