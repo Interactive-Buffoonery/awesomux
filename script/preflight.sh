@@ -18,5 +18,5 @@ cd "$ROOT_DIR"
 # Sidebar tint/status chrome contrast (F44). Cheap pure-Python gate; run
 # before the Swift suite so token drift fails fast without a full build.
 python3 "$ROOT_DIR/script/check_tint_contrast.py"
-"$ROOT_DIR/script/swift-test.sh"
+"$ROOT_DIR/script/test.sh" all
 "$ROOT_DIR/script/build_and_run.sh" --verify

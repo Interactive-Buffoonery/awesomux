@@ -47,6 +47,10 @@ case "$group" in
         skip="^($timing_pattern)/"
         ;;
     all)
+        if [[ "$#" -eq 0 ]]; then
+            "$ROOT_DIR/script/test.sh" timing
+            exec "$ROOT_DIR/script/test.sh" nontiming --skip-build
+        fi
         exec "$ROOT_DIR/script/swift-test.sh" "$@"
         ;;
     -h|--help|help)
