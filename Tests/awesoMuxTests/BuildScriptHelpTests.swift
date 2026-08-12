@@ -13,6 +13,12 @@ struct BuildScriptHelpTests {
             #expect(result.output.contains("Usage:"))
             #expect(result.output.contains("AWESOMUX_GHOSTTY_OPTIMIZE"))
             #expect(result.output.contains("docs/ghostty-integration.md#build-the-xcframework"))
+            // Absence is meaningful because the three assertions above read the
+            // same buffer: every one of these scripts answers `--help` with a
+            // single `usage` heredoc then `exit 0`, before any validation and
+            // before the only backgrounded commands in the tree — so a
+            // truncated capture would fail those presence checks first rather
+            // than silently satisfying this one.
             #expect(!result.output.contains("is invalid"))
         }
     }

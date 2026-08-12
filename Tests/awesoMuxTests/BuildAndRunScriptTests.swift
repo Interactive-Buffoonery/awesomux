@@ -62,6 +62,12 @@ struct BuildAndRunScriptTests {
 
         #expect(result.exitStatus == 71, "stderr: \(result.error)")
         #expect(result.error.contains("refusing to terminate"))
+        // Absence is meaningful here despite `captureOutput` being able to
+        // return truncated output: the child is a single `bash -c` that
+        // backgrounds nothing, so no grandchild can still be writing when it
+        // exits, and the sibling test below drives this same helper with
+        // `targetIsAncestor: false` and asserts this exact marker IS present —
+        // proving the marker reaches the capture when the guard does not fire.
         #expect(!result.output.contains("kill_called=yes"))
     }
 
@@ -83,6 +89,9 @@ struct BuildAndRunScriptTests {
         let result = try Self.runSelfTerminationGuardAncestryFailureSnippet()
 
         #expect(result.exitStatus == 70, "stderr: \(result.error)")
+        // Same reasoning as the self-termination test above: one `bash -c`
+        // child, nothing backgrounded, and `terminateAppBundleKillsNonAncestorTarget`
+        // proves this marker survives the capture when `kill` is actually reached.
         #expect(!result.output.contains("kill_called=yes"), "stdout: \(result.output)")
     }
 

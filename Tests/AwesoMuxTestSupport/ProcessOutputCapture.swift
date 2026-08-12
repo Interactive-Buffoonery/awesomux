@@ -55,8 +55,8 @@ public struct ProcessOutputCaptureTimeout: Error, CustomStringConvertible {
 ///    ponytail: bounded in practice — these fixtures stub `sleep` and exit in
 ///    milliseconds. Add an output cap or an explicit reap if a fixture ever
 ///    outlives its parent for real.
-/// 3. **Invalid UTF-8 decodes to U+FFFD instead of vanishing.** Ten of the
-///    adopting call sites used `String(data:encoding:.utf8) ?? ""`, which threw
+/// 3. **Invalid UTF-8 decodes to U+FFFD instead of vanishing.** Eleven of the
+///    thirteen adopting call sites used `String(data:encoding:.utf8) ?? ""`, which threw
 ///    the entire stream away the moment one byte was malformed — a failure that
 ///    reads as "the command printed nothing". Replacement characters keep the
 ///    surrounding output readable, so this is the deliberate direction, not an
@@ -73,7 +73,16 @@ public func captureOutput(
     let fileManager = FileManager.default
     let directory = fileManager.temporaryDirectory
         .appending(path: "awesomux-capture-\(UUID().uuidString)", directoryHint: .isDirectory)
-    try fileManager.createDirectory(at: directory, withIntermediateDirectories: false)
+    // 0700 at creation, not afterwards: macOS hands out a per-user `/var/folders`
+    // temp root that is already private, but this helper is portable and Linux
+    // `$TMPDIR` defaults to a world-readable `/tmp`, where a co-tenant on a
+    // shared build host could read every captured child's output — indefinitely
+    // on the timeout path, which deliberately preserves the files.
+    try fileManager.createDirectory(
+        at: directory,
+        withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700]
+    )
     var preserveDirectory = false
     defer {
         if !preserveDirectory {

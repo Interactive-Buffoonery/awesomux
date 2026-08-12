@@ -41,12 +41,27 @@ struct ProcessOutputCaptureTests {
         // `exec` so the sleeper IS the tracked process. Without it bash forks,
         // `terminate()` reaps only bash, and the orphaned `sleep` keeps the
         // capture files open for its full 30s.
-        process.arguments = ["-c", "printf 'partial'; exec sleep 30"]
+        //
+        // The `printf` runs in a subshell because stdout here is a regular
+        // file, so it is fully buffered, and POSIX does not require `exec` to
+        // flush stdio. bash happens to, which is the only reason the bare form
+        // passes; under `/bin/sh` (dash on a Linux lane) the bytes would still
+        // be in the buffer at the deadline and this test would fail blaming the
+        // helper. A subshell flushes on its own exit regardless of `exec`.
+        process.arguments = ["-c", "(printf 'partial'); exec sleep 30"]
 
         var preserved: URL?
         defer {
-            process.terminate()
-            try? process.waitUntilExitEventually(deadline: .seconds(10))
+            // `captureOutput` throws from five statements ahead of `run()` (the
+            // mkdir, two file creations, two handle opens), so this `defer` can
+            // fire on a process that never launched. `Process.terminate()` then
+            // raises `NSInvalidArgumentException`, which Swift cannot catch —
+            // it aborts the whole test process, taking every other suite with
+            // it. `isRunning` is false both before launch and after exit.
+            if process.isRunning {
+                process.terminate()
+                try? process.waitUntilExitEventually(deadline: .seconds(10))
+            }
             if let preserved {
                 try? FileManager.default.removeItem(at: preserved)
             }

@@ -297,6 +297,12 @@ struct AgentPluginTemplateRendererTests {
             // Nothing indexed -> one hint on stderr, non-blocking exit 0, no helper run.
             let hinted = try Self.runHook(command: command, in: work, envHook: nil, mdfindLines: [])
             #expect(hinted.exitCode == 0)
+            // A whole-stream emptiness check would be satisfied unconditionally
+            // by a truncated capture, so it leans on the stderr assertion below:
+            // that hint is written by the same `/bin/sh` child on the same run,
+            // so a capture that lost stdout would have to have lost stderr too.
+            // The ladder backgrounds nothing and the `mdfind` stub exits
+            // immediately, leaving no grandchild holding the descriptors.
             #expect(hinted.stdout.isEmpty)
             #expect(hinted.stderr.contains("reinstall the awesoMux agent integration"))
         }
