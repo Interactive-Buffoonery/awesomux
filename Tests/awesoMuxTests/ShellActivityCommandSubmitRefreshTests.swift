@@ -97,8 +97,8 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(inputState.submittedSSHCommandCaptureDisabled)
     }
 
-    @Test("Command-C/U and unmodified C do not change capture")
-    func nonControlLineKeysDoNotChangeCapture() {
+    @Test("unrelated command, control, and unmodified keys do not change capture")
+    func unrelatedKeysDoNotChangeCapture() {
         let inputState = GhosttySurfaceInputState()
         inputState.submittedSSHCommandBuffer = "ssh devbox"
 
@@ -117,6 +117,12 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(
             !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
                 keyEvent(keyCode: 0x08, modifiers: [], characters: "c"),
+                to: inputState
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x00, modifiers: [.control], characters: "\u{1}"),
                 to: inputState
             )
         )
