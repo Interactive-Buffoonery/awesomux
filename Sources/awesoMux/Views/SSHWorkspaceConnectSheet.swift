@@ -40,6 +40,7 @@ struct SSHWorkspaceConnectionSubmission {
 struct SSHWorkspaceConnectSheet: View {
     let groupName: String?
     let initialDestination: String?
+    let origin: SSHWorkspaceConnectOrigin
     let onCancel: () -> Void
     let onConnect: (SSHExecution) -> Bool
 
@@ -47,16 +48,19 @@ struct SSHWorkspaceConnectSheet: View {
     @State private var destination: String
     @State private var sessionName = ""
     @State private var submission = SSHWorkspaceConnectionSubmission()
+    @State private var preferenceErrorMessage: String?
     @FocusState private var isFocused: Bool
 
     init(
         groupName: String?,
         initialDestination: String? = nil,
+        origin: SSHWorkspaceConnectOrigin,
         onCancel: @escaping () -> Void,
         onConnect: @escaping (SSHExecution) -> Bool
     ) {
         self.groupName = groupName
         self.initialDestination = initialDestination
+        self.origin = origin
         self.onCancel = onCancel
         self.onConnect = onConnect
         _destination = State(initialValue: initialDestination ?? "")
@@ -105,7 +109,7 @@ struct SSHWorkspaceConnectSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let message = validationMessage ?? settingsErrorMessage ?? submission.errorMessage {
+            if let message = validationMessage ?? preferenceErrorMessage ?? settingsErrorMessage ?? submission.errorMessage {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -124,6 +128,9 @@ struct SSHWorkspaceConnectSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
+                if origin.showsRememberActions {
+                    rememberMenu
+                }
                 Spacer()
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
@@ -178,6 +185,58 @@ struct SSHWorkspaceConnectSheet: View {
                 TerminalAccessibilityAnnouncer.announce($0, priority: .high)
             }
         )
+    }
+
+    private var rememberMenu: some View {
+        Menu("Remember…") {
+            Button("Never Ask for This Destination") {
+                neverAskForThisDestination()
+            }
+            Button("Never Ask for Any Destination") {
+                neverAskForAnyDestination()
+            }
+            Divider()
+            Button("Keep Asking") {}
+        }
+    }
+
+    private func neverAskForThisDestination() {
+        guard let initialDestination else { return }
+        preferenceErrorMessage = nil
+        appSettingsStore.workspaces.update {
+            _ = ManagedSSHOfferPolicy.addIgnoredDestination(initialDestination, to: &$0)
+        }
+        guard
+            let target = SSHWorkspaceDestinationValidation.target(from: initialDestination),
+            !ManagedSSHOfferPolicy.shouldOffer(
+                target: target,
+                config: appSettingsStore.workspaces.value
+            )
+        else {
+            showPreferenceSaveError()
+            return
+        }
+        onCancel()
+    }
+
+    private func neverAskForAnyDestination() {
+        preferenceErrorMessage = nil
+        appSettingsStore.workspaces.update { $0.managedSSHOffersEnabled = false }
+        guard !appSettingsStore.workspaces.value.managedSSHOffersEnabled else {
+            showPreferenceSaveError()
+            return
+        }
+        onCancel()
+    }
+
+    private func showPreferenceSaveError() {
+        preferenceErrorMessage =
+            appSettingsStore.latestError?.displayText
+            ?? String(
+                localized: "Couldn’t save the managed SSH setting.",
+                comment: "Error shown when awesoMux cannot save a managed SSH offer preference"
+            )
+        TerminalAccessibilityAnnouncer.announceSettingsError(preferenceErrorMessage)
     }
 
     private var declaresRemoteSession: Bool {
