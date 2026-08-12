@@ -432,15 +432,11 @@ struct AgentPluginTemplateRendererTests {
         }
         process.environment = environment
 
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-        try process.run()
-        try process.waitUntilExitEventually()
-
-        let out = String(decoding: outPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let err = String(decoding: errPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        return HookRun(stdout: out, stderr: err, exitCode: process.terminationStatus)
+        let captured = try captureOutput(of: process)
+        return HookRun(
+            stdout: captured.stdout,
+            stderr: captured.stderr,
+            exitCode: process.terminationStatus
+        )
     }
 }

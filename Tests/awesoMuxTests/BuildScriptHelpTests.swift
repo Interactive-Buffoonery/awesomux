@@ -95,18 +95,11 @@ struct BuildScriptHelpTests {
             "AWESOMUX_GHOSTTY_OPTIMIZE": "invalid-test-value",
         ]) { _, testValue in testValue }
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-        try process.waitUntilExitEventually()
-
-        let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-            + stderr.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: outputData, encoding: .utf8) ?? ""
-        return ShellResult(exitStatus: process.terminationStatus, output: output)
+        let captured = try captureOutput(of: process)
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: captured.stdout + captured.stderr
+        )
     }
 
     private static func contents(of relativePath: String) throws -> String {

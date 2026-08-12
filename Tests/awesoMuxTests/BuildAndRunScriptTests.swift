@@ -498,17 +498,12 @@ struct BuildAndRunScriptTests {
         let process = Process()
         process.executableURL = helperURL
         process.arguments = ["/bin/bash", "-c", bash]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        try process.waitUntilExitEventually()
+        let captured = try captureOutput(of: process)
 
         return ShellResult(
             exitStatus: process.terminationStatus,
-            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            output: captured.stdout,
+            error: captured.stderr
         )
     }
 
@@ -529,17 +524,12 @@ struct BuildAndRunScriptTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", bash]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        try process.waitUntilExitEventually()
+        let captured = try captureOutput(of: process)
 
         return ShellResult(
             exitStatus: process.terminationStatus,
-            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            output: captured.stdout,
+            error: captured.stderr
         )
     }
 
@@ -576,17 +566,12 @@ struct BuildAndRunScriptTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", bash]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        try process.waitUntilExitEventually()
+        let captured = try captureOutput(of: process)
 
         return ShellResult(
             exitStatus: process.terminationStatus,
-            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            output: captured.stdout,
+            error: captured.stderr
         )
     }
 
@@ -616,17 +601,12 @@ struct BuildAndRunScriptTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", bash]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        try process.waitUntilExitEventually()
+        let captured = try captureOutput(of: process)
 
         return ShellResult(
             exitStatus: process.terminationStatus,
-            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            output: captured.stdout,
+            error: captured.stderr
         )
     }
 
@@ -665,17 +645,12 @@ struct BuildAndRunScriptTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", bash]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        try process.waitUntilExitEventually()
+        let captured = try captureOutput(of: process)
 
         return ShellResult(
             exitStatus: process.terminationStatus,
-            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            output: captured.stdout,
+            error: captured.stderr
         )
     }
 
@@ -700,17 +675,12 @@ struct BuildAndRunScriptTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", bash]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        try process.waitUntilExitEventually()
+        let captured = try captureOutput(of: process)
 
         return ShellResult(
             exitStatus: process.terminationStatus,
-            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            output: captured.stdout,
+            error: captured.stderr
         )
     }
 
@@ -759,17 +729,12 @@ struct BuildAndRunScriptTests {
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", bash]
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-        try process.waitUntilExitEventually()
-
-        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ShellResult(exitStatus: process.terminationStatus, output: output, error: error)
+        let captured = try captureOutput(of: process)
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: captured.stdout,
+            error: captured.stderr
+        )
     }
 
     private static func runProcessStateSnippet(appRunningStatuses: [Int32], command: String) throws -> ShellResult {
@@ -800,17 +765,12 @@ struct BuildAndRunScriptTests {
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", bash]
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-        try process.waitUntilExitEventually()
-
-        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ShellResult(exitStatus: process.terminationStatus, output: output, error: error)
+        let captured = try captureOutput(of: process)
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: captured.stdout,
+            error: captured.stderr
+        )
     }
 
     private struct ShellResult {
