@@ -197,6 +197,17 @@ struct BuildAndRunScriptTests {
         #expect(script.contains("non-external.* _memset$"))
     }
 
+    @Test("local all-tests and preflight isolate blocking timing suites")
+    func localFullTestsUseProcessIsolation() throws {
+        let testScript = try Self.contents(of: "script/test.sh")
+        let preflight = try Self.contents(of: "script/preflight.sh")
+
+        #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" timing"))
+        #expect(testScript.contains("nontiming --skip-build"))
+        #expect(preflight.contains("\"$ROOT_DIR/script/test.sh\" all"))
+        #expect(!preflight.contains("\"$ROOT_DIR/script/swift-test.sh\""))
+    }
+
     @Test("compiles the English string catalog into the app bundle")
     func compilesEnglishStringCatalog() throws {
         let script = try Self.contents(of: "script/build_and_run.sh")

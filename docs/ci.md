@@ -86,8 +86,15 @@ blocking calls and ~4600 unrelated tests share one process on a
 CPU-constrained hosted runner, the shared Swift Concurrency thread pool starves
 and even unrelated tests can miss real-clock deadlines. Splitting the run in
 two removes that cross-suite contention. `nontiming` is the complement (`all`
-minus the `timing` suites). Local `./script/test.sh all` is unchanged — a
-single full run, since this contention is a hosted-CI symptom, not a local one.
+minus the `timing` suites). Local `./script/test.sh all` and
+`./script/preflight.sh` run the same two shards sequentially, reusing the first
+shard's build for the second. This also keeps blocking timing tests from
+exhausting AppKit animation workers while main-actor UI suites are active.
+
+Passing additional `swift test` arguments to `./script/test.sh all` preserves
+the direct single-process behavior so output options such as `--xunit-output`
+still produce one complete report. Use `timing` and `nontiming` explicitly when
+combining custom arguments with process isolation.
 
 Manual `unit`/`adapter`/`system` dispatches stay single jobs, unaffected by the
 split.
