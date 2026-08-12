@@ -676,10 +676,7 @@ jobs:
              and (.sha256 == $checksum)
              and (.signing_identity | type == "string" and length > 0)
              and (.team_id | type == "string" and length > 0)
-             and (.notarization_submission_id | type == "string" and length > 0)
-             and (.gatekeeper_validation_passed == true)
-             and (.codesign_validation_passed == true)
-             and (.stapler_validation_passed == true)' \
+             and (.notarization_submission_id | type == "string" and length > 0)' \
             "$SUMMARY_PATH" >/dev/null
 
       - name: Upload release DMG

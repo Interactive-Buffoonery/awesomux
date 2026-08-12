@@ -73,12 +73,12 @@ bundle-version handling are changed to support them first.
 
 ## Common setup checklist
 
-- [x] Confirm Apple Developer Program team access for release owners.
-- [x] Assign primary and backup release maintainers through protected environment access.
+- [ ] Confirm Apple Developer Program team access for release owners.
+- [ ] Decide release owner and backup owner.
 - [ ] Decide the public release cadence: ad hoc, milestone-based, or calendar.
-- [x] Add release metadata support to the staged `Info.plist`:
-  - [x] `CFBundleShortVersionString`
-  - [x] `CFBundleVersion`
+- [ ] Add release metadata support to the staged `Info.plist`:
+  - [ ] `CFBundleShortVersionString`
+  - [ ] `CFBundleVersion`
   - [ ] optional channel/build metadata visible in About UI later
 - [ ] Decide bundle IDs:
   - [ ] Public GitHub release bundle ID.
@@ -90,15 +90,15 @@ bundle-version handling are changed to support them first.
   - [ ] Add `awesomux@beta` only if beta Homebrew installs are useful.
   - [ ] Submit to `Homebrew/homebrew-cask` later only after stable public
         releases have enough public usage and the cask passes audit.
-- [x] Create required certificates and credentials:
-  - [x] Developer ID Application certificate for GitHub releases.
-  - [x] Notary credentials for `xcrun notarytool`.
-- [x] Decide where secrets live:
-  - [x] GitHub Actions environment secrets for automated GitHub releases.
-  - [x] Local maintainer keychain for manual first releases.
-- [x] Protect release workflows so signing secrets only run on trusted refs.
+- [ ] Create required certificates and credentials:
+  - [ ] Developer ID Application certificate for GitHub releases.
+  - [ ] Notary credentials for `xcrun notarytool`.
+- [ ] Decide where secrets live:
+  - [ ] GitHub Actions environment secrets for automated GitHub releases.
+  - [ ] Local maintainer keychain for manual first releases.
+- [ ] Protect release workflows so signing secrets only run on trusted refs.
 - [ ] Add release notes/changelog convention.
-- [x] Add a rollback policy for bad releases (see [Withdrawal and rollback](#withdrawal-and-rollback)).
+- [ ] Add a rollback policy for bad releases.
 
 ## Pre-release freeze checklist
 
@@ -132,7 +132,7 @@ bundle-version handling are changed to support them first.
   - [ ] fixes
   - [ ] known issues
   - [ ] upgrade notes
-  - [x] verification summary
+  - [ ] verification summary
 
 ## GitHub Releases path
 
@@ -154,42 +154,41 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [x] signing identity
   - [x] output directory
   - [x] notarization keychain profile (`--notary-profile`)
-- [x] Build from a clean checkout:
-  - [x] `git submodule update --init --recursive`
-  - [x] `./script/ensure_ghostty_artifacts.sh`
-  - [x] `./script/build_amx.sh`
-  - [x] `swift build -c release`
-- [x] Stage `awesoMux.app` exactly like the local script does:
-  - [x] app executable
-  - [x] `awesoMuxAgentHook`
-  - [x] `awesoMuxBridgeHelper`
-  - [x] `amx` session-backend binary
-  - [x] Ghostty `share` resources
-  - [x] agent integrations
-  - [x] app icon
-  - [x] bundled fonts
-  - [x] license resources
-- [x] Sign with Developer ID Application:
-  - [x] app binary
-  - [x] bundled helper executables (`awesoMuxAgentHook`, `awesoMuxBridgeHelper`, `amx`)
-  - [x] nested code, if any
-  - [x] final app bundle with hardened runtime
-  - [x] entitlements match ADR-0019
-- [x] Verify signing:
-  - [x] `codesign --verify --deep --strict --verbose=2 dist/awesoMux.app`
-  - [x] inspect entitlements
-- [x] Package the app:
-  - [x] create the `.dmg`
-  - [x] preserve the signed bundle exactly
-  - [x] remove `com.apple.quarantine` from release inputs
-- [x] Notarize packaged artifact with `xcrun notarytool`.
-- [x] Staple the notarization ticket.
-- [x] Verify Gatekeeper assessment:
-  - [x] `spctl --assess --type execute --verbose <mounted-app>`
-  - [x] `stapler validate <artifact>`
-- [x] Generate checksums:
-  - [x] SHA-256 for every downloadable artifact
-  - [x] Generate and publish the non-secret verification summary beside the DMG and checksum.
+- [ ] Build from a clean checkout:
+  - [ ] `git submodule update --init --recursive`
+  - [ ] `./script/ensure_ghostty_artifacts.sh`
+  - [ ] `./script/build_amx.sh`
+  - [ ] `swift build -c release`
+- [ ] Stage `awesoMux.app` exactly like the local script does:
+  - [ ] app executable
+  - [ ] `awesoMuxAgentHook`
+  - [ ] `amx` session-backend binary
+  - [ ] Ghostty `share` resources
+  - [ ] agent integrations
+  - [ ] app icon
+  - [ ] bundled fonts
+  - [ ] license resources
+- [ ] Sign with Developer ID Application:
+  - [ ] app binary
+  - [ ] bundled helper executables (`awesoMuxAgentHook`, `amx`)
+  - [ ] nested code, if any
+  - [ ] final app bundle with hardened runtime
+  - [ ] entitlements match ADR-0019
+- [ ] Verify signing:
+  - [ ] `codesign --verify --deep --strict --verbose=2 dist/awesoMux.app`
+  - [ ] inspect entitlements
+- [ ] Package the app:
+  - [ ] create the `.dmg`
+  - [ ] preserve the signed bundle exactly
+  - [ ] remove `com.apple.quarantine` from release inputs
+- [ ] Notarize packaged artifact with `xcrun notarytool`.
+- [ ] Staple the notarization ticket.
+- [ ] Verify Gatekeeper assessment:
+  - [ ] `spctl --assess --type execute --verbose dist/awesoMux.app`
+  - [ ] `stapler validate <artifact>`
+- [ ] Generate checksums:
+  - [ ] SHA-256 for every downloadable artifact
+  - [ ] Generate and publish the non-secret verification summary beside the DMG and checksum.
 
 The DMG is the outermost distributed container: sign the app and DMG, submit
 only the DMG to Apple's notary service, then staple and validate the DMG. After
@@ -198,53 +197,38 @@ a draft and verify its downloaded DMG on another Mac before the next tag.
 
 ### Maintainer release operations
 
-Before a release, the primary release maintainer confirms that the backup can
-access the protected `release` environment and the local notary profile; the
-backup takes over only when the primary explicitly hands off the run. Current
-ownership is defined by protected environment access rather than this document.
+Release ownership follows access to the protected `release` environment. Before
+a release, confirm that both the primary and backup maintainer have access.
 
-Developer ID setup is maintainer-only. Install the Developer ID Application
-certificate in the maintainer keychain, then confirm it is visible without
-printing private material:
+Install the Developer ID Application certificate in the maintainer keychain and
+confirm it is visible without printing private material:
 
 ```sh
 security find-identity -v -p codesigning
 ```
 
-The GitHub `release` environment stores the base64 certificate, certificate
-password, and notary API-key values under the names documented above. The
-workflow imports them into a temporary keychain and deletes that keychain after
-the run. Do not commit certificates, export passwords, API keys, or key paths.
-
-For a local run, store notary credentials in a keychain profile named
-`awesomux-notary`:
+Store local notary credentials in the `awesomux-notary` keychain profile. Do not
+commit certificates, passwords, API keys, or their paths.
 
 ```sh
 xcrun notarytool store-credentials awesomux-notary \
   --key <AuthKey.p8> --key-id <KEY_ID> --issuer <ISSUER_ID>
 ```
 
-Manual release command:
+From a clean checkout with initialized submodules, run:
 
 ```sh
-git submodule update --init --recursive
-./script/ensure_ghostty_artifacts.sh
-./script/build_amx.sh
 ./script/build_release.sh \
   --version X.Y.Z \
   --identity "Developer ID Application: Name (TEAMID)" \
-  --notary-profile awesomux-notary \
-  --output dist/release
+  --notary-profile awesomux-notary
 ```
 
-The script requires a clean worktree, stages the app, signs nested executables
-inside-out, creates `awesoMux-X.Y.Z.dmg`, writes its `.sha256`, and writes
-`awesoMux-X.Y.Z.verification.json`. `--unsigned` is only a local staging/DMG
-dry run and is never distributable.
+The output directory contains the DMG, checksum, and verification JSON. The
+`--unsigned` mode is a local packaging check and is never distributable.
 
-If notarization is interrupted after submission, keep the retained
-`dist/release/notarytool-submission-id-X.Y.Z.txt` file. Resume without creating
-a second submission:
+If notarization is interrupted, use the retained submission ID instead of
+creating another submission:
 
 ```sh
 submission_id="$(tr -d '[:space:]' < dist/release/notarytool-submission-id-X.Y.Z.txt)"
@@ -253,7 +237,8 @@ xcrun notarytool log "$submission_id" --keychain-profile awesomux-notary notariz
 xcrun stapler staple dist/release/awesoMux-X.Y.Z.dmg
 ```
 
-Verify the exact downloaded DMG and its mounted app before release publication:
+Before publication, download the exact DMG and checksum through the same public
+path users will use, then verify the container and mounted app:
 
 ```sh
 shasum -a 256 -c awesoMux-X.Y.Z.dmg.sha256
@@ -264,19 +249,15 @@ codesign --verify --deep --strict "/Volumes/awesoMux/awesoMux.app"
 spctl --assess --type execute --verbose "/Volumes/awesoMux/awesoMux.app"
 ```
 
-For certificate rotation, provision and verify the replacement Developer ID
-certificate, update the protected environment, replace the local notary
-profile only if its API key was rotated, and run an unsigned dry run followed
-by a protected release validation. Revoke the old certificate only after the
-replacement release path has passed; never put either credential in the repo.
+When rotating certificates, install and verify the replacement, update the
+protected environment, and complete a signed release validation before revoking
+the old certificate.
 
 ### Withdrawal and rollback
 
-Do not retag or replace a published commit. If a release is unsafe, stop the
-announcement, mark the GitHub release as withdrawn/prerelease with a warning,
-and remove only its downloadable assets after maintainer approval. Cut a new
-patch release from the fixed commit, then update downstream consumers from the
-new version. Preserve the old verification record for audit purposes.
+Do not retag or silently replace an artifact. Mark an unsafe release as
+withdrawn, remove its downloads after maintainer approval, and publish the fix
+as a new version. Preserve its verification record for the audit trail.
 
 Releases also include static Linux bridge-helper binaries for x86_64 and
 aarch64, built by the `linux-helper` job (`script/build_linux_helper.sh`) and
@@ -287,7 +268,7 @@ instructions live in `docs/remote-linux-helper.md`.
   - [x] only runs on protected `v*` tags or manual maintainer dispatch
         (tag push and `workflow_dispatch` are the only triggers; both gated by
         the `release` environment and an in-workflow ref assertion)
-- [x] checks out submodules
+  - [ ] checks out submodules
   - [x] imports signing cert into a temporary keychain
   - [x] builds and signs
   - [x] notarizes and staples
@@ -325,12 +306,12 @@ newer concurrent dispatch replaces the queued (not running) run rather than
 lining up behind it. Coordinate with other maintainers before dispatching so
 a queued run isn't silently dropped.
 
-**Cancelled/timed-out runs can outlive their Apple notarization submissions.**
-The workflow retains the submission ID as a debug artifact; a maintainer can
-resume locally using the recovery commands above, without creating a second
-submission. The workflow itself has no automatic resume path, so a fresh
-release run starts from the build step. Checking an orphaned submission
-requires the local notary profile and never prints its credentials.
+**Cancelled/timed-out runs orphan Apple notarization submissions.** This is
+harmless — Apple just holds an unresolved submission — but the CI run itself
+has no resume path; re-dispatch from scratch. Checking an orphaned
+submission's status requires a local `xcrun notarytool store-credentials`
+run with the same three notary secrets (`NOTARY_KEY_P8`, `NOTARY_KEY_ID`,
+`NOTARY_ISSUER_ID`).
 
 ### Nightly lane
 
@@ -436,7 +417,7 @@ organization tap. Cask updates never push directly to the tap's `main` branch.
 - [ ] Point the cask at the GitHub Release artifact, not at CI artifacts,
       TestFlight builds, or unversioned downloads.
 - [ ] Keep the cask URL filename stable and versioned, for example:
-      `awesoMux-X.Y.Z.dmg`.
+      `awesoMux-0.1.0.dmg`.
 - [ ] Confirm the GitHub artifact is Developer ID signed, notarized, stapled,
       and Gatekeeper-accepted before updating the cask.
 - [ ] Confirm the release artifact SHA-256 matches the cask `sha256`.
@@ -486,7 +467,7 @@ cask declares `depends_on arch: :arm64`.
 
 ```ruby
 cask "awesomux" do
-  version "X.Y.Z"
+  version "0.1.0"
   sha256 "<sha256-of-release-artifact>"
 
   url "https://github.com/Interactive-Buffoonery/awesomux/releases/download/v#{version}/awesoMux-#{version}.dmg",
@@ -731,16 +712,13 @@ distribution concern at once.
 
 ## Security checklist
 
-- [x] Signing secrets never run on `pull_request` from forks.
-- [x] Release workflows use protected environments.
-- [x] Release workflows check out trusted refs only.
-- [x] Every artifact uploaded to GitHub is built from the approved protected
-      release ref: the exact `v*` tag commit for a tag release, or the exact
-      `main` commit approved through the `release` environment for a maintainer
-      dispatch.
-- [x] Generated artifacts include checksums and a non-secret verification summary.
-- [x] Release scripts do not read or print private signing credentials.
-- [x] Temporary keychains are deleted after CI signing.
+- [ ] Signing secrets never run on `pull_request` from forks.
+- [ ] Release workflows use protected environments.
+- [ ] Release workflows check out trusted refs only.
+- [ ] Any artifact uploaded to GitHub is built from the tagged commit.
+- [ ] Generated artifacts include checksums.
+- [ ] Release scripts do not read or print private signing credentials.
+- [ ] Temporary keychains are deleted after CI signing.
 - [ ] App Store Connect API keys are scoped as narrowly as practical.
 - [ ] Homebrew cask updates point only to signed, notarized public release
       artifacts.
@@ -751,10 +729,10 @@ distribution concern at once.
 
 ## Follow-up issue checklist
 
-- [x] Implement release metadata stamping.
-- [x] Create Developer ID release script.
-- [x] Create notarized GitHub release workflow.
-- [x] Add checksum generation and verification docs.
+- [ ] Implement release metadata stamping.
+- [ ] Create Developer ID release script.
+- [ ] Create notarized GitHub release workflow.
+- [ ] Add checksum generation and verification docs.
 - [x] Use `.dmg` for the GitHub release artifact.
 - [x] Create a dedicated issue for the Homebrew cask.
 - [x] Create `Interactive-Buffoonery/homebrew-tap`.
@@ -767,7 +745,7 @@ distribution concern at once.
 - [ ] Add TestFlight tester group and feedback routing docs.
 - [ ] Decide whether a thin Xcode wrapper is needed for TestFlight.
 - [ ] Add release notes template.
-- [x] Add rollback/withdrawal playbook.
+- [ ] Add rollback/withdrawal playbook.
 
 ## External references
 
