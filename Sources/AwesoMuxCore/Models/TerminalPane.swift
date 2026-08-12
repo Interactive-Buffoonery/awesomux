@@ -358,7 +358,7 @@ public extension TerminalPane {
     // runtime-mutable (`empty` → `established` on attach) and nothing renders
     // it, so folding it into equality would spuriously re-render on establish —
     // the exact failure mode the runtime-field exclusion exists to prevent.
-    public static func == (lhs: TerminalPane, rhs: TerminalPane) -> Bool {
+    static func == (lhs: TerminalPane, rhs: TerminalPane) -> Bool {
         lhs.id == rhs.id
             && lhs.title == rhs.title
             && lhs.isTitleUserEdited == rhs.isTitleUserEdited
@@ -376,7 +376,7 @@ public extension TerminalPane {
             && lhs.remoteReconnect == rhs.remoteReconnect
     }
 
-    public func hash(into hasher: inout Hasher) {
+    func hash(into hasher: inout Hasher) {
         hasher.combine(id)
         hasher.combine(title)
         hasher.combine(isTitleUserEdited)

@@ -473,15 +473,17 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         // headless test harness), where queued main-queue blocks would starve
         // behind the block that is currently running.
         RunLoop.main.perform(inModes: [.common]) { [weak self] in
-            guard let self else { return }
-            // Reset AFTER the pass: setFrameSize inside it can synchronously
-            // re-post frameDidChange (legacy scroller show/hide reclaims clip
-            // width), and re-arming on that self-induced notification would
-            // ping-pong between two wrap widths forever at the scroller
-            // threshold. Swallowing it is safe — the pass just ran against the
-            // final clip geometry of this runloop turn.
-            self.updateDocumentGeometry()
-            self.geometryPassScheduled = false
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Reset AFTER the pass: setFrameSize inside it can synchronously
+                // re-post frameDidChange (legacy scroller show/hide reclaims clip
+                // width), and re-arming on that self-induced notification would
+                // ping-pong between two wrap widths forever at the scroller
+                // threshold. Swallowing it is safe — the pass just ran against the
+                // final clip geometry of this runloop turn.
+                self.updateDocumentGeometry()
+                self.geometryPassScheduled = false
+            }
         }
     }
 

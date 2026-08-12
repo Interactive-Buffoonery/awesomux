@@ -18,6 +18,9 @@ IDENTITY="Developer ID Application"
 NOTARY_PROFILE="awesomux-notary"
 OUTPUT_DIR="$ROOT_DIR/dist/release"
 UNSIGNED=0
+SIGNING_IDENTITY="ad-hoc"
+TEAM_ID=""
+SUBMISSION_ID=""
 
 usage() {
   cat <<'USAGE'
@@ -140,6 +143,24 @@ for exe in awesoMux awesoMuxAgentHook awesoMuxBridgeHelper amx; do
   fi
 done
 
+required_bundle_paths=(
+  "Contents/Resources/AppIcon.icns"
+  "Contents/Resources/Assets.car"
+  "Contents/Resources/AgentIntegrations"
+  "Contents/Resources/Fonts/HackNerdFontMono"
+  "Contents/Resources/Licenses/Ghostty/LICENSE"
+  "Contents/Resources/ghostty/shell-integration"
+  "Contents/Resources/terminfo/78/xterm-ghostty"
+  "Contents/Resources/en.lproj/Localizable.strings"
+  "Contents/Resources/en.lproj/Localizable.stringsdict"
+)
+for path in "${required_bundle_paths[@]}"; do
+  if [[ ! -e "$APP_BUNDLE/$path" ]]; then
+    echo "error: required staged bundle resource is missing: $path" >&2
+    exit 1
+  fi
+done
+
 # dist/awesoMux.app is shared with every build_and_run.sh mode; a dev build
 # started during the (long) notarization wait would mutate it mid-release.
 # Work on a private copy so nothing can race the release.
@@ -205,6 +226,13 @@ if [[ "$UNSIGNED" -eq 0 ]]; then
   # Assert the signature is the one we meant: Developer ID authority, secure
   # timestamp, Hardened Runtime — before spending a notarization round-trip.
   SIGN_INFO="$(codesign -dvvv "$APP_BUNDLE" 2>&1)"
+  SIGNING_IDENTITY="$(awk -F= '/^Authority=/{print $2; exit}' <<<"$SIGN_INFO")"
+  TEAM_ID="$(awk -F= '/^TeamIdentifier=/{print $2; exit}' <<<"$SIGN_INFO")"
+  if [[ -z "$SIGNING_IDENTITY" || -z "$TEAM_ID" ]]; then
+    echo "error: bundle signature did not expose a signing identity and Team ID" >&2
+    echo "$SIGN_INFO" >&2
+    exit 1
+  fi
   for want in "Authority=Developer ID Application" "Timestamp=" "runtime"; do
     if ! grep -q "$want" <<<"$SIGN_INFO"; then
       echo "error: bundle signature missing expected marker: $want" >&2
@@ -311,9 +339,28 @@ if [[ -n "$(git -C "$ROOT_DIR" status --porcelain | grep -v '^??' || true)" || "
   exit 1
 fi
 
+if [[ ! -s "$DMG_PATH" || ! -s "$DMG_PATH.sha256" ]]; then
+  echo "error: validated release artifact or checksum is missing" >&2
+  exit 1
+fi
+
+SUMMARY_PATH="${DMG_PATH%.dmg}.verification.json"
+SUMMARY_SHA256="$(cut -d ' ' -f 1 "$DMG_PATH.sha256")"
+/usr/bin/plutil -create xml1 "$SUMMARY_PATH"
+/usr/bin/plutil -insert marketing_version -string "$VERSION" "$SUMMARY_PATH"
+/usr/bin/plutil -insert build_number -string "$BUILD_NUMBER" "$SUMMARY_PATH"
+/usr/bin/plutil -insert source_commit -string "$RELEASE_COMMIT" "$SUMMARY_PATH"
+/usr/bin/plutil -insert artifact_filename -string "$(basename "$DMG_PATH")" "$SUMMARY_PATH"
+/usr/bin/plutil -insert sha256 -string "$SUMMARY_SHA256" "$SUMMARY_PATH"
+/usr/bin/plutil -insert signing_identity -string "$SIGNING_IDENTITY" "$SUMMARY_PATH"
+/usr/bin/plutil -insert team_id -string "$TEAM_ID" "$SUMMARY_PATH"
+/usr/bin/plutil -insert notarization_submission_id -string "$SUBMISSION_ID" "$SUMMARY_PATH"
+/usr/bin/plutil -convert json "$SUMMARY_PATH"
+
 echo
 echo "Release artifact: $DMG_PATH"
 echo "Checksum:         $DMG_PATH.sha256"
+echo "Verification:     $SUMMARY_PATH"
 echo "Version:          $VERSION ($BUILD_NUMBER)"
 echo "Commit:           $RELEASE_COMMIT  <- tag exactly this"
 if [[ "$UNSIGNED" -eq 1 ]]; then
