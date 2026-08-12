@@ -490,18 +490,18 @@ final class CommandBridgeEnactor {
         return true
     }
 
-    /// libghostty's child-exited action, which for a remote-owned pane is the
-    /// only prompt exit signal there is. Returns `true` when this pane took the
-    /// exit over, which also tells libghostty to skip its own "Process exited.
-    /// Press any key to close the terminal." screen.
+    /// libghostty's child-exited action is the prompt exit signal for every
+    /// managed attach. Returns `true` when this pane took the exit over, which
+    /// also tells libghostty to skip its own "Process exited. Press any key to
+    /// close the terminal." screen.
     ///
     /// Setting a surface `command` forces `wait-after-command` on inside
     /// libghostty's embedded apprt, so the child's exit parks the surface at
     /// that screen and the close callback driving `handleProcessExit` does not
-    /// fire until a key is pressed. A bridge pane never notices — its status
-    /// feed's `session-end` is the runtime signal it acts on — but a remote-owned
-    /// pane has no status feed, so without this its close (clean or failed) sat
-    /// behind a keypress.
+    /// fire until a key is pressed. A normal bridge pane usually notices through
+    /// its status feed's `session-end` signal, but an attach client can die
+    /// before writing it; a remote-owned pane has no status feed at all. Without
+    /// this, either path can sit behind a keypress.
     ///
     /// Enacts on a LATER main-actor turn, and that is load-bearing rather than
     /// stylistic. `Surface.childExited` keeps using the surface after this
@@ -514,9 +514,11 @@ final class CommandBridgeEnactor {
     /// now). `closeSurface`, the callback this pane's exit used to arrive
     /// through, has always hopped the same way.
     func handleChildExited() -> Bool {
-        guard host.pane.executionPlan.remoteOwnedExecution != nil,
-            sessionID != nil
-        else {
+        // A non-nil bridge session is the managed-attach identity. Local-shell
+        // fallback and session-repoint paths clear it before a plain shell can
+        // receive this action, so an unsupervised local shell still returns
+        // false.
+        guard sessionID != nil else {
             return false
         }
         // Already supervising: claim the action anyway (suppressing libghostty's
@@ -528,7 +530,11 @@ final class CommandBridgeEnactor {
         // `beginExitSupervision` clears it.
         exitResolutionPending = true
         Task { @MainActor [weak self] in
-            self?.beginExitSupervision(exitCode: nil)
+            guard let self else { return }
+            // COMMAND_FINISHED is also delivered on a main-actor task and may
+            // land after child-exited. Read the cache on this deferred turn so
+            // statusless supervision sees that exit code before clearing it.
+            self.beginExitSupervision(exitCode: self.host.commandExitCache.exitCode)
         }
         return true
     }
