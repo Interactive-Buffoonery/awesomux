@@ -111,14 +111,16 @@ jobs:
             exit 1
           fi
 
-          # `all` runs as two independent `swift test` processes (`timing` /
-          # `nontiming`, see script/test.sh) so the suites that make real
+          # `all` runs as three independent `swift test` processes (`timing` /
+          # `sidebar` / `nontiming`, see script/test.sh) so suites that make real
           # blocking OS calls (sockets, subprocesses, file watchers, file
           # locks) don't share one process-wide Swift Concurrency thread pool
-          # with ~4600 other tests on a CPU-constrained hosted runner (#162).
+          # with ~4600 other tests on a CPU-constrained hosted runner (#162),
+          # and AppKit animation waits cannot exhaust that pool while the rest
+          # of the target is active.
           # Single-scope dispatches (unit/adapter/system) stay one job each.
           if [[ "$SCOPE" == "all" ]]; then
-            groups='["timing","nontiming"]'
+            groups='["timing","sidebar","nontiming"]'
           else
             groups="[\"$SCOPE\"]"
           fi
