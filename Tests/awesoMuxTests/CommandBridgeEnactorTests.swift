@@ -541,11 +541,91 @@ struct CommandBridgeEnactorTests {
         #expect(consumed == 1)
     }
 
-    /// Returning false leaves libghostty's own child-exit handling in place. A
-    /// local or bridged pane still has it (the bridge acts on its status feed
-    /// instead), so only the remote-owned pane may claim the action.
-    @Test("a pane that is not remote-owned leaves the child-exited action alone")
-    func nonRemoteOwnedChildExitIsNotClaimed() throws {
+    /// An ordinary bridge attach has the same wait-after-command hazard as a
+    /// remote-owned attach when its client dies before writing session-end.
+    @Test("an ordinary bridge child exit claims the action and defers supervision")
+    func ordinaryBridgeChildExitDefersSupervision() async throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "99999999-9999-4999-8999-999999999999"))
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: establishedMetadata,
+                title: "silent bridge",
+                workingDirectory: "/tmp/silent-bridge",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+
+        enactor.sessionID = fixture.sessionID
+        enactor.beginStatusWatch(channel: channel)
+        #expect(enactor.statusWatcher?.isArmed == true)
+
+        // No session-end was written: this is the killed/crashed attach-client
+        // shape, not a direct beginExitSupervision shortcut.
+        #expect(fixture.view.handleChildExited())
+        #expect(enactor.sessionID == fixture.sessionID)
+        #expect(!enactor.exitProbeInFlight)
+        #expect(fixture.livePane != nil)
+
+        await Task.yield()
+
+        #expect(!enactor.errorLatched)
+        #expect(enactor.respawnLedger.respawnAttempts == 1)
+        #expect(fixture.livePane != nil)
+    }
+
+    @Test("a statusless bridge child exit uses the legacy supervision fallback")
+    func statuslessBridgeChildExitUsesLegacyFallback() async throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "88888888-8888-4888-8888-888888888888"))
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: establishedMetadata,
+                title: "statusless bridge",
+                workingDirectory: "/tmp/statusless-bridge",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        var sessionExistenceProbes = 0
+        enactor.sessionExistsProvider = { sessionID in
+            #expect(sessionID == fixture.sessionID)
+            sessionExistenceProbes += 1
+            return true
+        }
+
+        enactor.sessionID = fixture.sessionID
+        #expect(enactor.statusWatcher == nil)
+
+        #expect(fixture.view.handleChildExited())
+        // libghostty can deliver COMMAND_FINISHED on its queued main-actor hop
+        // after the synchronous child-exited decision.
+        fixture.view.commandExitCache.record(
+            exitCode: 0,
+            at: Date().timeIntervalSinceReferenceDate
+        )
+        #expect(enactor.sessionID == fixture.sessionID)
+        #expect(!enactor.exitProbeInFlight)
+
+        await Task.yield()
+        await waitForLegacyProbeToSettle(enactor)
+
+        #expect(sessionExistenceProbes == 1)
+        #expect(!enactor.errorLatched)
+        #expect(fixture.livePane != nil)
+    }
+
+    /// A plain local shell has no managed bridge identity, so libghostty keeps
+    /// its normal child-exit handling and press-any-key behavior.
+    @Test("a local shell pane leaves the child-exited action alone")
+    func localShellChildExitIsNotClaimed() throws {
         let sessionID = try #require(
             TerminalSessionID(rawValue: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"))
         let fixture = try makeFixture(
@@ -557,7 +637,6 @@ struct CommandBridgeEnactorTests {
                 executionPlan: .local
             )
         )
-        fixture.view.commandBridgeEnactor.sessionID = sessionID
 
         #expect(!fixture.view.handleChildExited())
         #expect(fixture.livePane != nil)
