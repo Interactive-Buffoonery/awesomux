@@ -188,6 +188,15 @@ struct BuildAndRunScriptTests {
         #expect(!script.contains("both pin 0.15.x"))
     }
 
+    @Test("Ghostty build removes the duplicate private-external memset")
+    func ghosttyBuildLocalizesCompilerRTMemset() throws {
+        let script = try Self.contents(of: "script/build_ghostty_xcframework.sh")
+
+        #expect(script.contains("localize_compiler_rt_memset"))
+        #expect(script.contains("xcrun nmedit -R /dev/stdin compiler_rt.o"))
+        #expect(script.contains("non-external.* _memset$"))
+    }
+
     @Test("compiles the English string catalog into the app bundle")
     func compilesEnglishStringCatalog() throws {
         let script = try Self.contents(of: "script/build_and_run.sh")

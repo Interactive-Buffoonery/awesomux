@@ -4,7 +4,7 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `74d0c72fd9318ad3ab95bfb56f6c2d995e267e2e` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `9f9b8d1d0525e63106cfc0ea19775056b205ffb5` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
@@ -22,17 +22,11 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > page decompress it synchronously and leave it resident — see the ceiling
 > notes in `Sources/AwesoMuxConfig/GhosttyRuntimeDefaults.swift`.
 >
-> The pin stops short of upstream `main` on purpose. Upstream `f2a7652ab`
-> ("mitchell's touchups") added two Zig-0.16-era workarounds in one commit —
-> `src/quirks_memset.zig`, which exports a hand-vectorized `memset` from
-> `main_c.zig` with hidden visibility, and `src/build/libsystem_override.sh`,
-> an `nmedit` pass that localizes compiler_rt's `_memset` so consumers bind
-> libSystem's. Each is fine alone; together the combined archive carries two
-> private-extern `_memset` definitions and the static link fails with
-> `duplicate symbol '_memset'`. `74d0c72fd` is the newest commit before either
-> file existed, and it keeps `minimum_zig_version = 0.15.2`. The zmx and
-> Ghostty builds select their declared Zig toolchains independently. Revisit
-> this pin (and a release tag) once upstream resolves that collision.
+> The pin now includes Ghostty's Zig 0.16 static-link workarounds. Its current
+> archive post-processor leaves compiler-rt's `_memset` private-external, which
+> ld64 still rejects beside Ghostty's own override; our build script finishes
+> that one-symbol localization before publishing the archive. The zmx and
+> Ghostty builds select their declared Zig toolchains independently.
 
 The integration uses Ghostty's Darwin XCFramework output,
 `macos/GhosttyKit.xcframework`, produced under `.build/ghostty/` and linked from

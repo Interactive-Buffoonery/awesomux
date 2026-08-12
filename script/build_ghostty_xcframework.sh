@@ -83,6 +83,30 @@ find_archive() {
   esac
 }
 
+# Ghostty's Zig 0.16 post-processor leaves compiler-rt's `_memset` as a
+# private-external symbol. ld64 still rejects that alongside Ghostty's own
+# private-external override, so finish the localization before publishing.
+# This becomes a no-op once upstream makes the symbol truly non-external.
+localize_compiler_rt_memset() {
+  local archive="$1"
+  local temp_dir
+
+  xcrun ar t "$archive" | grep -x 'compiler_rt.o' >/dev/null || return 0
+  temp_dir="$(mktemp -d)"
+  (
+    trap 'rm -rf "$temp_dir"' EXIT
+    cd "$temp_dir"
+    xcrun ar x "$archive" compiler_rt.o
+    chmod 644 compiler_rt.o
+
+    xcrun nm -m compiler_rt.o | grep 'private external _memset$' >/dev/null || exit 0
+    printf '_memset\n' | xcrun nmedit -R /dev/stdin compiler_rt.o
+    xcrun nm -m compiler_rt.o | grep 'non-external.* _memset$' >/dev/null
+    xcrun ar r "$archive" compiler_rt.o
+    xcrun ranlib "$archive"
+  )
+}
+
 # On Xcode 26.4, downloaded Metal can be reachable only through its toolchain
 # identifier, not plain `xcrun metal`.
 select_metal_toolchain() {
@@ -353,7 +377,9 @@ mkdir -p "$STAGING_DIR/GhosttyKit.xcframework/macos-arm64/Headers"
 cp "$GHOSTTY_DIR/include/ghostty.h" "$STAGING_DIR/GhosttyKit.xcframework/macos-arm64/Headers/ghostty.h"
 for i in "${!GHOSTTY_LINK_ARCHIVES[@]}"; do
   archive="${GHOSTTY_LINK_ARCHIVES[$i]}"
-  cp "${GHOSTTY_ARCHIVE_SOURCES[$i]}" "$STAGING_DIR/$(ghostty_link_archive_dest_path "$archive")"
+  destination="$STAGING_DIR/$(ghostty_link_archive_dest_path "$archive")"
+  cp "${GHOSTTY_ARCHIVE_SOURCES[$i]}" "$destination"
+  localize_compiler_rt_memset "$destination"
 done
 mkdir -p "$STAGING_DIR/share"
 ditto "$GHOSTTY_BUILT_SHARE_DIR" "$STAGING_DIR/share"
