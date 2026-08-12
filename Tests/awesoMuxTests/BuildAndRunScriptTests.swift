@@ -205,6 +205,7 @@ struct BuildAndRunScriptTests {
         #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" timing"))
         #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" sidebar --skip-build"))
         #expect(testScript.contains("nontiming --skip-build"))
+        #expect(testScript.contains("RemoteHandoffTests"))
         #expect(preflight.contains("\"$ROOT_DIR/script/test.sh\" all"))
         #expect(!preflight.contains("\"$ROOT_DIR/script/swift-test.sh\""))
     }
