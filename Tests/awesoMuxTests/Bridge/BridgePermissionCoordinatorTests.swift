@@ -654,9 +654,6 @@ struct BridgePermissionCoordinatorTests {
         host.view.frame = root.bounds
         root.addSubview(host.view)
         window.contentView = root
-        window.alphaValue = 0
-        window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
 
         #expect(window.makeFirstResponder(terminal))
         #expect(
