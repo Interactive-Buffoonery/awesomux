@@ -13,6 +13,12 @@ struct BuildScriptHelpTests {
             #expect(result.output.contains("Usage:"))
             #expect(result.output.contains("AWESOMUX_GHOSTTY_OPTIMIZE"))
             #expect(result.output.contains("docs/ghostty-integration.md#build-the-xcframework"))
+            // Absence is meaningful because the three assertions above read the
+            // same buffer: every one of these scripts answers `--help` with a
+            // single `usage` heredoc then `exit 0`, before any validation and
+            // before the only backgrounded commands in the tree — so a
+            // truncated capture would fail those presence checks first rather
+            // than silently satisfying this one.
             #expect(!result.output.contains("is invalid"))
         }
     }
@@ -157,18 +163,11 @@ struct BuildScriptHelpTests {
         process.currentDirectoryURL = root
         process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, testValue in testValue }
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-        try process.waitUntilExitEventually()
-
-        let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-            + stderr.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: outputData, encoding: .utf8) ?? ""
-        return ShellResult(exitStatus: process.terminationStatus, output: output)
+        let captured = try captureOutput(of: process)
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: captured.stdout + captured.stderr
+        )
     }
 
     private static func contents(of relativePath: String) throws -> String {
