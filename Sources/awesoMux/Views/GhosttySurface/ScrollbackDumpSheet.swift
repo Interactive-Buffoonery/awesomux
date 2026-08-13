@@ -64,8 +64,20 @@ struct ScrollbackDumpSheet: View {
         guard !text.isEmpty else {
             return
         }
+        // `clearContents()` is required before a write and empties the clipboard
+        // whether or not the write then succeeds, so a failure has already cost
+        // the user whatever was there. Say so rather than claim a copy.
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        guard NSPasteboard.general.setString(text, forType: .string) else {
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "Could not copy the scrollback.",
+                    comment:
+                        "VoiceOver announcement when the scrollback sheet's Copy button failed to write to the clipboard"
+                )
+            )
+            return
+        }
         TerminalAccessibilityAnnouncer.announce(
             String(
                 localized: "Scrollback copied.",
