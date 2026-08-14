@@ -151,16 +151,11 @@ struct PublicSeedSourceScriptTests {
             environment["PATH"] = "\(binDirectory.path):\(environment["PATH"] ?? "")"
             process.environment = environment
         }
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        try process.waitUntilExitEventually()
+        let captured = try captureOutput(of: process)
         return ShellResult(
             status: process.terminationStatus,
-            output: String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
-            error: String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            output: captured.stdout,
+            error: captured.stderr
         )
     }
 

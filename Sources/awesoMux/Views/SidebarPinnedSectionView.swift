@@ -146,12 +146,17 @@ struct SidebarPinnedSectionView: View {
         VStack(alignment: .leading, spacing: density.sessionStackSpacing) {
             ForEach(Array(pinned.enumerated()), id: \.element.entry.session.id) { index, item in
                 tile(for: item, at: index)
+                    // `help(_:)` sets an accessibility hint as well as a pointer
+                    // tooltip. The tile's accessibility value already carries the
+                    // origin, so leaving the hint would speak it twice in two
+                    // different wordings.
                     .help(
                         String(
                             localized: "Pinned from \(item.originGroup.name)",
                             comment: "Tooltip on a pinned sidebar workspace naming the group it belongs to."
                         )
                     )
+                    .accessibilityHint("")
                     // Per-tile frame cache for the y-hit-test, scoped to the
                     // pinned section's coordinate space.
                     .background(
@@ -287,9 +292,9 @@ struct SidebarPinnedSectionView: View {
             onToggleNotificationsMute: { onToggleNotificationsMute(session) },
             isPinned: true,
             onTogglePin: { onTogglePin(session) },
-            originGroupPhrase: String(
-                localized: "Pinned, from \(item.originGroup.name)",
-                comment: "VoiceOver value fragment on a pinned sidebar workspace naming its origin group."
+            originGroupPhrase: SidebarVisibleRows.originGroupPhrase(
+                liftedBecause: .pinned,
+                originGroupName: item.originGroup.name
             ),
             onDragStarted: { onWorkspaceDragStarted(session.id) },
             focusedRowTarget: focusedRowTarget,

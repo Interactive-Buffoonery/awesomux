@@ -11,6 +11,9 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
     @TOMLDefault<DefaultConfirmCloseWithRunningAgent> public var confirmCloseWithRunningAgent: Bool
     @TOMLDefault<DefaultConfirmDestructivePaneActionWithRunningAgent>
     public var confirmDestructivePaneActionWithRunningAgent: Bool
+    @TOMLDefault<DefaultManagedSSHOffersEnabled> public var managedSSHOffersEnabled: Bool
+    @TOMLDefault<DefaultManagedSSHOfferIgnoredDestinations>
+    public var managedSSHOfferIgnoredDestinations: [String]
     /// Ordered bundle identifiers, top = highest priority. Empty means no
     /// explicit order yet; resolve time falls back to allowlist order. Unknown
     /// or uninstalled ids are tolerated and ignored when resolving.
@@ -27,6 +30,8 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         outputMarksNeedsAttention: true,
         confirmCloseWithRunningAgent: true,
         confirmDestructivePaneActionWithRunningAgent: true,
+        managedSSHOffersEnabled: true,
+        managedSSHOfferIgnoredDestinations: [],
         defaultIDEPriority: [],
         openInIDEEnabled: true
     )
@@ -36,6 +41,8 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         outputMarksNeedsAttention: Bool = true,
         confirmCloseWithRunningAgent: Bool = true,
         confirmDestructivePaneActionWithRunningAgent: Bool = true,
+        managedSSHOffersEnabled: Bool = true,
+        managedSSHOfferIgnoredDestinations: [String] = [],
         defaultIDEPriority: [String] = [],
         openInIDEEnabled: Bool = true
     ) {
@@ -43,6 +50,8 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         self.outputMarksNeedsAttention = outputMarksNeedsAttention
         self.confirmCloseWithRunningAgent = confirmCloseWithRunningAgent
         self.confirmDestructivePaneActionWithRunningAgent = confirmDestructivePaneActionWithRunningAgent
+        self.managedSSHOffersEnabled = managedSSHOffersEnabled
+        self.managedSSHOfferIgnoredDestinations = managedSSHOfferIgnoredDestinations
         self.defaultIDEPriority = defaultIDEPriority
         self.openInIDEEnabled = openInIDEEnabled
     }
@@ -66,6 +75,14 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
                 TOMLDefault<DefaultConfirmDestructivePaneActionWithRunningAgent>.self,
                 forKey: .confirmDestructivePaneActionWithRunningAgent
             ).wrappedValue,
+            managedSSHOffersEnabled: try container.decode(
+                TOMLDefault<DefaultManagedSSHOffersEnabled>.self,
+                forKey: .managedSSHOffersEnabled
+            ).wrappedValue,
+            managedSSHOfferIgnoredDestinations: try container.decode(
+                TOMLDefault<DefaultManagedSSHOfferIgnoredDestinations>.self,
+                forKey: .managedSSHOfferIgnoredDestinations
+            ).wrappedValue,
             defaultIDEPriority: try container.decode(
                 TOMLDefault<DefaultDefaultIDEPriority>.self,
                 forKey: .defaultIDEPriority
@@ -86,6 +103,11 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
             confirmDestructivePaneActionWithRunningAgent,
             forKey: .confirmDestructivePaneActionWithRunningAgent
         )
+        try container.encode(managedSSHOffersEnabled, forKey: .managedSSHOffersEnabled)
+        try container.encode(
+            managedSSHOfferIgnoredDestinations,
+            forKey: .managedSSHOfferIgnoredDestinations
+        )
         try container.encode(defaultIDEPriority, forKey: .defaultIDEPriority)
         try container.encode(openInIDEEnabled, forKey: .openInIDEEnabled)
     }
@@ -95,6 +117,8 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         case outputMarksNeedsAttention = "output_marks_needs_attention"
         case confirmCloseWithRunningAgent = "confirm_close_with_running_agent"
         case confirmDestructivePaneActionWithRunningAgent = "confirm_destructive_pane_action_with_running_agent"
+        case managedSSHOffersEnabled = "managed_ssh_offers_enabled"
+        case managedSSHOfferIgnoredDestinations = "managed_ssh_offer_ignored_destinations"
         case defaultIDEPriority = "default_ide_priority"
         case openInIDEEnabled = "open_in_ide_enabled"
     }
@@ -114,6 +138,14 @@ public struct DefaultConfirmCloseWithRunningAgent: DefaultProvider {
 
 public struct DefaultConfirmDestructivePaneActionWithRunningAgent: DefaultProvider {
     public static let defaultValue = true
+}
+
+public struct DefaultManagedSSHOffersEnabled: DefaultProvider {
+    public static let defaultValue = true
+}
+
+public struct DefaultManagedSSHOfferIgnoredDestinations: DefaultProvider {
+    public static let defaultValue: [String] = []
 }
 
 public struct DefaultDefaultIDEPriority: DefaultProvider {

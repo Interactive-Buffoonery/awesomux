@@ -188,12 +188,76 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [ ] `stapler validate <artifact>`
 - [ ] Generate checksums:
   - [ ] SHA-256 for every downloadable artifact
-  - [ ] optional signed checksum file later
+  - [ ] Generate and publish the non-secret verification summary beside the DMG and checksum.
 
 The DMG is the outermost distributed container: sign the app and DMG, submit
 only the DMG to Apple's notary service, then staple and validate the DMG. After
 changing packaging or notarization, run the workflow manually without creating
 a draft and verify its downloaded DMG on another Mac before the next tag.
+
+### Maintainer release operations
+
+Release ownership follows access to the protected `release` environment. Before
+a release, confirm that both the primary and backup maintainer have access.
+
+Install the Developer ID Application certificate in the maintainer keychain and
+confirm it is visible without printing private material:
+
+```sh
+security find-identity -v -p codesigning
+```
+
+Store local notary credentials in the `awesomux-notary` keychain profile. Do not
+commit certificates, passwords, API keys, or their paths.
+
+```sh
+xcrun notarytool store-credentials awesomux-notary \
+  --key <AuthKey.p8> --key-id <KEY_ID> --issuer <ISSUER_ID>
+```
+
+From a clean checkout with initialized submodules, run:
+
+```sh
+./script/build_release.sh \
+  --version X.Y.Z \
+  --identity "Developer ID Application: Name (TEAMID)" \
+  --notary-profile awesomux-notary
+```
+
+The output directory contains the DMG, checksum, and verification JSON. The
+`--unsigned` mode is a local packaging check and is never distributable.
+
+If notarization is interrupted, use the retained submission ID instead of
+creating another submission:
+
+```sh
+submission_id="$(tr -d '[:space:]' < dist/release/notarytool-submission-id-X.Y.Z.txt)"
+xcrun notarytool wait "$submission_id" --keychain-profile awesomux-notary --timeout 45m
+xcrun notarytool log "$submission_id" --keychain-profile awesomux-notary notarization-log.json
+xcrun stapler staple dist/release/awesoMux-X.Y.Z.dmg
+```
+
+Before publication, download the exact DMG and checksum through the same public
+path users will use, then verify the container and mounted app:
+
+```sh
+shasum -a 256 -c awesoMux-X.Y.Z.dmg.sha256
+hdiutil verify awesoMux-X.Y.Z.dmg
+xcrun stapler validate awesoMux-X.Y.Z.dmg
+hdiutil attach awesoMux-X.Y.Z.dmg -readonly -nobrowse -noautoopen
+codesign --verify --deep --strict "/Volumes/awesoMux/awesoMux.app"
+spctl --assess --type execute --verbose "/Volumes/awesoMux/awesoMux.app"
+```
+
+When rotating certificates, install and verify the replacement, update the
+protected environment, and complete a signed release validation before revoking
+the old certificate.
+
+### Withdrawal and rollback
+
+Do not retag or silently replace an artifact. Mark an unsafe release as
+withdrawn, remove its downloads after maintainer approval, and publish the fix
+as a new version. Preserve its verification record for the audit trail.
 
 Releases also include static Linux bridge-helper binaries for x86_64 and
 aarch64, built by the `linux-helper` job (`script/build_linux_helper.sh`) and
@@ -208,14 +272,14 @@ instructions live in `docs/remote-linux-helper.md`.
   - [x] imports signing cert into a temporary keychain
   - [x] builds and signs
   - [x] notarizes and staples
-  - [x] uploads the signed DMG + checksum as workflow artifacts (every run,
-        7-day retention)
+  - [x] uploads the signed DMG, checksum, and verification summary as workflow
+        artifacts (every run, 7-day retention)
   - [x] can create a draft GitHub Release (`create_draft_release` input,
         off by default)
   - [x] never runs signing steps for `pull_request` from forks (the workflow
         has no `pull_request` trigger at all)
 - [x] Add an unsigned local dry-run mode (`--unsigned`; needs full Xcode + Zig, but no signing credentials)
-- [ ] Document maintainer-only release prerequisites.
+- [x] Document maintainer-only release prerequisites.
 
 **Environment/secret names contract:** the workflow runs under the GitHub
 Environment named `release`, which must hold five secrets:

@@ -11,6 +11,7 @@ struct WorkspaceSettingsPane: View {
     @FocusState private var defaultGroupFocused: Bool
     @State private var installedIDEs: [InstalledIDE] = []
     @State private var draggingBundleID: String?
+    @State private var isAddingIgnoredSSHOfferDestination = false
 
     private var defaultGroup: String {
         appSettingsStore.workspaces.value.defaultGroup
@@ -104,6 +105,7 @@ struct WorkspaceSettingsPane: View {
             }
 
             openInIDESection
+            managedSSHSection
         }
         .task { await refreshInstalledIDEs() }
         .onReceive(
@@ -124,6 +126,9 @@ struct WorkspaceSettingsPane: View {
             if !defaultGroupFocused {
                 draftDefaultGroup = newValue
             }
+        }
+        .sheet(isPresented: $isAddingIgnoredSSHOfferDestination) {
+            ManagedSSHOfferDestinationSheet()
         }
     }
 
@@ -169,6 +174,127 @@ struct WorkspaceSettingsPane: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var managedSSHSection: some View {
+        SettingsSection(
+            index: 3,
+            title: "Managed SSH",
+            subtitle:
+                "Choose when awesoMux suggests reconnecting an SSH session as a managed workspace. This never changes existing connections."
+        ) {
+            SettingsField(
+                label: "Never ask to make SSH managed",
+                isFirst: true,
+                forwardsAccessibilityToControl: true
+            ) {
+                Toggle("Never ask to make SSH managed", isOn: neverAskForManagedSSH)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            if !appSettingsStore.workspaces.value.managedSSHOffersEnabled {
+                managedSSHHelperNotice
+            }
+
+            SettingsField(
+                label: "Don’t ask for these destinations",
+                hint: "Removing an alias from below restores automatic offers for it."
+            ) {
+                managedSSHIgnoredDestinationsControl
+            }
+        }
+    }
+
+    private var neverAskForManagedSSH: Binding<Bool> {
+        Binding(
+            get: { !appSettingsStore.workspaces.value.managedSSHOffersEnabled },
+            set: { neverAsk in
+                appSettingsStore.workspaces.update {
+                    $0.managedSSHOffersEnabled = !neverAsk
+                }
+            }
+        )
+    }
+
+    private var managedSSHHelperNotice: some View {
+        Label(
+            "The helper won’t work for ordinary SSH connections. Remote agent status and file or Markdown handoff need a managed SSH workspace. The helper stays installed and still works when you use Connect via SSH or Make This Workspace Managed.",
+            systemImage: "info.circle"
+        )
+        .font(.caption)
+        .foregroundStyle(Color.aw.text2)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: Self.listMaxWidth, alignment: .leading)
+        .padding(.vertical, 8)
+    }
+
+    private var managedSSHIgnoredDestinationsControl: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            let destinations = appSettingsStore.workspaces.value.managedSSHOfferIgnoredDestinations
+            if destinations.isEmpty {
+                Text("No ignored destinations")
+                    .awFont(AwFont.UI.label)
+                    .foregroundStyle(Color.aw.text3)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(destinations.enumerated()), id: \.offset) { index, destination in
+                        VStack(spacing: 0) {
+                            if index > 0 {
+                                Rectangle()
+                                    .fill(Color.aw.border)
+                                    .frame(height: 0.5)
+                            }
+                            ignoredDestinationRow(destination)
+                        }
+                    }
+                }
+                .frame(maxWidth: Self.listMaxWidth, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: AwRadius.button)
+                        .fill(Color.aw.surface.elevated)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: AwRadius.button)
+                                .stroke(Color.aw.border, lineWidth: 0.5)
+                        )
+                )
+            }
+
+            Button {
+                isAddingIgnoredSSHOfferDestination = true
+            } label: {
+                Label("Add Destination…", systemImage: "plus")
+            }
+            .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func ignoredDestinationRow(_ destination: String) -> some View {
+        HStack(spacing: 8) {
+            Text(destination)
+                .awFont(AwFont.Mono.body)
+                .foregroundStyle(Color.aw.text)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            Button {
+                appSettingsStore.workspaces.update {
+                    ManagedSSHOfferPolicy.removeIgnoredDestination(destination, from: &$0)
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.aw.text3)
+            }
+            .buttonStyle(.plain)
+            .help("Remove destination")
+            .accessibilityLabel("Remove \(destination)")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: Self.rowHeight)
     }
 
     // Symbol + color so the warning doesn't rely on color alone: the feature is

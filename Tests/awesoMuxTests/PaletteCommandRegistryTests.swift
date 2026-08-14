@@ -273,6 +273,7 @@ struct PaletteCommandRegistryTests {
             )
         )
         #expect(request.initialDestination == "deploy@server-alias")
+        #expect(request.origin == .explicitConversion)
         switch request.action {
         case .convertPane(let sessionID, let paneID):
             #expect(sessionID == session.id)
