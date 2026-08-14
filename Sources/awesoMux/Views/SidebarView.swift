@@ -101,26 +101,22 @@ struct SidebarView: View {
 
     var body: some View {
         // A display-only OSC title write updates storage without publishing
-        // `groups` (issue #311), so nothing below re-derives on its own — the
-        // rows repaint through their own `LiveTitleScope`s, but everything this
-        // body COMPUTES from `sessionStore.groups` would freeze at the last
-        // publish. Reading the coalesced generation is the single dependency
-        // that keeps all of it current at the bounded ~1 Hz tick:
-        //
-        //   - the search haystack (`searchProjection`), so a workspace is
-        //     findable by the name its agent just set — without this, search
-        //     cannot match the text visibly on the row;
-        //   - duplicate "N of M" ordinals, keyed on title + location;
-        //   - `rotorEntries`' and `visibleRows`' spoken labels, which must name
-        //     a workspace the same way the row you land on does (WCAG 4.1.2);
-        //   - `SidebarActivityInvalidationKey.groups`, the agent panel's gate;
-        //   - the per-group `sessions` / `group` values the roster peek's
-        //     `onChange` handlers refresh a live card from.
-        //
-        // Deliberately a read for its dependency alone: every consumer above
-        // re-derives from `sessionStore.groups` further down this body, so there
-        // is nothing to thread through.
+        // `groups` (issue #311), so nothing below re-derives on its own. The
+        // store's single live-title gate releases both halves of what this body
+        // needs at the same moment (issue #327): it publishes every affected
+        // box's COARSE mirror — the values `sidebarResolvedTitles()` below reads
+        // — and bumps the shared generation counter. Both fires matter: reading
+        // the boxes makes this body depend on the coalesced values it projects
+        // from; reading the counter is the one-store-property summary of that
+        // same tick, pinned by a source-contract test.
         _ = sessionStore.liveTitleGeneration
+        // ONE resolved title per roster session, from the same coarse mirror
+        // the rows render (`liveTitleBox(for:)` seeds unrendered sessions from
+        // storage). Every surface below that names a workspace derives from
+        // this map, never straight from `session.title`, so a row and the
+        // haystack / ordinals / rotor / agent panel beside it can never
+        // disagree (issue #327, WCAG 4.1.2):
+        let sidebarTitles = sessionStore.sidebarResolvedTitles()
         // Trim once at the body and thread the normalized query through every
         // dependent computation. Two readers of `searchText` previously
         // disagreed on whether whitespace-only input meant "filtering": the
@@ -129,7 +125,11 @@ struct SidebarView: View {
         // unfiltered.
         let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let isFiltering = !normalizedQuery.isEmpty
-        let snapshot = computedSnapshot(query: normalizedQuery, isFiltering: isFiltering)
+        let snapshot = computedSnapshot(
+            query: normalizedQuery,
+            isFiltering: isFiltering,
+            titles: sidebarTitles
+        )
         // Disambiguate across lifted AND in-group tiles, keyed by each lifted
         // tile's ORIGIN group identity — feeding lifted entries under a
         // synthetic group would change the "N of M" qualifiers a lifted tile
@@ -147,7 +147,10 @@ struct SidebarView: View {
                     )
                 }
         let duplicateDisambiguationBySessionID =
-            SidebarDuplicateDisambiguator.disambiguationBySessionID(for: disambiguationInput)
+            SidebarDuplicateDisambiguator.disambiguationBySessionID(
+                for: disambiguationInput,
+                titles: sidebarTitles
+            )
         let density = SidebarDensity(compact: appSettingsStore.general.value.sidebarCompactMode)
         let visibleGroupIDs = snapshot.entries.map { $0.group.id }
         // The rotor already flattens the sidebar in render order — synthetic
@@ -160,7 +163,8 @@ struct SidebarView: View {
         let rotorEntries = SidebarVisibleRows.rotorEntries(
             attention: snapshot.attention,
             pinned: snapshot.pinned,
-            for: snapshot.entries
+            for: snapshot.entries,
+            titles: sidebarTitles
         )
         let orderedVisibleSessionIDs = rotorEntries.map(\.id)
         let jumpIndexBySessionID = Dictionary(
@@ -175,7 +179,8 @@ struct SidebarView: View {
             pinned: snapshot.pinned,
             for: snapshot.entries,
             collapsedGroupIDs: collapsedGroupIDs,
-            isFiltering: isFiltering
+            isFiltering: isFiltering,
+            titles: sidebarTitles
         )
         // Computed once per render and captured by the preference-change
         // closure below, which would otherwise rebuild this set on every
@@ -476,7 +481,13 @@ struct SidebarView: View {
                     pinnedSessionIDs: sessionStore.pinnedSessionIDs,
                     selectedSessionID: sessionStore.selectedSessionID,
                     displayMode: displayMode,
-                    reduceMotion: reduceMotion
+                    reduceMotion: reduceMotion,
+                    // The roster names workspaces; it has to ride the SAME
+                    // coarse channel the rows do (issue #327), and only a
+                    // compared constructor value pierces this .equatable()
+                    // boundary (PR #428) — a silent title write touches no
+                    // other field of this key.
+                    resolvedTitles: sidebarTitles
                 ),
                 searchText: $searchText,
                 onOpenQuickSettings: onOpenQuickSettings,
@@ -603,7 +614,7 @@ struct SidebarView: View {
                 return
             }
             if let addedID = added.first, let session = sessionStore.session(id: addedID) {
-                accessibilityAnnouncer.announce("Pinned \(session.title)")
+                accessibilityAnnouncer.announce("Pinned \(sidebarTitle(for: session))")
             }
             if let removedID = removed.first,
                 let session = sessionStore.session(id: removedID),
@@ -617,7 +628,7 @@ struct SidebarView: View {
                 if sessionStore.needsInputSectionEnabled, session.needsUserInput {
                     accessibilityAnnouncer.announce(
                         String(
-                            localized: "Unpinned \(session.title), moved to Needs Input",
+                            localized: "Unpinned \(sidebarTitle(for: session)), moved to Needs Input",
                             comment:
                                 "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
                         )
@@ -628,7 +639,7 @@ struct SidebarView: View {
                     // no live session → this lookup fails → no-op, as intended.
                     collapsedGroupIDs.remove(group.id)
                     accessibilityAnnouncer.announce(
-                        "Unpinned \(session.title), returned to \(group.name)"
+                        "Unpinned \(sidebarTitle(for: session)), returned to \(group.name)"
                     )
                 }
             }
@@ -660,7 +671,7 @@ struct SidebarView: View {
             collapsedGroupIDs.remove(group.id)
             accessibilityAnnouncer.announce(
                 String(
-                    localized: "\(session.title) left Needs Input, returned to \(group.name)",
+                    localized: "\(sidebarTitle(for: session)) left Needs Input, returned to \(group.name)",
                     comment:
                         "VoiceOver announcement when a workspace stops needing input; first placeholder is the workspace title, second is its group name"
                 )
@@ -925,7 +936,7 @@ struct SidebarView: View {
         {
             accessibilityAnnouncer.announce(
                 SidebarSearchFocus.accessibilityAnnouncement(
-                    label: session.displayTitle(),
+                    label: sidebarTitle(for: session),
                     position: index + 1,
                     count: searchResultIDs.count
                 )
@@ -977,10 +988,15 @@ struct SidebarView: View {
     /// Builds only the query-dependent projection. The filter-independent agent
     /// roster lives in `SidebarActivitySection`, whose equatable boundary is
     /// keyed to the session tree rather than `searchText`.
-    private func computedSnapshot(query: String, isFiltering: Bool) -> SidebarSnapshot {
+    private func computedSnapshot(
+        query: String,
+        isFiltering: Bool,
+        titles: [TerminalSession.ID: String]
+    ) -> SidebarSnapshot {
         let projection = Self.searchProjection(
             groups: sessionStore.groups,
-            query: query
+            query: query,
+            titles: titles
         )
 
         // Float pinned sessions into the synthetic Pinned section and drop
@@ -1026,19 +1042,24 @@ struct SidebarView: View {
     /// Kept as one recognizable projection call so search-haystack additions
     /// remain localized (including the agent-state token work in PR #116).
     ///
+    /// `titles` is the body-level coarse-channel map: search must match the
+    /// name the ROW shows, or a fuzzy match highlights — and a VoiceOver user
+    /// hears — a string no visible row carries (issue #327).
+    ///
     /// `internal` so the haystack can be exercised against a real store's
     /// `groups` — the search-after-a-display-only-title-write case (issue #311)
     /// has to run the SAME projection the body does, not a re-declared copy.
     static func searchProjection(
         groups: [SessionGroup],
-        query: String
+        query: String,
+        titles: [TerminalSession.ID: String] = [:]
     ) -> SidebarSearchProjection.Output {
         SidebarSearchProjection.project(
             groups: groups,
             query: query,
             haystacks: { session in
                 SidebarSearchHaystacks(
-                    title: session.title,
+                    title: titles[session.id] ?? session.title,
                     location: session.sidebarLocation.searchText,
                     agentState: SidebarAgentStateSearchToken(
                         agentState: session.effectiveChromeState
@@ -1197,6 +1218,18 @@ struct SidebarView: View {
         }
     }
 
+    /// The title the sidebar ROW for `session` currently shows, for the
+    /// single-session VoiceOver announcements below. `session.title` would
+    /// name a fresher string than the row — and than the body's
+    /// `sidebarResolvedTitles()` map — is carrying mid-window, reintroducing
+    /// the two-surfaces-disagree bug of issue #327. The single-session shape
+    /// of the same resolution: the box seeds from storage on creation, so an
+    /// unrendered session still resolves to its current stored title.
+    private func sidebarTitle(for session: TerminalSession) -> String {
+        let coarse = sessionStore.liveTitleBox(for: session.id).coarseWorkspaceTitle
+        return session.displayTitle(overridingRawTitle: coarse.isEmpty ? nil : coarse)
+    }
+
     private func toggleGroup(_ id: SessionGroup.ID) {
         if collapsedGroupIDs.contains(id) {
             collapsedGroupIDs.remove(id)
@@ -1271,7 +1304,7 @@ struct SidebarView: View {
         let group = sessionStore.groups[groupIndex]
         let session = group.sessions[sessionIndex]
         accessibilityAnnouncer.announce(
-            "Moved \(session.title) to position \(sessionIndex + 1) of \(group.sessions.count) in \(group.name)"
+            "Moved \(sidebarTitle(for: session)) to position \(sessionIndex + 1) of \(group.sessions.count) in \(group.name)"
         )
     }
 
@@ -1302,7 +1335,7 @@ struct SidebarView: View {
             return
         }
         accessibilityAnnouncer.announce(
-            "Moved \(session.title) to position \(landedIndex + 1) of \(sessionStore.pinnedSessionIDs.count) in Pinned"
+            "Moved \(sidebarTitle(for: session)) to position \(landedIndex + 1) of \(sessionStore.pinnedSessionIDs.count) in Pinned"
         )
     }
 
@@ -1453,6 +1486,11 @@ struct SidebarActivityInvalidationKey: Equatable {
     /// .equatable() gate (PR #428): the footer/roster thinking spinners read
     /// Reduce Motion via updateNSView, which only runs when this key changes.
     let reduceMotion: Bool
+    /// The body's coarse-channel title map. `groups` does NOT move on a silent
+    /// (display-only) title write — that is its whole point — so without this
+    /// the panel rows would name workspaces by the last published titles even
+    /// after the row beside them moved (issue #327).
+    let resolvedTitles: [TerminalSession.ID: String]
 }
 
 /// Owns the filter-independent roster UI behind an explicit session-tree
@@ -1556,7 +1594,8 @@ private struct SidebarActivitySection: View, Equatable {
         if !query.isEmpty {
             let projection = SidebarView.searchProjection(
                 groups: invalidationKey.groups,
-                query: query
+                query: query,
+                titles: invalidationKey.resolvedTitles
             )
             let targetIsVisible = projection.entries.contains { entry in
                 entry.sessions.contains { $0.session.id == row.sessionID }
@@ -1634,7 +1673,11 @@ private struct SidebarActivitySection: View, Equatable {
         if let pane, session?.layout.hasMultiplePanes == true {
             title = PaneTitleBarView.displayTitle(for: pane)
         } else {
-            title = session?.title ?? ""
+            // The workspace-name case names the session as its sidebar row
+            // does — the resolved coarse mirror, not the fresher struct title
+            // (issue #327). The multi-pane case above renders a PANE title,
+            // which has no workspace-level parity obligation.
+            title = invalidationKey.resolvedTitles[row.sessionID] ?? session?.title ?? ""
         }
         return AgentActivityPanelItem(
             row: row,
