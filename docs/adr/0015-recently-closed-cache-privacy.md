@@ -54,8 +54,12 @@ action. Retention for `session-state.unsaved-*` preserves the earliest capture
 rather than the latest (#333), which raises the *value* of what is retained
 without changing how much is retained or for how long. Since #339, "earliest"
 means the first capture of the current incident: that archive is named by an
-owner-only marker, and any successful live snapshot save clears the marker so
-the next incident can establish a new pin. Earlier incident archives remain
+owner-only marker, and a successful live snapshot save resolves the incident
+only if its snapshot was captured after the marker was written — a stale
+detached write cannot drop a newer incident's pin. Resolution rewrites the
+marker as a resolved boundary on disk, so an incident that predates the marker
+mechanism anchors its earliest surviving archive while a later incident pins
+its own first capture. Earlier incident archives remain
 eligible for ordinary eviction; there is still no age sweep. Archive paths are
 logged by filename only across all four families, so a log export no longer
 carries the account short name.

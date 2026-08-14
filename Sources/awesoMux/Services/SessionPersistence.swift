@@ -163,6 +163,10 @@ enum SessionPersistence {
     // mutates it from the MainActor. Without this lock the `nonisolated(unsafe)`
     // annotation would be promising a synchronization the code doesn't provide.
     nonisolated private static let environmentLock = NSLock()
+    // Serializes marker reads and writes between the MainActor flush path and
+    // the detached debounced-write completion, so a stale save success cannot
+    // interleave with an incident's anchor being created.
+    nonisolated private static let unsavedIncidentAnchorLock = NSLock()
     nonisolated private static let archiveDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -583,13 +587,14 @@ enum SessionPersistence {
         // the blocked state cancels one. See `blockedRecoveryWarningID`.
         guard blockedRecoveryWarningID == nil else { return }
         let snapshot = store.snapshot()
+        let snapshotCapturedAt = Date()
         pendingWrite?.cancel()
         pendingWrite = Task.detached(priority: .utility) {
             try? await Task.sleep(for: debounceInterval)
             guard !Task.isCancelled else { return }
             let result = writeSnapshot(snapshot, isCancelled: { Task.isCancelled })
             guard !Task.isCancelled else { return }
-            clearUnsavedIncidentAnchor(after: result)
+            clearUnsavedIncidentAnchor(after: result, resolvedSnapshotCapturedAt: snapshotCapturedAt)
             await completion?(result)
         }
     }
@@ -619,6 +624,7 @@ enum SessionPersistence {
         // the store in between regardless: the wait below blocks the main
         // thread rather than yielding a MainActor turn.
         let snapshot = store.snapshot()
+        let snapshotCapturedAt = Date()
         // Reuse whatever `writeSnapshot` already encoded. Both destinations take
         // the same bytes, and this runs synchronously on the MainActor inside
         // `applicationWillTerminate`, under a system kill deadline — a second
@@ -628,6 +634,7 @@ enum SessionPersistence {
         var encodedSnapshot: Data?
         let result = writeLiveSnapshotForTermination(
             snapshot,
+            snapshotCapturedAt: snapshotCapturedAt,
             whileWaitingForRecoveryWrite: whileWaitingForRecoveryWrite,
             recoveryWriteWaitTimeout: recoveryWriteWaitTimeout,
             capturingEncodedSnapshot: { encodedSnapshot = $0 }
@@ -660,6 +667,7 @@ enum SessionPersistence {
 
     private static func writeLiveSnapshotForTermination(
         _ snapshot: SessionSnapshot,
+        snapshotCapturedAt: Date,
         whileWaitingForRecoveryWrite: () -> Void,
         recoveryWriteWaitTimeout: TimeInterval,
         capturingEncodedSnapshot: (Data) -> Void = { _ in }
@@ -684,7 +692,10 @@ enum SessionPersistence {
                     snapshot,
                     capturingEncodedSnapshot: capturingEncodedSnapshot
                 )
-                clearUnsavedIncidentAnchor(after: latestResult)
+                clearUnsavedIncidentAnchor(
+                    after: latestResult,
+                    resolvedSnapshotCapturedAt: snapshotCapturedAt
+                )
                 recoveryWriteCoordinator.transferGate(
                     for: warningID,
                     latestWriteOutcome: writeOutcome(for: latestResult)
@@ -710,7 +721,10 @@ enum SessionPersistence {
             snapshot,
             capturingEncodedSnapshot: capturingEncodedSnapshot
         )
-        clearUnsavedIncidentAnchor(after: result)
+        clearUnsavedIncidentAnchor(
+            after: result,
+            resolvedSnapshotCapturedAt: snapshotCapturedAt
+        )
         return result
     }
 
@@ -910,6 +924,7 @@ enum SessionPersistence {
         // output-budget hook, so the post-encode byte cap bounds persisted data
         // but cannot prevent the encoder's temporary allocation itself.
         let snapshot = store.snapshot()
+        let snapshotCapturedAt = Date()
         afterSnapshotCapture()
         recoveryWriteCoordinator.beginWrite(for: warning.id)
         let result = await Task.detached(priority: .utility) {
@@ -918,7 +933,10 @@ enum SessionPersistence {
             return result
         }.value
         if !recoveryWriteCoordinator.timedOut(for: warning.id) {
-            clearUnsavedIncidentAnchor(after: result)
+            clearUnsavedIncidentAnchor(
+                after: result,
+                resolvedSnapshotCapturedAt: snapshotCapturedAt
+            )
         }
         if let transferredOutcome = recoveryWriteCoordinator.transferredGateOutcome(
             for: warning.id
@@ -1250,9 +1268,12 @@ enum SessionPersistence {
     /// oldest-first eviction is right. `session-state.unsaved-` inverts that:
     /// each file is a different session captured at a different quit, and the
     /// earliest is the one taken closest to the incident — the last good state
-    /// before things went wrong. The first archive in a run creates an owner-only
-    /// incident marker; a successful live save clears it. Pruning pins only the
-    /// marker's target, so a later incident re-anchors without deleting retained
+    /// before things went wrong. The first archive in an incident anchors an
+    /// owner-only incident marker — seeded from the earliest surviving capture
+    /// when the incident predates the marker mechanism (#339) — and a live save
+    /// resolves it only if its snapshot was captured after the marker was
+    /// written. Resolution rewrites the marker as a resolved boundary, so a
+    /// later incident pins its own first capture without deleting retained
     /// evidence from earlier incidents merely because saving resumed.
     nonisolated static let maxQuarantineArchives = 10
 
@@ -1287,32 +1308,80 @@ enum SessionPersistence {
         supportDirectoryURL.appending(path: "session-state.unsaved.incident")
     }
 
-    nonisolated private static func ensureUnsavedIncidentAnchor(for archiveURL: URL) -> String? {
-        if let contents = try? SecureFileReader.read(
-            at: unsavedIncidentAnchorURL,
-            maximumBytes: 256,
-            symlinkPolicy: .rejectFinalComponent
-        ),
-            let fileName = String(data: contents.data, encoding: .utf8),
-            fileName.hasPrefix("session-state.unsaved-"),
-            fileName.hasSuffix(".json"),
-            !fileName.contains("/")
-        {
-            let anchoredArchive = supportDirectoryURL.appending(path: fileName)
-            if (try? SecureFileReader.open(
-                at: anchoredArchive,
-                symlinkPolicy: .rejectFinalComponent
-            )) != nil {
-                return fileName
-            }
-        }
+    /// What the incident marker currently records. `legacy` covers a missing
+    /// or unreadable marker and a stale anchor whose archive vanished: any
+    /// state where an incident that predates the marker mechanism may already
+    /// have archives on disk.
+    nonisolated private enum UnsavedIncidentAnchorState {
+        case anchor(fileName: String, markerCreatedAt: Date?)
+        case resolved
+        case legacy
+    }
 
+    /// Written in place of an anchor when the incident resolves, so the
+    /// resolution boundary survives on disk. Deleting the marker instead would
+    /// be indistinguishable from a pre-marker incident, and the next incident
+    /// would re-pin the earliest leftover from an already-resolved one.
+    nonisolated private static let resolvedUnsavedIncidentMarkerContent = "resolved"
+
+    // Call with `unsavedIncidentAnchorLock` held.
+    nonisolated private static func readUnsavedIncidentAnchorState() -> UnsavedIncidentAnchorState {
+        guard
+            let contents = try? SecureFileReader.read(
+                at: unsavedIncidentAnchorURL,
+                maximumBytes: 256,
+                symlinkPolicy: .rejectFinalComponent
+            ),
+            let text = String(data: contents.data, encoding: .utf8)
+        else {
+            return .legacy
+        }
+        guard text != resolvedUnsavedIncidentMarkerContent else {
+            return .resolved
+        }
+        guard
+            text.hasPrefix("session-state.unsaved-"),
+            text.hasSuffix(".json"),
+            !text.contains("/"),
+            (try? SecureFileReader.open(
+                at: supportDirectoryURL.appending(path: text),
+                symlinkPolicy: .rejectFinalComponent
+            )) != nil
+        else {
+            return .legacy
+        }
+        let attributes = try? FileManager.default.attributesOfItem(
+            atPath: unsavedIncidentAnchorURL.path
+        )
+        return .anchor(
+            fileName: text,
+            markerCreatedAt: attributes?[.creationDate] as? Date
+        )
+    }
+
+    nonisolated private static func ensureUnsavedIncidentAnchor(for archiveURL: URL) -> String? {
+        unsavedIncidentAnchorLock.lock()
+        defer { unsavedIncidentAnchorLock.unlock() }
+        let fileName: String
+        switch readUnsavedIncidentAnchorState() {
+        case let .anchor(existing, _):
+            return existing
+        case .resolved:
+            // The previous incident resolved; the archive just written starts
+            // a new one and pins its own first capture.
+            fileName = archiveURL.lastPathComponent
+        case .legacy:
+            // No marker ever recorded — an incident already under way when the
+            // marker shipped — so pin its earliest surviving capture (#339)
+            // rather than the archive just written.
+            fileName = oldestUnsavedArchiveFileName() ?? archiveURL.lastPathComponent
+        }
         do {
             try FileManager.default.writeOwnerOnlyFile(
                 at: unsavedIncidentAnchorURL,
-                contents: Data(archiveURL.lastPathComponent.utf8)
+                contents: Data(fileName.utf8)
             )
-            return archiveURL.lastPathComponent
+            return fileName
         } catch {
             logger.error(
                 "failed to record the current unsaved-session incident: \(error.localizedDescription, privacy: .public)"
@@ -1321,22 +1390,60 @@ enum SessionPersistence {
         }
     }
 
-    nonisolated private static func clearUnsavedIncidentAnchor() {
+    nonisolated private static func oldestUnsavedArchiveFileName() -> String? {
+        guard
+            let entries = try? FileManager.default.contentsOfDirectory(
+                at: supportDirectoryURL,
+                includingPropertiesForKeys: [.creationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        else {
+            return nil
+        }
+        return
+            entries
+            .filter { $0.lastPathComponent.hasPrefix("session-state.unsaved-") }
+            .min { lhs, rhs in
+                let left =
+                    (try? lhs.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+                    ?? .distantPast
+                let right =
+                    (try? rhs.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+                    ?? .distantPast
+                return left < right
+            }?
+            .lastPathComponent
+    }
+
+    /// Only a successful save whose snapshot was captured *after* the marker
+    /// was written may resolve the incident. A detached debounced write can
+    /// outlive a failed quit-time flush by a wide margin, and its stale
+    /// success must not drop the newer incident's pin — subsequent pruning
+    /// would evict the first archive of that still-unresolved incident.
+    nonisolated static func clearUnsavedIncidentAnchor(
+        after result: Result<Void, RecoverySnapshotReplacementError>,
+        resolvedSnapshotCapturedAt captureDate: Date
+    ) {
+        guard case .success = result else { return }
+        unsavedIncidentAnchorLock.lock()
+        defer { unsavedIncidentAnchorLock.unlock() }
+        guard
+            case let .anchor(_, markerCreatedAt) = readUnsavedIncidentAnchorState(),
+            let markerCreatedAt,
+            markerCreatedAt <= captureDate
+        else {
+            return
+        }
         do {
-            guard FileManager.default.fileExists(atPath: unsavedIncidentAnchorURL.path) else { return }
-            try FileManager.default.removeItem(at: unsavedIncidentAnchorURL)
+            try FileManager.default.writeOwnerOnlyFile(
+                at: unsavedIncidentAnchorURL,
+                contents: Data(resolvedUnsavedIncidentMarkerContent.utf8)
+            )
         } catch {
             logger.error(
                 "failed to clear the resolved unsaved-session incident: \(error.localizedDescription, privacy: .public)"
             )
         }
-    }
-
-    nonisolated private static func clearUnsavedIncidentAnchor(
-        after result: Result<Void, RecoverySnapshotReplacementError>
-    ) {
-        guard case .success = result else { return }
-        clearUnsavedIncidentAnchor()
     }
 
     nonisolated private static func encodeSnapshot(_ snapshot: SessionSnapshot) throws -> Data {

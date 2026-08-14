@@ -1635,6 +1635,81 @@ struct SessionPersistenceLoadTests {
         }
     }
 
+    /// A detached debounced save can complete after a quit-time flush created
+    /// a newer incident marker. Its snapshot predates that incident, so its
+    /// success must not drop the pin and expose the first archive to eviction.
+    @Test("a stale save success cannot clear a newer incident's marker")
+    func staleSaveDoesNotClearNewerIncidentMarker() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            #expect(SessionPersistence.load().recoveryWarning?.preventsInitialSave == true)
+
+            _ = SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "incident"))
+            )
+            let markerURL = tempDir.appending(path: "session-state.unsaved.incident")
+            let anchoredFileName = try String(contentsOf: markerURL, encoding: .utf8)
+            #expect(anchoredFileName.hasPrefix("session-state.unsaved-"))
+
+            SessionPersistence.clearUnsavedIncidentAnchor(
+                after: .success(()),
+                resolvedSnapshotCapturedAt: .distantPast
+            )
+            #expect(try String(contentsOf: markerURL, encoding: .utf8) == anchoredFileName)
+
+            // A save whose snapshot was captured after the marker was written
+            // resolves the incident, and the boundary is recorded in place of
+            // the anchor rather than deleting the marker outright.
+            SessionPersistence.clearUnsavedIncidentAnchor(
+                after: .success(()),
+                resolvedSnapshotCapturedAt: Date()
+            )
+            let resolved = try String(contentsOf: markerURL, encoding: .utf8)
+            #expect(resolved != anchoredFileName)
+            #expect(!resolved.hasPrefix("session-state.unsaved-"))
+        }
+    }
+
+    /// Archives on disk without any marker mean an incident that began before
+    /// the marker mechanism shipped. Anchoring the newest capture there would
+    /// let pruning evict the earliest one — the very capture #339 keeps.
+    @Test("an incident predating the marker anchors its earliest surviving archive")
+    func incidentPredatingMarkerAnchorsEarliestArchive() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+            for index in 0..<2 {
+                let legacy = tempDir.appending(
+                    path: "session-state.unsaved-170000000\(index)-legacy\(index).json"
+                )
+                try Data("{}".utf8).write(to: legacy)
+                try FileManager.default.setAttributes(
+                    [.creationDate: epoch.addingTimeInterval(TimeInterval(index))],
+                    ofItemAtPath: legacy.path
+                )
+            }
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            #expect(SessionPersistence.load().recoveryWarning?.preventsInitialSave == true)
+
+            _ = SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "late capture"))
+            )
+
+            let markerURL = tempDir.appending(path: "session-state.unsaved.incident")
+            let anchored = try String(contentsOf: markerURL, encoding: .utf8)
+            #expect(anchored == "session-state.unsaved-1700000000-legacy0.json")
+        }
+    }
+
     @Test("nesting-depth scan counts brackets and skips string contents")
     func nestingDepthScanCountsAndSkipsStrings() {
         #expect(SessionPersistence.maxJSONNestingDepth(in: Data("{}".utf8)) == 1)
