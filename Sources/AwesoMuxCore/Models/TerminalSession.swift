@@ -226,7 +226,10 @@ public extension TerminalSession {
     }
 
     var needsAcknowledgement: Bool {
-        panes.contains { $0.attentionReason != nil }
+        // Mirrors `needsUserInput`: walks the layout so no pane array is
+        // allocated. Read per store commit and per body eval, but still not a
+        // measurable win — consistency with its sibling is the point.
+        layout.contains { $0.attentionReason != nil }
     }
 
     /// The narrower gate the sidebar's Needs Input section lifts on: only reasons

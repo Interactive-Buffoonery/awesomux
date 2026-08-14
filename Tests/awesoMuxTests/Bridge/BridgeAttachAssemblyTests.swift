@@ -22,12 +22,13 @@ struct BridgeAttachAssemblyTests {
 
     @Test("mint produces a token of the same shape as the status channel's forgery token")
     func mintTokenShape() throws {
-        let channel = try #require(BridgeChannel.mint(
-            session: Self.sessionID,
-            previousGeneration: 0,
-            localSocketPath: "/tmp/awesomux-bridge-local/bridge.sock",
-            remoteHome: "/Users/example"
-        ))
+        let channel = try #require(
+            BridgeChannel.mint(
+                session: Self.sessionID,
+                previousGeneration: 0,
+                localSocketPath: "/tmp/awesomux-bridge-local/bridge.sock",
+                remoteHome: "/Users/example"
+            ))
         // 32 lowercase hex chars, same shape as `AmxBackend.makeStatusChannel`.
         #expect(channel.token.count == 32)
         #expect(channel.token.allSatisfy { $0.isHexDigit })
@@ -36,12 +37,13 @@ struct BridgeAttachAssemblyTests {
 
     @Test("mint's remote socket path stays under the 104-byte sockaddr_un budget")
     func mintRemoteSocketPathBudget() throws {
-        let channel = try #require(BridgeChannel.mint(
-            session: Self.sessionID,
-            previousGeneration: 0,
-            localSocketPath: "/tmp/local.sock",
-            remoteHome: "/Users/example"
-        ))
+        let channel = try #require(
+            BridgeChannel.mint(
+                session: Self.sessionID,
+                previousGeneration: 0,
+                localSocketPath: "/tmp/local.sock",
+                remoteHome: "/Users/example"
+            ))
         #expect(channel.remoteSocketPath.hasPrefix("/tmp/awesomux-bridge-"))
         #expect(channel.remoteSocketPath.hasSuffix(".sock"))
         #expect(channel.remoteSocketPath.utf8.count < BridgeChannel.sockaddrUnPathLimit)
@@ -49,20 +51,22 @@ struct BridgeAttachAssemblyTests {
 
     @Test("gen increments per mint")
     func genIncrementsPerMint() throws {
-        let first = try #require(BridgeChannel.mint(
-            session: Self.sessionID,
-            previousGeneration: 0,
-            localSocketPath: "/tmp/local.sock",
-            remoteHome: "/Users/example"
-        ))
+        let first = try #require(
+            BridgeChannel.mint(
+                session: Self.sessionID,
+                previousGeneration: 0,
+                localSocketPath: "/tmp/local.sock",
+                remoteHome: "/Users/example"
+            ))
         #expect(first.gen == 1)
 
-        let second = try #require(BridgeChannel.mint(
-            session: Self.sessionID,
-            previousGeneration: first.gen,
-            localSocketPath: "/tmp/local.sock",
-            remoteHome: "/Users/example"
-        ))
+        let second = try #require(
+            BridgeChannel.mint(
+                session: Self.sessionID,
+                previousGeneration: first.gen,
+                localSocketPath: "/tmp/local.sock",
+                remoteHome: "/Users/example"
+            ))
         #expect(second.gen == 2)
         #expect(second.token != first.token)
         #expect(second.remoteSocketPath != first.remoteSocketPath)
@@ -73,41 +77,45 @@ struct BridgeAttachAssemblyTests {
         arguments: ["relative/home", "", "~", "/Users/ed\0", "/Users/\u{202E}de"]
     )
     func mintRejectsUnusableHome(remoteHome: String) {
-        #expect(BridgeChannel.mint(
-            session: Self.sessionID,
-            previousGeneration: 0,
-            localSocketPath: "/tmp/local.sock",
-            remoteHome: remoteHome
-        ) == nil)
+        #expect(
+            BridgeChannel.mint(
+                session: Self.sessionID,
+                previousGeneration: 0,
+                localSocketPath: "/tmp/local.sock",
+                remoteHome: remoteHome
+            ) == nil)
     }
 
     @Test("stateFilePath resolves under the given remoteHome")
     func stateFilePathResolvesUnderHome() throws {
-        let channel = try #require(BridgeChannel.mint(
-            session: Self.sessionID,
-            previousGeneration: 0,
-            localSocketPath: "/tmp/local.sock",
-            remoteHome: "/Users/example"
-        ))
+        let channel = try #require(
+            BridgeChannel.mint(
+                session: Self.sessionID,
+                previousGeneration: 0,
+                localSocketPath: "/tmp/local.sock",
+                remoteHome: "/Users/example"
+            ))
         #expect(channel.stateFilePath == "/Users/example/.awesomux/bridge/abc123-bridge.json")
     }
 
     @Test("stateFilePath never carries a double slash for trailing-slash or root homes")
     func stateFilePathNormalizesTrailingSlash() throws {
-        let trailing = try #require(BridgeChannel.mint(
-            session: Self.sessionID,
-            previousGeneration: 0,
-            localSocketPath: "/tmp/local.sock",
-            remoteHome: "/Users/example/"
-        ))
+        let trailing = try #require(
+            BridgeChannel.mint(
+                session: Self.sessionID,
+                previousGeneration: 0,
+                localSocketPath: "/tmp/local.sock",
+                remoteHome: "/Users/example/"
+            ))
         #expect(trailing.stateFilePath == "/Users/example/.awesomux/bridge/abc123-bridge.json")
 
-        let rootHome = try #require(BridgeChannel.mint(
-            session: Self.sessionID,
-            previousGeneration: 0,
-            localSocketPath: "/tmp/local.sock",
-            remoteHome: "/"
-        ))
+        let rootHome = try #require(
+            BridgeChannel.mint(
+                session: Self.sessionID,
+                previousGeneration: 0,
+                localSocketPath: "/tmp/local.sock",
+                remoteHome: "/"
+            ))
         #expect(rootHome.stateFilePath == "/.awesomux/bridge/abc123-bridge.json")
     }
 
@@ -179,7 +187,7 @@ struct BridgeAttachAssemblyTests {
                 controlPath: "/tmp/c/%C", remote: Self.remote,
                 stateFilePath: "/home/ed/.awesomux/bridge/abc.json",
                 remoteSocketPath: channel.remoteSocketPath
-            )
+            ),
         ]
         for command in execCommands {
             // Options must sit in ssh's option region — BEFORE the `--` that
@@ -190,8 +198,9 @@ struct BridgeAttachAssemblyTests {
                 let match = command.range(of: option)
                 #expect(match != nil, "missing \(option): \(command)")
                 if let match {
-                    #expect(match.upperBound <= optionRegionEnd,
-                            "\(option) landed after `--` (inert): \(command)")
+                    #expect(
+                        match.upperBound <= optionRegionEnd,
+                        "\(option) landed after `--` (inert): \(command)")
                 }
             }
             let timeout = try #require(command.range(of: "-o ConnectTimeout=10"))
@@ -209,7 +218,7 @@ struct BridgeAttachAssemblyTests {
                 controlPath: "/tmp/c/%C", remote: Self.remote,
                 remoteSocketPath: channel.remoteSocketPath,
                 localSocketPath: channel.localSocketPath
-            )
+            ),
         ]
         for command in controlCommands {
             #expect(!command.contains("ControlMaster"), "-O command must not claim master establishment: \(command)")
@@ -228,11 +237,12 @@ struct BridgeAttachAssemblyTests {
             stateFilePath: "/Users/example/.awesomux/bridge/abc123-bridge.json",
             session: Self.sessionID
         )
-        let write = try #require(AmxBackend.bridgeStateFileWriteCommand(
-            controlPath: "/tmp/awesomux-ssh-XXXXXX/%C",
-            remote: Self.remote,
-            channel: channel
-        ))
+        let write = try #require(
+            AmxBackend.bridgeStateFileWriteCommand(
+                controlPath: "/tmp/awesomux-ssh-XXXXXX/%C",
+                remote: Self.remote,
+                channel: channel
+            ))
 
         // Secrets (token, socket) are in the JSON payload, which rides stdin —
         // never the command string itself.
@@ -240,10 +250,12 @@ struct BridgeAttachAssemblyTests {
         #expect(!write.command.contains(channel.remoteSocketPath))
 
         let decoded = try JSONDecoder().decode(BridgeStateFile.self, from: write.stdinData)
-        #expect(decoded == BridgeStateFile(
-            proto: "awesomux-bridge-v1", gen: 3,
-            socket: channel.remoteSocketPath, token: channel.token
-        ))
+        #expect(
+            decoded
+                == BridgeStateFile(
+                    proto: "awesomux-bridge-v1", gen: 3,
+                    socket: channel.remoteSocketPath, token: channel.token
+                ))
 
         #expect(write.command.hasPrefix("ssh -S "))
         #expect(write.command.contains("/tmp/awesomux-ssh-XXXXXX/%C"))
@@ -267,9 +279,10 @@ struct BridgeAttachAssemblyTests {
             stateFilePath: "/Users/example/.awesomux/bridge/abc123-bridge.json",
             session: Self.sessionID
         )
-        let first = try #require(AmxBackend.bridgeStateFileWriteCommand(
-            controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: channel
-        ))
+        let first = try #require(
+            AmxBackend.bridgeStateFileWriteCommand(
+                controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: channel
+            ))
         #expect(first.command.contains(".bridge-state.XXXXXXXX"))
         #expect(!first.command.contains(".json.tmp"))
     }
@@ -321,22 +334,25 @@ struct BridgeAttachAssemblyTests {
             stateFilePath: "relative/bridge.json",
             session: Self.sessionID
         )
-        #expect(AmxBackend.bridgeStateFileWriteCommand(
-            controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: channel
-        ) == nil)
+        #expect(
+            AmxBackend.bridgeStateFileWriteCommand(
+                controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: channel
+            ) == nil)
     }
 
     @Test("a single quote in the captured home survives quoting without a shell break-out")
     func stateFileWriteQuotesHostileHome() throws {
-        let channel = try #require(BridgeChannel.mint(
-            session: Self.sessionID,
-            previousGeneration: 0,
-            localSocketPath: "/tmp/local.sock",
-            remoteHome: "/Users/e'd"
-        ))
-        let write = try #require(AmxBackend.bridgeStateFileWriteCommand(
-            controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: channel
-        ))
+        let channel = try #require(
+            BridgeChannel.mint(
+                session: Self.sessionID,
+                previousGeneration: 0,
+                localSocketPath: "/tmp/local.sock",
+                remoteHome: "/Users/e'd"
+            ))
+        let write = try #require(
+            AmxBackend.bridgeStateFileWriteCommand(
+                controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: channel
+            ))
         // The path's own quote must always appear in its POSIX-escaped form,
         // never as a bare `'` that would terminate the enclosing quoting.
         #expect(!write.command.contains("/Users/e'd"))
@@ -754,7 +770,8 @@ struct BridgeAttachAssemblyTests {
         // `env` honors `-u` before NAME=VALUE only in argv order — the scrub
         // must precede the bridge assignments.
         if let scrubIndex = command.range(of: "-u AMX_STATUS_FILE")?.lowerBound,
-           let assignIndex = command.range(of: "'AWESOMUX_BRIDGE_STATE=")?.lowerBound {
+            let assignIndex = command.range(of: "'AWESOMUX_BRIDGE_STATE=")?.lowerBound
+        {
             #expect(scrubIndex < assignIndex)
         } else {
             Issue.record("expected both the status scrub and the bridge assignment")
@@ -770,20 +787,22 @@ struct BridgeAttachAssemblyTests {
             fileURL: URL(fileURLWithPath: "/tmp/amx/abc123.status.jsonl"),
             token: "aabbccddeeff0011aabbccddeeff0011"
         )
-        let command = try #require(AmxBackend.bridgeAttachCommand(
-            executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-            sessionID: Self.sessionID,
-            socketDirectory: "/tmp/amx",
-            status: status,
-            remote: Self.remote,
-            stateFilePath: "/Users/example/.awesomux/bridge/abc123-bridge.json",
-            helperPath: "/Users/example/.awesomux/bin/awesomux-bridge-helper"
-        ))
+        let command = try #require(
+            AmxBackend.bridgeAttachCommand(
+                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                sessionID: Self.sessionID,
+                socketDirectory: "/tmp/amx",
+                status: status,
+                remote: Self.remote,
+                stateFilePath: "/Users/example/.awesomux/bridge/abc123-bridge.json",
+                helperPath: "/Users/example/.awesomux/bin/awesomux-bridge-helper"
+            ))
 
         let destination = try #require(command.range(of: "'alice@box'"))
-        let stateAssignment = try #require(command.range(
-            of: "AWESOMUX_BRIDGE_STATE=/Users/example/.awesomux/bridge/abc123-bridge.json"
-        ))
+        let stateAssignment = try #require(
+            command.range(
+                of: "AWESOMUX_BRIDGE_STATE=/Users/example/.awesomux/bridge/abc123-bridge.json"
+            ))
         #expect(destination.lowerBound < stateAssignment.lowerBound)
         #expect(command.contains("'ssh'"))
         #expect(command.contains("'-t'"))
@@ -831,12 +850,13 @@ struct BridgeAttachAssemblyTests {
 
     @Test("remote attach explicitly -u-scrubs every pane-scoped agent key and the status pair")
     func remoteAttachScrubsAgentAndStatusKeys() throws {
-        let command = try #require(AmxBackend.attachCommand(
-            executablePath: "/Apps/amx",
-            sessionID: Self.sessionID,
-            socketDirectory: "/tmp/amx",
-            remote: Self.remote
-        ))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/amx",
+                sessionID: Self.sessionID,
+                socketDirectory: "/tmp/amx",
+                remote: Self.remote
+            ))
         let names = scrubbedNames(in: command)
         #expect(names.isSuperset(of: Self.sshCrossingScrubKeys))
         #expect(names.isSuperset(of: ["ZMX_SESSION", "ZMX_SESSION_PREFIX", "ZMX_LOG_MODE"]))
@@ -853,11 +873,12 @@ struct BridgeAttachAssemblyTests {
         // command; the local agent hook reads AWESOMUX_AGENT_EVENT_FILE from
         // that inherited environment, so a local scrub would sever the local
         // agent side channel.
-        let command = try #require(AmxBackend.attachCommand(
-            executablePath: "/Apps/amx",
-            sessionID: Self.sessionID,
-            socketDirectory: "/tmp/amx"
-        ))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/amx",
+                sessionID: Self.sessionID,
+                socketDirectory: "/tmp/amx"
+            ))
         let names = scrubbedNames(in: command)
         for key in AgentRuntimeEnvironmentKey.paneScopedKeys {
             #expect(!names.contains(key), "local attach must not scrub \(key)")
@@ -874,13 +895,14 @@ struct BridgeAttachAssemblyTests {
             fileURL: URL(fileURLWithPath: "/tmp/amx/abc123-bridge-deadbeef.status.jsonl"),
             token: "deadbeef01234567deadbeef01234567"
         )
-        let command = try #require(AmxBackend.attachCommand(
-            executablePath: "/Apps/amx",
-            sessionID: Self.sessionID,
-            socketDirectory: "/tmp/amx",
-            status: channel,
-            remote: Self.remote
-        ))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/amx",
+                sessionID: Self.sessionID,
+                socketDirectory: "/tmp/amx",
+                status: channel,
+                remote: Self.remote
+            ))
         // `env` applies `-u` flags before NAME=VALUE arguments, but only in
         // argv order — the fresh assignment must come after the scrub or the
         // daemon starts with no status channel at all.
@@ -894,12 +916,13 @@ struct BridgeAttachAssemblyTests {
 
     @Test("scrubbed agent vars are never assigned in the emitted command")
     func scrubbedVarsAbsentFromInjectedEnv() throws {
-        let command = try #require(AmxBackend.attachCommand(
-            executablePath: "/Apps/amx",
-            sessionID: Self.sessionID,
-            socketDirectory: "/tmp/amx",
-            remote: Self.remote
-        ))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/amx",
+                sessionID: Self.sessionID,
+                socketDirectory: "/tmp/amx",
+                remote: Self.remote
+            ))
         // The attach command never assigns agent keys — only ZMX_DIR /
         // ZMX_DIR_MODE (and, in the status overload, the fresh status pair).
         for key in AgentRuntimeEnvironmentKey.paneScopedKeys {
@@ -922,18 +945,21 @@ struct BridgeAttachAssemblyTests {
         )
         let commands = [
             AmxBackend.bridgeHomeResolutionCommand(controlPath: "/tmp/ctl/%C", remote: Self.remote),
-            try #require(AmxBackend.bridgeStateFileWriteCommand(
-                controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: channel
-            )).command,
+            try #require(
+                AmxBackend.bridgeStateFileWriteCommand(
+                    controlPath: "/tmp/ctl/%C", remote: Self.remote, channel: channel
+                )
+            ).command,
             AmxBackend.bridgeEnvironmentPrefixedRemoteCommand(
                 stateFilePath: channel.stateFilePath,
                 session: Self.sessionID,
                 helperPath: "/usr/local/bin/awesomux-remote-helper",
                 remoteCommand: "zmx attach remote-id"
             ),
-            try #require(AmxBackend.attachCommand(
-                executablePath: "/Apps/amx", sessionID: Self.sessionID, socketDirectory: "/tmp/amx"
-            )),
+            try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/amx", sessionID: Self.sessionID, socketDirectory: "/tmp/amx"
+                )),
             try #require(
                 AmxBackend.attachCommand(
                     executablePath: "/Apps/amx", sessionID: Self.sessionID,
