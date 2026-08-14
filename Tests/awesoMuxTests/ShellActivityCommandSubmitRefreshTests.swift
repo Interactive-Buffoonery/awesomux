@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import Foundation
 import Testing
@@ -63,5 +64,88 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix(" ssh devbox"))
         #expect(!GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix("ssh-keygen"))
         #expect(!GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix("echo ssh devbox"))
+    }
+
+    @Test("Ctrl-C clears and re-arms capture")
+    func controlCClearsAndRearmsCapture() {
+        let inputState = GhosttySurfaceInputState()
+        inputState.submittedSSHCommandBuffer = "ssh stale"
+        inputState.submittedSSHCommandCaptureDisabled = true
+
+        #expect(
+            GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x08, modifiers: [.control], characters: "\u{3}"),
+                to: inputState
+            )
+        )
+        #expect(inputState.submittedSSHCommandBuffer.isEmpty)
+        #expect(!inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    @Test("Ctrl-U clears and disables capture until submit")
+    func controlUClearsAndDisablesCapture() {
+        let inputState = GhosttySurfaceInputState()
+        inputState.submittedSSHCommandBuffer = "ssh stale"
+
+        #expect(
+            GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x20, modifiers: [.control], characters: "\u{15}"),
+                to: inputState
+            )
+        )
+        #expect(inputState.submittedSSHCommandBuffer.isEmpty)
+        #expect(inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    @Test("unrelated command, control, and unmodified keys do not change capture")
+    func unrelatedKeysDoNotChangeCapture() {
+        let inputState = GhosttySurfaceInputState()
+        inputState.submittedSSHCommandBuffer = "ssh devbox"
+
+        #expect(
+            !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x08, modifiers: [.command], characters: "c"),
+                to: inputState
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x20, modifiers: [.command], characters: "u"),
+                to: inputState
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x08, modifiers: [], characters: "c"),
+                to: inputState
+            )
+        )
+        #expect(
+            !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: 0x00, modifiers: [.control], characters: "\u{1}"),
+                to: inputState
+            )
+        )
+        #expect(inputState.submittedSSHCommandBuffer == "ssh devbox")
+        #expect(!inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    private func keyEvent(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        characters: String
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
     }
 }

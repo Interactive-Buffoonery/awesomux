@@ -29,6 +29,15 @@ import PackageDescription
             .target(
                 name: "AwesoMuxTestSupport",
                 path: "Tests/AwesoMuxTestSupport",
+                // Source-curated rather than whole-directory, because some of
+                // the directory cannot build here at all: DomainTestSupport.swift
+                // and TestData.swift import AwesoMuxCore, UnixSocketClient.swift
+                // imports Darwin, and neither is in this graph. For everything
+                // else the rule is add-on-demand — a portable file earns a line
+                // only when a Linux-lane test target actually needs it, never
+                // merely because it would compile. Portable but deliberately
+                // absent today: ProcessBoundedWait.swift, ProcessOutputCapture.swift,
+                // RealSpawnTimeout.swift, ShellWait.swift, SourceContract.swift.
                 sources: [
                     "AsyncGate.swift",
                     "EventRecorder.swift",

@@ -503,6 +503,7 @@ struct AwesoMuxApp: App {
                 SSHWorkspaceConnectSheet(
                     groupName: request.action.groupName,
                     initialDestination: request.initialDestination,
+                    origin: request.origin,
                     onCancel: { sshWorkspaceConnectRequest = nil },
                     onConnect: { execution in
                         switch request.action {
@@ -2806,6 +2807,7 @@ struct AwesoMuxApp: App {
         guard let group else { return }
         sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest(
             initialDestination: nil,
+            origin: .explicitConnection,
             action: .addToGroup(id: group.id, name: group.name)
         )
     }
@@ -2814,17 +2816,12 @@ struct AwesoMuxApp: App {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID
     ) {
-        guard !isAnySheetPresented,
-            let target = sessionStore.consumeManagedSSHWorkspaceOffer(
-                sessionID: sessionID,
-                paneID: paneID
-            )
-        else {
-            return
-        }
-        sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest(
-            initialDestination: target.sshDestination,
-            action: .convertPane(sessionID: sessionID, paneID: paneID)
+        guard !isAnySheetPresented else { return }
+        sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest.automaticOffer(
+            sessionStore: sessionStore,
+            sessionID: sessionID,
+            paneID: paneID,
+            config: appSettingsStore.workspaces.value
         )
     }
 
@@ -4434,7 +4431,30 @@ private struct RemoteWorkspaceGroupCreateRequest: Identifiable, Sendable {
 struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
     let id = UUID()
     let initialDestination: String?
+    let origin: SSHWorkspaceConnectOrigin
     let action: SSHWorkspaceConnectAction
+
+    @MainActor
+    static func automaticOffer(
+        sessionStore: SessionStore,
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        config: WorkspaceConfig
+    ) -> Self? {
+        guard
+            let target = sessionStore.consumeManagedSSHWorkspaceOffer(
+                sessionID: sessionID,
+                paneID: paneID
+            ), ManagedSSHOfferPolicy.shouldOffer(target: target, config: config)
+        else {
+            return nil
+        }
+        return Self(
+            initialDestination: target.sshDestination,
+            origin: .automaticOffer,
+            action: .convertPane(sessionID: sessionID, paneID: paneID)
+        )
+    }
 
     @MainActor
     static func managedConversion(
@@ -4458,8 +4478,19 @@ struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
         }
         return Self(
             initialDestination: target.sshDestination,
+            origin: .explicitConversion,
             action: .convertPane(sessionID: session.id, paneID: session.activePaneID)
         )
+    }
+}
+
+enum SSHWorkspaceConnectOrigin: Sendable {
+    case automaticOffer
+    case explicitConnection
+    case explicitConversion
+
+    var showsRememberActions: Bool {
+        self == .automaticOffer
     }
 }
 

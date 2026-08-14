@@ -144,18 +144,12 @@ struct RuntimeProfileScriptTests {
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", "source \"$1\"; \(command)", "runtime-profile-test", scriptURL.path] + arguments
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        try process.waitUntilExitEventually()
+        let captured = try captureOutput(of: process)
 
         return ShellResult(
             status: process.terminationStatus,
-            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                .trimmingCharacters(in: .newlines) ?? "",
-            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            output: captured.stdout.trimmingCharacters(in: .newlines),
+            error: captured.stderr
         )
     }
 
@@ -191,16 +185,11 @@ struct RuntimeProfileScriptTests {
         }
         process.environment = environment
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        try process.waitUntilExitEventually()
+        let captured = try captureOutput(of: process)
         return ShellResult(
             status: process.terminationStatus,
-            output: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            error: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            output: captured.stdout,
+            error: captured.stderr
         )
     }
 

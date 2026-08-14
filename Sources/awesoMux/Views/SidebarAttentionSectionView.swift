@@ -127,7 +127,11 @@ struct SidebarAttentionSectionView: View {
             row(for: item, at: index, liveTitles: liveTitles)
         }
         .id(session.id)
+        // `help(_:)` sets an accessibility hint as well as a pointer tooltip.
+        // The tile's accessibility value already carries the origin, so leaving
+        // the hint would speak it twice in two different wordings.
         .help(originGroupTooltip)
+        .accessibilityHint("")
     }
 
     /// The row itself. Separate from the scope above so its construction does
@@ -139,10 +143,9 @@ struct SidebarAttentionSectionView: View {
         liveTitles: LiveTitles
     ) -> some View {
         let session = item.entry.session
-        let originGroupPhrase = String(
-            localized: "Needs input, from \(item.originGroup.name)",
-            comment:
-                "VoiceOver value fragment on a lifted sidebar workspace naming its origin group."
+        let originGroupPhrase = SidebarVisibleRows.originGroupPhrase(
+            liftedBecause: .needsInput,
+            originGroupName: item.originGroup.name
         )
         SidebarSessionTile(
             session: session,
