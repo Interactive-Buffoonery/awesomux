@@ -420,6 +420,27 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             || text?.contains(where: { $0 == "\u{7f}" || $0 == "\u{8}" }) == true
     }
 
+    static func applySubmittedSSHCommandLineControl(
+        _ event: NSEvent,
+        to inputState: GhosttySurfaceInputState
+    ) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifiers.contains(.control),
+            modifiers.isDisjoint(with: [.command, .option, .shift])
+        else {
+            return false
+        }
+        switch event.characters {
+        case "\u{3}":  // Ctrl-C cancels the whole line.
+            inputState.resetSubmittedSSHCommandCapture()
+        case "\u{15}":  // Ctrl-U may leave a suffix when the cursor is mid-line.
+            inputState.disableSubmittedSSHCommandCapture()
+        default:
+            return false
+        }
+        return true
+    }
+
     static func isPossibleSubmittedSSHCommandPrefix(_ input: String) -> Bool {
         let trimmed = input.drop(while: \.isWhitespace)
         guard !trimmed.isEmpty else {
@@ -1003,6 +1024,13 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         return handled
     }
 
+    /// Best-effort safety/presentation signal: printable input, Backspace, and
+    /// Ctrl-C line resets and Ctrl-U invalidations are observed, but cursor movement,
+    /// history, terminal modes, custom `stty` bindings, and readline/zsh editing
+    /// are not modeled. The declared `PaneExecutionPlan` remains the authority
+    /// for remote work.
+    /// ponytail: Ctrl-U disables capture until submit because tracking its
+    /// retained suffix safely requires authoritative line state.
     func observeSubmittedSSHCommandInput(
         action: ghostty_input_action_e,
         event: NSEvent,
@@ -1016,8 +1044,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
         if isCommandSubmit {
             let command = inputState.submittedSSHCommandBuffer
-            inputState.submittedSSHCommandBuffer = ""
-            inputState.submittedSSHCommandCaptureDisabled = false
+            inputState.resetSubmittedSSHCommandCapture()
             if !command.isEmpty {
                 sessionStore.noteSubmittedCommand(
                     sessionID: sessionID,
@@ -1025,6 +1052,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
                     command: command
                 )
             }
+            return
+        }
+
+        if Self.applySubmittedSSHCommandLineControl(event, to: inputState) {
             return
         }
 
@@ -1044,8 +1075,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         if inputState.submittedSSHCommandBuffer.count > Self.submittedSSHCommandCaptureLimit
             || !Self.isPossibleSubmittedSSHCommandPrefix(inputState.submittedSSHCommandBuffer)
         {
-            inputState.submittedSSHCommandBuffer = ""
-            inputState.submittedSSHCommandCaptureDisabled = true
+            inputState.disableSubmittedSSHCommandCapture()
         }
     }
 
