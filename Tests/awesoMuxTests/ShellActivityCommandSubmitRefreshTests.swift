@@ -74,7 +74,7 @@ struct ShellActivityCommandSubmitRefreshTests {
 
         #expect(
             GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
-                keyEvent(keyCode: 0x2A, modifiers: [.control], characters: "\u{3}"),
+                keyEvent(keyCode: 0x08, modifiers: [.control], characters: "\u{3}"),
                 to: inputState
             )
         )
