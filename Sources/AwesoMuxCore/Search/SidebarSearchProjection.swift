@@ -10,11 +10,25 @@ public struct SessionMatch: Equatable, Sendable {
     public let field: Field
     public let score: Int
     public let ranges: [Range<String.Index>]
+    /// The exact title string this match was scored against — set only for a
+    /// `.title` match. `ranges` provably index THIS string, which is the one
+    /// the sidebar row must render and speak: the projection's haystack is a
+    /// coarse-mirror snapshot that neither the session struct nor the box can
+    /// be assumed to still agree with by render time (issue #327), so the
+    /// render carries its provenance instead of re-reading a "fresher"
+    /// source and string-indexing it with ranges from another string.
+    public let matchedTitle: String?
 
-    public init(field: Field, score: Int, ranges: [Range<String.Index>]) {
+    public init(
+        field: Field,
+        score: Int,
+        ranges: [Range<String.Index>],
+        matchedTitle: String? = nil
+    ) {
         self.field = field
         self.score = score
         self.ranges = ranges
+        self.matchedTitle = matchedTitle
     }
 }
 
@@ -254,7 +268,12 @@ public enum SidebarSearchProjection {
         var best: SessionMatch?
         for (field, haystack) in candidates {
             guard let result = FuzzyMatcher.match(query: query, in: haystack) else { continue }
-            let candidate = SessionMatch(field: field, score: result.score, ranges: result.ranges)
+            let candidate = SessionMatch(
+                field: field,
+                score: result.score,
+                ranges: result.ranges,
+                matchedTitle: field == .title ? haystack : nil
+            )
             guard let current = best else {
                 best = candidate
                 continue
