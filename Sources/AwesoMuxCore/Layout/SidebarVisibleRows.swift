@@ -83,11 +83,10 @@ public enum SidebarVisibleRows {
 
             rows.append(
                 contentsOf: entry.sessions.map { sessionEntry in
-                    let session = sessionEntry.session
-                    return SidebarVisibleRow(
-                        target: .session(session.id),
-                        label: titles[session.id] ?? session.title,
-                        sessionID: session.id
+                    SidebarVisibleRow(
+                        target: .session(sessionEntry.session.id),
+                            label: titles[sessionEntry.session.id] ?? sessionEntry.session.title,
+                        sessionID: sessionEntry.session.id
                     )
                 }
             )
@@ -118,10 +117,12 @@ public enum SidebarVisibleRows {
         return liftedEntries
             + entries.flatMap { entry in
             entry.sessions.map { sessionEntry in
-                let session = sessionEntry.session
-                return SidebarWorkspaceRotorEntry(
-                    id: session.id,
-                    label: rotorLabel(for: session, title: titles[session.id])
+                SidebarWorkspaceRotorEntry(
+                    id: sessionEntry.session.id,
+                        label: rotorLabel(
+                            for: sessionEntry.session,
+                            title: titles[sessionEntry.session.id]
+                        )
                 )
             }
         }

@@ -634,6 +634,142 @@ struct SessionStoreLiveTitleChannelTests {
         #expect(fixture.store.liveTitleGeneration == 0)
     }
 
+    /// The projections the generation invalidates cover the WHOLE roster, so
+    /// they cannot wait for a box (≈ a rendered row) to exist. If the bump
+    /// were folded behind the box lookup, a workspace nobody had ever rendered
+    /// would stay unsearchable by its agent's new title until it happened to
+    /// mount.
+    @Test("the generation bumps even for a session no box is watching")
+    func generationBumpsWithoutABox() {
+        let fixture = makeFixture()
+        let base = Date(timeIntervalSince1970: 1_000_000)
+
+        // Deliberately never calls `liveTitleBox(for:)`.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID, paneID: fixture.paneID, title: "one", now: base
+        )
+        #expect(fixture.store.liveTitleGeneration == 1)
+
+        // And the stamp still runs, so a later mid-window tick is suppressed
+        // for generation even before any box appears.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "two",
+            now: base.addingTimeInterval(0.4)
+        )
+        #expect(fixture.store.liveTitleGeneration == 1)
+    }
+
+    // MARK: - Issue #327: one gate, so one session's bump cannot phase another's surfaces
+
+    /// The issue's cross-session acceptance case. Session A's tick crosses A's
+    /// window and bumps the SHARED counter while session B's window is
+    /// mid-flight and B just took a newer silent title. Everything that names B
+    /// — the resolved-title map, the rotor and row labels, the search haystack
+    /// and its scored provenance — must say B's COARSE mirror, never B's fresh
+    /// storage title, or the sidebar has named one workspace two ways
+    /// (WCAG 4.1.2).
+    @Test("one session's bump leaves a mid-window session's every surface on its coarse mirror")
+    func crossSessionSurfacesStayOnTheCoarseMirror() throws {
+        let fixture = makeFixture()
+        let other = try fixture.addSession(title: "beta")
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let boxB = fixture.store.liveTitleBox(for: other.sessionID)
+
+        // A opens and crosses ITS window while B's is mid-flight.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID, paneID: fixture.paneID, title: "alpha", now: base
+        )
+        fixture.store.updatePane(
+            sessionID: other.sessionID,
+            paneID: other.paneID,
+            title: "beta leading edge",
+            now: base.addingTimeInterval(0.2)
+        )
+        #expect(boxB.coarseWorkspaceTitle == "beta leading edge")
+        #expect(fixture.store.liveTitleGeneration == 2)
+
+        // B's newer silent title, mid-window: storage moves alone.
+        fixture.store.updatePane(
+            sessionID: other.sessionID,
+            paneID: other.paneID,
+            title: "beta silent",
+            now: base.addingTimeInterval(0.5)
+        )
+        #expect(fixture.store.session(id: other.sessionID)?.title == "beta silent")
+
+        // A crosses its window. The shared counter bumps for A; B's mirror
+        // must NOT publish on a bump B didn't earn.
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "alpha two",
+            now: base.addingTimeInterval(1)
+        )
+        #expect(fixture.store.liveTitleGeneration == 3)
+        #expect(boxB.coarseWorkspaceTitle == "beta leading edge")
+
+        // Row parity, surface by surface. Every resolved value for B equals
+        // B's coarse mirror — never "beta silent".
+        let titles = fixture.store.sidebarResolvedTitles()
+        #expect(titles[other.sessionID] == "beta leading edge")
+
+        let freshB = try #require(fixture.store.session(id: other.sessionID))
+        let group = try #require(fixture.store.groups.first { $0.sessions.contains { $0.id == other.sessionID } })
+        let entries = [
+            SidebarGroupEntry(
+                group: group,
+                unfilteredIndex: 0,
+                sessions: [SidebarSessionEntry(session: freshB, match: nil)]
+            )
+        ]
+        let rotorLabel = SidebarVisibleRows.rotorEntries(for: entries, titles: titles)[0].label
+        #expect(rotorLabel == SidebarVisibleRows.rotorLabel(for: freshB, title: "beta leading edge"))
+        #expect(rotorLabel.contains("beta silent") == false)
+        let rowLabel = SidebarVisibleRows.rows(
+            for: entries,
+            collapsedGroupIDs: [],
+            isFiltering: false,
+            titles: titles
+        )[1].label
+        #expect(rowLabel == "beta leading edge")
+
+        // Search — haystack AND the provenance the row will highlight — sees
+        // only the coarse name: "beta silent" is unfindable, which is exactly
+        // what parity demands.
+        let output = SidebarSearchProjection.project(
+            groups: fixture.store.groups,
+            query: "silent",
+            haystacks: { session in
+                SidebarSearchHaystacks(
+                    title: titles[session.id] ?? session.title,
+                    // Mirrors the app-side wiring; the location field is not
+                    // under test here.
+                    location: session.workingDirectory,
+                    agentState: SidebarAgentStateSearchToken(agentState: session.effectiveChromeState)
+                )
+            }
+        )
+        #expect(output.entries.isEmpty)
+        let matched = SidebarSearchProjection.project(
+            groups: fixture.store.groups,
+            query: "leading",
+            haystacks: { session in
+                SidebarSearchHaystacks(
+                    title: titles[session.id] ?? session.title,
+                    // Mirrors the app-side wiring; the location field is not
+                    // under test here.
+                    location: session.workingDirectory,
+                    agentState: SidebarAgentStateSearchToken(agentState: session.effectiveChromeState)
+                )
+            }
+        )
+        #expect(
+            matched.entries.first?.sessions.first?.match?.matchedTitle == "beta leading edge"
+        )
+    }
+
     // MARK: - A report that displays nothing costs nothing
 
     @Test("a report against an inactive user-edited pane notifies nobody but still records the live title")

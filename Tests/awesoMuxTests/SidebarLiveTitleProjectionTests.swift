@@ -12,9 +12,12 @@ import Testing
 /// the last publish while the rows beside them repainted through their own
 /// `LiveTitleScope`s.
 ///
-/// The fix is one dependency: `body` reads `sessionStore.liveTitleGeneration`,
-/// a coalesced ~1 Hz tick. These tests split that into the two halves that can
-/// actually be checked:
+/// The #311 fix was one dependency: `body` reads
+/// `sessionStore.liveTitleGeneration`, a coalesced ~1 Hz tick. Issue #327 then
+/// pointed every derived surface AT the same coarse mirror the rows render
+/// (`SessionStore.sidebarResolvedTitles()`), so a re-run body can no longer
+/// name a workspace differently from its row. These tests split that into the
+/// two halves that can actually be checked:
 ///
 /// 1. `sidebarBodyReadsTheLiveTitleGeneration` — the wiring is present. Deleting
 ///    the read from `SidebarView.body` fails this test. Source-scraped like
@@ -22,7 +25,7 @@ import Testing
 ///    `body`'s observation dependencies are not otherwise reachable without
 ///    hosting the whole sidebar — see the note on the test itself.
 /// 2. everything else — once the body DOES re-run, each derived value genuinely
-///    re-derives to the silently-written title. Each carries its own
+///    re-derives to the resolved coarse title. Each carries its own
 ///    before-the-write control, so a passing assertion is the write's doing.
 @MainActor
 @Suite("Sidebar projections after a display-only title write (#311)")
@@ -131,8 +134,9 @@ struct SidebarLiveTitleProjectionTests {
     func rotorAndRowLabelsAgree() throws {
         let fixture = Fixture()
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        // Captured BEFORE the write and deliberately reused: this stale struct is
-        // exactly what a frozen body would keep handing the rotor.
+        // Captured BEFORE the write and deliberately reused: struct reads are
+        // what every derived surface used to do, on a separate clock from the
+        // row's (issue #327). Even a RE-RUN body cannot be trusted with one.
         let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
 
         fixture.retitle("release prep", now: Date())
@@ -147,14 +151,18 @@ struct SidebarLiveTitleProjectionTests {
             title: LiveTitles(box: box, reads: .everything).workspace
         )
 
-        // The bug: a rotor built from the stale projection names it differently
-        // from the row you land on (WCAG 4.1.2).
-        #expect(Self.rotorLabel(for: staleSession) != rowLabel)
+        // The bug class: naming the workspace from the struct disagrees with
+        // the row (WCAG 4.1.2). Here the struct is also simply STALE, which
+        // makes the mismatch directly observable.
+        #expect(Self.rotorLabel(for: staleSession, titles: [:]) != rowLabel)
 
-        // The fix: the generation re-runs the body, so the rotor is rebuilt from
-        // the store's current `groups` and the two agree again.
-        let freshSession = try #require(fixture.store.session(id: fixture.sessionID))
-        #expect(Self.rotorLabel(for: freshSession) == rowLabel)
+        // The fix: every surface resolves through the body's coarse-channel
+        // map, so the rotor names the row's title even when handed the stale
+        // struct.
+        #expect(
+            Self.rotorLabel(for: staleSession, titles: fixture.store.sidebarResolvedTitles())
+                == rowLabel
+        )
     }
 
     // MARK: - 4. Duplicate "N of M" ordinals
@@ -185,9 +193,10 @@ struct SidebarLiveTitleProjectionTests {
 
         fixture.retitle("release prep", now: Date())
 
-        // The key folds `groups`, so a body re-run rebuilds it from current
-        // storage and the panel's gate opens. (Without the body re-run the key is
-        // never rebuilt at all — that is the half check 1 above covers.)
+        // The key folds the resolved coarse-channel titles, so a body re-run
+        // rebuilds it from the publish this write released and the panel's gate
+        // opens. (Without the body re-run the key is never rebuilt at all —
+        // that is the half check 1 above covers.)
         #expect(Self.activityKey(for: fixture.store) != before)
     }
 
@@ -226,7 +235,7 @@ struct SidebarLiveTitleProjectionTests {
         // rests on the row, so it has to carry the title too.
         fixture.retitle(
             "ship it",
-            now: base.addingTimeInterval(LiveTitleBox.coarseCoalescingInterval)
+            now: base.addingTimeInterval(SessionStore.defaultLiveTitleGenerationInterval)
         )
         model.refresh(
             session: staleSession,
@@ -281,7 +290,13 @@ struct SidebarLiveTitleProjectionTests {
     }
 
     private static func entries(in store: SessionStore, query: String = "") -> [SidebarGroupEntry] {
-        SidebarView.searchProjection(groups: store.groups, query: query).entries
+        // Same wiring as `SidebarView.body`: the projections score the
+        // coarse-channel map, never raw storage.
+        SidebarView.searchProjection(
+            groups: store.groups,
+            query: query,
+            titles: store.sidebarResolvedTitles()
+        ).entries
     }
 
     private static func matchedIDs(in store: SessionStore, query: String) -> [TerminalSession.ID] {
@@ -291,10 +306,16 @@ struct SidebarLiveTitleProjectionTests {
     private static func ordinals(
         in store: SessionStore
     ) -> [TerminalSession.ID: SidebarDuplicateDisambiguation] {
-        SidebarDuplicateDisambiguator.disambiguationBySessionID(for: entries(in: store))
+        SidebarDuplicateDisambiguator.disambiguationBySessionID(
+            for: entries(in: store),
+            titles: store.sidebarResolvedTitles()
+        )
     }
 
-    private static func rotorLabel(for session: TerminalSession) -> String {
+    private static func rotorLabel(
+        for session: TerminalSession,
+        titles: [TerminalSession.ID: String]
+    ) -> String {
         SidebarVisibleRows.rotorEntries(
             for: [
                 SidebarGroupEntry(
@@ -302,7 +323,8 @@ struct SidebarLiveTitleProjectionTests {
                     unfilteredIndex: 0,
                     sessions: [SidebarSessionEntry(session: session, match: nil)]
                 )
-            ]
+            ],
+            titles: titles
         )[0].label
     }
 
@@ -312,7 +334,8 @@ struct SidebarLiveTitleProjectionTests {
             pinnedSessionIDs: store.pinnedSessionIDs,
             selectedSessionID: store.selectedSessionID,
             displayMode: .expanded,
-            reduceMotion: false
+            reduceMotion: false,
+            resolvedTitles: store.sidebarResolvedTitles()
         )
     }
 

@@ -17,7 +17,8 @@ struct SidebarSearchInteractionTests {
             pinnedSessionIDs: [],
             selectedSessionID: session.id,
             displayMode: .expanded,
-            reduceMotion: false
+            reduceMotion: false,
+            resolvedTitles: [:]
         )
 
         #expect(
@@ -27,7 +28,8 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
                     displayMode: .expanded,
-                    reduceMotion: false
+                    reduceMotion: false,
+                    resolvedTitles: [:]
                 )
         )
 
@@ -40,7 +42,8 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
                     displayMode: .expanded,
-                    reduceMotion: false
+                    reduceMotion: false,
+                    resolvedTitles: [:]
                 )
         )
         #expect(
@@ -50,7 +53,8 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [],
                     selectedSessionID: nil,
                     displayMode: .expanded,
-                    reduceMotion: false
+                    reduceMotion: false,
+                    resolvedTitles: [:]
                 )
         )
         #expect(
@@ -60,7 +64,8 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
                     displayMode: .collapsed,
-                    reduceMotion: false
+                    reduceMotion: false,
+                    resolvedTitles: [:]
                 )
         )
         #expect(
@@ -70,7 +75,8 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [session.id],
                     selectedSessionID: session.id,
                     displayMode: .expanded,
-                    reduceMotion: false
+                    reduceMotion: false,
+                    resolvedTitles: [:]
                 )
         )
         // Reduce Motion reaches the footer spinners only through updateNSView,
@@ -82,7 +88,22 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
                     displayMode: .expanded,
-                    reduceMotion: true
+                    reduceMotion: true,
+                    resolvedTitles: [:]
+                )
+        )
+        // The panel names workspaces from the resolved coarse channel
+        // (issue #327): a title move that touches nothing else in the key —
+        // a silent display-only write — must still re-open the gate.
+        #expect(
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: groups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded,
+                    reduceMotion: false,
+                    resolvedTitles: [session.id: "Retitled agent"]
                 )
         )
     }

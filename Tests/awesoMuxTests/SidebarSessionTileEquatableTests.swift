@@ -501,17 +501,27 @@ struct SidebarSessionTileEquatableTests {
                 .accessibilityTitleOverride == "cargo build"
         )
 
-        // Title match: the row renders the STRUCT title (the highlight ranges are
-        // `String.Index`es into it and `highlighted` asserts when they don't map),
-        // so the label must fall back to the same string. `nil` is that fallback —
-        // it routes to `session.displayTitle(bundle:locale:)`, keeping the
-        // localized synthetic-title path a raw override would bypass.
+        // Title match: the row renders the match's own scored string (the
+        // highlight ranges are `String.Index`es into it and `highlighted`
+        // asserts when they don't map), so the label must speak that same
+        // string — not the live title, not the struct title.
         let matched = tile(
             session: staleSession,
-            match: SessionMatch(field: .title, score: 10, ranges: []),
+            match: SessionMatch(field: .title, score: 10, ranges: [], matchedTitle: "release prep"),
             liveTitles: liveTitles
         )
-        #expect(matched.accessibilityTitleOverride == nil)
+        #expect(matched.accessibilityTitleOverride == "release prep")
+
+        // A hand-built match carrying no snapshot degrades to `nil` — the
+        // label then routes to `session.displayTitle(bundle:locale:)`, keeping
+        // the localized synthetic-title path a raw override would bypass.
+        #expect(
+            tile(
+                session: staleSession,
+                match: SessionMatch(field: .title, score: 10, ranges: []),
+                liveTitles: liveTitles
+            ).accessibilityTitleOverride == nil
+        )
 
         // A non-title match still renders the live workspace title, so it keeps
         // the override — the branch is on the matched FIELD, not on matching.
@@ -548,53 +558,74 @@ struct SidebarSessionTileEquatableTests {
         #expect(tile(session: staleSession, liveTitles: LiveTitles(box: box, reads: .everything)) != before)
     }
 
-    /// On a title match the row renders the STRUCT title (search ranges are
-    /// indices into the string the projection scored), while the live channel it
-    /// otherwise renders is coarse. The key has to follow the same branch: keying
-    /// the coarse title on the match branch compares two strings the row is not
-    /// showing, and for a prefix query the `match` scores identically across
-    /// both, so the gate suppresses the repaint and a FILTERED row keeps a
-    /// superseded title.
-    @Test("a filtered row re-renders when the matched struct title moves")
-    func filteredRowFollowsTheStructTitle() throws {
+    /// Regression for the tile's provenance rule (issue #327): on a title
+    /// match the row must render, speak, and key the string the projection
+    /// SCORED — `match.matchedTitle` — never the struct title (storage can be
+    /// silently ahead) and never the coarse mirror (a later gate fire can
+    /// leave the match one publish behind). The ranges index the scored
+    /// string, so anything else is both the wrong text and a potential
+    /// highlight assertion.
+    @Test("a filtered row renders the match's scored string, not the advanced coarse title")
+    func filteredRowRendersTheScoredString() throws {
         let fixture = store()
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
         let base = Date()
 
-        // Leading edge: coarse and storage agree.
+        // The projection scored "[3/9]" — that is what `match` carries.
         fixture.store.updatePane(
             sessionID: fixture.sessionID,
             paneID: fixture.paneID,
             title: "cargo build [3/9]",
             now: base
         )
-        let firstSession = try #require(fixture.store.session(id: fixture.sessionID))
-
-        // Inside the window: storage moves, the coarse mirror does not. The row
-        // is still handed a fresh struct, because the search projection re-runs
-        // off `groups` on the coalesced generation tick.
+        // Later gate fire, same prefix: the coarse mirror — and storage — moved
+        // past the scored snapshot before the query-driven re-projection ran.
         fixture.store.updatePane(
             sessionID: fixture.sessionID,
             paneID: fixture.paneID,
             title: "cargo build [7/9]",
-            now: base.addingTimeInterval(0.2)
+            now: base.addingTimeInterval(SessionStore.defaultLiveTitleGenerationInterval)
         )
-        let secondSession = try #require(fixture.store.session(id: fixture.sessionID))
-
-        #expect(firstSession.title != secondSession.title)
-        // Premise: the coarse channel really did NOT move, so the assertion below
-        // is carried by the struct branch and not by the live title drifting.
-        #expect(box.coarseWorkspaceTitle == "cargo build [3/9]")
-
-        // A prefix query scores identically against both titles, so `match`
-        // itself cannot carry the difference.
-        let match = SessionMatch(field: .title, score: 100, ranges: [])
+        let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
+        #expect(box.coarseWorkspaceTitle == "cargo build [7/9]")
         let liveTitles = LiveTitles(box: box, reads: .everything)
 
-        #expect(
-            tile(session: firstSession, match: match, liveTitles: liveTitles)
-                != tile(session: secondSession, match: match, liveTitles: liveTitles)
+        let match = SessionMatch(
+            field: .title,
+            score: 100,
+            ranges: [],
+            matchedTitle: "cargo build [3/9]"
         )
+
+        // The label speaks the scored string — the same branch `titleText`
+        // highlights.
+        #expect(
+            tile(session: staleSession, match: match, liveTitles: liveTitles)
+                .accessibilityTitleOverride == "cargo build [3/9]"
+        )
+
+        // The render key follows it too: two rows whose only difference is the
+        // scored snapshot must NOT compare equal — and a prefix query scores
+        // both identically, so `match.score` alone cannot carry the difference.
+        #expect(
+            tile(session: staleSession, match: match, liveTitles: liveTitles)
+                != tile(
+                    session: staleSession,
+                    match: SessionMatch(
+                        field: .title,
+                        score: 100,
+                        ranges: [],
+                        matchedTitle: "cargo build [7/9]"
+                    ),
+                    liveTitles: liveTitles
+                )
+        )
+
+        // Control: neither the struct title nor the coarse title leaking into
+        // the key would split those two rows — with the old key (coarse or
+        // struct on the match branch) the pair above compares EQUAL here.
+        #expect(staleSession.title == "cargo build [7/9]")
+        #expect(liveTitles.workspaceTitle(for: staleSession) == "cargo build [7/9]")
     }
 
     @Test("a display-only workspace-title write compares NOT equal")
