@@ -1,11 +1,37 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Testing
 @testable import awesoMux
 
 @Suite("DestructivePaneActionConfirmationPolicy")
 struct DestructivePaneActionConfirmationPolicyTests {
+    @Test("pane action confirmations preserve displayed-title provenance")
+    func paneActionConfirmationsPreserveDisplayedTitleProvenance() throws {
+        let path = "Sources/awesoMux/App/AwesoMuxApp.swift"
+        let source = try SourceContract.source(at: path)
+        let confirmation = try SourceContract.declarationBody(
+            after: "private func confirmDestructivePaneActionIfNeeded(",
+            in: source,
+            path: path
+        )
+        let close = try SourceContract.declarationBody(
+            after: "private func closeActivePane()",
+            in: source,
+            path: path
+        )
+        let restart = try SourceContract.declarationBody(
+            after: "private func restartActiveShell()",
+            in: source,
+            path: path
+        )
+
+        #expect(confirmation.contains("sanitizedAlertTitle(displayedTitle)"))
+        #expect(close.contains("displayedTitle: actionSession.title"))
+        #expect(restart.contains("displayedTitle: actionSession.title"))
+    }
+
     @Test("confirmed close needs no action when the target exited during the prompt")
     func confirmedCloseNeedsNoActionWhenTargetExitedDuringPrompt() {
         let target = pane(title: "Target", agentExecutionState: .thinking)

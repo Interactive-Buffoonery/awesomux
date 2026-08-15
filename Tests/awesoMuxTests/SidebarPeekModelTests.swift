@@ -308,4 +308,38 @@ struct SidebarPeekModelTests {
         #expect(model.groupSessionItems[0].isActive == true)
     }
 
+    @Test("group peek show and refresh preserve displayed-title provenance")
+    func groupPeekUsesDisplayedTitles() {
+        let model = SidebarPeekModel()
+        let (group, first, second) = twoSessionGroup("Code")
+
+        model.showGroup(
+            group: group,
+            tint: tint,
+            sessions: [first, second],
+            activeSessionID: nil,
+            titles: [first.id: "first displayed", second.id: "second displayed"],
+            frame: .zero
+        )
+        #expect(model.groupSessionItems.map(\.title) == ["first displayed", "second displayed"])
+
+        model.refreshGroup(
+            group: group,
+            tint: tint,
+            sessions: [first, second],
+            activeSessionID: nil,
+            titles: [first.id: "first refreshed", second.id: "second refreshed"]
+        )
+        #expect(model.groupSessionItems.map(\.title) == ["first refreshed", "second refreshed"])
+
+        model.refreshGroup(
+            group: group,
+            tint: tint,
+            sessions: [first, second],
+            activeSessionID: nil,
+            titles: [first.id: "first partial"]
+        )
+        #expect(model.groupSessionItems.map(\.title) == ["first partial", "B"])
+    }
+
 }

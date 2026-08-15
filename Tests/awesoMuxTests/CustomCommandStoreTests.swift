@@ -321,7 +321,7 @@ struct CustomCommandStoreTests {
         let customCommand = CustomCommand(id: UUID(), name: "Run Tests", command: "swift test")
 
         var didRun = false
-        let paletteCommand = PaletteCommand.customCommand(customCommand) {
+        let paletteCommand = PaletteCommand.customCommand(customCommand, selectionScope: .pane) {
             didRun = true
         }
 
@@ -332,6 +332,7 @@ struct CustomCommandStoreTests {
         #expect(paletteCommand.keywords.contains("swift test"))
         #expect(paletteCommand.shortcut == nil)
         #expect(paletteCommand.isEnabled)
+        #expect(paletteCommand.selectionScope == .pane)
 
         paletteCommand.run()
         #expect(didRun)
@@ -342,8 +343,8 @@ struct CustomCommandStoreTests {
         let first = CustomCommand(id: UUID(), name: "One", command: "echo 1")
         let second = CustomCommand(id: UUID(), name: "Two", command: "echo 2")
         let commands = [
-            PaletteCommand.customCommand(first) {},
-            PaletteCommand.customCommand(second) {}
+            PaletteCommand.customCommand(first, selectionScope: .pane) {},
+            PaletteCommand.customCommand(second, selectionScope: .pane) {}
         ]
 
         let resolved = PaletteCommandRegistry.command(

@@ -44,20 +44,27 @@ public enum SidebarLiftReason: Equatable, Hashable, Sendable {
 }
 
 public enum SidebarVisibleRows {
+    /// - Parameter titles: resolved workspace titles (the sidebar's coarse-
+    ///   channel map — `SessionStore.sidebarResolvedTitles()`), keyed by
+    ///   session ID. Present sessions name the row their tile shows; absent
+    ///   ones fall back to storage. The default keeps pure-projection tests
+    ///   free of store plumbing.
     public static func rows(
         attention: [LiftedSessionEntry] = [],
         pinned: [LiftedSessionEntry] = [],
         for entries: [SidebarGroupEntry],
         collapsedGroupIDs: Set<SessionGroup.ID>,
-        isFiltering: Bool
+        isFiltering: Bool,
+        titles: [TerminalSession.ID: String] = [:]
     ) -> [SidebarVisibleRow] {
         // No header row for either synthetic section: unlike a group, neither is
         // collapsible, so neither is a keyboard-nav target of its own.
         let liftedRows = (attention + pinned).map { liftedEntry in
-            SidebarVisibleRow(
-                target: .session(liftedEntry.entry.session.id),
-                label: liftedEntry.entry.session.title,
-                sessionID: liftedEntry.entry.session.id
+            let session = liftedEntry.entry.session
+            return SidebarVisibleRow(
+                target: .session(session.id),
+                label: titles[session.id] ?? session.title,
+                sessionID: session.id
             )
         }
         return liftedRows
@@ -78,7 +85,7 @@ public enum SidebarVisibleRows {
                 contentsOf: entry.sessions.map { sessionEntry in
                     SidebarVisibleRow(
                         target: .session(sessionEntry.session.id),
-                        label: sessionEntry.session.title,
+                            label: titles[sessionEntry.session.id] ?? sessionEntry.session.title,
                         sessionID: sessionEntry.session.id
                     )
                 }
@@ -94,20 +101,28 @@ public enum SidebarVisibleRows {
     /// expanding groups in the source list. (Contrast
     /// `rows(attention:pinned:for:collapsedGroupIDs:isFiltering:)`, which honors
     /// collapse for the visible-row walk.)
+    /// - Parameter titles: resolved workspace titles — see `rows`. The rotor
+    ///   must name a workspace exactly as the row you land on does (WCAG
+    ///   4.1.2, issue #327), so the body's coarse-channel map wins over the
+    ///   potentially fresher struct title.
     public static func rotorEntries(
         attention: [LiftedSessionEntry] = [],
         pinned: [LiftedSessionEntry] = [],
-        for entries: [SidebarGroupEntry]
+        for entries: [SidebarGroupEntry],
+        titles: [TerminalSession.ID: String] = [:]
     ) -> [SidebarWorkspaceRotorEntry] {
         let liftedEntries =
-            attention.map { rotorEntry(for: $0, liftedBecause: .needsInput) }
-            + pinned.map { rotorEntry(for: $0, liftedBecause: .pinned) }
+            attention.map { rotorEntry(for: $0, liftedBecause: .needsInput, titles: titles) }
+            + pinned.map { rotorEntry(for: $0, liftedBecause: .pinned, titles: titles) }
         return liftedEntries
             + entries.flatMap { entry in
             entry.sessions.map { sessionEntry in
                 SidebarWorkspaceRotorEntry(
                     id: sessionEntry.session.id,
-                    label: rotorLabel(for: sessionEntry.session)
+                        label: rotorLabel(
+                            for: sessionEntry.session,
+                            title: titles[sessionEntry.session.id]
+                        )
                 )
             }
         }
@@ -115,7 +130,8 @@ public enum SidebarVisibleRows {
 
     private static func rotorEntry(
         for liftedEntry: LiftedSessionEntry,
-        liftedBecause reason: SidebarLiftReason
+        liftedBecause reason: SidebarLiftReason,
+        titles: [TerminalSession.ID: String] = [:]
     ) -> SidebarWorkspaceRotorEntry {
         let session = liftedEntry.entry.session
         let originGroupName = liftedEntry.originGroup.name
@@ -133,6 +149,7 @@ public enum SidebarVisibleRows {
             id: session.id,
             label: rotorLabel(
                 for: session,
+                title: titles[session.id],
                 originGroupPhrase: stateAlreadyNamedTheReason
                     ? originPhrase(originGroupName: originGroupName)
                     : originGroupPhrase(liftedBecause: reason, originGroupName: originGroupName)
@@ -146,12 +163,17 @@ public enum SidebarVisibleRows {
     /// accessibility phrasing (`title, agent, state`), using `effectiveChromeState`
     /// so a shell reads as Idle/Running rather than a raw agent state.
     ///
-    /// - Parameter originGroupPhrase: appended for a row lifted into a synthetic
-    ///   section, so the rotor says why it sits above its group instead of
-    ///   leaving the reordering unexplained. `rotorEntry(for:liftedBecause:)`
-    ///   picks between the tile's full wording and the origin alone.
+    /// - Parameters:
+    ///   - title: the resolved title the row shows (the coarse-channel map).
+    ///     Nil means "use the session's own display title" — the fallback when
+    ///     no map value exists.
+    ///   - originGroupPhrase: appended for a row lifted into a synthetic
+    ///     section, so the rotor says why it sits above its group instead of
+    ///     leaving the reordering unexplained. `rotorEntry(for:liftedBecause:)`
+    ///     picks between the tile's full wording and the origin alone.
     static func rotorLabel(
         for session: TerminalSession,
+        title: String? = nil,
         originGroupPhrase: String? = nil,
         bundle: Bundle = .main,
         locale: Locale = .current
@@ -160,7 +182,7 @@ public enum SidebarVisibleRows {
         // state being announced — not the active pane's kind (INT-504 R1).
         let rollup = session.agentRollup()
         let label = workspaceAccessibilityLabel(
-            title: session.displayTitle(bundle: bundle, locale: locale),
+            title: title ?? session.displayTitle(bundle: bundle, locale: locale),
             agentKind: rollup.winningAgentKind,
             state: rollup.state,
             bundle: bundle,

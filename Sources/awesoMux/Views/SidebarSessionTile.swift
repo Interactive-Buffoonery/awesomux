@@ -638,15 +638,20 @@ struct SidebarSessionTile: View {
     /// take the SAME branch, or VoiceOver names a workspace differently from the
     /// text on screen.
     private var titleText: Text {
-        if let match, match.field == .title {
-            // Deliberately the STRUCT title, not the live one: `match.ranges`
-            // are `String.Index`es into the title the search projection scored,
-            // and `highlighted` asserts when a range doesn't map into the
-            // string it's given. The projection re-runs on `groups` publishes
-            // and on the coalesced live-title generation, so a live title can
-            // still be ahead of its ranges within one tick — provenance has to
-            // win over freshness for the two to stay in agreement.
-            Text(highlighted(session.title, ranges: match.ranges, base: Color.aw.text))
+        if let match, match.field == .title, let matchedTitle = match.matchedTitle {
+            // The MATCH'S OWN scored string: `match.ranges` are `String.Index`es
+            // into it, `highlighted` asserts when a range doesn't map into the
+            // string it's given, and BOTH the struct title and the coarse
+            // mirror can be different strings by the time this renders —
+            // provenance must win over freshness for the two to stay in
+            // agreement (issue #327).
+            Text(
+                highlighted(
+                    matchedTitle,
+                    ranges: match.ranges,
+                    base: Color.aw.text
+                )
+            )
         } else {
             Text(liveTitles.workspaceTitle(for: session))
                 .foregroundStyle(Color.aw.text)
@@ -656,17 +661,15 @@ struct SidebarSessionTile: View {
     /// The title the row's accessibility label must speak, branching exactly as
     /// `titleText` renders.
     ///
-    /// `nil` on the search-match branch so the label falls back to
-    /// `session.displayTitle(bundle:locale:)` — the same struct title the
-    /// highlighted text shows, via the localized synthetic-title path a raw
-    /// string would bypass.
+    /// The match's scored string on the search-match branch — the same string
+    /// the highlighted text draws.
     ///
     /// `internal` so the branch pairing is testable: `titleText` returns a `Text`,
     /// whose string is not readable back, so this is the only side of the pair a
     /// test can pin.
     var accessibilityTitleOverride: String? {
         if let match, match.field == .title {
-            return nil
+            return match.matchedTitle
         }
         return liveTitles.workspace
     }
@@ -1214,15 +1217,13 @@ extension SidebarSessionTile: Equatable {
             // failure mode).
             //
             // Branches exactly as `titleText` does, and must keep doing so. On a
-            // title match the row renders the STRUCT title (for range
+            // title match the row renders the MATCH'S scored string (for range
             // provenance) while the live channel is coarse, so keying the live
             // title there compares two strings the row is not showing: for a
             // prefix query `match` scores identically across both titles, the
             // gate suppresses the repaint, and a FILTERED row keeps a superseded
             // title. Key what you render.
-            title: match?.field == .title
-                ? session.title
-                : liveTitles.workspaceTitle(for: session),
+            title: match?.matchedTitle ?? liveTitles.workspaceTitle(for: session),
             location: session.sidebarLocation,
             notificationsMuted: session.notificationsMuted,
             sessionWorkingDirectory: session.workingDirectory,

@@ -19,6 +19,25 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
     ) -> String {
         syntheticTitle?.localizedTitle(bundle: bundle, locale: locale) ?? storedTitle
     }
+
+    /// What `displayTitle(bundle:locale:)` would produce if the raw title were
+    /// `rawTitleOverride`: the synthetic-title localization path still wins
+    /// (a synthetic title ignores `storedTitle` by definition), otherwise the
+    /// override passes through verbatim.
+    ///
+    /// For surfaces that must name this session by a title snapshot that did
+    /// not come from storage — the sidebar's coarse-mirror map, where the
+    /// stored value can be a fresher string than the row is showing (issue
+    /// #327). The override is non-optional because an empty coarse title is a
+    /// valid snapshot, not evidence that no snapshot exists.
+    public func displayTitle(
+        bundle: Bundle = .main,
+        locale: Locale = .current,
+        overridingRawTitle rawTitleOverride: String
+    ) -> String {
+        syntheticTitle?.localizedTitle(bundle: bundle, locale: locale)
+            ?? rawTitleOverride
+    }
     public var workingDirectory: String
     public var isTitleUserEdited: Bool
     /// Per-workspace notification mute (INT-598). Gates only the interruptive

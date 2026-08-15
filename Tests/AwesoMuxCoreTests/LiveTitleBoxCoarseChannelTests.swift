@@ -4,10 +4,11 @@ import Testing
 
 @testable import AwesoMuxCore
 
-/// The coarse half of the live-title channel: the sidebar rows and the path bar
-/// read a mirror published at most once per
-/// `LiveTitleBox.coarseCoalescingInterval`, while the pane title bars keep
-/// reading the fine-grained properties on every report.
+/// The coarse half of the live-title channel: the sidebar rows read a mirror
+/// published only when the STORE's per-session coalescing gate fires
+/// (`SessionStore.tickLiveTitle` — the same timestamp check that bumps
+/// `liveTitleGeneration`, issue #327), while the pane title bars keep reading
+/// the fine-grained properties on every report.
 ///
 /// Every test drives a real `SessionStore` write rather than poking the box, and
 /// every one passes an explicit `now`, so the coalescing window is crossed by
@@ -23,9 +24,9 @@ import Testing
 @Suite("LiveTitleBox — coarse title channel")
 struct LiveTitleBoxCoarseChannelTests {
 
-    // MARK: - 1. The per-tick path coalesces
+    // MARK: - 1. The per-tick path coalesces on the STORE's gate
 
-    @Test("a burst of display-only title writes publishes the coarse mirror once")
+    @Test("a burst of display-only title writes publishes the coarse mirror once, with the generation bump")
     func burstPublishesCoarseMirrorOnce() throws {
         let fixture = makeFixture()
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
@@ -36,6 +37,7 @@ struct LiveTitleBoxCoarseChannelTests {
         // test would be measuring the wrong thing.
         fixture.retitle("frame 0", now: base)
         #expect(box.coarseWorkspaceTitle == "frame 0")
+        #expect(fixture.store.liveTitleGeneration == 1)
 
         // A spinner reports ~4x/sec. Five frames, all strictly inside the window
         // opened at `base` — the last lands at +0.5s, comfortably short of the
@@ -50,19 +52,22 @@ struct LiveTitleBoxCoarseChannelTests {
         #expect(box.workspaceTitle == "frame 5")
         #expect(box.paneTitles[fixture.paneID] == "frame 5")
 
-        // The coarse channel did not.
+        // The coarse channel did not — and neither did the generation. One gate
+        // means the two cannot fire separately (issue #327).
         #expect(box.coarseWorkspaceTitle == "frame 0")
         #expect(box.coarsePaneTitles[fixture.paneID] == "frame 0")
+        #expect(fixture.store.liveTitleGeneration == 1)
 
         // Once the window elapses, the next report carries the latest title —
         // the mirror catches up wholesale, it does not replay the frames it
-        // skipped.
+        // skipped — and the generation bumps on the same tick.
         fixture.retitle(
             "frame 6",
-            now: base.addingTimeInterval(LiveTitleBox.coarseCoalescingInterval)
+            now: base.addingTimeInterval(SessionStore.defaultLiveTitleGenerationInterval)
         )
         #expect(box.coarseWorkspaceTitle == "frame 6")
         #expect(box.coarsePaneTitles[fixture.paneID] == "frame 6")
+        #expect(fixture.store.liveTitleGeneration == 2)
     }
 
     @Test("a backwards wall clock does not freeze the coarse mirror")
@@ -184,7 +189,7 @@ struct LiveTitleBoxCoarseChannelTests {
         #expect(box.coarsePaneTitles[fixture.paneID] == "pane")
     }
 
-    /// `adopt` must leave the coalescing timestamp exactly as it found it —
+    /// `adopt` must leave the store's coalescing stamp exactly as it found it —
     /// neither ADVANCING it (which would cost the next second of ticks their
     /// publish) nor CLEARING it (which would hand every rename a free leading
     /// edge and defeat the coalescing).
@@ -215,36 +220,36 @@ struct LiveTitleBoxCoarseChannelTests {
         // `base`, not one interval after the rename.
         fixture.retitle(
             "frame 2",
-            now: base.addingTimeInterval(LiveTitleBox.coarseCoalescingInterval)
+            now: base.addingTimeInterval(SessionStore.defaultLiveTitleGenerationInterval)
         )
         #expect(box.coarsePaneTitles[fixture.paneID] == "frame 2")
     }
 
-    /// The shared window check must stay written as a NEGATION of the original
-    /// suppression predicate. `interval` reaches `bumpLiveTitleGenerationIfDue`
-    /// from a public initializer, and every comparison against `NaN` is false —
-    /// so the positive-looking rewrite `elapsed < 0 || elapsed >= interval`
-    /// returns false forever and freezes the generation counter, where the
-    /// original bumped every time. Sidebar search, duplicate ordinals and the
-    /// VoiceOver rotor all hang off that counter.
+    /// `interval` reaches `SessionStore` from a public initializer. NaN makes
+    /// every comparison false; positive infinity makes every finite elapsed
+    /// time stay inside the window forever. Neither may freeze the generation.
     @Test("a non-finite interval does not freeze the live-title generation")
     func nonFiniteIntervalDoesNotFreezeTheGeneration() {
-        let fixture = makeFixture(liveTitleGenerationInterval: .nan)
-        let base = Date(timeIntervalSince1970: 1_000_000)
+        for interval in [TimeInterval.nan, .infinity, -.infinity] {
+            let fixture = makeFixture(liveTitleGenerationInterval: interval)
+            let base = Date(timeIntervalSince1970: 1_000_000)
 
-        fixture.retitle("one", now: base)
-        fixture.retitle("two", now: base.addingTimeInterval(0.1))
-        fixture.retitle("three", now: base.addingTimeInterval(0.2))
+            fixture.retitle("one", now: base)
+            fixture.retitle("two", now: base.addingTimeInterval(0.1))
+            fixture.retitle("three", now: base.addingTimeInterval(0.2))
 
-        #expect(fixture.store.liveTitleGeneration == 3)
+            #expect(fixture.store.liveTitleGeneration == 3)
+        }
     }
 
     // MARK: - 4. A restore is a new lifetime for the coalescing window
 
-    /// A bulk restore can reuse a session ID with entirely different content. If
-    /// the box survived, so would its coalescing timestamp, and the restored
-    /// pane's FIRST title report could be suppressed by a window the previous
-    /// occupant opened — indefinitely, if it were that pane's only report.
+    /// A bulk restore can reuse a session ID with entirely different content.
+    /// The surviving box keeps no coalescing state of its own (the stamp lives
+    /// in the store, and `replaceState` clears the session's entry there), so
+    /// the restored pane's FIRST title report cannot be suppressed by a window
+    /// the previous occupant opened — indefinitely, if it were that pane's
+    /// only report.
     @Test("a restore reusing a session ID starts a fresh coalescing window")
     func restoreReusingASessionIDResetsTheWindow() throws {
         let fixture = makeFixture()
@@ -289,10 +294,50 @@ struct LiveTitleBoxCoarseChannelTests {
         )
         #expect(restoredBox.coarsePaneTitles[restoredPane.id] == "first report")
 
-        // The generation counter coalesces on the same boundary with its own
-        // per-session stamps. Resetting only the box's window would move the row
-        // while leaving every title-derived projection un-rebuilt.
+        // One gate, one stamp: the same cleared window that released the coarse
+        // publish above also let the generation bump — under two clocks this
+        // pair drifted, moving the row while leaving every title-derived
+        // projection un-rebuilt.
         #expect(fixture.store.liveTitleGeneration > generationBefore)
+    }
+
+    // MARK: - 5. A box created mid-window joins the session's existing cadence
+
+    /// `tickLiveTitle` gates on the STORE's per-session stamp, which exists
+    /// whether or not a box does. When a box appears later — the sidebar's
+    /// resolved-title map creates it — `adopt` seeds the coarse mirror from
+    /// current storage unthrottled, so the new surface starts CORRECT, and the
+    /// running window then governs its per-tick publishes. The alternative
+    /// (a fresh leading edge at box creation) would let a mid-window box strobe
+    /// the row open exactly when nothing else was moving.
+    @Test("a box created mid-window starts at storage and waits for the next due tick")
+    func boxCreatedMidWindowStartsAtStorage() {
+        let fixture = makeFixture()
+        let base = Date(timeIntervalSince1970: 1_000_000)
+
+        // Opens the session's window with NO box attached. The generation bumps
+        // even without one — projections cover the whole roster.
+        fixture.retitle("one", now: base)
+        #expect(fixture.store.liveTitleGeneration == 1)
+        fixture.retitle("two", now: base.addingTimeInterval(0.4))
+        #expect(fixture.store.liveTitleGeneration == 1)
+
+        // The box appears: coarse == current storage via the seeding adopt.
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        #expect(box.hasCoarseSnapshot)
+        #expect(box.coarseWorkspaceTitle == "two")
+
+        // Still inside the window opened at `base`: the fine channel moves, the
+        // coarse mirror and the generation both hold.
+        fixture.retitle("three", now: base.addingTimeInterval(0.7))
+        #expect(box.workspaceTitle == "three")
+        #expect(box.coarseWorkspaceTitle == "two")
+        #expect(fixture.store.liveTitleGeneration == 1)
+
+        // The next due tick publishes and bumps together.
+        fixture.retitle("four", now: base.addingTimeInterval(1))
+        #expect(box.coarseWorkspaceTitle == "four")
+        #expect(fixture.store.liveTitleGeneration == 2)
     }
 
     // MARK: - Fixture
