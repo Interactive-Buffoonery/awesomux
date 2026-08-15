@@ -161,13 +161,13 @@ public final class SessionStore {
     /// same workspace differently (issue #327, WCAG 4.1.2); one gate makes them
     /// provably in phase.
     ///
-    /// The generation is bumped — and the window stamped — BEFORE the box is
-    /// resolved, deliberately: an unrendered session has no box, but sidebar
-    /// projections cover the whole roster, so their invalidation cannot depend
-    /// on a row existing. And this never CREATES a box: an unobserved session
-    /// has no one to notify. (`SidebarView` seeds boxes for the roster via
-    /// `liveTitleBox(for:)` when building its resolved-title map — a different
-    /// path with its own seeding semantics.)
+    /// The window is stamped before the box publishes, then the generation is
+    /// bumped after publication so synchronous observers resolve the new coarse
+    /// snapshot. An unrendered session has no box, but the generation still
+    /// bumps because sidebar projections cover the whole roster. This never
+    /// creates a box: an unobserved session has no one to notify. (`SidebarView`
+    /// seeds boxes for the roster via `liveTitleBox(for:)` when building its
+    /// resolved-title map — a different path with its own seeding semantics.)
     ///
     /// The narrow counterpart to `refreshLiveTitleBoxes`, for the silent OSC
     /// path, which is the only writer that both knows exactly which pane moved
@@ -181,27 +181,26 @@ public final class SessionStore {
             interval: liveTitleGenerationInterval
         )
         if windowHasElapsed {
-            // Stamped whenever due, NOT conditionally on the coarse publish
-            // below changing a value: the silent path reaches here only when a
-            // displayed title actually moved (the facade guards with
-            // `displayedTitleMoved`), so the publish can only be a no-op if a
-            // future caller bypasses that reducer — and a window that advanced
-            // anyway is still the safe failure direction (a suppressed publish,
-            // not a doubled interval of staleness).
+            // Stamp before publishing so a re-entrant write cannot earn the
+            // same leading edge. The observable generation itself moves only
+            // after the box below has published its complete coarse snapshot.
             lastLiveTitleBumpBySessionID[session.id] = now
+        }
+        if let box = liveTitles[session.id],
+            let pane = session.layout.pane(id: paneID)
+        {
+            box.adoptPaneTitle(
+                pane.id,
+                title: pane.title,
+                workspaceTitle: session.title,
+                publishCoarseNow: windowHasElapsed
+            )
+        }
+        if windowHasElapsed {
+            // Last: a synchronous generation observer that resolves titles must
+            // see the same coarse snapshot the resulting SwiftUI pass will use.
             liveTitleGeneration += 1
         }
-        guard let box = liveTitles[session.id],
-            let pane = session.layout.pane(id: paneID)
-        else {
-            return
-        }
-        box.adoptPaneTitle(
-            pane.id,
-            title: pane.title,
-            workspaceTitle: session.title,
-            publishCoarseNow: windowHasElapsed
-        )
     }
 
     /// Re-seeds every live box from storage.
@@ -220,7 +219,7 @@ public final class SessionStore {
     /// path bypasses these accessors by design and drives `tickLiveTitle`
     /// instead. A write that reaches here already committed to waking every
     /// `groups` observer (~100 ms of SwiftUI invalidation, issue #311); walking
-    /// the handful of boxes belonging to *rendered* rows is noise beside it.
+    /// the roster-bounded set of boxes is noise beside it.
     /// `adopt` is value-guarded, so an unrelated mutation publishes nothing.
     ///
     /// Bounds and identity come from `storedSessionForLiveTitleBox` — see there
@@ -344,20 +343,43 @@ public final class SessionStore {
         locale: Locale = .current
     ) -> [TerminalSession.ID: String] {
         var titles: [TerminalSession.ID: String] = [:]
+        titles.reserveCapacity(index.positionsBySessionID.count)
         for group in groupStorage {
             for session in group.sessions {
-                let box = liveTitleBox(for: session.id)
-                titles[session.id] =
-                    box.hasCoarseSnapshot
-                    ? session.displayTitle(
-                        bundle: bundle,
-                        locale: locale,
-                        overridingRawTitle: box.coarseWorkspaceTitle
-                    )
-                    : session.displayTitle(bundle: bundle, locale: locale)
+                titles[session.id] = sidebarResolvedTitle(
+                    for: session,
+                    bundle: bundle,
+                    locale: locale
+                )
             }
         }
         return titles
+    }
+
+    /// Resolves one session without building the roster-wide title map.
+    /// Action surfaces use this when they only need the selected workspace.
+    public func sidebarResolvedTitle(
+        for sessionID: TerminalSession.ID,
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String? {
+        guard let session = storedSessionForLiveTitleBox(sessionID) else { return nil }
+        return sidebarResolvedTitle(for: session, bundle: bundle, locale: locale)
+    }
+
+    private func sidebarResolvedTitle(
+        for session: TerminalSession,
+        bundle: Bundle,
+        locale: Locale
+    ) -> String {
+        let box = liveTitleBox(for: session.id)
+        return box.hasCoarseSnapshot
+            ? session.displayTitle(
+                bundle: bundle,
+                locale: locale,
+                overridingRawTitle: box.coarseWorkspaceTitle
+            )
+            : session.displayTitle(bundle: bundle, locale: locale)
     }
 
     /// Called after a display-only title write has landed silently, so the app

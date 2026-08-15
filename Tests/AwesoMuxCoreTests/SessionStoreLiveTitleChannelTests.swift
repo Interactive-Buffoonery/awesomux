@@ -661,6 +661,32 @@ struct SessionStoreLiveTitleChannelTests {
         #expect(fixture.store.liveTitleGeneration == 1)
     }
 
+    @Test("a generation observer resolves the coarse snapshot published by that tick")
+    func generationObserverSeesPublishedCoarseTitle() {
+        let fixture = makeFixture()
+        _ = fixture.store.liveTitleBox(for: fixture.sessionID)
+        let observedTitle = TrackingTitle()
+
+        withObservationTracking {
+            _ = fixture.store.liveTitleGeneration
+        } onChange: {
+            MainActor.assumeIsolated {
+                observedTitle.set(
+                    fixture.store.sidebarResolvedTitle(for: fixture.sessionID)
+                )
+            }
+        }
+
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "release prep",
+            now: Date(timeIntervalSince1970: 1_000_000)
+        )
+
+        #expect(observedTitle.value == "release prep")
+    }
+
     // MARK: - Issue #327: one gate, so one session's bump cannot phase another's surfaces
 
     /// The issue's cross-session acceptance case. Session A's tick crosses A's
@@ -806,6 +832,8 @@ struct SessionStoreLiveTitleChannelTests {
         #expect(box.coarseWorkspaceTitle == "")
         #expect(store.session(id: session.id)?.title == "storage only")
         #expect(store.sidebarResolvedTitles()[session.id] == "")
+        #expect(store.sidebarResolvedTitle(for: session.id) == "")
+        #expect(store.sidebarResolvedTitle(for: UUID()) == nil)
     }
 
     @Test("the roster resolver observes coarse titles but ignores fine-only writes")
@@ -959,5 +987,18 @@ private final class TrackingFlag: @unchecked Sendable {
 
     func set() {
         lock.withLock { storage = true }
+    }
+}
+
+private final class TrackingTitle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: String?
+
+    var value: String? {
+        lock.withLock { storage }
+    }
+
+    func set(_ value: String?) {
+        lock.withLock { storage = value }
     }
 }

@@ -150,9 +150,17 @@ struct SidebarSnapshot {
             displayed[entry.session.id] = matchedTitle
         }
 
-        entries.flatMap(\.sessions).forEach(apply)
-        attention.map(\.entry).forEach(apply)
-        pinned.map(\.entry).forEach(apply)
+        for group in entries {
+            for entry in group.sessions {
+                apply(entry)
+            }
+        }
+        for lifted in attention {
+            apply(lifted.entry)
+        }
+        for lifted in pinned {
+            apply(lifted.entry)
+        }
         return displayed
     }
 }

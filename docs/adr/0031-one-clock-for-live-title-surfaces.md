@@ -48,8 +48,10 @@ resolved-title map per roster session from the boxes' coarse mirrors
 (`SessionStore.sidebarResolvedTitles()`, resolved through
 `TerminalSession.displayTitle(overridingRawTitle:)` to preserve the
 synthetic-title localization path) and threads it through the search haystack,
-the duplicate disambiguator, the visible-row and rotor labels, the activity
-panel's invalidation key, and the single-session announcements. Unrendered
+  the duplicate disambiguator, the visible-row and rotor labels, command-palette
+  workspace results, and the single-session announcements. The open activity
+  panel observes the same map through an ungated child scope; its closed footer
+  deliberately excludes title-only changes from its equatable roster key. Unrendered
 sessions seed their box from storage on creation, so "coarse" means "current
 storage" for them.
 

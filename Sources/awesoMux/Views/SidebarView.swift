@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
 import DesignSystem
@@ -69,6 +70,8 @@ struct SidebarView: View {
     @State private var activeWorkspaceDragSourceWasPinned = false
     @State private var dragClearScheduler = SidebarDragClearScheduler()
     @State private var accessibilityAnnouncer = SidebarAccessibilityAnnouncer()
+    @State private var activityPanelOpen = false
+    @State private var activityPanelScrollTarget: AgentDisplayState?
     @State private var lastDragWatchdogRefresh = Date.distantPast
     @State private var sidebarDragClearDeadline: Date?
     @State private var groupFrames: [SessionGroup.ID: CGRect] = [:]
@@ -273,6 +276,7 @@ struct SidebarView: View {
                                 displayMode: displayMode,
                                 duplicateDisambiguationBySessionID:
                                     duplicateDisambiguationBySessionID,
+                                displayedTitles: displayedTitles,
                                 allGroups: sessionStore.groups,
                                 jumpIndexBySessionID: jumpIndexBySessionID,
                                 selectedSessionID: sessionStore.selectedSessionID,
@@ -313,8 +317,7 @@ struct SidebarView: View {
                                     moveSession(
                                         sessionID,
                                         toGroupID: groupID,
-                                        atIndex: index,
-                                        displayedTitles: displayedTitles
+                                        atIndex: index
                                     )
                                 },
                                 onMoveGroup: moveGroup(fromIndex:toIndex:),
@@ -339,9 +342,21 @@ struct SidebarView: View {
                                 onUncollapse: {
                                     collapsedGroupIDs.remove(entry.group.id)
                                 },
-                                onClose: onCloseWorkspace,
-                                onClear: onClearWorkspace,
-                                onRename: onRenameWorkspace,
+                                onClose: {
+                                    onCloseWorkspace(
+                                        Self.workspaceActionSession($0, displayedTitles: displayedTitles)
+                                    )
+                                },
+                                onClear: {
+                                    onClearWorkspace(
+                                        Self.workspaceActionSession($0, displayedTitles: displayedTitles)
+                                    )
+                                },
+                                onRename: {
+                                    onRenameWorkspace(
+                                        Self.workspaceActionSession($0, displayedTitles: displayedTitles)
+                                    )
+                                },
                                 onToggleNotificationsMute: { session in
                                     sessionStore.setNotificationsMuted(
                                         id: session.id,
@@ -494,14 +509,14 @@ struct SidebarView: View {
                     selectedSessionID: sessionStore.selectedSessionID,
                     displayMode: displayMode,
                     reduceMotion: reduceMotion,
-                    // The roster names workspaces; it has to ride the SAME
-                    // coarse channel the rows do (issue #327), and only a
-                    // compared constructor value pierces this .equatable()
-                    // boundary (PR #428) — a silent title write touches no
-                    // other field of this key.
-                    resolvedTitles: displayedTitles
+                    activityPanelGeneration: activityPanelOpen
+                        ? sessionStore.liveTitleGeneration : nil,
+                    activityPanelDisplayedTitles: activityPanelOpen ? displayedTitles : nil,
+                    activityPanelScrollTarget: activityPanelOpen ? activityPanelScrollTarget : nil
                 ),
                 searchText: $searchText,
+                activityPanelOpen: $activityPanelOpen,
+                activityPanelScrollTarget: $activityPanelScrollTarget,
                 onOpenQuickSettings: onOpenQuickSettings,
                 onFocusPane: onFocusPane
             )
@@ -1116,9 +1131,15 @@ struct SidebarView: View {
             onTogglePin: { session in
                 sessionStore.togglePin(sessionID: session.id)
             },
-            onClose: onCloseWorkspace,
-            onClear: onClearWorkspace,
-            onRename: onRenameWorkspace,
+            onClose: {
+                onCloseWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+            },
+            onClear: {
+                onClearWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+            },
+            onRename: {
+                onRenameWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+            },
             onAcknowledge: { session in
                 sessionStore.acknowledgeSession(id: session.id)
             },
@@ -1135,8 +1156,7 @@ struct SidebarView: View {
                 moveSession(
                     sessionID,
                     toGroupID: destinationGroupID,
-                    atIndex: SessionStore.appendIndex,
-                    displayedTitles: displayedTitles
+                    atIndex: SessionStore.appendIndex
                 )
             },
             onWorkspaceDragStarted: beginWorkspaceDrag,
@@ -1173,9 +1193,15 @@ struct SidebarView: View {
             onTogglePin: { session in
                 sessionStore.togglePin(sessionID: session.id)
             },
-            onClose: onCloseWorkspace,
-            onClear: onClearWorkspace,
-            onRename: onRenameWorkspace,
+            onClose: {
+                onCloseWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+            },
+            onClear: {
+                onClearWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+            },
+            onRename: {
+                onRenameWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+            },
             onAcknowledge: { session in
                 sessionStore.acknowledgeSession(id: session.id)
             },
@@ -1192,8 +1218,7 @@ struct SidebarView: View {
                 moveSession(
                     sessionID,
                     toGroupID: destinationGroupID,
-                    atIndex: SessionStore.appendIndex,
-                    displayedTitles: displayedTitles
+                    atIndex: SessionStore.appendIndex
                 )
             },
             onMovePinned: { fromIndex, toIndex in
@@ -1265,6 +1290,18 @@ struct SidebarView: View {
         displayedTitles[session.id] ?? session.displayTitle()
     }
 
+    /// Carries the title visible at invocation through the existing callback
+    /// type. App actions use the ID to refetch current mutable state; only this
+    /// copied title is presentation provenance for sheets and announcements.
+    static func workspaceActionSession(
+        _ session: TerminalSession,
+        displayedTitles: [TerminalSession.ID: String]
+    ) -> TerminalSession {
+        var actionSession = session
+        actionSession.title = displayedTitles[session.id] ?? session.displayTitle()
+        return actionSession
+    }
+
     private func toggleGroup(_ id: SessionGroup.ID) {
         if collapsedGroupIDs.contains(id) {
             collapsedGroupIDs.remove(id)
@@ -1282,15 +1319,14 @@ struct SidebarView: View {
     private func moveSession(
         _ sessionID: TerminalSession.ID,
         toGroupID destinationGroupID: SessionGroup.ID,
-        atIndex index: Int,
-        displayedTitles: [TerminalSession.ID: String]
+        atIndex index: Int
     ) {
         sessionStore.moveSession(
             id: sessionID,
             toGroupID: destinationGroupID,
             atIndex: index
         )
-        announceWorkspaceReorder(sessionID, displayedTitles: displayedTitles)
+        announceWorkspaceReorder(sessionID)
     }
 
     /// Index-based group move (keyboard "Move Group Up/Down" a11y actions).
@@ -1328,9 +1364,20 @@ struct SidebarView: View {
     /// Reads the post-move position from the store so cross-group moves
     /// name the destination group too.
     private func announceWorkspaceReorder(
-        _ sessionID: TerminalSession.ID,
-        displayedTitles: [TerminalSession.ID: String]
+        _ sessionID: TerminalSession.ID
     ) {
+        guard let announcement = Self.workspaceReorderAnnouncement(sessionID, in: sessionStore) else {
+            return
+        }
+        accessibilityAnnouncer.announce(announcement)
+    }
+
+    /// Resolves after the structural mutation because moving a workspace
+    /// synchronously refreshes its coarse box from current storage.
+    static func workspaceReorderAnnouncement(
+        _ sessionID: TerminalSession.ID,
+        in sessionStore: SessionStore
+    ) -> String? {
         guard
             let groupIndex = sessionStore.groups.firstIndex(where: {
                 $0.sessions.contains(where: { $0.id == sessionID })
@@ -1338,13 +1385,12 @@ struct SidebarView: View {
             let sessionIndex = sessionStore.groups[groupIndex].sessions
                 .firstIndex(where: { $0.id == sessionID })
         else {
-            return
+            return nil
         }
         let group = sessionStore.groups[groupIndex]
         let session = group.sessions[sessionIndex]
-        accessibilityAnnouncer.announce(
-            "Moved \(sidebarTitle(for: session, displayedTitles: displayedTitles)) to position \(sessionIndex + 1) of \(group.sessions.count) in \(group.name)"
-        )
+        let title = sessionStore.sidebarResolvedTitle(for: session.id) ?? session.displayTitle()
+        return "Moved \(title) to position \(sessionIndex + 1) of \(group.sessions.count) in \(group.name)"
     }
 
     private func announceGroupReorder(_ groupID: SessionGroup.ID) {
@@ -1529,11 +1575,81 @@ struct SidebarActivityInvalidationKey: Equatable {
     /// .equatable() gate (PR #428): the footer/roster thinking spinners read
     /// Reduce Motion via updateNSView, which only runs when this key changes.
     let reduceMotion: Bool
-    /// The body's coarse-channel title map. `groups` does NOT move on a silent
-    /// (display-only) title write — that is its whole point — so without this
-    /// the panel rows would name workspaces by the last published titles even
-    /// after the row beside them moved (issue #327).
-    let resolvedTitles: [TerminalSession.ID: String]
+    /// Open-panel inputs join the equatable key only while visible. This keeps
+    /// the closed footer title-insensitive while giving the panel the exact
+    /// scored-title snapshot rendered by the outer sidebar body.
+    let activityPanelGeneration: Int?
+    let activityPanelDisplayedTitles: [TerminalSession.ID: String]?
+    let activityPanelScrollTarget: AgentDisplayState?
+
+    init(
+        groups: [SessionGroup],
+        pinnedSessionIDs: [TerminalSession.ID],
+        selectedSessionID: TerminalSession.ID?,
+        displayMode: SidebarWidthMode,
+        reduceMotion: Bool,
+        activityPanelGeneration: Int? = nil,
+        activityPanelDisplayedTitles: [TerminalSession.ID: String]? = nil,
+        activityPanelScrollTarget: AgentDisplayState? = nil
+    ) {
+        self.groups = groups
+        self.pinnedSessionIDs = pinnedSessionIDs
+        self.selectedSessionID = selectedSessionID
+        self.displayMode = displayMode
+        self.reduceMotion = reduceMotion
+        self.activityPanelGeneration = activityPanelGeneration
+        self.activityPanelDisplayedTitles = activityPanelDisplayedTitles
+        self.activityPanelScrollTarget = activityPanelScrollTarget
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.pinnedSessionIDs == rhs.pinnedSessionIDs,
+            lhs.selectedSessionID == rhs.selectedSessionID,
+            lhs.displayMode == rhs.displayMode,
+            lhs.reduceMotion == rhs.reduceMotion,
+            lhs.activityPanelGeneration == rhs.activityPanelGeneration,
+            lhs.activityPanelDisplayedTitles == rhs.activityPanelDisplayedTitles,
+            lhs.activityPanelScrollTarget == rhs.activityPanelScrollTarget,
+            lhs.groups.count == rhs.groups.count
+        else { return false }
+
+        for groupIndex in lhs.groups.indices {
+            let lhsSessions = lhs.groups[groupIndex].sessions
+            let rhsSessions = rhs.groups[groupIndex].sessions
+            guard lhsSessions.count == rhsSessions.count else { return false }
+
+            for sessionIndex in lhsSessions.indices {
+                let lhsSession = lhsSessions[sessionIndex]
+                let rhsSession = rhsSessions[sessionIndex]
+                guard lhsSession.id == rhsSession.id,
+                    lhsSession.activePaneID == rhsSession.activePaneID,
+                    activityLayoutsEqual(lhsSession.layout, rhsSession.layout)
+                else { return false }
+            }
+        }
+        return true
+    }
+
+    private static func activityLayoutsEqual(
+        _ lhs: TerminalPaneLayout,
+        _ rhs: TerminalPaneLayout
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case let (.pane(lhsPane), .pane(rhsPane)):
+            lhsPane.id == rhsPane.id
+                && lhsPane.agentKind == rhsPane.agentKind
+                && lhsPane.effectiveChromeState == rhsPane.effectiveChromeState
+                && lhsPane.workingDirectory == rhsPane.workingDirectory
+                && lhsPane.remotePresentationHost == rhsPane.remotePresentationHost
+        case let (.split(lhsSplit), .split(rhsSplit)):
+            activityLayoutsEqual(lhsSplit.first, rhsSplit.first)
+                && activityLayoutsEqual(lhsSplit.second, rhsSplit.second)
+        case (.documentGroup, .documentGroup):
+            true
+        default:
+            false
+        }
+    }
 }
 
 /// Owns the filter-independent roster UI behind an explicit session-tree
@@ -1543,12 +1659,10 @@ private struct SidebarActivitySection: View, Equatable {
     let sessionStore: SessionStore
     let invalidationKey: SidebarActivityInvalidationKey
     @Binding var searchText: String
+    @Binding var activityPanelOpen: Bool
+    @Binding var activityPanelScrollTarget: AgentDisplayState?
     let onOpenQuickSettings: () -> Void
     let onFocusPane: (TerminalSession.ID, UUID) -> Void
-
-    /// INT-722 roster panel. Transient by design — resets on relaunch.
-    @State private var activityPanelOpen = false
-    @State private var activityPanelScrollTarget: AgentDisplayState?
 
     // The equatable gate freezes the previous view value — closures included —
     // whenever the key compares equal. These callbacks must stay capture-stable
@@ -1571,25 +1685,12 @@ private struct SidebarActivitySection: View, Equatable {
         }
         return VStack(spacing: 0) {
             if activityPanelOpen, invalidationKey.displayMode != .collapsed {
-                // Inactive-pane title reports can leave the workspace title
-                // unchanged, so observe the generation only while pane titles
-                // are visible instead of widening the closed footer's key.
-                let _ = sessionStore.liveTitleGeneration
-                // Built only while the panel is open — the roster rebuild path
-                // runs on every session-tree change and must not pay an O(n)
-                // dictionary for a closed panel.
-                let sessionsByID = Dictionary(
-                    sessions.map { ($0.id, $0) },
-                    uniquingKeysWith: { first, _ in first }
-                )
                 Divider()
-                AgentActivityPanel(
-                    groups: roster.groups.map { group in
-                        (
-                            state: group.state,
-                            items: group.rows.map { panelItem(for: $0, sessionsByID: sessionsByID) }
-                        )
-                    },
+                SidebarActivityPanelTitleScope(
+                    sessionStore: sessionStore,
+                    sessions: sessions,
+                    roster: roster,
+                    resolvedTitles: invalidationKey.activityPanelDisplayedTitles ?? [:],
                     scrollTarget: activityPanelScrollTarget,
                     onSelect: selectActivityRow,
                     onClose: { setActivityPanel(open: false) }
@@ -1643,7 +1744,7 @@ private struct SidebarActivitySection: View, Equatable {
             let projection = SidebarView.searchProjection(
                 groups: invalidationKey.groups,
                 query: query,
-                titles: invalidationKey.resolvedTitles
+                titles: sessionStore.sidebarResolvedTitles()
             )
             let targetIsVisible = projection.entries.contains { entry in
                 entry.sessions.contains { $0.session.id == row.sessionID }
@@ -1703,13 +1804,51 @@ private struct SidebarActivitySection: View, Equatable {
         )
     }
 
+}
+
+/// Reads live titles outside `SidebarActivitySection`'s `.equatable()` body.
+/// The scope exists only while the panel is open, so title ticks update visible
+/// rows without reopening the closed footer's roster boundary.
+private struct SidebarActivityPanelTitleScope: View {
+    let sessionStore: SessionStore
+    let sessions: [TerminalSession]
+    let roster: AgentActivityRoster
+    let resolvedTitles: [TerminalSession.ID: String]
+    let scrollTarget: AgentDisplayState?
+    let onSelect: (AgentActivityRoster.Row) -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        let sessionsByID = Dictionary(
+            sessions.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        AgentActivityPanel(
+            groups: roster.groups.map { group in
+                (
+                    state: group.state,
+                    items: group.rows.map {
+                        panelItem(
+                            for: $0,
+                            sessionsByID: sessionsByID,
+                            resolvedTitles: resolvedTitles
+                        )
+                    }
+                )
+            },
+            scrollTarget: scrollTarget,
+            onSelect: onSelect,
+            onClose: onClose
+        )
+    }
+
     private func panelItem(
         for row: AgentActivityRoster.Row,
-        sessionsByID: [TerminalSession.ID: TerminalSession]
+        sessionsByID: [TerminalSession.ID: TerminalSession],
+        resolvedTitles: [TerminalSession.ID: String]
     ) -> AgentActivityPanelItem {
         let session = sessionsByID[row.sessionID]
-        // Resolve the ROW's pane, not the session's sidebarLocation — that
-        // helper reads the active pane, which can be a different split.
+        // Resolve the row's pane, not the active-pane location projection.
         let pane = session?.layout.pane(id: row.paneID)
         let location: SidebarSessionLocation? = pane.map { pane in
             if let host = pane.remotePresentationHost {
@@ -1727,10 +1866,7 @@ private struct SidebarActivitySection: View, Equatable {
                 workingDirectory: pane.workingDirectory
             )
         } else {
-            // The workspace-name case names the session as its sidebar row
-            // does — the resolved coarse mirror, not the fresher struct title
-            // (issue #327).
-            title = invalidationKey.resolvedTitles[row.sessionID] ?? session?.title ?? ""
+            title = resolvedTitles[row.sessionID] ?? session?.title ?? ""
         }
         return AgentActivityPanelItem(
             row: row,

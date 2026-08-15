@@ -17,8 +17,7 @@ struct SidebarSearchInteractionTests {
             pinnedSessionIDs: [],
             selectedSessionID: session.id,
             displayMode: .expanded,
-            reduceMotion: false,
-            resolvedTitles: [:]
+            reduceMotion: false
         )
 
         #expect(
@@ -28,22 +27,38 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
                     displayMode: .expanded,
-                    reduceMotion: false,
-                    resolvedTitles: [:]
+                    reduceMotion: false
                 )
         )
 
         var renamedGroups = groups
         renamedGroups[0].sessions[0].title = "Renamed agent"
+        // Title-only changes are observed inside the open panel. They must not
+        // pierce the closed footer's expensive roster boundary.
         #expect(
             baseline
-                != SidebarActivityInvalidationKey(
+                == SidebarActivityInvalidationKey(
                     groups: renamedGroups,
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
                     displayMode: .expanded,
-                    reduceMotion: false,
-                    resolvedTitles: [:]
+                    reduceMotion: false
+                )
+        )
+
+        var activeGroups = groups
+        var activePane = activeGroups[0].sessions[0].activePane!
+        activePane.agentKind = .claudeCode
+        activePane.agentExecutionState = .running
+        activeGroups[0].sessions[0].layout = .pane(activePane)
+        #expect(
+            baseline
+                != SidebarActivityInvalidationKey(
+                    groups: activeGroups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded,
+                    reduceMotion: false
                 )
         )
         #expect(
@@ -53,8 +68,7 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [],
                     selectedSessionID: nil,
                     displayMode: .expanded,
-                    reduceMotion: false,
-                    resolvedTitles: [:]
+                    reduceMotion: false
                 )
         )
         #expect(
@@ -64,8 +78,7 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
                     displayMode: .collapsed,
-                    reduceMotion: false,
-                    resolvedTitles: [:]
+                    reduceMotion: false
                 )
         )
         #expect(
@@ -75,8 +88,7 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [session.id],
                     selectedSessionID: session.id,
                     displayMode: .expanded,
-                    reduceMotion: false,
-                    resolvedTitles: [:]
+                    reduceMotion: false
                 )
         )
         // Reduce Motion reaches the footer spinners only through updateNSView,
@@ -88,22 +100,7 @@ struct SidebarSearchInteractionTests {
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
                     displayMode: .expanded,
-                    reduceMotion: true,
-                    resolvedTitles: [:]
-                )
-        )
-        // The panel names workspaces from the resolved coarse channel
-        // (issue #327): a title move that touches nothing else in the key —
-        // a silent display-only write — must still re-open the gate.
-        #expect(
-            baseline
-                != SidebarActivityInvalidationKey(
-                    groups: groups,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: session.id,
-                    displayMode: .expanded,
-                    reduceMotion: false,
-                    resolvedTitles: [session.id: "Retitled agent"]
+                    reduceMotion: true
                 )
         )
     }

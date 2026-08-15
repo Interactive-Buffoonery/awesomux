@@ -84,6 +84,7 @@ enum PaletteSearch {
         groups: [SessionGroup],
         commands: [PaletteCommand],
         rawQuery: String,
+        titles: [TerminalSession.ID: String] = [:],
         sessionLimit: Int = defaultSessionLimit,
         quickRunSearchPath: String = ProcessCommandRunner.defaultToolPath
     ) -> PaletteResults {
@@ -111,6 +112,7 @@ enum PaletteSearch {
             let sessionResults = sessions(
                 in: groups,
                 query: query,
+                titles: titles,
                 limit: sessionLimit
             )
             if !sessionResults.isEmpty {
@@ -159,6 +161,7 @@ enum PaletteSearch {
     private static func sessions(
         in groups: [SessionGroup],
         query: String,
+        titles: [TerminalSession.ID: String],
         limit: Int
     ) -> [PaletteSessionResult] {
         let cappedLimit = max(0, limit)
@@ -171,13 +174,14 @@ enum PaletteSearch {
             for session in group.sessions {
                 defer { order += 1 }
                 let subtitle = sessionSubtitle(for: session)
+                let title = titles[session.id] ?? session.title
 
                 if query.isEmpty {
                     candidates.append(
                         (
                             PaletteSessionResult(
                                 sessionID: session.id,
-                                title: session.title,
+                                title: title,
                                 subtitle: subtitle,
                                 groupName: group.name,
                                 score: 0
@@ -194,7 +198,7 @@ enum PaletteSearch {
                 guard
                     let score = bestSessionScore(
                         query: query,
-                        title: session.title,
+                        title: title,
                         subtitle: subtitle,
                         searchLocation: session.sidebarLocation.searchText,
                         groupName: group.name
@@ -207,7 +211,7 @@ enum PaletteSearch {
                     (
                         PaletteSessionResult(
                             sessionID: session.id,
-                            title: session.title,
+                            title: title,
                             subtitle: subtitle,
                             groupName: group.name,
                             score: score

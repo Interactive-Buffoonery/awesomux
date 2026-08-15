@@ -390,6 +390,7 @@ final class SidebarPeekModel {
         tint: ProjectTint,
         sessions: [TerminalSession],
         activeSessionID: TerminalSession.ID?,
+        titles: [TerminalSession.ID: String] = [:],
         frame: CGRect,
         position: AppearanceConfig.SidebarPosition = .left
     ) {
@@ -402,7 +403,11 @@ final class SidebarPeekModel {
         paneItems = []
         self.group = group
         self.tint = tint
-        groupSessionItems = SessionPeekItem.items(for: sessions, activeSessionID: activeSessionID)
+        groupSessionItems = SessionPeekItem.items(
+            for: sessions,
+            activeSessionID: activeSessionID,
+            titles: titles
+        )
         anchorY = frame.minY
         tileHeight = frame.height
         updateAnchor(frame: frame, position: position)
@@ -451,12 +456,17 @@ final class SidebarPeekModel {
         group: SessionGroup,
         tint: ProjectTint,
         sessions: [TerminalSession],
-        activeSessionID: TerminalSession.ID?
+        activeSessionID: TerminalSession.ID?,
+        titles: [TerminalSession.ID: String] = [:]
     ) {
         guard self.group?.id == group.id else { return }
         self.group = group
         self.tint = tint
-        groupSessionItems = SessionPeekItem.items(for: sessions, activeSessionID: activeSessionID)
+        groupSessionItems = SessionPeekItem.items(
+            for: sessions,
+            activeSessionID: activeSessionID,
+            titles: titles
+        )
     }
 
     /// Clear only if this group owns the peek — guards the hover hand-off,

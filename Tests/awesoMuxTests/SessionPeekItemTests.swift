@@ -29,6 +29,19 @@ struct SessionPeekItemTests {
         #expect(items[1].isActive == true)
     }
 
+    @Test("resolved titles override fresher session storage")
+    func resolvedTitlesOverrideStorage() {
+        let session = TerminalSession(title: "storage title", workingDirectory: "/tmp")
+
+        let item = SessionPeekItem.items(
+            for: [session],
+            activeSessionID: nil,
+            titles: [session.id: "displayed title"]
+        )[0]
+
+        #expect(item.title == "displayed title")
+    }
+
     @Test("remote session names its exact declared target")
     func remoteSessionNamesTarget() {
         let pane = TerminalPane(

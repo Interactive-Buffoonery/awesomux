@@ -1249,7 +1249,7 @@ struct AwesoMuxApp: App {
     }
 
     private func closeSelectedSession() {
-        guard let session = sessionStore.selectedSession else {
+        guard let session = selectedWorkspaceActionSession() else {
             return
         }
         closeWorkspace(session)
@@ -1285,7 +1285,10 @@ struct AwesoMuxApp: App {
     @MainActor
     private func closeWorkspace(_ session: TerminalSession, alsoGateOnPaneActionConfirm: Bool) {
         guard let live = sessionStore.session(id: session.id) else { return }
-        let voTitle = Self.compactTitle(live.title)
+        // `session.title` is the title visible when the action was invoked.
+        // Mutable state and destructive ownership still come from `live` and
+        // the post-alert refetches below.
+        let voTitle = Self.compactTitle(session.title)
 
         // Mirror the ⌘Q path: refresh per-pane prompt-marker quit state so
         // the close gate sees the same truth as `applicationShouldTerminate`.
@@ -1298,6 +1301,7 @@ struct AwesoMuxApp: App {
 
         let decision = confirmCloseIfNeeded(
             refreshed,
+            displayedTitle: session.title,
             alsoGateOnPaneActionConfirm: alsoGateOnPaneActionConfirm
         )
         guard let confirmed = sessionStore.session(id: refreshed.id) else {
@@ -1326,7 +1330,7 @@ struct AwesoMuxApp: App {
     }
 
     private func clearSelectedSession() {
-        guard let session = sessionStore.selectedSession else {
+        guard let session = selectedWorkspaceActionSession() else {
             return
         }
         clearWorkspace(session)
@@ -1341,14 +1345,14 @@ struct AwesoMuxApp: App {
     @MainActor
     private func clearWorkspace(_ session: TerminalSession) {
         guard let live = sessionStore.session(id: session.id) else { return }
-        let voTitle = Self.compactTitle(live.title)
+        let voTitle = Self.compactTitle(session.title)
 
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
         floatingPanelController.refreshTerminalQuitConfirmationRisks(using: ghosttyRuntime)
 
         guard let refreshed = sessionStore.session(id: live.id) else { return }
 
-        switch confirmClearWorkspace(refreshed) {
+        switch confirmClearWorkspace(refreshed, displayedTitle: session.title) {
         case .suppressed:
             return
         case .userCancelled:
@@ -1419,12 +1423,15 @@ struct AwesoMuxApp: App {
     /// clear / group-close confirms — a per-action flag would let a rapid
     /// double-invoke stack two modal alerts.
     @MainActor
-    private func confirmClearWorkspace(_ session: TerminalSession) -> CloseConfirmDecision {
+    private func confirmClearWorkspace(
+        _ session: TerminalSession,
+        displayedTitle: String
+    ) -> CloseConfirmDecision {
         guard !isCloseConfirmAlertPresented else { return .suppressed }
         isCloseConfirmAlertPresented = true
         defer { isCloseConfirmAlertPresented = false }
 
-        let displayTitle = Self.sanitizedAlertTitle(session.title)
+        let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
         let now = Date()
         let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
         let atRisk = session.isCloseRisk(at: now) || floatingAtRisk
@@ -1762,6 +1769,7 @@ struct AwesoMuxApp: App {
     @MainActor
     private func confirmCloseIfNeeded(
         _ session: TerminalSession,
+        displayedTitle: String,
         alsoGateOnPaneActionConfirm: Bool = false
     ) -> CloseConfirmDecision {
         let workspaces = appSettingsStore.workspaces.value
@@ -1794,7 +1802,7 @@ struct AwesoMuxApp: App {
             floatingPanelAtRisk: floatingAtRisk
         )
 
-        let displayTitle = Self.sanitizedAlertTitle(session.title)
+        let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
 
         return NSAlert.confirmDestructive(
             title: String(
@@ -2095,6 +2103,25 @@ struct AwesoMuxApp: App {
             let announcement = String(
                 localized: "That workspace is no longer available to reopen",
                 comment: "VoiceOver announcement when a Recently Closed entry was already reopened or expired before the user selected it."
+            )
+            NSAccessibility.post(
+                element: NSApplication.shared,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: announcement,
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+                ]
+            )
+        }
+    }
+
+    private func signalPaletteTargetUnavailable() {
+        NSSound.beep()
+        DispatchQueue.main.async {
+            let announcement = String(
+                localized: "The command palette target changed. Choose the action again.",
+                comment:
+                    "VoiceOver announcement when a command palette action is rejected because its captured workspace, pane, or document tab is no longer selected."
             )
             NSAccessibility.post(
                 element: NSApplication.shared,
@@ -2557,6 +2584,8 @@ struct AwesoMuxApp: App {
     private func closeActivePane() {
         guard let sessionID = sessionStore.selectedSessionID else { return }
 
+        guard let source = sessionStore.session(id: sessionID) else { return }
+        let actionSession = workspaceActionSession(source)
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
         guard let session = sessionStore.session(id: sessionID) else { return }
 
@@ -2567,7 +2596,7 @@ struct AwesoMuxApp: App {
         // action (⌘W), so a user who only enabled the pane-confirm toggle
         // (not the workspace one) keeps that protection here too.
         if session.layout.isSinglePane {
-            closeWorkspace(session, alsoGateOnPaneActionConfirm: true)
+            closeWorkspace(actionSession, alsoGateOnPaneActionConfirm: true)
             return
         }
 
@@ -2624,7 +2653,9 @@ struct AwesoMuxApp: App {
 
             case .closeWorkspace:
                 guard let refreshed else { return }
-                closeWorkspace(refreshed, alsoGateOnPaneActionConfirm: false)
+                var refreshedActionSession = refreshed
+                refreshedActionSession.title = actionSession.title
+                closeWorkspace(refreshedActionSession, alsoGateOnPaneActionConfirm: false)
                 return
 
             case .closePane:
@@ -2712,11 +2743,22 @@ struct AwesoMuxApp: App {
     }
 
     private func requestRenameSelectedWorkspace() {
-        guard let session = sessionStore.selectedSession else {
+        guard let session = selectedWorkspaceActionSession() else {
             return
         }
 
         requestRenameWorkspace(session)
+    }
+
+    private func selectedWorkspaceActionSession() -> TerminalSession? {
+        guard let session = sessionStore.selectedSession else { return nil }
+        return workspaceActionSession(session)
+    }
+
+    private func workspaceActionSession(_ source: TerminalSession) -> TerminalSession {
+        var session = source
+        session.title = sessionStore.sidebarResolvedTitle(for: session.id) ?? session.displayTitle()
+        return session
     }
 
     private func requestRenameWorkspace(_ session: TerminalSession) {
@@ -3203,9 +3245,22 @@ struct AwesoMuxApp: App {
     }
 
     private func makeCommandPalettePresenter() -> PalettePresenter {
-        PalettePresenter(
+        let sessionTitles = sessionStore.sidebarResolvedTitles()
+        let workspaceTarget = sessionStore.selectedSession.map { session in
+            PaletteWorkspaceActionTarget(
+                sessionID: session.id,
+                activePaneID: session.activePaneID,
+                selectedDocumentTabID: session.layout.firstDocumentGroup?.selectedTabID,
+                displayedTitle: sessionTitles[session.id] ?? session.displayTitle()
+            )
+        }
+        return PalettePresenter(
             sessionGroups: sessionStore.groups,
-            commands: currentPaletteCommands(),
+            sessionTitles: sessionTitles,
+            commands: currentPaletteCommands(
+                selectedWorkspaceTitle: workspaceTarget?.displayedTitle
+            ),
+            workspaceTarget: workspaceTarget,
             selectSession: { sessionID in
                 guard let session = sessionStore.session(id: sessionID) else {
                     return false
@@ -3215,13 +3270,53 @@ struct AwesoMuxApp: App {
                 requestTerminalFocus(sessionID: sessionID, paneID: session.activePaneID)
                 return true
             },
-            runCommand: { commandID in
-                runPaletteCommand(id: commandID)
+            runCommand: { invocation in
+                runPaletteCommand(invocation)
             },
-            runQuickRun: { quickRun, surface in
-                runQuickRun(quickRun, surface: surface)
+            runQuickRun: { invocation, surface in
+                runQuickRun(invocation, surface: surface)
             }
         )
+    }
+
+    private func runPaletteCommand(_ invocation: PaletteCommandInvocation) -> Bool {
+        if let target = invocation.workspaceTarget {
+            switch invocation.commandID {
+            case KeyboardShortcutCatalog.renameWorkspace.id:
+                guard var session = sessionStore.session(id: target.sessionID) else { return false }
+                guard !isAnySheetPresented else { return false }
+                session.title = target.displayedTitle
+                requestRenameWorkspace(session)
+                return true
+            case KeyboardShortcutCatalog.closeWorkspace.id:
+                guard var session = sessionStore.session(id: target.sessionID) else { return false }
+                session.title = target.displayedTitle
+                closeWorkspace(session)
+                return true
+            case KeyboardShortcutCatalog.clearWorkspace.id:
+                guard var session = sessionStore.session(id: target.sessionID) else { return false }
+                guard !isAnySheetPresented else { return false }
+                session.title = target.displayedTitle
+                clearWorkspace(session)
+                return true
+            default:
+                break
+            }
+        }
+
+        // Remaining commands resolve their selected pane/workspace through
+        // `paletteActions`. Never let a stale palette silently retarget them.
+        guard
+            invocation.canResolveAgainstCurrentSelection(
+                sessionID: sessionStore.selectedSessionID,
+                paneID: sessionStore.selectedSession?.activePaneID,
+                documentTabID: sessionStore.selectedSession?.layout.firstDocumentGroup?.selectedTabID
+            )
+        else {
+            signalPaletteTargetUnavailable()
+            return false
+        }
+        return runPaletteCommand(id: invocation.commandID)
     }
 
     private func runPaletteCommand(id commandID: PaletteCommand.ID) -> Bool {
@@ -3265,12 +3360,25 @@ struct AwesoMuxApp: App {
     }
 
     private func runQuickRun(
-        _ quickRun: PaletteQuickRunResult,
+        _ invocation: PaletteQuickRunInvocation,
         surface: PaletteQuickRunCommitSurface
     ) -> Bool {
+        guard
+            invocation.canResolveAgainstCurrentSelection(
+                sessionID: sessionStore.selectedSessionID,
+                paneID: sessionStore.selectedSession?.activePaneID
+            )
+        else {
+            signalPaletteTargetUnavailable()
+            return false
+        }
+        let quickRun = invocation.result
         switch surface {
         case .toast:
-            runQuickRunToast(quickRun)
+            runQuickRunToast(
+                quickRun,
+                workingDirectoryURL: selectedWorkingDirectoryURL()
+            )
         case .floatingPanel:
             runQuickRunInFloatingPanel(quickRun)
         case .newTab:
@@ -3279,7 +3387,10 @@ struct AwesoMuxApp: App {
         return true
     }
 
-    private func runQuickRunToast(_ quickRun: PaletteQuickRunResult) {
+    private func runQuickRunToast(
+        _ quickRun: PaletteQuickRunResult,
+        workingDirectoryURL: URL?
+    ) {
         let toastID = UUID()
         quickRunToast = QuickRunToast(
             id: toastID,
@@ -3296,7 +3407,7 @@ struct AwesoMuxApp: App {
                     executable: "/bin/zsh",
                     args: ["-fc", quickRun.command],
                     env: ["PATH": ProcessCommandRunner.defaultToolPath],
-                    cwd: selectedWorkingDirectoryURL()
+                    cwd: workingDirectoryURL
                 )
                 await MainActor.run {
                     let output = Self.quickRunToastOutput(stdout: result.stdout, stderr: result.stderr)
@@ -3473,8 +3584,13 @@ struct AwesoMuxApp: App {
         return String(prefix) + "..."
     }
 
-    private func currentPaletteCommands() -> [PaletteCommand] {
+    private func currentPaletteCommands(selectedWorkspaceTitle: String? = nil) -> [PaletteCommand] {
         sidebarCommandTargetAvailability.refresh()
+        let presentedWorkspaceTitle =
+            selectedWorkspaceTitle
+            ?? sessionStore.selectedSession.flatMap {
+                sessionStore.sidebarResolvedTitle(for: $0.id)
+            }
         var commands = PaletteCommandRegistry.commands(
             sessionStore: sessionStore,
             availability: PaletteCommandAvailability(
@@ -3485,6 +3601,7 @@ struct AwesoMuxApp: App {
                 isWorktreeManagerAvailable: worktreeManagerModel != nil && !isAnySheetPresented
             ),
             actions: paletteActions,
+            selectedWorkspaceTitle: presentedWorkspaceTitle,
             keyboard: keyboardConfig
         )
         // One jump command per owned or detachedRestorable daemon — the only two
@@ -3504,6 +3621,7 @@ struct AwesoMuxApp: App {
                     keywords: ["session", "daemon", "jump", "bridge", "background"],
                     shortcut: nil,
                     isEnabled: true,
+                    selectionScope: .none,
                     run: { [self] in
                         jumpToDaemonOwner(daemonID)
                     }
@@ -3514,6 +3632,7 @@ struct AwesoMuxApp: App {
             commands.append(
                 .customCommand(
                     customCommand,
+                    selectionScope: .pane,
                     run: { [self] in
                         runCustomCommand(id: commandID)
                     }))
@@ -3541,6 +3660,7 @@ struct AwesoMuxApp: App {
                         keywords: ["layout", "preset", "split", "apply"],
                         shortcut: nil,
                         isEnabled: true,
+                        selectionScope: .pane,
                         run: { [self] in
                             applyLayoutPreset(named: presetName, sessionID: sessionID, anchorDirectory: anchor)
                         }

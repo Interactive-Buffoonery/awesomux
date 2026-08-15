@@ -112,6 +112,7 @@ struct SidebarGroupHeaderRow: View {
     let isFiltering: Bool
     let displayMode: SidebarWidthMode
     let selectedSessionID: TerminalSession.ID?
+    let displayedTitles: [TerminalSession.ID: String]
     let currentGroupIndex: Int?
     let totalGroupCount: Int
     /// `activeDragKind != nil` from the parent — any in-flight drag. Drags
@@ -156,6 +157,10 @@ struct SidebarGroupHeaderRow: View {
 
     private var sessions: [TerminalSession] {
         entries.map(\.session)
+    }
+
+    private var displayedTitleKey: [String?] {
+        sessions.map { displayedTitles[$0.id] }
     }
 
     private var executionPresentation: SessionGroupExecutionPresentation {
@@ -423,6 +428,7 @@ struct SidebarGroupHeaderRow: View {
                         tint: tint,
                         sessions: sessions,
                         activeSessionID: selectedSessionID,
+                        titles: displayedTitles,
                         frame: headerFrame,
                         position: appSettingsStore.appearance.value.sidebarPosition
                     )
@@ -459,7 +465,8 @@ struct SidebarGroupHeaderRow: View {
                     group: group,
                     tint: tint,
                     sessions: sessions,
-                    activeSessionID: selectedSessionID
+                    activeSessionID: selectedSessionID,
+                    titles: displayedTitles
                 )
             }
             // Keyed on the group VALUE, not just the derived signals below.
@@ -474,7 +481,8 @@ struct SidebarGroupHeaderRow: View {
                     group: group,
                     tint: tint,
                     sessions: sessions,
-                    activeSessionID: selectedSessionID
+                    activeSessionID: selectedSessionID,
+                    titles: displayedTitles
                 )
             }
             .onChange(of: executionSummary) { _, _ in
@@ -482,7 +490,8 @@ struct SidebarGroupHeaderRow: View {
                     group: group,
                     tint: tint,
                     sessions: sessions,
-                    activeSessionID: selectedSessionID
+                    activeSessionID: selectedSessionID,
+                    titles: displayedTitles
                 )
             }
             // The roster's active-row highlight is derived from
@@ -494,7 +503,19 @@ struct SidebarGroupHeaderRow: View {
                     group: group,
                     tint: tint,
                     sessions: sessions,
-                    activeSessionID: selectedSessionID
+                    activeSessionID: selectedSessionID,
+                    titles: displayedTitles
+                )
+            }
+            .onChange(of: displayedTitleKey) { _, _ in
+                // A publishing store mutation can advance the coarse snapshot
+                // without changing the already-captured session values.
+                peekModel.refreshGroup(
+                    group: group,
+                    tint: tint,
+                    sessions: sessions,
+                    activeSessionID: selectedSessionID,
+                    titles: displayedTitles
                 )
             }
             .onChange(of: displayMode) { _, _ in
@@ -774,7 +795,13 @@ struct SidebarGroupHeaderRow: View {
         // way — unlike the expanded rail, where an uncollapsed group already
         // exposes each workspace as an ordinary focusable/actionable row.
         if displayMode == .collapsed {
-            ForEach(SessionPeekItem.items(for: sessions, activeSessionID: selectedSessionID)) { item in
+            ForEach(
+                SessionPeekItem.items(
+                    for: sessions,
+                    activeSessionID: selectedSessionID,
+                    titles: displayedTitles
+                )
+            ) { item in
                 Button(groupSessionJumpActionLabel(item)) {
                     peekModel.onSelectGroupSession?(group.id, item.id)
                 }

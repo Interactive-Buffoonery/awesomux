@@ -142,6 +142,50 @@ struct PaletteFuzzyMatchTests {
         #expect(sessionResult.sessionID == workspace.id)
     }
 
+    @Test("session search scores and renders the displayed title snapshot")
+    @MainActor
+    func sessionSearchUsesDisplayedTitleSnapshot() throws {
+        let pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        let session = TerminalSession(
+            title: "workspace",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "Code", sessions: [session])])
+        let box = store.liveTitleBox(for: session.id)
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        store.updatePane(sessionID: session.id, paneID: pane.id, title: "leading edge", now: base)
+        store.updatePane(
+            sessionID: session.id,
+            paneID: pane.id,
+            title: "storage only",
+            now: base.addingTimeInterval(0.5)
+        )
+        #expect(box.coarseWorkspaceTitle == "leading edge")
+
+        let titles = store.sidebarResolvedTitles()
+        let displayedResults = PaletteSearch.results(
+            groups: store.groups,
+            commands: [],
+            rawQuery: "leading",
+            titles: titles
+        )
+        let storageResults = PaletteSearch.results(
+            groups: store.groups,
+            commands: [],
+            rawQuery: "storage only",
+            titles: titles
+        )
+
+        guard case .session(let result)? = displayedResults.flattened.first else {
+            Issue.record("Expected the displayed title to remain searchable")
+            return
+        }
+        #expect(result.title == "leading edge")
+        #expect(storageResults.flattened.isEmpty)
+    }
+
     @Test("> mode suppresses sessions")
     @MainActor
     func actionsModeSuppressesSessions() {
