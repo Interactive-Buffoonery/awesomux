@@ -95,8 +95,8 @@ public final class SessionStore {
         body(&groupStorage)
     }
 
-    /// Per-session live-title channels, created on demand by their only
-    /// consumers (the views that must repaint on a title tick) and pruned in
+    /// Per-session live-title channels, created on demand by their consumers
+    /// (the views / projections that must track a title tick) and pruned in
     /// `rebuildDerivedState`.
     @ObservationIgnored private var liveTitles: [TerminalSession.ID: LiveTitleBox] = [:]
 

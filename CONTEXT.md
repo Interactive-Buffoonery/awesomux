@@ -53,6 +53,9 @@ Add rows here when a term is used repeatedly in code, issues, or ADRs and the me
 | **Document pane** | `DocumentPane` — auxiliary Markdown viewer leaf in a workspace layout; validates local `.md`/`.markdown` files, renders comments/highlights, and stays paired with a terminal pane for agent nudges. |
 | **Shell activity** | Runtime-only busy/idle signal for shell sessions. It is derived from Ghostty prompt markers after at least one prompt has been observed, debounced for chrome, not persisted, and separate from the raw quit-confirmation signal. |
 | **Session snapshot** | On-disk JSON (`Application Support/…/session-state.json`) representing groups, layout, and selection for restore. |
+| **Live title channel** | `SessionStore`'s per-session `LiveTitleBox` notification path for display-only OSC title writes, which update storage silently (issue #311). Two channels per box: fine (per pane, every report — pane title bars) and coarse (see below). |
+| **Coarse mirror** | A `LiveTitleBox`'s `coarseWorkspaceTitle` / `coarsePaneTitles`, published only when the session's coalescing window fires. Everything the sidebar renders as a *name* resolves from it — rows, search haystacks, duplicate ordinals, rotor labels, announcements (`SessionStore.sidebarResolvedTitles()`). |
+| **Live title generation** | `SessionStore.liveTitleGeneration` — the shared counter `tickLiveTitle` bumps when a session's window fires, alongside the same tick's coarse publish. One gate drives both (issue #327), so a sidebar row and every projection derived from it move together ([ADR 0031](docs/adr/0031-one-clock-for-live-title-surfaces.md)). |
 | **Feedback report** | A user-initiated support message with diagnostics shown in an editable email draft before anything is sent. |
 
 ### Conventions
