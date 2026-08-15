@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Testing
 @testable import awesoMux
 
@@ -126,6 +127,7 @@ struct PalettePresenterTests {
         let target = PaletteWorkspaceActionTarget(
             sessionID: session.id,
             activePaneID: session.activePaneID,
+            isSinglePane: true,
             selectedDocumentTabID: nil,
             displayedTitle: "displayed title"
         )
@@ -161,22 +163,40 @@ struct PalettePresenterTests {
 
         #expect(presenter.perform(result))
         #expect(invocation?.commandID == command.id)
+        #expect(invocation?.selectionScope == command.selectionScope)
         #expect(invocation?.workspaceTarget == target)
-        let submitted = try #require(invocation)
+    }
+
+    @Test("command invocation scopes resolve against the captured selection")
+    @MainActor
+    func commandInvocationScopesResolveAgainstSelection() {
+        let session = TerminalSession(title: "storage title", workingDirectory: "/tmp")
+        let target = PaletteWorkspaceActionTarget(
+            sessionID: session.id,
+            activePaneID: session.activePaneID,
+            isSinglePane: true,
+            selectedDocumentTabID: nil,
+            displayedTitle: "displayed title"
+        )
+        let workspaceInvocation = PaletteCommandInvocation(
+            commandID: KeyboardShortcutCatalog.closeWorkspace.id,
+            selectionScope: .workspace,
+            workspaceTarget: target
+        )
         #expect(
-            submitted.canResolveAgainstCurrentSelection(
+            workspaceInvocation.canResolveAgainstCurrentSelection(
                 sessionID: session.id,
                 paneID: session.activePaneID,
                 documentTabID: nil
             ))
         #expect(
-            !submitted.canResolveAgainstCurrentSelection(
+            !workspaceInvocation.canResolveAgainstCurrentSelection(
                 sessionID: TerminalSession.ID(),
                 paneID: session.activePaneID,
                 documentTabID: nil
             ))
         #expect(
-            !submitted.canResolveAgainstCurrentSelection(
+            !workspaceInvocation.canResolveAgainstCurrentSelection(
                 sessionID: nil,
                 paneID: nil,
                 documentTabID: nil
@@ -188,10 +208,25 @@ struct PalettePresenterTests {
             workspaceTarget: target
         )
         #expect(
+            paneInvocation.canResolveAgainstCurrentSelection(
+                sessionID: session.id,
+                paneID: session.activePaneID,
+                documentTabID: nil,
+                isSinglePane: true
+            ))
+        #expect(
             !paneInvocation.canResolveAgainstCurrentSelection(
                 sessionID: session.id,
                 paneID: TerminalPane.ID(),
-                documentTabID: nil
+                documentTabID: nil,
+                isSinglePane: true
+            ))
+        #expect(
+            !paneInvocation.canResolveAgainstCurrentSelection(
+                sessionID: session.id,
+                paneID: session.activePaneID,
+                documentTabID: nil,
+                isSinglePane: false
             ))
 
         let documentTabID = DocumentPane.ID()
@@ -201,6 +236,7 @@ struct PalettePresenterTests {
             workspaceTarget: PaletteWorkspaceActionTarget(
                 sessionID: session.id,
                 activePaneID: session.activePaneID,
+                isSinglePane: true,
                 selectedDocumentTabID: documentTabID,
                 displayedTitle: target.displayedTitle
             )
@@ -241,6 +277,62 @@ struct PalettePresenterTests {
                 paneID: TerminalPane.ID(),
                 documentTabID: nil
             ))
+    }
+
+    @Test("workspace palette actions preserve their title provenance")
+    func workspacePaletteActionsPreserveTitleProvenance() throws {
+        let path = "Sources/awesoMux/App/AwesoMuxApp.swift"
+        let source = try SourceContract.source(at: path)
+        let body = try SourceContract.declarationBody(
+            after: "private func runPaletteCommand(_ invocation:",
+            in: source,
+            path: path
+        )
+        let scopeGuard = try #require(body.range(of: "invocation.canResolveAgainstCurrentSelection"))
+        let workspaceCases = try #require(body.range(of: "if let target = invocation.workspaceTarget"))
+        #expect(scopeGuard.lowerBound < workspaceCases.lowerBound)
+        let renameCase = try #require(
+            body.split(separator: "case KeyboardShortcutCatalog.renameWorkspace.id:", maxSplits: 1)
+                .last?.split(
+                    separator: "case KeyboardShortcutCatalog.closeWorkspace.id:",
+                    maxSplits: 1
+                ).first
+        )
+        let closeCase = try #require(
+            body.split(separator: "case KeyboardShortcutCatalog.closeWorkspace.id:", maxSplits: 1)
+                .last?.split(
+                    separator: "case KeyboardShortcutCatalog.clearWorkspace.id:",
+                    maxSplits: 1
+                ).first
+        )
+        let clearCase = try #require(
+            body.split(separator: "case KeyboardShortcutCatalog.clearWorkspace.id:", maxSplits: 1)
+                .last?.split(separator: "default:", maxSplits: 1).first
+        )
+
+        #expect(renameCase.contains("requestRenameWorkspace(session)"))
+        #expect(!renameCase.contains("target.displayedTitle"))
+        #expect(closeCase.contains("session.title = target.displayedTitle"))
+        #expect(clearCase.contains("session.title = target.displayedTitle"))
+        #expect(renameCase.contains("signalPaletteTargetUnavailable()"))
+        #expect(closeCase.contains("signalPaletteTargetUnavailable()"))
+        #expect(clearCase.contains("signalPaletteTargetUnavailable()"))
+        #expect(body.contains("guard runPaletteCommand(id: invocation.commandID) else"))
+
+        let renameRequest = try SourceContract.declarationBody(
+            after: "private func requestRenameWorkspace(_ session:",
+            in: source,
+            path: path
+        )
+        #expect(renameRequest.contains("sessionStore.session(id: session.id)"))
+        #expect(renameRequest.contains("title: currentSession.title"))
+
+        let presenterBody = try SourceContract.declarationBody(
+            after: "private func makeCommandPalettePresenter()",
+            in: source,
+            path: path
+        )
+        #expect(presenterBody.contains("signalPaletteTargetUnavailable()"))
     }
 
     @Test("accessibility announcement includes visible result context")
@@ -284,6 +376,7 @@ struct PalettePresenterTests {
         let target = PaletteWorkspaceActionTarget(
             sessionID: session.id,
             activePaneID: session.activePaneID,
+            isSinglePane: true,
             selectedDocumentTabID: nil,
             displayedTitle: session.title
         )

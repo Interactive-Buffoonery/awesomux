@@ -648,7 +648,8 @@ struct PaletteCommandRegistryTests {
                 in: commands
             )
         )
-        #expect(pinCommand.subtitle == nil)
+        #expect(pinCommand.title == "Pin or Unpin Workspace")
+        #expect(pinCommand.subtitle == "displayed title")
     }
 
     @Test("selection-resolved commands declare their snapshot scope")
@@ -682,6 +683,8 @@ struct PaletteCommandRegistryTests {
             KeyboardShortcutCatalog.closeWorkspace.id,
             KeyboardShortcutCatalog.togglePinWorkspace.id,
             KeyboardShortcutCatalog.acknowledgeWorkspace.id,
+            KeyboardShortcutCatalog.previousWorkspace.id,
+            KeyboardShortcutCatalog.nextWorkspace.id,
             "connectViaSSH",
         ] {
             #expect(

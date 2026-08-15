@@ -758,7 +758,7 @@ enum PaletteCommandRegistry {
                 keywords: ["session", "back"],
                 shortcut: KeyboardShortcutCatalog.previousWorkspace,
                 isEnabled: workspaceCount > 1,
-                selectionScope: .none,
+                selectionScope: .workspace,
                 run: actions.previousWorkspace
             ),
             PaletteCommand(
@@ -768,18 +768,13 @@ enum PaletteCommandRegistry {
                 keywords: ["session", "forward"],
                 shortcut: KeyboardShortcutCatalog.nextWorkspace,
                 isEnabled: workspaceCount > 1,
-                selectionScope: .none,
+                selectionScope: .workspace,
                 run: actions.nextWorkspace
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.togglePinWorkspace.id,
-                title: selected.map { sessionStore.isPinned($0.id) } == true
-                    ? "Unpin Workspace"
-                    : "Pin Workspace",
-                // Pin announcements resolve after the sidebar projection moves.
-                // Omitting the snapshot avoids naming one title before the
-                // action and a newer title after it.
-                subtitle: nil,
+                title: KeyboardShortcutCatalog.togglePinWorkspace.action,
+                subtitle: presentedSelectedTitle,
                 keywords: ["pin", "unpin", "favorite", "sidebar"],
                 shortcut: KeyboardShortcutCatalog.togglePinWorkspace,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,

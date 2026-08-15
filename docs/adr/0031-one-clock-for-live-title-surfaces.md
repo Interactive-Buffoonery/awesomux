@@ -48,10 +48,10 @@ resolved-title map per roster session from the boxes' coarse mirrors
 (`SessionStore.sidebarResolvedTitles()`, resolved through
 `TerminalSession.displayTitle(overridingRawTitle:)` to preserve the
 synthetic-title localization path) and threads it through the search haystack,
-  the duplicate disambiguator, the visible-row and rotor labels, command-palette
-  workspace results, and the single-session announcements. The open activity
-  panel observes the same map through an ungated child scope; its closed footer
-  deliberately excludes title-only changes from its equatable roster key. Unrendered
+the duplicate disambiguator, the visible-row and rotor labels, command-palette
+workspace results, and the single-session announcements. The open activity
+panel observes the same map through an ungated child scope; its closed footer
+deliberately excludes title-only changes from its equatable roster key. Unrendered
 sessions seed their box from storage on creation, so "coarse" means "current
 storage" for them.
 
@@ -86,7 +86,7 @@ highlight ranges are `String.Index`es into the scored string; re-reading a
   and the mirror immediately. Search freshness now equals row parity by
   construction.
 - The surviving staleness ceiling is uniform: a final title write landing
-  inside its window with nothing publishing afterwards leaves the whole
+  inside its window with nothing publishing afterward leaves the whole
   sidebar — row included — naming the previous title until the next publish.
   No surface can disagree with another; it can only be late together.
 - `SidebarView.body` now creates (and thereby retains) a `LiveTitleBox` plus its

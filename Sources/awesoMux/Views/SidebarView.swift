@@ -344,18 +344,16 @@ struct SidebarView: View {
                                 },
                                 onClose: {
                                     onCloseWorkspace(
-                                        Self.workspaceActionSession($0, displayedTitles: displayedTitles)
+                                        Self.workspaceActionSession($0, title: displayedTitles[$0.id])
                                     )
                                 },
                                 onClear: {
                                     onClearWorkspace(
-                                        Self.workspaceActionSession($0, displayedTitles: displayedTitles)
+                                        Self.workspaceActionSession($0, title: displayedTitles[$0.id])
                                     )
                                 },
                                 onRename: {
-                                    onRenameWorkspace(
-                                        Self.workspaceActionSession($0, displayedTitles: displayedTitles)
-                                    )
+                                    onRenameWorkspace($0)
                                 },
                                 onToggleNotificationsMute: { session in
                                     sessionStore.setNotificationsMuted(
@@ -1132,13 +1130,13 @@ struct SidebarView: View {
                 sessionStore.togglePin(sessionID: session.id)
             },
             onClose: {
-                onCloseWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+                onCloseWorkspace(Self.workspaceActionSession($0, title: displayedTitles[$0.id]))
             },
             onClear: {
-                onClearWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+                onClearWorkspace(Self.workspaceActionSession($0, title: displayedTitles[$0.id]))
             },
             onRename: {
-                onRenameWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+                onRenameWorkspace($0)
             },
             onAcknowledge: { session in
                 sessionStore.acknowledgeSession(id: session.id)
@@ -1194,13 +1192,13 @@ struct SidebarView: View {
                 sessionStore.togglePin(sessionID: session.id)
             },
             onClose: {
-                onCloseWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+                onCloseWorkspace(Self.workspaceActionSession($0, title: displayedTitles[$0.id]))
             },
             onClear: {
-                onClearWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+                onClearWorkspace(Self.workspaceActionSession($0, title: displayedTitles[$0.id]))
             },
             onRename: {
-                onRenameWorkspace(Self.workspaceActionSession($0, displayedTitles: displayedTitles))
+                onRenameWorkspace($0)
             },
             onAcknowledge: { session in
                 sessionStore.acknowledgeSession(id: session.id)
@@ -1290,15 +1288,15 @@ struct SidebarView: View {
         displayedTitles[session.id] ?? session.displayTitle()
     }
 
-    /// Carries the title visible at invocation through the existing callback
-    /// type. App actions use the ID to refetch current mutable state; only this
-    /// copied title is presentation provenance for sheets and announcements.
+    /// Carries the caller-selected title through the existing callback type.
+    /// App actions use the ID to refetch current mutable state; only this copied
+    /// title is presentation provenance for sheets and announcements.
     static func workspaceActionSession(
         _ session: TerminalSession,
-        displayedTitles: [TerminalSession.ID: String]
+        title: String?
     ) -> TerminalSession {
         var actionSession = session
-        actionSession.title = displayedTitles[session.id] ?? session.displayTitle()
+        actionSession.title = title ?? session.displayTitle()
         return actionSession
     }
 
@@ -1613,6 +1611,7 @@ struct SidebarActivityInvalidationKey: Equatable {
             lhs.groups.count == rhs.groups.count
         else { return false }
 
+        let comparePaneTitles = lhs.activityPanelDisplayedTitles != nil
         for groupIndex in lhs.groups.indices {
             let lhsSessions = lhs.groups[groupIndex].sessions
             let rhsSessions = rhs.groups[groupIndex].sessions
@@ -1623,7 +1622,11 @@ struct SidebarActivityInvalidationKey: Equatable {
                 let rhsSession = rhsSessions[sessionIndex]
                 guard lhsSession.id == rhsSession.id,
                     lhsSession.activePaneID == rhsSession.activePaneID,
-                    activityLayoutsEqual(lhsSession.layout, rhsSession.layout)
+                    activityLayoutsEqual(
+                        lhsSession.layout,
+                        rhsSession.layout,
+                        comparePaneTitles: comparePaneTitles
+                    )
                 else { return false }
             }
         }
@@ -1632,18 +1635,28 @@ struct SidebarActivityInvalidationKey: Equatable {
 
     private static func activityLayoutsEqual(
         _ lhs: TerminalPaneLayout,
-        _ rhs: TerminalPaneLayout
+        _ rhs: TerminalPaneLayout,
+        comparePaneTitles: Bool
     ) -> Bool {
         switch (lhs, rhs) {
         case let (.pane(lhsPane), .pane(rhsPane)):
             lhsPane.id == rhsPane.id
+                && (!comparePaneTitles || lhsPane.title == rhsPane.title)
                 && lhsPane.agentKind == rhsPane.agentKind
                 && lhsPane.effectiveChromeState == rhsPane.effectiveChromeState
                 && lhsPane.workingDirectory == rhsPane.workingDirectory
                 && lhsPane.remotePresentationHost == rhsPane.remotePresentationHost
         case let (.split(lhsSplit), .split(rhsSplit)):
-            activityLayoutsEqual(lhsSplit.first, rhsSplit.first)
-                && activityLayoutsEqual(lhsSplit.second, rhsSplit.second)
+            activityLayoutsEqual(
+                lhsSplit.first,
+                rhsSplit.first,
+                comparePaneTitles: comparePaneTitles
+            )
+                && activityLayoutsEqual(
+                    lhsSplit.second,
+                    rhsSplit.second,
+                    comparePaneTitles: comparePaneTitles
+                )
         case (.documentGroup, .documentGroup):
             true
         default:

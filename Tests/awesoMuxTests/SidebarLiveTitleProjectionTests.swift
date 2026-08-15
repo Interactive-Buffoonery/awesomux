@@ -226,7 +226,7 @@ struct SidebarLiveTitleProjectionTests {
 
         let actionSession = SidebarView.workspaceActionSession(
             session,
-            displayedTitles: [session.id: "displayed title"]
+            title: "displayed title"
         )
 
         #expect(actionSession.id == session.id)
@@ -248,6 +248,7 @@ struct SidebarLiveTitleProjectionTests {
             toGroupID: groupID,
             atIndex: SessionStore.appendIndex
         )
+        #expect(fixture.store.sidebarResolvedTitles()[fixture.sessionID] == "storage only")
 
         let announcement = try #require(
             SidebarView.workspaceReorderAnnouncement(fixture.sessionID, in: fixture.store)

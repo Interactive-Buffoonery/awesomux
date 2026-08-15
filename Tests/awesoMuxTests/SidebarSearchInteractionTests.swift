@@ -9,7 +9,7 @@ import Testing
 @MainActor
 struct SidebarSearchInteractionTests {
     @Test("activity invalidation excludes query changes but tracks store inputs")
-    func activityInvalidationKeyTracksRosterInputs() {
+    func activityInvalidationKeyTracksRosterInputs() throws {
         let session = TerminalSession(title: "Agent", workingDirectory: "/tmp/agent")
         let groups = [SessionGroup(name: "Project", sessions: [session])]
         let baseline = SidebarActivityInvalidationKey(
@@ -46,15 +46,36 @@ struct SidebarSearchInteractionTests {
                 )
         )
 
-        var activeGroups = groups
-        var activePane = activeGroups[0].sessions[0].activePane!
-        activePane.agentKind = .claudeCode
-        activePane.agentExecutionState = .running
-        activeGroups[0].sessions[0].layout = .pane(activePane)
+        var agentKindGroups = groups
+        var agentKindPane = try #require(agentKindGroups[0].sessions[0].activePane)
+        agentKindPane.agentKind = .claudeCode
+        agentKindGroups[0].sessions[0].layout = .pane(agentKindPane)
         #expect(
             baseline
                 != SidebarActivityInvalidationKey(
-                    groups: activeGroups,
+                    groups: agentKindGroups,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: session.id,
+                    displayMode: .expanded,
+                    reduceMotion: false
+                )
+        )
+
+        let agentKindBaseline = SidebarActivityInvalidationKey(
+            groups: agentKindGroups,
+            pinnedSessionIDs: [],
+            selectedSessionID: session.id,
+            displayMode: .expanded,
+            reduceMotion: false
+        )
+        var executionGroups = agentKindGroups
+        var executionPane = try #require(executionGroups[0].sessions[0].activePane)
+        executionPane.agentExecutionState = .running
+        executionGroups[0].sessions[0].layout = .pane(executionPane)
+        #expect(
+            agentKindBaseline
+                != SidebarActivityInvalidationKey(
+                    groups: executionGroups,
                     pinnedSessionIDs: [],
                     selectedSessionID: session.id,
                     displayMode: .expanded,
@@ -101,6 +122,85 @@ struct SidebarSearchInteractionTests {
                     selectedSessionID: session.id,
                     displayMode: .expanded,
                     reduceMotion: true
+                )
+        )
+    }
+
+    @Test("open activity panel tracks split-pane title changes")
+    func openActivityPanelTracksSplitPaneTitleChanges() {
+        let sessionID = TerminalSession.ID()
+        let firstPaneID = TerminalPane.ID()
+        let secondPaneID = TerminalPane.ID()
+        func session(firstTitle: String) -> TerminalSession {
+            let first = TerminalPane(
+                id: firstPaneID,
+                title: firstTitle,
+                workingDirectory: "/tmp/first",
+                agentKind: .claudeCode,
+                executionPlan: .local
+            )
+            let second = TerminalPane(
+                id: secondPaneID,
+                title: "Second",
+                workingDirectory: "/tmp/second",
+                agentKind: .codex,
+                executionPlan: .local
+            )
+            return TerminalSession(
+                id: sessionID,
+                title: "Workspace",
+                workingDirectory: "/tmp",
+                layout: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(first),
+                        second: .pane(second)
+                    )
+                ),
+                activePaneID: secondPaneID
+            )
+        }
+        let before = [SessionGroup(name: "Project", sessions: [session(firstTitle: "Before")])]
+        let after = [SessionGroup(name: "Project", sessions: [session(firstTitle: "After")])]
+
+        let closed = SidebarActivityInvalidationKey(
+            groups: before,
+            pinnedSessionIDs: [],
+            selectedSessionID: sessionID,
+            displayMode: .expanded,
+            reduceMotion: false
+        )
+        #expect(
+            closed
+                == SidebarActivityInvalidationKey(
+                    groups: after,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: sessionID,
+                    displayMode: .expanded,
+                    reduceMotion: false
+                )
+        )
+
+        let titles = [sessionID: "Workspace"]
+        let open = SidebarActivityInvalidationKey(
+            groups: before,
+            pinnedSessionIDs: [],
+            selectedSessionID: sessionID,
+            displayMode: .expanded,
+            reduceMotion: false,
+            activityPanelGeneration: 1,
+            activityPanelDisplayedTitles: titles
+        )
+        #expect(
+            open
+                != SidebarActivityInvalidationKey(
+                    groups: after,
+                    pinnedSessionIDs: [],
+                    selectedSessionID: sessionID,
+                    displayMode: .expanded,
+                    reduceMotion: false,
+                    activityPanelGeneration: 1,
+                    activityPanelDisplayedTitles: titles
                 )
         )
     }

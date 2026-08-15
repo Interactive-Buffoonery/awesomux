@@ -11,14 +11,9 @@ import Observation
 /// every publish until the clock caught back up — for a backwards jump of hours,
 /// hours of a frozen sidebar.
 ///
-/// Written as the negation of the ORIGINAL suppression predicate rather than as
-/// the positive form it looks equivalent to. It is not equivalent: `interval`
-/// reaches `SessionStore` from a public initializer and can be non-finite, and
-/// every comparison against `NaN` is false. `elapsed < 0 ||
-/// elapsed >= interval` would therefore return false for a `NaN` interval and
-/// freeze the generation counter — and with it sidebar search, duplicate
-/// ordinals, and the rotor — permanently after the first write, where the
-/// original bumped every time. Keep this as a negation.
+/// Treat non-finite intervals as always due so a bad configuration cannot
+/// freeze the sidebar. The negated suppression predicate also treats a
+/// backwards clock jump as due.
 func liveTitleCoalescingWindowHasElapsed(
     since last: Date?,
     now: Date,

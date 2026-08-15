@@ -5,6 +5,7 @@ import Observation
 struct PaletteWorkspaceActionTarget: Equatable {
     let sessionID: TerminalSession.ID
     let activePaneID: TerminalPane.ID
+    let isSinglePane: Bool
     let selectedDocumentTabID: DocumentPane.ID?
     let displayedTitle: String
 }
@@ -17,7 +18,8 @@ struct PaletteCommandInvocation: Equatable {
     func canResolveAgainstCurrentSelection(
         sessionID: TerminalSession.ID?,
         paneID: TerminalPane.ID?,
-        documentTabID: DocumentPane.ID?
+        documentTabID: DocumentPane.ID?,
+        isSinglePane: Bool? = nil
     ) -> Bool {
         switch selectionScope {
         case .none:
@@ -27,6 +29,8 @@ struct PaletteCommandInvocation: Equatable {
         case .pane:
             return workspaceTarget?.sessionID == sessionID
                 && workspaceTarget?.activePaneID == paneID
+                && (commandID != KeyboardShortcutCatalog.closePane.id
+                    || workspaceTarget?.isSinglePane == isSinglePane)
         case .documentTab:
             return workspaceTarget?.sessionID == sessionID
                 && workspaceTarget?.selectedDocumentTabID == documentTabID

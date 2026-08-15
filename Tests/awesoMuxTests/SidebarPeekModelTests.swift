@@ -331,6 +331,15 @@ struct SidebarPeekModelTests {
             titles: [first.id: "first refreshed", second.id: "second refreshed"]
         )
         #expect(model.groupSessionItems.map(\.title) == ["first refreshed", "second refreshed"])
+
+        model.refreshGroup(
+            group: group,
+            tint: tint,
+            sessions: [first, second],
+            activeSessionID: nil,
+            titles: [first.id: "first partial"]
+        )
+        #expect(model.groupSessionItems.map(\.title) == ["first partial", "B"])
     }
 
 }

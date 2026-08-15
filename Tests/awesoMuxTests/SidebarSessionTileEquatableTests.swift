@@ -579,12 +579,15 @@ struct SidebarSessionTileEquatableTests {
         #expect(box.coarseWorkspaceTitle == "cargo build [7/9]")
         let liveTitles = LiveTitles(box: box, reads: .everything)
 
+        let scoredTitle = "cargo build [3/9]"
         let match = SessionMatch(
             field: .title,
             score: 100,
-            ranges: [],
-            matchedTitle: "cargo build [3/9]"
+            ranges: [try #require(scoredTitle.range(of: "[3/9]"))],
+            matchedTitle: scoredTitle
         )
+
+        let advancedTitle = "cargo build [7/9]"
 
         // The label speaks the scored string — the same branch `titleText`
         // highlights.
@@ -603,8 +606,8 @@ struct SidebarSessionTileEquatableTests {
                     match: SessionMatch(
                         field: .title,
                         score: 100,
-                        ranges: [],
-                        matchedTitle: "cargo build [7/9]"
+                        ranges: [try #require(advancedTitle.range(of: "[7/9]"))],
+                        matchedTitle: advancedTitle
                     ),
                     liveTitles: liveTitles
                 )

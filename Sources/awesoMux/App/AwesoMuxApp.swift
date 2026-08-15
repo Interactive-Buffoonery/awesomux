@@ -1829,6 +1829,7 @@ struct AwesoMuxApp: App {
     private func confirmDestructivePaneActionIfNeeded(
         _ action: DestructivePaneActionConfirmationPolicy.Action,
         in session: TerminalSession,
+        displayedTitle: String,
         riskReason: QuitRiskReason?,
         at now: Date
     ) -> CloseConfirmDecision {
@@ -1844,7 +1845,7 @@ struct AwesoMuxApp: App {
             )
         }
 
-        let displayTitle = Self.sanitizedAlertTitle(session.title)
+        let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
 
         let title: String
         let body: String
@@ -2119,9 +2120,9 @@ struct AwesoMuxApp: App {
         NSSound.beep()
         DispatchQueue.main.async {
             let announcement = String(
-                localized: "The command palette target changed. Choose the action again.",
+                localized: "The command palette changed. Open it and choose again.",
                 comment:
-                    "VoiceOver announcement when a command palette action is rejected because its captured workspace, pane, or document tab is no longer selected."
+                    "VoiceOver announcement when a command palette action is rejected because its captured target or availability changed."
             )
             NSAccessibility.post(
                 element: NSApplication.shared,
@@ -2624,6 +2625,7 @@ struct AwesoMuxApp: App {
             switch confirmDestructivePaneActionIfNeeded(
                 resolvedAction,
                 in: session,
+                displayedTitle: actionSession.title,
                 riskReason: riskReason,
                 at: now
             ) {
@@ -2690,15 +2692,16 @@ struct AwesoMuxApp: App {
     /// `confirmDestructivePaneActionIfNeeded`) — only the decision to show a
     /// prompt at all is unconditional.
     private func restartActiveShell() {
-        guard let session = sessionStore.selectedSession else { return }
+        guard let actionSession = selectedWorkspaceActionSession() else { return }
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
-        guard let refreshed = sessionStore.session(id: session.id) else { return }
+        guard let refreshed = sessionStore.session(id: actionSession.id) else { return }
         let now = Date()
         let riskReason = refreshed.activePane.flatMap { $0.closeRiskReason(at: now) }
 
         switch confirmDestructivePaneActionIfNeeded(
             .restartShell,
             in: refreshed,
+            displayedTitle: actionSession.title,
             riskReason: riskReason,
             at: now
         ) {
@@ -2765,10 +2768,13 @@ struct AwesoMuxApp: App {
         guard !isAnySheetPresented else {
             return
         }
+        guard let currentSession = sessionStore.session(id: session.id) else {
+            return
+        }
 
         workspaceEditRequest = WorkspaceEditRequest(
             id: session.id,
-            title: session.title
+            title: currentSession.title
         )
     }
 
@@ -3250,6 +3256,7 @@ struct AwesoMuxApp: App {
             PaletteWorkspaceActionTarget(
                 sessionID: session.id,
                 activePaneID: session.activePaneID,
+                isSinglePane: session.layout.isSinglePane,
                 selectedDocumentTabID: session.layout.firstDocumentGroup?.selectedTabID,
                 displayedTitle: sessionTitles[session.id] ?? session.displayTitle()
             )
@@ -3263,6 +3270,7 @@ struct AwesoMuxApp: App {
             workspaceTarget: workspaceTarget,
             selectSession: { sessionID in
                 guard let session = sessionStore.session(id: sessionID) else {
+                    signalPaletteTargetUnavailable()
                     return false
                 }
                 sessionStore.selectedSessionID = sessionID
@@ -3280,22 +3288,50 @@ struct AwesoMuxApp: App {
     }
 
     private func runPaletteCommand(_ invocation: PaletteCommandInvocation) -> Bool {
+        // Every selection-sensitive command, including the special workspace
+        // cases below, must fail closed before it can act on its snapshot.
+        guard
+            invocation.canResolveAgainstCurrentSelection(
+                sessionID: sessionStore.selectedSessionID,
+                paneID: sessionStore.selectedSession?.activePaneID,
+                documentTabID: sessionStore.selectedSession?.layout.firstDocumentGroup?.selectedTabID,
+                isSinglePane: sessionStore.selectedSession?.layout.isSinglePane
+            )
+        else {
+            signalPaletteTargetUnavailable()
+            return false
+        }
+
         if let target = invocation.workspaceTarget {
             switch invocation.commandID {
             case KeyboardShortcutCatalog.renameWorkspace.id:
-                guard var session = sessionStore.session(id: target.sessionID) else { return false }
-                guard !isAnySheetPresented else { return false }
-                session.title = target.displayedTitle
+                guard let session = sessionStore.session(id: target.sessionID) else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
+                guard !isAnySheetPresented else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
                 requestRenameWorkspace(session)
                 return true
             case KeyboardShortcutCatalog.closeWorkspace.id:
-                guard var session = sessionStore.session(id: target.sessionID) else { return false }
+                guard var session = sessionStore.session(id: target.sessionID) else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
                 session.title = target.displayedTitle
                 closeWorkspace(session)
                 return true
             case KeyboardShortcutCatalog.clearWorkspace.id:
-                guard var session = sessionStore.session(id: target.sessionID) else { return false }
-                guard !isAnySheetPresented else { return false }
+                guard var session = sessionStore.session(id: target.sessionID) else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
+                guard !isAnySheetPresented else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
                 session.title = target.displayedTitle
                 clearWorkspace(session)
                 return true
@@ -3304,19 +3340,11 @@ struct AwesoMuxApp: App {
             }
         }
 
-        // Remaining commands resolve their selected pane/workspace through
-        // `paletteActions`. Never let a stale palette silently retarget them.
-        guard
-            invocation.canResolveAgainstCurrentSelection(
-                sessionID: sessionStore.selectedSessionID,
-                paneID: sessionStore.selectedSession?.activePaneID,
-                documentTabID: sessionStore.selectedSession?.layout.firstDocumentGroup?.selectedTabID
-            )
-        else {
+        guard runPaletteCommand(id: invocation.commandID) else {
             signalPaletteTargetUnavailable()
             return false
         }
-        return runPaletteCommand(id: invocation.commandID)
+        return true
     }
 
     private func runPaletteCommand(id commandID: PaletteCommand.ID) -> Bool {
