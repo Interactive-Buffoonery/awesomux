@@ -65,6 +65,10 @@ public enum ForegroundProcessLiveness: Sendable, Hashable {
         // unresolved root comm must not read as verified-idle.
         guard let rootComm else { return .bridgedIndeterminate }
         guard ShellRecognition.isRecognizedShell(rootComm) else { return .bridgedBusy }
-        return rootHasChildren == true ? .bridgedBusy : .bridged
+        switch rootHasChildren {
+        case .some(true): return .bridgedBusy
+        case .some(false): return .bridged
+        case .none: return .bridgedIndeterminate
+        }
     }
 }
