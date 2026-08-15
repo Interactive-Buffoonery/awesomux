@@ -802,6 +802,7 @@ struct SessionStoreLiveTitleChannelTests {
             now: base.addingTimeInterval(0.5)
         )
 
+        #expect(box.hasCoarseSnapshot)
         #expect(box.coarseWorkspaceTitle == "")
         #expect(store.session(id: session.id)?.title == "storage only")
         #expect(store.sidebarResolvedTitles()[session.id] == "")

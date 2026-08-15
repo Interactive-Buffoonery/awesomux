@@ -243,10 +243,21 @@ struct SidebarLiveTitleProjectionTests {
             in: source,
             path: path
         )
+        let activitySection = try SourceContract.declarationBody(
+            after: "private struct SidebarActivitySection: View, Equatable {",
+            in: source,
+            path: path
+        )
+        let activityBody = try SourceContract.declarationBody(
+            after: "var body: some View {",
+            in: activitySection,
+            path: "\(path) (SidebarActivitySection)"
+        )
 
         #expect(searchFocus.contains("displayedTitles"))
         #expect(searchFocus.contains("sidebarTitle(for: session, displayedTitles: displayedTitles)"))
         #expect(panelItem.contains("coarsePaneTitles"))
+        #expect(activityBody.contains("sessionStore.liveTitleGeneration"))
     }
 
     // MARK: - 6. The session peek card's header

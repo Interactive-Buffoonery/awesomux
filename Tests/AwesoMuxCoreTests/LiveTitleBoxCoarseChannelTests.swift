@@ -324,6 +324,7 @@ struct LiveTitleBoxCoarseChannelTests {
 
         // The box appears: coarse == current storage via the seeding adopt.
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
+        #expect(box.hasCoarseSnapshot)
         #expect(box.coarseWorkspaceTitle == "two")
 
         // Still inside the window opened at `base`: the fine channel moves, the

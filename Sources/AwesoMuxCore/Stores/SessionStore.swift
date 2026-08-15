@@ -346,12 +346,15 @@ public final class SessionStore {
         var titles: [TerminalSession.ID: String] = [:]
         for group in groupStorage {
             for session in group.sessions {
-                let coarse = liveTitleBox(for: session.id).coarseWorkspaceTitle
-                titles[session.id] = session.displayTitle(
-                    bundle: bundle,
-                    locale: locale,
-                    overridingRawTitle: coarse
-                )
+                let box = liveTitleBox(for: session.id)
+                titles[session.id] =
+                    box.hasCoarseSnapshot
+                    ? session.displayTitle(
+                        bundle: bundle,
+                        locale: locale,
+                        overridingRawTitle: box.coarseWorkspaceTitle
+                    )
+                    : session.displayTitle(bundle: bundle, locale: locale)
             }
         }
         return titles

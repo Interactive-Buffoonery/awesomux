@@ -1571,6 +1571,10 @@ private struct SidebarActivitySection: View, Equatable {
         }
         return VStack(spacing: 0) {
             if activityPanelOpen, invalidationKey.displayMode != .collapsed {
+                // Inactive-pane title reports can leave the workspace title
+                // unchanged, so observe the generation only while pane titles
+                // are visible instead of widening the closed footer's key.
+                let _ = sessionStore.liveTitleGeneration
                 // Built only while the panel is open — the roster rebuild path
                 // runs on every session-tree change and must not pay an O(n)
                 // dictionary for a closed panel.

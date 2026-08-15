@@ -134,6 +134,9 @@ public final class LiveTitleBox {
     public private(set) var coarseWorkspaceTitle: String = ""
     /// See `coarseWorkspaceTitle`.
     public private(set) var coarsePaneTitles: [TerminalPane.ID: String] = [:]
+    /// Distinguishes a valid empty title snapshot from a box created while the
+    /// store's structural index is temporarily unable to seed it.
+    public private(set) var hasCoarseSnapshot = false
 
     init() {}
 
@@ -274,6 +277,11 @@ public final class LiveTitleBox {
         let finePaneTitles = paneTitles
         if coarsePaneTitles != finePaneTitles {
             coarsePaneTitles = finePaneTitles
+        }
+        // Last: an unseeded reader tracks only this flag, so its wake must see
+        // the complete snapshot rather than an observable half-publish.
+        if !hasCoarseSnapshot {
+            hasCoarseSnapshot = true
         }
     }
 }

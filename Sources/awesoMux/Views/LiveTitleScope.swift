@@ -56,7 +56,7 @@ struct LiveTitles: Equatable {
             // sidebar rows — where a second of staleness is not
             // observable but the per-tick re-layout is the measured residual
             // cost. See `LiveTitleBox.coarseWorkspaceTitle`.
-            workspace = box?.coarseWorkspaceTitle
+            workspace = box?.hasCoarseSnapshot == true ? box?.coarseWorkspaceTitle : nil
             panes = box?.coarsePaneTitles ?? [:]
         }
     }
