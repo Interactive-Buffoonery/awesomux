@@ -52,7 +52,15 @@ Re-affirmed (#335, 2026-07-30) now that the quit-time family exists: still
 count-capped, still no age sweep, still no in-app "forget my saved sessions"
 action. Retention for `session-state.unsaved-*` preserves the earliest capture
 rather than the latest (#333), which raises the *value* of what is retained
-without changing how much is retained or for how long. Archive paths are
+without changing how much is retained or for how long. Since #339, "earliest"
+means the first capture of the current incident: that archive is named by an
+owner-only marker, and a successful live snapshot save resolves the incident
+only if its snapshot was captured after the marker was written — a stale
+detached write cannot drop a newer incident's pin. Resolution rewrites the
+marker as a resolved boundary on disk, so an incident that predates the marker
+mechanism anchors its earliest surviving archive while a later incident pins
+its own first capture. Earlier incident archives remain
+eligible for ordinary eviction; there is still no age sweep. Archive paths are
 logged by filename only across all four families, so a log export no longer
 carries the account short name.
 
@@ -63,10 +71,12 @@ continuation already completes it regardless of the setting. If that flush
 fails, an `unsaved-` archive can therefore be written with the toggle off.
 Reachable only by disabling restore in the gap between approving the
 replacement and the detached write resolving, and it retains state the user
-had just asked to be written to disk anyway. That gap is bounded by the write
-completing (`open`/`write`/`fsync`/`rename`), not by anything instantaneous —
-on a contended or network-backed home directory it can stretch, which widens
-the window rather than changing what lands in it.
+had just asked to be written to disk anyway. Since #338, termination waits at
+most two seconds for that detached write. A timeout reports a write failure but
+does not start an `unsaved-` archive write in the same slow directory; the
+protected prior file remains unless the already-in-flight replacement finishes
+before process exit. This deliberately trades the latest quit-time delta for a
+truthful termination bound on a contended or network-backed home directory.
 
 Addendum (INT-773, 2026-07-09): `recentlyClosed` entries also capture the
 owning group's declared SSH target (`groupRemote`, a `user`/`host` pair) so

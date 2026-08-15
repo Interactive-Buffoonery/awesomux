@@ -11,81 +11,112 @@ private enum RecoverySnapshotWriteOutcome: Sendable {
     case writeFailed
 }
 
+private enum RecoverySnapshotWriteWaitResult {
+    case completed(warningID: UUID, outcome: RecoverySnapshotWriteOutcome)
+    case idle
+    case timedOut
+}
+
 private final class RecoverySnapshotWriteCoordinator: @unchecked Sendable {
-    private let condition = NSCondition()
+    private let lock = NSLock()
+    private var completionSignal = DispatchSemaphore(value: 0)
     private var warningID: UUID?
     private var writeIsActive = false
     private var outcome: RecoverySnapshotWriteOutcome?
     private var gateTransferOutcome: RecoverySnapshotWriteOutcome?
+    private var didTimeOut = false
 
     func beginWrite(for warningID: UUID) {
-        condition.lock()
+        lock.lock()
         self.warningID = warningID
         writeIsActive = true
         outcome = nil
         gateTransferOutcome = nil
-        condition.unlock()
+        didTimeOut = false
+        completionSignal = DispatchSemaphore(value: 0)
+        lock.unlock()
     }
 
     func finishWrite(with outcome: RecoverySnapshotWriteOutcome) {
-        condition.lock()
+        lock.lock()
         self.outcome = outcome
         writeIsActive = false
-        condition.broadcast()
-        condition.unlock()
+        let signal = completionSignal
+        lock.unlock()
+        signal.signal()
     }
 
     var hasActiveWrite: Bool {
-        condition.lock()
-        defer { condition.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return writeIsActive
     }
 
-    /// Ceiling: an unbounded `wait()`, called from `applicationWillTerminate`,
-    /// so a stalled replacement write blocks the main thread until it finishes.
-    /// Bounded in practice by `maxSnapshotBytes` and normal disk throughput,
-    /// but not by anything in code — a degraded or network-backed home
-    /// directory has no cap. `wait(until:)` with `.writeFailed` on timeout is
-    /// the upgrade path, and `flush`'s archive fallback would catch the state;
-    /// left alone until a slow-volume report justifies changing what a quit
-    /// does. Since #334 this is reachable with "Restore workspaces" off too.
-    func waitForCompletion() -> (warningID: UUID, outcome: RecoverySnapshotWriteOutcome)? {
-        condition.lock()
-        defer { condition.unlock() }
-        while writeIsActive {
-            condition.wait()
+    var hasTimedOutWrite: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didTimeOut
+    }
+
+    func waitForCompletion(timeout: TimeInterval) -> RecoverySnapshotWriteWaitResult {
+        lock.lock()
+        guard writeIsActive else {
+            defer { lock.unlock() }
+            return completedWriteResult()
         }
-        guard let warningID, let outcome else { return nil }
-        return (warningID, outcome)
+        let signal = completionSignal
+        lock.unlock()
+
+        let waitResult = signal.wait(timeout: .now() + max(0, timeout))
+
+        lock.lock()
+        defer { lock.unlock() }
+        if waitResult == .timedOut, writeIsActive {
+            didTimeOut = true
+            return .timedOut
+        }
+        return completedWriteResult()
+    }
+
+    private func completedWriteResult() -> RecoverySnapshotWriteWaitResult {
+        guard let warningID, let outcome else { return .idle }
+        return .completed(warningID: warningID, outcome: outcome)
     }
 
     func transferGate(
         for warningID: UUID,
         latestWriteOutcome: RecoverySnapshotWriteOutcome
     ) {
-        condition.lock()
+        lock.lock()
         if self.warningID == warningID {
             gateTransferOutcome = latestWriteOutcome
         }
-        condition.unlock()
+        lock.unlock()
     }
 
     func transferredGateOutcome(for warningID: UUID) -> RecoverySnapshotWriteOutcome? {
-        condition.lock()
-        defer { condition.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         guard self.warningID == warningID else { return nil }
         return gateTransferOutcome
     }
 
+    func timedOut(for warningID: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return self.warningID == warningID && didTimeOut
+    }
+
     func endTransaction(for warningID: UUID) {
-        condition.lock()
+        lock.lock()
         if self.warningID == warningID {
             self.warningID = nil
             writeIsActive = false
             outcome = nil
             gateTransferOutcome = nil
+            didTimeOut = false
         }
-        condition.unlock()
+        lock.unlock()
     }
 }
 
@@ -97,6 +128,7 @@ enum SessionPersistence {
     )
 
     nonisolated static let maxSnapshotBytes = 4 * 1024 * 1024
+    nonisolated static let recoveryReplacementTerminationWaitTimeout: TimeInterval = 2
     /// Maximum `{`/`[` nesting depth tolerated before a snapshot is treated as
     /// pathological and quarantined WITHOUT being decoded. `TerminalPaneLayout`
     /// is an `indirect enum` whose `Codable` decode recurses per nested `split`;
@@ -131,6 +163,10 @@ enum SessionPersistence {
     // mutates it from the MainActor. Without this lock the `nonisolated(unsafe)`
     // annotation would be promising a synchronization the code doesn't provide.
     nonisolated private static let environmentLock = NSLock()
+    // Serializes marker reads and writes between the MainActor flush path and
+    // the detached debounced-write completion, so a stale save success cannot
+    // interleave with an incident's anchor being created.
+    nonisolated private static let unsavedIncidentAnchorLock = NSLock()
     nonisolated private static let archiveDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -551,12 +587,14 @@ enum SessionPersistence {
         // the blocked state cancels one. See `blockedRecoveryWarningID`.
         guard blockedRecoveryWarningID == nil else { return }
         let snapshot = store.snapshot()
+        let snapshotCapturedAt = Date()
         pendingWrite?.cancel()
         pendingWrite = Task.detached(priority: .utility) {
             try? await Task.sleep(for: debounceInterval)
             guard !Task.isCancelled else { return }
             let result = writeSnapshot(snapshot, isCancelled: { Task.isCancelled })
             guard !Task.isCancelled else { return }
+            clearUnsavedIncidentAnchor(after: result, resolvedSnapshotCapturedAt: snapshotCapturedAt)
             await completion?(result)
         }
     }
@@ -566,14 +604,17 @@ enum SessionPersistence {
     /// captured snapshot, transfer the recovery gate after success, then write
     /// the latest quit-time state. Call from `applicationWillTerminate`.
     ///
-    /// Any failure to reach `session-state.json` parks the quit-time state in a
-    /// `session-state.unsaved-` archive first. The result still reports why the
-    /// live file was not replaced — the archive is a safety net, not a
-    /// substitute — so the caller must handle it (hence no `@discardableResult`;
-    /// it went missing at `applicationWillTerminate` for exactly that reason).
+    /// A gate refusal or ordinary write failure parks the quit-time state in a
+    /// `session-state.unsaved-` archive first. A recovery-write timeout does not:
+    /// starting another synchronous write in the same slow directory would make
+    /// the timeout meaningless. The result still reports why the live file was
+    /// not replaced, so the caller must handle it (hence no
+    /// `@discardableResult`; it went missing at `applicationWillTerminate` for
+    /// exactly that reason).
     static func flush(
         _ store: SessionStore,
-        whileWaitingForRecoveryWrite: () -> Void = {}
+        whileWaitingForRecoveryWrite: () -> Void = {},
+        recoveryWriteWaitTimeout: TimeInterval = recoveryReplacementTerminationWaitTimeout
     ) -> Result<Void, RecoverySnapshotReplacementError> {
         // ONE capture for the whole terminate path. `SessionStore.snapshot()`
         // filters `recentlyClosed` against a fresh `Date()`, so two calls
@@ -583,6 +624,7 @@ enum SessionPersistence {
         // the store in between regardless: the wait below blocks the main
         // thread rather than yielding a MainActor turn.
         let snapshot = store.snapshot()
+        let snapshotCapturedAt = Date()
         // Reuse whatever `writeSnapshot` already encoded. Both destinations take
         // the same bytes, and this runs synchronously on the MainActor inside
         // `applicationWillTerminate`, under a system kill deadline — a second
@@ -592,13 +634,15 @@ enum SessionPersistence {
         var encodedSnapshot: Data?
         let result = writeLiveSnapshotForTermination(
             snapshot,
+            snapshotCapturedAt: snapshotCapturedAt,
             whileWaitingForRecoveryWrite: whileWaitingForRecoveryWrite,
+            recoveryWriteWaitTimeout: recoveryWriteWaitTimeout,
             capturingEncodedSnapshot: { encodedSnapshot = $0 }
         )
         // One call site, so no return path can be added that forgets it. The
         // recovery gate is the reachable cause, but a plain write failure loses
         // the same quit-time delta and deserves the same net.
-        if case .failure = result {
+        if case .failure = result, !recoveryWriteCoordinator.hasTimedOutWrite {
             archiveUnsavedSnapshot(snapshot, encodedSnapshot: encodedSnapshot)
         }
         return result
@@ -623,7 +667,9 @@ enum SessionPersistence {
 
     private static func writeLiveSnapshotForTermination(
         _ snapshot: SessionSnapshot,
+        snapshotCapturedAt: Date,
         whileWaitingForRecoveryWrite: () -> Void,
+        recoveryWriteWaitTimeout: TimeInterval,
         capturingEncodedSnapshot: (Data) -> Void = { _ in }
     ) -> Result<Void, RecoverySnapshotReplacementError> {
         validateSnapshotOnDiskIfNeeded()
@@ -634,18 +680,24 @@ enum SessionPersistence {
         if recoveryWriteCoordinator.hasActiveWrite {
             whileWaitingForRecoveryWrite()
         }
-        if let completion = recoveryWriteCoordinator.waitForCompletion(),
-            blockedRecoveryWarningID == completion.warningID
-        {
-            switch completion.outcome {
+        let waitResult = recoveryWriteCoordinator.waitForCompletion(
+            timeout: recoveryWriteWaitTimeout
+        )
+        switch waitResult {
+        case let .completed(warningID, outcome) where blockedRecoveryWarningID == warningID:
+            switch outcome {
             case .success:
                 blockedRecoveryWarningID = nil
                 let latestResult = writeSnapshot(
                     snapshot,
                     capturingEncodedSnapshot: capturingEncodedSnapshot
                 )
+                clearUnsavedIncidentAnchor(
+                    after: latestResult,
+                    resolvedSnapshotCapturedAt: snapshotCapturedAt
+                )
                 recoveryWriteCoordinator.transferGate(
-                    for: completion.warningID,
+                    for: warningID,
                     latestWriteOutcome: writeOutcome(for: latestResult)
                 )
                 return latestResult
@@ -654,14 +706,26 @@ enum SessionPersistence {
             case .writeFailed:
                 return .failure(.writeFailed)
             }
+        case .timedOut:
+            logger.error(
+                "timed out waiting for recovery replacement during termination; skipping a second write to the same directory"
+            )
+            return .failure(.writeFailed)
+        case .completed, .idle:
+            break
         }
         guard blockedRecoveryWarningID == nil else {
             return .failure(.warningNotActive)
         }
-        return writeSnapshot(
+        let result = writeSnapshot(
             snapshot,
             capturingEncodedSnapshot: capturingEncodedSnapshot
         )
+        clearUnsavedIncidentAnchor(
+            after: result,
+            resolvedSnapshotCapturedAt: snapshotCapturedAt
+        )
+        return result
     }
 
     /// Best-effort quit-time copy of state that could not reach
@@ -707,7 +771,11 @@ enum SessionPersistence {
             logger.error(
                 "archived unsaved session state to \(archiveURL.lastPathComponent, privacy: .public)"
             )
-            pruneQuarantineArchives(prefix: "session-state.unsaved-", preservingEarliest: true)
+            let incidentAnchorFileName = ensureUnsavedIncidentAnchor(for: archiveURL)
+            pruneQuarantineArchives(
+                prefix: "session-state.unsaved-",
+                preservingFileName: incidentAnchorFileName
+            )
         } catch {
             logger.error(
                 "failed to archive unsaved session state: \(error.localizedDescription, privacy: .public)"
@@ -856,6 +924,7 @@ enum SessionPersistence {
         // output-budget hook, so the post-encode byte cap bounds persisted data
         // but cannot prevent the encoder's temporary allocation itself.
         let snapshot = store.snapshot()
+        let snapshotCapturedAt = Date()
         afterSnapshotCapture()
         recoveryWriteCoordinator.beginWrite(for: warning.id)
         let result = await Task.detached(priority: .utility) {
@@ -863,6 +932,12 @@ enum SessionPersistence {
             recoveryWriteCoordinator.finishWrite(with: writeOutcome(for: result))
             return result
         }.value
+        if !recoveryWriteCoordinator.timedOut(for: warning.id) {
+            clearUnsavedIncidentAnchor(
+                after: result,
+                resolvedSnapshotCapturedAt: snapshotCapturedAt
+            )
+        }
         if let transferredOutcome = recoveryWriteCoordinator.transferredGateOutcome(
             for: warning.id
         ) {
@@ -1193,22 +1268,18 @@ enum SessionPersistence {
     /// oldest-first eviction is right. `session-state.unsaved-` inverts that:
     /// each file is a different session captured at a different quit, and the
     /// earliest is the one taken closest to the incident — the last good state
-    /// before things went wrong. It passes `preservingEarliest` so the cap
-    /// thins the middle instead of deleting the most valuable copy first.
-    ///
-    /// Ceiling: `preservingEarliest` pins the earliest file *on disk*, which is
-    /// the earliest of the current incident only while there has been one
-    /// incident. Two incidents far apart and the pinned slot holds the older
-    /// incident's first capture forever, while the live incident's earliest is
-    /// evicted — the case this policy exists to protect. Accepted because
-    /// nothing here tracks incident boundaries and both policies #333 proposed
-    /// share it; re-anchor the pinned slot after a run of clean quits if a real
-    /// report shows the stale copy mattering.
+    /// before things went wrong. The first archive in an incident anchors an
+    /// owner-only incident marker — seeded from the earliest surviving capture
+    /// when the incident predates the marker mechanism (#339) — and a live save
+    /// resolves it only if its snapshot was captured after the marker was
+    /// written. Resolution rewrites the marker as a resolved boundary, so a
+    /// later incident pins its own first capture without deleting retained
+    /// evidence from earlier incidents merely because saving resumed.
     nonisolated static let maxQuarantineArchives = 10
 
     nonisolated private static func pruneQuarantineArchives(
         prefix: String,
-        preservingEarliest: Bool = false
+        preservingFileName: String? = nil
     ) {
         guard
             let entries = try? FileManager.default.contentsOfDirectory(
@@ -1221,14 +1292,157 @@ enum SessionPersistence {
         }
         let archives = entries.filter { $0.lastPathComponent.hasPrefix(prefix) }
         guard archives.count > maxQuarantineArchives else { return }
-        let byOldestFirst = archives.sorted {
-            let lhs = (try? $0.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
-            let rhs = (try? $1.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
-            return lhs < rhs
-        }
-        let evictable = preservingEarliest ? Array(byOldestFirst.dropFirst()) : byOldestFirst
+        let byOldestFirst = archives.map { archive in
+            let creationDate =
+                (try? archive.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+                ?? .distantPast
+            return (url: archive, creationDate: creationDate)
+        }.sorted { $0.creationDate < $1.creationDate }.map(\.url)
+        let evictable = byOldestFirst.filter { $0.lastPathComponent != preservingFileName }
         for stale in evictable.prefix(archives.count - maxQuarantineArchives) {
             try? FileManager.default.removeItem(at: stale)
+        }
+    }
+
+    nonisolated private static var unsavedIncidentAnchorURL: URL {
+        supportDirectoryURL.appending(path: "session-state.unsaved.incident")
+    }
+
+    /// What the incident marker currently records. `legacy` covers a missing
+    /// or unreadable marker and a stale anchor whose archive vanished: any
+    /// state where an incident that predates the marker mechanism may already
+    /// have archives on disk.
+    nonisolated private enum UnsavedIncidentAnchorState {
+        case anchor(fileName: String, markerCreatedAt: Date?)
+        case resolved
+        case legacy
+    }
+
+    /// Written in place of an anchor when the incident resolves, so the
+    /// resolution boundary survives on disk. Deleting the marker instead would
+    /// be indistinguishable from a pre-marker incident, and the next incident
+    /// would re-pin the earliest leftover from an already-resolved one.
+    nonisolated private static let resolvedUnsavedIncidentMarkerContent = "resolved"
+
+    // Call with `unsavedIncidentAnchorLock` held.
+    nonisolated private static func readUnsavedIncidentAnchorState() -> UnsavedIncidentAnchorState {
+        guard
+            let contents = try? SecureFileReader.read(
+                at: unsavedIncidentAnchorURL,
+                maximumBytes: 256,
+                symlinkPolicy: .rejectFinalComponent
+            ),
+            let text = String(data: contents.data, encoding: .utf8)
+        else {
+            return .legacy
+        }
+        guard text != resolvedUnsavedIncidentMarkerContent else {
+            return .resolved
+        }
+        guard
+            text.hasPrefix("session-state.unsaved-"),
+            text.hasSuffix(".json"),
+            !text.contains("/"),
+            (try? SecureFileReader.open(
+                at: supportDirectoryURL.appending(path: text),
+                symlinkPolicy: .rejectFinalComponent
+            )) != nil
+        else {
+            return .legacy
+        }
+        let attributes = try? FileManager.default.attributesOfItem(
+            atPath: unsavedIncidentAnchorURL.path
+        )
+        return .anchor(
+            fileName: text,
+            markerCreatedAt: attributes?[.creationDate] as? Date
+        )
+    }
+
+    nonisolated private static func ensureUnsavedIncidentAnchor(for archiveURL: URL) -> String? {
+        unsavedIncidentAnchorLock.lock()
+        defer { unsavedIncidentAnchorLock.unlock() }
+        let fileName: String
+        switch readUnsavedIncidentAnchorState() {
+        case let .anchor(existing, _):
+            return existing
+        case .resolved:
+            // The previous incident resolved; the archive just written starts
+            // a new one and pins its own first capture.
+            fileName = archiveURL.lastPathComponent
+        case .legacy:
+            // No marker ever recorded — an incident already under way when the
+            // marker shipped — so pin its earliest surviving capture (#339)
+            // rather than the archive just written.
+            fileName = oldestUnsavedArchiveFileName() ?? archiveURL.lastPathComponent
+        }
+        do {
+            try FileManager.default.writeOwnerOnlyFile(
+                at: unsavedIncidentAnchorURL,
+                contents: Data(fileName.utf8)
+            )
+            return fileName
+        } catch {
+            logger.error(
+                "failed to record the current unsaved-session incident: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    nonisolated private static func oldestUnsavedArchiveFileName() -> String? {
+        guard
+            let entries = try? FileManager.default.contentsOfDirectory(
+                at: supportDirectoryURL,
+                includingPropertiesForKeys: [.creationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        else {
+            return nil
+        }
+        return
+            entries
+            .filter { $0.lastPathComponent.hasPrefix("session-state.unsaved-") }
+            .min { lhs, rhs in
+                let left =
+                    (try? lhs.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+                    ?? .distantPast
+                let right =
+                    (try? rhs.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+                    ?? .distantPast
+                return left < right
+            }?
+            .lastPathComponent
+    }
+
+    /// Only a successful save whose snapshot was captured *after* the marker
+    /// was written may resolve the incident. A detached debounced write can
+    /// outlive a failed quit-time flush by a wide margin, and its stale
+    /// success must not drop the newer incident's pin — subsequent pruning
+    /// would evict the first archive of that still-unresolved incident.
+    nonisolated static func clearUnsavedIncidentAnchor(
+        after result: Result<Void, RecoverySnapshotReplacementError>,
+        resolvedSnapshotCapturedAt captureDate: Date
+    ) {
+        guard case .success = result else { return }
+        unsavedIncidentAnchorLock.lock()
+        defer { unsavedIncidentAnchorLock.unlock() }
+        guard
+            case let .anchor(_, markerCreatedAt) = readUnsavedIncidentAnchorState(),
+            let markerCreatedAt,
+            markerCreatedAt <= captureDate
+        else {
+            return
+        }
+        do {
+            try FileManager.default.writeOwnerOnlyFile(
+                at: unsavedIncidentAnchorURL,
+                contents: Data(resolvedUnsavedIncidentMarkerContent.utf8)
+            )
+        } catch {
+            logger.error(
+                "failed to clear the resolved unsaved-session incident: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
