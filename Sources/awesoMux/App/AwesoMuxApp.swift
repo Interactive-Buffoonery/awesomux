@@ -3316,6 +3316,10 @@ struct AwesoMuxApp: App {
                 requestRenameWorkspace(session)
                 return true
             case KeyboardShortcutCatalog.closeWorkspace.id:
+                guard !isAnySheetPresented else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
                 guard var session = sessionStore.session(id: target.sessionID) else {
                     signalPaletteTargetUnavailable()
                     return false

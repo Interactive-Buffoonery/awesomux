@@ -316,6 +316,9 @@ struct PalettePresenterTests {
         #expect(clearCase.contains("session.title = target.displayedTitle"))
         #expect(renameCase.contains("signalPaletteTargetUnavailable()"))
         #expect(closeCase.contains("signalPaletteTargetUnavailable()"))
+        let sheetGuard = try #require(closeCase.range(of: "guard !isAnySheetPresented"))
+        let closeCall = try #require(closeCase.range(of: "closeWorkspace(session)"))
+        #expect(sheetGuard.lowerBound < closeCall.lowerBound)
         #expect(clearCase.contains("signalPaletteTargetUnavailable()"))
         #expect(body.contains("guard runPaletteCommand(id: invocation.commandID) else"))
 

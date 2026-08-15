@@ -367,7 +367,7 @@ enum PaletteCommandRegistry {
                 subtitle: presentedSelectedTitle,
                 keywords: ["remove", "session"],
                 shortcut: KeyboardShortcutCatalog.closeWorkspace,
-                isEnabled: hasSelectedSession,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .workspace,
                 run: actions.closeWorkspace
             ),
@@ -426,7 +426,7 @@ enum PaletteCommandRegistry {
                 subtitle: nil,
                 keywords: ["remove", "terminal"],
                 shortcut: KeyboardShortcutCatalog.closePane,
-                isEnabled: hasSelectedSession,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .pane,
                 run: actions.closePane
             ),

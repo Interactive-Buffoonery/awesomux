@@ -204,6 +204,8 @@ struct PaletteCommandRegistryTests {
 
         let newGroup = try #require(PaletteCommandRegistry.command(id: "newWorkspaceGroup", in: commands))
         let rename = try #require(PaletteCommandRegistry.command(id: "renameWorkspace", in: commands))
+        let close = try #require(PaletteCommandRegistry.command(id: "closeWorkspace", in: commands))
+        let closePane = try #require(PaletteCommandRegistry.command(id: "closePane", in: commands))
         let find = try #require(PaletteCommandRegistry.command(id: "find", in: commands))
         let scrollbackDump = try #require(PaletteCommandRegistry.command(id: "scrollbackDump", in: commands))
         let floating = try #require(PaletteCommandRegistry.command(id: "toggleFloatingPanel", in: commands))
@@ -212,6 +214,8 @@ struct PaletteCommandRegistryTests {
 
         #expect(!newGroup.isEnabled)
         #expect(!rename.isEnabled)
+        #expect(!close.isEnabled)
+        #expect(!closePane.isEnabled)
         #expect(!find.isEnabled)
         #expect(!scrollbackDump.isEnabled)
         #expect(!floating.isEnabled)
