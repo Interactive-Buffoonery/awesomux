@@ -54,10 +54,10 @@ sessions seed their box from storage on creation, so "coarse" means "current
 storage" for them.
 
 **Provenance on title matches.** `SessionMatch` carries the exact title string
-the projection scored, and `SidebarSessionTile` renders, labels, and keys from
-that snapshot. The highlight ranges are `String.Index`es into the scored
-string; re-reading a "fresher" source (struct or box) indexed them into a
-different string.
+the projection scored, and the sidebar snapshot uses it for the row, labels,
+rotor, ordinals, and announcements until the projection is replaced. The
+highlight ranges are `String.Index`es into the scored string; re-reading a
+"fresher" source (struct or box) indexed them into a different string.
 
 ## Alternatives considered
 
@@ -77,19 +77,22 @@ different string.
 
 ## Consequences
 
-- A row and every name-bearing surface around it are *provably* in phase: the
-  only gate that can publish the coarse mirror is the gate that re-derives the
-  projections reading it. Search freshness now equals row parity by
+- A row and every name-bearing surface around it are *provably* in phase for
+  display-only title reports: the only coalescing gate that can publish the
+  coarse mirror is the gate that re-derives the projections reading it.
+  Ordinary publishing and structural writes refresh both storage observation
+  and the mirror immediately. Search freshness now equals row parity by
   construction.
 - The surviving staleness ceiling is uniform: a final title write landing
   inside its window with nothing publishing afterwards leaves the whole
   sidebar — row included — naming the previous title until the next publish.
   No surface can disagree with another; it can only be late together.
-- `SidebarView.body` now creates (and thereby retains) a `LiveTitleBox` for
-  every roster session while building the map. The boxes are pruned with their
-  sessions, and a box's coarse publish already fired for rendered rows, so the
-  added cost is one small allocation per unrendered session, not new
-  invalidation.
+- `SidebarView.body` now creates (and thereby retains) a `LiveTitleBox` plus its
+  per-pane title channels for every roster session while building the map. The
+  O(sessions + panes) objects are pruned with their sessions. This deliberately
+  spends roster-bounded memory so collapsed or filtered-out workspaces join the
+  same title channel before they render; revisit only if large-roster profiling
+  shows retained channels matter.
 - Tests drive the window with an injected `now:` as before; the gate having a
   single owner means the leading-edge, backwards-clock, and no-box behaviors
   are pinned in exactly one place.

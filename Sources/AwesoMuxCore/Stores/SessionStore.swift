@@ -350,7 +350,7 @@ public final class SessionStore {
                 titles[session.id] = session.displayTitle(
                     bundle: bundle,
                     locale: locale,
-                    overridingRawTitle: coarse.isEmpty ? nil : coarse
+                    overridingRawTitle: coarse
                 )
             }
         }

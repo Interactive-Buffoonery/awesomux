@@ -512,23 +512,12 @@ struct SidebarSessionTileEquatableTests {
         )
         #expect(matched.accessibilityTitleOverride == "release prep")
 
-        // A hand-built match carrying no snapshot degrades to `nil` — the
-        // label then routes to `session.displayTitle(bundle:locale:)`, keeping
-        // the localized synthetic-title path a raw override would bypass.
-        #expect(
-            tile(
-                session: staleSession,
-                match: SessionMatch(field: .title, score: 10, ranges: []),
-                liveTitles: liveTitles
-            ).accessibilityTitleOverride == nil
-        )
-
         // A non-title match still renders the live workspace title, so it keeps
         // the override — the branch is on the matched FIELD, not on matching.
         #expect(
             tile(
                 session: staleSession,
-                match: SessionMatch(field: .location, score: 10, ranges: []),
+                match: SessionMatch(field: .location, score: 10, ranges: [], matchedTitle: nil),
                 liveTitles: liveTitles
             ).accessibilityTitleOverride == "cargo build"
         )

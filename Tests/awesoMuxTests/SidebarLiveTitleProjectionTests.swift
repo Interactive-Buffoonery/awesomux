@@ -200,6 +200,55 @@ struct SidebarLiveTitleProjectionTests {
         #expect(Self.activityKey(for: fixture.store) != before)
     }
 
+    @Test("a filtered snapshot keeps announcements on the row's scored title")
+    func filteredSnapshotKeepsTheScoredTitle() throws {
+        let fixture = Fixture()
+        let session = try #require(fixture.store.session(id: fixture.sessionID))
+        let match = SessionMatch(
+            field: .title,
+            score: 10,
+            ranges: [],
+            matchedTitle: "scored title"
+        )
+        let snapshot = SidebarSnapshot(
+            entries: [
+                SidebarGroupEntry(
+                    group: SessionGroup(name: "main", sessions: [session]),
+                    unfilteredIndex: 0,
+                    sessions: [SidebarSessionEntry(session: session, match: match)]
+                )
+            ],
+            attention: [],
+            pinned: [],
+            topMatchID: session.id
+        )
+
+        let displayed = snapshot.displayedTitles(
+            fallingBackTo: [session.id: "newer coarse title"]
+        )
+        #expect(displayed[session.id] == "scored title")
+    }
+
+    @Test("search focus and split activity rows consume displayed snapshots")
+    func announcementAndSplitPanelSourceContract() throws {
+        let path = "Sources/awesoMux/Views/SidebarView.swift"
+        let source = try SourceContract.source(at: path)
+        let searchFocus = try SourceContract.declarationBody(
+            after: "private func moveSearchFocus(",
+            in: source,
+            path: path
+        )
+        let panelItem = try SourceContract.declarationBody(
+            after: "private func panelItem(",
+            in: source,
+            path: path
+        )
+
+        #expect(searchFocus.contains("displayedTitles"))
+        #expect(searchFocus.contains("sidebarTitle(for: session, displayedTitles: displayedTitles)"))
+        #expect(panelItem.contains("coarsePaneTitles"))
+    }
+
     // MARK: - 6. The session peek card's header
 
     @Test("the peek card header follows the live channel, not the session struct")

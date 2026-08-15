@@ -28,15 +28,15 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
     /// For surfaces that must name this session by a title snapshot that did
     /// not come from storage — the sidebar's coarse-mirror map, where the
     /// stored value can be a fresher string than the row is showing (issue
-    /// #327). A `nil` override degrades to the plain `displayTitle` path, so
-    /// "no snapshot available" never needs a branch at the call site.
+    /// #327). The override is non-optional because an empty coarse title is a
+    /// valid snapshot, not evidence that no snapshot exists.
     public func displayTitle(
         bundle: Bundle = .main,
         locale: Locale = .current,
-        overridingRawTitle rawTitleOverride: String?
+        overridingRawTitle rawTitleOverride: String
     ) -> String {
         syntheticTitle?.localizedTitle(bundle: bundle, locale: locale)
-            ?? (rawTitleOverride ?? storedTitle)
+            ?? rawTitleOverride
     }
     public var workingDirectory: String
     public var isTitleUserEdited: Bool

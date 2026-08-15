@@ -638,7 +638,7 @@ struct SidebarSessionTile: View {
     /// take the SAME branch, or VoiceOver names a workspace differently from the
     /// text on screen.
     private var titleText: Text {
-        if let match, match.field == .title {
+        if let match, match.field == .title, let matchedTitle = match.matchedTitle {
             // The MATCH'S OWN scored string: `match.ranges` are `String.Index`es
             // into it, `highlighted` asserts when a range doesn't map into the
             // string it's given, and BOTH the struct title and the coarse
@@ -647,7 +647,7 @@ struct SidebarSessionTile: View {
             // agreement (issue #327).
             Text(
                 highlighted(
-                    match.matchedTitle ?? session.title,
+                    matchedTitle,
                     ranges: match.ranges,
                     base: Color.aw.text
                 )
@@ -662,9 +662,7 @@ struct SidebarSessionTile: View {
     /// `titleText` renders.
     ///
     /// The match's scored string on the search-match branch — the same string
-    /// the highlighted text draws. `nil` there (a hand-built match carrying no
-    /// snapshot) falls back to `session.displayTitle(bundle:locale:)`, keeping
-    /// the localized synthetic-title path a raw override would bypass.
+    /// the highlighted text draws.
     ///
     /// `internal` so the branch pairing is testable: `titleText` returns a `Text`,
     /// whose string is not readable back, so this is the only side of the pair a
@@ -1225,9 +1223,7 @@ extension SidebarSessionTile: Equatable {
             // prefix query `match` scores identically across both titles, the
             // gate suppresses the repaint, and a FILTERED row keeps a superseded
             // title. Key what you render.
-            title: match?.field == .title
-                ? match?.matchedTitle ?? session.title
-                : liveTitles.workspaceTitle(for: session),
+            title: match?.matchedTitle ?? liveTitles.workspaceTitle(for: session),
             location: session.sidebarLocation,
             notificationsMuted: session.notificationsMuted,
             sessionWorkingDirectory: session.workingDirectory,

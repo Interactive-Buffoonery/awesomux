@@ -24,6 +24,7 @@ func liveTitleCoalescingWindowHasElapsed(
     now: Date,
     interval: TimeInterval
 ) -> Bool {
+    guard interval.isFinite else { return true }
     guard let last else { return true }
     let elapsed = now.timeIntervalSince(last)
     return !(elapsed >= 0 && elapsed < interval)

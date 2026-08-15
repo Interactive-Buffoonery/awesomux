@@ -225,23 +225,21 @@ struct LiveTitleBoxCoarseChannelTests {
         #expect(box.coarsePaneTitles[fixture.paneID] == "frame 2")
     }
 
-    /// The shared window check must stay written as a NEGATION of the original
-    /// suppression predicate. `interval` reaches `SessionStore` from a public
-    /// initializer, and every comparison against `NaN` is false —
-    /// so the positive-looking rewrite `elapsed < 0 || elapsed >= interval`
-    /// returns false forever and freezes the generation counter, where the
-    /// original bumped every time. Sidebar search, duplicate ordinals and the
-    /// VoiceOver rotor all hang off that counter.
+    /// `interval` reaches `SessionStore` from a public initializer. NaN makes
+    /// every comparison false; positive infinity makes every finite elapsed
+    /// time stay inside the window forever. Neither may freeze the generation.
     @Test("a non-finite interval does not freeze the live-title generation")
     func nonFiniteIntervalDoesNotFreezeTheGeneration() {
-        let fixture = makeFixture(liveTitleGenerationInterval: .nan)
-        let base = Date(timeIntervalSince1970: 1_000_000)
+        for interval in [TimeInterval.nan, .infinity, -.infinity] {
+            let fixture = makeFixture(liveTitleGenerationInterval: interval)
+            let base = Date(timeIntervalSince1970: 1_000_000)
 
-        fixture.retitle("one", now: base)
-        fixture.retitle("two", now: base.addingTimeInterval(0.1))
-        fixture.retitle("three", now: base.addingTimeInterval(0.2))
+            fixture.retitle("one", now: base)
+            fixture.retitle("two", now: base.addingTimeInterval(0.1))
+            fixture.retitle("three", now: base.addingTimeInterval(0.2))
 
-        #expect(fixture.store.liveTitleGeneration == 3)
+            #expect(fixture.store.liveTitleGeneration == 3)
+        }
     }
 
     // MARK: - 4. A restore is a new lifetime for the coalescing window

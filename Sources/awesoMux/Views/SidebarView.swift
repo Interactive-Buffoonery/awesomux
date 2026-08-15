@@ -130,6 +130,7 @@ struct SidebarView: View {
             isFiltering: isFiltering,
             titles: sidebarTitles
         )
+        let displayedTitles = snapshot.displayedTitles(fallingBackTo: sidebarTitles)
         // Disambiguate across lifted AND in-group tiles, keyed by each lifted
         // tile's ORIGIN group identity — feeding lifted entries under a
         // synthetic group would change the "N of M" qualifiers a lifted tile
@@ -149,7 +150,7 @@ struct SidebarView: View {
         let duplicateDisambiguationBySessionID =
             SidebarDuplicateDisambiguator.disambiguationBySessionID(
                 for: disambiguationInput,
-                titles: sidebarTitles
+                titles: displayedTitles
             )
         let density = SidebarDensity(compact: appSettingsStore.general.value.sidebarCompactMode)
         let visibleGroupIDs = snapshot.entries.map { $0.group.id }
@@ -164,7 +165,7 @@ struct SidebarView: View {
             attention: snapshot.attention,
             pinned: snapshot.pinned,
             for: snapshot.entries,
-            titles: sidebarTitles
+            titles: displayedTitles
         )
         let orderedVisibleSessionIDs = rotorEntries.map(\.id)
         let jumpIndexBySessionID = Dictionary(
@@ -180,7 +181,7 @@ struct SidebarView: View {
             for: snapshot.entries,
             collapsedGroupIDs: collapsedGroupIDs,
             isFiltering: isFiltering,
-            titles: sidebarTitles
+            titles: displayedTitles
         )
         // Computed once per render and captured by the preference-change
         // closure below, which would otherwise rebuild this set on every
@@ -211,7 +212,8 @@ struct SidebarView: View {
         return VStack(spacing: 0) {
             searchHeader(
                 topMatchID: snapshot.topMatchID,
-                searchResultIDs: searchResultIDs
+                searchResultIDs: searchResultIDs,
+                displayedTitles: displayedTitles
             )
 
             GeometryReader { scrollViewport in
@@ -223,7 +225,8 @@ struct SidebarView: View {
                                 density: density,
                                 isFiltering: isFiltering,
                                 jumpIndexBySessionID: jumpIndexBySessionID,
-                                duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID
+                                duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID,
+                                displayedTitles: displayedTitles
                             )
                         }
 
@@ -233,7 +236,8 @@ struct SidebarView: View {
                                 density: density,
                                 isFiltering: isFiltering,
                                 jumpIndexBySessionID: jumpIndexBySessionID,
-                                duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID
+                                duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID,
+                                displayedTitles: displayedTitles
                             )
                         }
 
@@ -305,7 +309,14 @@ struct SidebarView: View {
                                 onAcknowledge: { session in
                                     sessionStore.acknowledgeSession(id: session.id)
                                 },
-                                onMoveSession: moveSession,
+                                onMoveSession: { sessionID, groupID, index in
+                                    moveSession(
+                                        sessionID,
+                                        toGroupID: groupID,
+                                        atIndex: index,
+                                        displayedTitles: displayedTitles
+                                    )
+                                },
                                 onMoveGroup: moveGroup(fromIndex:toIndex:),
                                 activeDragKind: activeDragKind,
                                 activeDragID: activeDragID,
@@ -476,6 +487,7 @@ struct SidebarView: View {
             }
 
             SidebarActivitySection(
+                sessionStore: sessionStore,
                 invalidationKey: SidebarActivityInvalidationKey(
                     groups: sessionStore.groups,
                     pinnedSessionIDs: sessionStore.pinnedSessionIDs,
@@ -487,7 +499,7 @@ struct SidebarView: View {
                     // compared constructor value pierces this .equatable()
                     // boundary (PR #428) — a silent title write touches no
                     // other field of this key.
-                    resolvedTitles: sidebarTitles
+                    resolvedTitles: displayedTitles
                 ),
                 searchText: $searchText,
                 onOpenQuickSettings: onOpenQuickSettings,
@@ -614,7 +626,9 @@ struct SidebarView: View {
                 return
             }
             if let addedID = added.first, let session = sessionStore.session(id: addedID) {
-                accessibilityAnnouncer.announce("Pinned \(sidebarTitle(for: session))")
+                accessibilityAnnouncer.announce(
+                    "Pinned \(sidebarTitle(for: session, displayedTitles: displayedTitles))"
+                )
             }
             if let removedID = removed.first,
                 let session = sessionStore.session(id: removedID),
@@ -628,7 +642,7 @@ struct SidebarView: View {
                 if sessionStore.needsInputSectionEnabled, session.needsUserInput {
                     accessibilityAnnouncer.announce(
                         String(
-                            localized: "Unpinned \(sidebarTitle(for: session)), moved to Needs Input",
+                            localized: "Unpinned \(sidebarTitle(for: session, displayedTitles: displayedTitles)), moved to Needs Input",
                             comment:
                                 "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
                         )
@@ -639,7 +653,7 @@ struct SidebarView: View {
                     // no live session → this lookup fails → no-op, as intended.
                     collapsedGroupIDs.remove(group.id)
                     accessibilityAnnouncer.announce(
-                        "Unpinned \(sidebarTitle(for: session)), returned to \(group.name)"
+                        "Unpinned \(sidebarTitle(for: session, displayedTitles: displayedTitles)), returned to \(group.name)"
                     )
                 }
             }
@@ -671,7 +685,8 @@ struct SidebarView: View {
             collapsedGroupIDs.remove(group.id)
             accessibilityAnnouncer.announce(
                 String(
-                    localized: "\(sidebarTitle(for: session)) left Needs Input, returned to \(group.name)",
+                    localized:
+                        "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) left Needs Input, returned to \(group.name)",
                     comment:
                         "VoiceOver announcement when a workspace stops needing input; first placeholder is the workspace title, second is its group name"
                 )
@@ -734,14 +749,16 @@ struct SidebarView: View {
     @ViewBuilder
     private func searchHeader(
         topMatchID: TerminalSession.ID?,
-        searchResultIDs: [TerminalSession.ID]
+        searchResultIDs: [TerminalSession.ID],
+        displayedTitles: [TerminalSession.ID: String]
     ) -> some View {
         if displayMode == .collapsed {
             collapsedSearchHeader
         } else {
             expandedSearchHeader(
                 topMatchID: topMatchID,
-                searchResultIDs: searchResultIDs
+                searchResultIDs: searchResultIDs,
+                displayedTitles: displayedTitles
             )
         }
     }
@@ -794,7 +811,8 @@ struct SidebarView: View {
 
     private func expandedSearchHeader(
         topMatchID: TerminalSession.ID?,
-        searchResultIDs: [TerminalSession.ID]
+        searchResultIDs: [TerminalSession.ID],
+        displayedTitles: [TerminalSession.ID: String]
     ) -> some View {
         let searchHelp = SidebarAgentStateSearchToken.localizedSearchHelp()
 
@@ -813,7 +831,8 @@ struct SidebarView: View {
                     onMoveFocus: { offset in
                         moveSearchFocus(
                             offset: offset,
-                            searchResultIDs: searchResultIDs
+                            searchResultIDs: searchResultIDs,
+                            displayedTitles: displayedTitles
                         )
                     },
                     onSubmit: {
@@ -916,7 +935,8 @@ struct SidebarView: View {
 
     private func moveSearchFocus(
         offset: Int,
-        searchResultIDs: [TerminalSession.ID]
+        searchResultIDs: [TerminalSession.ID],
+        displayedTitles: [TerminalSession.ID: String]
     ) -> Bool {
         guard !searchResultIDs.isEmpty else {
             return false
@@ -936,7 +956,7 @@ struct SidebarView: View {
         {
             accessibilityAnnouncer.announce(
                 SidebarSearchFocus.accessibilityAnnouncement(
-                    label: sidebarTitle(for: session),
+                    label: sidebarTitle(for: session, displayedTitles: displayedTitles),
                     position: index + 1,
                     count: searchResultIDs.count
                 )
@@ -1079,7 +1099,8 @@ struct SidebarView: View {
         density: SidebarDensity,
         isFiltering: Bool,
         jumpIndexBySessionID: [TerminalSession.ID: Int],
-        duplicateDisambiguationBySessionID: [TerminalSession.ID: SidebarDuplicateDisambiguation]
+        duplicateDisambiguationBySessionID: [TerminalSession.ID: SidebarDuplicateDisambiguation],
+        displayedTitles: [TerminalSession.ID: String]
     ) -> some View {
         SidebarAttentionSectionView(
             attention: attention,
@@ -1111,7 +1132,12 @@ struct SidebarView: View {
             onMakeWorkspaceManaged: onMakeWorkspaceManaged,
             onNewSessionHere: newSessionInLiftedOrigin,
             onMoveToGroup: { sessionID, destinationGroupID in
-                moveSession(sessionID, toGroupID: destinationGroupID, atIndex: SessionStore.appendIndex)
+                moveSession(
+                    sessionID,
+                    toGroupID: destinationGroupID,
+                    atIndex: SessionStore.appendIndex,
+                    displayedTitles: displayedTitles
+                )
             },
             onWorkspaceDragStarted: beginWorkspaceDrag,
             focusedRowTarget: $focusedRowTarget,
@@ -1130,7 +1156,8 @@ struct SidebarView: View {
         density: SidebarDensity,
         isFiltering: Bool,
         jumpIndexBySessionID: [TerminalSession.ID: Int],
-        duplicateDisambiguationBySessionID: [TerminalSession.ID: SidebarDuplicateDisambiguation]
+        duplicateDisambiguationBySessionID: [TerminalSession.ID: SidebarDuplicateDisambiguation],
+        displayedTitles: [TerminalSession.ID: String]
     ) -> some View {
         SidebarPinnedSectionView(
             pinned: pinned,
@@ -1162,9 +1189,20 @@ struct SidebarView: View {
             onMakeWorkspaceManaged: onMakeWorkspaceManaged,
             onNewSessionHere: newSessionInLiftedOrigin,
             onMoveToGroup: { sessionID, destinationGroupID in
-                moveSession(sessionID, toGroupID: destinationGroupID, atIndex: SessionStore.appendIndex)
+                moveSession(
+                    sessionID,
+                    toGroupID: destinationGroupID,
+                    atIndex: SessionStore.appendIndex,
+                    displayedTitles: displayedTitles
+                )
             },
-            onMovePinned: movePinnedSession(fromIndex:toIndex:),
+            onMovePinned: { fromIndex, toIndex in
+                movePinnedSession(
+                    fromIndex: fromIndex,
+                    toIndex: toIndex,
+                    displayedTitles: displayedTitles
+                )
+            },
             onWorkspaceDragStarted: beginWorkspaceDrag,
             activeDragKind: activeDragKind,
             activeDragID: activeDragID,
@@ -1218,16 +1256,13 @@ struct SidebarView: View {
         }
     }
 
-    /// The title the sidebar ROW for `session` currently shows, for the
-    /// single-session VoiceOver announcements below. `session.title` would
-    /// name a fresher string than the row — and than the body's
-    /// `sidebarResolvedTitles()` map — is carrying mid-window, reintroducing
-    /// the two-surfaces-disagree bug of issue #327. The single-session shape
-    /// of the same resolution: the box seeds from storage on creation, so an
-    /// unrendered session still resolves to its current stored title.
-    private func sidebarTitle(for session: TerminalSession) -> String {
-        let coarse = sessionStore.liveTitleBox(for: session.id).coarseWorkspaceTitle
-        return session.displayTitle(overridingRawTitle: coarse.isEmpty ? nil : coarse)
+    /// The title the sidebar row currently shows, including an older scored
+    /// snapshot while a title search match owns its highlight ranges.
+    private func sidebarTitle(
+        for session: TerminalSession,
+        displayedTitles: [TerminalSession.ID: String]
+    ) -> String {
+        displayedTitles[session.id] ?? session.displayTitle()
     }
 
     private func toggleGroup(_ id: SessionGroup.ID) {
@@ -1247,14 +1282,15 @@ struct SidebarView: View {
     private func moveSession(
         _ sessionID: TerminalSession.ID,
         toGroupID destinationGroupID: SessionGroup.ID,
-        atIndex index: Int
+        atIndex index: Int,
+        displayedTitles: [TerminalSession.ID: String]
     ) {
         sessionStore.moveSession(
             id: sessionID,
             toGroupID: destinationGroupID,
             atIndex: index
         )
-        announceWorkspaceReorder(sessionID)
+        announceWorkspaceReorder(sessionID, displayedTitles: displayedTitles)
     }
 
     /// Index-based group move (keyboard "Move Group Up/Down" a11y actions).
@@ -1291,7 +1327,10 @@ struct SidebarView: View {
     /// VoiceOver announcement for a workspace landing at its new position.
     /// Reads the post-move position from the store so cross-group moves
     /// name the destination group too.
-    private func announceWorkspaceReorder(_ sessionID: TerminalSession.ID) {
+    private func announceWorkspaceReorder(
+        _ sessionID: TerminalSession.ID,
+        displayedTitles: [TerminalSession.ID: String]
+    ) {
         guard
             let groupIndex = sessionStore.groups.firstIndex(where: {
                 $0.sessions.contains(where: { $0.id == sessionID })
@@ -1304,7 +1343,7 @@ struct SidebarView: View {
         let group = sessionStore.groups[groupIndex]
         let session = group.sessions[sessionIndex]
         accessibilityAnnouncer.announce(
-            "Moved \(sidebarTitle(for: session)) to position \(sessionIndex + 1) of \(group.sessions.count) in \(group.name)"
+            "Moved \(sidebarTitle(for: session, displayedTitles: displayedTitles)) to position \(sessionIndex + 1) of \(group.sessions.count) in \(group.name)"
         )
     }
 
@@ -1322,7 +1361,11 @@ struct SidebarView: View {
     /// Move Up/Down actions (both route through `onMovePinned`). Mutates the
     /// store, then announces the landing position for VoiceOver — the pinned
     /// twin of `moveSession`, whose pinned path bypassed the announcer.
-    private func movePinnedSession(fromIndex: Int, toIndex: Int) {
+    private func movePinnedSession(
+        fromIndex: Int,
+        toIndex: Int,
+        displayedTitles: [TerminalSession.ID: String]
+    ) {
         let movedID =
             sessionStore.pinnedSessionIDs.indices.contains(fromIndex)
             ? sessionStore.pinnedSessionIDs[fromIndex]
@@ -1335,7 +1378,7 @@ struct SidebarView: View {
             return
         }
         accessibilityAnnouncer.announce(
-            "Moved \(sidebarTitle(for: session)) to position \(landedIndex + 1) of \(sessionStore.pinnedSessionIDs.count) in Pinned"
+            "Moved \(sidebarTitle(for: session, displayedTitles: displayedTitles)) to position \(landedIndex + 1) of \(sessionStore.pinnedSessionIDs.count) in Pinned"
         )
     }
 
@@ -1497,6 +1540,7 @@ struct SidebarActivityInvalidationKey: Equatable {
 /// invalidation boundary. Parent search-state changes compare equal here, so
 /// typing can rebuild the search/pinned projection without folding every pane.
 private struct SidebarActivitySection: View, Equatable {
+    let sessionStore: SessionStore
     let invalidationKey: SidebarActivityInvalidationKey
     @Binding var searchText: String
     let onOpenQuickSettings: () -> Void
@@ -1671,12 +1715,17 @@ private struct SidebarActivitySection: View, Equatable {
         }
         let title: String
         if let pane, session?.layout.hasMultiplePanes == true {
-            title = PaneTitleBarView.displayTitle(for: pane)
+            let coarseTitle =
+                sessionStore.liveTitleBox(for: row.sessionID)
+                .coarsePaneTitles[row.paneID] ?? pane.title
+            title = PaneTitleBarView.displayTitle(
+                title: coarseTitle,
+                workingDirectory: pane.workingDirectory
+            )
         } else {
             // The workspace-name case names the session as its sidebar row
             // does — the resolved coarse mirror, not the fresher struct title
-            // (issue #327). The multi-pane case above renders a PANE title,
-            // which has no workspace-level parity obligation.
+            // (issue #327).
             title = invalidationKey.resolvedTitles[row.sessionID] ?? session?.title ?? ""
         }
         return AgentActivityPanelItem(

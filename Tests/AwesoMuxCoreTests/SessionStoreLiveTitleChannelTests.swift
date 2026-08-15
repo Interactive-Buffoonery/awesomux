@@ -770,6 +770,87 @@ struct SessionStoreLiveTitleChannelTests {
         )
     }
 
+    @Test("an empty coarse title stays authoritative while storage moves ahead")
+    func emptyCoarseTitleDoesNotFallBackToStorage() throws {
+        let inactivePane = TerminalPane(title: "", workingDirectory: "~", executionPlan: .local)
+        let activePane = TerminalPane(title: "", workingDirectory: "~", executionPlan: .local)
+        let session = TerminalSession(
+            title: "",
+            workingDirectory: "~",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .horizontal,
+                    first: .pane(inactivePane),
+                    second: .pane(activePane)
+                )),
+            activePaneID: activePane.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [session])])
+        let box = store.liveTitleBox(for: session.id)
+        let base = Date(timeIntervalSince1970: 1_000_000)
+
+        store.updatePane(
+            sessionID: session.id,
+            paneID: inactivePane.id,
+            title: "inactive",
+            now: base
+        )
+        store.updatePane(
+            sessionID: session.id,
+            paneID: activePane.id,
+            title: "storage only",
+            now: base.addingTimeInterval(0.5)
+        )
+
+        #expect(box.coarseWorkspaceTitle == "")
+        #expect(store.session(id: session.id)?.title == "storage only")
+        #expect(store.sidebarResolvedTitles()[session.id] == "")
+    }
+
+    @Test("the roster resolver observes coarse titles but ignores fine-only writes")
+    func rosterResolverTracksOnlyTheCoarseChannel() {
+        let fixture = makeFixture()
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        // Seed outside observation tracking. Creating a box adopts storage and
+        // reads its fine properties once; the steady-state resolver must not
+        // retain those dependencies after the box exists.
+        _ = fixture.store.sidebarResolvedTitles()
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "leading",
+            now: base
+        )
+
+        let fineWake = TrackingFlag()
+        withObservationTracking {
+            _ = fixture.store.sidebarResolvedTitles()
+        } onChange: {
+            fineWake.set()
+        }
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "fine only",
+            now: base.addingTimeInterval(0.5)
+        )
+        #expect(!fineWake.value)
+
+        let coarseWake = TrackingFlag()
+        withObservationTracking {
+            _ = fixture.store.sidebarResolvedTitles()
+        } onChange: {
+            coarseWake.set()
+        }
+        fixture.store.updatePane(
+            sessionID: fixture.sessionID,
+            paneID: fixture.paneID,
+            title: "coarse",
+            now: base.addingTimeInterval(1)
+        )
+        #expect(coarseWake.value)
+    }
+
     // MARK: - A report that displays nothing costs nothing
 
     @Test("a report against an inactive user-edited pane notifies nobody but still records the live title")

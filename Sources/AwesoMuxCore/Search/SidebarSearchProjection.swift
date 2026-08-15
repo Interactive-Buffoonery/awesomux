@@ -23,8 +23,12 @@ public struct SessionMatch: Equatable, Sendable {
         field: Field,
         score: Int,
         ranges: [Range<String.Index>],
-        matchedTitle: String? = nil
+        matchedTitle: String?
     ) {
+        precondition(
+            (field == .title) == (matchedTitle != nil),
+            "Title matches require their scored title; other matches must not carry one."
+        )
         self.field = field
         self.score = score
         self.ranges = ranges
@@ -250,7 +254,7 @@ public enum SidebarSearchProjection {
         switch query {
         case .agentState(let stateToken):
             guard stateToken == haystacks.agentState else { return nil }
-            return SessionMatch(field: .agentState, score: 0, ranges: [])
+            return SessionMatch(field: .agentState, score: 0, ranges: [], matchedTitle: nil)
         case .fuzzy(let query):
             return Self.bestFuzzyMatch(query: query, haystacks: haystacks)
         }

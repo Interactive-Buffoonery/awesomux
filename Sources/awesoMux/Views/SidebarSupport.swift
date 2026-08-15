@@ -134,6 +134,27 @@ struct SidebarSnapshot {
     /// Highest-ranked filtered session across all groups, used by ⏎ to
     /// commit a search to a selection. Nil when no query is active.
     let topMatchID: TerminalSession.ID?
+
+    /// The exact title each row renders in this snapshot. A title search match
+    /// owns an immutable scored string so its highlight ranges stay valid even
+    /// if the coarse channel advances before SwiftUI replaces the row.
+    func displayedTitles(
+        fallingBackTo titles: [TerminalSession.ID: String]
+    ) -> [TerminalSession.ID: String] {
+        var displayed = titles
+
+        func apply(_ entry: SidebarSessionEntry) {
+            guard entry.match?.field == .title,
+                let matchedTitle = entry.match?.matchedTitle
+            else { return }
+            displayed[entry.session.id] = matchedTitle
+        }
+
+        entries.flatMap(\.sessions).forEach(apply)
+        attention.map(\.entry).forEach(apply)
+        pinned.map(\.entry).forEach(apply)
+        return displayed
+    }
 }
 
 extension AgentKind {
