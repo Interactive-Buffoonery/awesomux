@@ -37,6 +37,17 @@ private func localTerminal() -> TerminalPane {
         )
     }
 
+    @Test func composesPiAndOpenCodeResumeCommands() {
+        #expect(
+            AgentTranscriptResumePolicy.command(for: identity("pi-session-1", .pi))
+                == "pi --session 'pi-session-1'"
+        )
+        #expect(
+            AgentTranscriptResumePolicy.command(for: identity("ses_01JABC", .openCode))
+                == "opencode --session 'ses_01JABC'"
+        )
+    }
+
     /// The wrong-session bug the typed identity exists to close: a document
     /// rendered from session A must still resume A after its terminal has moved
     /// on to session B. Nothing in this function can see B, which is the point —

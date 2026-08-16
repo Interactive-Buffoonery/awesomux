@@ -31,9 +31,15 @@ public struct AgentTranscriptIdentity: Hashable, Sendable {
     /// a second list, so the set of kinds that can name a transcript file and
     /// the set that can be stored as provenance cannot drift apart.
     public init?(agentKind: AgentKind, sessionID: String) {
-        guard let provider = AgentTranscriptImporter.Provider(agentKind: agentKind),
-            let validated = provider.source.validatedProviderSessionID(sessionID)
-        else {
+        let source: AgentRuntimeSource
+        switch agentKind {
+        case .claudeCode: source = .claudeCode
+        case .codex: source = .codex
+        case .openCode: source = .openCode
+        case .pi: source = .pi
+        case .grok, .shell: return nil
+        }
+        guard let validated = source.validatedProviderSessionID(sessionID) else {
             return nil
         }
         self.agentKind = agentKind

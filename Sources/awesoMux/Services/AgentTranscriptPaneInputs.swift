@@ -16,16 +16,20 @@ enum AgentTranscriptPaneInputs {
         for agentKind: AgentKind,
         integrations: AgentIntegrationsConfig,
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> [(kind: AgentKind, configHome: URL)] {
-        guard agentKind == .claudeCode || agentKind == .codex else { return [] }
+    ) -> [(kind: AgentKind, configHome: URL, setup: AgentIntegrationSetup)] {
+        guard
+            agentKind == .claudeCode || agentKind == .codex || agentKind == .openCode
+                || agentKind == .pi
+        else { return [] }
+        let setup = AgentConfigHome.setup(for: agentKind, in: integrations)
         func home(_ kind: AgentKind) -> URL? {
             AgentConfigHome.url(
                 for: kind,
-                setup: AgentConfigHome.setup(for: kind, in: integrations),
+                setup: setup,
                 homeDirectoryURL: homeDirectoryURL
             )
         }
         guard let configHome = home(agentKind) else { return [] }
-        return [(kind: agentKind, configHome: configHome)]
+        return [(kind: agentKind, configHome: configHome, setup: setup)]
     }
 }

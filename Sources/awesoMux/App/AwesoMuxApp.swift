@@ -3353,10 +3353,11 @@ struct AwesoMuxApp: App {
                 () -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> in
                 var firstFailure: AgentTranscriptOpenFailure?
                 for attempt in attempts {
-                    let outcome = AgentTranscriptOpener.open(
+                    let outcome = await AgentTranscriptOpener.openProviderTranscript(
                         agentKind: attempt.kind,
                         executionPlan: executionPlan,
                         configHome: attempt.configHome,
+                        setup: attempt.setup,
                         reportedSessionID: reportedSessionID
                     )
                     if case .failure(let failure) = outcome {

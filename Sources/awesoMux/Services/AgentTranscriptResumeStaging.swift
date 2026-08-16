@@ -64,8 +64,10 @@ enum AgentTranscriptResumeStaging {
         integrations: AgentIntegrationsConfig,
         foregroundComm: @MainActor (TerminalPane.ID) -> String?,
         sendText: @MainActor (String, TerminalPane.ID) -> Bool,
-        sessionLogExists: @Sendable (AgentTranscriptIdentity, PaneExecutionPlan, URL) async -> Bool =
-            detachedSessionLogExists
+        sessionLogExists:
+            @Sendable (
+                AgentTranscriptIdentity, PaneExecutionPlan, URL, AgentIntegrationSetup
+            ) async -> Bool = detachedSessionLogExists
     ) async -> Outcome {
         guard let command = AgentTranscriptResumePolicy.command(for: identity) else {
             return .unavailable(.noResumeSyntax(identity.agentKind))
@@ -92,10 +94,11 @@ enum AgentTranscriptResumeStaging {
             }
             return .unavailable(reason)
         }
+        let setup = AgentConfigHome.setup(for: identity.agentKind, in: integrations)
         guard
             let configHome = AgentConfigHome.url(
                 for: identity.agentKind,
-                setup: AgentConfigHome.setup(for: identity.agentKind, in: integrations)
+                setup: setup
             )
         else {
             return .unavailable(.transcriptMissing)
@@ -106,7 +109,7 @@ enum AgentTranscriptResumeStaging {
 
         // The identity is durable; the session's liveness is not. Off the main
         // actor because resolving a transcript enumerates the provider root.
-        guard await sessionLogExists(identity, resolved.executionPlan, configHome) else {
+        guard await sessionLogExists(identity, resolved.executionPlan, configHome, setup) else {
             return .unavailable(.transcriptMissing)
         }
 
@@ -132,14 +135,15 @@ enum AgentTranscriptResumeStaging {
         return .staged
     }
 
-    private static let detachedSessionLogExists: @Sendable (AgentTranscriptIdentity, PaneExecutionPlan, URL) async -> Bool = {
-        identity, executionPlan, configHome in
-        await Task.detached(priority: .userInitiated) {
-            AgentTranscriptOpener.sessionLogExists(
+    private static let detachedSessionLogExists:
+        @Sendable (
+            AgentTranscriptIdentity, PaneExecutionPlan, URL, AgentIntegrationSetup
+        ) async -> Bool = { identity, executionPlan, configHome, setup in
+            await AgentTranscriptOpener.sessionLogExists(
                 identity: identity,
                 executionPlan: executionPlan,
-                configHome: configHome
+                configHome: configHome,
+                setup: setup
             )
-        }.value
-    }
+        }
 }

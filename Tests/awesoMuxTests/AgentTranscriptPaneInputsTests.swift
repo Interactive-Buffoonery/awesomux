@@ -12,7 +12,7 @@ struct AgentTranscriptPaneInputsTests {
     private func attempts(
         for kind: AgentKind,
         integrations: AgentIntegrationsConfig = AgentIntegrationsConfig()
-    ) -> [(kind: AgentKind, configHome: URL)] {
+    ) -> [(kind: AgentKind, configHome: URL, setup: AgentIntegrationSetup)] {
         AgentTranscriptPaneInputs.resolutionAttempts(
             for: kind,
             integrations: integrations,
@@ -31,11 +31,11 @@ struct AgentTranscriptPaneInputsTests {
         #expect(attempts(for: .shell).isEmpty)
     }
 
-    @Test("unsupported providers are not inspected")
-    func unsupportedProvidersAreNotInspected() {
-        for kind: AgentKind in [.openCode, .pi, .grok] {
-            #expect(attempts(for: kind).isEmpty)
-        }
+    @Test("Pi and OpenCode resolve only their own provider roots")
+    func additionalProvidersResolveTheirOwnRoots() {
+        #expect(attempts(for: .openCode).first?.configHome.path == "/Users/tester/.config/opencode")
+        #expect(attempts(for: .pi).first?.configHome.path == "/Users/tester/.pi/agent")
+        #expect(attempts(for: .grok).isEmpty)
     }
 
     @Test("a relocated config home is honored")

@@ -220,6 +220,42 @@ public enum AgentTranscriptRenderer {
         }
     }
 
+    /// Renders the bounded JSON emitted by `opencode export <session-id>`.
+    /// OpenCode owns its storage schema; using its export contract keeps
+    /// awesoMux out of the provider's SQLite implementation details.
+    public static func renderOpenCodeExport(
+        _ data: Data,
+        sessionID: String,
+        chrome: Chrome,
+        budgetBytes: Int = budgetBytes
+    ) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let messages = root["messages"] as? [[String: Any]]
+        else { return nil }
+
+        let documentHeader = header(chrome: chrome, sessionID: sessionID)
+        let truncated = truncationNotice(chrome)
+        let empty = emptyWindowNotice(chrome)
+        var remaining = budgetBytes - documentHeader.utf8.count - truncated.utf8.count - empty.utf8.count
+        var chunks: [String] = []
+        var omitted = false
+        for message in messages.reversed() {
+            guard let chunk = renderOpenCodeMessage(message) else { continue }
+            guard chunk.utf8.count <= remaining else {
+                omitted = true
+                break
+            }
+            remaining -= chunk.utf8.count
+            chunks.append(chunk)
+        }
+
+        var text = documentHeader
+        if omitted { text += truncated }
+        if chunks.isEmpty { text += empty }
+        text += chunks.reversed().joined()
+        return text
+    }
+
     /// The window bounds the read loop actually uses.
     ///
     /// Both arguments are public and defaulted, so a caller can pass zero — and
@@ -287,8 +323,14 @@ public enum AgentTranscriptRenderer {
 
         var chunks: [String] = []
         var isTruncated = hasEarlierBytes
+        let piBranchEntryIDs = provider == .pi ? activePiBranchEntryIDs(in: lines) : nil
         for line in lines.reversed() {
             guard !line.isEmpty else { continue }
+            if let piBranchEntryIDs,
+                !piRecord(Data(line), belongsTo: piBranchEntryIDs)
+            {
+                continue
+            }
 
             let chunk: String
             if line.count > maximumRecordBytes {
@@ -409,6 +451,7 @@ public enum AgentTranscriptRenderer {
         switch provider {
         case .claudeCode: return renderClaudeRecord(record, type: type)
         case .codex: return renderCodexRecord(record, type: type)
+        case .pi: return renderPiRecord(record, type: type)
         }
     }
 
@@ -544,6 +587,109 @@ public enum AgentTranscriptRenderer {
             // every payload type a future release adds.
             return nil
         }
+    }
+
+    // MARK: Pi
+
+    /// Pi stores a tree of entries in JSONL. The caller narrows records to the
+    /// last entry's parent chain, then this maps each retained conversation row.
+    private static func renderPiRecord(_ record: [String: Any], type: String) -> String? {
+        switch type {
+        case "message":
+            guard let message = record["message"] as? [String: Any] else { return nil }
+            return turn(
+                role: message["role"] as? String ?? "message",
+                detail: nil,
+                isSidechain: false,
+                body: plainText(from: message["content"])
+            )
+        case "custom_message":
+            return turn(
+                role: record["role"] as? String ?? "message",
+                detail: record["customType"] as? String,
+                isSidechain: false,
+                body: plainText(from: record["content"])
+            )
+        default:
+            return nil
+        }
+    }
+
+    /// Pi's JSONL is a tree. The last entry is the active leaf; walking its
+    /// parent ids prevents abandoned branches from appearing as if they were
+    /// part of the current conversation. A bounded tail may begin mid-branch,
+    /// in which case the walk naturally stops at the oldest entry available.
+    private static func activePiBranchEntryIDs(
+        in lines: [Data.SubSequence]
+    ) -> Set<String>? {
+        var parents: [String: String?] = [:]
+        var leafID: String?
+        for line in lines where line.count <= maximumRecordBytes {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)),
+                let record = object as? [String: Any],
+                let id = record["id"] as? String
+            else { continue }
+            parents[id] = record["parentId"] as? String
+            leafID = id
+        }
+        guard var current = leafID else { return nil }
+        var branch: Set<String> = []
+        while branch.insert(current).inserted,
+            let parent = parents[current] ?? nil
+        {
+            current = parent
+        }
+        return branch
+    }
+
+    private static func piRecord(_ data: Data, belongsTo branch: Set<String>) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+            let record = object as? [String: Any],
+            let id = record["id"] as? String
+        else { return false }
+        return branch.contains(id)
+    }
+
+    private static func renderOpenCodeMessage(_ message: [String: Any]) -> String? {
+        let info = message["info"] as? [String: Any]
+        let role = info?["role"] as? String ?? message["role"] as? String ?? "message"
+        guard let parts = message["parts"] as? [[String: Any]] else { return nil }
+        var chunks: [String] = []
+        for part in parts {
+            guard let type = part["type"] as? String else { continue }
+            let rendered: String?
+            switch type {
+            case "text":
+                rendered = turn(
+                    role: role,
+                    detail: nil,
+                    isSidechain: false,
+                    body: part["text"] as? String
+                )
+            case "reasoning":
+                rendered = turn(
+                    role: role,
+                    detail: "thinking",
+                    isSidechain: false,
+                    body: part["text"] as? String
+                )
+            case "tool":
+                let state = part["state"] as? [String: Any]
+                let body =
+                    jsonBody(state?["output"] ?? state?["input"])
+                    ?? plainText(from: state?["output"])
+                rendered = turn(
+                    role: role,
+                    detail: toolDetail(part["tool"]),
+                    isSidechain: false,
+                    body: body
+                )
+            default:
+                rendered = nil
+            }
+            if let rendered { chunks.append(rendered) }
+        }
+        return chunks.isEmpty ? nil : chunks.joined()
     }
 
     // MARK: Turn formatting

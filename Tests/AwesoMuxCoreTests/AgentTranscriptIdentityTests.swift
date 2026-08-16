@@ -17,11 +17,10 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
     @Test func acceptsOnlyProvidersWithAKnownTranscriptLayout() {
         #expect(AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: sessionA) != nil)
         #expect(AgentTranscriptIdentity(agentKind: .codex, sessionID: sessionA) != nil)
-        for kind in [AgentKind.openCode, .pi, .grok, .shell] {
-            #expect(
-                AgentTranscriptIdentity(agentKind: kind, sessionID: sessionA) == nil,
-                "\(kind) has no transcript layout awesoMux can resolve"
-            )
+        #expect(AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC") != nil)
+        #expect(AgentTranscriptIdentity(agentKind: .pi, sessionID: "pi-session-1") != nil)
+        for kind in [AgentKind.grok, .shell] {
+            #expect(AgentTranscriptIdentity(agentKind: kind, sessionID: sessionA) == nil)
         }
     }
 
@@ -53,6 +52,8 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
     @Test func documentTitleNamesTheProvider() {
         #expect(identity(sessionA, .claudeCode).documentTitle == "Claude Code Transcript")
         #expect(identity(sessionA, .codex).documentTitle == "Codex Transcript")
+        #expect(identity("ses_01JABC", .openCode).documentTitle == "OpenCode Transcript")
+        #expect(identity("pi-session-1", .pi).documentTitle == "Pi Transcript")
     }
 
     @Test func codableRoundTrip() throws {

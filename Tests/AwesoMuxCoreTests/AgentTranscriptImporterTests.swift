@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 import SecureFileIO
 import Testing
@@ -31,6 +32,18 @@ struct AgentTranscriptImporterTests {
         let expected = try fixture.write(
             "sessions/2026/08/16/rollout-2026-08-16T12-00-00-\(Self.sessionA).jsonl",
             #"{"type":"response_item","payload":{"type":"message"}}"#
+        )
+
+        #expect(try fixture.open(sessionID: Self.sessionA).get().resolvedURL == expected)
+    }
+
+    @Test
+    func opensPiTranscriptByExactSessionID() throws {
+        let fixture = try Fixture(provider: .pi)
+        defer { fixture.remove() }
+        let expected = try fixture.write(
+            "sessions/2026-08-16T12-00-00_\(Self.sessionA).jsonl",
+            #"{"type":"message","message":{"role":"user","content":"hello"}}"#
         )
 
         #expect(try fixture.open(sessionID: Self.sessionA).get().resolvedURL == expected)
@@ -205,8 +218,14 @@ struct AgentTranscriptImporterTests {
         func open(
             sessionID: String?
         ) -> Result<AgentTranscript, AgentTranscriptUnavailable> {
-            AgentTranscriptImporter.open(
-                agentKind: provider == .claudeCode ? .claudeCode : .codex,
+            let agentKind: AgentKind =
+                switch provider {
+                case .claudeCode: .claudeCode
+                case .codex: .codex
+                case .pi: .pi
+                }
+            return AgentTranscriptImporter.open(
+                agentKind: agentKind,
                 executionPlan: .local,
                 configHome: configHome,
                 reportedSessionID: sessionID

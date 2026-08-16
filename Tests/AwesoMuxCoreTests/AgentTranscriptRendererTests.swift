@@ -49,6 +49,57 @@ import Testing
         return try #require(String(data: data, encoding: .utf8))
     }
 
+    @Test("Pi message entries render as conversation turns")
+    func piMessagesRender() {
+        let rendered = render(
+            [
+                #"{"type":"message","message":{"role":"user","content":"hello from pi"}}"#,
+                #"{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"pi answer"}]}}"#,
+            ],
+            provider: .pi,
+            agentKind: .pi
+        )
+
+        #expect(rendered.text.contains("hello from pi"))
+        #expect(rendered.text.contains("pi answer"))
+    }
+
+    @Test("Pi renders only the active branch of its session tree")
+    func piRendersActiveBranch() {
+        let rendered = render(
+            [
+                #"{"id":"root","parentId":null,"type":"message","message":{"role":"user","content":"root turn"}}"#,
+                #"{"id":"abandoned","parentId":"root","type":"message","message":{"role":"assistant","content":"abandoned answer"}}"#,
+                #"{"id":"retry","parentId":"root","type":"message","message":{"role":"assistant","content":"active answer"}}"#,
+            ],
+            provider: .pi,
+            agentKind: .pi
+        )
+
+        #expect(rendered.text.contains("root turn"))
+        #expect(rendered.text.contains("active answer"))
+        #expect(!rendered.text.contains("abandoned answer"))
+    }
+
+    @Test("OpenCode export messages render without reading provider storage")
+    func openCodeExportRenders() throws {
+        let data = Data(
+            #"{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"hello from opencode"}]},{"info":{"role":"assistant"},"parts":[{"type":"reasoning","text":"thinking"},{"type":"text","text":"opencode answer"}]}]}"#
+                .utf8
+        )
+
+        let rendered = try #require(
+            AgentTranscriptRenderer.renderOpenCodeExport(
+                data,
+                sessionID: "ses_01JABC",
+                chrome: .unlocalizedFallback(agentKind: .openCode)
+            )
+        )
+        #expect(rendered.contains("hello from opencode"))
+        #expect(rendered.contains("opencode answer"))
+        #expect(rendered.contains("## assistant · thinking"))
+    }
+
     // MARK: - Claude Code
 
     @Test("Claude message.content renders as a plain String and as a block array")

@@ -28,12 +28,14 @@ public enum AgentTranscriptImporter {
     enum Provider: CaseIterable {
         case claudeCode
         case codex
+        case pi
 
         init?(agentKind: AgentKind) {
             switch agentKind {
             case .claudeCode: self = .claudeCode
             case .codex: self = .codex
-            case .openCode, .pi, .grok, .shell: return nil
+            case .pi: self = .pi
+            case .openCode, .grok, .shell: return nil
             }
         }
 
@@ -41,6 +43,7 @@ public enum AgentTranscriptImporter {
             switch self {
             case .claudeCode: .claudeCode
             case .codex: .codex
+            case .pi: .pi
             }
         }
 
@@ -49,6 +52,8 @@ public enum AgentTranscriptImporter {
             case .claudeCode:
                 configHome.appending(path: "projects", directoryHint: .isDirectory)
             case .codex:
+                configHome.appending(path: "sessions", directoryHint: .isDirectory)
+            case .pi:
                 configHome.appending(path: "sessions", directoryHint: .isDirectory)
             }
         }
@@ -59,6 +64,8 @@ public enum AgentTranscriptImporter {
                 fileName == "\(sessionID).jsonl"
             case .codex:
                 fileName.hasPrefix("rollout-") && fileName.hasSuffix("-\(sessionID).jsonl")
+            case .pi:
+                fileName == "\(sessionID).jsonl" || fileName.hasSuffix("_\(sessionID).jsonl")
             }
         }
 
@@ -72,6 +79,7 @@ public enum AgentTranscriptImporter {
                 switch self {
                 case .claudeCode where type == "user" || type == "assistant": return true
                 case .codex where type == "response_item" || type == "event_msg": return true
+                case .pi where type == "message" || type == "custom_message": return true
                 default: continue
                 }
             }

@@ -24,6 +24,9 @@ struct OpenedAgentTranscript: Equatable, Sendable {
 enum AgentTranscriptOpenFailure: Error, Equatable, Sendable {
     case unavailable(AgentTranscriptUnavailable)
     case cacheWriteFailed
+    case providerExecutableNotFound
+    case providerExportFailed
+    case invalidProviderExport
 }
 
 // MARK: - Opener
@@ -34,6 +37,71 @@ enum AgentTranscriptOpenFailure: Error, Equatable, Sendable {
 /// (measured at 0.34 s for a 27 MB Claude session), so callers run this on a
 /// detached task and only touch the store with the result.
 enum AgentTranscriptOpener {
+
+    static func openProviderTranscript(
+        agentKind: AgentKind,
+        executionPlan: PaneExecutionPlan,
+        configHome: URL,
+        setup: AgentIntegrationSetup,
+        reportedSessionID: String?,
+        store: AgentTranscriptStore = AgentTranscriptStore(),
+        exportOpenCode:
+            @Sendable (String, AgentIntegrationSetup) async -> Result<
+                Data, OpenCodeTranscriptExporter.ExportError
+            > = { sessionID, setup in
+                await OpenCodeTranscriptExporter.export(sessionID: sessionID, setup: setup)
+            }
+    ) async -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> {
+        guard agentKind == .openCode else {
+            return open(
+                agentKind: agentKind,
+                executionPlan: executionPlan,
+                configHome: configHome,
+                reportedSessionID: reportedSessionID,
+                store: store
+            )
+        }
+        guard case .local = executionPlan else {
+            return .failure(.unavailable(.remoteExecution))
+        }
+        guard let reportedSessionID else {
+            return .failure(.unavailable(.noSessionIdentity))
+        }
+        guard
+            let identity = AgentTranscriptIdentity(
+                agentKind: .openCode,
+                sessionID: reportedSessionID
+            )
+        else {
+            return .failure(.unavailable(.invalidSessionID))
+        }
+        let exported = await exportOpenCode(identity.sessionID, setup)
+        let data: Data
+        switch exported {
+        case .success(let value): data = value
+        case .failure(.executableNotFound): return .failure(.providerExecutableNotFound)
+        case .failure(.commandFailed): return .failure(.providerExportFailed)
+        }
+        guard
+            let markdown = AgentTranscriptRenderer.renderOpenCodeExport(
+                data,
+                sessionID: identity.sessionID,
+                chrome: localizedChrome(agentKind: .openCode)
+            )
+        else {
+            return .failure(.invalidProviderExport)
+        }
+        guard
+            let fileURL = store.write(
+                markdown,
+                agentKind: .openCode,
+                sessionID: identity.sessionID
+            )
+        else {
+            return .failure(.cacheWriteFailed)
+        }
+        return .success(OpenedAgentTranscript(fileURL: fileURL, identity: identity))
+    }
 
     static func open(
         agentKind: AgentKind,
@@ -113,6 +181,29 @@ enum AgentTranscriptOpener {
         }
     }
 
+    static func sessionLogExists(
+        identity: AgentTranscriptIdentity,
+        executionPlan: PaneExecutionPlan,
+        configHome: URL,
+        setup: AgentIntegrationSetup
+    ) async -> Bool {
+        guard case .local = executionPlan else { return false }
+        if identity.agentKind == .openCode {
+            guard
+                case .success = await OpenCodeTranscriptExporter.export(
+                    sessionID: identity.sessionID,
+                    setup: setup
+                )
+            else { return false }
+            return true
+        }
+        return sessionLogExists(
+            identity: identity,
+            executionPlan: executionPlan,
+            configHome: configHome
+        )
+    }
+
     // MARK: Localized document chrome
 
     /// The app layer owns localization (ADR-0014), so the words awesoMux writes
@@ -173,6 +264,21 @@ enum AgentTranscriptOpener {
                 localized: "awesoMux couldn't save the rendered transcript to its cache.",
                 comment: "Transcript failure when writing the rendered Markdown to the app cache fails"
             )
+        case .providerExecutableNotFound:
+            return String(
+                localized: "awesoMux couldn't find the OpenCode executable. Check its binary path in Settings.",
+                comment: "Transcript failure when the OpenCode executable cannot be resolved"
+            )
+        case .providerExportFailed:
+            return String(
+                localized: "OpenCode couldn't export this session.",
+                comment: "Transcript failure when the OpenCode export command fails"
+            )
+        case .invalidProviderExport:
+            return String(
+                localized: "OpenCode exported a session format awesoMux couldn't read.",
+                comment: "Transcript failure when the OpenCode export JSON is invalid or unsupported"
+            )
         case .unavailable(let reason):
             return unavailableDescription(for: reason)
         }
@@ -183,7 +289,7 @@ enum AgentTranscriptOpener {
         case .unsupportedAgent(let kind):
             return String(
                 localized:
-                    "\(kind.displayName) doesn't write a session log awesoMux can read. Transcripts are available for Claude Code and Codex.",
+                    "\(kind.displayName) doesn't write a session log awesoMux can read. Transcripts are available for Claude Code, Codex, OpenCode, and Pi.",
                 comment: "Transcript failure when the pane's agent has no readable session log"
             )
         case .remoteExecution:

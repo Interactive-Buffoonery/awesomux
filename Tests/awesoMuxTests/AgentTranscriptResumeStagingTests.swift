@@ -75,8 +75,10 @@ struct AgentTranscriptResumeStagingTests {
         tabID: DocumentPane.ID,
         spy: StagingSpy,
         sessionLogExists:
-            @escaping @Sendable (AgentTranscriptIdentity, PaneExecutionPlan, URL) async ->
-            Bool = { _, _, _ in true }
+            @escaping @Sendable (
+                AgentTranscriptIdentity, PaneExecutionPlan, URL, AgentIntegrationSetup
+            ) async ->
+            Bool = { _, _, _, _ in true }
     ) async -> AgentTranscriptResumeStaging.Outcome {
         await AgentTranscriptResumeStaging.stage(
             identity: identity,
@@ -147,7 +149,7 @@ struct AgentTranscriptResumeStagingTests {
             layout: fixture.layout,
             tabID: fixture.tabID,
             spy: spy,
-            sessionLogExists: { _, _, _ in await gate.wait() }
+            sessionLogExists: { _, _, _, _ in await gate.wait() }
         )
         await gate.waitUntilProbing()
         let second = await stage(layout: fixture.layout, tabID: fixture.tabID, spy: spy)
@@ -183,7 +185,7 @@ struct AgentTranscriptResumeStagingTests {
             layout: fixture.layout,
             tabID: fixture.tabID,
             spy: spy,
-            sessionLogExists: { _, _, _ in false }
+            sessionLogExists: { _, _, _, _ in false }
         )
 
         #expect(outcome == .unavailable(.transcriptMissing))
@@ -201,7 +203,7 @@ struct AgentTranscriptResumeStagingTests {
             layout: fixture.layout,
             tabID: fixture.tabID,
             spy: spy,
-            sessionLogExists: { _, _, _ in await probed.record() }
+            sessionLogExists: { _, _, _, _ in await probed.record() }
         )
 
         #expect(outcome == .unavailable(.requiresLocalTerminal))
