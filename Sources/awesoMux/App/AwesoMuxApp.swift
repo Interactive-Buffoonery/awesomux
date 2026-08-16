@@ -315,7 +315,7 @@ struct AwesoMuxApp: App {
             loadResult = SessionPersistence.load()
         } else {
             let store = SessionStore()
-            SessionPersistence.scheduleRemoteMarkdownSnapshotPrune(keeping: store)
+            SessionPersistence.scheduleGeneratedDocumentPrune(keeping: store)
             loadResult = SessionPersistence.LoadResult(store: store, recoveryWarning: nil)
         }
         _appSettingsStore = State(initialValue: appSettingsStore)
@@ -972,6 +972,22 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.scrollbackDump))
                 .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
 
+                // Gated exactly like its neighbours and no further. Whether the
+                // pane's agent HAS a readable transcript is a question with six
+                // different answers, each of which the user can act on — so the
+                // command stays live and explains, rather than greying out and
+                // leaving them to guess which of the six applies.
+                Button(
+                    String(
+                        localized: "Open Agent Transcript",
+                        comment: "Workspace menu item that opens the active pane's agent session as a document"
+                    )
+                ) {
+                    openAgentTranscriptForActivePane()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.openAgentTranscript))
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
                 // Binds ⌘⌥R, which the palette already advertises — without this
                 // menu item the shortcut was shown but not wired (Codex).
                 Button("Rename Pane…") {
@@ -1034,6 +1050,21 @@ struct AwesoMuxApp: App {
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.closeDocumentTab))
                 .disabled(!selectedSessionHasDocumentTabs)
+
+                // The keyboard counterpart of the transcript tab's Resume
+                // button, which refuses first responder (INT-562) and is
+                // therefore unreachable with Full Keyboard Access — same class
+                // of fix as Close Document Tab above (review finding).
+                Button(
+                    String(
+                        localized: "Resume Agent Session",
+                        comment: "Workspace menu item that stages the selected transcript's resume command in its terminal"
+                    )
+                ) {
+                    resumeSelectedTranscriptSession()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.resumeAgentSession))
+                .disabled(selectedSessionTranscriptTab == nil)
 
                 Divider()
 
@@ -2173,6 +2204,14 @@ struct AwesoMuxApp: App {
         sessionStore.selectedSession?.layout.firstDocumentGroup != nil
     }
 
+    /// The selected document tab, when it is an app-rendered agent transcript.
+    /// Scoped to the selection rather than the whole group: Resume stages the
+    /// selected document's own session.
+    private var selectedSessionTranscriptTab: DocumentPane? {
+        sessionStore.selectedSession?.layout.firstDocumentGroup?.selectedTab
+            .flatMap { $0.agentTranscriptIdentity == nil ? nil : $0 }
+    }
+
     private var canOpenSelectedSessionInIDE: Bool {
         guard appSettingsStore.workspaces.value.openInIDEEnabled,
             let session = sessionStore.selectedSession
@@ -3247,6 +3286,178 @@ struct AwesoMuxApp: App {
         _ = ghosttyRuntime.presentScrollbackDump(in: session.activePaneID)
     }
 
+    /// Renders the active pane's agent session to Markdown and opens it beside
+    /// the terminal.
+    ///
+    /// The render is a detached task because it is real work: up to 32 MiB read
+    /// and converted, measured at 0.34 s for a 27 MB Claude session. Everything
+    /// the render needs is copied out of the pane first, so a pane closing
+    /// mid-render cannot be observed half-way — `openDocumentPane` fails closed
+    /// on a session that is gone.
+    private func openAgentTranscriptForActivePane() {
+        // Same first line as Show Scrollback: this command is gated on
+        // `isAnySheetPresented`, so a stale wedge would leave it silently dead.
+        healSheetWedgeBeforeGatedCommand()
+        guard !isAnySheetPresented,
+            let session = sessionStore.selectedSession,
+            let pane = session.layout.pane(id: session.activePaneID)
+        else {
+            return
+        }
+        let attempts = AgentTranscriptPaneInputs.resolutionAttempts(
+            for: pane.agentKind,
+            integrations: appSettingsStore.agentIntegrations.value
+        )
+        guard !attempts.isEmpty else {
+            showAgentTranscriptFailureAlert(.unavailable(.unsupportedAgent(pane.agentKind)))
+            return
+        }
+        let executionPlan = pane.executionPlan
+        let workingDirectory = pane.workingDirectory
+        let reportedSessionID = sessionStore.agentProviderSessionID(for: pane.id)
+        let sessionID = session.id
+        let paneID = pane.id
+        // Without this the first ⌥⌘T after a relaunch can stamp this document
+        // with the pane next door's live session (review finding).
+        let excludedSessionIDs = AgentTranscriptPaneInputs.sessionIDsLatchedToOtherPanes(
+            excluding: paneID,
+            in: sessionStore
+        )
+
+        Task { @MainActor in
+            // Matches the remote-Markdown document load: announce the start,
+            // then the outcome. Failure keeps announcing through its alert.
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "Opening agent transcript.",
+                    comment: "VoiceOver announcement when rendering a pane's agent transcript starts"
+                )
+            )
+            let result = await Task.detached(priority: .userInitiated) {
+                () -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> in
+                var firstFailure: AgentTranscriptOpenFailure?
+                for attempt in attempts {
+                    let outcome = AgentTranscriptOpener.open(
+                        agentKind: attempt.kind,
+                        executionPlan: executionPlan,
+                        configHome: attempt.configHome,
+                        reportedSessionID: reportedSessionID,
+                        workingDirectory: workingDirectory,
+                        excludedSessionIDs: excludedSessionIDs
+                    )
+                    if case .failure(let failure) = outcome {
+                        firstFailure = firstFailure ?? failure
+                        continue
+                    }
+                    return outcome
+                }
+                return .failure(firstFailure ?? .unavailable(.notFound))
+            }.value
+
+            switch result {
+            case .success(let opened):
+                guard
+                    sessionStore.openDocumentPane(
+                        fileURL: opened.fileURL,
+                        in: sessionID,
+                        associatedWith: paneID,
+                        agentTranscriptIdentity: opened.identity
+                    ) != nil
+                else {
+                    // The workspace went away while the transcript rendered.
+                    // No alert — there is nothing left to act on, and the user
+                    // closed it themselves — but silence would read as a dead
+                    // command to anyone listening.
+                    TerminalAccessibilityAnnouncer.announce(
+                        String(
+                            localized: "The workspace closed before the transcript could open.",
+                            comment: "VoiceOver announcement when a rendered transcript has no workspace left to open into"
+                        )
+                    )
+                    return
+                }
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "\(opened.identity.agentKind.displayName) transcript opened.",
+                        comment: "VoiceOver announcement after a rendered agent transcript opens in a document tab"
+                    )
+                )
+            case .failure(let failure):
+                showAgentTranscriptFailureAlert(failure)
+            }
+        }
+    }
+
+    /// Stages the selected transcript's resume command into its terminal.
+    ///
+    /// The keyboard route to `DocumentPaneSendBar`'s Resume button, which
+    /// refuses first responder (INT-562) and so cannot be reached with Full
+    /// Keyboard Access or switch control. Both routes run the same ladder in
+    /// `AgentTranscriptResumeStaging`, including its in-flight guard, so
+    /// pressing the chord while the button is already probing cannot stage the
+    /// payload twice.
+    private func resumeSelectedTranscriptSession() {
+        guard let session = sessionStore.selectedSession,
+            let tab = selectedSessionTranscriptTab,
+            let identity = tab.agentTranscriptIdentity
+        else {
+            return
+        }
+        Task { @MainActor in
+            let outcome = await AgentTranscriptResumeStaging.stage(
+                identity: identity,
+                documentID: tab.id,
+                layout: session.layout,
+                integrations: appSettingsStore.agentIntegrations.value,
+                foregroundComm: { ghosttyRuntime.foregroundComm(in: $0) },
+                sendText: { ghosttyRuntime.sendText($0, toPane: $1) }
+            )
+            switch outcome {
+            case .staged:
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "Pasted into this transcript's terminal — press Return there to resume",
+                        comment: "VoiceOver announcement after staging a resume command into the associated terminal"
+                    )
+                )
+            case .alreadyStaging:
+                break
+            case .unavailable(let reason):
+                // An alert rather than the button's inline caption: this route
+                // can run while the send bar is scrolled out of view, and a
+                // denial nobody can see reads as a dead menu item. Same warning
+                // shape as the transcript-open failure below.
+                showResumeUnavailableAlert(reason)
+            }
+        }
+    }
+
+    private func showResumeUnavailableAlert(
+        _ reason: AgentTranscriptResumeUnavailableReason
+    ) {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "Can't Resume This Session",
+            comment: "Alert title shown when a transcript's resume command cannot be staged.")
+        alert.informativeText = DocumentPaneSendBar.resumeUnavailableDescription(for: reason)
+        alert.alertStyle = .warning
+        alert.addButton(
+            withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
+        alert.runModal()
+    }
+
+    private func showAgentTranscriptFailureAlert(_ failure: AgentTranscriptOpenFailure) {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "No Agent Transcript",
+            comment: "Alert title shown when awesoMux cannot open a pane's agent transcript.")
+        alert.informativeText = AgentTranscriptOpener.unavailableDescription(for: failure)
+        alert.alertStyle = .warning
+        alert.addButton(
+            withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
+        alert.runModal()
+    }
+
     /// Keyboard/VoiceOver route to the disconnected pane's reconnect button
     /// (INT-697 fix #3b). The enactor's own `beginManualReconnect` guard no-ops
     /// unless the active pane is actually showing the disconnected overlay.
@@ -3759,6 +3970,7 @@ struct AwesoMuxApp: App {
             restartShell: restartActiveShell,
             find: presentFindInActivePane,
             scrollbackDump: presentScrollbackDumpForActivePane,
+            openAgentTranscript: openAgentTranscriptForActivePane,
             reconnectRemotePane: reconnectActiveRemotePane,
             growActivePane: {
                 sessionStore.resizeActiveSplit(by: 0.05)
@@ -3781,6 +3993,7 @@ struct AwesoMuxApp: App {
                 selectAdjacentDocumentTab(offset: 1)
             },
             closeDocumentTab: closeSelectedDocumentTab,
+            resumeAgentSession: resumeSelectedTranscriptSession,
             movePaneUp: {
                 moveActivePane(toWorkspaceEdge: .up)
             },

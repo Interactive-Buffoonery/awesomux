@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import Foundation
 import Testing
 @testable import awesoMux
 
@@ -58,6 +59,56 @@ struct PaletteCommandRegistryTests {
         }
     }
 
+    /// The keyboard route to Resume, which the send-bar button cannot provide:
+    /// it refuses first responder (INT-562) and so is unreachable with Full
+    /// Keyboard Access. Scoped to the SELECTED tab, because Resume stages that
+    /// document's own session.
+    @Test("Resume Agent Session is enabled only for a selected transcript tab")
+    @MainActor
+    func resumeAgentSessionIsEnabledOnlyForASelectedTranscriptTab() throws {
+        func isEnabled(withIdentity: Bool) throws -> Bool {
+            let terminal = TerminalPane(
+                title: "zsh", workingDirectory: "/tmp/repo", executionPlan: .local)
+            let identity = AgentTranscriptIdentity(
+                agentKind: .claudeCode,
+                sessionID: "DDDDDDDD-DDDD-4DDD-8DDD-DDDDDDDDDDDD"
+            )
+            let tab = DocumentPane(
+                fileURL: URL(fileURLWithPath: "/tmp/cache/abc.transcript.md"),
+                title: "doc",
+                associatedTerminalPaneID: terminal.id,
+                agentTranscriptIdentity: withIdentity ? identity : nil
+            )
+            let session = TerminalSession(
+                title: "w",
+                workingDirectory: "/tmp/repo",
+                layout: .split(
+                    TerminalSplit(
+                        orientation: .vertical,
+                        first: .pane(terminal),
+                        second: .documentGroup(DocumentGroup(tabs: [tab], selectedTabID: tab.id))
+                    )),
+                activePaneID: terminal.id
+            )
+            let store = SessionStore(groups: [SessionGroup(name: "g", sessions: [session])])
+            store.selectedSessionID = session.id
+            let commands = PaletteCommandRegistry.commands(
+                sessionStore: store,
+                availability: .init(),
+                actions: .noop
+            )
+            return try #require(
+                PaletteCommandRegistry.command(
+                    id: KeyboardShortcutCatalog.resumeAgentSession.id,
+                    in: commands
+                )
+            ).isEnabled
+        }
+
+        #expect(try isEnabled(withIdentity: true))
+        #expect(try !isEnabled(withIdentity: false))
+    }
+
     @Test("Registry covers menu-equivalent command IDs")
     @MainActor
     func registryCoversMenuEquivalentCommands() {
@@ -88,6 +139,7 @@ struct PaletteCommandRegistryTests {
                 "restartShell",
                 KeyboardShortcutCatalog.find.id,
                 KeyboardShortcutCatalog.scrollbackDump.id,
+                KeyboardShortcutCatalog.openAgentTranscript.id,
                 "reconnectRemotePane",
                 KeyboardShortcutCatalog.growActivePane.id,
                 KeyboardShortcutCatalog.shrinkActivePane.id,
@@ -96,6 +148,7 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.previousDocumentTab.id,
                 KeyboardShortcutCatalog.nextDocumentTab.id,
                 KeyboardShortcutCatalog.closeDocumentTab.id,
+                KeyboardShortcutCatalog.resumeAgentSession.id,
                 KeyboardShortcutCatalog.movePaneUp.id,
                 KeyboardShortcutCatalog.movePaneDown.id,
                 KeyboardShortcutCatalog.movePaneLeft.id,
@@ -703,6 +756,7 @@ struct PaletteCommandRegistryTests {
             KeyboardShortcutCatalog.splitRight.id,
             KeyboardShortcutCatalog.find.id,
             KeyboardShortcutCatalog.openMarkdownFile.id,
+            KeyboardShortcutCatalog.openAgentTranscript.id,
         ] {
             #expect(
                 try #require(
@@ -713,6 +767,7 @@ struct PaletteCommandRegistryTests {
             KeyboardShortcutCatalog.previousDocumentTab.id,
             KeyboardShortcutCatalog.nextDocumentTab.id,
             KeyboardShortcutCatalog.closeDocumentTab.id,
+            KeyboardShortcutCatalog.resumeAgentSession.id,
         ] {
             #expect(
                 try #require(

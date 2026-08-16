@@ -39,6 +39,98 @@ struct KeyboardShortcutCatalogTests {
         #expect(binding.spokenForm == "Shift Command Backslash")
     }
 
+    @Test("open agent transcript uses option command T")
+    func openAgentTranscriptUsesOptionCommandT() {
+        let binding = KeyboardShortcutCatalog.openAgentTranscript
+        #expect(binding.id == "openAgentTranscript")
+        #expect(binding.action == "Open Agent Transcript")
+        #expect(binding.key == "t")
+        #expect(binding.modifiers == [.command, .option])
+        #expect(binding.displaySymbol == "⌥⌘T")
+    }
+
+    /// A constant that is not resolved into a section is invisible to
+    /// rebinding, the cheatsheet, and collision detection — all three derive
+    /// from `settingsSections`. Asserting the section membership, not just the
+    /// constant, is what makes this a registration test.
+    @Test("open agent transcript is registered in the Panes section and rebindable")
+    func openAgentTranscriptIsRegisteredInPanesSection() throws {
+        let panes = try #require(
+            KeyboardShortcutCatalog.settingsSections.first { $0.title == "Panes" }
+        )
+        let bindings = Dictionary(
+            uniqueKeysWithValues: panes.entries.flatMap(\.bindings).map { ($0.id, $0) }
+        )
+        #expect(bindings["openAgentTranscript"]?.action == "Open Agent Transcript")
+        #expect(bindings["openAgentTranscript"]?.displaySymbol == "⌥⌘T")
+
+        let keyboard = KeyboardConfig(shortcuts: [
+            "openAgentTranscript": ShortcutBindingConfig(key: "y", modifiers: [.command, .control])
+        ])
+        let resolved = try #require(
+            KeyboardShortcutCatalog.resolvedBinding(id: "openAgentTranscript", keyboard: keyboard)
+        )
+        #expect(resolved.displaySymbol == "⌃⌘Y")
+        #expect(
+            KeyboardShortcutCatalog.allBindings(keyboard: keyboard)
+                .contains { $0.id == "openAgentTranscript" && $0.displaySymbol == "⌃⌘Y" }
+        )
+    }
+
+    @Test("resume agent session uses control command R")
+    func resumeAgentSessionUsesControlCommandR() {
+        let binding = KeyboardShortcutCatalog.resumeAgentSession
+        #expect(binding.id == "resumeAgentSession")
+        #expect(binding.action == "Resume Agent Session")
+        #expect(binding.key == "r")
+        #expect(binding.modifiers == [.command, .control])
+        #expect(binding.displaySymbol == "⌃⌘R")
+    }
+
+    /// The transcript tab's Resume button refuses first responder, so this
+    /// command is the only route Full Keyboard Access has to it. A constant not
+    /// resolved into a section is invisible to rebinding, the cheatsheet, and
+    /// collision detection — all three derive from `settingsSections`.
+    @Test("resume agent session is registered in the General section and rebindable")
+    func resumeAgentSessionIsRegisteredInGeneralSection() throws {
+        let general = try #require(
+            KeyboardShortcutCatalog.settingsSections.first { $0.title == "General" }
+        )
+        let bindings = Dictionary(
+            uniqueKeysWithValues: general.entries.flatMap(\.bindings).map { ($0.id, $0) }
+        )
+        #expect(bindings["resumeAgentSession"]?.action == "Resume Agent Session")
+        #expect(bindings["resumeAgentSession"]?.displaySymbol == "⌃⌘R")
+
+        let keyboard = KeyboardConfig(shortcuts: [
+            "resumeAgentSession": ShortcutBindingConfig(key: "k", modifiers: [.command, .option])
+        ])
+        let resolved = try #require(
+            KeyboardShortcutCatalog.resolvedBinding(id: "resumeAgentSession", keyboard: keyboard)
+        )
+        #expect(resolved.displaySymbol == "⌥⌘K")
+        #expect(
+            KeyboardShortcutCatalog.allBindings(keyboard: keyboard)
+                .contains { $0.id == "resumeAgentSession" && $0.displaySymbol == "⌥⌘K" }
+        )
+    }
+
+    /// Two commands answering the same chord means one of them silently never
+    /// fires. Cheap to assert once the whole catalog is resolvable.
+    @Test("no two default bindings claim the same chord")
+    func defaultBindingsDoNotCollide() {
+        var seen: [String: String] = [:]
+        var collisions: [String] = []
+        for binding in KeyboardShortcutCatalog.allBindings(keyboard: .defaultValue) {
+            if let existing = seen[binding.displaySymbol] {
+                collisions.append("\(binding.displaySymbol): \(existing) vs \(binding.id)")
+            } else {
+                seen[binding.displaySymbol] = binding.id
+            }
+        }
+        #expect(collisions.isEmpty, "colliding default shortcuts: \(collisions)")
+    }
+
     @Test("sidebar commands appear in shortcut settings")
     func sidebarCommandsAppearInShortcutSettings() throws {
         let workspaces = try #require(KeyboardShortcutCatalog.settingsSections.first { $0.title == "Workspaces" })

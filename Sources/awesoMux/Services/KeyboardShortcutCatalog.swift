@@ -220,6 +220,20 @@ enum KeyboardShortcutCatalog {
         keyDisplay: "W"
     )
 
+    // The transcript tab's Resume button refuses first responder for the same
+    // focus-safety reason as the close X (INT-562), so it is unreachable with
+    // Full Keyboard Access — and unlike Send to Agent, whose click only opens a
+    // keyboard-operable composer, Resume fires a terminal-affecting action
+    // directly. `⌃⌘R` keeps the document-tab modifier set (⌃⌘[/] cycle, ⌃⌘W
+    // close); ⇧⌘R and ⌥⌘R are already rename.
+    static let resumeAgentSession = KeyBinding(
+        id: "resumeAgentSession",
+        action: "Resume Agent Session",
+        key: "r",
+        modifiers: [.command, .control],
+        keyDisplay: "R"
+    )
+
     static let renameWorkspace = KeyBinding(
         id: "renameWorkspace",
         action: "Rename Workspace",
@@ -471,6 +485,19 @@ enum KeyboardShortcutCatalog {
         modifiers: [.command, .shift], keyDisplay: "\\", keySpokenName: "Backslash"
     )
 
+    /// ⌥⌘T — "T" for transcript, in the `⌥⌘` family the other pane commands use
+    /// (⌥⌘R rename, ⌥⌘S swap, ⌥⌘P pin). ⌘T and ⇧⌘T are both taken by macOS
+    /// conventions and by Reopen Closed Workspace; AppKit's ⌥⌘T is Show Toolbar,
+    /// which cannot collide here — awesoMux windows hide their title bar and
+    /// have no toolbar.
+    static let openAgentTranscript = KeyBinding(
+        id: "openAgentTranscript",
+        action: "Open Agent Transcript",
+        key: "t",
+        modifiers: [.command, .option],
+        keyDisplay: "T"
+    )
+
     static let jumpWorkspaces: [KeyBinding] = (1...9).map { index in
         let key = String(index)
         return KeyBinding(
@@ -535,6 +562,7 @@ enum KeyboardShortcutCatalog {
         let previousDocumentTab = resolved(Self.previousDocumentTab, keyboard: keyboard)
         let nextDocumentTab = resolved(Self.nextDocumentTab, keyboard: keyboard)
         let closeDocumentTab = resolved(Self.closeDocumentTab, keyboard: keyboard)
+        let resumeAgentSession = resolved(Self.resumeAgentSession, keyboard: keyboard)
         let renameWorkspace = resolved(Self.renameWorkspace, keyboard: keyboard)
         let renamePane = resolved(Self.renamePane, keyboard: keyboard)
         let closeWorkspace = resolved(Self.closeWorkspace, keyboard: keyboard)
@@ -545,6 +573,7 @@ enum KeyboardShortcutCatalog {
         let closePane = resolved(Self.closePane, keyboard: keyboard)
         let find = resolved(Self.find, keyboard: keyboard)
         let scrollbackDump = resolved(Self.scrollbackDump, keyboard: keyboard)
+        let openAgentTranscript = resolved(Self.openAgentTranscript, keyboard: keyboard)
         let previousPane = resolved(Self.previousPane, keyboard: keyboard)
         let nextPane = resolved(Self.nextPane, keyboard: keyboard)
         let growActivePane = resolved(Self.growActivePane, keyboard: keyboard)
@@ -592,6 +621,10 @@ enum KeyboardShortcutCatalog {
                         previousDocumentTab, detail: "Switch to the previous document tab", keywords: ["document", "tab"]),
                     KeyboardShortcutEntry(nextDocumentTab, detail: "Switch to the next document tab", keywords: ["document", "tab"]),
                     KeyboardShortcutEntry(closeDocumentTab, detail: "Close the selected document tab", keywords: ["document", "tab"]),
+                    KeyboardShortcutEntry(
+                        resumeAgentSession,
+                        detail: "Stage the selected transcript's resume command in its terminal",
+                        keywords: ["agent", "transcript", "resume", "session", "claude", "codex"]),
                     KeyboardShortcutEntry(renameWorkspace, detail: "Rename the selected workspace"),
                     KeyboardShortcutEntry(closeWorkspace, detail: "Close the selected workspace"),
                     KeyboardShortcutEntry(
@@ -626,6 +659,10 @@ enum KeyboardShortcutCatalog {
                     KeyboardShortcutEntry(closePane, detail: "Close the active pane; closes the workspace when it's the last pane"),
                     KeyboardShortcutEntry(find, detail: "Search terminal scrollback"),
                     KeyboardShortcutEntry(scrollbackDump, detail: "Open scrollback in a text sheet"),
+                    KeyboardShortcutEntry(
+                        openAgentTranscript,
+                        detail: "Open this pane's agent session as a Markdown document",
+                        keywords: ["agent", "transcript", "session", "history", "log", "resume"]),
                     KeyboardShortcutEntry(previousPane, detail: "Move focus within the pane tree"),
                     KeyboardShortcutEntry(nextPane, detail: "Move focus within the pane tree"),
                     KeyboardShortcutEntry(growActivePane, detail: "Resize the active split larger"),

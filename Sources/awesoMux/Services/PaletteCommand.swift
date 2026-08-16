@@ -99,6 +99,7 @@ struct PaletteAppActions {
     let restartShell: @MainActor () -> Void
     let find: @MainActor () -> Void
     let scrollbackDump: @MainActor () -> Void
+    let openAgentTranscript: @MainActor () -> Void
     let reconnectRemotePane: @MainActor () -> Void
     let growActivePane: @MainActor () -> Void
     let shrinkActivePane: @MainActor () -> Void
@@ -107,6 +108,7 @@ struct PaletteAppActions {
     let previousDocumentTab: @MainActor () -> Void
     let nextDocumentTab: @MainActor () -> Void
     let closeDocumentTab: @MainActor () -> Void
+    let resumeAgentSession: @MainActor () -> Void
     let movePaneUp: @MainActor () -> Void
     let movePaneDown: @MainActor () -> Void
     let movePaneLeft: @MainActor () -> Void
@@ -170,6 +172,7 @@ struct PaletteAppActions {
             restartShell: action,
             find: action,
             scrollbackDump: action,
+            openAgentTranscript: action,
             reconnectRemotePane: action,
             growActivePane: action,
             shrinkActivePane: action,
@@ -178,6 +181,7 @@ struct PaletteAppActions {
             previousDocumentTab: action,
             nextDocumentTab: action,
             closeDocumentTab: action,
+            resumeAgentSession: action,
             movePaneUp: action,
             movePaneDown: action,
             movePaneLeft: action,
@@ -245,6 +249,13 @@ enum PaletteCommandRegistry {
         let selectedHasMultipleDocumentTabs =
             (selected?.layout.firstDocumentGroup?.tabs.count ?? 0) > 1
         let selectedHasDocumentTabs = selected?.layout.firstDocumentGroup != nil
+        // Scoped to the SELECTED tab, not "any transcript tab in the group":
+        // the command stages the selected document's own session, so offering
+        // it while a plain Markdown tab is selected would resume something the
+        // user is not looking at.
+        let selectedTranscriptTab =
+            selected?.layout.firstDocumentGroup?.selectedTab
+            .flatMap { $0.agentTranscriptIdentity == nil ? nil : $0 }
         let selectedActivePaneIsUserEdited = selected?.activePane?.isTitleUserEdited ?? false
         // Keyboard/VoiceOver route to the reconnect overlay's button, which is
         // pointer-reachable only (the dead surface swallows Tab). Enabled only
@@ -465,6 +476,16 @@ enum PaletteCommandRegistry {
                 run: actions.scrollbackDump
             ),
             PaletteCommand(
+                id: KeyboardShortcutCatalog.openAgentTranscript.id,
+                title: "Open Agent Transcript",
+                subtitle: selected?.activePane?.title,
+                keywords: ["agent", "transcript", "session", "history", "log", "resume", "claude", "codex"],
+                shortcut: KeyboardShortcutCatalog.openAgentTranscript,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
+                run: actions.openAgentTranscript
+            ),
+            PaletteCommand(
                 id: "reconnectRemotePane",
                 title: "Reconnect Remote Pane",
                 subtitle: selected?.activePane?.title,
@@ -543,6 +564,16 @@ enum PaletteCommandRegistry {
                 isEnabled: selectedHasDocumentTabs,
                 selectionScope: .documentTab,
                 run: actions.closeDocumentTab
+            ),
+            PaletteCommand(
+                id: KeyboardShortcutCatalog.resumeAgentSession.id,
+                title: "Resume Agent Session",
+                subtitle: selectedTranscriptTab?.title,
+                keywords: ["agent", "transcript", "resume", "session", "claude", "codex"],
+                shortcut: KeyboardShortcutCatalog.resumeAgentSession,
+                isEnabled: selectedTranscriptTab != nil,
+                selectionScope: .documentTab,
+                run: actions.resumeAgentSession
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.movePaneUp.id,
