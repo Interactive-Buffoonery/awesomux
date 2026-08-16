@@ -2474,7 +2474,7 @@ struct AwesoMuxApp: App {
         workspaceTraversalRun = step.run
     }
 
-    /// Pane-scoped title only — no window fallback. The Workspace menu's
+    /// Pane-scoped title only — no window fallback. The Pane menu's
     /// close button calls `closeActivePane()`, which no-ops without a
     /// selection, so "Close Window" would be a lie on that surface.
     private var closePaneMenuTitle: String {

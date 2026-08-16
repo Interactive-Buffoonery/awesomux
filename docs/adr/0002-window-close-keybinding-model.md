@@ -86,7 +86,4 @@ Multi-pane `Cmd-W` still closes the innermost container (the pane); the
 and now redundant with `Cmd-W` only in the single-pane case — an accepted
 redundancy, mirroring tabbed-app behavior where closing the last tab closes
 the window. Explicit shell restart remains available as its own "Restart
-Shell" command palette entry, with its own confirmation dialog. Visible
-command titles (File menu, Workspace menu,
-command palette, shortcut cheatsheet) follow the live pane count so no
-surface claims "Close Pane" when the workspace would close.
+Shell" command palette entry, with its own confirmation dialog. Visible command titles (File menu, Pane menu, command palette, shortcut cheatsheet) follow the live pane count so no surface claims "Close Pane" when the workspace would close. *(2026-08-15: the close-pane menu row moved from the Workspace menu to the new top-level Pane menu when that menu was split out; the dynamic title behavior is unchanged.)*
