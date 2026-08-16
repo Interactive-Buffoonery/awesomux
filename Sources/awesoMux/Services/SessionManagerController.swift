@@ -97,7 +97,6 @@ final class SessionManagerController {
         let root = SessionManagerPanel(
             model: model,
             focusState: focusState,
-            onDismiss: { [weak self] in self?.dismiss() },
             onJump: { [weak self] id in
                 self?.onJump(id)
                 self?.dismiss()
@@ -119,6 +118,7 @@ final class SessionManagerController {
         panel.hostSwiftUIContent(makeRootView(model: model))
         panel.title = "Session Manager"
         panel.setAccessibilityLabel("Session Manager")
+        panel.showsStandardWindowButtons = true
         panel.onDismiss = { [weak self] in self?.dismiss() }
         panel.onKeyStateChanged = { [weak self] isKeyWindow in
             self?.focusState.isKeyWindow = isKeyWindow

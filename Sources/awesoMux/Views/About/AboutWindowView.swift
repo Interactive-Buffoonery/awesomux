@@ -142,7 +142,6 @@ struct AboutWindowView: View {
         string: "https://github.com/Interactive-Buffoonery/awesomux/blob/main/LICENSE")!
 
     private let info = AboutInfo()
-    let onDismiss: () -> Void
 
     var body: some View {
         VStack(spacing: AwSpacing.sectionGap) {
@@ -152,11 +151,17 @@ struct AboutWindowView: View {
             links
         }
         .padding(AwSpacing.panelPadding)
-        .padding(.top, 10)
+        // Traffic-light clearance is VERTICAL here, not leading: the content is
+        // centered in a fixed 360pt column, so nothing ever reaches the lights
+        // horizontally — the app icon just started at the band's lower edge.
+        // `AwSpacing.titlebar` is the repo's existing "row that abuts the
+        // traffic lights" height, so total top inset lands exactly on it.
+        .padding(.top, AwSpacing.titlebar - AwSpacing.panelPadding)
         .frame(width: 360)
         // Floating-panel container chrome, mirroring SessionManagerPanel: the
         // hosting NSPanel is clear/non-opaque, so the view draws its own
-        // rounded surface, border, shadow, and close affordance.
+        // rounded surface, border, and shadow. Closing is the panel's native
+        // traffic light.
         .background {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .fill(Color.aw.surface.window)
@@ -166,16 +171,6 @@ struct AboutWindowView: View {
         .overlay {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
-        }
-        .overlay(alignment: .topLeading) {
-            FloatingPanelCloseButton(
-                accessibilityLabel: String(
-                    localized: "Close About awesoMux",
-                    comment: "Accessibility label for the About panel's close button"),
-                action: onDismiss
-            )
-            .padding(.top, 12)
-            .padding(.leading, FloatingPanelChromeMetrics.closeButtonEdgeInset)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(

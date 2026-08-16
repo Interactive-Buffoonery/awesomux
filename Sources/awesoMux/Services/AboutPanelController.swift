@@ -67,7 +67,7 @@ final class AboutPanelController {
 
     @ViewBuilder
     private func makeRootView() -> some View {
-        let root = AboutWindowView(onDismiss: { [weak self] in self?.dismiss() })
+        let root = AboutWindowView()
         if let appSettingsStore {
             root.appearanceBridge(appSettingsStore)
         } else {
@@ -84,6 +84,7 @@ final class AboutPanelController {
         panel.title = "About awesoMux"
         panel.setAccessibilityLabel("About awesoMux")
         panel.awesoMuxWindowRole = .about
+        panel.showsStandardWindowButtons = true
         panel.onDismiss = { [weak self] in self?.dismiss() }
         panel.onKeyStateChanged = { [weak self] isKey in
             self?.isKeyWindow = isKey
