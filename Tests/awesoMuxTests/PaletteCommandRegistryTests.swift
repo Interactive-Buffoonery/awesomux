@@ -61,11 +61,17 @@ struct PaletteCommandRegistryTests {
 
     /// The keyboard route to Resume, which the send-bar button cannot provide:
     /// it refuses first responder (INT-562) and so is unreachable with Full
-    /// Keyboard Access. Scoped to the SELECTED tab, because Resume stages that
-    /// document's own session.
+    /// Keyboard Access.
+    ///
+    /// Enabled in BOTH states on purpose. Gating it on the selected tab was the
+    /// original shape and it shipped two bugs: a disabled SwiftUI command does
+    /// not consume its key equivalent, so ⌃⌘R fell through to libghostty and
+    /// echoed a CSI-u sequence into the shell, and the palette listed a command
+    /// that did nothing when run. It now acts on the selected transcript, or
+    /// reports `.noTranscriptSelected`.
     @Test("Resume Agent Session stays enabled without a transcript tab")
     @MainActor
-    func resumeAgentSessionIsEnabledOnlyForASelectedTranscriptTab() throws {
+    func resumeAgentSessionStaysEnabledWithoutATranscriptTab() throws {
         func isEnabled(withIdentity: Bool) throws -> Bool {
             let terminal = TerminalPane(
                 title: "zsh", workingDirectory: "/tmp/repo", executionPlan: .local)
