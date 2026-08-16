@@ -387,7 +387,14 @@ enum KeyboardShortcutCatalog {
         keyDisplay: "S"
     )
 
-    static let focusPaneBindings: [KeyBinding] = (1...9).map { index in
+    // Six, not nine: six panes is already the point where each one is too
+    // narrow to read, so ⌥⌘7–9 bought a direct chord for layouts nobody builds.
+    // Seven-plus panes still work and stay reachable through Previous/Next Pane
+    // — they just don't get a numbered row. Every binding here renders as a menu
+    // row whether or not it is reachable (ADR-0002 — a disabled row is how the
+    // chord stays ours), so this list's length is the menu's length. Raise it if
+    // pane density ever changes.
+    static let focusPaneBindings: [KeyBinding] = (1...6).map { index in
         let key = String(index)
         return KeyBinding(
             id: "focusPane\(index)",

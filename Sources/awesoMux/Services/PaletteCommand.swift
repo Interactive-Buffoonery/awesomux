@@ -630,7 +630,11 @@ enum PaletteCommandRegistry {
                     subtitle: nil,
                     keywords: ["pane", "terminal", "focus", "\(paneIndex)"],
                     shortcut: binding,
-                    isEnabled: selectedPaneCount > 1 && paneIndex <= selectedPaneCount,
+                    // Gate on the pane count alone, exactly as the Pane menu
+                    // does. A `> 1` guard here would disable "Focus Pane 1" in
+                    // a single-pane workspace while the menu row for the same
+                    // command is enabled.
+                    isEnabled: paneIndex <= selectedPaneCount,
                     selectionScope: .workspace,
                     run: { actions.focusPane(paneIndex) }
                 )

@@ -9,12 +9,12 @@ import DesignSystem
 /// have shipped (538 R1).
 struct PanePeekItem: Identifiable, Equatable {
     let id: TerminalPane.ID
-    /// 1-based position matching the `⌘⌥1…⌘⌥9` "Focus Pane N" shortcuts and
+    /// 1-based position matching the `⌘⌥1…⌘⌥6` "Focus Pane N" shortcuts and
     /// `focusPane(at:)` indexing, so the card row, the jump shortcut, and the
     /// focus reducer all agree on "which pane is third" even for nested splits
-    /// whose depth-first order is not purely spatial (538 R8). Past pane 9 the
-    /// number is position-only — there is no `⌘⌥10` — but the scroll cap means
-    /// >9 panes is already a rare layout.
+    /// whose depth-first order is not purely spatial (538 R8). Past pane 6 the
+    /// number is position-only — there is no `⌘⌥7` — because the shortcut family
+    /// stops where pane density stops being readable, not because layouts do.
     let paneNumber: Int
     let title: String
     let agent: AwAgentIcon
