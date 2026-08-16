@@ -17,6 +17,12 @@ struct KeyboardCheatsheetView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            FloatingPanelTitlebar(
+                title: String(
+                    localized: "Keyboard Shortcuts",
+                    comment: "Keyboard cheatsheet panel title bar."
+                )
+            )
             header
             Divider().overlay(Color.aw.border2)
             shortcutList
@@ -34,33 +40,18 @@ struct KeyboardCheatsheetView: View {
                 .fill(Color.aw.surface.chrome.opacity(0.97))
                 .awShadow(.overlay, rendering: .composited)
         }
+        // No container label: the title bar band carries this panel's identity,
+        // and labelling both announced it twice in a row. `children: .contain`
+        // stays — it groups, it does not name.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Keyboard shortcuts")
     }
 
+    // The "Keyboard / Shortcuts" title block is gone entirely: the title bar
+    // band above already names the window, and repeating it here left the
+    // search field — the surface's actual content — pushed a row down for a
+    // label that said nothing new.
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Keyboard")
-                        .awFont(AwFont.Mono.kicker)
-                        .textCase(.uppercase)
-                        .foregroundStyle(Color.aw.text3)
-                        .accessibilityHidden(true)
-
-                    Text("Shortcuts")
-                        .awFont(AwFont.UI.title)
-                        .foregroundStyle(Color.aw.text)
-                        .accessibilityAddTraits(.isHeader)
-                }
-            }
-            // Only this row sits in the traffic lights' band — insetting the
-            // whole header would push the search field in with it and cost it
-            // 60pt of width for no reason. `trafficLightClearance` is measured
-            // from the window edge, hence the subtraction of the padding this
-            // header already carries.
-            .padding(.leading, AppTitlebarMetrics.trafficLightClearance - 18)
-
             HStack(spacing: 10) {
                 KeyboardCheatsheetSearchField(
                     text: $model.query,
