@@ -41,9 +41,16 @@ struct AgentHookPayload: Decodable {
         // transition it rides on. This is the write end — the earliest of the
         // four boundaries that field crosses — so a throw here loses the event
         // before it is ever appended.
-        providerSessionID =
+        // Two explicit steps rather than one coalescing chain. The chain form
+        // behaves correctly but reads as though a wrong-typed `session_id`
+        // would consume the lookup and starve the legacy spelling — a review
+        // pass flagged it as broken, and it takes a test to prove otherwise.
+        // `aWrongTypedSessionIDStillFallsThroughToTheLegacySpelling` pins it.
+        let reportedSessionID =
             (try? container.decodeIfPresent(String.self, forKey: .sessionID)) ?? nil
-            ?? (try? container.decodeIfPresent(String.self, forKey: .legacySessionID)) ?? nil
+        let legacyReportedSessionID =
+            (try? container.decodeIfPresent(String.self, forKey: .legacySessionID)) ?? nil
+        providerSessionID = reportedSessionID ?? legacyReportedSessionID
         reason = try container.decodeIfPresent(String.self, forKey: .reason)
         // `try?`, not `try`: a present-but-wrong-type `tool_name` must not throw
         // out of the whole decode and drop the event's lifecycle transition —
