@@ -96,6 +96,59 @@ struct WorktreeManagerControllerTests {
         controller.dismiss()
     }
 
+    @Test("dismiss refuses to close during an in-flight create, then succeeds once it settles")
+    func dismissRefusedDuringInFlightCreateThenSucceeds() async {
+        _ = NSApplication.shared
+        let createGate = ListEntryGate()
+        let service = CountingWorktreeListing(createGate: createGate)
+        let model = makeModel(service: service)
+        var capturedPanel: FloatingSwiftUIPanelWindow?
+        let controller = makeController { panel in
+            capturedPanel = panel
+            panel.orderFront(nil)
+        }
+
+        controller.show(model: model, relativeTo: nil)
+        await controller.waitForPendingRefresh()
+        guard let panel = capturedPanel else {
+            Issue.record("Expected the panel to be presented")
+            return
+        }
+
+        let createTask = Task { await model.create(request: createRequest()) }
+        // Block until `create` has genuinely reached `service.create(_:)` and
+        // is suspended there — proves the guard below races a real in-flight
+        // submission, not one that already finished before we got a chance to
+        // interrupt it (same rationale as `rapidReShowReplacesRefreshTask`).
+        await createGate.waitUntilEntered()
+        #expect(model.createSubmissionState.isSubmitting)
+
+        controller.dismiss()
+        #expect(controller.isVisible)
+        #expect(panel.isVisible)
+
+        await createGate.release()
+        _ = await createTask.value
+        #expect(!model.createSubmissionState.isSubmitting)
+
+        controller.dismiss()
+        #expect(!controller.isVisible)
+        #expect(!panel.isVisible)
+    }
+
+    private func createRequest() -> GitWorktreeCreateRequest {
+        .init(
+            repositoryContext: .init(
+                invocationRoot: URL(fileURLWithPath: "/tmp/repo"),
+                canonicalCommonGitDirectory: URL(fileURLWithPath: "/tmp/repo/.git"),
+                displayName: "repo"
+            ),
+            mode: .existingBranch("feature/gh-371"),
+            targetPath: URL(fileURLWithPath: "/tmp/worktrees/gh-371"),
+            destinationWorkspaceGroupID: UUID()
+        )
+    }
+
     private func makeModel(service: any GitWorktreeManaging) -> WorktreeManagerModel {
         WorktreeManagerModel(
             repositoryContext: .init(
@@ -122,9 +175,11 @@ private final class CountingWorktreeListing: GitWorktreeManaging, @unchecked Sen
     private let lock = NSLock()
     private var calls = 0
     private let gate: ListEntryGate?
+    private let createGate: ListEntryGate?
 
-    init(gate: ListEntryGate? = nil) {
+    init(gate: ListEntryGate? = nil, createGate: ListEntryGate? = nil) {
         self.gate = gate
+        self.createGate = createGate
     }
 
     var callCount: Int { lock.withLock { calls } }
@@ -143,12 +198,18 @@ private final class CountingWorktreeListing: GitWorktreeManaging, @unchecked Sen
     func validateNewBranchName(_ name: String, in repositoryContext: GitRepositoryContext) async -> GitWorktreeBranchNameValidation {
         .valid
     }
-    func create(_ request: GitWorktreeCreateRequest) async -> GitWorktreeCreateOutcome { .failure(.spawnFailure) }
+    func create(_ request: GitWorktreeCreateRequest) async -> GitWorktreeCreateOutcome {
+        if let createGate {
+            await createGate.enter()
+        }
+        return .failure(.spawnFailure)
+    }
 }
 
-/// Lets a test prove `list(in:)` is genuinely suspended mid-call — signaling
-/// entry, then holding until explicitly released — instead of assuming a
-/// synchronous-ish stub return leaves an interruptible window.
+/// Lets a test prove a stubbed async call (`list(in:)` or `create(_:)`) is
+/// genuinely suspended mid-call — signaling entry, then holding until
+/// explicitly released — instead of assuming a synchronous-ish stub return
+/// leaves an interruptible window.
 private actor ListEntryGate {
     private var hasEntered = false
     private var enteredWaiter: CheckedContinuation<Void, Never>?
@@ -167,7 +228,7 @@ private actor ListEntryGate {
         releaseWaiter = nil
     }
 
-    /// Called by the stub from inside `list(in:)`.
+    /// Called by the stub from inside the gated call.
     func enter() async {
         hasEntered = true
         enteredWaiter?.resume()

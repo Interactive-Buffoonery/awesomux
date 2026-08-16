@@ -43,8 +43,17 @@ receives through `WindowChromeConfigurator`.
 **Panel-like surfaces keep custom controls at top-right.** These are surfaces
 attached to a running terminal, where the chrome is a thin strip over live
 content and the standard titlebar geometry does not fit: the Terminal Companion
-and the Floating Panel. They keep purpose-built controls sized and placed for
-that strip.
+and the Floating Panel. Controls here are purpose-built and sized for that
+strip rather than inherited from AppKit.
+
+Only the Companion currently draws any. The Floating Panel has no top-right
+controls at all today and is dismissed by keyboard — bare Escape per ADR-0030,
+or `⌘W` — with its footer advertising those chords as non-interactive hints.
+Giving it a pointer affordance is a live question rather than a settled one,
+because its `dismiss(source:)` carries a two-press discard confirmation whose
+`DismissSource` has no pointer case; adding one is a UX decision, not chrome
+cleanup. The classification says where such a control would go if it is ever
+added, not that one exists.
 
 **Transient surfaces get no window controls at all.** The command palette is
 summoned, used, and dismissed in one gesture; window controls would imply a

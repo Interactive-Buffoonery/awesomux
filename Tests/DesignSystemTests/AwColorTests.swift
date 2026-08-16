@@ -683,23 +683,42 @@ struct AwColorTests {
                 "close highlight left the red family in \(appearance.rawValue)"
             )
 
+            let teal = try #require(NSColor(Color.aw.teal).withAppearance(appearance))
+
             for backdrop in backdrops {
                 for accent in AwAccent.allCases {
                     let wash = try #require(
                         NSColor(Color.aw.accent(accent)).withAppearance(appearance)
                     )
                     let panel = chrome.withAlphaComponent(0.96).composited(over: backdrop)
-                    let gradient = wash.withAlphaComponent(0.10).composited(over: panel)
-                    let header = chrome2.withAlphaComponent(0.72).composited(over: gradient)
 
-                    #expect(
-                        contrastRatio(close, header) >= 3,
-                        "close glyph on \(appearance.rawValue)/\(accent) misses WCAG 1.4.11"
-                    )
-                    #expect(
-                        contrastRatio(minimize, header) >= 3,
-                        "minimize glyph on \(appearance.rawValue)/\(accent) misses WCAG 1.4.11"
-                    )
+                    // `PopUpTerminalPanelGradient` is a three-stop diagonal:
+                    // accent@0.10 topLeading, clear at the midpoint, teal@0.06
+                    // bottomTrailing. The glyphs sit at the header's trailing
+                    // edge, which projects near the CLEAR midpoint rather than
+                    // the accent stop — so sampling only the accent stop would
+                    // test a pixel these buttons never sit on. Asserting the
+                    // floor at all three stops holds the contract wherever the
+                    // header lands on that axis, without this test having to
+                    // track the gradient's geometry.
+                    let stops = [
+                        ("accent", wash.withAlphaComponent(0.10).composited(over: panel)),
+                        ("clear", panel),
+                        ("teal", teal.withAlphaComponent(0.06).composited(over: panel)),
+                    ]
+
+                    for (stop, gradient) in stops {
+                        let header = chrome2.withAlphaComponent(0.72).composited(over: gradient)
+
+                        #expect(
+                            contrastRatio(close, header) >= 3,
+                            "close glyph on \(appearance.rawValue)/\(accent) at the \(stop) stop misses WCAG 1.4.11"
+                        )
+                        #expect(
+                            contrastRatio(minimize, header) >= 3,
+                            "minimize glyph on \(appearance.rawValue)/\(accent) at the \(stop) stop misses WCAG 1.4.11"
+                        )
+                    }
                 }
             }
         }

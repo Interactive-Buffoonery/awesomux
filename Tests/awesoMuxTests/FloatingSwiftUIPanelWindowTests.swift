@@ -84,7 +84,11 @@ struct FloatingSwiftUIPanelWindowTests {
         panel.performClose(nil)
 
         #expect(dismissCount == 1)
-        // Ordered out and reused, never closed out from under its controller.
+        // The stub only counts, so nothing here orders the panel out. That is
+        // the point: the window is still visible purely because
+        // `performClose(_:)` delegated instead of closing itself. Ordering out
+        // is the controller's job, and a `super.performClose` sneaking back in
+        // would take that decision away from it.
         #expect(panel.isVisible)
     }
 
