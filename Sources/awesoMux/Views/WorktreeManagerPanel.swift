@@ -33,6 +33,12 @@ struct WorktreeManagerPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            FloatingPanelTitlebar(
+                title: String(
+                    localized: "Worktree Manager",
+                    comment: "Worktree Manager panel title bar."
+                )
+            )
             header
             content
             footer
@@ -116,21 +122,25 @@ struct WorktreeManagerPanel: View {
         }
     }
 
+    // The "WORKTREE MANAGER" kicker moved into `FloatingPanelTitlebar`, which
+    // also freed this row from stepping around the traffic lights. The
+    // repository name stays here rather than moving up: it changes per repo,
+    // and a title bar that renames itself with its content stops reading as
+    // the window's identity.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(String(localized: "WORKTREE MANAGER", comment: "Worktree Manager kicker."))
-                .awFont(AwFont.Mono.kicker)
-                .tracking(2)
+        HStack(spacing: 9) {
+            // Grounds the bare repository name the way the path bar's root chip
+            // does, so this row reads as a place rather than a loose word.
+            Image(systemName: "folder")
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color.aw.text3)
+                .accessibilityHidden(true)
+
             Text(model.repositoryContext.displayName)
                 .awFont(AwFont.UI.title)
                 .foregroundStyle(Color.aw.text)
         }
         .padding(.horizontal, AwSpacing.panelPadding)
-        // `trafficLightClearance` is measured from the window edge, so only the
-        // shortfall over this header's own padding gets added. The trailing 52
-        // that reserved space for the old top-right close button is gone.
-        .padding(.leading, AppTitlebarMetrics.trafficLightClearance - AwSpacing.panelPadding)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) {

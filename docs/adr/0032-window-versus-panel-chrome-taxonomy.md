@@ -83,6 +83,24 @@ during an in-flight create, and clearing the `isVisible` flag that app-level
 guards depend on. A traffic light wired straight to AppKit's `close()` would
 silently bypass all of it.
 
+Any chrome a window-family panel draws for itself must match the native title
+bar's geometry, which is **32pt** on these panels —
+`AppTitlebarMetrics.panelTitlebarHeight`, not `AwSpacing.titlebar`. AppKit lays
+the traffic lights out at y=9 with a 14pt height inside a 32pt container,
+putting their centre 16pt from the window top. The 38pt value is equally real but belongs to the main
+window and Settings, which set `toolbarStyle = .unifiedCompact` and get a taller
+native title bar as a result; a toolbar-less panel never does.
+
+Reaching for the larger constant is the natural mistake, and it fails by 3pt —
+small enough to read as careless baseline alignment rather than a geometry
+mismatch, which sends the next person to adjust font sizes instead. Measure
+against the live window rather than reasoning from token names:
+`standardWindowButton(.closeButton)`'s frame and its superview's height give the
+answer directly. Note that `frame.height - contentRect(forFrameRect:).height` is
+**zero** under `.fullSizeContentView` and is not the title bar height.
+`FloatingPanelTitlebarGeometryTests` asserts all of this against real AppKit
+layout so the numbers cannot drift silently.
+
 ## Consequences
 
 Three surfaces move their dismissal affordance from top-right to top-left.

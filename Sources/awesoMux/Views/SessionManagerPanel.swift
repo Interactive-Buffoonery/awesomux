@@ -188,6 +188,12 @@ struct SessionManagerPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            FloatingPanelTitlebar(
+                title: String(
+                    localized: "Session Manager",
+                    comment: "Session Manager panel title bar."
+                )
+            )
             header
             if model.rows.isEmpty {
                 emptyState
@@ -219,28 +225,21 @@ struct SessionManagerPanel: View {
 
     // MARK: Header
 
+    // The window identity moved into `FloatingPanelTitlebar`, so the kicker
+    // that used to repeat it is gone and this row no longer steps around the
+    // traffic lights. What stays is the part carrying live data: the daemon
+    // count, which the band cannot show because a title bar should not change
+    // meaning as its content does.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("Session Manager".uppercased())
-                .awFont(AwFont.Mono.kicker)
-                .tracking(2)
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Text("Background sessions")
+                .awFont(AwFont.UI.title)
+                .foregroundStyle(Color.aw.text)
+            Text(countSummary)
+                .awFont(AwFont.Mono.meta)
                 .foregroundStyle(Color.aw.text3)
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                Text("Background sessions")
-                    .awFont(AwFont.UI.title)
-                    .foregroundStyle(Color.aw.text)
-                Text(countSummary)
-                    .awFont(AwFont.Mono.meta)
-                    .foregroundStyle(Color.aw.text3)
-            }
         }
         .padding(.horizontal, AwSpacing.panelPadding)
-        // The kicker sits in the traffic lights' vertical band, and the spike
-        // showed them landing on top of it. `trafficLightClearance` is measured
-        // from the window edge, so only the shortfall over the padding this
-        // header already carries gets added. The trailing 64 that reserved
-        // space for the old top-right close button is gone with it.
-        .padding(.leading, AppTitlebarMetrics.trafficLightClearance - AwSpacing.panelPadding)
         .padding(.top, 16)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity, alignment: .leading)

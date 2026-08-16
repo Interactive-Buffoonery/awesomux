@@ -1064,6 +1064,73 @@ struct AwColorTests {
         }
     }
 
+    // The panel title-bar band is a chrome2 -> chrome gradient, so the label has
+    // to clear AA against BOTH stops. Stock text3 (overlay1) is 2.42:1 on the
+    // Latte crust stop — under even the 3:1 non-text floor.
+    @Test("titlebarText clears WCAG AA on both stops of the title-bar gradient")
+    func titlebarTextClearsAAOnTitlebarGradient() {
+        let floor = 4.5
+        let foreground = NSColor(Color.aw.titlebarText)
+        let stops = [
+            ("chrome", NSColor(Color.aw.surface.chrome)),
+            ("chrome2", NSColor(Color.aw.surface.chrome2)),
+        ]
+
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            guard let fg = foreground.withAppearance(appearance) else {
+                Issue.record("titlebarText: could not resolve color for \(appearance.rawValue)")
+                continue
+            }
+            for (name, stop) in stops {
+                guard let bg = stop.withAppearance(appearance) else {
+                    Issue.record("titlebarText: could not resolve \(name) for \(appearance.rawValue)")
+                    continue
+                }
+                let ratio = contrastRatio(fg, bg)
+                #expect(
+                    ratio >= floor,
+                    "titlebarText on \(name) \(appearance.rawValue): \(ratio) < \(floor)"
+                )
+            }
+        }
+    }
+
+    // Pure-hex lock for titlebarText's four appearance slots, same technique and
+    // rationale as railText's below.
+    @Test("titlebarText steps only Latte off stock text3")
+    func titlebarTextStepsOnlyLatteOffStockText3() {
+        let colors = AwColors()
+        let mocha = colors.mocha.overlay1
+        let latte = colors.latte.subtext1
+        let mochaHC = colors.mochaHC.overlay1
+        let latteHC = colors.latteHC.overlay1
+
+        // Resolve the PRODUCTION token, not just palette arithmetic. Without
+        // this the rest of the test passes even if `titlebarText` wires a wrong
+        // slot, because every other assertion below compares locals to locals.
+        #expect(
+            NSColor(Color.aw.titlebarText).colorNameComponent
+                == "awDynamic-\(mocha)-\(latte)-\(mochaHC)-\(latteHC)"
+        )
+
+        #expect(
+            NSColor.awDynamicHex(
+                for: .darkAqua, mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
+            ) == mocha)
+        #expect(
+            NSColor.awDynamicHex(
+                for: .aqua, mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
+            ) == latte)
+
+        // Latte steps off stock overlay1; every other palette deliberately does
+        // not, because they already clear AA and changing them would alter an
+        // approved appearance to fix a Latte-only defect.
+        #expect(latte != colors.latte.overlay1)
+        #expect(mocha == colors.mocha.overlay1)
+        #expect(mochaHC == colors.mochaHC.overlay1)
+        #expect(latteHC == colors.latteHC.overlay1)
+    }
+
     // Pure-hex lock for railText's four appearance slots. Constructed HC
     // NSAppearances are an unreliable oracle on macOS (host Increase Contrast
     // can leak into `.aqua`), so we pin the mapping table directly — same
