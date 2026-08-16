@@ -2129,6 +2129,9 @@
     "PID" : {
       "comment" : "Diagnostics process table column"
     },
+    "Pane" : {
+
+    },
     "Pane closed" : {
       "comment" : "VoiceOver announcement after a pane is closed inside the active workspace (multi-pane case).\nVoiceOver announcement after the title-bar close button closes a pane."
     },

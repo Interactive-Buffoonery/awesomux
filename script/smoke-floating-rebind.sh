@@ -260,8 +260,8 @@ if [[ "$(osascript -e "tell application \"System Events\" to tell (first process
 fi
 
 # Summon the floating panel on workspace A. Default binding Cmd+'"'"'
-# through the Workspace menu. This also marks A's slot "open".
-osascript -e "tell application \"System Events\" to tell (first process whose unix id is $TARGET_PID) to click menu item \"Show Floating Panel\" of menu \"Workspace\" of menu bar 1"
+# through the View menu. This also marks A's slot "open".
+osascript -e "tell application \"System Events\" to tell (first process whose unix id is $TARGET_PID) to click menu item \"Show Floating Panel\" of menu \"View\" of menu bar 1"
 sleep 1
 
 # New Workspace again creates and switches to workspace B. Its slot
@@ -270,7 +270,7 @@ osascript -e "tell application \"System Events\" to tell (first process whose un
 sleep 1
 
 # Summon on B — marks B's slot open too, and rebinds to B's session.
-osascript -e "tell application \"System Events\" to tell (first process whose unix id is $TARGET_PID) to click menu item \"Show Floating Panel\" of menu \"Workspace\" of menu bar 1"
+osascript -e "tell application \"System Events\" to tell (first process whose unix id is $TARGET_PID) to click menu item \"Show Floating Panel\" of menu \"View\" of menu bar 1"
 sleep 1
 
 # Previous Workspace switches back to A
