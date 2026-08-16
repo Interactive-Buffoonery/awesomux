@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-Default chords below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Services/KeyboardShortcutCatalog.swift)** and the **Workspace** / **File** commands in [`AwesoMuxApp`](../Sources/awesoMux/App/AwesoMuxApp.swift). If something drifts, the catalog wins. Users can override bindings in **Settings → Keys**; those overrides are stored in `config.toml` under `[keyboard.shortcuts.<id>]` and feed the menu shortcuts plus command-palette catalog.
+Default chords below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Services/KeyboardShortcutCatalog.swift)** and the **File**, **View**, **Workspace**, and **Pane** commands in [`AwesoMuxApp`](../Sources/awesoMux/App/AwesoMuxApp.swift) — the menu bar reads File · Edit · View · Workspace · Pane · Window · Help. If something drifts, the catalog wins. Users can override bindings in **Settings → Keys**; those overrides are stored in `config.toml` under `[keyboard.shortcuts.<id>]` and feed the menu shortcuts plus command-palette catalog.
 
 **Mental model:** one app window; a **workspace** is a sidebar session (tab idiom); a **pane** is a split inside that session. **⌘W** closes the **pane**; on a workspace's last pane it closes the **workspace** instead (soft close, ⇧⌘T reopens)—see [ADR 0002 — Window-close keybinding model](adr/0002-window-close-keybinding-model.md) and its 2026-07-14 amendment. In the empty welcome state (nothing selected), the same shortcut is titled **Close Window** and dismisses the window. By default, awesoMux asks before ⌘W interrupts active agent or terminal activity, whether that closes a pane or the last-pane workspace. To restart a pane's shell in place without closing anything, use the **Restart Shell** command (command palette).
 
@@ -13,59 +13,65 @@ Default chords below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Ser
 
 ## Workspace menu
 
-### General
+Workspace lifecycle, navigation, and notifications. Layout presets live here too: they capture a whole workspace's split arrangement, not one pane (see [ADR 0027](adr/0027-named-checked-in-layout-presets.md)).
 
 | Shortcut | Menu item | Notes |
 | --- | --- | --- |
-| ⌘N | New Workspace | File menu (replaces standard New) |
 | ⌥⌘N | New Workspace in Current Directory | Disabled if no session selected |
 | ⌃⌘N | New Workspace Group… | Disabled while a sheet is open |
 | ⇧⌘R | Rename Workspace… | Disabled if no session selected or sheet open |
+| ⌥⌘P | **Pin Workspace** / **Unpin Workspace** | Pins the selected workspace to the top of the sidebar, or removes it from the pinned section |
 | ⇧⌘W | Close Workspace | Closes the selected session (sidebar row); recoverable via Reopen |
 | ⇧⌘T | Reopen Closed Workspace | Restores the most recent eligible closed workspace; the **Recently Closed** submenu reaches older entries |
 | ⌥⇧⌘W | Clear Workspace | **Permanent** close: always confirms, no reopen entry, terminates the workspace's sessions |
-
-### Panes
-
-| Shortcut | Menu item | Notes |
-| --- | --- | --- |
-| ⌘D | Split Right | |
-| ⇧⌘D | Split Down | |
-| ⌥⌘[ | Previous Pane | Requires multiple panes |
-| ⌥⌘] | Next Pane | Requires multiple panes |
-| ⌥⌘= | Grow Active Pane | Requires multiple panes |
-| ⌥⌘- | Shrink Active Pane | Requires multiple panes |
-
-*(**Close Pane** is under Workspace; chord is ⌘W via the File-slot binding described in ADR 0002.)*
-
-### Workspaces
-
-| Shortcut | Menu item | Notes |
-| --- | --- | --- |
 | ⇧⌘K | Acknowledge Workspace | Clears attention/unread for the *selected* workspace immediately (bypasses [selection dwell](adr/0003-acknowledge-on-selection-dwell.md)) |
-| ⌃⌘S | Focus Sidebar | Moves keyboard focus to sidebar search |
-| ⌘\\ | Collapse/Expand Sidebar | Collapses to the rail or restores the last non-collapsed width |
-| ⇧⌘\\ | Hide/Show Sidebar | Hides the sidebar or restores it persistently |
-| ⌘1…⌘9 | Jump to Workspace 1…9 | Jumps to the corresponding workspace in flattened sidebar order |
+| ⌘1…⌘9 | Jump to Workspace 1…9 | Jumps to the corresponding workspace in flattened sidebar order. All nine rows are always present; out-of-range ones are disabled, because SwiftUI claims a chord even when the command is disabled |
 | ⇧⌘[ | Previous Workspace | |
 | ⇧⌘] | Next Workspace | |
 
-**Clear All Notifications** (same menu) has **no shortcut** today—it calls `acknowledgeAllSessions()`.
+**New Workspace** (⌘N) is in the **File** menu, not here — it replaces the standard New item. **Clear All Notifications** in the Workspace menu has **no shortcut** today—it calls `acknowledgeAllSessions()`. **New Remote Workspace Group…**, **Connect via SSH…**, **Make This Workspace Managed…**, **Manage Worktrees…**, **Save Layout as Preset…**, and **Apply Layout Preset…** are unbound.
 
-### Terminal panels
+## Pane menu
+
+Everything scoped to a pane inside the selected workspace: splits, close/rename, find, resize, focus, movement, and the document tab strip.
 
 | Shortcut | Menu item | Notes |
 | --- | --- | --- |
+| ⌘D | Split Right | Disabled if no session selected |
+| ⇧⌘D | Split Down | Disabled if no session selected |
+| ⌥⌘R | Rename Pane… | Requires multiple panes |
+| ⌘F | Find in Pane | |
+| ⇧⌘F | Show Scrollback | Opens the active pane's scrollback dump sheet |
+| ⌥⌘= | Grow Active Pane | Requires multiple panes |
+| ⌥⌘- | Shrink Active Pane | Requires multiple panes |
+| ⌥⌘[ | Previous Pane | Requires multiple panes |
+| ⌥⌘] | Next Pane | Requires multiple panes |
+| ⌥⌘1…⌥⌘9 | Focus Pane 1…9 | Rows appear only in multi-pane workspaces, and each is disabled past the live pane count so an out-of-range chord never silently no-ops |
+| ⌥⌘↑ ⌥⌘↓ ⌥⌘← ⌥⌘→ | Move Pane Up / Down / Left / Right | Moves the active pane to that workspace edge; disabled when the move would be a no-op |
+| ⌥⌘S | Swap Pane With Next | Keyboard parity for the center-zone drag-swap |
+| ⌃⌘[ | Previous Document Tab | Requires multiple document tabs |
+| ⌃⌘] | Next Document Tab | Requires multiple document tabs |
+| ⌃⌘W | Close Document Tab | Requires at least one document tab; the strip's per-tab close control refuses first responder, so this is the keyboard route |
+
+*(**Close Pane** is under Pane; its chord is ⌘W via the File-slot binding described in ADR 0002, so the menu row itself carries no key equivalent.)*
+
+## View menu
+
+The sidebar trio, the compact terminal surfaces, the command palette, and Session Manager. AppKit appends its own **Enter Full Screen** below these items.
+
+| Shortcut | Menu item | Notes |
+| --- | --- | --- |
+| ⌃⌘S | Focus Sidebar | Moves keyboard focus to sidebar search |
+| ⌘\\ | Collapse/Expand Sidebar | Collapses to the rail or restores the last non-collapsed width |
+| ⇧⌘\\ | Hide/Show Sidebar | Hides the sidebar or restores it persistently |
 | ⌘' | **Show Floating Panel** / **Hide Floating Panel** | Per-workspace temporary shell; disabled while a sheet is open. Appends " (running)" when the target workspace's floating slot has work backgrounded |
 | ⇧⌘' | **Show Terminal Companion** / **Minimize Terminal Companion** | One terminal companion that keeps its process and directory across workspace switches. ⌘W or the minimize control collapses it to the corner tab; Escape stays available to terminal software. The explicit close control ends it |
+| ⌘K | **Show Command Palette** / **Hide Command Palette** | Searches workspaces and actions; disabled while a sheet is open. Registered only as this menu item's key equivalent, which auto-repeats while held, so the menu action carries a repeat guard that swallows the repeats |
+| ⇧⌘S | Session Manager | Shows or hides the Session Manager over the main window; disabled while a sheet is open |
 
-### Command palette
+⌃⌘S, ⌘\\, and ⇧⌘\\ (plus ⌘/ below) are the four chords intercepted in `AwesoMuxApplication.sendEvent` before main-menu routing, so for those the menu's key equivalent is display-only. Every other chord on this page registers only as a main-menu key equivalent.
 
-| Shortcut | Menu item | Notes |
-| --- | --- | --- |
-| ⌘K | **Show Command Palette** / **Hide Command Palette** | Interceptor-owned shortcut; searches workspaces and actions; disabled while a sheet is open |
-
-### Keyboard cheatsheet
+## Keyboard cheatsheet
 
 | Shortcut | Menu item | Notes |
 | --- | --- | --- |

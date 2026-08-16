@@ -821,6 +821,70 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.closePane))
             }
 
+            // MARK: - View menu
+
+            CommandGroup(after: .sidebar) {
+                Button("Focus Sidebar", action: requestSidebarFocus)
+                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.focusSidebar))
+                    .disabled(
+                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
+
+                Button("Collapse/Expand Sidebar", action: requestSidebarWidthToggle)
+                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarWidth))
+                    .disabled(
+                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
+
+                Button(sidebarVisibilityMenuTitle, action: requestSidebarVisibilityToggle)
+                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarVisibility))
+                    .disabled(
+                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
+
+                Divider()
+
+                Button(floatingPanelMenuTitle) {
+                    toggleFloatingPanel()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleFloatingPanel))
+                .disabled(isAnySheetPresented)
+
+                Button(popUpTerminalMenuTitle) {
+                    togglePopUpTerminal()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.togglePopUpTerminal))
+                .disabled(isAnySheetPresented)
+
+                Button(commandPaletteMenuTitle) {
+                    // A real `.keyboardShortcut` auto-repeats its action while
+                    // held, unlike the deleted NSEvent interceptor which
+                    // explicitly swallowed repeats. Scoped to THIS closure
+                    // (not `toggleCommandPalette()` itself) so the sidebar's
+                    // magnifying-glass button and the palette's own
+                    // "Command Palette" list entry — both call
+                    // `toggleCommandPalette()` too — are never gated on
+                    // ambient `NSApp.currentEvent`, which reflects whatever
+                    // the app last dispatched, not what triggered THEIR call.
+                    guard !(NSApp.currentEvent?.type == .keyDown && NSApp.currentEvent?.isARepeat == true) else {
+                        ShortcutDiagnostics.log("stage=commandPaletteMenuAction repeat=true action=ignore")
+                        return
+                    }
+                    toggleCommandPalette()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleCommandPalette))
+                .disabled(isAnySheetPresented)
+
+                Button("Session Manager") {
+                    toggleSessionManager()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.sessionManager))
+                .disabled(isAnySheetPresented)
+
+                // AppKit appends its own "Enter Full Screen" below this group.
+                // Without a trailing separator our items run straight into it.
+                Divider()
+            }
+
+            // MARK: - Workspace menu
+
             CommandMenu("Workspace") {
                 Button("New Workspace in Current Directory") {
                     sessionStore.addSession(
@@ -889,6 +953,19 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.togglePinWorkspace))
                 .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
 
+                // Presets capture the whole workspace's split arrangement, not a
+                // single pane — `saveLayoutPresetForSelectedWorkspace()` is scoped
+                // to the workspace, and ADR-0027 documents them living here.
+                Button("Save Layout as Preset…") {
+                    saveLayoutPresetForSelectedWorkspace()
+                }
+                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
+
+                Button("Apply Layout Preset…") {
+                    applyLayoutPresetViaPicker()
+                }
+                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
+
                 Divider()
 
                 Button("Close Workspace") {
@@ -930,169 +1007,6 @@ struct AwesoMuxApp: App {
 
                 Divider()
 
-                Button("Split Right") {
-                    splitActivePane(orientation: .vertical)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitRight))
-                .disabled(sessionStore.selectedSession == nil)
-
-                Button("Split Down") {
-                    splitActivePane(orientation: .horizontal)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitDown))
-                .disabled(sessionStore.selectedSession == nil)
-
-                Button("Save Layout as Preset…") {
-                    saveLayoutPresetForSelectedWorkspace()
-                }
-                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
-
-                Button("Apply Layout Preset…") {
-                    applyLayoutPresetViaPicker()
-                }
-                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
-
-                // Same conditional as the File-menu binding: closeActivePane()
-                // routes single-pane sessions through closeWorkspace(_:), so
-                // the title has to match what actually happens.
-                Button(closePaneMenuTitle) {
-                    closeActivePane()
-                }
-                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
-
-                Button("Find in Pane") {
-                    presentFindInActivePane()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.find))
-                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
-
-                Button("Show Scrollback") {
-                    presentScrollbackDumpForActivePane()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.scrollbackDump))
-                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
-
-                // Binds ⌘⌥R, which the palette already advertises — without this
-                // menu item the shortcut was shown but not wired (Codex).
-                Button("Rename Pane…") {
-                    requestRenameActivePane()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.renamePane))
-                .disabled(!selectedSessionHasMultiplePanes || isAnySheetPresented)
-
-                Divider()
-
-                Button("Grow Active Pane") {
-                    sessionStore.resizeActiveSplit(by: 0.05)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.growActivePane))
-                .disabled(!selectedSessionHasMultiplePanes)
-
-                Button("Shrink Active Pane") {
-                    sessionStore.resizeActiveSplit(by: -0.05)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.shrinkActivePane))
-                .disabled(!selectedSessionHasMultiplePanes)
-
-                Divider()
-
-                Button("Previous Pane") {
-                    sessionStore.focusPane(.previous)
-                    announceActivePaneFocused()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.previousPane))
-                .disabled(!selectedSessionHasMultiplePanes)
-
-                Button("Next Pane") {
-                    sessionStore.focusPane(.next)
-                    announceActivePaneFocused()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextPane))
-                .disabled(!selectedSessionHasMultiplePanes)
-
-                Divider()
-
-                // Keyboard access to the document tab strip (INT-748 PR2): the
-                // strip's close buttons refuse first responder, so without
-                // these commands keyboard users couldn't switch tabs at all.
-                // Selection routes through selectDocumentTab, so the "Now
-                // showing" VoiceOver announcement fires like any other path.
-                Button("Previous Document Tab") {
-                    selectAdjacentDocumentTab(offset: -1)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.previousDocumentTab))
-                .disabled(!selectedSessionHasMultipleDocumentTabs)
-
-                Button("Next Document Tab") {
-                    selectAdjacentDocumentTab(offset: 1)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextDocumentTab))
-                .disabled(!selectedSessionHasMultipleDocumentTabs)
-
-                Button("Close Document Tab") {
-                    closeSelectedDocumentTab()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.closeDocumentTab))
-                .disabled(!selectedSessionHasDocumentTabs)
-
-                Divider()
-
-                Button("Move Pane Up") {
-                    moveActivePane(toWorkspaceEdge: .up)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneUp))
-                .disabled(!canMoveActivePane(toWorkspaceEdge: .up))
-
-                Button("Move Pane Down") {
-                    moveActivePane(toWorkspaceEdge: .down)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneDown))
-                .disabled(!canMoveActivePane(toWorkspaceEdge: .down))
-
-                Button("Move Pane Left") {
-                    moveActivePane(toWorkspaceEdge: .left)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneLeft))
-                .disabled(!canMoveActivePane(toWorkspaceEdge: .left))
-
-                Button("Move Pane Right") {
-                    moveActivePane(toWorkspaceEdge: .right)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneRight))
-                .disabled(!canMoveActivePane(toWorkspaceEdge: .right))
-
-                Button("Swap Pane With Next") {
-                    swapActivePaneWithNext()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.swapPaneWithNext))
-                .disabled(!canSwapActivePaneWithNext)
-
-                Divider()
-
-                if selectedSessionHasMultiplePanes {
-                    ForEach(
-                        Array(shortcuts(KeyboardShortcutCatalog.focusPaneBindings).enumerated()),
-                        id: \.element.id
-                    ) { offset, binding in
-                        // The bindings are built from `(1...9)` in order, so the
-                        // 0-based enumeration offset maps to pane index N = offset + 1.
-                        // Compute it once rather than scatter `offset + 1`.
-                        let paneIndex = offset + 1
-                        Button(binding.action) {
-                            if sessionStore.focusPane(at: paneIndex) {
-                                announcePaneFocused(index: paneIndex)
-                            }
-                        }
-                        .keyboardShortcut(binding)
-                        // Gate on the real pane count, not just "has multiple":
-                        // an enabled "Focus Pane 5" in a 3-pane session would
-                        // silently no-op and erode trust in the shortcut family.
-                        .disabled(paneIndex > selectedSessionPaneCount)
-                    }
-
-                    Divider()
-                }
-
                 Button("Acknowledge Workspace") {
                     if let id = sessionStore.selectedSessionID {
                         sessionStore.acknowledgeAllPanes(in: id)
@@ -1107,60 +1021,6 @@ struct AwesoMuxApp: App {
                 .disabled(sessionStore.unreadNotificationTotal == 0)
 
                 Divider()
-
-                Button(floatingPanelMenuTitle) {
-                    toggleFloatingPanel()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleFloatingPanel))
-                .disabled(isAnySheetPresented)
-
-                Button(popUpTerminalMenuTitle) {
-                    togglePopUpTerminal()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.togglePopUpTerminal))
-                .disabled(isAnySheetPresented)
-
-                Button(commandPaletteMenuTitle) {
-                    // A real `.keyboardShortcut` auto-repeats its action while
-                    // held, unlike the deleted NSEvent interceptor which
-                    // explicitly swallowed repeats. Scoped to THIS closure
-                    // (not `toggleCommandPalette()` itself) so the sidebar's
-                    // magnifying-glass button and the palette's own
-                    // "Command Palette" list entry — both call
-                    // `toggleCommandPalette()` too — are never gated on
-                    // ambient `NSApp.currentEvent`, which reflects whatever
-                    // the app last dispatched, not what triggered THEIR call.
-                    guard !(NSApp.currentEvent?.type == .keyDown && NSApp.currentEvent?.isARepeat == true) else {
-                        ShortcutDiagnostics.log("stage=commandPaletteMenuAction repeat=true action=ignore")
-                        return
-                    }
-                    toggleCommandPalette()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleCommandPalette))
-                .disabled(isAnySheetPresented)
-
-                Button("Session Manager") {
-                    toggleSessionManager()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.sessionManager))
-                .disabled(isAnySheetPresented)
-
-                Divider()
-
-                Button("Focus Sidebar", action: requestSidebarFocus)
-                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.focusSidebar))
-                    .disabled(
-                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
-
-                Button("Collapse/Expand Sidebar", action: requestSidebarWidthToggle)
-                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarWidth))
-                    .disabled(
-                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
-
-                Button(sidebarVisibilityMenuTitle, action: requestSidebarVisibilityToggle)
-                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarVisibility))
-                    .disabled(
-                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
 
                 let jumpRows = DockRecentWorkspaceMenu.openWorkspaceRows(
                     groups: sessionStore.groups,
@@ -1233,6 +1093,163 @@ struct AwesoMuxApp: App {
                     }
                     .disabled(sessionStore.selectedSessionID == nil)
                 #endif
+            }
+
+            // MARK: - Pane menu
+
+            CommandMenu("Pane") {
+                Button("Split Right") {
+                    splitActivePane(orientation: .vertical)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitRight))
+                .disabled(sessionStore.selectedSession == nil)
+
+                Button("Split Down") {
+                    splitActivePane(orientation: .horizontal)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitDown))
+                .disabled(sessionStore.selectedSession == nil)
+
+                Divider()
+
+                // Same conditional as the File-menu binding: closeActivePane()
+                // routes single-pane sessions through closeWorkspace(_:), so
+                // the title has to match what actually happens.
+                Button(closePaneMenuTitle) {
+                    closeActivePane()
+                }
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                // Binds ⌘⌥R, which the palette already advertises — without this
+                // menu item the shortcut was shown but not wired (Codex).
+                Button("Rename Pane…") {
+                    requestRenameActivePane()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.renamePane))
+                .disabled(!selectedSessionHasMultiplePanes || isAnySheetPresented)
+
+                Divider()
+
+                Button("Find in Pane") {
+                    presentFindInActivePane()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.find))
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                Button("Show Scrollback") {
+                    presentScrollbackDumpForActivePane()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.scrollbackDump))
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                Divider()
+
+                Button("Grow Active Pane") {
+                    sessionStore.resizeActiveSplit(by: 0.05)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.growActivePane))
+                .disabled(!selectedSessionHasMultiplePanes)
+
+                Button("Shrink Active Pane") {
+                    sessionStore.resizeActiveSplit(by: -0.05)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.shrinkActivePane))
+                .disabled(!selectedSessionHasMultiplePanes)
+
+                Divider()
+
+                Button("Previous Pane") {
+                    sessionStore.focusPane(.previous)
+                    announceActivePaneFocused()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.previousPane))
+                .disabled(!selectedSessionHasMultiplePanes)
+
+                Button("Next Pane") {
+                    sessionStore.focusPane(.next)
+                    announceActivePaneFocused()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextPane))
+                .disabled(!selectedSessionHasMultiplePanes)
+
+                if selectedSessionHasMultiplePanes {
+                    ForEach(
+                        Array(shortcuts(KeyboardShortcutCatalog.focusPaneBindings).enumerated()),
+                        id: \.element.id
+                    ) { offset, binding in
+                        // The bindings are built from `(1...9)` in order, so the
+                        // 0-based enumeration offset maps to pane index N = offset + 1.
+                        // Compute it once rather than scatter `offset + 1`.
+                        let paneIndex = offset + 1
+                        Button(binding.action) {
+                            if sessionStore.focusPane(at: paneIndex) {
+                                announcePaneFocused(index: paneIndex)
+                            }
+                        }
+                        .keyboardShortcut(binding)
+                        // Gate on the real pane count, not just "has multiple":
+                        // an enabled "Focus Pane 5" in a 3-pane session would
+                        // silently no-op and erode trust in the shortcut family.
+                        .disabled(paneIndex > selectedSessionPaneCount)
+                    }
+                }
+
+                Divider()
+
+                Button("Move Pane Up") {
+                    moveActivePane(toWorkspaceEdge: .up)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneUp))
+                .disabled(!canMoveActivePane(toWorkspaceEdge: .up))
+
+                Button("Move Pane Down") {
+                    moveActivePane(toWorkspaceEdge: .down)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneDown))
+                .disabled(!canMoveActivePane(toWorkspaceEdge: .down))
+
+                Button("Move Pane Left") {
+                    moveActivePane(toWorkspaceEdge: .left)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneLeft))
+                .disabled(!canMoveActivePane(toWorkspaceEdge: .left))
+
+                Button("Move Pane Right") {
+                    moveActivePane(toWorkspaceEdge: .right)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneRight))
+                .disabled(!canMoveActivePane(toWorkspaceEdge: .right))
+
+                Button("Swap Pane With Next") {
+                    swapActivePaneWithNext()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.swapPaneWithNext))
+                .disabled(!canSwapActivePaneWithNext)
+
+                Divider()
+
+                // Keyboard access to the document tab strip (INT-748 PR2): the
+                // strip's close buttons refuse first responder, so without
+                // these commands keyboard users couldn't switch tabs at all.
+                // Selection routes through selectDocumentTab, so the "Now
+                // showing" VoiceOver announcement fires like any other path.
+                Button("Previous Document Tab") {
+                    selectAdjacentDocumentTab(offset: -1)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.previousDocumentTab))
+                .disabled(!selectedSessionHasMultipleDocumentTabs)
+
+                Button("Next Document Tab") {
+                    selectAdjacentDocumentTab(offset: 1)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextDocumentTab))
+                .disabled(!selectedSessionHasMultipleDocumentTabs)
+
+                Button("Close Document Tab") {
+                    closeSelectedDocumentTab()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.closeDocumentTab))
+                .disabled(!selectedSessionHasDocumentTabs)
             }
 
             CommandGroup(replacing: .help) {
@@ -2457,7 +2474,7 @@ struct AwesoMuxApp: App {
         workspaceTraversalRun = step.run
     }
 
-    /// Pane-scoped title only — no window fallback. The Workspace menu's
+    /// Pane-scoped title only — no window fallback. The Pane menu's
     /// close button calls `closeActivePane()`, which no-ops without a
     /// selection, so "Close Window" would be a lie on that surface.
     private var closePaneMenuTitle: String {
