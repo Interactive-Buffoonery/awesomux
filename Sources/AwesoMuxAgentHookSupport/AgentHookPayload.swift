@@ -35,9 +35,15 @@ struct AgentHookPayload: Decodable {
         hookEventName = try container.decodeIfPresent(String.self, forKey: .hookEventName)
         grokHookEventName = try container.decodeIfPresent(String.self, forKey: .camelHookEventName)
         notificationType = try container.decodeIfPresent(String.self, forKey: .notificationType)
+        // `try?`, for the same reason as `tool_name` below and the wire and
+        // bridge decoders: a present-but-wrong-type session id must strip only
+        // itself, never throw out of the whole decode and drop the lifecycle
+        // transition it rides on. This is the write end — the earliest of the
+        // four boundaries that field crosses — so a throw here loses the event
+        // before it is ever appended.
         providerSessionID =
-            try container.decodeIfPresent(String.self, forKey: .sessionID)
-            ?? container.decodeIfPresent(String.self, forKey: .legacySessionID)
+            (try? container.decodeIfPresent(String.self, forKey: .sessionID)) ?? nil
+            ?? (try? container.decodeIfPresent(String.self, forKey: .legacySessionID)) ?? nil
         reason = try container.decodeIfPresent(String.self, forKey: .reason)
         // `try?`, not `try`: a present-but-wrong-type `tool_name` must not throw
         // out of the whole decode and drop the event's lifecycle transition —
