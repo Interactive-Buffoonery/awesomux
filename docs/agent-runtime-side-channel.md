@@ -38,7 +38,7 @@ Payload fields:
 | `documentPath` | No | Absolute local Markdown path for a `phase=open-document` event. Only `.md` and `.markdown` paths are accepted. Relative paths, paths containing NUL, and events over the 4 KB line cap are dropped. |
 | `touchedPath` | No | Absolute local Markdown file a Claude Code tool just wrote/edited, forwarded so it can be recorded into the pane's recent links (issue #175). Retained only on a `source=claude-code`, `phase=toolEnd` event; the parser strips it on any other source or phase, and on relative, non-Markdown, NUL-bearing, or bidi/RTL-scalar paths. Unlike `documentPath` it does not open a pane — it records a link the user can open from the palette. |
 | `eventID` | No | Adapter-defined identifier, paired with `timestamp` for dedupe |
-| `providerSessionID` | No | Provider-native session id, currently used to keep Grok child-agent lifecycle events from driving the parent tile |
+| `providerSessionID` | No | Provider-native session id, carried for every source and validated at every ingress. See [Provider session id](#provider-session-id) for the trust boundary and the Grok exemption |
 | `timestamp` | No | ISO-8601 string or numeric Unix seconds (integer or float). Helper-generated timestamps are numeric Unix seconds with fractional precision; consumers should not require nanosecond precision. |
 
 Unknown extra fields are ignored. Unrecognized `source` values parse as
@@ -59,11 +59,13 @@ retries and out-of-order delivery. Future-dated timestamps are clamped to
 
 Lifecycle boundaries add an ordering guard that does not depend on timestamps.
 When a pane receives `Stop`, then a newer `SessionStart`, a delayed
-`SessionEnd` from the stopped lifecycle cannot reset the newer agent. Grok's
-provider session id identifies the old end directly when present; providers or
-events without stable session ids use the Stop/Start boundary. The newer
-lifecycle's own `SessionEnd` still applies after its `Stop`, including when
-timestamps are equal or absent.
+`SessionEnd` from the stopped lifecycle cannot reset the newer agent. A
+superseded-but-not-stopped lifecycle applies an end only when the event's
+provider session id is present *and* equal to the pane's latched id; a missing
+id on either side, or two ids that disagree, means the end came from the old
+session and is dropped. Events without stable session ids therefore rely
+entirely on the Stop/Start boundary. The newer lifecycle's own `SessionEnd`
+still applies after its `Stop`, including when timestamps are equal or absent.
 
 The same arrival-order boundary protects a `SessionStart` that revives a pane
 after a buffered `SessionEnd`: a delayed end from the prior lifecycle is ignored
@@ -223,9 +225,10 @@ from stdin:
 
 The helper reads the top-level `hook_event_name`, with `hookEventName` accepted
 for Grok's documented script payload shape, and for Claude Code notifications,
-`notification_type`. For Grok it also preserves `session_id` as
-`providerSessionID`, while continuing to accept `sessionId` payloads from older
-local plugin installs and Grok's script-contract examples. It maps those fields
+`notification_type`. It preserves `session_id` as `providerSessionID` for every
+provider, validating it first (see [Provider session id](#provider-session-id));
+`sessionId` is accepted as a fallback spelling, which exists for Grok's
+script-contract examples and older local plugin installs. It maps those fields
 to the runtime event protocol, generates `eventID` and numeric Unix-seconds
 `timestamp`, and appends one compact JSONL line to
 `AWESOMUX_AGENT_EVENT_FILE`. It exits successfully and writes nothing to stdout
@@ -276,23 +279,62 @@ update directly; they read `SessionAgentRollup` (folded from per-pane
 `PaneAgentSnapshot`s via `TerminalSession.agentRollup()`), the canonical
 session-level read model for agent state.
 
+### Provider session id
+
+`providerSessionID` is the provider's own name for the conversation the hook
+fired from. It is carried for **every** source, not just Grok: the helper reads
+`session_id` from any provider payload that has one, the mapper attaches it to
+every mapped event, and `AgentRuntimeEventReducer` latches it per pane
+(`SessionStart`, or the first `UserPromptSubmit` if a start hook was missed),
+clearing it for every provider at `SessionEnd`. It has two consumers today —
+the Grok child-agent drop rule, and **Open Agent Transcript**, which resolves
+the latched id to that session's on-disk log.
+
+It is untrusted input, and the field is validated at all three places it can
+enter from:
+
+- `AgentHookCommand` — the *producer*. Validating here bounds the JSONL line: an
+  unbounded id pushes the whole event past the 4 KB cap and drops the lifecycle
+  transition riding with it.
+- `AgentRuntimeEvent.parse` — the event file is same-UID writable, so any local
+  process can forge a value the helper never wrote.
+- `BridgeEnvelope.Wire.asBridgeMessage` — a remote host sets this field on the
+  bridge path.
+
+The shape is a UUID for every source except `grok`, plus a 128-byte ceiling. A
+value that fails is stripped from the event; the event itself still applies,
+because the lifecycle transition it carries is load-bearing and the id is not.
+Claude Code and Codex both report UUIDs, and in both cases the id *is* the
+transcript filename, which is what makes a validated id safe to resolve a log
+path from.
+
+**`grok` is deliberately exempt** from the UUID shape — its real id format is
+unverified, so a Grok id only has to be a non-empty whitespace-free token within
+the same length ceiling. That exemption is load-bearing in one direction only:
+**a Grok session id must never reach a filesystem path or a staged command.**
+Grok's id is compared for equality and nothing else. `AgentTranscriptIdentity`
+enforces this independently by requiring a UUID and an allowlisted provider, so
+a future consumer that forgets cannot get a Grok id through it. Tighten
+`validatedProviderSessionID` for Grok before adding any consumer that does more
+than compare.
+
 Claude Code mapping:
 
 | Claude hook | awesoMux event |
 | --- | --- |
-| `SessionStart` | `kind=Claude Code`, `execution=idle`, `phase=sessionStart` |
-| `UserPromptSubmit` | `kind=Claude Code`, `execution=thinking`, `phase=promptSubmit` |
-| `PreToolUse` | `kind=Claude Code`, `execution=thinking`, `phase=toolStart` |
-| `PostToolUse` | `kind=Claude Code`, `execution=thinking`, `phase=toolEnd` |
-| `SubagentStart` | `kind=Claude Code`, `execution=thinking`, `phase=toolStart` |
-| `SubagentStop` | `kind=Claude Code`, `execution=thinking`, `phase=toolEnd` |
-| `PermissionRequest` | `kind=Claude Code`, `attentionReason=permissionPrompt`, `phase=notification` |
-| `Notification(notification_type=permission_prompt)` | `kind=Claude Code`, `attentionReason=permissionPrompt`, `phase=notification` |
-| `Notification(notification_type=idle_prompt)` | `kind=Claude Code`, `execution=waiting`, `phase=notification` |
-| `Notification` with missing/unknown `notification_type` | `kind=Claude Code`, `attentionReason=userInputRequired`, `phase=notification` |
-| `Stop` | `kind=Claude Code`, `execution=waiting`, `phase=stop` |
-| `SessionEnd` | `kind=Claude Code`, `execution=idle`, `phase=sessionEnd` |
-| `StopFailure` | `kind=Claude Code`, `execution=error`, `phase=stop` |
+| `SessionStart` | `kind=Claude Code`, `execution=idle`, `phase=sessionStart`, `providerSessionID=session_id` |
+| `UserPromptSubmit` | `kind=Claude Code`, `execution=thinking`, `phase=promptSubmit`, `providerSessionID=session_id` |
+| `PreToolUse` | `kind=Claude Code`, `execution=thinking`, `phase=toolStart`, `providerSessionID=session_id` |
+| `PostToolUse` | `kind=Claude Code`, `execution=thinking`, `phase=toolEnd`, `providerSessionID=session_id` |
+| `SubagentStart` | `kind=Claude Code`, `execution=thinking`, `phase=toolStart`, `providerSessionID=session_id` |
+| `SubagentStop` | `kind=Claude Code`, `execution=thinking`, `phase=toolEnd`, `providerSessionID=session_id` |
+| `PermissionRequest` | `kind=Claude Code`, `attentionReason=permissionPrompt`, `phase=notification`, `providerSessionID=session_id` |
+| `Notification(notification_type=permission_prompt)` | `kind=Claude Code`, `attentionReason=permissionPrompt`, `phase=notification`, `providerSessionID=session_id` |
+| `Notification(notification_type=idle_prompt)` | `kind=Claude Code`, `execution=waiting`, `phase=notification`, `providerSessionID=session_id` |
+| `Notification` with missing/unknown `notification_type` | `kind=Claude Code`, `attentionReason=userInputRequired`, `phase=notification`, `providerSessionID=session_id` |
+| `Stop` | `kind=Claude Code`, `execution=waiting`, `phase=stop`, `providerSessionID=session_id` |
+| `SessionEnd` | `kind=Claude Code`, `execution=idle`, `phase=sessionEnd`, `providerSessionID=session_id` |
+| `StopFailure` | `kind=Claude Code`, `execution=error`, `phase=stop`, `providerSessionID=session_id` |
 
 `PermissionRequest` is the reliable source of permission attention. The
 `Notification(notification_type=permission_prompt)` row is a best-effort
@@ -311,17 +353,17 @@ Codex mapping:
 
 | Codex hook | awesoMux event |
 | --- | --- |
-| `SessionStart` | `kind=Codex`, `execution=idle`, `phase=sessionStart` |
-| `UserPromptSubmit` | `kind=Codex`, `execution=thinking`, `phase=promptSubmit` |
-| `PreToolUse` | `kind=Codex`, `execution=thinking`, `phase=toolStart` |
-| `PostToolUse` | `kind=Codex`, `execution=thinking`, `phase=toolEnd` |
-| `SubagentStart` | `kind=Codex`, `execution=thinking`, `phase=toolStart` |
-| `SubagentStop` | `kind=Codex`, `execution=thinking`, `phase=toolEnd` |
-| `PermissionRequest` | `kind=Codex`, `attentionReason=permissionPrompt`, `phase=notification` |
-| `Stop` | `kind=Codex`, `execution=waiting`, `phase=stop` |
-| `SessionEnd` | `kind=Codex`, `execution=idle`, `phase=sessionEnd` |
-| `StopFailure` | `kind=Codex`, `execution=error`, `phase=stop` |
-| `Notification` | `kind=Codex`, `attentionReason=userInputRequired`, `phase=notification` |
+| `SessionStart` | `kind=Codex`, `execution=idle`, `phase=sessionStart`, `providerSessionID=session_id` |
+| `UserPromptSubmit` | `kind=Codex`, `execution=thinking`, `phase=promptSubmit`, `providerSessionID=session_id` |
+| `PreToolUse` | `kind=Codex`, `execution=thinking`, `phase=toolStart`, `providerSessionID=session_id` |
+| `PostToolUse` | `kind=Codex`, `execution=thinking`, `phase=toolEnd`, `providerSessionID=session_id` |
+| `SubagentStart` | `kind=Codex`, `execution=thinking`, `phase=toolStart`, `providerSessionID=session_id` |
+| `SubagentStop` | `kind=Codex`, `execution=thinking`, `phase=toolEnd`, `providerSessionID=session_id` |
+| `PermissionRequest` | `kind=Codex`, `attentionReason=permissionPrompt`, `phase=notification`, `providerSessionID=session_id` |
+| `Stop` | `kind=Codex`, `execution=waiting`, `phase=stop`, `providerSessionID=session_id` |
+| `SessionEnd` | `kind=Codex`, `execution=idle`, `phase=sessionEnd`, `providerSessionID=session_id` |
+| `StopFailure` | `kind=Codex`, `execution=error`, `phase=stop`, `providerSessionID=session_id` |
+| `Notification` | `kind=Codex`, `attentionReason=userInputRequired`, `phase=notification`, `providerSessionID=session_id` |
 
 `SessionEnd` resets the tile the way it does for every other provider: Codex
 now shares the local-agent mapping, so a quit Codex session drops its glyph and
@@ -331,6 +373,19 @@ now resolves to a needs-attention event as well — but the shipped Codex
 `hooks.json` does not register a `Notification` hook, so nothing emits it today;
 it becomes live only if a future template (or a manual config) adds that hook.
 `PreCompact`, `PostCompact`, and unknown Codex hook events remain silent in v1.
+
+Codex CLI 0.147.0 sends `session_id` on **every** hook event, `SessionStart`
+included, so awesoMux has the id at the earliest possible point in a session. It
+matches the `rollout-<timestamp>-<uuid>.jsonl` rollout filename exactly, which is
+what lets **Open Agent Transcript** find a Codex session log from the latched id
+alone.
+
+The same payloads also carry `transcript_path` (an absolute path to that rollout
+file) and a per-turn `turn_id`. Neither is read, and `transcript_path`
+deliberately so: it is an attacker-controllable absolute path arriving on a
+same-UID-writable channel, and taking it would put a path across the trust
+boundary for no gain over a validated UUID that already names the file. See
+[ADR 0032](adr/0032-agent-transcripts-are-rendered-artifacts.md).
 
 Grok mapping:
 

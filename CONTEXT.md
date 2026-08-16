@@ -22,6 +22,13 @@ implementation storage. Runtime titles and observed SSH commands never grant
 fetch authority, and relative paths require explicitly reported remote working
 directory metadata.
 
+**Open Agent Transcript** (⌥⌘T) is the other way a document tab appears: awesoMux
+renders the pane's agent session log to Markdown itself and opens that. Those tabs
+are app-authored and not editable, but they are *local* — read-only here is
+`isEditable`, not `isReadOnlySnapshot`. In place of **Send to Agent** they offer
+**Resume**, which stages the provider's resume command in the adjacent terminal
+without submitting it. See [ADR 0032](docs/adr/0032-agent-transcripts-are-rendered-artifacts.md).
+
 The review/comment workflow is intentionally file-backed. A document can carry
 one whole-document note plus any number of inline annotations. Selecting rendered
 text and adding an inline annotation writes a `<mark>...</mark><!-- AMX id=... -->`
@@ -51,6 +58,10 @@ Add rows here when a term is used repeatedly in code, issues, or ADRs and the me
 | **Execution location** | `ExecutionLocation` — value-semantic local or SSH-host identity. A pane's durable `PaneExecutionPlan` is authoritative; a workspace group's `RemoteTarget` only seeds new panes and migrates legacy snapshots. |
 | **Resource identity** | `ResourceIdentity` — an execution location plus a path. Equal path strings on different hosts identify different resources. |
 | **Document pane** | `DocumentPane` — auxiliary Markdown viewer leaf in a workspace layout; validates local `.md`/`.markdown` files, renders comments/highlights, and stays paired with a terminal pane for agent nudges. |
+| **Agent transcript** | The on-disk JSONL log an agent CLI writes for one session (Claude Code and Codex today). awesoMux reads it, never writes it; **Open Agent Transcript** (⌥⌘T) renders a byte-bounded window of the newest turns into a document tab ([ADR 0032](docs/adr/0032-agent-transcripts-are-rendered-artifacts.md)). |
+| **Transcript identity** | `AgentTranscriptIdentity` — provider + UUID session id, valid by construction, stored on the `DocumentPane`. It is the tab's durable identity; the rendered `.md` is regenerable storage, exactly as `ResourceIdentity` is to a remote snapshot's cache file. Stored on the document, not asked of the pane, because a pane outlives the session open beside it. |
+| **Generated document** | A document tab whose file awesoMux authored rather than the user: a remote Markdown snapshot or a rendered transcript. Kept in owner-only caches, named so it can never occupy a user-content slot, and reference-pruned against live **and** recently-closed layouts. |
+| **`isEditable` vs `isReadOnlySnapshot`** | Two different questions about a `DocumentPane`, deliberately not merged. `isReadOnlySnapshot` means *remote provenance* and folds across a whole tab group (`WorkspacePaneCapabilities`' `anyRemote`); `isEditable` means *this document accepts writes* and gates only write/navigate call sites. Widening the first to cover transcripts kills the send bar on the pane Resume lives in and strips `localFileAccess` from unrelated local tabs. |
 | **Shell activity** | Runtime-only busy/idle signal for shell sessions. It is derived from Ghostty prompt markers after at least one prompt has been observed, debounced for chrome, not persisted, and separate from the raw quit-confirmation signal. |
 | **Session snapshot** | On-disk JSON (`Application Support/…/session-state.json`) representing groups, layout, and selection for restore. |
 | **Live title channel** | `SessionStore`'s per-session `LiveTitleBox` notification path for display-only OSC title writes, which update storage silently (issue #311). Two channels per box: fine (per pane, every report — pane title bars) and coarse (see below). |

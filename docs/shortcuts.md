@@ -35,6 +35,8 @@ Default chords below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Ser
 | ⌥⌘] | Next Pane | Requires multiple panes |
 | ⌥⌘= | Grow Active Pane | Requires multiple panes |
 | ⌥⌘- | Shrink Active Pane | Requires multiple panes |
+| ⌥⌘T | Open Agent Transcript | Renders the newest turns of the pane's Claude Code or Codex session log into a document tab beside it; local panes only. Stays enabled and explains in an alert when there is no readable log |
+| ⌃⌘R | Resume Agent Session | Keyboard route to the transcript tab's Resume button (which refuses first responder). Stages `claude --resume` / `codex resume` into the associated terminal without submitting it; enabled only while a transcript tab is selected |
 
 *(**Close Pane** is under Workspace; chord is ⌘W via the File-slot binding described in ADR 0002.)*
 
