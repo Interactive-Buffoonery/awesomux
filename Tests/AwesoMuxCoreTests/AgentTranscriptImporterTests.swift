@@ -400,6 +400,50 @@ import Testing
         #expect(transcript.sessionID == Self.sessionA)
     }
 
+    /// The byte budget cannot see this shape. It is decremented by bytes
+    /// actually read, so near-empty rollouts — crashed sessions, interrupted
+    /// runs, relocation stubs, none of which anything prunes — cost it almost
+    /// nothing while each still pays a full secure open and a head read. The
+    /// count ceiling is what makes that corpus terminate.
+    ///
+    /// Deliberately asserts the FAILURE. Past the ceiling the scan gives up
+    /// rather than grinding, and `.notFound` is the honest answer: the search
+    /// was bounded and the transcript was not in the part it reached.
+    @Test func aCorpusOfTinyRolloutsIsBoundedByCountNotBytes() throws {
+        let fixture = try Fixture()
+        // Older than the noise, so mtime ordering puts it last and only an
+        // unbounded scan would ever arrive at it.
+        try fixture.writeCodexRollout(
+            day: "2026/01/01",
+            timestamp: "2026-01-01T00-00-00",
+            sessionID: Self.sessionA,
+            lines: Self.codexRollout(sessionID: Self.sessionA, cwd: "/Users/someone/project"),
+            modified: Date(timeIntervalSince1970: 1_000)
+        )
+        // One past the ceiling, each a single tiny line — together far under
+        // the byte budget, so the byte guard never fires.
+        for index in 0...AgentTranscriptImporter.maximumFallbackCandidatesProbed {
+            try fixture.writeCodexRollout(
+                day: "2026/08/15",
+                timestamp: "2026-08-15T20-30-42",
+                sessionID: UUID().uuidString,
+                lines: ["{}"],
+                modified: Date(timeIntervalSince1970: 9_000 + Double(index))
+            )
+        }
+
+        let result = Self.open(
+            fixture,
+            agentKind: .codex,
+            workingDirectory: "/Users/someone/project"
+        )
+        guard case .failure(let reason) = result else {
+            Issue.record("the scan ran past its count ceiling instead of giving up")
+            return
+        }
+        #expect(reason == .notFound)
+    }
+
     // MARK: - Rejections
 
     @Test(arguments: [AgentKind.grok, .openCode, .pi, .shell])

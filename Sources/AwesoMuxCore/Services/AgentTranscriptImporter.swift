@@ -224,6 +224,26 @@ public enum AgentTranscriptImporter {
     /// bigger number.
     static let fallbackScanByteBudget = 64 * 1024 * 1024
 
+    /// Companion ceiling to `fallbackScanByteBudget`, bounding the dimension the
+    /// byte budget cannot see.
+    ///
+    /// The byte budget is decremented by bytes actually *read*, so a corpus of
+    /// tiny files defeats it: a 200-byte crashed session or a relocation stub
+    /// costs the budget nothing while still paying a full `openSecurely` —
+    /// `realpath`, an `openat` per path component, an `fstat` — plus a head
+    /// read and a parse attempt. Nothing prunes `~/.claude` or `~/.codex`, so
+    /// those accumulate for as long as the machine is used, and the scan would
+    /// grow without ever spending its budget.
+    ///
+    /// Sized well above the measured corpus (~800 Codex rollouts, 324 Claude
+    /// transcripts) so it never trims a real search — it exists to make the
+    /// worst case finite, not to shape the common one.
+    ///
+    /// ponytail: a flat cap, so a pathological corpus fails as `.notFound`
+    /// rather than hanging. If that starts happening to anyone for real, the
+    /// answer is the provider-maintained index named above, not a bigger cap.
+    static let maximumFallbackCandidatesProbed = 4_096
+
     // MARK: Entry point
 
     /// Resolves and opens the transcript for the agent session in one pane.
@@ -400,6 +420,7 @@ public enum AgentTranscriptImporter {
         let wanted = normalizedPath(workingDirectory)
         let probeBytes = provider.workingDirectoryProbeByteCount
         var remainingBudget = fallbackScanByteBudget
+        var probed = 0
         var visited: Set<URL> = []
 
         // The pane's own project directory first, then everything. The second
@@ -410,8 +431,16 @@ public enum AgentTranscriptImporter {
                 $0.hasSuffix(".jsonl")
             }
             for candidate in candidates {
-                guard remainingBudget > 0 else { return .failure(.notFound) }
+                // Two ceilings, because they bound different things. The byte
+                // budget stops a corpus of large files; the count stops a
+                // corpus of tiny ones, which spends syscalls without spending
+                // bytes. Checked before `visited`, so a re-enumerated path in
+                // the widening second pass cannot skip past either.
+                guard remainingBudget > 0, probed < maximumFallbackCandidatesProbed else {
+                    return .failure(.notFound)
+                }
                 guard visited.insert(candidate.url).inserted else { continue }
+                probed += 1
                 guard
                     let sessionID = provider.sessionID(
                         fromFileName: candidate.url.lastPathComponent

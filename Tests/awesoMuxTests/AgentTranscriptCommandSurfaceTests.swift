@@ -46,4 +46,36 @@ struct AgentTranscriptCommandSurfaceTests {
         let source = try SourceContract.source(at: Self.path)
         #expect(source.contains("resumeAgentSession: resumeSelectedTranscriptSession"))
     }
+
+    /// `announce` defaults to `.medium`, so deleting this argument is a silent
+    /// revert: the code still compiles, still announces, and the announcement
+    /// still loses to the terminal's own value-changed post for the text that
+    /// was just staged. The user then hears the command read out with nothing
+    /// saying it was staged rather than run — which is the whole point of never
+    /// auto-submitting, and is only observable with VoiceOver actually on.
+    ///
+    /// A source contract because the announcement goes straight to
+    /// `NSAccessibility.post` with no injectable seam, and the collision is
+    /// with the OS, below anything a unit test can reach. Both routes are
+    /// pinned: the send-bar button and the menu/palette command each announce
+    /// separately, and either could regress alone.
+    @Test("both resume-staged announcements outrank the terminal")
+    func resumeStagedAnnouncementsArePostedAtHighPriority() throws {
+        for path in [Self.path, "Sources/awesoMux/Views/DocumentPaneView.swift"] {
+            let source = try SourceContract.source(at: path)
+            guard let index = source.range(of: "Pasted into this transcript's terminal")?.upperBound
+            else {
+                Issue.record("\(path) no longer carries the staged-resume announcement")
+                continue
+            }
+            // Wide enough to clear the `comment:` argument and the explanatory
+            // block both call sites carry, narrow enough that it cannot reach
+            // an unrelated `announce` further down the file.
+            if !source[index...].prefix(800).contains("priority: .high") {
+                Issue.record(
+                    "\(path) stages a resume without an explicit .high priority, so the confirmation loses to the terminal's own value-changed announcement"
+                )
+            }
+        }
+    }
 }
