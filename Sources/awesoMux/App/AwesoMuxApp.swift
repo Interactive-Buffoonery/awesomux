@@ -315,7 +315,7 @@ struct AwesoMuxApp: App {
             loadResult = SessionPersistence.load()
         } else {
             let store = SessionStore()
-            SessionPersistence.scheduleRemoteMarkdownSnapshotPrune(keeping: store)
+            SessionPersistence.scheduleGeneratedDocumentPrune(keeping: store)
             loadResult = SessionPersistence.LoadResult(store: store, recoveryWarning: nil)
         }
         _appSettingsStore = State(initialValue: appSettingsStore)

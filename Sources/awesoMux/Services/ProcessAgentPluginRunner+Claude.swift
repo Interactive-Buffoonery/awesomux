@@ -357,10 +357,11 @@ extension ProcessAgentPluginRunner {
     }
 
     func claudeConfigHome(setup: AgentIntegrationSetup) -> URL {
-        if let configHome = setup.configHome?.trimmingCharacters(in: .whitespacesAndNewlines), !configHome.isEmpty {
-            return URL(fileURLWithPath: (configHome as NSString).expandingTildeInPath)
-        }
-        return homeDirectoryURL.appending(path: ".claude", directoryHint: .isDirectory)
+        AgentConfigHome.url(
+            setup: setup,
+            defaultDirectoryName: ".claude",
+            homeDirectoryURL: homeDirectoryURL
+        )
     }
 
     /// Claude needs `claude` resolvable on `PATH` (contract §3), and honors

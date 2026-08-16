@@ -462,7 +462,14 @@ struct RemoteMarkdownReferenceTests {
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-        try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        // 0o700: production only ever creates this cache through
+        // `validatedOwnerOnlyDirectory`, and the read-only paths refuse a
+        // directory left group- or world-readable.
+        try FileManager.default.createDirectory(
+            at: cacheDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
         let fetcher = RemoteMarkdownSnapshotFetcher(
             cacheDirectoryURL: cacheDirectory,
             fetchOverride: { _ in .nonZeroExit(1) }
@@ -825,7 +832,14 @@ struct RemoteMarkdownReferenceTests {
         )
         let targetURL = cacheDirectory.appending(path: fetcher.cacheFileName(for: reference))
         let orphanURL = cacheDirectory.appending(path: "orphan.md")
-        try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        // 0o700: production only ever creates this cache through
+        // `validatedOwnerOnlyDirectory`, and the read-only paths refuse a
+        // directory left group- or world-readable.
+        try FileManager.default.createDirectory(
+            at: cacheDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
         try Data("stale plan".utf8).write(to: targetURL)
         try Data("orphan".utf8).write(to: orphanURL)
 

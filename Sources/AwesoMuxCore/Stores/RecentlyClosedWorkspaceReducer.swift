@@ -525,7 +525,8 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                     fileURL: tab.fileURL,
                     title: tab.title,
                     associatedTerminalPaneID: tab.associatedTerminalPaneID,
-                    remoteResourceIdentity: tab.remoteResourceIdentity
+                    remoteResourceIdentity: tab.remoteResourceIdentity,
+                    agentTranscriptIdentity: tab.agentTranscriptIdentity
                 )
                 if group.selectedTabID == tab.id {
                     selectedTabID = reminted.id
