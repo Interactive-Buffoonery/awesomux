@@ -359,14 +359,28 @@ private struct PopUpTerminalPanelGradient: View {
     }
 }
 
-/// Mirrors `FloatingPanelCloseButton`'s explicit focus ring so every control
-/// on this translucent chrome is visibly focusable (WCAG 2.4.7); accent
-/// instead of red because minimize isn't destructive.
+/// The matched sibling of `FloatingPanelCloseButton`: identical geometry and
+/// idle color, distinguished only by hue on highlight — yellow rather than the
+/// destructive red (#371).
 private struct PopUpTerminalMinimizeButton: View {
+    /// `tintBorder(.yellow)` rather than `Color.aw.yellow`: the stock Latte
+    /// yellow `#df8e1d` reads 1.9:1 on this header and misses WCAG 1.4.11's
+    /// 3:1 floor. This hardened `#835100` clears it at ~4.9:1 measured against
+    /// the *composited* companion header (chrome2 @0.72 over the panel
+    /// gradient), not the opaque `surface0` it was originally derived for.
+    /// `status.needs` also clears the floor but its Latte `#ad4001` is
+    /// orange-red — too near close's red to keep the pair distinguishable.
+    /// Locked by `AwColorTests`.
+    static let highlightColor = Color.aw.tintBorder(.yellow)
+
     let action: () -> Void
 
-    @Environment(\.awAccent) private var accentResolver
+    @State private var isHovered = false
     @FocusState private var isFocused: Bool
+
+    private var isHighlighted: Bool {
+        isHovered || isFocused
+    }
 
     var body: some View {
         Button(action: action) {
@@ -376,16 +390,13 @@ private struct PopUpTerminalMinimizeButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .overlay {
-            Circle().stroke(
-                isFocused
-                    ? Color.aw.accent(accentResolver.accent)
-                        .opacity(FloatingPanelChromeMetrics.focusRingOpacity)
-                    : Color.clear,
-                lineWidth: FloatingPanelChromeMetrics.focusRingLineWidth
-            )
-        }
-        .focused($isFocused)
+        .foregroundStyle(isHighlighted ? Self.highlightColor : Color.aw.text3)
+        .background(
+            Circle()
+                .fill(isHighlighted ? Self.highlightColor.opacity(0.14) : Color.clear)
+        )
+        .awPanelFocusRing(Circle(), color: Self.highlightColor, isFocused: $isFocused)
+        .onHover { isHovered = $0 }
         .help(
             String(
                 localized: "Minimize Terminal Companion",
@@ -416,18 +427,15 @@ private struct PopUpTerminalPromoteButton: View {
             .foregroundStyle(Color.aw.text3)
         }
         .buttonStyle(.plain)
-        .overlay {
-            Capsule()
-                .inset(by: -3)
-                .stroke(
-                    isFocused
-                        ? Color.aw.accent(accentResolver.accent)
-                            .opacity(FloatingPanelChromeMetrics.focusRingOpacity)
-                        : Color.clear,
-                    lineWidth: FloatingPanelChromeMetrics.focusRingLineWidth
-                )
-        }
-        .focused($isFocused)
+        // Same never-rendered-ring defect as close and minimize (#372), which
+        // the issue never catalogued. Keeps its own view: a KBD chip plus a
+        // label in a Capsule is not the 28pt glyph circle those two share.
+        .awPanelFocusRing(
+            Capsule(),
+            color: Color.aw.accent(accentResolver.accent),
+            isFocused: $isFocused,
+            inset: -3
+        )
         .accessibilityLabel(
             String(
                 localized: "Promote to workspace, Command Return",

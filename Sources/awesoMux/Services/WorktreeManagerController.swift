@@ -124,6 +124,7 @@ final class WorktreeManagerController {
         panel.title = String(localized: "Worktree Manager", comment: "Worktree Manager panel title.")
         panel.setAccessibilityLabel(
             String(localized: "Worktree Manager", comment: "Worktree Manager accessibility title."))
+        panel.showsStandardWindowButtons = true
         panel.onDismiss = { [weak self] in self?.dismiss() }
         panel.handlesKeyEvent = { [weak panel] event in
             if FloatingPanelEventPolicy.isDismissChord(

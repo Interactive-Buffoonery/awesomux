@@ -634,6 +634,77 @@ struct AwColorTests {
         }
     }
 
+    // #371 pairs the Terminal Companion's minimize glyph with its close glyph:
+    // same geometry, distinguished by hue. Both are the sole visual carrier of
+    // their control's highlight state, so both must clear WCAG 1.4.11's 3:1
+    // floor against the companion header — and they must stay far enough apart
+    // that "yellow, not red" survives.
+    //
+    // The header is translucent, so the floor has to be measured against the
+    // COMPOSITED result, not against an opaque surface token: chrome2 @0.72
+    // over the panel gradient's accent wash @0.10 over chrome @0.96. That
+    // recipe is mirrored from `TerminalPanelChromeView.companionHeader` /
+    // `PopUpTerminalPanelGradient` and has to be updated with them — the app
+    // module is not visible from here.
+    @Test("companion header glyphs clear 1.4.11 and stay hue-distinct")
+    func companionHeaderGlyphsClearContrastFloor() throws {
+        let appearances: [NSAppearance.Name] = [
+            .aqua,
+            .darkAqua,
+            .accessibilityHighContrastAqua,
+            .accessibilityHighContrastDarkAqua,
+        ]
+        // The panel is drawn on a transparent window, so the desktop shows
+        // through the 4% the chrome layer leaves. Both extremes are checked
+        // because neither the wallpaper nor the accent is knowable here.
+        let backdrops = [
+            NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1),
+            NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1),
+        ]
+
+        for appearance in appearances {
+            let chrome = try #require(NSColor(Color.aw.surface.chrome).withAppearance(appearance))
+            let chrome2 = try #require(NSColor(Color.aw.surface.chrome2).withAppearance(appearance))
+            let close = try #require(NSColor(Color.aw.red).withAppearance(appearance))
+            let minimize = try #require(
+                NSColor(Color.aw.tintBorder(.yellow)).withAppearance(appearance)
+            )
+
+            // Channel ordering, not mere inequality: a near-red "yellow" would
+            // pass a `!=` check while defeating the whole point of #371.
+            // Yellow-family hues put green above blue; red-family hues invert
+            // that, in every appearance.
+            #expect(
+                minimize.greenComponent > minimize.blueComponent,
+                "minimize highlight left the yellow family in \(appearance.rawValue)"
+            )
+            #expect(
+                close.greenComponent < close.blueComponent,
+                "close highlight left the red family in \(appearance.rawValue)"
+            )
+
+            for backdrop in backdrops {
+                for accent in AwAccent.allCases {
+                    let wash = try #require(
+                        NSColor(Color.aw.accent(accent)).withAppearance(appearance)
+                    )
+                    let panel = chrome.withAlphaComponent(0.96).composited(over: backdrop)
+                    let gradient = wash.withAlphaComponent(0.10).composited(over: panel)
+                    let header = chrome2.withAlphaComponent(0.72).composited(over: gradient)
+
+                    #expect(
+                        contrastRatio(close, header) >= 3,
+                        "close glyph on \(appearance.rawValue)/\(accent) misses WCAG 1.4.11"
+                    )
+                    #expect(
+                        contrastRatio(minimize, header) >= 3,
+                        "minimize glyph on \(appearance.rawValue)/\(accent) misses WCAG 1.4.11"
+                    )
+                }
+            }
+        }
+    }
+
     // The muted-accent divider replaces the neutral gray, but it must hold the
     // SAME 1.4.11 floor INT-299 set: every accent, at rest and on hover, in both
     // themes, clears 3:1 / 4:1 against the pane background. This is the contract

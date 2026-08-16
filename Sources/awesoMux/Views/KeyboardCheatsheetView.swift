@@ -29,14 +29,6 @@ struct KeyboardCheatsheetView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
-        .overlay(alignment: .topTrailing) {
-            FloatingPanelCloseButton(
-                accessibilityLabel: "Close keyboard shortcuts",
-                action: onDismiss
-            )
-            .padding(.top, 12)
-            .padding(.trailing, FloatingPanelChromeMetrics.closeButtonEdgeInset)
-        }
         .background {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.aw.surface.chrome.opacity(0.97))
@@ -62,6 +54,12 @@ struct KeyboardCheatsheetView: View {
                         .accessibilityAddTraits(.isHeader)
                 }
             }
+            // Only this row sits in the traffic lights' band — insetting the
+            // whole header would push the search field in with it and cost it
+            // 60pt of width for no reason. `trafficLightClearance` is measured
+            // from the window edge, hence the subtraction of the padding this
+            // header already carries.
+            .padding(.leading, AppTitlebarMetrics.trafficLightClearance - 18)
 
             HStack(spacing: 10) {
                 KeyboardCheatsheetSearchField(
@@ -99,7 +97,6 @@ struct KeyboardCheatsheetView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.trailing, 64)
         .padding(.top, 16)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)

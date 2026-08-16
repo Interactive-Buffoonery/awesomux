@@ -44,20 +44,10 @@ struct WorktreeManagerPanel: View {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
-        .overlay(alignment: .topTrailing) {
-            FloatingPanelCloseButton(
-                accessibilityLabel: String(
-                    localized: "Close Worktree Manager",
-                    comment: "Accessibility label for the Worktree Manager close button."
-                ),
-                action: {
-                    guard !model.createSubmissionState.isSubmitting else { return }
-                    onDismiss()
-                }
-            )
-            .padding(.top, 12)
-            .padding(.trailing, FloatingPanelChromeMetrics.closeButtonEdgeInset)
-        }
+        // Closing is the panel's native traffic light. It routes through
+        // `FloatingSwiftUIPanelWindow.performClose` into the controller's
+        // `dismiss()`, which carries the same in-flight-create guard the old
+        // close button applied here.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
             String(localized: "Worktree Manager", comment: "Worktree Manager panel accessibility label.")
@@ -137,7 +127,10 @@ struct WorktreeManagerPanel: View {
                 .foregroundStyle(Color.aw.text)
         }
         .padding(.horizontal, AwSpacing.panelPadding)
-        .padding(.trailing, 52)
+        // `trafficLightClearance` is measured from the window edge, so only the
+        // shortfall over this header's own padding gets added. The trailing 52
+        // that reserved space for the old top-right close button is gone.
+        .padding(.leading, AppTitlebarMetrics.trafficLightClearance - AwSpacing.panelPadding)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) {

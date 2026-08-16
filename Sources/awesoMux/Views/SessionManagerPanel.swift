@@ -165,7 +165,6 @@ struct OwnerCell: View {
 struct SessionManagerPanel: View {
     @State var model: SessionManagerModel
     let focusState: SessionManagerFocusState
-    let onDismiss: () -> Void
     /// Selects the workspace/pane that owns a daemon, then dismisses. Wired by
     /// the app to the same selection path the command palette uses.
     let onJump: (TerminalSessionID) -> Void
@@ -208,14 +207,6 @@ struct SessionManagerPanel: View {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
-        .overlay(alignment: .topTrailing) {
-            FloatingPanelCloseButton(
-                accessibilityLabel: "Close Session Manager",
-                action: onDismiss
-            )
-            .padding(.top, 12)
-            .padding(.trailing, FloatingPanelChromeMetrics.closeButtonEdgeInset)
-        }
         .overlay {
             if let sheetRow {
                 reapSheetOverlay(sheetRow)
@@ -244,7 +235,12 @@ struct SessionManagerPanel: View {
             }
         }
         .padding(.horizontal, AwSpacing.panelPadding)
-        .padding(.trailing, 64)
+        // The kicker sits in the traffic lights' vertical band, and the spike
+        // showed them landing on top of it. `trafficLightClearance` is measured
+        // from the window edge, so only the shortfall over the padding this
+        // header already carries gets added. The trailing 64 that reserved
+        // space for the old top-right close button is gone with it.
+        .padding(.leading, AppTitlebarMetrics.trafficLightClearance - AwSpacing.panelPadding)
         .padding(.top, 16)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
