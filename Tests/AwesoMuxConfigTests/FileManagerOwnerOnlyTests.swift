@@ -80,6 +80,43 @@ struct FileManagerOwnerOnlyTests {
         #expect(try permissions(atPath: file.path) == 0o600)
     }
 
+    @Test("validating without creating clamps nothing and refuses a widened directory")
+    func validatingWithoutCreatingRefusesAWidenedDirectory() throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? fileManager.removeItem(at: scratch) }
+        let directory = scratch.appending(path: "cache", directoryHint: .isDirectory)
+        try fileManager.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o755]
+        )
+
+        // A read-only caller cannot re-clamp, so handing it a cache an older
+        // build or the user left group- and world-readable would be handing it
+        // exactly the exposure the clamp exists to prevent.
+        #expect(fileManager.validatedOwnerOnlyDirectory(at: directory, createIfMissing: false) == nil)
+        #expect(try permissions(atPath: directory.path) == 0o755)
+
+        // The creating caller does re-clamp, and then the read-only caller is
+        // satisfied by the same directory.
+        #expect(fileManager.validatedOwnerOnlyDirectory(at: directory, createIfMissing: true) != nil)
+        #expect(try permissions(atPath: directory.path) == 0o700)
+        #expect(
+            fileManager.validatedOwnerOnlyDirectory(at: directory, createIfMissing: false)
+                == directory
+        )
+    }
+
+    @Test("validating without creating refuses a missing directory rather than making one")
+    func validatingWithoutCreatingRefusesAMissingDirectory() throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? fileManager.removeItem(at: scratch) }
+        let missing = scratch.appending(path: "absent", directoryHint: .isDirectory)
+
+        #expect(fileManager.validatedOwnerOnlyDirectory(at: missing, createIfMissing: false) == nil)
+        #expect(!fileManager.fileExists(atPath: missing.path))
+    }
+
     @Test("clamping a missing item throws")
     func clampingMissingItemThrows() throws {
         let scratch = try makeScratchDirectory()

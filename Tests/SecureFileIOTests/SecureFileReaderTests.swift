@@ -170,4 +170,84 @@ struct SecureFileReaderTests {
         }
     }
 
+    // MARK: - Suffix reads
+
+    private func openedHandle(containing bytes: String) throws -> (
+        SecureFileReadHandle, TemporaryDirectory
+    ) {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-suffix")
+        let file = temporaryDirectory.url.appending(path: "tail.md")
+        try Data(bytes.utf8).write(to: file)
+        return (try SecureFileReader.open(at: file), temporaryDirectory)
+    }
+
+    @Test("readSuffix returns the last bytes of a longer file without rejecting it")
+    func readSuffixReturnsTheTail() throws {
+        let (handle, temporaryDirectory) = try openedHandle(containing: "abcdefghij")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        #expect(try handle.readSuffix(maximumBytes: 4) == (Data("ghij".utf8), 6))
+        #expect(try handle.readSuffix(maximumBytes: 1) == (Data("j".utf8), 9))
+    }
+
+    @Test("readSuffix returns the whole file when the window covers it")
+    func readSuffixCoversShortFiles() throws {
+        let (handle, temporaryDirectory) = try openedHandle(containing: "abc")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        // A window at least as wide as the file starts at zero, and says so —
+        // the only sound signal that no earlier bytes were skipped.
+        #expect(try handle.readSuffix(maximumBytes: 3) == (Data("abc".utf8), 0))
+        #expect(try handle.readSuffix(maximumBytes: 4096) == (Data("abc".utf8), 0))
+        #expect(try handle.readSuffix(maximumBytes: 0) == (Data(), 3))
+    }
+
+    @Test("readSuffix reports offset zero when the file shrank after it was opened")
+    func readSuffixReportsZeroOffsetAfterTruncation() throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-suffix")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let file = temporaryDirectory.url.appending(path: "shrinking.md")
+        try Data("abcdefghij".utf8).write(to: file)
+        let handle = try SecureFileReader.open(at: file)
+
+        let writeHandle = try FileHandle(forWritingTo: file)
+        try writeHandle.truncate(atOffset: 3)
+        try writeHandle.close()
+
+        // The read starts at byte zero and comes back short. Inferring "earlier
+        // bytes were skipped" from the stale `size` would be wrong here, which
+        // is why the offset is reported rather than derived.
+        let suffix = try handle.readSuffix(maximumBytes: 64)
+        #expect(suffix.startOffset == 0)
+        #expect(suffix.data == Data("abc".utf8))
+        #expect(handle.size == 10)
+    }
+
+    @Test("readSuffix rejects a negative window")
+    func readSuffixRejectsNegativeWindow() throws {
+        let (handle, temporaryDirectory) = try openedHandle(containing: "abc")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        #expect(throws: SecureFileReadError.unreadable) {
+            _ = try handle.readSuffix(maximumBytes: -1)
+        }
+    }
+
+    @Test("readSuffix ignores bytes appended after the descriptor was validated")
+    func readSuffixIgnoresLaterGrowth() throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-suffix")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let file = temporaryDirectory.url.appending(path: "growing.md")
+        try Data("abcdef".utf8).write(to: file)
+        let handle = try SecureFileReader.open(at: file)
+
+        let writeHandle = try FileHandle(forWritingTo: file)
+        try writeHandle.seekToEnd()
+        try writeHandle.write(contentsOf: Data("XYZ".utf8))
+        try writeHandle.close()
+
+        // The window is anchored to the validated size, so the appended bytes
+        // shift into the window rather than extending it.
+        #expect(try handle.readSuffix(maximumBytes: 3) == (Data("def".utf8), 3))
+    }
 }

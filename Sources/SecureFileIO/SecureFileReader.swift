@@ -65,6 +65,58 @@ public final class SecureFileReadHandle: @unchecked Sendable {
         )
     }
 
+    /// Reads up to `maximumBytes` from offset zero and stops there.
+    ///
+    /// The difference from `read(maximumBytes:)` is what a longer file means.
+    /// There, the cap is a limit the file must respect and exceeding it is
+    /// `.tooLarge`; here, the cap is a window the caller deliberately chose and
+    /// more bytes past it are the expected case.
+    public func readPrefix(maximumBytes: Int) throws(SecureFileReadError) -> Data {
+        guard maximumBytes >= 0 else {
+            throw .unreadable
+        }
+        return try SecureFileReader.readBounded(
+            from: descriptor,
+            maximumBytes: maximumBytes,
+            rejectingOverflow: false
+        )
+    }
+
+    /// Reads up to `maximumBytes` from the END of the file.
+    ///
+    /// The mirror of `readPrefix(maximumBytes:)`. Both treat the cap as a window
+    /// the caller chose rather than a limit the file must respect, so a longer
+    /// file is the expected case, not `.tooLarge`.
+    ///
+    /// The window is anchored to the size captured at `open`, so bytes appended
+    /// after that are not read. That is deliberate: the descriptor's validated
+    /// size is the only length this handle can vouch for.
+    ///
+    /// - Returns: The bytes read, and the offset they were read from.
+    ///   `startOffset > 0` is the only sound test for "earlier bytes were
+    ///   skipped", and therefore for "the first line here is a fragment":
+    ///   inferring it by comparing `size` against the returned count is wrong
+    ///   whenever the file was truncated between `open` and this read, which
+    ///   returns short from offset zero with nothing skipped at all.
+    public func readSuffix(
+        maximumBytes: Int
+    ) throws(SecureFileReadError) -> (data: Data, startOffset: UInt64) {
+        guard maximumBytes >= 0 else {
+            throw .unreadable
+        }
+        let start = size > UInt64(maximumBytes) ? size - UInt64(maximumBytes) : 0
+        guard start <= UInt64(off_t.max) else {
+            throw .unreadable
+        }
+        let data = try SecureFileReader.readBounded(
+            from: descriptor,
+            maximumBytes: maximumBytes,
+            startingAt: off_t(start),
+            rejectingOverflow: false
+        )
+        return (data, start)
+    }
+
     package var isCloseOnExec: Bool {
         Self.isCloseOnExec(descriptor: descriptor)
     }
@@ -256,10 +308,12 @@ public enum SecureFileReader {
 
     fileprivate static func readBounded(
         from descriptor: Int32,
-        maximumBytes: Int
+        maximumBytes: Int,
+        startingAt startOffset: off_t = 0,
+        rejectingOverflow: Bool = true
     ) throws(SecureFileReadError) -> Data {
         var result = Data()
-        var offset: off_t = 0
+        var offset = startOffset
 
         while result.count < maximumBytes {
             let chunkSize = min(64 * 1024, maximumBytes - result.count)
@@ -280,6 +334,8 @@ public enum SecureFileReader {
             result.append(contentsOf: buffer.prefix(bytesRead))
             offset += off_t(bytesRead)
         }
+
+        guard rejectingOverflow else { return result }
 
         var extraByte: UInt8 = 0
         while true {
