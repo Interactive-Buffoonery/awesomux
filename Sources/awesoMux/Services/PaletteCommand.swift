@@ -571,7 +571,11 @@ enum PaletteCommandRegistry {
                 subtitle: selectedTranscriptTab?.title,
                 keywords: ["agent", "transcript", "resume", "session", "claude", "codex"],
                 shortcut: KeyboardShortcutCatalog.resumeAgentSession,
-                isEnabled: selectedTranscriptTab != nil,
+                // Enabled whenever a workspace is, matching the menu item. When
+                // it was gated on the selected tab the palette still listed it
+                // and running it did nothing — no feedback at all. It now runs
+                // and names the reason.
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .documentTab,
                 run: actions.resumeAgentSession
             ),

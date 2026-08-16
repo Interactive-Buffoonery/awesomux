@@ -36,6 +36,21 @@ public enum AgentTranscriptResumeUnavailableReason: Hashable, Sendable {
     /// that have one — but distinct from `.terminalUnavailable`, which is what
     /// the branch used to report and which names the wrong thing entirely.
     case noResumeSyntax(AgentKind)
+    /// The command ran with no transcript tab selected — from the menu, the
+    /// palette, or the chord.
+    ///
+    /// This reason exists so the command can stay *enabled*. Disabling it
+    /// looked tidier and cost more than it saved: a disabled SwiftUI menu
+    /// command does not consume its key equivalent, so ⌃⌘R fell through to
+    /// libghostty, which echoed a CSI-u sequence into the user's shell
+    /// (observed live: a bare `4;5u` at the prompt). The palette had the
+    /// mirror-image problem — it listed the command and running it did
+    /// nothing at all.
+    ///
+    /// Staying enabled and naming the cause matches what the Resume button
+    /// already does for every other denial, and it keeps the chord owned by
+    /// the app instead of leaking it to the terminal.
+    case noTranscriptSelected
 }
 
 public enum AgentTranscriptResumeVerdict: Hashable, Sendable {

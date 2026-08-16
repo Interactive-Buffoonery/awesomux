@@ -1064,7 +1064,12 @@ struct AwesoMuxApp: App {
                     resumeSelectedTranscriptSession()
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.resumeAgentSession))
-                .disabled(selectedSessionTranscriptTab == nil)
+                // Gated like its neighbours, NOT on whether a transcript tab is
+                // selected. A disabled command does not consume its key
+                // equivalent, so gating on the tab let ⌃⌘R fall through to
+                // libghostty, which echoed a CSI-u sequence into the shell.
+                // With no transcript selected the command now runs and says so.
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
 
                 Divider()
 
@@ -3390,6 +3395,9 @@ struct AwesoMuxApp: App {
             let tab = selectedSessionTranscriptTab,
             let identity = tab.agentTranscriptIdentity
         else {
+            // Say so rather than returning silently. The command stays enabled
+            // precisely so this path is reachable — see `noTranscriptSelected`.
+            showResumeUnavailableAlert(.noTranscriptSelected)
             return
         }
         Task { @MainActor in

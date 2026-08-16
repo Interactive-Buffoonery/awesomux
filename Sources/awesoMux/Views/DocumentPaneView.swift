@@ -439,6 +439,12 @@ struct DocumentPaneSendBar: View {
                 localized: "awesoMux doesn't know how to resume a \(kind.displayName) session",
                 comment: "Unavailable reason for resuming a provider awesoMux has no resume command for"
             )
+        case .noTranscriptSelected:
+            return String(
+                localized: "Select an agent transcript tab first — Resume acts on the transcript you're reading",
+                comment:
+                    "Unavailable reason for resuming when the selected document tab is not an agent transcript"
+            )
         }
     }
 

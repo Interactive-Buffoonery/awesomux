@@ -25,7 +25,18 @@ struct AgentTranscriptCommandSurfaceTests {
             source.contains("shortcut(KeyboardShortcutCatalog.resumeAgentSession)"),
             "the menu item must carry the catalog binding, or the chord is advertised but dead"
         )
-        #expect(source.contains(".disabled(selectedSessionTranscriptTab == nil)"))
+        // Gated like its neighbours, NOT on the selected tab. Gating on the tab
+        // meant the command was disabled most of the time, and a disabled
+        // SwiftUI command does not consume its key equivalent — ⌃⌘R fell through
+        // to libghostty, which echoed a CSI-u sequence into the user's shell.
+        // Asserting the absence too, so the old shape cannot quietly return.
+        #expect(
+            source.contains(
+                ".disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)"))
+        #expect(
+            !source.contains(".disabled(selectedSessionTranscriptTab == nil)"),
+            "gating Resume on the selected tab leaks ⌃⌘R into the terminal"
+        )
     }
 
     /// Same command, second surface. The palette entry is what makes it
