@@ -667,6 +667,69 @@ import Testing
         #expect(!text.contains("Earlier turns are omitted"))
     }
 
+    /// The fifth route to an empty document, and the only one that also lies
+    /// about why. The window is sized from the length captured at `open`, so a
+    /// transcript rotated down to a fraction of that puts `start` past EOF: the
+    /// read comes back empty at a non-zero offset, there is no fragment to name
+    /// and no wider window to try, and the user gets zero turns plus "earlier
+    /// turns are omitted" while the whole file sits at byte zero (review
+    /// finding).
+    @Test("a transcript rotated below the window's start offset still renders its content")
+    func rotationBelowTheWindowStartStillRenders() throws {
+        let (transcript, directory) = try openTranscript(
+            lines: [#"{"type":"user","message":{"content":"\#(String(repeating: "o", count: 8000))"}}"#],
+            agentKind: .claudeCode
+        )
+        defer { withExtendedLifetime(directory) {} }
+
+        let writeHandle = try FileHandle(forWritingTo: transcript.handle.resolvedURL)
+        try writeHandle.truncate(atOffset: 0)
+        try writeHandle.write(
+            contentsOf: Data(#"{"type":"user","message":{"content":"the rotated-in turn"}}"#.utf8))
+        try writeHandle.close()
+
+        let text = try AgentTranscriptRenderer.render(
+            transcript,
+            chrome: .unlocalizedFallback(agentKind: .claudeCode),
+            initialWindowBytes: 4096,
+            maximumWindowBytes: 4096
+        ).get()
+
+        #expect(text.contains("the rotated-in turn"))
+        #expect(!text.contains("No conversation turns could be rendered"))
+        #expect(!text.contains("Earlier turns are omitted"))
+    }
+
+    /// `Data.split` omits empty subsequences, so a window landing exactly after
+    /// a newline yields a COMPLETE first record. Dropping it lost a renderable
+    /// turn and then reported its size as an oversize record that "could not be
+    /// displayed" — a small whole record described as too big (review finding).
+    @Test("a window landing exactly on a record boundary keeps its first record")
+    func windowOnARecordBoundaryKeepsTheFirstRecord() throws {
+        let last = #"{"type":"assistant","message":{"content":"the boundary turn"}}"#
+        let (transcript, directory) = try openTranscript(
+            lines: [#"{"type":"user","message":{"content":"an earlier turn"}}"#, last],
+            agentKind: .claudeCode
+        )
+        defer { withExtendedLifetime(directory) {} }
+
+        // Exactly the last record, so the byte before the window is its `\n`.
+        let window = last.utf8.count
+        let text = try AgentTranscriptRenderer.render(
+            transcript,
+            chrome: .unlocalizedFallback(agentKind: .claudeCode),
+            initialWindowBytes: window,
+            maximumWindowBytes: window
+        ).get()
+
+        #expect(text.contains("the boundary turn"))
+        #expect(!text.contains("could not be displayed"), "a whole record is not an oversize one")
+        #expect(!text.contains("No conversation turns could be rendered"))
+        // Earlier turns genuinely were omitted; that notice is still correct.
+        #expect(text.contains("Earlier turns are omitted"))
+        #expect(!text.contains("an earlier turn"))
+    }
+
     @Test("an unsupported agent kind is refused rather than rendered as either format")
     func unsupportedAgentKindIsRefused() throws {
         let (transcript, directory) = try openTranscript(

@@ -500,7 +500,10 @@ struct AgentHookCommandTests {
         #expect(status == 0)
         let parsedEvent = try #require(try Self.readSingleEvent(from: eventFile))
         #expect(parsedEvent.phase == .sessionStart)
-        #expect(parsedEvent.providerSessionID == sessionID)
+        // `UUID.uuidString` is uppercase; the producer canonicalizes to the
+        // lowercase spelling both providers actually write, which is also the
+        // spelling the transcript filename carries.
+        #expect(parsedEvent.providerSessionID == sessionID.lowercased())
     }
 
     /// The lifecycle transition is load-bearing and the id is not: a hostile id

@@ -551,6 +551,31 @@ import Testing
         #expect(byCWD.sessionID == Self.sessionA)
     }
 
+    /// The fallback's probe is sized for reaching a `cwd`, not for the
+    /// conversation tie-break, and the two are now separate constants. Measured
+    /// across 324 real Claude transcripts the worst case is 11,766 bytes, so a
+    /// ~20 KB run of leading metadata has to resolve and a probe shrunk to
+    /// 8-16 KiB has to fail here rather than silently skipping the candidate.
+    @Test func fallbackProbeReachesCWDBehindLeadingMetadata() throws {
+        let fixture = try Fixture()
+        let filler = String(repeating: "m", count: 20_000)
+        try fixture.writeClaudeTranscript(
+            slug: "-Users-someone-project",
+            sessionID: Self.sessionA,
+            lines: [#"{"type":"last-prompt","lastPrompt":"\#(filler)"}"#]
+                + Self.claudeConversation(sessionID: Self.sessionA, cwd: "/Users/someone/project")
+        )
+
+        let resolved = try Self.open(fixture, workingDirectory: "/Users/someone/project").get()
+        #expect(resolved.sessionID == Self.sessionA)
+        #expect(resolved.resolution == .workingDirectoryFallback)
+        #expect(
+            AgentTranscriptImporter.Provider.claudeCode.workingDirectoryProbeByteCount
+                < AgentTranscriptImporter.headByteCount,
+            "the probe must not inherit the tie-break's window; that capped the scan at ~256 files"
+        )
+    }
+
     // MARK: - Head parsing
 
     @Test func headParsingSkipsTruncatedTrailingLine() {

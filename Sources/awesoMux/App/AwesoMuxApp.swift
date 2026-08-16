@@ -3334,24 +3334,13 @@ struct AwesoMuxApp: App {
                 )
             )
             let result = await Task.detached(priority: .userInitiated) {
-                () -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> in
-                var firstFailure: AgentTranscriptOpenFailure?
-                for attempt in attempts {
-                    let outcome = AgentTranscriptOpener.open(
-                        agentKind: attempt.kind,
-                        executionPlan: executionPlan,
-                        configHome: attempt.configHome,
-                        reportedSessionID: reportedSessionID,
-                        workingDirectory: workingDirectory,
-                        excludedSessionIDs: excludedSessionIDs
-                    )
-                    if case .failure(let failure) = outcome {
-                        firstFailure = firstFailure ?? failure
-                        continue
-                    }
-                    return outcome
-                }
-                return .failure(firstFailure ?? .unavailable(.notFound))
+                AgentTranscriptOpener.open(
+                    attempts: attempts,
+                    executionPlan: executionPlan,
+                    reportedSessionID: reportedSessionID,
+                    workingDirectory: workingDirectory,
+                    excludedSessionIDs: excludedSessionIDs
+                )
             }.value
 
             switch result {

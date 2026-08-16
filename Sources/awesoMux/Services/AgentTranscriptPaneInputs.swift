@@ -25,10 +25,14 @@ enum AgentTranscriptPaneInputs {
     /// Any other kind without a config home genuinely has no readable log, so
     /// it returns empty and the caller keeps its own `.unsupportedAgent` copy.
     ///
-    /// ponytail: first hit wins, in `AgentKind` declaration order. Nothing here
-    /// can tell which provider ran more recently when both recorded the same
-    /// working directory. Latch the last non-shell `agentKind` in the runtime
-    /// event reducer if that ambiguity is ever reported.
+    /// Order is presentation only, not precedence: `AgentTranscriptOpener`
+    /// resolves every attempt and keeps the most recently modified match, so a
+    /// pane where both providers have run resolves to the one the user just
+    /// exited rather than to whichever `AgentKind` is declared first.
+    ///
+    /// ponytail: modification date is the discriminator. Latch the last
+    /// non-shell `agentKind` in the runtime event reducer if a pane ever needs
+    /// to name its provider after the agent is gone.
     static func resolutionAttempts(
         for agentKind: AgentKind,
         integrations: AgentIntegrationsConfig,
@@ -58,8 +62,13 @@ enum AgentTranscriptPaneInputs {
     /// The working-directory fallback's one signal for telling this pane's
     /// session from a neighbour's: two panes in one directory both match on
     /// `cwd`, and the neighbour sorts newest precisely because its agent is
-    /// writing right now. A pane that has emitted anything since the relaunch
-    /// has a latched id, and that id belongs to that pane and to no other.
+    /// writing right now.
+    ///
+    /// It covers only a neighbour that has emitted a hook event since the
+    /// latch was built, and latches are rebuilt empty on relaunch — so right
+    /// after one, two idle reattached agents in one directory exclude nothing
+    /// from each other. See `AgentTranscriptImporter.open`'s parameter notes
+    /// for the residual that leaves.
     ///
     /// Store-wide rather than session-scoped: a latch is per pane, and panes in
     /// another workspace can share a working directory just as easily.

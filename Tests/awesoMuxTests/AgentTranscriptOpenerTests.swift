@@ -275,6 +275,132 @@ struct AgentTranscriptOpenerTests {
         }
     }
 
+    // MARK: - The `.shell` provider sweep
+
+    /// Both CLIs in one repository is the maintainer's default, so "Claude ran
+    /// here once" must not beat "Codex ran here thirty seconds ago" on
+    /// `AgentKind` declaration order. First-hit-wins headed the document
+    /// "Claude Code transcript" and staged `claude --resume` into a terminal
+    /// that had been running Codex (review finding).
+    @Test("the shell sweep resolves the most recently modified provider, not the first")
+    func shellSweepPrefersTheMostRecentlyModifiedProvider() throws {
+        let root = try TemporaryDirectory(prefix: "awesomux-transcript-sweep")
+        defer { withExtendedLifetime(root) {} }
+        let store = AgentTranscriptStore(
+            cacheDirectoryURL: root.url.appending(path: "cache", directoryHint: .isDirectory)
+        )
+
+        let claudeHome = root.url.appending(path: ".claude", directoryHint: .isDirectory)
+        let claudeFile =
+            claudeHome
+            .appending(path: "projects/-tmp-repo", directoryHint: .isDirectory)
+            .appending(path: "\(Self.sessionID).jsonl")
+        let codexSession = "7C2E4A11-9B33-4D55-8E77-0A1B2C3D4E5F"
+        let codexHome = root.url.appending(path: ".codex", directoryHint: .isDirectory)
+        let codexFile =
+            codexHome
+            .appending(path: "sessions/2026/08/16", directoryHint: .isDirectory)
+            .appending(path: "rollout-2026-08-16T09-00-00-\(codexSession).jsonl")
+
+        for (url, lines) in [
+            (
+                claudeFile,
+                [
+                    #"{"type":"user","cwd":"/tmp/repo","message":{"content":"the older claude turn"}}"#
+                ]
+            ),
+            (
+                codexFile,
+                [
+                    #"{"type":"session_meta","payload":{"cwd":"/tmp/repo","id":"\#(codexSession)"}}"#,
+                    #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"the newer codex turn"}]}}"#,
+                ]
+            ),
+        ] {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(lines.joined(separator: "\n").utf8).write(to: url)
+        }
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_000)], ofItemAtPath: claudeFile.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 2_000)], ofItemAtPath: codexFile.path)
+
+        // Declaration order: Claude is attempt one and resolves, so first-hit
+        // wins would stop right here.
+        let attempts: [(kind: AgentKind, configHome: URL)] = [
+            (kind: .claudeCode, configHome: claudeHome),
+            (kind: .codex, configHome: codexHome),
+        ]
+        let opened = try #require(
+            try? AgentTranscriptOpener.open(
+                attempts: attempts,
+                executionPlan: .local,
+                reportedSessionID: nil,
+                workingDirectory: "/tmp/repo",
+                store: store
+            ).get()
+        )
+
+        #expect(opened.identity.agentKind == .codex)
+        #expect(opened.identity.sessionID == codexSession)
+        let markdown = try String(contentsOf: opened.fileURL, encoding: .utf8)
+        #expect(markdown.contains("the newer codex turn"))
+        #expect(!markdown.contains("the older claude turn"))
+        // A cross-provider guess has to say which agent it landed on.
+        #expect(markdown.contains(AgentKind.codex.displayName))
+    }
+
+    /// The composition itself is the new risk: `.shell` sweeps two providers,
+    /// so a hostile reported id gets two chances to reach a filesystem path.
+    /// `.notFound` here would mean an attempt fell through to the fallback and
+    /// resolved SOMETHING while carrying an id shaped like a shell command.
+    @Test("a shell-injection session id is refused by every attempt in the sweep")
+    func injectionSessionIDIsRefusedByEveryAttempt() throws {
+        let root = try TemporaryDirectory(prefix: "awesomux-transcript-injection")
+        defer { withExtendedLifetime(root) {} }
+        let store = AgentTranscriptStore(
+            cacheDirectoryURL: root.url.appending(path: "cache", directoryHint: .isDirectory)
+        )
+        let projects = root.url
+            .appending(path: ".claude/projects/-tmp-repo", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        try Data(#"{"type":"user","cwd":"/tmp/repo","message":{"content":"a real turn"}}"#.utf8)
+            .write(to: projects.appending(path: "\(Self.sessionID).jsonl"))
+
+        let attempts = AgentTranscriptPaneInputs.resolutionAttempts(
+            for: .shell,
+            integrations: AgentIntegrationsConfig(),
+            homeDirectoryURL: root.url
+        )
+        #expect(attempts.count == 2, "the sweep is what makes this composition new")
+
+        for attempt in attempts {
+            let result = AgentTranscriptOpener.open(
+                agentKind: attempt.kind,
+                executionPlan: .local,
+                configHome: attempt.configHome,
+                reportedSessionID: "x\nrm -rf ~",
+                workingDirectory: "/tmp/repo",
+                store: store
+            )
+            #expect(
+                result == .failure(.unavailable(.invalidSessionID)),
+                "\(attempt.kind) must refuse the id outright, never fall through to the fallback"
+            )
+        }
+
+        #expect(
+            AgentTranscriptOpener.open(
+                attempts: attempts,
+                executionPlan: .local,
+                reportedSessionID: "x\nrm -rf ~",
+                workingDirectory: "/tmp/repo",
+                store: store
+            ) == .failure(.unavailable(.invalidSessionID))
+        )
+    }
+
     /// "No transcript available" for all of them is a support ticket. Each
     /// outcome names a different thing the user can do about it.
     @Test("every failure outcome has its own non-empty description")

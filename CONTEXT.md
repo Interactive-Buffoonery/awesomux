@@ -29,6 +29,14 @@ are app-authored and not editable, but they are *local* — read-only here is
 **Resume**, which stages the provider's resume command in the adjacent terminal
 without submitting it. See [ADR 0032](docs/adr/0032-agent-transcripts-are-rendered-artifacts.md).
 
+A pane that has just exited its agent reports `.shell`, which names no provider, so
+the command **sweeps** every provider that keeps a readable log rather than refusing.
+Every attempt is resolved and the most recently modified match wins — never the first
+one that resolves, which would decide by `AgentKind` declaration order and hand a
+Codex user last week's Claude session. A sweep that lands on the working-directory
+fallback says so in the document *and* names the agent it matched, because there the
+guess spans agents as well as sessions.
+
 The review/comment workflow is intentionally file-backed. A document can carry
 one whole-document note plus any number of inline annotations. Selecting rendered
 text and adding an inline annotation writes a `<mark>...</mark><!-- AMX id=... -->`

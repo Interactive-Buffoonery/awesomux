@@ -454,6 +454,34 @@ struct AgentRuntimeEventProviderSessionIDTests {
         #expect(event.phase == .sessionStart)
     }
 
+    /// `UUID(uuidString:)` accepts either case, and three downstream consumers
+    /// compare the value literally: the importer's filename match, the
+    /// transcript cache's slot hash (an uppercase id would hash to a second
+    /// slot — duplicate file, duplicate tab), and the excluded-id membership
+    /// test. The field is remote-settable over the bridge, so it is folded once
+    /// at the shared gate every ingress passes through (review finding).
+    @Test("a session id is canonicalized to lowercase at the trust boundary")
+    func sessionIDIsCanonicalizedToLowercase() throws {
+        let event = try #require(
+            AgentRuntimeEvent.parse(
+                data: Self.line(providerSessionID: Self.sessionA.uppercased())
+            )
+        )
+        #expect(event.providerSessionID == Self.sessionA)
+
+        let folding: [AgentRuntimeSource] = [.claudeCode, .codex, .openCode, .pi, .unknown]
+        for source in folding {
+            #expect(
+                source.validatedProviderSessionID(Self.sessionA.uppercased()) == Self.sessionA,
+                "\(source) must not leave a second spelling of one session in play"
+            )
+        }
+        // Grok is exempt from the fold as well as the shape: its id format is
+        // unverified, so case-folding could merge two ids it means to be
+        // distinct.
+        #expect(AgentRuntimeSource.grok.validatedProviderSessionID("Grok-Parent") == "Grok-Parent")
+    }
+
     /// Grok's id format is unverified, so it keeps its pre-existing pass-through
     /// (single token only) rather than gaining a UUID requirement that could
     /// silently disable its child-agent drop rule.

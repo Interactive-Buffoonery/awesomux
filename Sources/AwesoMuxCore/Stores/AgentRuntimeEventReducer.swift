@@ -347,8 +347,14 @@ struct AgentRuntimeEventReducer: Sendable {
             // outright. The residual gap is a pane that has already superseded
             // once and is killed MID-turn: that synthetic end is dropped as
             // unproven, and neither signal here fires, so the dead id survives
-            // until the next clean lifecycle. Revisit if the app ever hands the
-            // reducer a liveness signal it can trust on its own.
+            // until the next clean lifecycle. The surviving id is not merely
+            // stale, either — it then ACTS as proof: the `sessionEnd` guard
+            // above matches the dead session's own buffered end against it,
+            // reads that as "provably this session", and resets a live pane to
+            // `.shell`. Self-heals on the pane's next prompt or tool event, and
+            // not worth widening `isBetweenTurns` for, which is load-bearing
+            // against nested `claude -p` children. Revisit if the app ever
+            // hands the reducer a liveness signal it can trust on its own.
             if wasSessionEnded || wasLifecycleStopped || state.isBetweenTurns {
                 state.providerSessionID = nil
             }

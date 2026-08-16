@@ -193,8 +193,11 @@ public enum AgentTranscriptRenderer {
         while true {
             let tail: Data
             let startOffset: UInt64
+            let precedingByte: UInt8?
             do {
-                (tail, startOffset) = try transcript.handle.readSuffix(maximumBytes: window)
+                (tail, startOffset, precedingByte) = try transcript.handle.readSuffix(
+                    maximumBytes: window
+                )
             } catch {
                 return .failure(.unreadable(error))
             }
@@ -209,6 +212,9 @@ public enum AgentTranscriptRenderer {
                 // zero, and the stale comparison would drop a whole first
                 // record and claim turns were omitted that never existed.
                 hasEarlierBytes: startOffset > 0,
+                // A window that begins right after a newline begins on a whole
+                // record, so there is no leading fragment to drop.
+                startsOnRecordBoundary: precedingByte == UInt8(ascii: "\n"),
                 // The pure render accounts for what it drops only when there
                 // will be no wider window to try.
                 isFinalWindow: exhausted,
@@ -245,6 +251,8 @@ public enum AgentTranscriptRenderer {
     /// so a full budget truncates at the *start* of the document, on a whole
     /// record boundary, never mid-turn at the end.
     ///
+    /// - Parameter startsOnRecordBoundary: Whether the window begins where a
+    ///   record does. Only meaningful alongside `hasEarlierBytes`.
     /// - Parameter isFinalWindow: Whether the caller can still widen the window.
     ///   When it cannot, a pass that rendered nothing must say what it dropped
     ///   instead of returning an empty document.
@@ -254,6 +262,7 @@ public enum AgentTranscriptRenderer {
         chrome: Chrome,
         sessionID: String,
         hasEarlierBytes: Bool,
+        startsOnRecordBoundary: Bool = false,
         isFinalWindow: Bool,
         budgetBytes: Int
     ) -> Rendered {
@@ -271,13 +280,17 @@ public enum AgentTranscriptRenderer {
         var remaining = budgetBytes - reserved
 
         var lines = jsonlTail.split(separator: UInt8(ascii: "\n"))
-        // The window starts mid-file, so its first line is a fragment. There is
-        // no way to tell a fragment from a whole line without reading the byte
-        // before the window, and losing one already-old turn is cheaper than a
-        // second read. Its length is kept because it is the only evidence left
-        // of a record the window could not contain.
+        // A window that starts mid-file usually starts mid-record, so its first
+        // line is a fragment and is dropped. `startsOnRecordBoundary` is the
+        // reader's one-byte answer to "did it, though": `Data.split` omits
+        // empty subsequences, so a window landing exactly after a newline
+        // yields a COMPLETE first record, and dropping it would both lose a
+        // renderable turn and report its size as an oversize record that could
+        // not be displayed. One extra `pread` is cheaper than that lie.
+        // The fragment's length is kept because it is the only evidence left of
+        // a record the window could not contain.
         var droppedFragmentBytes: Int?
-        if hasEarlierBytes, !lines.isEmpty {
+        if hasEarlierBytes, !startsOnRecordBoundary, !lines.isEmpty {
             droppedFragmentBytes = lines.removeFirst().count
         }
 

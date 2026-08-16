@@ -63,7 +63,30 @@ full root only if it misses; Codex records the directory inside the file, so its
 tree is scanned whole under a byte budget with a smaller per-candidate probe. The
 fallback also skips session ids already latched to *other* panes — two panes in
 one directory both match on `cwd`, and the neighbour's transcript is newer
-precisely because its agent is writing to it.
+precisely because its agent is writing to it. That exclusion covers only panes
+that have emitted a hook event since the latch was built, and latches are
+runtime-only: right after a relaunch, two idle reattached agents in one directory
+exclude nothing from each other, and the provenance sentence is what stands
+between the user and the wrong session.
+
+**A pane that no longer names its provider sweeps every provider, and the newest
+match wins.** `sessionEnd` resets a pane to `.shell`, which is the most natural
+moment to read a transcript back — the agent has just exited and taken its
+scrollback with it — and also the one moment the pane cannot say which provider
+ran. So `AgentTranscriptPaneInputs.resolutionAttempts` returns every provider that
+keeps a readable log, and `AgentTranscriptOpener` resolves **all** of them and
+renders the one whose log was modified most recently. This is a user-visible
+resolution rule, and it can present provider A's session for a pane that ran
+provider B: modification date is the only evidence available once the pane's own
+answer is gone. Stopping at the first attempt that resolved would be worse and
+silent — it would decide by `AgentKind` declaration order, so for anyone who runs
+both CLIs in one repository "Claude ran here once" would beat "Codex ran here
+thirty seconds ago", head the document "Claude Code transcript", and stage
+`claude --resume` into a terminal that had been running Codex. Cheap enough to do
+unconditionally: each attempt is the resolution the first-hit sweep already
+performed, on the same detached task, and only the winner is read and rendered.
+Because the guess now spans agents as well as sessions, the fallback's provenance
+sentence names the agent it matched.
 
 `AgentTranscriptIdentity` re-runs the UUID gate and an explicit provider
 allowlist, so the Grok exemption in `validatedProviderSessionID` (documented in

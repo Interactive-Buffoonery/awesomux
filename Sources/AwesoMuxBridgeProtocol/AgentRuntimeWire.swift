@@ -62,12 +62,29 @@ public enum AgentRuntimeSource: String, Codable, Sendable {
     /// *is* its session id, and Codex's `session_meta.payload.id` is a UUIDv7
     /// matching its rollout filename — so the UUID shape is the whole gate.
     ///
-    /// ponytail: `.grok` is exempt from the UUID shape and only has to be a
-    /// single whitespace-free token. Its real id format is unverified here and
-    /// the value is used solely for equality (the child-agent drop rule), so a
-    /// tighter gate would silently disable that rule rather than harden it.
-    /// Tighten it once a real Grok id is observed, or the moment anything
-    /// consumes a Grok session id as a path or a command.
+    /// This is also the one place a provider id is put into canonical form, and
+    /// it has to be: `UUID(uuidString:)` accepts either case, while three
+    /// downstream consumers compare the value literally — the importer's
+    /// filename match, the transcript cache's slot hash (an uppercase id would
+    /// hash to a second slot, producing a duplicate file and a duplicate tab
+    /// for one session), and the excluded-id membership test. Every path that
+    /// can set the field from outside the app — the hook producer, the
+    /// same-UID-writable event file, and the bridge — passes through here, so
+    /// normalising once here is enough and no consumer re-folds. Lowercase
+    /// rather than `UUID.uuidString`'s uppercase, because both providers write
+    /// lowercase and the filename on disk is what a lookup has to match.
+    ///
+    /// ponytail: `.grok` is exempt from both the UUID shape and the case fold,
+    /// and only has to be a single whitespace-free token. Its real id format is
+    /// unverified here, so folding case could merge two ids that the provider
+    /// means to be distinct. The value is used solely for equality — the
+    /// child-agent drop rule, and now also the transcript fallback's
+    /// excluded-id set — so a tighter gate would silently disable those rather
+    /// than harden them. The tripwire is unchanged: tighten this once a real
+    /// Grok id is observed, or the moment anything consumes a Grok session id
+    /// as a path or a command. (`AgentTranscriptImporter.Provider` and
+    /// `AgentTranscriptIdentity` both reject `.grok` outright, which is what
+    /// keeps that from happening by accident.)
     public func validatedProviderSessionID(_ raw: String?) -> String? {
         guard let raw, raw.utf8.count <= Self.maximumProviderSessionIDByteCount else {
             return nil
@@ -77,7 +94,8 @@ public enum AgentRuntimeSource: String, Codable, Sendable {
         guard self != .grok else {
             return trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil ? trimmed : nil
         }
-        return UUID(uuidString: trimmed) == nil ? nil : trimmed
+        guard UUID(uuidString: trimmed) != nil else { return nil }
+        return trimmed.lowercased()
     }
 }
 

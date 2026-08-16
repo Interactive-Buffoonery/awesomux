@@ -80,22 +80,22 @@ struct FileManagerOwnerOnlyTests {
         #expect(try permissions(atPath: file.path) == 0o600)
     }
 
-    @Test("validating without creating clamps nothing and refuses a widened directory")
-    func validatingWithoutCreatingRefusesAWidenedDirectory() throws {
+    @Test("validating without creating clamps nothing and refuses a writable directory")
+    func validatingWithoutCreatingRefusesAWritableDirectory() throws {
         let scratch = try makeScratchDirectory()
         defer { try? fileManager.removeItem(at: scratch) }
         let directory = scratch.appending(path: "cache", directoryHint: .isDirectory)
         try fileManager.createDirectory(
             at: directory,
             withIntermediateDirectories: false,
-            attributes: [.posixPermissions: 0o755]
+            attributes: [.posixPermissions: 0o775]
         )
 
-        // A read-only caller cannot re-clamp, so handing it a cache an older
-        // build or the user left group- and world-readable would be handing it
-        // exactly the exposure the clamp exists to prevent.
+        // Group- or world-WRITABLE is the refusal: it turns the prune into a
+        // delete primitive another local user steers, and lets them plant a
+        // symlink at a slot name. A read-only caller cannot re-clamp it away.
         #expect(fileManager.validatedOwnerOnlyDirectory(at: directory, createIfMissing: false) == nil)
-        #expect(try permissions(atPath: directory.path) == 0o755)
+        #expect(try permissions(atPath: directory.path) == 0o775)
 
         // The creating caller does re-clamp, and then the read-only caller is
         // satisfied by the same directory.
@@ -105,6 +105,28 @@ struct FileManagerOwnerOnlyTests {
             fileManager.validatedOwnerOnlyDirectory(at: directory, createIfMissing: false)
                 == directory
         )
+    }
+
+    /// Readability is not the hazard: every file inside is `0o600` and every
+    /// name is a hash prefix. Refusing a merely-readable directory would stop
+    /// the PRUNE as well as the read, leaving stale plaintext on disk longer —
+    /// so the check costs the thing it claims to protect (review finding).
+    @Test("validating without creating accepts a readable-but-not-writable directory")
+    func validatingWithoutCreatingAcceptsAReadableDirectory() throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? fileManager.removeItem(at: scratch) }
+        let directory = scratch.appending(path: "legacy-cache", directoryHint: .isDirectory)
+        try fileManager.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o755]
+        )
+
+        #expect(
+            fileManager.validatedOwnerOnlyDirectory(at: directory, createIfMissing: false)
+                == directory
+        )
+        #expect(try permissions(atPath: directory.path) == 0o755, "a read-only caller clamps nothing")
     }
 
     @Test("validating without creating refuses a missing directory rather than making one")

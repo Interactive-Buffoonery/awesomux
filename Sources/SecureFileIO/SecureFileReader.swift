@@ -88,23 +88,32 @@ public final class SecureFileReadHandle: @unchecked Sendable {
     /// the caller chose rather than a limit the file must respect, so a longer
     /// file is the expected case, not `.tooLarge`.
     ///
-    /// The window is anchored to the size captured at `open`, so bytes appended
-    /// after that are not read. That is deliberate: the descriptor's validated
-    /// size is the only length this handle can vouch for.
+    /// The window is anchored to the SMALLER of the size captured at `open` and
+    /// the file's length right now. Bytes appended after `open` are still not
+    /// read — the validated size is the only length this handle can vouch for —
+    /// but a file that shrank is followed down, because the stale size would
+    /// otherwise put the whole window past EOF and return nothing at all.
     ///
-    /// - Returns: The bytes read, and the offset they were read from.
+    /// - Returns: The bytes read, the offset they were read from, and the byte
+    ///   immediately before that offset (`nil` at offset zero).
+    ///
     ///   `startOffset > 0` is the only sound test for "earlier bytes were
-    ///   skipped", and therefore for "the first line here is a fragment":
-    ///   inferring it by comparing `size` against the returned count is wrong
-    ///   whenever the file was truncated between `open` and this read, which
-    ///   returns short from offset zero with nothing skipped at all.
+    ///   skipped": inferring it by comparing `size` against the returned count
+    ///   is wrong whenever the file was truncated between `open` and this read,
+    ///   which returns short from offset zero with nothing skipped at all.
+    ///
+    ///   `precedingByte` is what a line-oriented caller needs to separate "the
+    ///   window landed mid-record" from "the window landed exactly on a record
+    ///   separator". The reader hands the byte over rather than interpreting
+    ///   it, so nothing about record framing lives in here.
     public func readSuffix(
         maximumBytes: Int
-    ) throws(SecureFileReadError) -> (data: Data, startOffset: UInt64) {
+    ) throws(SecureFileReadError) -> (data: Data, startOffset: UInt64, precedingByte: UInt8?) {
         guard maximumBytes >= 0 else {
             throw .unreadable
         }
-        let start = size > UInt64(maximumBytes) ? size - UInt64(maximumBytes) : 0
+        let anchor = min(size, currentSize())
+        let start = anchor > UInt64(maximumBytes) ? anchor - UInt64(maximumBytes) : 0
         guard start <= UInt64(off_t.max) else {
             throw .unreadable
         }
@@ -114,7 +123,25 @@ public final class SecureFileReadHandle: @unchecked Sendable {
             startingAt: off_t(start),
             rejectingOverflow: false
         )
-        return (data, start)
+        return (data, start, start == 0 ? nil : byte(at: off_t(start) - 1))
+    }
+
+    /// The file's length as of now. Falls back to the size validated at `open`
+    /// when `fstat` fails, so a failed probe leaves the window where it already
+    /// was rather than collapsing it to zero.
+    private func currentSize() -> UInt64 {
+        var status = stat()
+        guard fstat(descriptor, &status) == 0, status.st_size >= 0 else { return size }
+        return UInt64(status.st_size)
+    }
+
+    private func byte(at offset: off_t) -> UInt8? {
+        var value: UInt8 = 0
+        while true {
+            let bytesRead = pread(descriptor, &value, 1, offset)
+            if bytesRead < 0, errno == EINTR { continue }
+            return bytesRead == 1 ? value : nil
+        }
     }
 
     package var isCloseOnExec: Bool {

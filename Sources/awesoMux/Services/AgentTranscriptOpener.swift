@@ -40,6 +40,7 @@ enum AgentTranscriptOpenFailure: Error, Equatable, Sendable {
 /// detached task and only touch the store with the result.
 enum AgentTranscriptOpener {
 
+    /// Resolves a pane that still names its own provider.
     static func open(
         agentKind: AgentKind,
         executionPlan: PaneExecutionPlan,
@@ -49,20 +50,71 @@ enum AgentTranscriptOpener {
         excludedSessionIDs: Set<String> = [],
         store: AgentTranscriptStore = AgentTranscriptStore()
     ) -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> {
-        let opened = AgentTranscriptImporter.open(
-            agentKind: agentKind,
+        open(
+            attempts: [(kind: agentKind, configHome: configHome)],
             executionPlan: executionPlan,
-            configHome: configHome,
             reportedSessionID: reportedSessionID,
             workingDirectory: workingDirectory,
-            excludedSessionIDs: excludedSessionIDs
+            excludedSessionIDs: excludedSessionIDs,
+            store: store
         )
-        let transcript: AgentTranscript
-        switch opened {
-        case .success(let resolved): transcript = resolved
-        case .failure(let reason): return .failure(.unavailable(reason))
-        }
+    }
 
+    /// Resolves every attempt and renders the most recently modified match.
+    ///
+    /// The sweep exists for a `.shell` pane, where `sessionEnd` has already
+    /// taken the provider name with it and both providers have to be tried.
+    /// Stopping at the first attempt that resolves would decide that question
+    /// by `AgentKind` declaration order: for a maintainer who runs both CLIs in
+    /// one repository, "Claude ran here once" would beat "Codex ran here thirty
+    /// seconds ago", and Resume would then stage `claude --resume` into a
+    /// terminal that had been running Codex. Modification date is the only
+    /// evidence available about which one the user just exited.
+    ///
+    /// Cheap enough to do unconditionally: each attempt is the resolution the
+    /// first-hit sweep already performed, on the same detached task, and only
+    /// the winner is read, rendered, and written.
+    static func open(
+        attempts: [(kind: AgentKind, configHome: URL)],
+        executionPlan: PaneExecutionPlan,
+        reportedSessionID: String?,
+        workingDirectory: String?,
+        excludedSessionIDs: Set<String> = [],
+        store: AgentTranscriptStore = AgentTranscriptStore()
+    ) -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> {
+        var best: (transcript: AgentTranscript, modified: Date)?
+        var firstFailure: AgentTranscriptUnavailable?
+        for attempt in attempts {
+            switch AgentTranscriptImporter.open(
+                agentKind: attempt.kind,
+                executionPlan: executionPlan,
+                configHome: attempt.configHome,
+                reportedSessionID: reportedSessionID,
+                workingDirectory: workingDirectory,
+                excludedSessionIDs: excludedSessionIDs
+            ) {
+            case .failure(let reason):
+                firstFailure = firstFailure ?? reason
+            case .success(let resolved):
+                let modified =
+                    (try? resolved.resolvedURL.resourceValues(
+                        forKeys: [.contentModificationDateKey]
+                    ).contentModificationDate) ?? .distantPast
+                if best.map({ modified > $0.modified }) ?? true {
+                    best = (resolved, modified)
+                }
+            }
+        }
+        guard let best else {
+            return .failure(.unavailable(firstFailure ?? .notFound))
+        }
+        return render(best.transcript, store: store)
+    }
+
+    private static func render(
+        _ transcript: AgentTranscript,
+        store: AgentTranscriptStore
+    ) -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> {
         // The importer's allowlist and the identity's are the same list, so
         // this cannot fail for a transcript the importer just returned.
         guard let identity = AgentTranscriptIdentity(transcript) else {
@@ -176,19 +228,25 @@ enum AgentTranscriptOpener {
                         "Notice for an agent transcript record so large that only its tail fell inside the window, so its size is a lower bound"
                 )
             },
-            provenanceNotice: provenanceNotice(for: resolution)
+            provenanceNotice: provenanceNotice(for: resolution, agentKind: agentKind)
         )
     }
 
     /// The document's own admission that it may be the wrong session.
     ///
     /// The working-directory fallback fires exactly when awesoMux has no id for
-    /// the pane — after a relaunch, with the agent still alive. It matches a
+    /// the pane — after a relaunch, with the agent still alive, or right after
+    /// the agent exited and took the pane's provider name with it. It matches a
     /// directory, and a directory can hold several sessions, including one live
     /// in the pane next door. Nil for a reported id, where there is nothing to
     /// qualify.
+    ///
+    /// It names the agent because the pane may no longer be able to: a `.shell`
+    /// pane sweeps both providers, so the guess spans agents as well as
+    /// sessions, and "a different session" would understate it.
     private static func provenanceNotice(
-        for resolution: AgentTranscript.Resolution
+        for resolution: AgentTranscript.Resolution,
+        agentKind: AgentKind
     ) -> String? {
         switch resolution {
         case .reportedSessionID:
@@ -196,7 +254,7 @@ enum AgentTranscriptOpener {
         case .workingDirectoryFallback:
             return String(
                 localized:
-                    "This pane hasn't reported a session yet, so awesoMux matched the most recent transcript recorded for its working directory. It may belong to a different session.",
+                    "This pane hasn't reported a session yet, so awesoMux matched the most recent \(agentKind.displayName) transcript recorded for its working directory. It may belong to a different session, or to a different agent than the one you were running here.",
                 comment:
                     "Notice in a rendered agent transcript when the session was matched by working directory instead of a reported session id"
             )

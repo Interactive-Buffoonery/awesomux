@@ -52,9 +52,19 @@ extension FileManager {
     ///
     /// A `createIfMissing: false` caller does not re-clamp — a read-only caller
     /// has no business widening or narrowing a directory it did not make — so it
-    /// instead *refuses* a directory that any group or other bit is set on.
-    /// Returning a world-readable cache to a caller that cannot fix it would
-    /// hand back exactly the exposure the clamp exists to prevent.
+    /// instead *refuses* a directory that is group- or world-WRITABLE. That is
+    /// the bit that matters: a writable cache root lets another local user
+    /// steer the prune into deleting files it did not choose, and lets them
+    /// plant a symlink at a slot name before this process writes it.
+    ///
+    /// The readable bits are deliberately tolerated here. Every file inside is
+    /// `0o600` and every slot name is a 128-bit SHA-256 prefix, so a readable
+    /// directory discloses nothing the file mode does not already withhold —
+    /// while refusing it stops the PRUNE as well as the read, leaving stale
+    /// plaintext transcripts on disk for longer. Refusing on readability costs
+    /// the very thing it claims to protect, and it is self-healing anyway: the
+    /// next `createIfMissing: true` write re-clamps to `0o700`. An upgrading
+    /// user whose cache predates the clamp keeps a working prune.
     ///
     /// - Returns: `url`, or `nil` if any check failed. `nil` means "do not read
     ///   or write here" — never "retry unchecked".
@@ -84,7 +94,7 @@ extension FileManager {
         } else {
             guard
                 let mode = (try? attributesOfItem(atPath: url.path))?[.posixPermissions] as? NSNumber,
-                mode.intValue & 0o077 == 0
+                mode.intValue & 0o022 == 0
             else {
                 return nil
             }

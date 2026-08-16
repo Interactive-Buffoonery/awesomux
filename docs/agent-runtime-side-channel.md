@@ -306,13 +306,21 @@ value that fails is stripped from the event; the event itself still applies,
 because the lifecycle transition it carries is load-bearing and the id is not.
 Claude Code and Codex both report UUIDs, and in both cases the id *is* the
 transcript filename, which is what makes a validated id safe to resolve a log
-path from.
+path from. A validated non-Grok id is also **lowercased** there, because
+`UUID(uuidString:)` accepts either case while every consumer compares the value
+literally — the transcript filename match, the rendered-transcript cache's slot
+hash, and the excluded-id set. Folding once at the shared gate is what keeps one
+session from occupying two cache slots and two tabs.
 
 **`grok` is deliberately exempt** from the UUID shape — its real id format is
 unverified, so a Grok id only has to be a non-empty whitespace-free token within
 the same length ceiling. That exemption is load-bearing in one direction only:
 **a Grok session id must never reach a filesystem path or a staged command.**
-Grok's id is compared for equality and nothing else. `AgentTranscriptIdentity`
+Grok's id is compared for equality and nothing else — by the child-agent drop
+rule, and now also by the transcript fallback's excluded-id set, which never
+turns a Grok id into a path because the fallback rejects the provider first. The
+exemption covers the case fold too: folding an id whose format is unverified
+could merge two the provider means to keep apart. `AgentTranscriptIdentity`
 enforces this independently by requiring a UUID and an allowlisted provider, so
 a future consumer that forgets cannot get a Grok id through it. Tighten
 `validatedProviderSessionID` for Grok before adding any consumer that does more

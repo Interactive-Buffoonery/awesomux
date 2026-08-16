@@ -165,13 +165,28 @@ public enum AgentTranscriptImporter {
         }
 
         /// Bytes to read when probing a candidate for its recorded working
-        /// directory. Claude puts `cwd` on the first `user` record, which a
-        /// `file-history-snapshot` can push far in; Codex puts it on the first
-        /// `session_meta` line, measured across 800 real rollouts at p50 22 KB,
-        /// p99 27 KB, max 44 KB.
+        /// directory.
+        ///
+        /// Deliberately NOT `headByteCount`. That constant is sized for
+        /// `openBySessionID`'s conversation tie-break, which the fallback never
+        /// consults, and spending it here bought nothing while capping the scan
+        /// at `fallbackScanByteBudget / 256 KiB` ≈ 256 candidates — barely
+        /// better than the file count it replaced, and short of a 324-file
+        /// Claude corpus in one pass.
+        ///
+        /// Claude carries `cwd` on every record, so the probe only has to reach
+        /// the first parseable one: measured across 324 real transcripts, the
+        /// worst case is 11,766 bytes (p99 11,004), so 32 KiB is 2.7× the
+        /// observed maximum and still reaches ~2,048 candidates. Codex puts it
+        /// on the first `session_meta` line, measured across 800 real rollouts
+        /// at p50 22 KB, p99 27 KB, max 44 KB.
+        ///
+        /// ponytail: a fixed probe per provider. A candidate whose first
+        /// parseable record falls past it is skipped, never mismatched. Raise
+        /// the provider's number if a corpus ever shows one.
         var workingDirectoryProbeByteCount: Int {
             switch self {
-            case .claudeCode: headByteCount
+            case .claudeCode: 32 * 1024
             case .codex: 64 * 1024
             }
         }
@@ -227,9 +242,19 @@ public enum AgentTranscriptImporter {
     ///     Only the working-directory fallback consults them, and it is the one
     ///     signal that separates this pane's session from a neighbour's: two
     ///     panes in one directory both match on `cwd`, and the neighbour is
-    ///     newer precisely because its agent is writing right now. A pane whose
-    ///     agent has emitted anything since the relaunch has a latched id; that
-    ///     id belongs to that pane and to no other.
+    ///     newer precisely because its agent is writing right now.
+    ///
+    ///     Precondition, stated honestly because it is narrower than it looks:
+    ///     this only excludes a neighbour that has emitted a hook event SINCE
+    ///     the latch was built. Latches are runtime-only and rebuilt empty on
+    ///     relaunch, so immediately after one — the window this fallback exists
+    ///     to serve — the set is empty for every pane whose reattached agent is
+    ///     sitting idle. Two idle reattached agents in one directory are then a
+    ///     coin flip on modification date, and the only thing standing between
+    ///     the user and the wrong session is the provenance notice the document
+    ///     carries. Closing that would take a confirmation before Resume stages
+    ///     a `.workingDirectoryFallback`-resolved id, which is a UX decision,
+    ///     not a resolution one.
     public static func open(
         agentKind: AgentKind,
         executionPlan: PaneExecutionPlan,
