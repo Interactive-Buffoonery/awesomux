@@ -46,7 +46,7 @@ Everything scoped to a pane inside the selected workspace: splits, close/rename,
 | ⌥⌘- | Shrink Active Pane | Requires multiple panes |
 | ⌥⌘[ | Previous Pane | Requires multiple panes |
 | ⌥⌘] | Next Pane | Requires multiple panes |
-| ⌥⌘1…⌥⌘9 | Focus Pane 1…9 | Rows appear only in multi-pane workspaces, and each is disabled past the live pane count so an out-of-range chord never silently no-ops |
+| ⌥⌘1…⌥⌘6 | Focus Pane 1…6 | All six rows are always present, each disabled past the live pane count. Same reasoning as the ⌘1…⌘9 jump rows — an unrendered row would release its chord. Stops at six because that is already past comfortable pane density; splits themselves are unbounded, and **Previous / Next Pane** reach anything beyond six. Targeting the pane that is *already* active is a no-op today (see [#378](https://github.com/Interactive-Buffoonery/awesomux/issues/378)) |
 | ⌥⌘↑ ⌥⌘↓ ⌥⌘← ⌥⌘→ | Move Pane Up / Down / Left / Right | Moves the active pane to that workspace edge; disabled when the move would be a no-op |
 | ⌥⌘S | Swap Pane With Next | Keyboard parity for the center-zone drag-swap |
 | ⌃⌘[ | Previous Document Tab | Requires multiple document tabs |

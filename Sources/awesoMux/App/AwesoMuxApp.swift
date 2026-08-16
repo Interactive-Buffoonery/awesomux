@@ -1172,26 +1172,28 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextPane))
                 .disabled(!selectedSessionHasMultiplePanes)
 
-                if selectedSessionHasMultiplePanes {
-                    ForEach(
-                        Array(shortcuts(KeyboardShortcutCatalog.focusPaneBindings).enumerated()),
-                        id: \.element.id
-                    ) { offset, binding in
-                        // The bindings are built from `(1...9)` in order, so the
-                        // 0-based enumeration offset maps to pane index N = offset + 1.
-                        // Compute it once rather than scatter `offset + 1`.
-                        let paneIndex = offset + 1
-                        Button(binding.action) {
-                            if sessionStore.focusPane(at: paneIndex) {
-                                announcePaneFocused(index: paneIndex)
-                            }
+                // Always render every slot. Per ADR-0002 SwiftUI claims a chord
+                // even when the command is disabled, so a rendered row is how
+                // awesoMux holds ⌥⌘N; dropping the row hands the chord to
+                // libghostty. Matches the ⌘1–9 workspace jump rows above.
+                ForEach(
+                    Array(shortcuts(KeyboardShortcutCatalog.focusPaneBindings).enumerated()),
+                    id: \.element.id
+                ) { offset, binding in
+                    // The bindings are built from a `1...n` range in order, so the
+                    // 0-based enumeration offset maps to pane index N = offset + 1.
+                    // Compute it once rather than scatter `offset + 1`.
+                    let paneIndex = offset + 1
+                    Button(binding.action) {
+                        if sessionStore.focusPane(at: paneIndex) {
+                            announcePaneFocused(index: paneIndex)
                         }
-                        .keyboardShortcut(binding)
-                        // Gate on the real pane count, not just "has multiple":
-                        // an enabled "Focus Pane 5" in a 3-pane session would
-                        // silently no-op and erode trust in the shortcut family.
-                        .disabled(paneIndex > selectedSessionPaneCount)
                     }
+                    .keyboardShortcut(binding)
+                    // Gate on the real pane count, not just "has multiple":
+                    // an enabled "Focus Pane 5" in a 3-pane session would
+                    // silently no-op and erode trust in the shortcut family.
+                    .disabled(paneIndex > selectedSessionPaneCount)
                 }
 
                 Divider()

@@ -503,6 +503,32 @@ struct PaletteCommandRegistryTests {
         #expect(!openInIDE.isEnabled)
     }
 
+    @Test("Focus Pane 1 stays enabled in a single-pane workspace")
+    @MainActor
+    func focusPaneOneEnabledWithoutSplits() throws {
+        // The Pane menu renders Focus Pane 1 enabled here, so the palette must
+        // agree. A `paneCount > 1` guard would silently disagree, and the
+        // sibling test below only covers a split workspace where both surfaces
+        // happen to match anyway.
+        let store = SessionStore(groups: [
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(title: "One", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
+                ])
+        ])
+        store.selectedSessionID = store.groups[0].sessions[0].id
+
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(),
+            actions: .noop
+        )
+
+        #expect(try #require(PaletteCommandRegistry.command(id: "focusPane1", in: commands)).isEnabled)
+        #expect(!((try #require(PaletteCommandRegistry.command(id: "focusPane2", in: commands))).isEnabled))
+    }
+
     @Test("Focus pane and jump workspace commands mirror menu enablement")
     @MainActor
     func dynamicCommandsMirrorMenuEnablement() throws {
