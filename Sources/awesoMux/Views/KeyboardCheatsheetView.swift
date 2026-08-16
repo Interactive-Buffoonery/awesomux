@@ -40,8 +40,10 @@ struct KeyboardCheatsheetView: View {
                 .fill(Color.aw.surface.chrome.opacity(0.97))
                 .awShadow(.overlay, rendering: .composited)
         }
+        // No container label: the title bar band carries this panel's identity,
+        // and labelling both announced it twice in a row. `children: .contain`
+        // stays — it groups, it does not name.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Keyboard shortcuts")
     }
 
     // The "Keyboard / Shortcuts" title block is gone entirely: the title bar

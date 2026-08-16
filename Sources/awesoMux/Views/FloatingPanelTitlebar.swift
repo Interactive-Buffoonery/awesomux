@@ -24,6 +24,11 @@ import SwiftUI
 /// them. Add the gesture to this band if panels ever become movable.
 struct FloatingPanelTitlebar: View {
     let title: String
+    /// Optional description of what the panel is for. It rides with the title
+    /// because this band is where the panel's identity now lives — the hosts
+    /// dropped their own container labels to stop VoiceOver announcing the
+    /// panel name twice, and a hint has to accompany a label to be read.
+    var hint: String?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -55,14 +60,21 @@ struct FloatingPanelTitlebar: View {
                 .fill(Color.aw.border2)
                 .frame(height: 0.5)
         }
-        // A heading, not decoration. Settings sets the same trait on the band
-        // element that carries its identity and hides only the second, echoing
-        // label (`SettingsShell.swift:119` and `:139`). Hiding this one too
-        // would leave the cheatsheet with no heading at all until a search
-        // matched something, so its Headings rotor would be empty on open.
+        // A heading, not decoration, and the panel's single accessible
+        // identity. Settings sets the same trait on the band element that
+        // carries its identity and hides only the second, echoing label
+        // (`SettingsShell.swift:119` and `:139`). Hiding this one instead would
+        // leave the cheatsheet with no heading at all until a search matched
+        // something, so its Headings rotor would be empty on open.
+        //
+        // The hosts deliberately carry no container label of their own: with
+        // one here and one there, entering the panel announced its name, then
+        // immediately announced it again as the first element inside. AppKit
+        // still reads the window title from `panel.title` on window focus.
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
+        .accessibilityHint(hint ?? "")
         .accessibilityAddTraits(.isHeader)
     }
 }

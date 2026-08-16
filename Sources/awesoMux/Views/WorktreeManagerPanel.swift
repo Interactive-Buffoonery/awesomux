@@ -54,10 +54,10 @@ struct WorktreeManagerPanel: View {
         // `FloatingSwiftUIPanelWindow.performClose` into the controller's
         // `dismiss()`, which carries the same in-flight-create guard the old
         // close button applied here.
+        // No container label: the title bar band carries this panel's identity,
+        // and labelling both announced it twice in a row. `children: .contain`
+        // stays — it groups, it does not name.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(
-            String(localized: "Worktree Manager", comment: "Worktree Manager panel accessibility label.")
-        )
         .sheet(isPresented: $isShowingCreateForm, onDismiss: model.resetCreateResult) {
             WorktreeCreateForm(model: model) { isShowingCreateForm = false }
                 .id(createFormPresentationToken)

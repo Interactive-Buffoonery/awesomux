@@ -192,6 +192,11 @@ struct SessionManagerPanel: View {
                 title: String(
                     localized: "Session Manager",
                     comment: "Session Manager panel title bar."
+                ),
+                hint: String(
+                    localized:
+                        "Background sessions. Pin a session to exempt it from auto-cleanup, or reap it to kill it.",
+                    comment: "Session Manager panel accessibility hint."
                 )
             )
             header
@@ -218,9 +223,11 @@ struct SessionManagerPanel: View {
                 reapSheetOverlay(sheetRow)
             }
         }
+        // No container label: `FloatingPanelTitlebar` carries this panel's
+        // identity and hint now, so labelling the container too made VoiceOver
+        // announce "Session Manager" on entry and again on the first element
+        // inside. `children: .contain` stays — it groups, it does not name.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Session Manager")
-        .accessibilityHint("Background sessions. Pin a session to exempt it from auto-cleanup, or reap it to kill it.")
     }
 
     // MARK: Header
