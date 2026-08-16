@@ -3415,7 +3415,15 @@ struct AwesoMuxApp: App {
                     String(
                         localized: "Pasted into this transcript's terminal — press Return there to resume",
                         comment: "VoiceOver announcement after staging a resume command into the associated terminal"
-                    )
+                    ),
+                    // `.high`, because staging changes the terminal's contents
+                    // and the surface posts `.valueChanged` for that in the same
+                    // breath. At `.medium` the content change won and a
+                    // VoiceOver user heard the command text read out with no
+                    // indication of what had happened to it — verified live.
+                    // This sentence carries the whole staged-not-run
+                    // distinction, which is the point of never auto-submitting.
+                    priority: .high
                 )
             case .alreadyStaging:
                 break

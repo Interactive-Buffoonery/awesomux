@@ -479,7 +479,12 @@ struct DocumentPaneSendBar: View {
                     String(
                         localized: "Pasted into this transcript's terminal — press Return there to resume",
                         comment: "VoiceOver announcement after staging a resume command into the associated terminal"
-                    )
+                    ),
+                    // See the matching call in `AwesoMuxApp`: at `.medium` the
+                    // terminal's own `.valueChanged` for the newly staged text
+                    // preempted this, so the user heard the command but not
+                    // that it was staged rather than run.
+                    priority: .high
                 )
             case .alreadyStaging:
                 // The menu command owns this document's send. Reporting a
