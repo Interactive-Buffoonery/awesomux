@@ -38,7 +38,7 @@ Payload fields:
 | `documentPath` | No | Absolute local Markdown path for a `phase=open-document` event. Only `.md` and `.markdown` paths are accepted. Relative paths, paths containing NUL, and events over the 4 KB line cap are dropped. |
 | `touchedPath` | No | Absolute local Markdown file a Claude Code tool just wrote/edited, forwarded so it can be recorded into the pane's recent links (issue #175). Retained only on a `source=claude-code`, `phase=toolEnd` event; the parser strips it on any other source or phase, and on relative, non-Markdown, NUL-bearing, or bidi/RTL-scalar paths. Unlike `documentPath` it does not open a pane — it records a link the user can open from the palette. |
 | `eventID` | No | Adapter-defined identifier, paired with `timestamp` for dedupe |
-| `providerSessionID` | No | Provider-native session id, currently used to keep Grok child-agent lifecycle events from driving the parent tile |
+| `providerSessionID` | No | Validated provider-native session id used to distinguish lifecycle events and identify the active provider session |
 | `timestamp` | No | ISO-8601 string or numeric Unix seconds (integer or float). Helper-generated timestamps are numeric Unix seconds with fractional precision; consumers should not require nanosecond precision. |
 
 Unknown extra fields are ignored. Unrecognized `source` values parse as
@@ -59,11 +59,14 @@ retries and out-of-order delivery. Future-dated timestamps are clamped to
 
 Lifecycle boundaries add an ordering guard that does not depend on timestamps.
 When a pane receives `Stop`, then a newer `SessionStart`, a delayed
-`SessionEnd` from the stopped lifecycle cannot reset the newer agent. Grok's
-provider session id identifies the old end directly when present; providers or
-events without stable session ids use the Stop/Start boundary. The newer
-lifecycle's own `SessionEnd` still applies after its `Stop`, including when
-timestamps are equal or absent.
+`SessionEnd` from the stopped lifecycle cannot reset the newer agent. Two rules
+decide this, and they have different scopes. Two ids that disagree drop the end
+in any lifecycle state because it provably came from another session. An end
+that neither side can prove, because either id is missing, is dropped only for
+a superseded-but-not-stopped lifecycle. Providers without stable session ids
+therefore still rely on the Stop/Start boundary. The newer lifecycle's own
+`SessionEnd` still applies after its `Stop`, including when timestamps are equal
+or absent.
 
 The same arrival-order boundary protects a `SessionStart` that revives a pane
 after a buffered `SessionEnd`: a delayed end from the prior lifecycle is ignored
@@ -223,14 +226,15 @@ from stdin:
 
 The helper reads the top-level `hook_event_name`, with `hookEventName` accepted
 for Grok's documented script payload shape, and for Claude Code notifications,
-`notification_type`. For Grok it also preserves `session_id` as
-`providerSessionID`, while continuing to accept `sessionId` payloads from older
-local plugin installs and Grok's script-contract examples. It maps those fields
-to the runtime event protocol, generates `eventID` and numeric Unix-seconds
-`timestamp`, and appends one compact JSONL line to
-`AWESOMUX_AGENT_EVENT_FILE`. It exits successfully and writes nothing to stdout
-or stderr for unsupported providers, unknown hook events, invalid stdin, missing
-environment, or append failures.
+`notification_type`. It preserves `session_id` as `providerSessionID` for every
+provider, while continuing to accept `sessionId` payloads from older local
+plugin installs and Grok's script-contract examples. Claude Code and Codex ids
+must be UUIDs; OpenCode ids use its `ses_` form; Pi accepts its documented safe
+custom-id grammar. The helper maps those fields to the runtime event protocol,
+generates `eventID` and numeric Unix-seconds `timestamp`, and appends one compact
+JSONL line to `AWESOMUX_AGENT_EVENT_FILE`. It exits successfully and writes
+nothing to stdout or stderr for unsupported providers, unknown hook events,
+invalid stdin, missing environment, or append failures.
 
 Hook mode does not create missing event files. awesoMux creates each pane's
 event file before advertising the environment. The helper opens that existing

@@ -18,7 +18,7 @@ struct BridgeEnvelopeTests {
                     execution: .thinking,
                     attentionReason: nil,
                     phase: .toolStart,
-                    providerSessionID: "provider-1",
+                    providerSessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
                     eventID: "abc123"
                 )
             )
@@ -170,6 +170,70 @@ struct BridgeEnvelopeTests {
         #expect(throws: (any Error).self) {
             try envelope.encodedLine()
         }
+    }
+
+    // MARK: - Provider session id
+
+    /// A remote host is an input to `providerSessionID`, and downstream the
+    /// value becomes a filename component and staged terminal text. A hostile
+    /// one is stripped, but the frame's status transition still applies —
+    /// otherwise a bad id would be a way to suppress the transition entirely.
+    @Test(arguments: ["evil\\nrm -rf ~", "../../../tmp/evil", "not-a-uuid"])
+    func hostileProviderSessionIDIsStrippedFromAgentStatus(rawSessionID: String) throws {
+        let line =
+            #"{"v":1,"type":"agent-status","token":"tok","session":"sess","id":"id9","ts":1700000000,"source":"claude-code","execution":"thinking","providerSessionID":"\#(rawSessionID)"}"#
+
+        let decoded = try #require(BridgeEnvelope.parse(line: line))
+        guard case .agentStatus(let status) = decoded.message else {
+            Issue.record("expected .agentStatus")
+            return
+        }
+        #expect(status.providerSessionID == nil)
+        #expect(status.execution == .thinking)
+    }
+
+    /// Same rule one layer earlier: a WRONG-TYPED id (a helper that emits a
+    /// number, or an array) must cost the field, not the frame. A strict
+    /// `String?` threw out of the whole `Wire` decode, so a remote host could
+    /// suppress a lifecycle transition just by mistyping one value — while the
+    /// local event-file path (`AgentRuntimeEvent.Payload`) let it through.
+    @Test(arguments: ["42", "[\"a\"]", "{\"id\":\"a\"}", "true", "null"])
+    func wrongTypedProviderSessionIDStripsTheFieldNotTheFrame(rawSessionID: String) throws {
+        let line =
+            #"{"v":1,"type":"agent-status","token":"tok","session":"sess","id":"id9b","ts":1700000000,"source":"claude-code","execution":"thinking","phase":"stop","providerSessionID":\#(rawSessionID)}"#
+
+        let decoded = try #require(BridgeEnvelope.parse(line: line))
+        guard case .agentStatus(let status) = decoded.message else {
+            Issue.record("expected .agentStatus")
+            return
+        }
+        #expect(status.providerSessionID == nil)
+        #expect(status.execution == .thinking)
+        #expect(status.phase == .stop)
+    }
+
+    /// The lenient wrapper must not change the wire shape: the id still
+    /// encodes as a bare JSON string, and an absent one still omits the key.
+    @Test
+    func providerSessionIDStillEncodesAsABareString() throws {
+        let withID = BridgeEnvelope(
+            token: "tok", session: "sess", id: "id9c", ts: 1_700_000_000,
+            message: .agentStatus(
+                AgentStatus(
+                    source: .claudeCode,
+                    execution: .thinking,
+                    providerSessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+                )
+            )
+        )
+        let line = try withID.encodedLine()
+        #expect(line.contains(#""providerSessionID":"3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d""#))
+
+        let withoutID = BridgeEnvelope(
+            token: "tok", session: "sess", id: "id9d", ts: 1_700_000_000,
+            message: .agentStatus(AgentStatus(source: .claudeCode, execution: .thinking))
+        )
+        #expect(try withoutID.encodedLine().contains("providerSessionID") == false)
     }
 
     // MARK: - Unknown type / version

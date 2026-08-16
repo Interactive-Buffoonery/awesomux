@@ -141,7 +141,13 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
                 state: payload.state,
                 phase: payload.phase,
                 eventID: payload.eventID,
-                providerSessionID: payload.providerSessionID,
+                // Same posture as `touchedPath`: the event file is same-UID
+                // writable, so a forged id is stripped here rather than
+                // trusted downstream — but only the field is dropped, since
+                // the event around it still carries a lifecycle transition.
+                providerSessionID: payload.source.validatedProviderSessionID(
+                    payload.providerSessionID?.value
+                ),
                 title: payload.title,
                 documentPath: documentPath,
                 touchedPath: touchedPath,
@@ -205,7 +211,10 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
         var state: AgentState?
         var phase: AgentRuntimePhase?
         var eventID: String?
-        var providerSessionID: String?
+        // Lenient for the same reason as `touchedPath` below: this field rides
+        // on lifecycle events, so a wrong-typed value must strip the field, not
+        // throw and lose the transition.
+        var providerSessionID: LenientString?
         var title: String?
         var documentPath: String?
         // `touchedPath` rides on a `.toolEnd` event that carries a load-bearing

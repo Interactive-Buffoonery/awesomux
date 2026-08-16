@@ -12,7 +12,10 @@ struct AgentIntegrationTemplateTests {
         #expect(template.contains("process.env.AWESOMUX_AGENT_HOOK"))
         #expect(template.contains("\"awesoMuxAgentHook\""))
         #expect(template.contains("${hook} --provider opencode"))
-        #expect(template.contains("JSON.stringify({ hook_event_name: hookEventName })"))
+        #expect(template.contains("session_id: sessionID"))
+        #expect(template.contains("if (info?.parentID"))
+        #expect(template.contains("rootSessionIDs.has(sessionID)"))
+        #expect(template.contains("chat.message\": async ({ sessionID })"))
         #expect(template.contains("session.created"))
         #expect(template.contains("session.idle"))
         #expect(template.contains("session.error"))
@@ -55,7 +58,8 @@ struct AgentIntegrationTemplateTests {
         #expect(template.contains("process.env.AWESOMUX_AGENT_HOOK"))
         #expect(template.contains("\"awesoMuxAgentHook\""))
         #expect(template.contains("spawn(hook, [\"--provider\", \"pi\"]"))
-        #expect(template.contains("JSON.stringify({ hook_event_name: hookEventName })"))
+        #expect(template.contains("session_id: sessionID"))
+        #expect(template.contains("ctx.sessionManager.getSessionId()"))
         #expect(template.contains("session_start"))
         #expect(template.contains("before_agent_start"))
         #expect(template.contains("tool_execution_start"))
@@ -138,7 +142,7 @@ struct AgentIntegrationTemplateTests {
     private static func expectNoSensitiveProviderPayloadForwarding(in template: String) throws {
         let stringifyCalls = template.components(separatedBy: "JSON.stringify(").count - 1
         #expect(stringifyCalls == 1)
-        #expect(template.contains("JSON.stringify({ hook_event_name: hookEventName })"))
+        #expect(template.contains("hook_event_name: hookEventName"))
 
         let forbiddenSnippets = [
             "JSON.stringify(event",

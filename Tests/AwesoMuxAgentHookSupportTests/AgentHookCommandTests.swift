@@ -480,18 +480,115 @@ struct AgentHookCommandTests {
         #expect(parsedEvent.phase == .sessionStart)
     }
 
-    @Test
-    func nonGrokSessionIDIsNotPersisted() throws {
+    @Test(arguments: ["claude-code", "codex"])
+    func localAgentSessionIDIsPersisted(provider: String) throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+        let eventFile = temp.file
+        let sessionID = UUID().uuidString
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", provider],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": eventFile.path],
+            stdin: Self.hookPayload(
+                "SessionStart",
+                providerSessionID: sessionID,
+                providerSessionKey: "session_id"
+            )
+        )
+
+        #expect(status == 0)
+        let parsedEvent = try #require(try Self.readSingleEvent(from: eventFile))
+        #expect(parsedEvent.phase == .sessionStart)
+        #expect(parsedEvent.providerSessionID == sessionID.lowercased())
+    }
+
+    @Test(arguments: [
+        ("opencode", "ses_01JABCdef0123456789XYZ"),
+        ("pi", "project.branch_7"),
+    ])
+    func providerNativeSessionIDIsPersisted(provider: String, sessionID: String) throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", provider],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Self.hookPayload(
+                "SessionStart",
+                providerSessionID: sessionID,
+                providerSessionKey: "session_id"
+            )
+        )
+
+        #expect(status == 0)
+        let parsedEvent = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(parsedEvent.providerSessionID == sessionID)
+    }
+
+    /// The lifecycle transition is load-bearing and the id is not: a hostile id
+    /// must cost only itself, never the whole event.
+    @Test(
+        arguments: [
+            "\(UUID().uuidString)\nrm -rf ~",
+            "../../../tmp/evil",
+            String(repeating: "a", count: 512),
+            "not-a-uuid",
+        ]
+    )
+    func hostileSessionIDIsStrippedButTheEventSurvives(rawSessionID: String) throws {
         let temp = try Self.temporaryEventFile()
         defer { temp.remove() }
         let eventFile = temp.file
 
+        let payload = try JSONSerialization.data(
+            withJSONObject: ["hook_event_name": "SessionStart", "session_id": rawSessionID]
+        )
         let status = AgentHookCommand.run(
             arguments: ["--provider", "claude-code"],
             environment: ["AWESOMUX_AGENT_EVENT_FILE": eventFile.path],
-            stdin: Data(
-                #"{"hook_event_name":"SessionStart","session_id":"not-grok"}"#.utf8
-            )
+            stdin: payload
+        )
+
+        #expect(status == 0)
+        let parsedEvent = try #require(try Self.readSingleEvent(from: eventFile))
+        #expect(parsedEvent.source == .claudeCode)
+        #expect(parsedEvent.phase == .sessionStart)
+        #expect(parsedEvent.executionState == .idle)
+        #expect(parsedEvent.providerSessionID == nil)
+    }
+
+    /// The same rule one type-level deeper. `hostileSessionIDIsStrippedButTheEventSurvives`
+    /// covers a well-typed String that fails validation; this covers a value
+    /// that is not a String at all, which throws out of `Decodable` rather than
+    /// failing a check. `AgentHookPayload` is the WRITE end — the earliest of
+    /// the four boundaries this field crosses — so a throw here loses the event
+    /// before it is ever appended, and nothing downstream can recover it.
+    /// Encoded as raw JSON text rather than via `JSONSerialization`, because
+    /// swift-testing requires `arguments:` elements to be `Sendable` and `Any`
+    /// is not.
+    @Test(
+        arguments: [
+            "42",
+            "[\"a\"]",
+            "{\"id\":\"a\"}",
+            "true",
+        ]
+    )
+    func wrongTypedSessionIDStripsTheFieldNotTheEvent(rawSessionIDJSON: String) throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+        let eventFile = temp.file
+
+        let payload = Data(
+            """
+            {"hook_event_name": "SessionStart", "session_id": \(rawSessionIDJSON)}
+            """.utf8
+        )
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "claude-code"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": eventFile.path],
+            stdin: payload
         )
 
         #expect(status == 0)
@@ -499,6 +596,25 @@ struct AgentHookCommandTests {
         #expect(parsedEvent.source == .claudeCode)
         #expect(parsedEvent.phase == .sessionStart)
         #expect(parsedEvent.providerSessionID == nil)
+    }
+
+    @Test
+    func wrongTypedSessionIDFallsThroughToLegacySpelling() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "grok"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Data(
+                #"{"hookEventName":"UserPromptSubmit","session_id":42,"sessionId":"parent-session"}"#
+                    .utf8
+            )
+        )
+
+        #expect(status == 0)
+        let parsedEvent = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(parsedEvent.providerSessionID == "parent-session")
     }
 
     @Test
