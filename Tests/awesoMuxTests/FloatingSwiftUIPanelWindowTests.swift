@@ -65,6 +65,12 @@ struct FloatingSwiftUIPanelWindowTests {
         // minimize on a fixed-size panel.
         #expect(!panel.styleMask.contains(.miniaturizable))
         #expect(panel.styleMask == FloatingSwiftUIPanelWindow.swiftUIFloatingStyleMask)
+        // Close is the only live control. Zoom has nothing to zoom on a panel
+        // pinned by `setFixedContentSize`, but left enabled it renders green
+        // and offers the tiling menu on hover, which would try to move a
+        // floating fixed-size panel into a slot it cannot occupy.
+        #expect(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
+        #expect(panel.standardWindowButton(.closeButton)?.isEnabled == true)
     }
 
     @Test("native close routes to the dismiss handler instead of closing the reused panel")

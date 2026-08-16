@@ -7,11 +7,12 @@
 
 ## Context
 
-Six auxiliary surfaces float above the main window, and until now all of them
-drew the same hand-rolled `xmark` button for dismissal. They did not agree on
-where to put it: About placed it top-left, while Session Manager, Worktree
-Manager, the keyboard cheatsheet, and the Terminal Companion placed it
-top-right. The Floating Panel had no visible close affordance at all.
+Seven auxiliary surfaces float above the main window, and they did not agree on
+how to be dismissed. Five drew the same hand-rolled `xmark` button but
+disagreed on where to put it: About placed it top-left, while Session Manager,
+Worktree Manager, the keyboard cheatsheet, and the Terminal Companion placed it
+top-right. The remaining two — the Floating Panel and the command palette — had
+no visible window controls at all.
 
 The buttons were also inert as keyboard targets. Each declared a focus ring
 but none called `.focusable()`, so `isFocused` never became true and the ring
@@ -57,6 +58,13 @@ About This Mac manner. Reusing
 `StandardWindowButtonVisibility.visible` — which force-unions
 `.miniaturizable` — would enable minimize on a floating, fixed-size,
 hides-on-deactivate panel and break the intended appearance.
+
+Zoom is disabled explicitly instead. Dropping `.resizable` from the mask would
+have rendered it inert too, but `setFixedContentSize` still depends on that
+bit. An enabled zoom on a panel whose content size is pinned has nothing to
+zoom, yet it still renders green and offers the window-tiling menu on hover,
+which would try to move a floating fixed-size panel into a slot it cannot
+occupy. Close is therefore the only live control on these surfaces.
 
 The native close must route through the controller. `performClose(_:)` is
 overridden to invoke `onDismiss` rather than `close()`, because these panels are

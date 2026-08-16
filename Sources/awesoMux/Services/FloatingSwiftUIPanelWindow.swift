@@ -202,6 +202,14 @@ final class FloatingSwiftUIPanelWindow: NSPanel {
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             standardWindowButton(button)?.isHidden = isHidden
         }
+
+        // Zoom is disabled explicitly rather than by dropping `.resizable`,
+        // which `setFixedContentSize` still relies on. These panels pin
+        // `contentMinSize == contentMaxSize`, so zoom has nothing to zoom — but
+        // left enabled it still lights up green and, on hover, offers the
+        // window-tiling menu, which would move a floating fixed-size panel into
+        // a tiled slot it cannot occupy.
+        standardWindowButton(.zoomButton)?.isEnabled = false
     }
 
     /// The native close button (and any `⌘W` that reaches AppKit) targets
