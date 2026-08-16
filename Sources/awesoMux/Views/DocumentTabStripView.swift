@@ -402,6 +402,18 @@ private struct DocumentTabPill: View {
 
     private var accessibilityLabel: String {
         var parts = [tab.title]
+        // The pill is the first thing VoiceOver lands on when switching tabs,
+        // so it is where "this one is a generated, read-only transcript" has to
+        // be audible. Without it a rendered transcript is indistinguishable by
+        // ear from the user's own editable Markdown sitting next to it.
+        if tab.agentTranscriptIdentity != nil {
+            parts.append(
+                String(
+                    localized: "rendered transcript, read-only",
+                    comment:
+                        "Spoken qualifier on a document tab that holds a generated agent transcript"
+                ))
+        }
         if let taskProgress {
             parts.append(
                 LocalizedPluralStrings.documentTaskProgress(

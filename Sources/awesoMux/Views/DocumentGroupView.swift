@@ -82,7 +82,9 @@ struct DocumentGroupView: View {
             DocumentTabStripView(
                 group: group,
                 isBrowsingFiles: mode == .files,
-                canBrowseFiles: !document.isReadOnlySnapshot,
+                // Browsing ends in `replaceDocumentTab`, which refuses a tab
+                // with durable provenance — offering it there is a dead end.
+                canBrowseFiles: document.isEditable,
                 filesToggleHelp: filesToggleHelp,
                 accent: accentResolver.accent,
                 increasedContrast: colorSchemeContrast == .increased,
@@ -147,7 +149,7 @@ struct DocumentGroupView: View {
                     revisionInteractionActive = active
                 },
                 onToggleFiles: {
-                    guard !document.isReadOnlySnapshot else { return }
+                    guard document.isEditable else { return }
                     // Entering Files mode unmounts DocumentPaneView, killing
                     // the capture closure's coordinator. Snapshot the reading
                     // position NOW (so the round trip restores where the user
@@ -224,7 +226,7 @@ struct DocumentGroupView: View {
                     // A link inside a document inherits the CURRENT tab's
                     // terminal, not the active pane's (INT-748 PR2).
                     onOpenDocumentLink: { url in
-                        guard !document.isReadOnlySnapshot else { return }
+                        guard document.isEditable else { return }
                         // Re-assert the router's contract at the sink: the old
                         // GhosttyRuntime.openURL path re-ran this exact check,
                         // and a future caller that skips the router shouldn't
@@ -497,6 +499,16 @@ struct DocumentGroupView: View {
     }
 
     private var filesToggleHelp: String {
+        // Before the remote branch: browsing ends in `replaceDocumentTab`, which
+        // is gated on `isEditable`, so on a transcript the toggle is a dead end
+        // and has to say why rather than fall through to "Show Markdown files
+        // in …" — or, worse, to the remote-snapshot sentence for a local file.
+        if document.agentTranscriptIdentity != nil {
+            return String(
+                localized: "Rendered agent transcripts can't browse to other files",
+                comment: "Help text for the Files toggle when the visible document is a rendered agent transcript"
+            )
+        }
         if let origin = document.remoteSnapshotOrigin {
             return String(
                 localized: "Remote snapshot from \(origin)",

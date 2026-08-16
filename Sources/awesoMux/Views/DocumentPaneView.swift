@@ -31,6 +31,15 @@ struct DocumentPaneSendBar: View {
     /// Whether the last nudge attempt found no live surface — shown briefly so the
     /// user knows the action failed rather than silently no-oping.
     @State private var nudgeFailed = false
+    /// Why the last Resume click failed, kept typed rather than collapsed into
+    /// `nudgeFailed`. Six reasons share one Boolean otherwise, and the button's
+    /// generic "this document's terminal isn't running" is the wrong sentence
+    /// for five of them (review finding).
+    @State private var resumeFailure: AgentTranscriptResumeUnavailableReason?
+    /// A Resume attempt is awaiting its session-log probe. Drives the button's
+    /// disabled state; the send itself is guarded in
+    /// `AgentTranscriptResumeStaging`, which also sees the menu command.
+    @State private var resumeInFlight = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // Same convention as TerminalPaneView/SidebarSessionTile: read settings
     // through the environment-injected store, not `runtime`'s provider-closure
@@ -262,6 +271,11 @@ struct DocumentPaneSendBar: View {
                     .foregroundStyle(Color.aw.text2)
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .accessibilityLabel(Text("Read-only remote Markdown snapshot from \(origin)"))
+            } else if let identity = pane.agentTranscriptIdentity {
+                // Resume REPLACES Send on a transcript tab rather than sitting
+                // beside it: a transcript is not editable, so it can hold no
+                // review comments, and Send to Agent would have nothing to send.
+                resumeControl(identity: identity)
             } else {
                 // Resolve once per render: the resolution issues a live foreground
                 // probe, and the title, the unavailable description, and the
@@ -317,7 +331,175 @@ struct DocumentPaneSendBar: View {
             guard nudgeFailed else { return }
             try? await Task.sleep(for: .seconds(2))
             nudgeFailed = false
+            resumeFailure = nil
         }
+    }
+
+    // MARK: - Resume
+
+    /// The transcript tab's primary action: stage this session's resume command
+    /// into the adjacent terminal, never submit it.
+    @ViewBuilder
+    private func resumeControl(identity: AgentTranscriptIdentity) -> some View {
+        let verdict = resumeVerdict
+        let unavailableDescription = Self.resumeUnavailableDescription(for: verdict)
+        // A click-time failure has its own sentence, and the verdict that
+        // produced the button is often still `.eligible` when it happens (the
+        // log went missing, an agent took the foreground during the probe).
+        // Shown as the caption so the reason is visible, not only spoken.
+        let failureDescription = resumeFailure.map(Self.resumeUnavailableDescription(for:))
+        let caption = unavailableDescription ?? failureDescription
+        VStack(spacing: 3) {
+            SendToAgentButton(
+                purpose: .resumeSession,
+                title: String(
+                    localized: "Resume \(identity.agentKind.displayName)",
+                    comment: "Send-bar button title on a transcript tab, naming the agent to resume"
+                ),
+                failed: nudgeFailed,
+                failureDescription: failureDescription,
+                isBusy: resumeInFlight,
+                unavailableDescription: unavailableDescription,
+                action: { stageResume(identity: identity) }
+            )
+            .frame(height: 28)
+            if let caption {
+                Text(caption)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.aw.text2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The cheap half of the policy — association, local execution, and the
+    /// target's live foreground process.
+    ///
+    /// Deliberately does NOT probe the provider's session log: that is a
+    /// directory walk, and this recomputes on every render of the bar. The
+    /// log-still-exists check belongs at click time, in `stageResume`.
+    private var resumeVerdict: AgentTranscriptResumeVerdict {
+        let target = session.layout.documentNudgeTarget(for: pane.id)
+        let observedComm: String? = {
+            guard case .available(let resolved) = target else { return nil }
+            return runtime.foregroundComm(in: resolved.id)
+        }()
+        return AgentTranscriptResumePolicy.verdict(
+            target: target,
+            observedForegroundCommand: observedComm
+        )
+    }
+
+    static func resumeUnavailableDescription(
+        for verdict: AgentTranscriptResumeVerdict
+    ) -> String? {
+        guard case .unavailable(let reason) = verdict else { return nil }
+        return resumeUnavailableDescription(for: reason)
+    }
+
+    static func resumeUnavailableDescription(
+        for reason: AgentTranscriptResumeUnavailableReason
+    ) -> String {
+        switch reason {
+        case .terminalUnavailable:
+            return String(
+                localized: "This transcript's terminal isn't available",
+                comment: "Unavailable reason for resuming a session when its associated terminal is gone"
+            )
+        case .requiresLocalTerminal:
+            return String(
+                localized: "Sessions can only be resumed in a local terminal",
+                comment: "Unavailable reason for resuming a session into a terminal that runs over SSH"
+            )
+        case .foregroundUnverified:
+            return String(
+                localized: "Couldn't verify what's running in this transcript's terminal",
+                comment: "Unavailable reason for resuming a session when foreground process evidence is unavailable"
+            )
+        case .agentRunning(let kind):
+            return String(
+                localized: "Exit \(kind.displayName) first — a resume command typed there would be sent as a message",
+                comment: "Unavailable reason for resuming a session while an agent still holds the terminal"
+            )
+        case .foregroundBusy:
+            return String(
+                localized: "Resume is available at a shell prompt — this terminal is busy",
+                comment: "Unavailable reason for resuming a session while a non-shell program holds the terminal"
+            )
+        case .transcriptMissing:
+            return String(
+                localized: "This session's log is no longer available, so it can't be resumed",
+                comment: "Unavailable reason for resuming a session whose provider log has been deleted"
+            )
+        case .noResumeSyntax(let kind):
+            return String(
+                localized: "awesoMux doesn't know how to resume a \(kind.displayName) session",
+                comment: "Unavailable reason for resuming a provider awesoMux has no resume command for"
+            )
+        case .noTranscriptSelected:
+            return String(
+                localized: "Select an agent transcript tab first — Resume acts on the transcript you're reading",
+                comment:
+                    "Unavailable reason for resuming when the selected document tab is not an agent transcript"
+            )
+        }
+    }
+
+    /// Stages `claude --resume <id>` / `codex resume <id>` into the adjacent
+    /// terminal as an editable draft.
+    ///
+    /// Never auto-submitted, matching the shipped Send to Agent posture: the
+    /// user presses Return.
+    ///
+    /// The ladder itself — eligibility, the detached session-log probe, the
+    /// foreground recheck, and the separator that keeps the staged line off the
+    /// end of a half-typed command — lives in `AgentTranscriptResumeStaging`,
+    /// because the menu/palette command runs the identical sequence and this
+    /// button cannot be reached by keyboard at all.
+    private func stageResume(identity: AgentTranscriptIdentity) {
+        guard !resumeInFlight else { return }
+        resumeInFlight = true
+        resumeFailure = nil
+        Task { @MainActor in
+            let outcome = await AgentTranscriptResumeStaging.stage(
+                identity: identity,
+                documentID: pane.id,
+                layout: session.layout,
+                integrations: appSettingsStore.agentIntegrations.value,
+                foregroundComm: { runtime.foregroundComm(in: $0) },
+                sendText: { runtime.sendText($0, toPane: $1) }
+            )
+            resumeInFlight = false
+            switch outcome {
+            case .staged:
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "Pasted into this transcript's terminal — press Return there to resume",
+                        comment: "VoiceOver announcement after staging a resume command into the associated terminal"
+                    ),
+                    // See the matching call in `AwesoMuxApp`: at `.medium` the
+                    // terminal's own `.valueChanged` for the newly staged text
+                    // preempted this, so the user heard the command but not
+                    // that it was staged rather than run.
+                    priority: .high
+                )
+            case .alreadyStaging:
+                // The menu command owns this document's send. Reporting a
+                // failure the user did not cause would be a lie.
+                break
+            case .unavailable(let reason):
+                reportResumeUnavailable(reason)
+            }
+        }
+    }
+
+    private func reportResumeUnavailable(_ reason: AgentTranscriptResumeUnavailableReason) {
+        resumeFailure = reason
+        nudgeFailed = true
+        TerminalAccessibilityAnnouncer.announce(Self.resumeUnavailableDescription(for: reason))
     }
 
     // MARK: - Composer
@@ -467,8 +649,49 @@ enum DocumentPaneChrome {
 ///     pins the glyph to the far edge while the title centers, drifting them apart;
 ///     folding the glyph into the attributed title centers icon+text as one unit.
 private struct SendToAgentButton: NSViewRepresentable {
+    /// What this instance of the bar's one call-to-action does. Only the glyph
+    /// and the non-visual copy differ, so the two purposes share the button
+    /// rather than forking a second `NSViewRepresentable` with the same
+    /// focus-safety, layer-color, and inline-attachment reasoning to maintain.
+    enum Purpose {
+        case sendToAgent
+        case resumeSession
+
+        var symbolName: String {
+            switch self {
+            case .sendToAgent: "paperplane.fill"
+            case .resumeSession: "play.fill"
+            }
+        }
+
+        /// Spoken and tooltip copy for the enabled state.
+        var affordanceDescription: String {
+            switch self {
+            case .sendToAgent:
+                String(
+                    localized: "sends your review comments to this document's terminal",
+                    comment: "Accessibility/tooltip phrase describing what the document send button does"
+                )
+            case .resumeSession:
+                String(
+                    localized:
+                        "pastes this session's resume command into the terminal without running it",
+                    comment: "Accessibility/tooltip phrase describing what the transcript resume button does"
+                )
+            }
+        }
+    }
+
+    var purpose: Purpose = .sendToAgent
     let title: String
     let failed: Bool
+    /// The typed reason the last attempt failed, when the caller has one.
+    /// Without it a failure speaks the generic "terminal isn't running", which
+    /// is the wrong sentence for most Resume denials.
+    var failureDescription: String? = nil
+    /// An attempt is in flight. Disables the button so a second click cannot
+    /// stage the payload twice while the first is still probing.
+    var isBusy: Bool = false
     let unavailableDescription: String?
     let action: () -> Void
 
@@ -492,7 +715,7 @@ private struct SendToAgentButton: NSViewRepresentable {
     func updateNSView(_ nsView: NSButton, context: Context) {
         context.coordinator.action = action
         let isEnabled = unavailableDescription == nil
-        nsView.isEnabled = isEnabled
+        nsView.isEnabled = isEnabled && !isBusy
         let showsFailure = failed && isEnabled
         let accent = NSColor(isEnabled ? (showsFailure ? Color.aw.peach : Color.aw.mauve) : Color.aw.text2)
         nsView.layer?.backgroundColor = accent.withAlphaComponent(0.15).cgColor
@@ -501,7 +724,11 @@ private struct SendToAgentButton: NSViewRepresentable {
         // the hue shift alone is a color-only signal that colorblind users can't
         // perceive (WCAG 1.4.1), and this button can't be keyboard-focused for
         // the tooltip.
-        nsView.attributedTitle = Self.makeTitle(title, color: accent, failed: showsFailure)
+        nsView.attributedTitle = Self.makeTitle(
+            title,
+            color: accent,
+            symbolName: showsFailure ? "exclamationmark.triangle.fill" : purpose.symbolName
+        )
         // Reflect the failure state in the label too — color + tooltip alone aren't
         // conveyed to VoiceOver, so failure would otherwise be invisible to it.
         nsView.setAccessibilityLabel(
@@ -513,38 +740,59 @@ private struct SendToAgentButton: NSViewRepresentable {
             }
                 ?? (failed
                     ? String(
-                        localized: "\(title) — unavailable: this document's terminal isn't running",
-                        comment: "Accessibility label for the send button when its terminal is gone"
+                        localized: "\(title) — unavailable: \(failureDescription ?? Self.genericFailureDescription)",
+                        comment: "Accessibility label for the send button after an attempt failed, naming the reason"
                     )
-                    : String(
-                        localized: "\(title) — sends your review comments to this document's terminal",
-                        comment: "Accessibility label for the document send button"
-                    ))
+                    : isBusy
+                        ? String(
+                            localized: "\(title) — checking this session's log",
+                            comment: "Accessibility label for the send bar button while a Resume attempt probes the provider's session log"
+                        )
+                        : String(
+                            localized: "\(title) — \(purpose.affordanceDescription)",
+                            comment: "Accessibility label for the document send bar's call-to-action button"
+                        ))
         )
         nsView.toolTip =
             unavailableDescription
             ?? (failed
-                ? String(
-                    localized: "This document's terminal isn't available — reopen the document from a running terminal to reconnect",
-                    comment: "Tooltip for the send button when its terminal is gone"
-                )
+                ? (failureDescription ?? Self.genericFailureTooltip)
                 : String(
-                    localized: "Send review comments to the agent in this document's terminal",
-                    comment: "Tooltip for the document send button"
+                    localized: "\(title) — \(purpose.affordanceDescription)",
+                    comment: "Tooltip for the document send bar's call-to-action button"
                 ))
+    }
+
+    /// The Send path has no typed reason to offer, so it keeps the original
+    /// copy; Resume passes its own and never reaches these.
+    private static var genericFailureDescription: String {
+        String(
+            localized: "this document's terminal isn't running",
+            comment: "Fallback reason phrase for the send button when no typed failure reason is available"
+        )
+    }
+
+    private static var genericFailureTooltip: String {
+        String(
+            localized: "This document's terminal isn't available — reopen the document from a running terminal to reconnect",
+            comment: "Tooltip for the send button when its terminal is gone"
+        )
     }
 
     /// Builds a centered "✈ Send to Agent" title with the glyph as an inline,
     /// vertically-centered attachment so it sits right beside the text, both
     /// tinted `color`. The failed state swaps the paperplane for a warning
     /// triangle so failure has a shape, not just a hue.
-    private static func makeTitle(_ text: String, color: NSColor, failed: Bool) -> NSAttributedString {
+    private static func makeTitle(
+        _ text: String,
+        color: NSColor,
+        symbolName: String
+    ) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         let result = NSMutableAttributedString()
 
         let symbolConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
             .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-        let symbolName = failed ? "exclamationmark.triangle.fill" : "paperplane.fill"
         if let glyph = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfig)
         {
@@ -997,7 +1245,7 @@ struct DocumentPaneView: View {
     ) -> some View {
         let snapshot = Self.editableSnapshot(snapshot, isBannerShowing: showsOversizeBanner)
         if let doc = renderedDoc {
-            let isReadOnly = pane.isReadOnlySnapshot
+            let isReadOnly = !pane.isEditable
             let annotationsInteractive = snapshot != nil
             let spanTouchesMark =
                 selectedSourceSpan.map {
@@ -1251,7 +1499,7 @@ struct DocumentPaneView: View {
         let documentNote = doc.documentNote
         let resolvedCount = doc.resolvedAnnotationCount
         return HStack {
-            if !pane.isReadOnlySnapshot || documentNote != nil {
+            if pane.isEditable || documentNote != nil {
                 Button {
                     guard let snapshot else { return }
                     documentNoteSheetDoc = doc
@@ -1420,7 +1668,7 @@ struct DocumentPaneView: View {
                     }
                     return outcome
                 },
-                allowsEditing: !pane.isReadOnlySnapshot,
+                allowsEditing: pane.isEditable,
                 onSubmissionChanged: { [weak popover] isSubmitting in
                     popover?.behavior = AnnotationPopoverLifecycle.behavior(
                         isSubmitting: isSubmitting
@@ -1698,8 +1946,27 @@ struct DocumentPaneView: View {
         conflictOutcome: AnnotationSaveOutcome,
         writer: @escaping @Sendable (String) -> String?
     ) async -> AnnotationSaveOutcome {
-        guard !pane.isReadOnlySnapshot else {
-            showAlert(title: "Read-Only Snapshot", message: "Remote Markdown snapshots cannot be edited in awesoMux yet.")
+        guard pane.isEditable else {
+            if pane.agentTranscriptIdentity != nil {
+                showAlert(
+                    title: String(
+                        localized: "Read-Only Transcript",
+                        comment: "Alert title when the user tries to annotate a generated agent transcript"),
+                    message: String(
+                        localized:
+                            "Agent transcripts are rendered from the session's log and cannot be edited.",
+                        comment: "Alert body explaining why a generated agent transcript rejects an edit")
+                )
+            } else {
+                showAlert(
+                    title: String(
+                        localized: "Read-Only Snapshot",
+                        comment: "Alert title when the user tries to annotate a remote Markdown snapshot"),
+                    message: String(
+                        localized: "Remote Markdown snapshots cannot be edited in awesoMux yet.",
+                        comment: "Alert body explaining why a remote Markdown snapshot rejects an edit")
+                )
+            }
             return .failed
         }
 
