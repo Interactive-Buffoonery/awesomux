@@ -24,6 +24,7 @@ Default chords below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Ser
 | ⇧⌘W | Close Workspace | Closes the selected session (sidebar row); recoverable via Reopen |
 | ⇧⌘T | Reopen Closed Workspace | Restores the most recent eligible closed workspace; the **Recently Closed** submenu reaches older entries |
 | ⌥⇧⌘W | Clear Workspace | **Permanent** close: always confirms, no reopen entry, terminates the workspace's sessions |
+| ⌃⌘R | Resume Agent Session | Keyboard route to the transcript tab's Resume button, which refuses first responder and so is unreachable with Full Keyboard Access. Stages `claude --resume` / `codex resume` into the associated terminal without submitting it. Stays enabled and names the reason when it cannot act — gating it on the selected tab left the chord unclaimed, and it fell through to the terminal as a literal escape sequence |
 
 ### Panes
 
@@ -36,7 +37,6 @@ Default chords below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Ser
 | ⌥⌘= | Grow Active Pane | Requires multiple panes |
 | ⌥⌘- | Shrink Active Pane | Requires multiple panes |
 | ⌥⌘T | Open Agent Transcript | Renders the newest turns of the pane's Claude Code or Codex session log into a document tab beside it; local panes only. Stays enabled and explains in an alert when there is no readable log |
-| ⌃⌘R | Resume Agent Session | Keyboard route to the transcript tab's Resume button (which refuses first responder). Stages `claude --resume` / `codex resume` into the associated terminal without submitting it; enabled only while a transcript tab is selected |
 
 *(**Close Pane** is under Workspace; chord is ⌘W via the File-slot binding described in ADR 0002.)*
 

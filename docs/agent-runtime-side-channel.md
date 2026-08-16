@@ -59,13 +59,17 @@ retries and out-of-order delivery. Future-dated timestamps are clamped to
 
 Lifecycle boundaries add an ordering guard that does not depend on timestamps.
 When a pane receives `Stop`, then a newer `SessionStart`, a delayed
-`SessionEnd` from the stopped lifecycle cannot reset the newer agent. A
-superseded-but-not-stopped lifecycle applies an end only when the event's
-provider session id is present *and* equal to the pane's latched id; a missing
-id on either side, or two ids that disagree, means the end came from the old
-session and is dropped. Events without stable session ids therefore rely
-entirely on the Stop/Start boundary. The newer lifecycle's own `SessionEnd`
-still applies after its `Stop`, including when timestamps are equal or absent.
+`SessionEnd` from the stopped lifecycle cannot reset the newer agent. Two rules
+decide this, and they have different scopes. Two ids that disagree drop the end
+in *any* lifecycle state, because the end provably came from another session —
+an older one, or a nested same-kind child whose end would otherwise reset its
+parent mid-turn. An end that neither side can prove, because either id is
+missing, is dropped only for a superseded-but-not-stopped lifecycle; providers
+that report no id at all therefore still rely entirely on the Stop/Start
+boundary. Widening the unproven case to every lifecycle state would strand the
+agent glyph forever for those providers, which is why the two rules are not
+merged. The newer lifecycle's own `SessionEnd` still applies after its `Stop`,
+including when timestamps are equal or absent.
 
 The same arrival-order boundary protects a `SessionStart` that revives a pane
 after a buffered `SessionEnd`: a delayed end from the prior lifecycle is ignored
