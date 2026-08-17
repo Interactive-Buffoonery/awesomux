@@ -187,8 +187,8 @@ enum AgentTranscriptOpener {
         case .unsupportedAgent(let kind):
             return String(
                 localized:
-                    "\(kind.displayName) doesn't write a session log awesoMux can read. Transcripts are available for Claude Code, Codex, and Pi.",
-                comment: "Transcript failure when the pane's agent has no readable session log"
+                    "\(kind.displayName)'s transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, and Pi.",
+                comment: "Transcript failure when the pane's agent has no transcript adapter"
             )
         case .remoteExecution:
             return String(

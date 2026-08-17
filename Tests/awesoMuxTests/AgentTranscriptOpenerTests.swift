@@ -164,6 +164,18 @@ struct AgentTranscriptOpenerTests {
                 store: store
             )
             #expect(result == .failure(.unavailable(.unsupportedAgent(.grok))))
+            #expect(
+                AgentTranscriptOpener.unavailableDescription(
+                    for: .unavailable(.unsupportedAgent(.grok))
+                )
+                    == "Grok's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, and Pi."
+            )
+            #expect(
+                AgentTranscriptOpener.unavailableDescription(
+                    for: .unavailable(.unsupportedAgent(.openCode))
+                )
+                    == "OpenCode's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, and Pi."
+            )
         }
     }
 

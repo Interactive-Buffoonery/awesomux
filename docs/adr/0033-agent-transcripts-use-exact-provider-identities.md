@@ -53,8 +53,8 @@ session-log probe before writing to the terminal.
   guessing.
 - Remote transcripts remain unsupported because their logs and provider CLIs
   live on the remote host.
-- OpenCode and Grok panes name that they have no readable session log rather
-  than inventing a storage adapter. An OpenCode transcript adapter is follow-up.
+- OpenCode and Grok panes say their transcripts are not currently available.
+  An OpenCode transcript adapter is follow-up.
 - Adding another provider requires an explicit identity validator, transcript
   adapter, renderer mapping, and resume command rather than joining a generic
   filesystem scan.
