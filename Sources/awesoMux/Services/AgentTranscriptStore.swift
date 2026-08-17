@@ -12,7 +12,11 @@ import Foundation
 /// prune after that last reference goes away. Those prunes run at launch, at
 /// every snapshot load, and after a recovery replacement — the same lifecycle
 /// points that already cover remote Markdown snapshots, through the same
-/// collector.
+/// collector. One bound on "first": a file this process wrote is never pruned
+/// by this process (see `authoredPaths`), so a transcript orphaned mid-session
+/// waits for the next launch's prune. That over-keeps bounded plaintext (at
+/// most a handful of ≤1.5 MiB files) on exactly the failure side the prune
+/// exists to take: the converse is deleting the file under a live tab.
 ///
 /// The exposure that buys is deliberate and worth stating plainly: the file is
 /// a plaintext copy of whatever passed through the session, which routinely
@@ -45,14 +49,37 @@ struct AgentTranscriptStore: @unchecked Sendable {
     /// across a prune's enumerate-then-delete. Without it, a prune that
     /// enumerated before the new tab reached the store deletes the file a
     /// render just wrote and the document pane opens onto nothing.
+    ///
+    /// The lock orders the filesystem operations; it cannot refresh a keep-set.
+    /// A scheduled prune captures its references at scheduling and runs later,
+    /// and recovery replacement schedules such prunes mid-session: a render
+    /// landing in between writes a file the captured set has never heard of,
+    /// which the prune would then delete from under the freshly opened tab,
+    /// whichever side of the write its enumeration lands on. So the prune
+    /// unions the keep-set with `authoredPaths` INSIDE the lock — exactly the
+    /// files this process put there, consistent with the state being
+    /// enumerated by construction.
     /// `RemoteMarkdownSnapshotFetcher` solves the same race with a per-directory
     /// task tail because its writes are eight-second SSH round trips that must
     /// not block their caller; a transcript write is a local write of at most
     /// 1.5 MiB from a user-initiated command.
     ///
-    /// Note: one global lock, not one per directory. Key it by directory
-    /// path if a second transcript cache directory ever exists.
+    /// Note: one global lock and one global authored set, not one per
+    /// directory. Key both by directory path if a second transcript cache
+    /// directory ever exists.
     nonisolated private static let cacheLock = NSLock()
+
+    /// Every transcript path this process has written, standardized, guarded
+    /// by `cacheLock` and unioned into every prune's keep-set (rationale on
+    /// `cacheLock`). Registered only on a successful write, so it can promise
+    /// "this process put bytes at this path": entries never name a file that
+    /// failed to land. Nothing removes entries mid-session, because nothing in
+    /// this process can prove a path's last reference died — the keep-set that
+    /// would say so is exactly the stale input being defended against. The
+    /// next launch's prune consults a fresh keep-set and collects anything
+    /// genuinely orphaned.
+    // `nonisolated(unsafe)` promise: accessed only under `cacheLock`.
+    nonisolated(unsafe) private static var authoredPaths: Set<String> = []
 
     var cacheDirectoryURL: URL = SessionPersistence.supportDirectoryURL
         .appending(path: AgentTranscriptStore.directoryName, directoryHint: .isDirectory)
@@ -89,6 +116,9 @@ struct AgentTranscriptStore: @unchecked Sendable {
             } catch {
                 return nil
             }
+            // Registration rides the write's critical section, so a prune can
+            // never hold a keep-set this write already falsified.
+            Self.authoredPaths.insert(fileURL.standardizedFileURL.path)
             return fileURL
         }
     }
@@ -141,6 +171,12 @@ struct AgentTranscriptStore: @unchecked Sendable {
 
     // MARK: - Pruning
 
+    /// Captures the keep-set now and prunes off the caller's actor.
+    ///
+    /// The captured set going stale mid-flight is not an escape hatch:
+    /// references the caller could not know about at scheduling are files
+    /// written after it, and every prune unions in `authoredPaths` inside the
+    /// cache lock, so those files are never deleted by their own process.
     func schedulePruneUnreferenced(keeping referencedFileURLs: Set<URL>) {
         let store = self
         Task.detached(priority: .utility) {
@@ -170,7 +206,14 @@ struct AgentTranscriptStore: @unchecked Sendable {
             else {
                 return
             }
-            let referencedPaths = Set(referencedFileURLs.map(\.standardizedFileURL.path))
+            var referencedPaths = Set(referencedFileURLs.map(\.standardizedFileURL.path))
+            // The keep-set is a capture from whenever the caller computed it —
+            // for a scheduled prune, necessarily before the prune ran. Union in
+            // the paths this process wrote: those are exactly the references a
+            // stale keep-set can miss, and the union is evaluated under the
+            // same lock the writes were taken under, so it is precisely as
+            // fresh as the directory being enumerated.
+            referencedPaths.formUnion(Self.authoredPaths)
             for entry in entries where !referencedPaths.contains(entry.standardizedFileURL.path) {
                 // Only the regular files this store writes are ours to delete.
                 guard

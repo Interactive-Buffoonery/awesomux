@@ -178,6 +178,44 @@ struct AgentTranscriptStoreTests {
 
     // MARK: - Pruning
 
+    @Test("a prune keeps a transcript written after the keep-set was captured")
+    func pruneKeepsTranscriptWrittenAfterKeepSetCapture() throws {
+        try Self.withCacheDirectory { store, cacheDirectory in
+            // The scheduled prune's keep-set is captured before the render
+            // lands (an empty set stands in for "captured before this write
+            // existed"), and the cache lock alone cannot refresh it: the prune
+            // could enumerate after the write and delete the file from under
+            // the freshly opened tab. The store's authored set must keep it.
+            let fileURL = try #require(
+                store.write("# transcript", agentKind: .claudeCode, sessionID: Self.sessionID)
+            )
+
+            store.pruneUnreferencedImmediately(keeping: [])
+
+            #expect(FileManager.default.fileExists(atPath: fileURL.path))
+            #expect(try String(contentsOf: fileURL, encoding: .utf8) == "# transcript")
+        }
+    }
+
+    @Test("a prune still collects files this process never wrote")
+    func pruneCollectsForeignFiles() throws {
+        try Self.withCacheDirectory { store, cacheDirectory in
+            try FileManager.default.createOwnerOnlyDirectory(at: cacheDirectory)
+            let written = try #require(
+                store.write("# transcript", agentKind: .claudeCode, sessionID: Self.sessionID)
+            )
+            // Planted out-of-band, so it has no authored-set protection: this
+            // is the previous-launch orphan the keep-set alone must answer for.
+            let orphan = cacheDirectory.appending(path: "orphan.transcript.md")
+            try Data("transcript".utf8).write(to: orphan)
+
+            store.pruneUnreferencedImmediately(keeping: [])
+
+            #expect(FileManager.default.fileExists(atPath: written.path))
+            #expect(!FileManager.default.fileExists(atPath: orphan.path))
+        }
+    }
+
     @Test("prune keeps transcripts referenced by live and recently closed layouts")
     func pruneKeepsLiveAndRecentlyClosedReferences() throws {
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-agent-transcript")
