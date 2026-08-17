@@ -42,7 +42,6 @@ struct BridgePermissionPromptView: View {
     @AccessibilityFocusState private var promptAccessibilityFocused: Bool
     @FocusState private var bannerFocused: Bool
     @State private var keyMonitor = BridgePermissionKeyMonitor()
-    @State private var focusHandoff = BridgePermissionFocusHandoff()
     @State private var presentedPromptID: String?
 
     init(
@@ -80,8 +79,10 @@ struct BridgePermissionPromptView: View {
                             // prompts to keep this in sync; that's a stale-state
                             // risk, so the coordinator's flag has its own
                             // explicit clear here as well as in `publish()`.
+                            // Blur deliberately performs no focus handoff: the
+                            // user moved focus on purpose, so it stays wherever
+                            // they put it.
                             coordinator.clearPromptFocus()
-                            restoreFocus(for: prompt.id, reason: .blur)
                         }
                     }
             }
@@ -89,14 +90,15 @@ struct BridgePermissionPromptView: View {
         .onChange(of: coordinator.activePrompt) { previous, current in
             // A resolution may advance straight to another prompt without
             // removing this view. Treat that as a fresh, unfocused prompt and
-            // return the responder to Ghostty. This observer lives outside the
-            // conditional so it also sees the final prompt disappear.
+            // return the responder to Ghostty if it owned focus. This observer
+            // lives outside the conditional so it also sees the final prompt
+            // disappear.
             guard let previous, previous.id != current?.id else { return }
             bannerFocused = false
             promptAccessibilityFocused = false
             keyMonitor.stop()
             coordinator.clearPromptFocus()
-            restoreFocus(for: previous.id, reason: .promptEnded)
+            restoreFocus(for: previous.id)
             presentedPromptID = current?.id
         }
         .onDisappear {
@@ -107,16 +109,19 @@ struct BridgePermissionPromptView: View {
             // its pane/session is switched or the bridge tears down. Clear the
             // same-prompt authorization and return focus to its surface.
             coordinator.clearPromptFocus()
-            restoreFocus(for: presentedPromptID, reason: .promptEnded)
+            restoreFocus(for: presentedPromptID)
             presentedPromptID = nil
         }
     }
 
-    private func restoreFocus(
-        for promptID: String?,
-        reason: BridgePermissionFocusHandoff.Reason
-    ) {
-        guard focusHandoff.shouldRestore(promptID: promptID, reason: reason) else { return }
+    /// Returns the responder to the terminal exactly once per prompt, and only
+    /// when the coordinator recorded the prompt leaving the stage while owning
+    /// the deliberate focus grant. Ownership is recorded in `publish()` — the
+    /// only point that still knows the outgoing prompt's ID and grant together
+    /// (a resolution can coalesce with a focus request into one SwiftUI update,
+    /// after which this view reads the wrong prompt ID).
+    private func restoreFocus(for promptID: String?) {
+        guard let promptID, coordinator.consumeFocusHandoffOwnership(of: promptID) else { return }
         // Let SwiftUI apply the false focus bindings before AppKit receives the
         // terminal handoff; otherwise its stale KeyViewProxy can reclaim the
         // responder in the same update.
@@ -334,26 +339,6 @@ struct BridgePermissionPromptView: View {
         UnicodeHygiene.hasSuspiciousScriptMixing(tool)
             || UnicodeHygiene.hasSuspiciousScriptMixing(target)
             || (summary.map(UnicodeHygiene.hasSuspiciousScriptMixing) ?? false)
-    }
-}
-
-struct BridgePermissionFocusHandoff {
-    enum Reason {
-        case blur
-        case promptEnded
-    }
-
-    private var restoredPromptID: String?
-
-    mutating func shouldRestore(promptID: String?, reason: Reason) -> Bool {
-        guard reason == .promptEnded,
-            let promptID,
-            restoredPromptID != promptID
-        else {
-            return false
-        }
-        restoredPromptID = promptID
-        return true
     }
 }
 

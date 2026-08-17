@@ -679,25 +679,34 @@ struct BridgePermissionCoordinatorTests {
         #expect(
             await waitUntil {
                 window.layoutIfNeeded()
-                return handoffCount == 2
+                return h.coordinator.activePrompt == nil
             })
+        window.layoutIfNeeded()
+        // r2's banner never owned focus, so its resolution must NOT hand off a
+        // second time — and must not steal the responder from the terminal.
+        #expect(handoffCount == 1)
         #expect(h.coordinator.activePrompt == nil)
         #expect(window.firstResponder === terminal)
     }
 
-    @Test("blur never consumes the prompt's one resolution handoff")
-    func blurDoesNotConsumeResolutionHandoff() {
-        var handoff = BridgePermissionFocusHandoff()
+    @Test("resolution records the focus handoff only for a prompt that owned focus, once")
+    func resolutionRecordsFocusHandoffOnlyWhenOwned() async {
+        let h = makeHarness()
+        await deliver(request(id: "r1", expiresAtOffset: 1000), generation: gen(1), to: h)
+        await deliver(request(id: "r2", expiresAtOffset: 1000), generation: gen(1), to: h)
 
-        let firstBlur = handoff.shouldRestore(promptID: "r1", reason: .blur)
-        let secondBlur = handoff.shouldRestore(promptID: "r1", reason: .blur)
-        let resolution = handoff.shouldRestore(promptID: "r1", reason: .promptEnded)
-        let duplicateResolution = handoff.shouldRestore(promptID: "r1", reason: .promptEnded)
+        // Owned at resolution: the handoff records exactly once.
+        h.coordinator.requestFocus()
+        h.coordinator.denyActive()
+        #expect(h.coordinator.consumeFocusHandoffOwnership(of: "r1"))
+        #expect(!h.coordinator.consumeFocusHandoffOwnership(of: "r1"))
 
-        #expect(!firstBlur)
-        #expect(!secondBlur)
-        #expect(resolution)
-        #expect(!duplicateResolution)
+        // Never owned: its resolution must not steal the responder from
+        // wherever the user is working.
+        h.clock.advance(by: BridgeTunables.permissionDecisionArmDelay)
+        h.coordinator.denyActive()
+        #expect(!h.coordinator.consumeFocusHandoffOwnership(of: "r2"))
+        #expect(h.coordinator.activePrompt == nil)
     }
 }
 

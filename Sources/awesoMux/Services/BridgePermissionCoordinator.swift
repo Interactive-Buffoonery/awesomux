@@ -153,6 +153,16 @@ final class BridgePermissionCoordinator {
     /// authorize a successor that slid into place after focus was granted.
     @ObservationIgnored private var focusedPromptID: String?
 
+    /// The id of the most recent prompt that left the stage while owning the
+    /// deliberate focus grant. SwiftUI observers of `activePrompt` only learn a
+    /// prompt ended AFTER `publish()` erased `focusedPromptID`, and a focus
+    /// request can coalesce with a resolution into one update — so the view
+    /// reads and clears this record (via `consumeFocusHandoffOwnership(of:)`)
+    /// to decide whether the responder must return to the terminal. Never set
+    /// for a prompt that left unfocused: such a resolution must not steal the
+    /// responder from wherever the user is working.
+    @ObservationIgnored private var resolvedFocusedPromptID: String?
+
     static var connectionLostAnnouncementDebounceForTesting: TimeInterval {
         connectionLostAnnouncementDebounce
     }
@@ -202,7 +212,9 @@ final class BridgePermissionCoordinator {
             clearBookkeeping(id: entry.id)
         }
         sessionGrants.removeAll()
-        focusedPromptID = nil
+        // The focus grant is intentionally not cleared here: `publish()` erases
+        // it through the shared funnel, which first records the handoff for a
+        // prompt leaving the stage while focused.
         publish()
     }
 
@@ -426,6 +438,17 @@ final class BridgePermissionCoordinator {
         focusedPromptID = nil
     }
 
+    /// One-shot read of the focus-handoff record: true exactly once for the
+    /// prompt that left the stage while owning the focus grant. The view
+    /// consults this on prompt end — it is the only place the prompt ID is
+    /// known unambiguously, immune to SwiftUI update coalescing.
+    @discardableResult
+    func consumeFocusHandoffOwnership(of promptID: String) -> Bool {
+        guard resolvedFocusedPromptID == promptID else { return false }
+        resolvedFocusedPromptID = nil
+        return true
+    }
+
     /// Drain every pending prompt with a deny frame (connection still live).
     private func drainAllWithDenyFrames(reason: BridgePendingRequestMap.TerminalEvent) {
         let previousHead = order.first
@@ -446,7 +469,6 @@ final class BridgePermissionCoordinator {
                 )
             }
         }
-        focusedPromptID = nil
         announcePermission(
             TerminalAccessibilityAnnouncer.permissionPromptCancelledAnnouncement(
                 sessionTitle: paneTitle(),
@@ -549,7 +571,8 @@ final class BridgePermissionCoordinator {
             // Do NOT write to the dead connection — default-deny is local only.
             clearBookkeeping(id: entry.id)
         }
-        focusedPromptID = nil
+        // The focus grant drains through `publish()` below, which records the
+        // handoff for a prompt that leaves the stage still focused.
         if hadActive {
             let nowDate = now()
             let debounced = lastConnectionLostAnnouncedAt.map {
@@ -638,6 +661,11 @@ final class BridgePermissionCoordinator {
         // Also arm a short decision cooldown so a double-click on Allow cannot
         // authorize the successor that just slid into the same button slot.
         if activePrompt?.id != newPrompt?.id {
+            // Record the handoff before erasing the grant: observers of
+            // `activePrompt` run after this, when the grant is already gone.
+            if let outgoingID = activePrompt?.id, focusedPromptID == outgoingID {
+                resolvedFocusedPromptID = outgoingID
+            }
             promptFocused = false
             focusedPromptID = nil
             if activePrompt != nil, newPrompt != nil {
