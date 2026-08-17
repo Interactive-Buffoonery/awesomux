@@ -423,6 +423,23 @@ public final class SessionStore {
     /// group order from the two attention reasons `SessionRestoreReducer` keeps).
     public internal(set) var liftedSessionIDs: [TerminalSession.ID] = []
 
+    /// Panes whose finished turn has gone unanswered long enough that the agent
+    /// reported the user is away — Claude Code's `idle_prompt`, which fires once,
+    /// 60s after a turn-end `Stop` nobody replied to.
+    ///
+    /// Deliberately NOT an `AttentionReason`. A reason projects to the peach
+    /// `.needsAttention` for every user, opens the macOS notification channel,
+    /// and makes `AgentPromptGate` treat the pane as unreceptive — none of which
+    /// this signal wants. It only decides whether a row lifts, so it lives here,
+    /// beside the lift state it feeds, and touches nothing else.
+    ///
+    /// Runtime-only, like `liftedSessionIDs` arrival order: a relaunch has no
+    /// live agent to re-report idleness, so a restored workspace waits for its
+    /// next real turn.
+    /// ponytail: a plain set because membership is the whole model; if a future
+    /// escalation needs "how long has it been waiting", store the timestamp here.
+    public internal(set) var unansweredTurnPaneIDs: Set<TerminalPane.ID> = []
+
     /// Mirrored from `appearance.promote_workspaces_needing_input` by
     /// `SidebarView` — the section's only renderer — so the sidebar, the ⌘-jump
     /// order, and the Dock menu resolve the lifted set from one place. Off means
@@ -535,6 +552,45 @@ public final class SessionStore {
         reconcileLiftedSessionIDs()
     }
 
+    /// Records or retracts a pane's unanswered-turn mark from a runtime event
+    /// the reducer already accepted, and reconciles when membership moved.
+    ///
+    /// The retraction set is deliberately narrow. `.promptSubmit` means a prompt
+    /// was actually submitted into this pane — the one phase that proves the turn
+    /// got answered, whether the user typed it or `amx send` injected it. Tool
+    /// phases are excluded on purpose: subagent tool calls inherit the pane's
+    /// event file, and `AgentRuntimeEventReducer` measured a background
+    /// `.toolStart` landing after turn-end at 11 of 32 turn-ends in a real trace.
+    /// Clearing on those would drop the row out of Needs Input a third of the
+    /// time while the agent is still genuinely waiting.
+    func updateUnansweredTurn(paneID: TerminalPane.ID, event: AgentRuntimeEvent) {
+        let before = unansweredTurnPaneIDs
+        switch event.phase {
+        case .notification where event.assertsWaitingExecutionState:
+            // The only mapping that asserts `.waiting` on a notification is
+            // Claude Code's `idle_prompt`. Every other provider's notification
+            // carries an attention reason and no execution claim.
+            unansweredTurnPaneIDs.insert(paneID)
+        case .promptSubmit, .sessionEnd:
+            unansweredTurnPaneIDs.remove(paneID)
+        default:
+            return
+        }
+        guard unansweredTurnPaneIDs != before else { return }
+        reconcileLiftedSessionIDs()
+    }
+
+    /// Drops a pane's unanswered mark and reconciles. Used by the acknowledge
+    /// paths, so ⌘⇧K silences a lifted row the same way it silences an attention
+    /// reason — otherwise the one escape hatch the section documents would not
+    /// reach rows lifted by this signal.
+    func clearUnansweredTurn(paneIDs: some Sequence<TerminalPane.ID>) {
+        let before = unansweredTurnPaneIDs
+        unansweredTurnPaneIDs.subtract(paneIDs)
+        guard unansweredTurnPaneIDs != before else { return }
+        reconcileLiftedSessionIDs()
+    }
+
     /// Sole writer of `liftedSessionIDs`. Every input the lift predicate reads
     /// has a call site that covers it — `commit(_:now:)` for `_groups`,
     /// `refreshAttentionSticky()` for the sticky, and `pinnedSessionIDs`'
@@ -563,7 +619,11 @@ public final class SessionStore {
         for group in _groups {
             for session in group.sessions
             where !pinned.contains(session.id)
-                && SidebarAttentionProjection.isLifted(session, stickySessionID: sticky)
+                && SidebarAttentionProjection.isLifted(
+                    session,
+                    stickySessionID: sticky,
+                    unansweredTurnPaneIDs: unansweredTurnPaneIDs
+                )
             {
                 arrivals.append(session.id)
                 arrivalSet.insert(session.id)
@@ -679,6 +739,10 @@ public final class SessionStore {
         // workspaces by when their pre-restore namesakes asked. The commit below
         // rebuilds it in group order.
         liftedSessionIDs = []
+        // Same ID-reuse hazard as the sticky above: a surviving unanswered mark
+        // could lift a restored workspace whose pane never went unanswered. The
+        // live agent, if any, re-reports on its next idle prompt.
+        unansweredTurnPaneIDs = []
         pinnedSessionIDs = components.pinnedSessionIDs
         lastClosedTransient = nil
         shellActivityReducer = ShellActivityReducer()
@@ -1178,6 +1242,7 @@ public final class SessionStore {
             &_groups[position.groupIndex].sessions[position.sessionIndex],
             paneID: activePaneID
         )
+        clearUnansweredTurn(paneIDs: [activePaneID])
         commit(WorkspaceMutationEffect(unreadChange: change))
     }
 
@@ -1195,12 +1260,20 @@ public final class SessionStore {
         let change = WorkspaceAttentionReducer.acknowledgeAllPanes(
             in: &_groups[position.groupIndex].sessions[position.sessionIndex]
         )
+        clearUnansweredTurn(
+            paneIDs: _groups[position.groupIndex].sessions[position.sessionIndex].panes.map(\.id)
+        )
         commit(WorkspaceMutationEffect(unreadChange: change))
     }
 
     public func acknowledgeAllSessions() {
         acknowledgementCoordinator.cancel()
         attentionStickySessionID = nil
+        // The widest acknowledge sweep has to reach the widest silence. The
+        // full rebuild below only prunes marks whose pane is GONE, so without
+        // this every live marked pane stays lifted after "acknowledge
+        // everything" — the one action that promises an empty section.
+        unansweredTurnPaneIDs.removeAll()
         WorkspaceAttentionReducer.acknowledgeAllSessions(in: &_groups)
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
     }

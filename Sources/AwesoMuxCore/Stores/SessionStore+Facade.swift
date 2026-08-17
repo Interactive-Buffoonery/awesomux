@@ -652,6 +652,12 @@ extension SessionStore {
         else {
             return false
         }
+        // Rides the reducer's accepted stream, so it inherits the dedupe,
+        // staleness, and cross-provider guards. Called before the pane update
+        // because an idle prompt usually changes NOTHING about the pane — it
+        // re-asserts the `.waiting` a Stop already set — so `didMutate` is false
+        // and no commit follows. Membership must therefore reconcile itself.
+        updateUnansweredTurn(paneID: paneID, event: event)
         // Two commits are intentional: unread must land before a nested
         // openDocumentPane full rebuild (so rebuild sees the tree's new badges),
         // and risk reclassify must run after titles/document side effects even
@@ -995,6 +1001,13 @@ extension SessionStore {
         unreadNotificationTotal = index.unreadNotificationTotal
         shellActivityReducer.prune(livePaneIDs: index.livePaneIDs)
         runtimeEventReducer.prune(livePaneIDs: index.livePaneIDs)
+        // Same lifetime rule as the two reducers above. Pruning here rather than
+        // in `updateUnansweredTurn` keeps every "this pane is gone" path — close,
+        // split collapse, bulk restore — covered by one sweep. No reconcile call:
+        // this runs inside `commit`, whose own `reconcileLiftedSessionIDs` has
+        // not happened yet, and a dead pane's session is already gone from the
+        // walk it performs.
+        unansweredTurnPaneIDs.formIntersection(index.livePaneIDs)
 
         #if DEBUG
             let allIDs = _groups.flatMap { $0.sessions.map(\.id) }

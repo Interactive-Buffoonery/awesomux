@@ -183,3 +183,64 @@ without `attentionReason: .userInputRequired`. Core still increments unread and
 allows the notification bridge to fire for unfocused turn completions. Permission
 prompts and provider notification fallbacks continue to use `attentionReason` and
 project to `needsAttention`.
+
+## Amendment (2026-08-17): an unanswered turn lifts the row without claiming attention
+
+INT-650 correctly removed the peach `!` from turn-end. In practice that left the
+sidebar's Needs Input section near-silent for an auto-approving user: with broad
+tool allowlists a provider almost never raises a permission prompt, so the
+section's only trigger effectively never fires. A full day of real events
+contained 684 lines and exactly two `attentionReason` values, both from a single
+interactive question. The section looked broken while working exactly as
+designed.
+
+Claude Code's `Notification(notification_type=idle_prompt)` is a different claim
+from `Stop`. Measured across a real trace, every `idle_prompt` landed 60.0-60.1s
+after a turn-end `Stop`, fired at most once per turn, and never fired for a turn
+the user answered inside that window. It reports "a finished turn has gone
+unanswered for 60 seconds" — evidence about the USER, not a restatement of
+turn-end.
+
+The obvious implementation — give `idle_prompt` an `attentionReason` — was
+rejected after review. `AttentionReason` is not a private channel into the
+sidebar; four other consumers key on it, and every one of them would have been
+wrong here:
+
+- `AgentDisplayState` projects any reason to peach `.needsAttention`, and
+  `WorkspaceNotificationPolicy` opens the macOS notification channel on
+  `attentionReason != nil`. Neither consults
+  `appearance.promote_workspaces_needing_input`, so an opt-in sidebar feature
+  would have started repainting tiles and posting banners for every user.
+- `AgentPromptGate` treats `.needsAttention` as not receptive, which would have
+  disabled the document pane's send bar 60s after every unanswered turn — the
+  exact moment its "agent is waiting" copy claims it should work.
+- No hook event can retract a reason (`clearsAttention` requires the legacy
+  `state` field, which the mapper never sets), and `awaitsExplicitAnswer` blocks
+  inferred clears. A row could only be freed by a keystroke in that pane, so an
+  answer delivered by `amx send` would have stranded it.
+- Equal priority lets a reason overwrite a pending `.permissionPrompt`, whose
+  bridge-side clear is scoped to `== .permissionPrompt` and would then no-op.
+
+Therefore the mapping is unchanged — `idle_prompt` stays `executionState:
+.waiting` with no reason — and Core recognises the shape instead. `.waiting`
+asserted on a `.notification` phase is unique to this event across every
+provider mapping, and `SessionStore.unansweredTurnPaneIDs` records the pane.
+`SidebarAttentionProjection.isLifted` reads that set as a second membership
+source beside `needsUserInput`.
+
+Consequences:
+
+- Lifting is the only effect. The tile keeps the blue pause, no banner fires, no
+  unread lands, and the document nudge stays receptive. A user who has not
+  enabled the section sees no change whatsoever.
+- Retraction is event-driven, which a reason could never be. `.promptSubmit`
+  proves the turn was answered — by a keystroke or by `amx send` alike — and
+  `.sessionEnd` covers a departed agent. Acknowledging the workspace clears it
+  too, so ⌘⇧K reaches these rows.
+- Tool phases deliberately do NOT retract. Subagent tool calls inherit the pane's
+  event file, and a background `.toolStart` after turn-end was measured at 11 of
+  32 turn-ends; clearing on those would drop a genuinely waiting row a third of
+  the time.
+- The signal is runtime-only. A relaunch has no live agent to re-report idleness,
+  so a restored workspace waits for its next real turn rather than restoring a
+  lift whose premise can no longer be checked.

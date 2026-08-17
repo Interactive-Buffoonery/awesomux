@@ -23,11 +23,20 @@ public enum SidebarAttentionProjection {
     /// to a selection change, so any render pass can observe a new selection
     /// against a not-yet-updated sticky. Excluding the selected session here
     /// would demote a just-clicked row for one pass and lift it back the next.
+    /// - Parameter unansweredTurnPaneIDs: `SessionStore.unansweredTurnPaneIDs` —
+    ///   panes whose finished turn the agent reported as unanswered. A second
+    ///   membership source rather than a second attention reason, because a
+    ///   reason would also repaint the tile peach, open the notification
+    ///   channel, and make the pane unreceptive to the document nudge. Lifting
+    ///   is the only effect wanted here.
     public static func isLifted(
         _ session: TerminalSession,
-        stickySessionID: TerminalSession.ID?
+        stickySessionID: TerminalSession.ID?,
+        unansweredTurnPaneIDs: Set<TerminalPane.ID> = []
     ) -> Bool {
-        session.id == stickySessionID || session.needsUserInput
+        session.id == stickySessionID
+            || session.needsUserInput
+            || session.hasUnansweredTurn(in: unansweredTurnPaneIDs)
     }
 
     public struct Output: Equatable, Sendable {

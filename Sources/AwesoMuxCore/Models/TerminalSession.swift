@@ -266,6 +266,17 @@ public extension TerminalSession {
         layout.contains { $0.attentionReason?.awaitsExplicitAnswer == true }
     }
 
+    /// Whether any pane's finished turn has been reported unanswered — the
+    /// second Needs Input membership source, held in `SessionStore` rather than
+    /// on the pane because it is runtime-only state, not part of the workspace.
+    ///
+    /// Session-wide for the same reason as `needsUserInput`: a split workspace
+    /// stays lifted while ANY pane is still waiting on the user.
+    func hasUnansweredTurn(in paneIDs: Set<TerminalPane.ID>) -> Bool {
+        guard !paneIDs.isEmpty else { return false }
+        return layout.contains { paneIDs.contains($0.id) }
+    }
+
     /// Summed across panes for badge display. Flipped from a stored var to a
     /// computed rollup — every former write moved to the owning pane.
     var unreadNotificationCount: Int {

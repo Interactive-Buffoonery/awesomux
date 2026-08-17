@@ -39,6 +39,151 @@ import Testing
         )
     }
 
+    /// Claude Code hook shapes, hand-built the way
+    /// `WaitingAnnouncementRuntimeEventTests` does: `AgentHookEventMapper` owns
+    /// the hook-name-to-shape mapping and its own suite pins it, so this suite
+    /// asserts only what Core does with each shape once it arrives.
+    private func claudeEvent(
+        executionState: AgentExecutionState?,
+        phase: AgentRuntimePhase,
+        at timestamp: Date = Date()
+    ) -> AgentRuntimeEvent {
+        AgentRuntimeEvent(
+            source: .claudeCode,
+            executionState: executionState,
+            phase: phase,
+            eventID: UUID().uuidString,
+            timestamp: timestamp
+        )
+    }
+
+    /// `idle_prompt`: the only mapping asserting `.waiting` on a notification.
+    private func idlePrompt(at timestamp: Date = Date()) -> AgentRuntimeEvent {
+        claudeEvent(executionState: .waiting, phase: .notification, at: timestamp)
+    }
+
+    /// The whole point of the signal: a turn the user has ignored for 60s lifts
+    /// the workspace, WITHOUT painting it peach or claiming a blocking prompt —
+    /// the tile keeps the blue pause INT-650 gave it.
+    @Test func unansweredIdlePromptLiftsTheWorkspaceWithoutAttention() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(), to: alpha.id, paneID: paneID))
+
+        #expect(store.liftedSessionIDs == [alpha.id])
+        #expect(store.session(id: alpha.id)?.agentRollup().state == .waiting)
+        #expect(store.session(id: alpha.id)?.needsAcknowledgement == false)
+        #expect(store.session(id: alpha.id)?.unreadNotificationCount == 0)
+    }
+
+    /// The INT-650 boundary: turn-end ITSELF rests on the blue pause and stays
+    /// in its group. Only the 60s-unanswered escalation lifts.
+    @Test func bareTurnEndStopDoesNotLiftTheWorkspace() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+
+        #expect(
+            store.applyAgentRuntimeEvent(
+                claudeEvent(executionState: .waiting, phase: .stop),
+                to: alpha.id,
+                paneID: paneID
+            ))
+
+        #expect(store.session(id: alpha.id)?.agentRollup().state == .waiting)
+        #expect(store.liftedSessionIDs.isEmpty)
+    }
+
+    /// Answering retracts the lift — and `.promptSubmit` is the phase that
+    /// proves it, so an answer injected by `amx send` clears the row exactly
+    /// like a typed one. Attention reasons have no such event-driven retraction,
+    /// which is a large part of why this signal is not one.
+    @Test func submittingAPromptRetractsTheLift() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+        let base = Date()
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(at: base), to: alpha.id, paneID: paneID))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        #expect(
+            store.applyAgentRuntimeEvent(
+                claudeEvent(
+                    executionState: .thinking,
+                    phase: .promptSubmit,
+                    at: base.addingTimeInterval(1)
+                ),
+                to: alpha.id,
+                paneID: paneID
+            ))
+
+        #expect(store.liftedSessionIDs.isEmpty)
+    }
+
+    /// Subagent tool calls inherit the pane's event file, and a background
+    /// `.toolStart` after turn-end was measured at 11 of 32 turn-ends in a real
+    /// trace. It reports that something started, never that the human answered —
+    /// so it must NOT retract a row the user still owes a reply.
+    @Test func backgroundToolStartDoesNotRetractTheLift() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+        let base = Date()
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(at: base), to: alpha.id, paneID: paneID))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        _ = store.applyAgentRuntimeEvent(
+            claudeEvent(
+                executionState: .thinking,
+                phase: .toolStart,
+                at: base.addingTimeInterval(1)
+            ),
+            to: alpha.id,
+            paneID: paneID
+        )
+
+        #expect(store.liftedSessionIDs == [alpha.id])
+    }
+
+    /// The global "acknowledge everything" sweep promises an empty section, so
+    /// it has to clear these marks too. Its full rebuild only prunes panes that
+    /// are GONE, which would leave every live marked row lifted.
+    @Test func acknowledgingEverythingRetractsUnansweredTurnLifts() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let beta = TerminalSession(title: "beta", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha], groupTwo: [beta])
+        let alphaPane = try #require(store.session(id: alpha.id)?.activePaneID)
+        let betaPane = try #require(store.session(id: beta.id)?.activePaneID)
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(), to: alpha.id, paneID: alphaPane))
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(), to: beta.id, paneID: betaPane))
+        #expect(store.liftedSessionIDs.count == 2)
+
+        store.acknowledgeAllSessions()
+
+        #expect(store.liftedSessionIDs.isEmpty)
+        #expect(store.unansweredTurnPaneIDs.isEmpty)
+    }
+
+    /// ⌘⇧K is the section's documented escape hatch; it has to reach a row
+    /// lifted by this signal, not just one lifted by an attention reason.
+    @Test func acknowledgingRetractsAnUnansweredTurnLift() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(), to: alpha.id, paneID: paneID))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        store.acknowledgeAllPanes(in: alpha.id)
+
+        #expect(store.liftedSessionIDs.isEmpty)
+    }
+
     @Test func liftedOrderFollowsArrivalNotGroupOrder() throws {
         let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
         let gamma = TerminalSession(title: "gamma", workingDirectory: "~")
