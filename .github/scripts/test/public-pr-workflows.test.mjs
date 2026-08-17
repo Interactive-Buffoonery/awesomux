@@ -28,21 +28,28 @@ const workflows = {
 };
 const ensureRepositoryLabel = join(repoRoot, ".github/scripts/ensure-repository-label.sh");
 
-function runEnsureRepositoryLabel({ lookupError, lookupResponse, lookupWarning = "" }) {
+function runEnsureRepositoryLabel({
+  lookupError = "",
+  lookupResponse,
+  lookupStatus = 200,
+  lookupWarning = "",
+}) {
   const fixture = mkdtempSync(join(tmpdir(), "awesomux-label-test-"));
   const calls = join(fixture, "calls");
   const mockGh = join(fixture, "gh");
   const script = `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$GH_CALLS"
-if [[ "$1" == "api" && "\${2:-}" != "--method" ]]; then
-    if [[ -n "\${GH_LOOKUP_ERROR:-}" ]]; then
-        printf '%s\\n' "$GH_LOOKUP_ERROR" >&2
-        exit 1
-    fi
+if [[ "$1" == "api" && "\${2:-}" == "--include" ]]; then
+    printf 'HTTP/2.0 %s Synthetic\\r\\n' "$GH_LOOKUP_STATUS"
+    printf 'Content-Type: application/json\\r\\n\\r\\n'
     printf '%s\\n' "$GH_LOOKUP_RESPONSE"
     if [[ -n "\${GH_LOOKUP_WARNING:-}" ]]; then
         printf '%s\\n' "$GH_LOOKUP_WARNING" >&2
+    fi
+    if [[ "$GH_LOOKUP_STATUS" -ge 400 ]]; then
+        printf '%s\\n' "$GH_LOOKUP_ERROR" >&2
+        exit 1
     fi
 fi
 `;
@@ -60,6 +67,7 @@ fi
         GH_CALLS: calls,
         GH_LOOKUP_ERROR: lookupError ?? "",
         GH_LOOKUP_RESPONSE: lookupResponse ?? "",
+        GH_LOOKUP_STATUS: String(lookupStatus),
         GH_LOOKUP_WARNING: lookupWarning,
         PATH: `${fixture}:${process.env.PATH}`,
       },
@@ -138,23 +146,24 @@ test("PR sizing delegates label reconciliation to the tested helper", () => {
   assert.doesNotMatch(workflow, /label_response|HTTP 404/);
 });
 
-test("a missing repository label is created for either gh 404 format", () => {
-  for (const lookupError of [
-    "gh: Not Found (HTTP 404)",
-    "gh: HTTP 404: Not Found (https://api.github.com/example)",
-  ]) {
-    const result = runEnsureRepositoryLabel({ lookupError });
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.recordedCalls, /api --method POST repos\/Interactive-Buffoonery\/awesomux\/labels/);
-  }
+test("a missing repository label is created from its HTTP status", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupError: "error wording is intentionally unstructured",
+    lookupResponse: JSON.stringify({ status: "404" }),
+    lookupStatus: 404,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.recordedCalls, /api --method POST repos\/Interactive-Buffoonery\/awesomux\/labels/);
 });
 
 test("a temporary label lookup failure is surfaced without a write", () => {
   const result = runEnsureRepositoryLabel({
-    lookupError: "gh: No server is currently available (HTTP 503)",
+    lookupError: "temporary upstream failure",
+    lookupResponse: JSON.stringify({ status: "503" }),
+    lookupStatus: 503,
   });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /HTTP 503/);
+  assert.match(result.stderr, /label lookup failed with HTTP 503/);
   assert.doesNotMatch(result.recordedCalls, /--method (?:POST|PATCH)/);
 });
 

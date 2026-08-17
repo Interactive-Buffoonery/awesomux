@@ -16,17 +16,24 @@ endpoint="repos/${repository}/labels/${encoded_name}"
 temp_dir="$(mktemp -d)"
 response_file="${temp_dir}/response"
 error_file="${temp_dir}/error"
+body_file="${temp_dir}/body"
 
 cleanup() {
     [[ ! -e "$response_file" ]] || unlink "$response_file"
     [[ ! -e "$error_file" ]] || unlink "$error_file"
+    [[ ! -e "$body_file" ]] || unlink "$body_file"
     rmdir "$temp_dir"
 }
 trap cleanup EXIT
 
-if gh api "$endpoint" >"$response_file" 2>"$error_file"; then
-    current_color="$(jq -r '.color' <"$response_file")"
-    current_description="$(jq -r '.description // ""' <"$response_file")"
+lookup_exit=0
+gh api --include "$endpoint" >"$response_file" 2>"$error_file" || lookup_exit="$?"
+http_status="$(awk 'NR == 1 { print $2 }' "$response_file")"
+
+if [[ "$lookup_exit" -eq 0 && "$http_status" == 2?? ]]; then
+    awk 'body { print } /^[[:space:]]*$/ { body = 1 }' "$response_file" >"$body_file"
+    current_color="$(jq -r '.color' <"$body_file")"
+    current_description="$(jq -r '.description // ""' <"$body_file")"
 
     if [[ -s "$error_file" ]]; then
         cat "$error_file" >&2
@@ -40,7 +47,7 @@ if gh api "$endpoint" >"$response_file" 2>"$error_file"; then
             -f description="$description" \
             >/dev/null
     fi
-elif grep -Fq "HTTP 404" "$error_file"; then
+elif [[ "$http_status" == "404" ]]; then
     gh api \
         --method POST \
         "repos/${repository}/labels" \
@@ -50,5 +57,8 @@ elif grep -Fq "HTTP 404" "$error_file"; then
         >/dev/null
 else
     cat "$error_file" >&2
+    if [[ -n "$http_status" ]]; then
+        echo "label lookup failed with HTTP ${http_status}" >&2
+    fi
     exit 1
 fi
