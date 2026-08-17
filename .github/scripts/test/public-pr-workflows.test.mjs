@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -17,6 +26,49 @@ const workflows = {
   swiftCodeql: read(".github/workflows/swift-codeql.yml"),
   template: read(".github/workflows/pr-template.yml"),
 };
+const ensureRepositoryLabel = join(repoRoot, ".github/scripts/ensure-repository-label.sh");
+
+function runEnsureRepositoryLabel({ lookupError, lookupResponse, lookupWarning = "" }) {
+  const fixture = mkdtempSync(join(tmpdir(), "awesomux-label-test-"));
+  const calls = join(fixture, "calls");
+  const mockGh = join(fixture, "gh");
+  const script = `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$GH_CALLS"
+if [[ "$1" == "api" && "\${2:-}" != "--method" ]]; then
+    if [[ -n "\${GH_LOOKUP_ERROR:-}" ]]; then
+        printf '%s\\n' "$GH_LOOKUP_ERROR" >&2
+        exit 1
+    fi
+    printf '%s\\n' "$GH_LOOKUP_RESPONSE"
+    if [[ -n "\${GH_LOOKUP_WARNING:-}" ]]; then
+        printf '%s\\n' "$GH_LOOKUP_WARNING" >&2
+    fi
+fi
+`;
+
+  writeFileSync(mockGh, script);
+  chmodSync(mockGh, 0o755);
+
+  const result = spawnSync(
+    "bash",
+    [ensureRepositoryLabel, "Interactive-Buffoonery/awesomux", "size:S", "5ebd3e", "10-29 effective changed lines."],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GH_CALLS: calls,
+        GH_LOOKUP_ERROR: lookupError ?? "",
+        GH_LOOKUP_RESPONSE: lookupResponse ?? "",
+        GH_LOOKUP_WARNING: lookupWarning,
+        PATH: `${fixture}:${process.env.PATH}`,
+      },
+    },
+  );
+  const recordedCalls = existsSync(calls) ? readFileSync(calls, "utf8") : "";
+  rmSync(fixture, { recursive: true, force: true });
+  return { ...result, recordedCalls };
+}
 
 function assertMetadataOnly(name, workflow) {
   assert.match(workflow, /pull_request_target:/, `${name} must run trusted base workflow code`);
@@ -80,14 +132,43 @@ test("PR sizing uses a verified passive ref and effective line rules", () => {
   assert.match(workflow, /issues\/comments\/\$\{comment_id\}/);
 });
 
-test("PR sizing creates labels only after a confirmed missing response", () => {
+test("PR sizing delegates label reconciliation to the tested helper", () => {
   const workflow = workflows.size;
-  assert.match(workflow, /if label_response="\$\([\s\S]*?gh api/);
-  assert.match(workflow, /elif grep -Fq "\(HTTP 404\)"/);
-  assert.match(workflow, /current_color="\$\(jq/);
-  assert.match(workflow, /current_description="\$\(jq/);
-  assert.match(workflow, /printf '%s\\n' "\$label_response" >&2/);
-  assert.doesNotMatch(workflow, /if gh api[^\n]+>\/dev\/null 2>&1/);
+  assert.match(workflow, /\.\/\.github\/scripts\/ensure-repository-label\.sh/);
+  assert.doesNotMatch(workflow, /label_response|HTTP 404/);
+});
+
+test("a missing repository label is created for either gh 404 format", () => {
+  for (const lookupError of [
+    "gh: Not Found (HTTP 404)",
+    "gh: HTTP 404: Not Found (https://api.github.com/example)",
+  ]) {
+    const result = runEnsureRepositoryLabel({ lookupError });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.recordedCalls, /api --method POST repos\/Interactive-Buffoonery\/awesomux\/labels/);
+  }
+});
+
+test("a temporary label lookup failure is surfaced without a write", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupError: "gh: No server is currently available (HTTP 503)",
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /HTTP 503/);
+  assert.doesNotMatch(result.recordedCalls, /--method (?:POST|PATCH)/);
+});
+
+test("successful label JSON stays separate from gh warnings", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupResponse: JSON.stringify({
+      color: "5ebd3e",
+      description: "10-29 effective changed lines.",
+    }),
+    lookupWarning: "gh: warning: synthetic notice",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /synthetic notice/);
+  assert.doesNotMatch(result.recordedCalls, /--method (?:POST|PATCH)/);
 });
 
 test("hosted native CI stays advisory and maintainer-triggered", () => {
