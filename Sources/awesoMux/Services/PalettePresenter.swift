@@ -2,14 +2,65 @@ import AppKit
 import AwesoMuxCore
 import Observation
 
+struct PaletteWorkspaceActionTarget: Equatable {
+    let sessionID: TerminalSession.ID
+    let activePaneID: TerminalPane.ID
+    let isSinglePane: Bool
+    let selectedDocumentTabID: DocumentPane.ID?
+    let displayedTitle: String
+}
+
+struct PaletteCommandInvocation: Equatable {
+    let commandID: PaletteCommand.ID
+    let selectionScope: PaletteCommandSelectionScope
+    let workspaceTarget: PaletteWorkspaceActionTarget?
+
+    func canResolveAgainstCurrentSelection(
+        sessionID: TerminalSession.ID?,
+        paneID: TerminalPane.ID?,
+        documentTabID: DocumentPane.ID?,
+        isSinglePane: Bool? = nil
+    ) -> Bool {
+        switch selectionScope {
+        case .none:
+            return true
+        case .workspace:
+            return workspaceTarget?.sessionID == sessionID
+        case .pane:
+            return workspaceTarget?.sessionID == sessionID
+                && workspaceTarget?.activePaneID == paneID
+                && (commandID != KeyboardShortcutCatalog.closePane.id
+                    || workspaceTarget?.isSinglePane == isSinglePane)
+        case .documentTab:
+            return workspaceTarget?.sessionID == sessionID
+                && workspaceTarget?.selectedDocumentTabID == documentTabID
+        }
+    }
+}
+
+struct PaletteQuickRunInvocation: Equatable {
+    let result: PaletteQuickRunResult
+    let workspaceTarget: PaletteWorkspaceActionTarget?
+
+    func canResolveAgainstCurrentSelection(
+        sessionID: TerminalSession.ID?,
+        paneID: TerminalPane.ID?
+    ) -> Bool {
+        workspaceTarget?.sessionID == sessionID
+            && workspaceTarget?.activePaneID == paneID
+    }
+}
+
 @MainActor
 @Observable
 final class PalettePresenter {
     private let sessionGroups: [SessionGroup]
+    private let sessionTitles: [TerminalSession.ID: String]
     private let commands: [PaletteCommand]
+    private let workspaceTarget: PaletteWorkspaceActionTarget?
     private let selectSession: @MainActor (TerminalSession.ID) -> Bool
-    private let runCommand: @MainActor (PaletteCommand.ID) -> Bool
-    private let runQuickRun: @MainActor (PaletteQuickRunResult, PaletteQuickRunCommitSurface) -> Bool
+    private let runCommand: @MainActor (PaletteCommandInvocation) -> Bool
+    private let runQuickRun: @MainActor (PaletteQuickRunInvocation, PaletteQuickRunCommitSurface) -> Bool
 
     private(set) var currentResults: PaletteResults
     private(set) var flattenedResults: [PaletteResult]
@@ -25,20 +76,25 @@ final class PalettePresenter {
 
     init(
         sessionGroups: [SessionGroup],
+        sessionTitles: [TerminalSession.ID: String] = [:],
         commands: [PaletteCommand],
+        workspaceTarget: PaletteWorkspaceActionTarget? = nil,
         selectSession: @escaping @MainActor (TerminalSession.ID) -> Bool,
-        runCommand: @escaping @MainActor (PaletteCommand.ID) -> Bool,
-        runQuickRun: @escaping @MainActor (PaletteQuickRunResult, PaletteQuickRunCommitSurface) -> Bool = { _, _ in false }
+        runCommand: @escaping @MainActor (PaletteCommandInvocation) -> Bool,
+        runQuickRun: @escaping @MainActor (PaletteQuickRunInvocation, PaletteQuickRunCommitSurface) -> Bool = { _, _ in false }
     ) {
         self.sessionGroups = sessionGroups
+        self.sessionTitles = sessionTitles
         self.commands = commands
+        self.workspaceTarget = workspaceTarget
         self.selectSession = selectSession
         self.runCommand = runCommand
         self.runQuickRun = runQuickRun
         let initialResults = PaletteSearch.results(
             groups: sessionGroups,
             commands: commands,
-            rawQuery: ""
+            rawQuery: "",
+            titles: sessionTitles
         )
         currentResults = initialResults
         flattenedResults = initialResults.flattened
@@ -49,7 +105,8 @@ final class PalettePresenter {
         let results = PaletteSearch.results(
             groups: sessionGroups,
             commands: commands,
-            rawQuery: query
+            rawQuery: query,
+            titles: sessionTitles
         )
         currentResults = results
         flattenedResults = results.flattened
@@ -104,12 +161,22 @@ final class PalettePresenter {
         case .session(let session):
             return selectSession(session.sessionID)
         case .command(let command):
-            guard PaletteCommandRegistry.command(id: command.commandID, in: commands)?.isEnabled == true else {
+            guard let source = PaletteCommandRegistry.command(id: command.commandID, in: commands),
+                source.isEnabled
+            else {
                 return false
             }
-            return runCommand(command.commandID)
+            return runCommand(
+                PaletteCommandInvocation(
+                    commandID: command.commandID,
+                    selectionScope: source.selectionScope,
+                    workspaceTarget: workspaceTarget
+                ))
         case .quickRun(let quickRun):
-            return runQuickRun(quickRun, surface)
+            return runQuickRun(
+                PaletteQuickRunInvocation(result: quickRun, workspaceTarget: workspaceTarget),
+                surface
+            )
         }
     }
 

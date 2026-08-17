@@ -284,11 +284,14 @@ struct KeyboardShortcutCatalogTests {
         }
     }
 
-    @Test("focus pane shortcuts use option command digits one through nine")
+    @Test("focus pane shortcuts use option command digits one through six")
     func focusPaneShortcutsUseOptionCommandDigits() {
         let bindings = KeyboardShortcutCatalog.focusPaneBindings
 
-        #expect(bindings.count == 9)
+        // Six is a deliberate ceiling, not an accident of the digit row — every
+        // binding here becomes a permanent menu row, so growing this list grows
+        // the Pane menu for everyone.
+        #expect(bindings.count == 6)
         for (offset, binding) in bindings.enumerated() {
             let digit = String(offset + 1)
             #expect(binding.id == "focusPane\(digit)")
@@ -306,8 +309,11 @@ struct KeyboardShortcutCatalogTests {
             KeyboardShortcutCatalog.settingsSections.first { $0.title == "Panes" }
         )
         let ids = panes.entries.flatMap(\.bindings).map(\.id)
-        for index in 1...9 {
-            #expect(ids.contains("focusPane\(index)"))
+        // Derive from the catalog rather than hardcoding the range a second
+        // time: this test's job is "every focus-pane binding reaches Settings",
+        // and how many there are is pinned once, above.
+        for binding in KeyboardShortcutCatalog.focusPaneBindings {
+            #expect(ids.contains(binding.id))
         }
     }
 

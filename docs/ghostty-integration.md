@@ -262,8 +262,8 @@ top. That does not make Ghostty's app/window/workspace actions a second awesoMux
 command surface.
 
 The source of truth for app commands is the SwiftUI/AppKit command layer backed
-by `KeyboardShortcutCatalog`, the Workspace/File menus, and the command
-palette. `GhosttyRuntime.action(_:,target:action:)` handles libghostty callbacks
+by `KeyboardShortcutCatalog`, the File/View/Workspace/Pane menus, and the
+command palette. `GhosttyRuntime.action(_:,target:action:)` handles libghostty callbacks
 that belong to the terminal surface itself: title, cwd, bell/notification,
 mouse/link state, URL/document routing, command-finished, progress, scrollbar,
 selection, and search state. Known Ghostty application actions emitted from a

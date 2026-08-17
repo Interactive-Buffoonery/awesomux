@@ -8,7 +8,8 @@ import Testing
 /// `LiveTitleReads` picks the observation CHANNEL, not just which fields get
 /// copied out: `.paneTitle` registers a dependency on the fine-grained
 /// properties and repaints on every OSC report, while `.everything` — the
-/// sidebar rows — registers on the ~1 Hz coarse mirror and does not.
+/// sidebar rows — registers on the coarse mirror the store's ~1 Hz shared gate
+/// publishes (`SessionStore.tickLiveTitle`) and does not.
 ///
 /// Asserted with `withObservationTracking` because that is the only place the
 /// distinction is real. Copying the right *value* out would still repaint the
@@ -66,7 +67,7 @@ struct LiveTitleReadsChannelTests {
 
         fixture.retitle(
             "frame 1",
-            now: base.addingTimeInterval(LiveTitleBox.coarseCoalescingInterval)
+            now: base.addingTimeInterval(SessionStore.defaultLiveTitleGenerationInterval)
         )
 
         // The control for the test above: `.everything` is throttled, not

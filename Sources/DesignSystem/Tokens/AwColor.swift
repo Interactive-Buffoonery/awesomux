@@ -188,6 +188,27 @@ public struct AwColors: Sendable {
         ))
     }
 
+    /// Quiet label on a chrome title-bar band (`surface.chrome2` →
+    /// `surface.chrome`). Stock `text3` (overlay1) reads at only 2.42:1 there
+    /// in Latte — below WCAG 1.4.3 AA, and below even the 3:1 non-text floor.
+    /// This steps Latte to subtext1 (4.73:1) and leaves every other palette on
+    /// overlay1, which already clears AA (Mocha 4.75, both HC above 9).
+    ///
+    /// The same one-rung Latte correction `railText` applies to `text2`, one
+    /// rung further down the ladder. Kept separate rather than folded into
+    /// `railText` because that token also brightens Mocha, which is unnecessary
+    /// here and would change an approved appearance to fix a Latte-only defect.
+    /// Live call sites: `FloatingPanelTitlebar`.
+    public var titlebarText: Color {
+        Color(
+            nsColor: NSColor.awDynamic(
+                mocha: mocha.overlay1,
+                latte: latte.subtext1,
+                mochaHC: mochaHC.overlay1,
+                latteHC: latteHC.overlay1
+            ))
+    }
+
     public var border: Color { dynamic(\.text).opacity(0.08) }
     public var border2: Color { dynamic(\.text).opacity(0.14) }
 

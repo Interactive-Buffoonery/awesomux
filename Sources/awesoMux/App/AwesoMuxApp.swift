@@ -88,6 +88,23 @@ enum RecoveryReplacementFailurePresentation: Equatable {
     case retryOrKeep
 }
 
+enum RecoveryReplacementIndicatorState: Equatable {
+    case hidden
+    case review
+    case replacing
+    case replaced
+
+    static func resolve(
+        hasWarning: Bool,
+        isReplacing: Bool,
+        didSucceed: Bool
+    ) -> Self {
+        if isReplacing { return .replacing }
+        if hasWarning { return .review }
+        return didSucceed ? .replaced : .hidden
+    }
+}
+
 func recoveryReplacementFailurePresentation(
     for error: SessionPersistence.RecoverySnapshotReplacementError
 ) -> RecoveryReplacementFailurePresentation {
@@ -168,6 +185,7 @@ struct AwesoMuxApp: App {
     /// directly would inherit the last value — set it explicitly there.
     @State private var recoveryWarningAppearedMidSession = false
     @State private var isRecoveryReplacementInProgress = false
+    @State private var recoveryReplacementSuccessID: UUID?
     @State private var sessionSaveFailure: SessionPersistence.RecoverySnapshotReplacementError?
     @State private var floatingPanelController = TerminalPanelController(mode: .floating)
     @State private var popUpTerminalController = TerminalPanelController(mode: .companion)
@@ -359,7 +377,11 @@ struct AwesoMuxApp: App {
                 onManagedSSHWorkspaceOffer: requestManagedSSHWorkspaceOffer,
                 onReopenClosedWorkspace: reopenMostRecentlyClosedWorkspace,
                 hasRecoveryWarning: recoveryWarning != nil,
-                isRecoveryReplacementInProgress: isRecoveryReplacementInProgress,
+                recoveryReplacementIndicatorState: RecoveryReplacementIndicatorState.resolve(
+                    hasWarning: recoveryWarning != nil,
+                    isReplacing: isRecoveryReplacementInProgress,
+                    didSucceed: recoveryReplacementSuccessID != nil
+                ),
                 onReviewRecoveryWarning: reviewRecoveryWarning,
                 hasSessionSaveFailure: sessionSaveFailure != nil,
                 onRetrySessionSave: saveSessionIfRestoreEnabled,
@@ -799,6 +821,70 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.closePane))
             }
 
+            // MARK: - View menu
+
+            CommandGroup(after: .sidebar) {
+                Button("Focus Sidebar", action: requestSidebarFocus)
+                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.focusSidebar))
+                    .disabled(
+                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
+
+                Button("Collapse/Expand Sidebar", action: requestSidebarWidthToggle)
+                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarWidth))
+                    .disabled(
+                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
+
+                Button(sidebarVisibilityMenuTitle, action: requestSidebarVisibilityToggle)
+                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarVisibility))
+                    .disabled(
+                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
+
+                Divider()
+
+                Button(floatingPanelMenuTitle) {
+                    toggleFloatingPanel()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleFloatingPanel))
+                .disabled(isAnySheetPresented)
+
+                Button(popUpTerminalMenuTitle) {
+                    togglePopUpTerminal()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.togglePopUpTerminal))
+                .disabled(isAnySheetPresented)
+
+                Button(commandPaletteMenuTitle) {
+                    // A real `.keyboardShortcut` auto-repeats its action while
+                    // held, unlike the deleted NSEvent interceptor which
+                    // explicitly swallowed repeats. Scoped to THIS closure
+                    // (not `toggleCommandPalette()` itself) so the sidebar's
+                    // magnifying-glass button and the palette's own
+                    // "Command Palette" list entry — both call
+                    // `toggleCommandPalette()` too — are never gated on
+                    // ambient `NSApp.currentEvent`, which reflects whatever
+                    // the app last dispatched, not what triggered THEIR call.
+                    guard !(NSApp.currentEvent?.type == .keyDown && NSApp.currentEvent?.isARepeat == true) else {
+                        ShortcutDiagnostics.log("stage=commandPaletteMenuAction repeat=true action=ignore")
+                        return
+                    }
+                    toggleCommandPalette()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleCommandPalette))
+                .disabled(isAnySheetPresented)
+
+                Button("Session Manager") {
+                    toggleSessionManager()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.sessionManager))
+                .disabled(isAnySheetPresented)
+
+                // AppKit appends its own "Enter Full Screen" below this group.
+                // Without a trailing separator our items run straight into it.
+                Divider()
+            }
+
+            // MARK: - Workspace menu
+
             CommandMenu("Workspace") {
                 Button("New Workspace in Current Directory") {
                     sessionStore.addSession(
@@ -867,6 +953,19 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.togglePinWorkspace))
                 .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
 
+                // Presets capture the whole workspace's split arrangement, not a
+                // single pane — `saveLayoutPresetForSelectedWorkspace()` is scoped
+                // to the workspace, and ADR-0027 documents them living here.
+                Button("Save Layout as Preset…") {
+                    saveLayoutPresetForSelectedWorkspace()
+                }
+                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
+
+                Button("Apply Layout Preset…") {
+                    applyLayoutPresetViaPicker()
+                }
+                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
+
                 Divider()
 
                 Button("Close Workspace") {
@@ -908,169 +1007,6 @@ struct AwesoMuxApp: App {
 
                 Divider()
 
-                Button("Split Right") {
-                    splitActivePane(orientation: .vertical)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitRight))
-                .disabled(sessionStore.selectedSession == nil)
-
-                Button("Split Down") {
-                    splitActivePane(orientation: .horizontal)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitDown))
-                .disabled(sessionStore.selectedSession == nil)
-
-                Button("Save Layout as Preset…") {
-                    saveLayoutPresetForSelectedWorkspace()
-                }
-                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
-
-                Button("Apply Layout Preset…") {
-                    applyLayoutPresetViaPicker()
-                }
-                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
-
-                // Same conditional as the File-menu binding: closeActivePane()
-                // routes single-pane sessions through closeWorkspace(_:), so
-                // the title has to match what actually happens.
-                Button(closePaneMenuTitle) {
-                    closeActivePane()
-                }
-                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
-
-                Button("Find in Pane") {
-                    presentFindInActivePane()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.find))
-                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
-
-                Button("Show Scrollback") {
-                    presentScrollbackDumpForActivePane()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.scrollbackDump))
-                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
-
-                // Binds ⌘⌥R, which the palette already advertises — without this
-                // menu item the shortcut was shown but not wired (Codex).
-                Button("Rename Pane…") {
-                    requestRenameActivePane()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.renamePane))
-                .disabled(!selectedSessionHasMultiplePanes || isAnySheetPresented)
-
-                Divider()
-
-                Button("Grow Active Pane") {
-                    sessionStore.resizeActiveSplit(by: 0.05)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.growActivePane))
-                .disabled(!selectedSessionHasMultiplePanes)
-
-                Button("Shrink Active Pane") {
-                    sessionStore.resizeActiveSplit(by: -0.05)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.shrinkActivePane))
-                .disabled(!selectedSessionHasMultiplePanes)
-
-                Divider()
-
-                Button("Previous Pane") {
-                    sessionStore.focusPane(.previous)
-                    announceActivePaneFocused()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.previousPane))
-                .disabled(!selectedSessionHasMultiplePanes)
-
-                Button("Next Pane") {
-                    sessionStore.focusPane(.next)
-                    announceActivePaneFocused()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextPane))
-                .disabled(!selectedSessionHasMultiplePanes)
-
-                Divider()
-
-                // Keyboard access to the document tab strip (INT-748 PR2): the
-                // strip's close buttons refuse first responder, so without
-                // these commands keyboard users couldn't switch tabs at all.
-                // Selection routes through selectDocumentTab, so the "Now
-                // showing" VoiceOver announcement fires like any other path.
-                Button("Previous Document Tab") {
-                    selectAdjacentDocumentTab(offset: -1)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.previousDocumentTab))
-                .disabled(!selectedSessionHasMultipleDocumentTabs)
-
-                Button("Next Document Tab") {
-                    selectAdjacentDocumentTab(offset: 1)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextDocumentTab))
-                .disabled(!selectedSessionHasMultipleDocumentTabs)
-
-                Button("Close Document Tab") {
-                    closeSelectedDocumentTab()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.closeDocumentTab))
-                .disabled(!selectedSessionHasDocumentTabs)
-
-                Divider()
-
-                Button("Move Pane Up") {
-                    moveActivePane(toWorkspaceEdge: .up)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneUp))
-                .disabled(!canMoveActivePane(toWorkspaceEdge: .up))
-
-                Button("Move Pane Down") {
-                    moveActivePane(toWorkspaceEdge: .down)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneDown))
-                .disabled(!canMoveActivePane(toWorkspaceEdge: .down))
-
-                Button("Move Pane Left") {
-                    moveActivePane(toWorkspaceEdge: .left)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneLeft))
-                .disabled(!canMoveActivePane(toWorkspaceEdge: .left))
-
-                Button("Move Pane Right") {
-                    moveActivePane(toWorkspaceEdge: .right)
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneRight))
-                .disabled(!canMoveActivePane(toWorkspaceEdge: .right))
-
-                Button("Swap Pane With Next") {
-                    swapActivePaneWithNext()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.swapPaneWithNext))
-                .disabled(!canSwapActivePaneWithNext)
-
-                Divider()
-
-                if selectedSessionHasMultiplePanes {
-                    ForEach(
-                        Array(shortcuts(KeyboardShortcutCatalog.focusPaneBindings).enumerated()),
-                        id: \.element.id
-                    ) { offset, binding in
-                        // The bindings are built from `(1...9)` in order, so the
-                        // 0-based enumeration offset maps to pane index N = offset + 1.
-                        // Compute it once rather than scatter `offset + 1`.
-                        let paneIndex = offset + 1
-                        Button(binding.action) {
-                            if sessionStore.focusPane(at: paneIndex) {
-                                announcePaneFocused(index: paneIndex)
-                            }
-                        }
-                        .keyboardShortcut(binding)
-                        // Gate on the real pane count, not just "has multiple":
-                        // an enabled "Focus Pane 5" in a 3-pane session would
-                        // silently no-op and erode trust in the shortcut family.
-                        .disabled(paneIndex > selectedSessionPaneCount)
-                    }
-
-                    Divider()
-                }
-
                 Button("Acknowledge Workspace") {
                     if let id = sessionStore.selectedSessionID {
                         sessionStore.acknowledgeAllPanes(in: id)
@@ -1085,60 +1021,6 @@ struct AwesoMuxApp: App {
                 .disabled(sessionStore.unreadNotificationTotal == 0)
 
                 Divider()
-
-                Button(floatingPanelMenuTitle) {
-                    toggleFloatingPanel()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleFloatingPanel))
-                .disabled(isAnySheetPresented)
-
-                Button(popUpTerminalMenuTitle) {
-                    togglePopUpTerminal()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.togglePopUpTerminal))
-                .disabled(isAnySheetPresented)
-
-                Button(commandPaletteMenuTitle) {
-                    // A real `.keyboardShortcut` auto-repeats its action while
-                    // held, unlike the deleted NSEvent interceptor which
-                    // explicitly swallowed repeats. Scoped to THIS closure
-                    // (not `toggleCommandPalette()` itself) so the sidebar's
-                    // magnifying-glass button and the palette's own
-                    // "Command Palette" list entry — both call
-                    // `toggleCommandPalette()` too — are never gated on
-                    // ambient `NSApp.currentEvent`, which reflects whatever
-                    // the app last dispatched, not what triggered THEIR call.
-                    guard !(NSApp.currentEvent?.type == .keyDown && NSApp.currentEvent?.isARepeat == true) else {
-                        ShortcutDiagnostics.log("stage=commandPaletteMenuAction repeat=true action=ignore")
-                        return
-                    }
-                    toggleCommandPalette()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleCommandPalette))
-                .disabled(isAnySheetPresented)
-
-                Button("Session Manager") {
-                    toggleSessionManager()
-                }
-                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.sessionManager))
-                .disabled(isAnySheetPresented)
-
-                Divider()
-
-                Button("Focus Sidebar", action: requestSidebarFocus)
-                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.focusSidebar))
-                    .disabled(
-                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
-
-                Button("Collapse/Expand Sidebar", action: requestSidebarWidthToggle)
-                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarWidth))
-                    .disabled(
-                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
-
-                Button(sidebarVisibilityMenuTitle, action: requestSidebarVisibilityToggle)
-                    .keyboardShortcut(shortcut(KeyboardShortcutCatalog.toggleSidebarVisibility))
-                    .disabled(
-                        isAnySheetPresented || !sidebarCommandTargetAvailability.isAvailable)
 
                 let jumpRows = DockRecentWorkspaceMenu.openWorkspaceRows(
                     groups: sessionStore.groups,
@@ -1213,6 +1095,165 @@ struct AwesoMuxApp: App {
                 #endif
             }
 
+            // MARK: - Pane menu
+
+            CommandMenu("Pane") {
+                Button("Split Right") {
+                    splitActivePane(orientation: .vertical)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitRight))
+                .disabled(sessionStore.selectedSession == nil)
+
+                Button("Split Down") {
+                    splitActivePane(orientation: .horizontal)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitDown))
+                .disabled(sessionStore.selectedSession == nil)
+
+                Divider()
+
+                // Same conditional as the File-menu binding: closeActivePane()
+                // routes single-pane sessions through closeWorkspace(_:), so
+                // the title has to match what actually happens.
+                Button(closePaneMenuTitle) {
+                    closeActivePane()
+                }
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                // Binds ⌘⌥R, which the palette already advertises — without this
+                // menu item the shortcut was shown but not wired (Codex).
+                Button("Rename Pane…") {
+                    requestRenameActivePane()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.renamePane))
+                .disabled(!selectedSessionHasMultiplePanes || isAnySheetPresented)
+
+                Divider()
+
+                Button("Find in Pane") {
+                    presentFindInActivePane()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.find))
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                Button("Show Scrollback") {
+                    presentScrollbackDumpForActivePane()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.scrollbackDump))
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                Divider()
+
+                Button("Grow Active Pane") {
+                    sessionStore.resizeActiveSplit(by: 0.05)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.growActivePane))
+                .disabled(!selectedSessionHasMultiplePanes)
+
+                Button("Shrink Active Pane") {
+                    sessionStore.resizeActiveSplit(by: -0.05)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.shrinkActivePane))
+                .disabled(!selectedSessionHasMultiplePanes)
+
+                Divider()
+
+                Button("Previous Pane") {
+                    sessionStore.focusPane(.previous)
+                    announceActivePaneFocused()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.previousPane))
+                .disabled(!selectedSessionHasMultiplePanes)
+
+                Button("Next Pane") {
+                    sessionStore.focusPane(.next)
+                    announceActivePaneFocused()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextPane))
+                .disabled(!selectedSessionHasMultiplePanes)
+
+                // Always render every slot. Per ADR-0002 SwiftUI claims a chord
+                // even when the command is disabled, so a rendered row is how
+                // awesoMux holds ⌥⌘N; dropping the row hands the chord to
+                // libghostty. Matches the ⌘1–9 workspace jump rows above.
+                ForEach(
+                    Array(shortcuts(KeyboardShortcutCatalog.focusPaneBindings).enumerated()),
+                    id: \.element.id
+                ) { offset, binding in
+                    // The bindings are built from a `1...n` range in order, so the
+                    // 0-based enumeration offset maps to pane index N = offset + 1.
+                    // Compute it once rather than scatter `offset + 1`.
+                    let paneIndex = offset + 1
+                    Button(binding.action) {
+                        if sessionStore.focusPane(at: paneIndex) {
+                            announcePaneFocused(index: paneIndex)
+                        }
+                    }
+                    .keyboardShortcut(binding)
+                    // Gate on the real pane count, not just "has multiple":
+                    // an enabled "Focus Pane 5" in a 3-pane session would
+                    // silently no-op and erode trust in the shortcut family.
+                    .disabled(paneIndex > selectedSessionPaneCount)
+                }
+
+                Divider()
+
+                Button("Move Pane Up") {
+                    moveActivePane(toWorkspaceEdge: .up)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneUp))
+                .disabled(!canMoveActivePane(toWorkspaceEdge: .up))
+
+                Button("Move Pane Down") {
+                    moveActivePane(toWorkspaceEdge: .down)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneDown))
+                .disabled(!canMoveActivePane(toWorkspaceEdge: .down))
+
+                Button("Move Pane Left") {
+                    moveActivePane(toWorkspaceEdge: .left)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneLeft))
+                .disabled(!canMoveActivePane(toWorkspaceEdge: .left))
+
+                Button("Move Pane Right") {
+                    moveActivePane(toWorkspaceEdge: .right)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.movePaneRight))
+                .disabled(!canMoveActivePane(toWorkspaceEdge: .right))
+
+                Button("Swap Pane With Next") {
+                    swapActivePaneWithNext()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.swapPaneWithNext))
+                .disabled(!canSwapActivePaneWithNext)
+
+                Divider()
+
+                // Keyboard access to the document tab strip (INT-748 PR2): the
+                // strip's close buttons refuse first responder, so without
+                // these commands keyboard users couldn't switch tabs at all.
+                // Selection routes through selectDocumentTab, so the "Now
+                // showing" VoiceOver announcement fires like any other path.
+                Button("Previous Document Tab") {
+                    selectAdjacentDocumentTab(offset: -1)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.previousDocumentTab))
+                .disabled(!selectedSessionHasMultipleDocumentTabs)
+
+                Button("Next Document Tab") {
+                    selectAdjacentDocumentTab(offset: 1)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextDocumentTab))
+                .disabled(!selectedSessionHasMultipleDocumentTabs)
+
+                Button("Close Document Tab") {
+                    closeSelectedDocumentTab()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.closeDocumentTab))
+                .disabled(!selectedSessionHasDocumentTabs)
+            }
+
             CommandGroup(replacing: .help) {
                 Button(keyboardCheatsheetMenuTitle) {
                     toggleKeyboardCheatsheet()
@@ -1249,7 +1290,7 @@ struct AwesoMuxApp: App {
     }
 
     private func closeSelectedSession() {
-        guard let session = sessionStore.selectedSession else {
+        guard let session = selectedWorkspaceActionSession() else {
             return
         }
         closeWorkspace(session)
@@ -1285,7 +1326,10 @@ struct AwesoMuxApp: App {
     @MainActor
     private func closeWorkspace(_ session: TerminalSession, alsoGateOnPaneActionConfirm: Bool) {
         guard let live = sessionStore.session(id: session.id) else { return }
-        let voTitle = Self.compactTitle(live.title)
+        // `session.title` is the title visible when the action was invoked.
+        // Mutable state and destructive ownership still come from `live` and
+        // the post-alert refetches below.
+        let voTitle = Self.compactTitle(session.title)
 
         // Mirror the ⌘Q path: refresh per-pane prompt-marker quit state so
         // the close gate sees the same truth as `applicationShouldTerminate`.
@@ -1298,6 +1342,7 @@ struct AwesoMuxApp: App {
 
         let decision = confirmCloseIfNeeded(
             refreshed,
+            displayedTitle: session.title,
             alsoGateOnPaneActionConfirm: alsoGateOnPaneActionConfirm
         )
         guard let confirmed = sessionStore.session(id: refreshed.id) else {
@@ -1326,7 +1371,7 @@ struct AwesoMuxApp: App {
     }
 
     private func clearSelectedSession() {
-        guard let session = sessionStore.selectedSession else {
+        guard let session = selectedWorkspaceActionSession() else {
             return
         }
         clearWorkspace(session)
@@ -1341,14 +1386,14 @@ struct AwesoMuxApp: App {
     @MainActor
     private func clearWorkspace(_ session: TerminalSession) {
         guard let live = sessionStore.session(id: session.id) else { return }
-        let voTitle = Self.compactTitle(live.title)
+        let voTitle = Self.compactTitle(session.title)
 
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
         floatingPanelController.refreshTerminalQuitConfirmationRisks(using: ghosttyRuntime)
 
         guard let refreshed = sessionStore.session(id: live.id) else { return }
 
-        switch confirmClearWorkspace(refreshed) {
+        switch confirmClearWorkspace(refreshed, displayedTitle: session.title) {
         case .suppressed:
             return
         case .userCancelled:
@@ -1419,12 +1464,15 @@ struct AwesoMuxApp: App {
     /// clear / group-close confirms — a per-action flag would let a rapid
     /// double-invoke stack two modal alerts.
     @MainActor
-    private func confirmClearWorkspace(_ session: TerminalSession) -> CloseConfirmDecision {
+    private func confirmClearWorkspace(
+        _ session: TerminalSession,
+        displayedTitle: String
+    ) -> CloseConfirmDecision {
         guard !isCloseConfirmAlertPresented else { return .suppressed }
         isCloseConfirmAlertPresented = true
         defer { isCloseConfirmAlertPresented = false }
 
-        let displayTitle = Self.sanitizedAlertTitle(session.title)
+        let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
         let now = Date()
         let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
         let atRisk = session.isCloseRisk(at: now) || floatingAtRisk
@@ -1762,6 +1810,7 @@ struct AwesoMuxApp: App {
     @MainActor
     private func confirmCloseIfNeeded(
         _ session: TerminalSession,
+        displayedTitle: String,
         alsoGateOnPaneActionConfirm: Bool = false
     ) -> CloseConfirmDecision {
         let workspaces = appSettingsStore.workspaces.value
@@ -1794,7 +1843,7 @@ struct AwesoMuxApp: App {
             floatingPanelAtRisk: floatingAtRisk
         )
 
-        let displayTitle = Self.sanitizedAlertTitle(session.title)
+        let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
 
         return NSAlert.confirmDestructive(
             title: String(
@@ -1821,6 +1870,7 @@ struct AwesoMuxApp: App {
     private func confirmDestructivePaneActionIfNeeded(
         _ action: DestructivePaneActionConfirmationPolicy.Action,
         in session: TerminalSession,
+        displayedTitle: String,
         riskReason: QuitRiskReason?,
         at now: Date
     ) -> CloseConfirmDecision {
@@ -1836,7 +1886,7 @@ struct AwesoMuxApp: App {
             )
         }
 
-        let displayTitle = Self.sanitizedAlertTitle(session.title)
+        let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
 
         let title: String
         let body: String
@@ -2095,6 +2145,25 @@ struct AwesoMuxApp: App {
             let announcement = String(
                 localized: "That workspace is no longer available to reopen",
                 comment: "VoiceOver announcement when a Recently Closed entry was already reopened or expired before the user selected it."
+            )
+            NSAccessibility.post(
+                element: NSApplication.shared,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: announcement,
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+                ]
+            )
+        }
+    }
+
+    private func signalPaletteTargetUnavailable() {
+        NSSound.beep()
+        DispatchQueue.main.async {
+            let announcement = String(
+                localized: "The command palette changed. Open it and choose again.",
+                comment:
+                    "VoiceOver announcement when a command palette action is rejected because its captured target or availability changed."
             )
             NSAccessibility.post(
                 element: NSApplication.shared,
@@ -2407,7 +2476,7 @@ struct AwesoMuxApp: App {
         workspaceTraversalRun = step.run
     }
 
-    /// Pane-scoped title only — no window fallback. The Workspace menu's
+    /// Pane-scoped title only — no window fallback. The Pane menu's
     /// close button calls `closeActivePane()`, which no-ops without a
     /// selection, so "Close Window" would be a lie on that surface.
     private var closePaneMenuTitle: String {
@@ -2557,6 +2626,8 @@ struct AwesoMuxApp: App {
     private func closeActivePane() {
         guard let sessionID = sessionStore.selectedSessionID else { return }
 
+        guard let source = sessionStore.session(id: sessionID) else { return }
+        let actionSession = workspaceActionSession(source)
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
         guard let session = sessionStore.session(id: sessionID) else { return }
 
@@ -2567,7 +2638,7 @@ struct AwesoMuxApp: App {
         // action (⌘W), so a user who only enabled the pane-confirm toggle
         // (not the workspace one) keeps that protection here too.
         if session.layout.isSinglePane {
-            closeWorkspace(session, alsoGateOnPaneActionConfirm: true)
+            closeWorkspace(actionSession, alsoGateOnPaneActionConfirm: true)
             return
         }
 
@@ -2595,6 +2666,7 @@ struct AwesoMuxApp: App {
             switch confirmDestructivePaneActionIfNeeded(
                 resolvedAction,
                 in: session,
+                displayedTitle: actionSession.title,
                 riskReason: riskReason,
                 at: now
             ) {
@@ -2624,7 +2696,9 @@ struct AwesoMuxApp: App {
 
             case .closeWorkspace:
                 guard let refreshed else { return }
-                closeWorkspace(refreshed, alsoGateOnPaneActionConfirm: false)
+                var refreshedActionSession = refreshed
+                refreshedActionSession.title = actionSession.title
+                closeWorkspace(refreshedActionSession, alsoGateOnPaneActionConfirm: false)
                 return
 
             case .closePane:
@@ -2659,15 +2733,16 @@ struct AwesoMuxApp: App {
     /// `confirmDestructivePaneActionIfNeeded`) — only the decision to show a
     /// prompt at all is unconditional.
     private func restartActiveShell() {
-        guard let session = sessionStore.selectedSession else { return }
+        guard let actionSession = selectedWorkspaceActionSession() else { return }
         ghosttyRuntime.refreshTerminalQuitConfirmationRisks(in: sessionStore)
-        guard let refreshed = sessionStore.session(id: session.id) else { return }
+        guard let refreshed = sessionStore.session(id: actionSession.id) else { return }
         let now = Date()
         let riskReason = refreshed.activePane.flatMap { $0.closeRiskReason(at: now) }
 
         switch confirmDestructivePaneActionIfNeeded(
             .restartShell,
             in: refreshed,
+            displayedTitle: actionSession.title,
             riskReason: riskReason,
             at: now
         ) {
@@ -2712,21 +2787,35 @@ struct AwesoMuxApp: App {
     }
 
     private func requestRenameSelectedWorkspace() {
-        guard let session = sessionStore.selectedSession else {
+        guard let session = selectedWorkspaceActionSession() else {
             return
         }
 
         requestRenameWorkspace(session)
     }
 
+    private func selectedWorkspaceActionSession() -> TerminalSession? {
+        guard let session = sessionStore.selectedSession else { return nil }
+        return workspaceActionSession(session)
+    }
+
+    private func workspaceActionSession(_ source: TerminalSession) -> TerminalSession {
+        var session = source
+        session.title = sessionStore.sidebarResolvedTitle(for: session.id) ?? session.displayTitle()
+        return session
+    }
+
     private func requestRenameWorkspace(_ session: TerminalSession) {
         guard !isAnySheetPresented else {
+            return
+        }
+        guard let currentSession = sessionStore.session(id: session.id) else {
             return
         }
 
         workspaceEditRequest = WorkspaceEditRequest(
             id: session.id,
-            title: session.title
+            title: currentSession.title
         )
     }
 
@@ -3203,11 +3292,26 @@ struct AwesoMuxApp: App {
     }
 
     private func makeCommandPalettePresenter() -> PalettePresenter {
-        PalettePresenter(
+        let sessionTitles = sessionStore.sidebarResolvedTitles()
+        let workspaceTarget = sessionStore.selectedSession.map { session in
+            PaletteWorkspaceActionTarget(
+                sessionID: session.id,
+                activePaneID: session.activePaneID,
+                isSinglePane: session.layout.isSinglePane,
+                selectedDocumentTabID: session.layout.firstDocumentGroup?.selectedTabID,
+                displayedTitle: sessionTitles[session.id] ?? session.displayTitle()
+            )
+        }
+        return PalettePresenter(
             sessionGroups: sessionStore.groups,
-            commands: currentPaletteCommands(),
+            sessionTitles: sessionTitles,
+            commands: currentPaletteCommands(
+                selectedWorkspaceTitle: workspaceTarget?.displayedTitle
+            ),
+            workspaceTarget: workspaceTarget,
             selectSession: { sessionID in
                 guard let session = sessionStore.session(id: sessionID) else {
+                    signalPaletteTargetUnavailable()
                     return false
                 }
                 sessionStore.selectedSessionID = sessionID
@@ -3215,13 +3319,77 @@ struct AwesoMuxApp: App {
                 requestTerminalFocus(sessionID: sessionID, paneID: session.activePaneID)
                 return true
             },
-            runCommand: { commandID in
-                runPaletteCommand(id: commandID)
+            runCommand: { invocation in
+                runPaletteCommand(invocation)
             },
-            runQuickRun: { quickRun, surface in
-                runQuickRun(quickRun, surface: surface)
+            runQuickRun: { invocation, surface in
+                runQuickRun(invocation, surface: surface)
             }
         )
+    }
+
+    private func runPaletteCommand(_ invocation: PaletteCommandInvocation) -> Bool {
+        // Every selection-sensitive command, including the special workspace
+        // cases below, must fail closed before it can act on its snapshot.
+        guard
+            invocation.canResolveAgainstCurrentSelection(
+                sessionID: sessionStore.selectedSessionID,
+                paneID: sessionStore.selectedSession?.activePaneID,
+                documentTabID: sessionStore.selectedSession?.layout.firstDocumentGroup?.selectedTabID,
+                isSinglePane: sessionStore.selectedSession?.layout.isSinglePane
+            )
+        else {
+            signalPaletteTargetUnavailable()
+            return false
+        }
+
+        if let target = invocation.workspaceTarget {
+            switch invocation.commandID {
+            case KeyboardShortcutCatalog.renameWorkspace.id:
+                guard let session = sessionStore.session(id: target.sessionID) else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
+                guard !isAnySheetPresented else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
+                requestRenameWorkspace(session)
+                return true
+            case KeyboardShortcutCatalog.closeWorkspace.id:
+                guard !isAnySheetPresented else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
+                guard var session = sessionStore.session(id: target.sessionID) else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
+                session.title = target.displayedTitle
+                closeWorkspace(session)
+                return true
+            case KeyboardShortcutCatalog.clearWorkspace.id:
+                guard var session = sessionStore.session(id: target.sessionID) else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
+                guard !isAnySheetPresented else {
+                    signalPaletteTargetUnavailable()
+                    return false
+                }
+                session.title = target.displayedTitle
+                clearWorkspace(session)
+                return true
+            default:
+                break
+            }
+        }
+
+        guard runPaletteCommand(id: invocation.commandID) else {
+            signalPaletteTargetUnavailable()
+            return false
+        }
+        return true
     }
 
     private func runPaletteCommand(id commandID: PaletteCommand.ID) -> Bool {
@@ -3265,12 +3433,25 @@ struct AwesoMuxApp: App {
     }
 
     private func runQuickRun(
-        _ quickRun: PaletteQuickRunResult,
+        _ invocation: PaletteQuickRunInvocation,
         surface: PaletteQuickRunCommitSurface
     ) -> Bool {
+        guard
+            invocation.canResolveAgainstCurrentSelection(
+                sessionID: sessionStore.selectedSessionID,
+                paneID: sessionStore.selectedSession?.activePaneID
+            )
+        else {
+            signalPaletteTargetUnavailable()
+            return false
+        }
+        let quickRun = invocation.result
         switch surface {
         case .toast:
-            runQuickRunToast(quickRun)
+            runQuickRunToast(
+                quickRun,
+                workingDirectoryURL: selectedWorkingDirectoryURL()
+            )
         case .floatingPanel:
             runQuickRunInFloatingPanel(quickRun)
         case .newTab:
@@ -3279,7 +3460,10 @@ struct AwesoMuxApp: App {
         return true
     }
 
-    private func runQuickRunToast(_ quickRun: PaletteQuickRunResult) {
+    private func runQuickRunToast(
+        _ quickRun: PaletteQuickRunResult,
+        workingDirectoryURL: URL?
+    ) {
         let toastID = UUID()
         quickRunToast = QuickRunToast(
             id: toastID,
@@ -3296,7 +3480,7 @@ struct AwesoMuxApp: App {
                     executable: "/bin/zsh",
                     args: ["-fc", quickRun.command],
                     env: ["PATH": ProcessCommandRunner.defaultToolPath],
-                    cwd: selectedWorkingDirectoryURL()
+                    cwd: workingDirectoryURL
                 )
                 await MainActor.run {
                     let output = Self.quickRunToastOutput(stdout: result.stdout, stderr: result.stderr)
@@ -3473,8 +3657,13 @@ struct AwesoMuxApp: App {
         return String(prefix) + "..."
     }
 
-    private func currentPaletteCommands() -> [PaletteCommand] {
+    private func currentPaletteCommands(selectedWorkspaceTitle: String? = nil) -> [PaletteCommand] {
         sidebarCommandTargetAvailability.refresh()
+        let presentedWorkspaceTitle =
+            selectedWorkspaceTitle
+            ?? sessionStore.selectedSession.flatMap {
+                sessionStore.sidebarResolvedTitle(for: $0.id)
+            }
         var commands = PaletteCommandRegistry.commands(
             sessionStore: sessionStore,
             availability: PaletteCommandAvailability(
@@ -3485,6 +3674,7 @@ struct AwesoMuxApp: App {
                 isWorktreeManagerAvailable: worktreeManagerModel != nil && !isAnySheetPresented
             ),
             actions: paletteActions,
+            selectedWorkspaceTitle: presentedWorkspaceTitle,
             keyboard: keyboardConfig
         )
         // One jump command per owned or detachedRestorable daemon — the only two
@@ -3504,6 +3694,7 @@ struct AwesoMuxApp: App {
                     keywords: ["session", "daemon", "jump", "bridge", "background"],
                     shortcut: nil,
                     isEnabled: true,
+                    selectionScope: .none,
                     run: { [self] in
                         jumpToDaemonOwner(daemonID)
                     }
@@ -3514,6 +3705,7 @@ struct AwesoMuxApp: App {
             commands.append(
                 .customCommand(
                     customCommand,
+                    selectionScope: .pane,
                     run: { [self] in
                         runCustomCommand(id: commandID)
                     }))
@@ -3541,6 +3733,7 @@ struct AwesoMuxApp: App {
                         keywords: ["layout", "preset", "split", "apply"],
                         shortcut: nil,
                         isEnabled: true,
+                        selectionScope: .pane,
                         run: { [self] in
                             applyLayoutPreset(named: presetName, sessionID: sessionID, anchorDirectory: anchor)
                         }
@@ -4635,7 +4828,14 @@ extension AwesoMuxApp {
         _ warning: SessionPersistence.SessionRecoveryWarning
     ) {
         guard !isRecoveryReplacementInProgress else { return }
+        recoveryReplacementSuccessID = nil
         isRecoveryReplacementInProgress = true
+        postAccessibilityAnnouncement(
+            String(
+                localized: "Replacing saved workspace data",
+                comment: "VoiceOver announcement when a recovery replacement starts"
+            )
+        )
         Task { @MainActor in
             await completeRecoveryReplacement(warning)
             isRecoveryReplacementInProgress = false
@@ -4654,9 +4854,27 @@ extension AwesoMuxApp {
             ) {
             case .success:
                 recoveryWarning = nil
+                showRecoveryReplacementSuccess()
                 return
             case let .failure(error):
                 replacementDecision = presentRecoveryReplacementFailure(error)
+            }
+        }
+    }
+
+    private func showRecoveryReplacementSuccess() {
+        let successID = UUID()
+        recoveryReplacementSuccessID = successID
+        postAccessibilityAnnouncement(
+            String(
+                localized: "Saved workspace data replaced",
+                comment: "VoiceOver announcement after a recovery replacement succeeds"
+            )
+        )
+        Task { @MainActor in
+            try? await ContinuousClock().sleep(for: .seconds(5))
+            if recoveryReplacementSuccessID == successID {
+                recoveryReplacementSuccessID = nil
             }
         }
     }

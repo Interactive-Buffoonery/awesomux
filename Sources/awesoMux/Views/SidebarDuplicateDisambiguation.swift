@@ -22,8 +22,14 @@ enum SidebarDuplicateDisambiguator {
     /// enough not to truncate real titles/paths.
     private static let identityKeyMaxLength = 512
 
+    /// - Parameter titles: resolved workspace titles (the sidebar's
+    ///   coarse-channel map — `SessionStore.sidebarResolvedTitles()`). The "N
+    ///   of M" qualifier disambiguates what the user SEES, so it keys on the
+    ///   title the row renders, not the potentially fresher struct title
+    ///   (issue #327); an absent entry falls back to storage.
     static func disambiguationBySessionID(
-        for entries: [SidebarGroupEntry]
+        for entries: [SidebarGroupEntry],
+        titles: [TerminalSession.ID: String] = [:]
     ) -> [TerminalSession.ID: SidebarDuplicateDisambiguation] {
         var idsByKey: [VisibleIdentityKey: [TerminalSession.ID]] = [:]
 
@@ -33,7 +39,10 @@ enum SidebarDuplicateDisambiguator {
                 idsByKey[
                     VisibleIdentityKey(
                         groupID: entry.group.id,
-                        title: UnicodeHygiene.sanitize(session.title, maxLength: identityKeyMaxLength),
+                        title: UnicodeHygiene.sanitize(
+                            titles[session.id] ?? session.title,
+                            maxLength: identityKeyMaxLength
+                        ),
                         location: UnicodeHygiene.sanitize(
                             session.sidebarLocation.identityText,
                             maxLength: identityKeyMaxLength

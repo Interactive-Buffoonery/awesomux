@@ -7,6 +7,45 @@ import Testing
 @MainActor
 @Suite("SessionRecoveryWarning")
 struct SessionRecoveryWarningTests {
+    @Test("recovery replacement indicator distinguishes review, progress, and success")
+    func recoveryReplacementIndicatorStates() {
+        #expect(
+            RecoveryReplacementIndicatorState.resolve(
+                hasWarning: false,
+                isReplacing: false,
+                didSucceed: false
+            ) == .hidden
+        )
+        #expect(
+            RecoveryReplacementIndicatorState.resolve(
+                hasWarning: true,
+                isReplacing: false,
+                didSucceed: false
+            ) == .review
+        )
+        #expect(
+            RecoveryReplacementIndicatorState.resolve(
+                hasWarning: true,
+                isReplacing: true,
+                didSucceed: false
+            ) == .replacing
+        )
+        #expect(
+            RecoveryReplacementIndicatorState.resolve(
+                hasWarning: false,
+                isReplacing: false,
+                didSucceed: true
+            ) == .replaced
+        )
+        #expect(
+            RecoveryReplacementIndicatorState.resolve(
+                hasWarning: true,
+                isReplacing: false,
+                didSucceed: true
+            ) == .review
+        )
+    }
+
     @Test("oversized recovery replacement defers retry until state can change")
     func oversizedReplacementDefersRetry() {
         #expect(

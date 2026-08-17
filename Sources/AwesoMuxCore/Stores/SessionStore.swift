@@ -14,9 +14,21 @@ public final class SessionStore {
     //   4. No-commit family: rename group, set color, set active pane, pin reorder,
     //      markAgentActivityObserved (INT-420/523), updateShellActivity (INT-523).
     nonisolated public static let defaultAcknowledgementDwellNanoseconds: UInt64 = 500_000_000
-    /// See `liveTitleGeneration`. ~1 Hz: fast enough that a title an agent just
-    /// set is searchable before the user finishes typing a query, slow enough
-    /// that a 10 Hz spinner cannot drive sidebar-wide re-derivation.
+    /// The ONE live-title coalescing window — it gates both the per-tick coarse
+    /// publish on a session's `LiveTitleBox` and the `liveTitleGeneration` bump
+    /// (`tickLiveTitle`). ~1 Hz: fast enough that a title an agent just set is
+    /// searchable before the user finishes typing a query, slow enough that a
+    /// 10 Hz spinner cannot drive sidebar-wide re-derivation or row re-layout.
+    ///
+    /// Measured, not guessed: with the fine channel already carrying the pane
+    /// title bars, the residual per-animating-pane cost sat in the sidebar rows.
+    /// 1 Hz is where that cost stops registering while the staleness stays
+    /// invisible — a name in a sidebar row is not an animation; nobody perceives
+    /// "cargo build" arriving a second late. And since issue #327 it is the ONLY
+    /// such interval: the coarse mirror used to keep its own constant here so
+    /// the two could be tuned independently, and the same value under two names
+    /// was still two independently PHASED windows. There is no second drum to
+    /// beat against.
     nonisolated public static let defaultLiveTitleGenerationInterval: TimeInterval = 1
     nonisolated public static let maxRecentlyClosed: Int = RecentlyClosedWorkspaceReducer.maxRecentlyClosed
     nonisolated public static let recentlyClosedTTL: TimeInterval = RecentlyClosedWorkspaceReducer.recentlyClosedTTL
@@ -83,8 +95,8 @@ public final class SessionStore {
         body(&groupStorage)
     }
 
-    /// Per-session live-title channels, created on demand by their only
-    /// consumers (the views that must repaint on a title tick) and pruned in
+    /// Per-session live-title channels, created on demand by their consumers
+    /// (the views / projections that must track a title tick) and pruned in
     /// `rebuildDerivedState`.
     @ObservationIgnored private var liveTitles: [TerminalSession.ID: LiveTitleBox] = [:]
 
@@ -135,26 +147,60 @@ public final class SessionStore {
         return session.id == sessionID ? session : nil
     }
 
-    /// Publishes one pane's displayed title — and the workspace title its
-    /// promotion may have moved — to the session's channel, if anything is
-    /// listening. Never creates a box: an unobserved session has no one to
-    /// notify.
+    /// One silent title tick's entire downstream effect, run through ONE
+    /// per-session coalescing gate.
+    ///
+    /// When the window has NOT elapsed, only the box's fine-grained properties
+    /// move — pane title bars animate per report — and both the coarse mirror
+    /// and `liveTitleGeneration` hold. When it HAS, the generation bump and the
+    /// coarse publish fire off the SAME timestamp check: the bump re-runs the
+    /// bodies that derive search haystacks / duplicate ordinals / rotor labels,
+    /// and the boxes those projections resolve titles from published in the same
+    /// breath. The two used to drift through independently phased windows on
+    /// separate clocks, so a row and the projections beside it could name the
+    /// same workspace differently (issue #327, WCAG 4.1.2); one gate makes them
+    /// provably in phase.
+    ///
+    /// The window is stamped before the box publishes, then the generation is
+    /// bumped after publication so synchronous observers resolve the new coarse
+    /// snapshot. An unrendered session has no box, but the generation still
+    /// bumps because sidebar projections cover the whole roster. This never
+    /// creates a box: an unobserved session has no one to notify. (`SidebarView`
+    /// seeds boxes for the roster via `liveTitleBox(for:)` when building its
+    /// resolved-title map — a different path with its own seeding semantics.)
     ///
     /// The narrow counterpart to `refreshLiveTitleBoxes`, for the silent OSC
     /// path, which is the only writer that both knows exactly which pane moved
     /// and runs often enough for the difference to matter.
-    func publishLiveTitle(paneID: TerminalPane.ID, in session: TerminalSession, now: Date) {
-        guard let box = liveTitles[session.id],
-            let pane = session.layout.pane(id: paneID)
-        else {
-            return
-        }
-        box.adoptPaneTitle(
-            pane.id,
-            title: pane.title,
-            workspaceTitle: session.title,
-            now: now
+    func tickLiveTitle(paneID: TerminalPane.ID, in session: TerminalSession, now: Date) {
+        // Backwards-clock / non-finite-interval semantics live in the shared
+        // check — see `liveTitleCoalescingWindowHasElapsed`.
+        let windowHasElapsed = liveTitleCoalescingWindowHasElapsed(
+            since: lastLiveTitleBumpBySessionID[session.id],
+            now: now,
+            interval: liveTitleGenerationInterval
         )
+        if windowHasElapsed {
+            // Stamp before publishing so a re-entrant write cannot earn the
+            // same leading edge. The observable generation itself moves only
+            // after the box below has published its complete coarse snapshot.
+            lastLiveTitleBumpBySessionID[session.id] = now
+        }
+        if let box = liveTitles[session.id],
+            let pane = session.layout.pane(id: paneID)
+        {
+            box.adoptPaneTitle(
+                pane.id,
+                title: pane.title,
+                workspaceTitle: session.title,
+                publishCoarseNow: windowHasElapsed
+            )
+        }
+        if windowHasElapsed {
+            // Last: a synchronous generation observer that resolves titles must
+            // see the same coarse snapshot the resulting SwiftUI pass will use.
+            liveTitleGeneration += 1
+        }
     }
 
     /// Re-seeds every live box from storage.
@@ -170,10 +216,10 @@ public final class SessionStore {
     /// construction.
     ///
     /// Affordable because it rides the PUBLISHING path only — the silent OSC
-    /// path bypasses these accessors by design and uses `publishLiveTitle`
+    /// path bypasses these accessors by design and drives `tickLiveTitle`
     /// instead. A write that reaches here already committed to waking every
     /// `groups` observer (~100 ms of SwiftUI invalidation, issue #311); walking
-    /// the handful of boxes belonging to *rendered* rows is noise beside it.
+    /// the roster-bounded set of boxes is noise beside it.
     /// `adopt` is value-guarded, so an unrelated mutation publishes nothing.
     ///
     /// Bounds and identity come from `storedSessionForLiveTitleBox` — see there
@@ -231,8 +277,8 @@ public final class SessionStore {
     /// sleeps/polling in production (`script/check_test_waits.sh`).
     ///
     /// The counter is shared but the coalescing is **per session** — see
-    /// `bumpLiveTitleGenerationIfDue`. Coalescing globally made one workspace's
-    /// churn able to swallow another's only title change outright.
+    /// `tickLiveTitle`. Coalescing globally made one workspace's churn able to
+    /// swallow another's only title change outright.
     ///
     /// Ceiling — the surviving leading-edge gap, stated exactly: a session's
     /// projections lag when its FINAL event is a display-only title write that
@@ -241,8 +287,11 @@ public final class SessionStore {
     /// attention / unread / agent-state change, no structural mutation, no
     /// selection change, and no later title write by any session (the counter is
     /// shared, so any other session's bump re-derives this one's projections
-    /// too). While it holds, sidebar search cannot find that workspace by the
-    /// name it displays.
+    /// too). While it holds, the sidebar names that workspace by its previous
+    /// title — on the row AND in search AND in the rotor, together. The
+    /// projections used to be able to disagree with the row on this; issue #327
+    /// killed that by putting both the bump and the coarse publish on this one
+    /// gate, so the gap is now a lag the whole sidebar shares, never a split.
     ///
     /// Mitigation, and it is a mitigation rather than a guarantee: an agent that
     /// stops reporting titles is almost always an agent whose state changed, and
@@ -271,19 +320,66 @@ public final class SessionStore {
     /// displayed name.
     @ObservationIgnored private var lastLiveTitleBumpBySessionID: [TerminalSession.ID: Date] = [:]
 
-    func bumpLiveTitleGenerationIfDue(sessionID: TerminalSession.ID, now: Date) {
-        // Backwards-clock handling lives in the shared check — see
-        // `liveTitleCoalescingWindowHasElapsed`, which `LiveTitleBox`'s coarse
-        // mirror uses for the same reason.
-        guard
-            liveTitleCoalescingWindowHasElapsed(
-                since: lastLiveTitleBumpBySessionID[sessionID],
-                now: now,
-                interval: liveTitleGenerationInterval
+    /// One resolved sidebar title per roster session.
+    ///
+    /// Every sidebar surface that names a workspace must resolve from HERE, not
+    /// from `groups` storage: the sidebar row renders the `LiveTitleBox`
+    /// coarse mirror, and issue #327 exists because the derived surfaces used
+    /// to read the fresher struct title on a different clock and name the same
+    /// workspace differently (WCAG 4.1.2). A value is the session's box coarse
+    /// title re-run through `TerminalSession.displayTitle(overridingRawTitle:)`,
+    /// which preserves the synthetic-title localization path.
+    ///
+    /// Reads storage directly (like `liveTitleBox(for:)`), so a view that only
+    /// wants the map does not pick up a `groups` dependency on the way in. For
+    /// a session with no live box yet — one whose row has never rendered —
+    /// `liveTitleBox(for:)` creates and seeds the box from storage, so the map
+    /// says "coarse" and means "current storage" for unrendered sessions too.
+    /// A box that genuinely holds nothing (created mid-structural-mutation,
+    /// before any adopt — see `storedSessionForLiveTitleBox`) resolves to the
+    /// session's own display title rather than the empty string.
+    public func sidebarResolvedTitles(
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> [TerminalSession.ID: String] {
+        var titles: [TerminalSession.ID: String] = [:]
+        titles.reserveCapacity(index.positionsBySessionID.count)
+        for group in groupStorage {
+            for session in group.sessions {
+                titles[session.id] = sidebarResolvedTitle(
+                    for: session,
+                    bundle: bundle,
+                    locale: locale
+                )
+            }
+        }
+        return titles
+    }
+
+    /// Resolves one session without building the roster-wide title map.
+    /// Action surfaces use this when they only need the selected workspace.
+    public func sidebarResolvedTitle(
+        for sessionID: TerminalSession.ID,
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String? {
+        guard let session = storedSessionForLiveTitleBox(sessionID) else { return nil }
+        return sidebarResolvedTitle(for: session, bundle: bundle, locale: locale)
+    }
+
+    private func sidebarResolvedTitle(
+        for session: TerminalSession,
+        bundle: Bundle,
+        locale: Locale
+    ) -> String {
+        let box = liveTitleBox(for: session.id)
+        return box.hasCoarseSnapshot
+            ? session.displayTitle(
+                bundle: bundle,
+                locale: locale,
+                overridingRawTitle: box.coarseWorkspaceTitle
             )
-        else { return }
-        lastLiveTitleBumpBySessionID[sessionID] = now
-        liveTitleGeneration += 1
+            : session.displayTitle(bundle: bundle, locale: locale)
     }
 
     /// Called after a display-only title write has landed silently, so the app
@@ -554,28 +650,19 @@ public final class SessionStore {
         isReplacingState = true
         defer { isReplacingState = false }
         // Same ID-reuse hazard as the undo registrations above, applied to the
-        // live-title channels' coalescing state. `reconcileLiveTitleBoxes` keeps
-        // any box whose session ID still exists, so a restore that reuses an ID
-        // hands the new content the previous occupant's coarse window. The
-        // restored pane's FIRST title report would then be suppressed by a window
-        // the user's previous session opened — and if it were that pane's only
-        // report, the sidebar would name the workspace by its restored-at title
-        // indefinitely.
+        // live-title coalescing stamps. `reconcileLiveTitleBoxes` prunes this
+        // map by surviving ID, so a restore that reuses an ID would hand the new
+        // content the previous occupant's window: the restored pane's FIRST
+        // title report would then be suppressed by a window the user's previous
+        // session opened — and if it were that pane's only report, the sidebar
+        // would name the workspace by its restored-at title indefinitely.
         //
         // The boxes themselves are deliberately kept: `bulkRestoreRefreshesBoxes`
         // pins that a box held across a restore lands current, and the `_groups`
-        // write below re-seeds every survivor through `adopt`. Only the window is
-        // a new lifetime.
-        for box in liveTitles.values {
-            box.resetCoalescingWindow()
-        }
-        // The generation counter coalesces on the SAME boundary with its own
-        // per-session stamps, and `reconcileLiveTitleBoxes` prunes that map by
-        // surviving ID — so a reused ID would keep its old window here too, and
-        // the restored pane's first title report would move the row while
-        // leaving every title-DERIVED projection (search haystack, duplicate
-        // ordinals, rotor labels) un-rebuilt until something else published.
-        // Resetting one clock and not the other just moves the bug.
+        // write below re-seeds every survivor through `adopt`. Only the window —
+        // which lives here, and nowhere else since issue #327 made it the one
+        // clock for both the coarse mirror and the generation — is a new
+        // lifetime.
         lastLiveTitleBumpBySessionID.removeAll()
         _groups = components.groups
         recentlyClosed = components.recentlyClosed

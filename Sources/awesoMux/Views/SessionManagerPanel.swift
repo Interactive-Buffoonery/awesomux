@@ -165,7 +165,6 @@ struct OwnerCell: View {
 struct SessionManagerPanel: View {
     @State var model: SessionManagerModel
     let focusState: SessionManagerFocusState
-    let onDismiss: () -> Void
     /// Selects the workspace/pane that owns a daemon, then dismisses. Wired by
     /// the app to the same selection path the command palette uses.
     let onJump: (TerminalSessionID) -> Void
@@ -189,6 +188,17 @@ struct SessionManagerPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            FloatingPanelTitlebar(
+                title: String(
+                    localized: "Session Manager",
+                    comment: "Session Manager panel title bar."
+                ),
+                hint: String(
+                    localized:
+                        "Background sessions. Pin a session to exempt it from auto-cleanup, or reap it to kill it.",
+                    comment: "Session Manager panel accessibility hint."
+                )
+            )
             header
             if model.rows.isEmpty {
                 emptyState
@@ -208,43 +218,35 @@ struct SessionManagerPanel: View {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
-        .overlay(alignment: .topTrailing) {
-            FloatingPanelCloseButton(
-                accessibilityLabel: "Close Session Manager",
-                action: onDismiss
-            )
-            .padding(.top, 12)
-            .padding(.trailing, FloatingPanelChromeMetrics.closeButtonEdgeInset)
-        }
         .overlay {
             if let sheetRow {
                 reapSheetOverlay(sheetRow)
             }
         }
+        // No container label: `FloatingPanelTitlebar` carries this panel's
+        // identity and hint now, so labelling the container too made VoiceOver
+        // announce "Session Manager" on entry and again on the first element
+        // inside. `children: .contain` stays — it groups, it does not name.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Session Manager")
-        .accessibilityHint("Background sessions. Pin a session to exempt it from auto-cleanup, or reap it to kill it.")
     }
 
     // MARK: Header
 
+    // The window identity moved into `FloatingPanelTitlebar`, so the kicker
+    // that used to repeat it is gone and this row no longer steps around the
+    // traffic lights. What stays is the part carrying live data: the daemon
+    // count, which the band cannot show because a title bar should not change
+    // meaning as its content does.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("Session Manager".uppercased())
-                .awFont(AwFont.Mono.kicker)
-                .tracking(2)
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Text("Background sessions")
+                .awFont(AwFont.UI.title)
+                .foregroundStyle(Color.aw.text)
+            Text(countSummary)
+                .awFont(AwFont.Mono.meta)
                 .foregroundStyle(Color.aw.text3)
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                Text("Background sessions")
-                    .awFont(AwFont.UI.title)
-                    .foregroundStyle(Color.aw.text)
-                Text(countSummary)
-                    .awFont(AwFont.Mono.meta)
-                    .foregroundStyle(Color.aw.text3)
-            }
         }
         .padding(.horizontal, AwSpacing.panelPadding)
-        .padding(.trailing, 64)
         .padding(.top, 16)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity, alignment: .leading)

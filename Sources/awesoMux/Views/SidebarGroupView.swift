@@ -15,6 +15,7 @@ struct SidebarGroupView: View {
     let isFiltering: Bool
     let displayMode: SidebarWidthMode
     let duplicateDisambiguationBySessionID: [TerminalSession.ID: SidebarDuplicateDisambiguation]
+    let displayedTitles: [TerminalSession.ID: String]
     let allGroups: [SessionGroup]
     let jumpIndexBySessionID: [TerminalSession.ID: Int]
     let selectedSessionID: TerminalSession.ID?
@@ -136,6 +137,7 @@ struct SidebarGroupView: View {
                 isFiltering: isFiltering,
                 displayMode: displayMode,
                 selectedSessionID: selectedSessionID,
+                displayedTitles: displayedTitles,
                 currentGroupIndex: currentGroupIndex,
                 totalGroupCount: totalGroupCount,
                 isDragActive: activeDragKind != nil,

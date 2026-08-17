@@ -15,6 +15,17 @@ final class FloatingSwiftUIPanelWindow: NSPanel {
 
     var canBecomeMainPanel = false
     var dismissesOnResignKey = true
+    /// Opt-in native traffic lights for the window-family panels (About,
+    /// Session Manager, Worktree Manager, cheatsheet). Defaults off because the
+    /// command palette is transient and Escape-dismissed, where traffic lights
+    /// would read as wrong.
+    ///
+    /// `didSet`, not a plain stored property: `configureFloatingPanelChrome()`
+    /// runs during `init`, so a controller setting this afterwards would
+    /// otherwise never reach the buttons.
+    var showsStandardWindowButtons = false {
+        didSet { applyStandardWindowButtonVisibility() }
+    }
     var onDismiss: (() -> Void)?
     /// May run mid-sendEvent (pointer re-key). Flags only; reactions async.
     var onKeyStateChanged: ((Bool) -> Void)?
@@ -162,9 +173,7 @@ final class FloatingSwiftUIPanelWindow: NSPanel {
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
-        standardWindowButton(.closeButton)?.isHidden = true
-        standardWindowButton(.miniaturizeButton)?.isHidden = true
-        standardWindowButton(.zoomButton)?.isHidden = true
+        applyStandardWindowButtonVisibility()
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
@@ -175,6 +184,44 @@ final class FloatingSwiftUIPanelWindow: NSPanel {
         hidesOnDeactivate = true
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
+    }
+
+    /// Unhides only — `styleMask` is deliberately untouched.
+    /// `swiftUIFloatingStyleMask` omits `.miniaturizable`, which is exactly what
+    /// makes the middle well render disabled-gray the way About This Mac does;
+    /// `StandardWindowButtonVisibility.visible` unions `.miniaturizable` back
+    /// in and would silently turn that into an enabled minimize.
+    ///
+    /// ponytail: no `reassertsOnBecomeKey` / forced titlebar relayout here.
+    /// Settings needs both (`WindowChromeConfigurator.swift:107-118`,
+    /// `:231-238`) because AppKit drops titlebar configuration across key
+    /// changes, but a live spike showed these panels keep their lights without
+    /// it. Add the same treatment if smoke ever shows the lights disappearing.
+    private func applyStandardWindowButtonVisibility() {
+        let isHidden = !showsStandardWindowButtons
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            standardWindowButton(button)?.isHidden = isHidden
+        }
+
+        // Zoom is disabled explicitly rather than by dropping `.resizable`,
+        // which `setFixedContentSize` still relies on. These panels pin
+        // `contentMinSize == contentMaxSize`, so zoom has nothing to zoom — but
+        // left enabled it still lights up green and, on hover, offers the
+        // window-tiling menu, which would move a floating fixed-size panel into
+        // a tiled slot it cannot occupy.
+        standardWindowButton(.zoomButton)?.isEnabled = false
+    }
+
+    /// The native close button (and any `⌘W` that reaches AppKit) targets
+    /// `performClose(_:)`. It must land on the controller, not on `close()`:
+    /// these panels are ordered out and reused (`isReleasedWhenClosed = false`)
+    /// and each controller's `dismiss()` owns the real teardown — stopping the
+    /// Session Manager's daemon polling, refusing to close during an in-flight
+    /// `git worktree add`, and clearing `isVisible`, which a stale `true`
+    /// would permanently trip in `refreshWorktreeRepositoryContext()`.
+    /// Routing through `onDismiss` inherits those guards for free.
+    override func performClose(_ sender: Any?) {
+        onDismiss?()
     }
 }
 

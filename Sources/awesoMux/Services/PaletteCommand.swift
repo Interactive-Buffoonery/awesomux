@@ -2,6 +2,13 @@ import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
 
+enum PaletteCommandSelectionScope: Equatable {
+    case none
+    case workspace
+    case pane
+    case documentTab
+}
+
 @MainActor
 struct PaletteCommand: Identifiable {
     let id: String
@@ -10,7 +17,28 @@ struct PaletteCommand: Identifiable {
     let keywords: [String]
     let shortcut: KeyBinding?
     let isEnabled: Bool
+    let selectionScope: PaletteCommandSelectionScope
     let run: @MainActor () -> Void
+
+    init(
+        id: String,
+        title: String,
+        subtitle: String?,
+        keywords: [String],
+        shortcut: KeyBinding?,
+        isEnabled: Bool,
+        selectionScope: PaletteCommandSelectionScope,
+        run: @escaping @MainActor () -> Void
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.keywords = keywords
+        self.shortcut = shortcut
+        self.isEnabled = isEnabled
+        self.selectionScope = selectionScope
+        self.run = run
+    }
 }
 
 extension PaletteCommand {
@@ -34,6 +62,7 @@ extension PaletteCommand {
 
     static func customCommand(
         _ customCommand: CustomCommand,
+        selectionScope: PaletteCommandSelectionScope,
         run: @escaping @MainActor () -> Void
     ) -> PaletteCommand {
         PaletteCommand(
@@ -43,6 +72,7 @@ extension PaletteCommand {
             keywords: ["custom", "command", "run", "shortcut", customCommand.command],
             shortcut: nil,
             isEnabled: true,
+            selectionScope: selectionScope,
             run: run
         )
     }
@@ -200,9 +230,11 @@ enum PaletteCommandRegistry {
         sessionStore: SessionStore,
         availability: PaletteCommandAvailability,
         actions: PaletteAppActions,
+        selectedWorkspaceTitle: String? = nil,
         keyboard: KeyboardConfig = .defaultValue
     ) -> [PaletteCommand] {
         let selected = sessionStore.selectedSession
+        let presentedSelectedTitle = selectedWorkspaceTitle ?? selected?.title
         let managedSSHConversionTarget = selected.flatMap {
             sessionStore.managedSSHConversionTarget(
                 sessionID: $0.id,
@@ -243,6 +275,7 @@ enum PaletteCommandRegistry {
                 keywords: ["create", "tab", "session"],
                 shortcut: KeyboardShortcutCatalog.newWorkspace,
                 isEnabled: true,
+                selectionScope: .none,
                 run: actions.newWorkspace
             ),
             PaletteCommand(
@@ -252,6 +285,7 @@ enum PaletteCommandRegistry {
                 keywords: ["create", "cwd", "directory", "session"],
                 shortcut: KeyboardShortcutCatalog.newWorkspaceInCurrentDirectory,
                 isEnabled: hasSelectedSession,
+                selectionScope: .pane,
                 run: actions.newWorkspaceInCurrentDirectory
             ),
             PaletteCommand(
@@ -261,6 +295,7 @@ enum PaletteCommandRegistry {
                 keywords: ["create", "folder", "project"],
                 shortcut: KeyboardShortcutCatalog.newWorkspaceGroup,
                 isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .none,
                 run: actions.newWorkspaceGroup
             ),
             PaletteCommand(
@@ -270,6 +305,7 @@ enum PaletteCommandRegistry {
                 keywords: ["ssh", "remote", "server", "connect"],
                 shortcut: nil,
                 isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .none,
                 run: actions.newRemoteWorkspaceGroup
             ),
             PaletteCommand(
@@ -279,6 +315,7 @@ enum PaletteCommandRegistry {
                 keywords: ["ssh", "remote", "server", "connect"],
                 shortcut: nil,
                 isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .workspace,
                 run: actions.connectViaSSH
             ),
             PaletteCommand(
@@ -288,15 +325,17 @@ enum PaletteCommandRegistry {
                 keywords: ["ssh", "remote", "managed", "convert", "reconnect"],
                 shortcut: nil,
                 isEnabled: managedSSHConversionTarget != nil && !availability.isAnySheetPresented,
+                selectionScope: .pane,
                 run: actions.makeThisWorkspaceManaged
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.renameWorkspace.id,
                 title: "Rename Workspace",
-                subtitle: selected?.title,
+                subtitle: presentedSelectedTitle,
                 keywords: ["edit", "title", "name"],
                 shortcut: KeyboardShortcutCatalog.renameWorkspace,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .workspace,
                 run: actions.renameWorkspace
             ),
             PaletteCommand(
@@ -306,6 +345,7 @@ enum PaletteCommandRegistry {
                 keywords: ["edit", "pane", "title", "name"],
                 shortcut: KeyboardShortcutCatalog.renamePane,
                 isEnabled: selectedHasMultiplePanes && !availability.isAnySheetPresented,
+                selectionScope: .pane,
                 run: actions.renamePane
             ),
             PaletteCommand(
@@ -318,24 +358,27 @@ enum PaletteCommandRegistry {
                 // keyboard/VoiceOver path to un-pin (a11y); inline edit +
                 // context menu are pointer-only.
                 isEnabled: selectedHasMultiplePanes && selectedActivePaneIsUserEdited,
+                selectionScope: .pane,
                 run: actions.resetPaneTitle
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.closeWorkspace.id,
                 title: "Close Workspace",
-                subtitle: selected?.title,
+                subtitle: presentedSelectedTitle,
                 keywords: ["remove", "session"],
                 shortcut: KeyboardShortcutCatalog.closeWorkspace,
-                isEnabled: hasSelectedSession,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .workspace,
                 run: actions.closeWorkspace
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.clearWorkspace.id,
                 title: "Clear Workspace",
-                subtitle: selected?.title,
+                subtitle: presentedSelectedTitle,
                 keywords: ["remove", "permanent", "delete", "forget"],
                 shortcut: KeyboardShortcutCatalog.clearWorkspace,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .workspace,
                 run: actions.clearWorkspace
             ),
             PaletteCommand(
@@ -345,6 +388,7 @@ enum PaletteCommandRegistry {
                 keywords: ["restore", "recent", "undo"],
                 shortcut: KeyboardShortcutCatalog.reopenClosedWorkspace,
                 isEnabled: sessionStore.canReopenClosedWorkspace,
+                selectionScope: .none,
                 run: actions.reopenClosedWorkspace
             ),
             PaletteCommand(
@@ -354,6 +398,7 @@ enum PaletteCommandRegistry {
                 keywords: ["divide", "vertical", "pane"],
                 shortcut: KeyboardShortcutCatalog.splitRight,
                 isEnabled: hasSelectedSession,
+                selectionScope: .pane,
                 run: actions.splitRight
             ),
             PaletteCommand(
@@ -363,6 +408,7 @@ enum PaletteCommandRegistry {
                 keywords: ["divide", "horizontal", "pane"],
                 shortcut: KeyboardShortcutCatalog.splitDown,
                 isEnabled: hasSelectedSession,
+                selectionScope: .pane,
                 run: actions.splitDown
             ),
             PaletteCommand(
@@ -380,7 +426,8 @@ enum PaletteCommandRegistry {
                 subtitle: nil,
                 keywords: ["remove", "terminal"],
                 shortcut: KeyboardShortcutCatalog.closePane,
-                isEnabled: hasSelectedSession,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
                 run: actions.closePane
             ),
             PaletteCommand(
@@ -394,6 +441,7 @@ enum PaletteCommandRegistry {
                 keywords: ["restart", "shell", "recycle", "fresh", "reset"],
                 shortcut: nil,
                 isEnabled: hasSelectedSession,
+                selectionScope: .pane,
                 run: actions.restartShell
             ),
             PaletteCommand(
@@ -403,6 +451,7 @@ enum PaletteCommandRegistry {
                 keywords: ["search", "terminal", "scrollback"],
                 shortcut: KeyboardShortcutCatalog.find,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
                 run: actions.find
             ),
             PaletteCommand(
@@ -412,6 +461,7 @@ enum PaletteCommandRegistry {
                 keywords: ["search", "terminal", "copy", "dump"],
                 shortcut: KeyboardShortcutCatalog.scrollbackDump,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
                 run: actions.scrollbackDump
             ),
             PaletteCommand(
@@ -421,6 +471,7 @@ enum PaletteCommandRegistry {
                 keywords: ["remote", "ssh", "reconnect", "disconnected", "retry"],
                 shortcut: nil,
                 isEnabled: selectedActivePaneIsDisconnected,
+                selectionScope: .pane,
                 run: actions.reconnectRemotePane
             ),
             PaletteCommand(
@@ -430,6 +481,7 @@ enum PaletteCommandRegistry {
                 keywords: ["resize", "larger"],
                 shortcut: KeyboardShortcutCatalog.growActivePane,
                 isEnabled: selectedHasMultiplePanes,
+                selectionScope: .pane,
                 run: actions.growActivePane
             ),
             PaletteCommand(
@@ -439,6 +491,7 @@ enum PaletteCommandRegistry {
                 keywords: ["resize", "smaller"],
                 shortcut: KeyboardShortcutCatalog.shrinkActivePane,
                 isEnabled: selectedHasMultiplePanes,
+                selectionScope: .pane,
                 run: actions.shrinkActivePane
             ),
             PaletteCommand(
@@ -448,6 +501,7 @@ enum PaletteCommandRegistry {
                 keywords: ["focus", "terminal"],
                 shortcut: KeyboardShortcutCatalog.previousPane,
                 isEnabled: selectedHasMultiplePanes,
+                selectionScope: .pane,
                 run: actions.previousPane
             ),
             PaletteCommand(
@@ -457,6 +511,7 @@ enum PaletteCommandRegistry {
                 keywords: ["focus", "terminal"],
                 shortcut: KeyboardShortcutCatalog.nextPane,
                 isEnabled: selectedHasMultiplePanes,
+                selectionScope: .pane,
                 run: actions.nextPane
             ),
             PaletteCommand(
@@ -466,6 +521,7 @@ enum PaletteCommandRegistry {
                 keywords: ["document", "markdown", "tab", "switch"],
                 shortcut: KeyboardShortcutCatalog.previousDocumentTab,
                 isEnabled: selectedHasMultipleDocumentTabs,
+                selectionScope: .documentTab,
                 run: actions.previousDocumentTab
             ),
             PaletteCommand(
@@ -475,6 +531,7 @@ enum PaletteCommandRegistry {
                 keywords: ["document", "markdown", "tab", "switch"],
                 shortcut: KeyboardShortcutCatalog.nextDocumentTab,
                 isEnabled: selectedHasMultipleDocumentTabs,
+                selectionScope: .documentTab,
                 run: actions.nextDocumentTab
             ),
             PaletteCommand(
@@ -484,6 +541,7 @@ enum PaletteCommandRegistry {
                 keywords: ["document", "markdown", "tab"],
                 shortcut: KeyboardShortcutCatalog.closeDocumentTab,
                 isEnabled: selectedHasDocumentTabs,
+                selectionScope: .documentTab,
                 run: actions.closeDocumentTab
             ),
             PaletteCommand(
@@ -498,6 +556,7 @@ enum PaletteCommandRegistry {
                     in: selectedSessionID,
                     sessionStore: sessionStore
                 ),
+                selectionScope: .pane,
                 run: actions.movePaneUp
             ),
             PaletteCommand(
@@ -512,6 +571,7 @@ enum PaletteCommandRegistry {
                     in: selectedSessionID,
                     sessionStore: sessionStore
                 ),
+                selectionScope: .pane,
                 run: actions.movePaneDown
             ),
             PaletteCommand(
@@ -526,6 +586,7 @@ enum PaletteCommandRegistry {
                     in: selectedSessionID,
                     sessionStore: sessionStore
                 ),
+                selectionScope: .pane,
                 run: actions.movePaneLeft
             ),
             PaletteCommand(
@@ -540,6 +601,7 @@ enum PaletteCommandRegistry {
                     in: selectedSessionID,
                     sessionStore: sessionStore
                 ),
+                selectionScope: .pane,
                 run: actions.movePaneRight
             ),
             PaletteCommand(
@@ -554,6 +616,7 @@ enum PaletteCommandRegistry {
                     in: selectedSessionID,
                     sessionStore: sessionStore
                 ),
+                selectionScope: .pane,
                 run: actions.swapPaneWithNext
             ),
         ]
@@ -567,7 +630,12 @@ enum PaletteCommandRegistry {
                     subtitle: nil,
                     keywords: ["pane", "terminal", "focus", "\(paneIndex)"],
                     shortcut: binding,
-                    isEnabled: selectedPaneCount > 1 && paneIndex <= selectedPaneCount,
+                    // Gate on the pane count alone, exactly as the Pane menu
+                    // does. A `> 1` guard here would disable "Focus Pane 1" in
+                    // a single-pane workspace while the menu row for the same
+                    // command is enabled.
+                    isEnabled: paneIndex <= selectedPaneCount,
+                    selectionScope: .workspace,
                     run: { actions.focusPane(paneIndex) }
                 )
             })
@@ -580,6 +648,7 @@ enum PaletteCommandRegistry {
                 keywords: ["mark", "read", "clear", "notification"],
                 shortcut: KeyboardShortcutCatalog.acknowledgeWorkspace,
                 isEnabled: selectedNeedsAcknowledgement,
+                selectionScope: .workspace,
                 run: actions.acknowledgeWorkspace
             ),
             PaletteCommand(
@@ -592,6 +661,7 @@ enum PaletteCommandRegistry {
                 // see per-attach coordinators, so the command no-ops when no
                 // prompt is active rather than gating on prompt presence here.
                 isEnabled: hasSelectedSession,
+                selectionScope: .workspace,
                 run: actions.focusPermissionPrompt
             ),
             PaletteCommand(
@@ -601,6 +671,7 @@ enum PaletteCommandRegistry {
                 keywords: ["acknowledge", "mark", "read"],
                 shortcut: nil,
                 isEnabled: sessionStore.unreadNotificationTotal > 0,
+                selectionScope: .none,
                 run: actions.clearAllNotifications
             ),
             PaletteCommand(
@@ -610,6 +681,7 @@ enum PaletteCommandRegistry {
                 keywords: ["shell", "quick", "terminal"],
                 shortcut: KeyboardShortcutCatalog.toggleFloatingPanel,
                 isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .workspace,
                 run: actions.toggleFloatingPanel
             ),
             PaletteCommand(
@@ -619,6 +691,7 @@ enum PaletteCommandRegistry {
                 keywords: ["shell", "global", "terminal", "popup", "pocket"],
                 shortcut: KeyboardShortcutCatalog.togglePopUpTerminal,
                 isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .none,
                 run: actions.togglePopUpTerminal
             ),
             PaletteCommand(
@@ -628,6 +701,7 @@ enum PaletteCommandRegistry {
                 keywords: ["search", "actions", "commands"],
                 shortcut: KeyboardShortcutCatalog.toggleCommandPalette,
                 isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .none,
                 run: actions.toggleCommandPalette
             ),
             PaletteCommand(
@@ -638,6 +712,7 @@ enum PaletteCommandRegistry {
                 shortcut: KeyboardShortcutCatalog.focusSidebar,
                 isEnabled: !availability.isAnySheetPresented
                     && availability.isSidebarCommandTargetAvailable,
+                selectionScope: .none,
                 run: actions.focusSidebar
             ),
             PaletteCommand(
@@ -648,6 +723,7 @@ enum PaletteCommandRegistry {
                 shortcut: KeyboardShortcutCatalog.toggleSidebarWidth,
                 isEnabled: !availability.isAnySheetPresented
                     && availability.isSidebarCommandTargetAvailable,
+                selectionScope: .none,
                 run: actions.toggleSidebarWidth
             ),
             PaletteCommand(
@@ -658,6 +734,7 @@ enum PaletteCommandRegistry {
                 shortcut: KeyboardShortcutCatalog.toggleSidebarVisibility,
                 isEnabled: !availability.isAnySheetPresented
                     && availability.isSidebarCommandTargetAvailable,
+                selectionScope: .none,
                 run: actions.toggleSidebarVisibility
             ),
         ])
@@ -672,6 +749,7 @@ enum PaletteCommandRegistry {
                     keywords: ["workspace", "session", "jump", "\(workspaceIndex)"],
                     shortcut: binding,
                     isEnabled: !availability.isAnySheetPresented && offset < workspaceCount,
+                    selectionScope: .none,
                     run: { actions.jumpWorkspace(offset) }
                 )
             })
@@ -684,6 +762,7 @@ enum PaletteCommandRegistry {
                 keywords: ["session", "back"],
                 shortcut: KeyboardShortcutCatalog.previousWorkspace,
                 isEnabled: workspaceCount > 1,
+                selectionScope: .workspace,
                 run: actions.previousWorkspace
             ),
             PaletteCommand(
@@ -693,17 +772,17 @@ enum PaletteCommandRegistry {
                 keywords: ["session", "forward"],
                 shortcut: KeyboardShortcutCatalog.nextWorkspace,
                 isEnabled: workspaceCount > 1,
+                selectionScope: .workspace,
                 run: actions.nextWorkspace
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.togglePinWorkspace.id,
-                title: selected.map { sessionStore.isPinned($0.id) } == true
-                    ? "Unpin Workspace"
-                    : "Pin Workspace",
-                subtitle: selected?.title,
+                title: KeyboardShortcutCatalog.togglePinWorkspace.action,
+                subtitle: presentedSelectedTitle,
                 keywords: ["pin", "unpin", "favorite", "sidebar"],
                 shortcut: KeyboardShortcutCatalog.togglePinWorkspace,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .workspace,
                 run: actions.togglePinWorkspace
             ),
             PaletteCommand(
@@ -713,6 +792,7 @@ enum PaletteCommandRegistry {
                 keywords: ["center", "recenter", "move", "position", "palette"],
                 shortcut: nil,
                 isEnabled: true,
+                selectionScope: .none,
                 run: actions.recenterPalette
             ),
             PaletteCommand(
@@ -722,6 +802,7 @@ enum PaletteCommandRegistry {
                 keywords: ["preferences", "configuration"],
                 shortcut: nil,
                 isEnabled: true,
+                selectionScope: .none,
                 run: actions.openSettings
             ),
             PaletteCommand(
@@ -734,6 +815,7 @@ enum PaletteCommandRegistry {
                     && !availability.isAnySheetPresented
                     && availability.isOpenInIDEEnabled
                     && selected.map(IDEOpenTarget.isEligible(session:)) == true,
+                selectionScope: .pane,
                 run: actions.openInIDE
             ),
             PaletteCommand(
@@ -743,6 +825,7 @@ enum PaletteCommandRegistry {
                 keywords: ["cheatsheet", "help", "keys"],
                 shortcut: KeyboardShortcutCatalog.showKeyboardCheatsheet,
                 isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .none,
                 run: actions.showKeyboardCheatsheet
             ),
             PaletteCommand(
@@ -752,6 +835,7 @@ enum PaletteCommandRegistry {
                 keywords: ["document", "markdown", "viewer", "open", "pane"],
                 shortcut: KeyboardShortcutCatalog.openMarkdownFile,
                 isEnabled: hasSelectedSession,
+                selectionScope: .pane,
                 run: actions.openMarkdownFile
             ),
             PaletteCommand(
@@ -761,6 +845,7 @@ enum PaletteCommandRegistry {
                 keywords: ["background", "sessions", "daemons", "bridges", "detached"],
                 shortcut: KeyboardShortcutCatalog.sessionManager,
                 isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .none,
                 run: actions.openSessionManager
             ),
             PaletteCommand(
@@ -770,6 +855,7 @@ enum PaletteCommandRegistry {
                 keywords: ["layout", "preset", "split", "save", "template"],
                 shortcut: nil,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
                 run: actions.saveLayoutPreset
             ),
             PaletteCommand(
@@ -779,6 +865,7 @@ enum PaletteCommandRegistry {
                 keywords: ["layout", "preset", "split", "apply", "template"],
                 shortcut: nil,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
                 run: actions.applyLayoutPreset
             ),
             PaletteCommand(
@@ -791,6 +878,7 @@ enum PaletteCommandRegistry {
                 keywords: ["git", "worktree", "branch", "create"],
                 shortcut: nil,
                 isEnabled: availability.isWorktreeManagerAvailable,
+                selectionScope: .none,
                 run: actions.createWorktree
             ),
             PaletteCommand(
@@ -803,6 +891,7 @@ enum PaletteCommandRegistry {
                 keywords: ["git", "worktree", "open", "select"],
                 shortcut: nil,
                 isEnabled: availability.isWorktreeManagerAvailable,
+                selectionScope: .none,
                 run: actions.openWorktree
             ),
             PaletteCommand(
@@ -815,6 +904,7 @@ enum PaletteCommandRegistry {
                 keywords: ["git", "worktree", "manage", "list"],
                 shortcut: nil,
                 isEnabled: availability.isWorktreeManagerAvailable,
+                selectionScope: .none,
                 run: actions.openWorktreeManager
             ),
         ])
@@ -836,6 +926,7 @@ enum PaletteCommandRegistry {
                     keywords: ["restore", "recent", "reopen", "closed"],
                     shortcut: nil,
                     isEnabled: true,
+                    selectionScope: .none,
                     run: { actions.reopenRecent(entry) }
                 )
             })
@@ -856,6 +947,7 @@ enum PaletteCommandRegistry {
                         keywords: ["link", "url", "open", "recent"] + presentation.keywords,
                         shortcut: nil,
                         isEnabled: true,
+                        selectionScope: .pane,
                         run: { actions.openRecentLink(value, sessionID, paneID) }
                     )
                 })
@@ -870,6 +962,7 @@ enum PaletteCommandRegistry {
                 keywords: command.keywords,
                 shortcut: KeyboardShortcutCatalog.resolved(shortcut, keyboard: keyboard),
                 isEnabled: command.isEnabled,
+                selectionScope: command.selectionScope,
                 run: command.run
             )
         }

@@ -773,8 +773,7 @@ extension SessionStore {
                 || session.layout.pane(id: paneID)?.title != oldSession.layout.pane(id: paneID)?.title
             withSilentGroupMutation { $0[position.groupIndex].sessions[position.sessionIndex] = session }
             if displayedTitleMoved {
-                publishLiveTitle(paneID: paneID, in: session, now: now)
-                bumpLiveTitleGenerationIfDue(sessionID: sessionID, now: now)
+                tickLiveTitle(paneID: paneID, in: session, now: now)
                 // Last, so a handler that snapshots the store sees the new title
                 // and a fully caught-up live-title channel.
                 onDisplayOnlyTitleWrite?()

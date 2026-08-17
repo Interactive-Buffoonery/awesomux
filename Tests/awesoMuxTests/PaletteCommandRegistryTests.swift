@@ -204,6 +204,8 @@ struct PaletteCommandRegistryTests {
 
         let newGroup = try #require(PaletteCommandRegistry.command(id: "newWorkspaceGroup", in: commands))
         let rename = try #require(PaletteCommandRegistry.command(id: "renameWorkspace", in: commands))
+        let close = try #require(PaletteCommandRegistry.command(id: "closeWorkspace", in: commands))
+        let closePane = try #require(PaletteCommandRegistry.command(id: "closePane", in: commands))
         let find = try #require(PaletteCommandRegistry.command(id: "find", in: commands))
         let scrollbackDump = try #require(PaletteCommandRegistry.command(id: "scrollbackDump", in: commands))
         let floating = try #require(PaletteCommandRegistry.command(id: "toggleFloatingPanel", in: commands))
@@ -212,6 +214,8 @@ struct PaletteCommandRegistryTests {
 
         #expect(!newGroup.isEnabled)
         #expect(!rename.isEnabled)
+        #expect(!close.isEnabled)
+        #expect(!closePane.isEnabled)
         #expect(!find.isEnabled)
         #expect(!scrollbackDump.isEnabled)
         #expect(!floating.isEnabled)
@@ -499,6 +503,32 @@ struct PaletteCommandRegistryTests {
         #expect(!openInIDE.isEnabled)
     }
 
+    @Test("Focus Pane 1 stays enabled in a single-pane workspace")
+    @MainActor
+    func focusPaneOneEnabledWithoutSplits() throws {
+        // The Pane menu renders Focus Pane 1 enabled here, so the palette must
+        // agree. A `paneCount > 1` guard would silently disagree, and the
+        // sibling test below only covers a split workspace where both surfaces
+        // happen to match anyway.
+        let store = SessionStore(groups: [
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(title: "One", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
+                ])
+        ])
+        store.selectedSessionID = store.groups[0].sessions[0].id
+
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(),
+            actions: .noop
+        )
+
+        #expect(try #require(PaletteCommandRegistry.command(id: "focusPane1", in: commands)).isEnabled)
+        #expect(!((try #require(PaletteCommandRegistry.command(id: "focusPane2", in: commands))).isEnabled))
+    }
+
     @Test("Focus pane and jump workspace commands mirror menu enablement")
     @MainActor
     func dynamicCommandsMirrorMenuEnablement() throws {
@@ -614,6 +644,111 @@ struct PaletteCommandRegistryTests {
             PaletteCommandRegistry.command(id: KeyboardShortcutCatalog.clearWorkspace.id, in: commands)
         )
         #expect(enabled.isEnabled)
+    }
+
+    @Test("workspace commands preserve displayed-title provenance")
+    @MainActor
+    func workspaceCommandsUseDisplayedTitle() throws {
+        let session = TerminalSession(title: "storage title", workingDirectory: "/tmp")
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Code", sessions: [session])],
+            selectedSessionID: session.id
+        )
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(),
+            actions: .noop,
+            selectedWorkspaceTitle: "displayed title"
+        )
+
+        for commandID in [
+            KeyboardShortcutCatalog.renameWorkspace.id,
+            KeyboardShortcutCatalog.closeWorkspace.id,
+            KeyboardShortcutCatalog.clearWorkspace.id,
+        ] {
+            let command = try #require(
+                PaletteCommandRegistry.command(id: commandID, in: commands)
+            )
+            #expect(command.subtitle == "displayed title")
+        }
+
+        let pinCommand = try #require(
+            PaletteCommandRegistry.command(
+                id: KeyboardShortcutCatalog.togglePinWorkspace.id,
+                in: commands
+            )
+        )
+        #expect(pinCommand.title == "Pin or Unpin Workspace")
+        #expect(pinCommand.subtitle == "displayed title")
+    }
+
+    @Test("selection-resolved commands declare their snapshot scope")
+    @MainActor
+    func selectionResolvedCommandsDeclareSnapshotScope() throws {
+        let first = TerminalPane(title: "first", workingDirectory: "/tmp", executionPlan: .local)
+        let second = TerminalPane(title: "second", workingDirectory: "/tmp", executionPlan: .local)
+        let session = TerminalSession(
+            title: "Split",
+            workingDirectory: "/tmp",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(first),
+                    second: .pane(second)
+                )),
+            activePaneID: first.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Code", sessions: [session])],
+            selectedSessionID: session.id
+        )
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(),
+            actions: .noop
+        )
+
+        for commandID in [
+            KeyboardShortcutCatalog.renameWorkspace.id,
+            KeyboardShortcutCatalog.closeWorkspace.id,
+            KeyboardShortcutCatalog.togglePinWorkspace.id,
+            KeyboardShortcutCatalog.acknowledgeWorkspace.id,
+            KeyboardShortcutCatalog.previousWorkspace.id,
+            KeyboardShortcutCatalog.nextWorkspace.id,
+            "connectViaSSH",
+        ] {
+            #expect(
+                try #require(
+                    PaletteCommandRegistry.command(id: commandID, in: commands)
+                ).selectionScope == .workspace)
+        }
+        for commandID in [
+            KeyboardShortcutCatalog.newWorkspaceInCurrentDirectory.id,
+            KeyboardShortcutCatalog.renamePane.id,
+            KeyboardShortcutCatalog.closePane.id,
+            KeyboardShortcutCatalog.splitRight.id,
+            KeyboardShortcutCatalog.find.id,
+            KeyboardShortcutCatalog.openMarkdownFile.id,
+        ] {
+            #expect(
+                try #require(
+                    PaletteCommandRegistry.command(id: commandID, in: commands)
+                ).selectionScope == .pane)
+        }
+        for commandID in [
+            KeyboardShortcutCatalog.previousDocumentTab.id,
+            KeyboardShortcutCatalog.nextDocumentTab.id,
+            KeyboardShortcutCatalog.closeDocumentTab.id,
+        ] {
+            #expect(
+                try #require(
+                    PaletteCommandRegistry.command(id: commandID, in: commands)
+                ).selectionScope == .documentTab)
+        }
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(id: "openSettings", in: commands)
+            ).selectionScope == .none)
     }
 
     @Test("Close Pane title reads Close Workspace for a single-pane session")

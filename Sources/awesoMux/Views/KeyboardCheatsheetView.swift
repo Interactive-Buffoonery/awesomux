@@ -17,6 +17,12 @@ struct KeyboardCheatsheetView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            FloatingPanelTitlebar(
+                title: String(
+                    localized: "Keyboard Shortcuts",
+                    comment: "Keyboard cheatsheet panel title bar."
+                )
+            )
             header
             Divider().overlay(Color.aw.border2)
             shortcutList
@@ -29,40 +35,23 @@ struct KeyboardCheatsheetView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
-        .overlay(alignment: .topTrailing) {
-            FloatingPanelCloseButton(
-                accessibilityLabel: "Close keyboard shortcuts",
-                action: onDismiss
-            )
-            .padding(.top, 12)
-            .padding(.trailing, FloatingPanelChromeMetrics.closeButtonEdgeInset)
-        }
         .background {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.aw.surface.chrome.opacity(0.97))
                 .awShadow(.overlay, rendering: .composited)
         }
+        // No container label: the title bar band carries this panel's identity,
+        // and labelling both announced it twice in a row. `children: .contain`
+        // stays — it groups, it does not name.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Keyboard shortcuts")
     }
 
+    // The "Keyboard / Shortcuts" title block is gone entirely: the title bar
+    // band above already names the window, and repeating it here left the
+    // search field — the surface's actual content — pushed a row down for a
+    // label that said nothing new.
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Keyboard")
-                        .awFont(AwFont.Mono.kicker)
-                        .textCase(.uppercase)
-                        .foregroundStyle(Color.aw.text3)
-                        .accessibilityHidden(true)
-
-                    Text("Shortcuts")
-                        .awFont(AwFont.UI.title)
-                        .foregroundStyle(Color.aw.text)
-                        .accessibilityAddTraits(.isHeader)
-                }
-            }
-
             HStack(spacing: 10) {
                 KeyboardCheatsheetSearchField(
                     text: $model.query,
@@ -99,7 +88,6 @@ struct KeyboardCheatsheetView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.trailing, 64)
         .padding(.top, 16)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -8,13 +8,16 @@ import Testing
 /// Issue #311, root cause A: a display-only OSC title write updates store
 /// storage without publishing `groups`, so everything `SidebarView.body`
 /// *derives* — the search haystack, duplicate ordinals, VoiceOver rotor labels,
-/// the agent panel's invalidation key, the group roster peek's inputs — froze at
+/// the open agent panel and the group roster peek's inputs — froze at
 /// the last publish while the rows beside them repainted through their own
 /// `LiveTitleScope`s.
 ///
-/// The fix is one dependency: `body` reads `sessionStore.liveTitleGeneration`,
-/// a coalesced ~1 Hz tick. These tests split that into the two halves that can
-/// actually be checked:
+/// The #311 fix was one dependency: `body` reads
+/// `sessionStore.liveTitleGeneration`, a coalesced ~1 Hz tick. Issue #327 then
+/// pointed every derived surface AT the same coarse mirror the rows render
+/// (`SessionStore.sidebarResolvedTitles()`), so a re-run body can no longer
+/// name a workspace differently from its row. These tests split that into the
+/// two halves that can actually be checked:
 ///
 /// 1. `sidebarBodyReadsTheLiveTitleGeneration` — the wiring is present. Deleting
 ///    the read from `SidebarView.body` fails this test. Source-scraped like
@@ -22,7 +25,7 @@ import Testing
 ///    `body`'s observation dependencies are not otherwise reachable without
 ///    hosting the whole sidebar — see the note on the test itself.
 /// 2. everything else — once the body DOES re-run, each derived value genuinely
-///    re-derives to the silently-written title. Each carries its own
+///    re-derives to the resolved coarse title. Each carries its own
 ///    before-the-write control, so a passing assertion is the write's doing.
 @MainActor
 @Suite("Sidebar projections after a display-only title write (#311)")
@@ -63,8 +66,8 @@ struct SidebarLiveTitleProjectionTests {
             `SidebarView.body` no longer reads `sessionStore.liveTitleGeneration`. \
             That read is the body's only dependency on a display-only title write, \
             so without it everything `body` derives — the search haystack, \
-            duplicate ordinals, VoiceOver rotor labels, the agent panel's \
-            invalidation key — freezes at the last `groups` publish while the rows \
+            duplicate ordinals, VoiceOver rotor labels, and open-panel titles \
+            freeze at the last `groups` publish while the rows \
             beside it keep repainting through their own `LiveTitleScope`s (#311). \
             Moving the read into a helper called from `body` is fine; this test \
             then needs to follow it there.
@@ -131,8 +134,9 @@ struct SidebarLiveTitleProjectionTests {
     func rotorAndRowLabelsAgree() throws {
         let fixture = Fixture()
         let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        // Captured BEFORE the write and deliberately reused: this stale struct is
-        // exactly what a frozen body would keep handing the rotor.
+        // Captured BEFORE the write and deliberately reused: struct reads are
+        // what every derived surface used to do, on a separate clock from the
+        // row's (issue #327). Even a RE-RUN body cannot be trusted with one.
         let staleSession = try #require(fixture.store.session(id: fixture.sessionID))
 
         fixture.retitle("release prep", now: Date())
@@ -147,14 +151,18 @@ struct SidebarLiveTitleProjectionTests {
             title: LiveTitles(box: box, reads: .everything).workspace
         )
 
-        // The bug: a rotor built from the stale projection names it differently
-        // from the row you land on (WCAG 4.1.2).
-        #expect(Self.rotorLabel(for: staleSession) != rowLabel)
+        // The bug class: naming the workspace from the struct disagrees with
+        // the row (WCAG 4.1.2). Here the struct is also simply STALE, which
+        // makes the mismatch directly observable.
+        #expect(Self.rotorLabel(for: staleSession, titles: [:]) != rowLabel)
 
-        // The fix: the generation re-runs the body, so the rotor is rebuilt from
-        // the store's current `groups` and the two agree again.
-        let freshSession = try #require(fixture.store.session(id: fixture.sessionID))
-        #expect(Self.rotorLabel(for: freshSession) == rowLabel)
+        // The fix: every surface resolves through the body's coarse-channel
+        // map, so the rotor names the row's title even when handed the stale
+        // struct.
+        #expect(
+            Self.rotorLabel(for: staleSession, titles: fixture.store.sidebarResolvedTitles())
+                == rowLabel
+        )
     }
 
     // MARK: - 4. Duplicate "N of M" ordinals
@@ -176,19 +184,150 @@ struct SidebarLiveTitleProjectionTests {
         #expect(ordinals[fixture.sessionID]?.total == 2)
     }
 
-    // MARK: - 5. The agent activity panel's `.equatable()` gate
+    // MARK: - 5. Action and panel title provenance
 
-    @Test("the activity invalidation key moves on a display-only title write")
-    func activityInvalidationKeyMovesOnSilentWrite() {
+    @Test("closed activity invalidation ignores display-only title writes")
+    func activityInvalidationKeyIgnoresSilentWrite() {
         let fixture = Fixture()
         let before = Self.activityKey(for: fixture.store)
 
         fixture.retitle("release prep", now: Date())
 
-        // The key folds `groups`, so a body re-run rebuilds it from current
-        // storage and the panel's gate opens. (Without the body re-run the key is
-        // never rebuilt at all — that is the half check 1 above covers.)
-        #expect(Self.activityKey(for: fixture.store) != before)
+        // Open-panel title inputs stay nil while closed, preserving the
+        // footer's title-insensitive gate.
+        #expect(Self.activityKey(for: fixture.store) == before)
+    }
+
+    @Test("open activity invalidation carries the row's scored title snapshot")
+    func openActivityInvalidationCarriesDisplayedSnapshot() {
+        let fixture = Fixture()
+        let displayedTitles = [fixture.sessionID: "scored title"]
+        let before = Self.activityKey(
+            for: fixture.store,
+            activityPanelOpen: true,
+            displayedTitles: displayedTitles
+        )
+
+        fixture.retitle("newer coarse title", now: Date())
+
+        let after = Self.activityKey(
+            for: fixture.store,
+            activityPanelOpen: true,
+            displayedTitles: displayedTitles
+        )
+        #expect(after != before)
+        #expect(after.activityPanelDisplayedTitles?[fixture.sessionID] == "scored title")
+    }
+
+    @Test("sidebar actions carry the displayed title instead of fresher storage")
+    func sidebarActionCarriesDisplayedTitle() throws {
+        let fixture = Fixture()
+        let session = try #require(fixture.store.session(id: fixture.sessionID))
+
+        let actionSession = SidebarView.workspaceActionSession(
+            session,
+            title: "displayed title"
+        )
+
+        #expect(actionSession.id == session.id)
+        #expect(actionSession.title == "displayed title")
+    }
+
+    @Test("move announcement resolves the title after structural refresh")
+    func moveAnnouncementUsesPostMutationTitle() throws {
+        let fixture = Fixture()
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        _ = fixture.store.liveTitleBox(for: fixture.sessionID)
+        fixture.retitle("leading edge", now: base)
+        fixture.retitle("storage only", now: base.addingTimeInterval(0.5))
+        #expect(fixture.store.sidebarResolvedTitles()[fixture.sessionID] == "leading edge")
+
+        let groupID = try #require(fixture.store.groups.first?.id)
+        fixture.store.moveSession(
+            id: fixture.sessionID,
+            toGroupID: groupID,
+            atIndex: SessionStore.appendIndex
+        )
+        #expect(fixture.store.sidebarResolvedTitles()[fixture.sessionID] == "storage only")
+
+        let announcement = try #require(
+            SidebarView.workspaceReorderAnnouncement(fixture.sessionID, in: fixture.store)
+        )
+        #expect(announcement.contains("storage only"))
+        #expect(!announcement.contains("leading edge"))
+    }
+
+    @Test("a filtered snapshot keeps announcements on the row's scored title")
+    func filteredSnapshotKeepsTheScoredTitle() throws {
+        let fixture = Fixture()
+        let session = try #require(fixture.store.session(id: fixture.sessionID))
+        let match = SessionMatch(
+            field: .title,
+            score: 10,
+            ranges: [],
+            matchedTitle: "scored title"
+        )
+        let snapshot = SidebarSnapshot(
+            entries: [
+                SidebarGroupEntry(
+                    group: SessionGroup(name: "main", sessions: [session]),
+                    unfilteredIndex: 0,
+                    sessions: [SidebarSessionEntry(session: session, match: match)]
+                )
+            ],
+            attention: [],
+            pinned: [],
+            topMatchID: session.id
+        )
+
+        let displayed = snapshot.displayedTitles(
+            fallingBackTo: [session.id: "newer coarse title"]
+        )
+        #expect(displayed[session.id] == "scored title")
+    }
+
+    @Test("search focus and split activity rows consume displayed snapshots")
+    func announcementAndSplitPanelSourceContract() throws {
+        let path = "Sources/awesoMux/Views/SidebarView.swift"
+        let source = try SourceContract.source(at: path)
+        let searchFocus = try SourceContract.declarationBody(
+            after: "private func moveSearchFocus(",
+            in: source,
+            path: path
+        )
+        let activitySection = try SourceContract.declarationBody(
+            after: "private struct SidebarActivitySection: View, Equatable {",
+            in: source,
+            path: path
+        )
+        let activityBody = try SourceContract.declarationBody(
+            after: "var body: some View {",
+            in: activitySection,
+            path: "\(path) (SidebarActivitySection)"
+        )
+        let panelScope = try SourceContract.declarationBody(
+            after: "private struct SidebarActivityPanelTitleScope: View {",
+            in: source,
+            path: path
+        )
+        let panelScopeBody = try SourceContract.declarationBody(
+            after: "var body: some View {",
+            in: panelScope,
+            path: "\(path) (SidebarActivityPanelTitleScope)"
+        )
+        let panelItem = try SourceContract.declarationBody(
+            after: "private func panelItem(",
+            in: panelScope,
+            path: "\(path) (SidebarActivityPanelTitleScope)"
+        )
+
+        #expect(searchFocus.contains("displayedTitles"))
+        #expect(searchFocus.contains("sidebarTitle(for: session, displayedTitles: displayedTitles)"))
+        #expect(panelItem.contains("coarsePaneTitles"))
+        #expect(activityBody.contains("SidebarActivityPanelTitleScope"))
+        #expect(!activityBody.contains("sessionStore.liveTitleGeneration"))
+        #expect(panelScopeBody.contains("resolvedTitles"))
+        #expect(!panelScopeBody.contains("sidebarResolvedTitles"))
     }
 
     // MARK: - 6. The session peek card's header
@@ -226,7 +365,7 @@ struct SidebarLiveTitleProjectionTests {
         // rests on the row, so it has to carry the title too.
         fixture.retitle(
             "ship it",
-            now: base.addingTimeInterval(LiveTitleBox.coarseCoalescingInterval)
+            now: base.addingTimeInterval(SessionStore.defaultLiveTitleGenerationInterval)
         )
         model.refresh(
             session: staleSession,
@@ -281,7 +420,13 @@ struct SidebarLiveTitleProjectionTests {
     }
 
     private static func entries(in store: SessionStore, query: String = "") -> [SidebarGroupEntry] {
-        SidebarView.searchProjection(groups: store.groups, query: query).entries
+        // Same wiring as `SidebarView.body`: the projections score the
+        // coarse-channel map, never raw storage.
+        SidebarView.searchProjection(
+            groups: store.groups,
+            query: query,
+            titles: store.sidebarResolvedTitles()
+        ).entries
     }
 
     private static func matchedIDs(in store: SessionStore, query: String) -> [TerminalSession.ID] {
@@ -291,10 +436,16 @@ struct SidebarLiveTitleProjectionTests {
     private static func ordinals(
         in store: SessionStore
     ) -> [TerminalSession.ID: SidebarDuplicateDisambiguation] {
-        SidebarDuplicateDisambiguator.disambiguationBySessionID(for: entries(in: store))
+        SidebarDuplicateDisambiguator.disambiguationBySessionID(
+            for: entries(in: store),
+            titles: store.sidebarResolvedTitles()
+        )
     }
 
-    private static func rotorLabel(for session: TerminalSession) -> String {
+    private static func rotorLabel(
+        for session: TerminalSession,
+        titles: [TerminalSession.ID: String]
+    ) -> String {
         SidebarVisibleRows.rotorEntries(
             for: [
                 SidebarGroupEntry(
@@ -302,17 +453,24 @@ struct SidebarLiveTitleProjectionTests {
                     unfilteredIndex: 0,
                     sessions: [SidebarSessionEntry(session: session, match: nil)]
                 )
-            ]
+            ],
+            titles: titles
         )[0].label
     }
 
-    private static func activityKey(for store: SessionStore) -> SidebarActivityInvalidationKey {
+    private static func activityKey(
+        for store: SessionStore,
+        activityPanelOpen: Bool = false,
+        displayedTitles: [TerminalSession.ID: String]? = nil
+    ) -> SidebarActivityInvalidationKey {
         SidebarActivityInvalidationKey(
             groups: store.groups,
             pinnedSessionIDs: store.pinnedSessionIDs,
             selectedSessionID: store.selectedSessionID,
             displayMode: .expanded,
-            reduceMotion: false
+            reduceMotion: false,
+            activityPanelGeneration: activityPanelOpen ? store.liveTitleGeneration : nil,
+            activityPanelDisplayedTitles: activityPanelOpen ? displayedTitles : nil
         )
     }
 

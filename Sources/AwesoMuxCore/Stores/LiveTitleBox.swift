@@ -1,29 +1,25 @@
 import Foundation
 import Observation
 
-/// Leading-edge "is a new publish due?" check, shared by the two live-title
-/// paths that must not react to every OSC report: `LiveTitleBox`'s coarse
-/// mirror and `SessionStore.bumpLiveTitleGenerationIfDue`.
+/// Leading-edge "is a new publish due?" check — the single live-title gate,
+/// owned by `SessionStore.tickLiveTitle`, which both the coarse mirror's
+/// per-tick publish and the `liveTitleGeneration` bump ride (issue #327).
 ///
 /// Shared rather than copied because the whole subtlety is the negative case. A
 /// negative elapsed means the wall clock went backwards (NTP step, manual clock
 /// change, DST-adjacent shenanigans); treating that as "not due" would suppress
 /// every publish until the clock caught back up — for a backwards jump of hours,
-/// hours of a frozen sidebar. Two copies of a rule that non-obvious drift.
+/// hours of a frozen sidebar.
 ///
-/// Written as the negation of the ORIGINAL suppression predicate rather than as
-/// the positive form it looks equivalent to. It is not equivalent: `interval`
-/// reaches `bumpLiveTitleGenerationIfDue` from a public initializer and can be
-/// non-finite, and every comparison against `NaN` is false. `elapsed < 0 ||
-/// elapsed >= interval` would therefore return false for a `NaN` interval and
-/// freeze the generation counter — and with it sidebar search, duplicate
-/// ordinals, and the rotor — permanently after the first write, where the
-/// original bumped every time. Keep this as a negation.
+/// Treat non-finite intervals as always due so a bad configuration cannot
+/// freeze the sidebar. The negated suppression predicate also treats a
+/// backwards clock jump as due.
 func liveTitleCoalescingWindowHasElapsed(
     since last: Date?,
     now: Date,
     interval: TimeInterval
 ) -> Bool {
+    guard interval.isFinite else { return true }
     guard let last else { return true }
     let elapsed = now.timeIntervalSince(last)
     return !(elapsed >= 0 && elapsed < interval)
@@ -52,23 +48,6 @@ func liveTitleCoalescingWindowHasElapsed(
 @MainActor
 @Observable
 public final class LiveTitleBox {
-    /// How long the coarse mirror coalesces per-tick title writes.
-    ///
-    /// Measured, not guessed: with the fine channel already carrying the pane
-    /// title bars, the residual per-animating-pane cost sat in the sidebar rows
-    /// and path bar. The path bar now stays fine-grained because it uses titles
-    /// as a signal; 1 Hz is where the sidebar cost stops registering while the
-    /// staleness stays invisible. A name in a sidebar row is not an
-    /// animation — nobody perceives "cargo build" arriving a second late — which
-    /// is exactly what makes this channel safe to slow down and the pane title
-    /// bars' channel unsafe to touch.
-    ///
-    /// Deliberately its own constant rather than a share of
-    /// `SessionStore.defaultLiveTitleGenerationInterval`, which currently holds
-    /// the same value for a related-but-separate consumer (the sidebar's derived
-    /// projections). They are tuned by different evidence and may diverge.
-    nonisolated public static let coarseCoalescingInterval: TimeInterval = 1
-
     /// The workspace title `PaneLayoutReducer.syncSessionChromeToActivePane`
     /// promoted from the active pane.
     public private(set) var workspaceTitle: String = ""
@@ -126,9 +105,14 @@ public final class LiveTitleBox {
         paneChannels[paneID]?.title
     }
 
-    /// `workspaceTitle` and `paneTitles` again, published at most once per
-    /// `coarseCoalescingInterval` on the per-tick path — what the consumers that
-    /// render a NAME observe (`LiveTitleReads.everything`: the sidebar rows).
+    /// `workspaceTitle` and `paneTitles` again, published on the per-tick path
+    /// only when the session's coalescing window fires — what the consumers
+    /// that render a NAME observe (`LiveTitleReads.everything`: the sidebar
+    /// rows). The gate lives store-side in `SessionStore.tickLiveTitle`, not
+    /// here: the same timestamp check that releases this publish also bumps
+    /// `liveTitleGeneration`, so a sidebar row and every projection derived
+    /// from it move on the same tick and can never name the workspace by
+    /// different titles (issue #327).
     ///
     /// A profile under three animating panes put `SidebarSessionTile` at ~2.5x
     /// the next app frame, and almost none of it was the `Text`: it was SwiftUI
@@ -145,22 +129,11 @@ public final class LiveTitleBox {
     public private(set) var coarseWorkspaceTitle: String = ""
     /// See `coarseWorkspaceTitle`.
     public private(set) var coarsePaneTitles: [TerminalPane.ID: String] = [:]
-
-    /// Nil until the first coalesced publish, which makes the very first title
-    /// tick after a box is created a leading edge rather than a suppressed one.
-    @ObservationIgnored private var lastCoarsePublish: Date?
+    /// Distinguishes a valid empty title snapshot from a box created while the
+    /// store's structural index is temporarily unable to seed it.
+    public private(set) var hasCoarseSnapshot = false
 
     init() {}
-
-    /// Reopens the coalescing window, so the next title tick is a leading edge.
-    ///
-    /// For a bulk restore, which can reuse a session ID with entirely different
-    /// content: the box survives (callers may hold it), but the window it was
-    /// keeping belongs to the previous occupant, and inheriting it could suppress
-    /// the restored pane's very first title report.
-    func resetCoalescingWindow() {
-        lastCoarsePublish = nil
-    }
 
     /// Mirrors `session`'s current chrome titles. Writes are guarded:
     /// `@Observable` publishes on every set, and a title report against a
@@ -181,8 +154,8 @@ public final class LiveTitleBox {
     ///
     /// Takes no clock on purpose. It is reached from a storage accessor that has
     /// no `now` to hand it, and an unthrottled publish does not need one. It also
-    /// leaves `lastCoarsePublish` alone, so a rename never eats the next title
-    /// tick's leading edge.
+    /// never touches the store's coalescing stamps, so a rename neither eats the
+    /// next title tick's leading edge nor earns a free one of its own.
     func adopt(_ session: TerminalSession) {
         if workspaceTitle != session.title {
             workspaceTitle = session.title
@@ -218,18 +191,14 @@ public final class LiveTitleBox {
     /// The hot path knows exactly which pane a report named, so the fine-channel
     /// update is O(1). Sibling panes cannot have moved: a display-only report
     /// touches one pane's chrome and, if that pane is active, the workspace
-    /// title. The coarse snapshot remains O(panes), but runs at most once per
-    /// coalescing window.
-    ///
-    /// `now` comes from the caller for the same reason
-    /// `bumpLiveTitleGenerationIfDue` takes one: the OSC path already carries the
-    /// write's timestamp, so the coalescing needs no clock of its own and tests
-    /// need no sleep to cross the window.
+    /// title. The coarse snapshot remains O(panes), but runs only when
+    /// `publishCoarseNow` — the caller's per-session gate
+    /// (`SessionStore.tickLiveTitle`) — fired.
     func adoptPaneTitle(
         _ paneID: TerminalPane.ID,
         title: String,
         workspaceTitle: String,
-        now: Date
+        publishCoarseNow: Bool
     ) {
         if self.workspaceTitle != workspaceTitle {
             self.workspaceTitle = workspaceTitle
@@ -250,15 +219,21 @@ public final class LiveTitleBox {
             paneChannels[paneID] = LivePaneTitle(title: title)
         }
 
-        // Leading-edge on a timestamp taken at write time, deliberately not a
-        // timer or a trailing debounce: coalescing that trails the last write
-        // needs a scheduled wake-up, and the repo ratchets against new
-        // sleeps/polling in production code (`script/check_test_waits.sh`).
+        // The publish trigger is the caller's leading-edge gate, stamped at
+        // write time — deliberately not a timer or a trailing debounce held by
+        // the box: coalescing that trails the last write needs a scheduled
+        // wake-up, and the repo ratchets against new sleeps/polling in
+        // production code (`script/check_test_waits.sh`). Keeping ONE gate in
+        // the store is also what makes the row and the title-derived
+        // projections provably in phase; a second per-box window (its old
+        // home) let them phase independently (issue #327).
         //
         // Ceiling, stated exactly: a title tick that lands inside the window,
         // with no later tick and no other publish, leaves the coarse mirror one
         // title behind — so a sidebar row can name a workspace by its
-        // second-to-last title until something else publishes.
+        // second-to-last title until something else publishes. Every surface
+        // derived from the mirror lags TOGETHER with it; what it cannot do any
+        // more is disagree with the row.
         //
         // Partial mitigation, and the limits of it matter as much as the
         // mitigation: attention / unread / agent-state changes publish `groups`,
@@ -283,46 +258,26 @@ public final class LiveTitleBox {
         // than as text must stay on the fine channel — a coalesced channel drops
         // intermediate values, and a dropped edge is not a late edge. See
         // `LiveTitleReads.workspaceAndPaneTitle`.
-        guard
-            liveTitleCoalescingWindowHasElapsed(
-                since: lastCoarsePublish,
-                now: now,
-                interval: Self.coarseCoalescingInterval
-            )
-        else { return }
-        // Stamped only when something was actually published: the window caps
-        // publishes, not clock reads, and stamping on a no-op would let a tick
-        // that changed nothing push the next REAL publish out by a further full
-        // interval.
-        //
-        // Deliberately belt-and-braces — no reachable no-op exists TODAY.
-        // `PaneLayoutReducer.updatePane` returns nil for an `.unchanged` pane, so
-        // the store never reaches this method unless a displayed title actually
-        // moved, and `coarse*` is only ever assigned from the fine values. It is
-        // written this way so a future caller that does not come through that
-        // reducer cannot silently double the documented staleness.
-        if publishCoarse() {
-            lastCoarsePublish = now
+        if publishCoarseNow {
+            publishCoarse()
         }
     }
 
     /// Value-guarded like the fine writes above, so a tick that moved a title
     /// the coarse channel already carries publishes nothing.
-    ///
-    /// Returns whether either property was actually written.
-    @discardableResult
-    private func publishCoarse() -> Bool {
-        var published = false
+    private func publishCoarse() {
         if coarseWorkspaceTitle != workspaceTitle {
             coarseWorkspaceTitle = workspaceTitle
-            published = true
         }
         let finePaneTitles = paneTitles
         if coarsePaneTitles != finePaneTitles {
             coarsePaneTitles = finePaneTitles
-            published = true
         }
-        return published
+        // Last: an unseeded reader tracks only this flag, so its wake must see
+        // the complete snapshot rather than an observable half-publish.
+        if !hasCoarseSnapshot {
+            hasCoarseSnapshot = true
+        }
     }
 }
 

@@ -29,7 +29,8 @@ extension SessionPeekItem {
     /// floated out to the synthetic Pinned section).
     static func items(
         for sessions: [TerminalSession],
-        activeSessionID: TerminalSession.ID?
+        activeSessionID: TerminalSession.ID?,
+        titles: [TerminalSession.ID: String] = [:]
     ) -> [SessionPeekItem] {
         sessions.map { session in
             let rollup = session.agentRollup()
@@ -38,7 +39,7 @@ extension SessionPeekItem {
             )
             return SessionPeekItem(
                 id: session.id,
-                title: session.title,
+                title: titles[session.id] ?? session.title,
                 agent: rollup.winningAgentKind.awAgentIcon,
                 agentShortName: rollup.winningAgentKind.shortName,
                 state: rollup.state.awState,

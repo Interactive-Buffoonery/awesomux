@@ -54,7 +54,7 @@ for each callback. They are not part of this app-command policy.
 The awesoMux command source of truth remains:
 
 - `KeyboardShortcutCatalog`
-- the SwiftUI/AppKit File and Workspace command groups
+- the SwiftUI/AppKit File and View command groups and the Workspace and Pane command menus
 - the command palette actions backed by the same command model
 - `docs/shortcuts.md` for user-facing shortcut documentation
 

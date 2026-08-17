@@ -1237,6 +1237,62 @@ struct SessionPersistenceLoadTests {
         }
     }
 
+    @Test("termination flush bounds a stalled recovery replacement without a second disk write")
+    func terminationFlushBoundsStalledRecoveryReplacement() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            let warning = try #require(SessionPersistence.load().recoveryWarning)
+            let writerStarted = DispatchSemaphore(value: 0)
+            let permitWriterToFinish = DispatchSemaphore(value: 0)
+            let replacementTask = Task {
+                await SessionPersistence.replaceSnapshotAfterRecovery(
+                    with: SessionStore(restoring: Self.snapshot(groupName: "replacement")),
+                    warning: warning,
+                    snapshotWriter: { _ in
+                        writerStarted.signal()
+                        permitWriterToFinish.wait()
+                        return .success(())
+                    }
+                )
+            }
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().async {
+                    writerStarted.wait()
+                    continuation.resume()
+                }
+            }
+
+            let clock = ContinuousClock()
+            let startedAt = clock.now
+            let flushResult = SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "quit-time state")),
+                whileWaitingForRecoveryWrite: {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                        permitWriterToFinish.signal()
+                    }
+                },
+                recoveryWriteWaitTimeout: 0.01
+            )
+            let elapsed = startedAt.duration(to: clock.now)
+
+            guard case .failure(.writeFailed) = flushResult else {
+                Issue.record("expected a timed-out recovery write failure")
+                permitWriterToFinish.signal()
+                _ = await replacementTask.value
+                return
+            }
+            #expect(elapsed < .milliseconds(250))
+            #expect(try Self.unsavedArchives(in: tempDir).isEmpty)
+            _ = await replacementTask.value
+            #expect(!FileManager.default.fileExists(atPath: tempDir.appending(path: "session-state.unsaved.incident").path))
+        }
+    }
+
     /// Turning "Restore workspaces" off re-arms `hasValidatedSnapshotOnDisk`.
     /// Once the terminate path started flushing for an outstanding replacement
     /// (#334), that latch sent `flush` back through `load()`, which clears the
@@ -1492,6 +1548,19 @@ struct SessionPersistenceLoadTests {
                     )
                     dated.insert(archive)
                 }
+                if index == 0 {
+                    let markerURL = tempDir.appending(path: "session-state.unsaved.incident")
+                    let markerFileName = try String(contentsOf: markerURL, encoding: .utf8)
+                    #expect(
+                        try Self.unsavedArchives(in: tempDir).contains {
+                            $0.lastPathComponent == markerFileName
+                        }
+                    )
+                    let permissions =
+                        try FileManager.default
+                        .attributesOfItem(atPath: markerURL.path)[.posixPermissions] as? NSNumber
+                    #expect(permissions?.int16Value == 0o600)
+                }
             }
 
             let survivors = try Self.unsavedArchives(in: tempDir).map {
@@ -1504,6 +1573,140 @@ struct SessionPersistenceLoadTests {
             #expect(survivors.contains("quit \(quitCount - 1)"))
             #expect(!survivors.contains("quit 1"))
             #expect(!survivors.contains("quit 2"))
+        }
+    }
+
+    @Test("quit-time archive retention re-anchors the pin after a successful save")
+    func unsavedArchiveRetentionPinsCurrentIncident() async throws {
+        try await Self.withTemporarySupportDirectoryAsync { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{first-incident".utf8).write(to: snapshotURL)
+            let firstWarning = try #require(SessionPersistence.load().recoveryWarning)
+            let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+            var dated: Set<URL> = []
+
+            for index in 0..<3 {
+                _ = SessionPersistence.flush(
+                    SessionStore(restoring: Self.snapshot(groupName: "old incident \(index)"))
+                )
+                for archive in try Self.unsavedArchives(in: tempDir) where !dated.contains(archive) {
+                    try FileManager.default.setAttributes(
+                        [.creationDate: epoch.addingTimeInterval(TimeInterval(index))],
+                        ofItemAtPath: archive.path
+                    )
+                    dated.insert(archive)
+                }
+            }
+
+            try await SessionPersistence.replaceSnapshotAfterRecovery(
+                with: SessionStore(restoring: Self.snapshot(groupName: "resolved")),
+                warning: firstWarning
+            ).get()
+            try Data("{second-incident".utf8).write(to: snapshotURL)
+            #expect(SessionPersistence.load().recoveryWarning?.preventsInitialSave == true)
+
+            let currentIncidentCount = SessionPersistence.maxQuarantineArchives + 2
+            for index in 0..<currentIncidentCount {
+                _ = SessionPersistence.flush(
+                    SessionStore(restoring: Self.snapshot(groupName: "current incident \(index)"))
+                )
+                for archive in try Self.unsavedArchives(in: tempDir) where !dated.contains(archive) {
+                    try FileManager.default.setAttributes(
+                        [.creationDate: epoch.addingTimeInterval(TimeInterval(100 + index))],
+                        ofItemAtPath: archive.path
+                    )
+                    dated.insert(archive)
+                }
+            }
+
+            let survivors = try Self.unsavedArchives(in: tempDir).map {
+                try SessionSnapshot.decode(from: Data(contentsOf: $0)).groups.map(\.name).joined()
+            }
+            #expect(survivors.count == SessionPersistence.maxQuarantineArchives)
+            #expect(survivors.contains("current incident 0"))
+            #expect(survivors.contains("current incident \(currentIncidentCount - 1)"))
+            #expect(!survivors.contains("old incident 0"))
+            #expect(!survivors.contains("current incident 1"))
+            #expect(!survivors.contains("current incident 2"))
+        }
+    }
+
+    /// A detached debounced save can complete after a quit-time flush created
+    /// a newer incident marker. Its snapshot predates that incident, so its
+    /// success must not drop the pin and expose the first archive to eviction.
+    @Test("a stale save success cannot clear a newer incident's marker")
+    func staleSaveDoesNotClearNewerIncidentMarker() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            #expect(SessionPersistence.load().recoveryWarning?.preventsInitialSave == true)
+
+            _ = SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "incident"))
+            )
+            let markerURL = tempDir.appending(path: "session-state.unsaved.incident")
+            let anchoredFileName = try String(contentsOf: markerURL, encoding: .utf8)
+            #expect(anchoredFileName.hasPrefix("session-state.unsaved-"))
+
+            SessionPersistence.clearUnsavedIncidentAnchor(
+                after: .success(()),
+                resolvedSnapshotCapturedAt: .distantPast
+            )
+            #expect(try String(contentsOf: markerURL, encoding: .utf8) == anchoredFileName)
+
+            // A save whose snapshot was captured after the marker was written
+            // resolves the incident, and the boundary is recorded in place of
+            // the anchor rather than deleting the marker outright.
+            SessionPersistence.clearUnsavedIncidentAnchor(
+                after: .success(()),
+                resolvedSnapshotCapturedAt: Date()
+            )
+            let resolved = try String(contentsOf: markerURL, encoding: .utf8)
+            #expect(resolved != anchoredFileName)
+            #expect(!resolved.hasPrefix("session-state.unsaved-"))
+        }
+    }
+
+    /// Archives on disk without any marker mean an incident that began before
+    /// the marker mechanism shipped. Anchoring the newest capture there would
+    /// let pruning evict the earliest one — the very capture #339 keeps.
+    @Test("an incident predating the marker anchors its earliest surviving archive")
+    func incidentPredatingMarkerAnchorsEarliestArchive() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+            for index in 0..<2 {
+                let legacy = tempDir.appending(
+                    path: "session-state.unsaved-170000000\(index)-legacy\(index).json"
+                )
+                try Data("{}".utf8).write(to: legacy)
+                try FileManager.default.setAttributes(
+                    [.creationDate: epoch.addingTimeInterval(TimeInterval(index))],
+                    ofItemAtPath: legacy.path
+                )
+            }
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            #expect(SessionPersistence.load().recoveryWarning?.preventsInitialSave == true)
+
+            _ = SessionPersistence.flush(
+                SessionStore(restoring: Self.snapshot(groupName: "late capture"))
+            )
+
+            let markerURL = tempDir.appending(path: "session-state.unsaved.incident")
+            let anchored = try String(contentsOf: markerURL, encoding: .utf8)
+            #expect(anchored == "session-state.unsaved-1700000000-legacy0.json")
         }
     }
 

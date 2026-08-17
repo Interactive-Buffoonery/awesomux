@@ -634,6 +634,96 @@ struct AwColorTests {
         }
     }
 
+    // #371 pairs the Terminal Companion's minimize glyph with its close glyph:
+    // same geometry, distinguished by hue. Both are the sole visual carrier of
+    // their control's highlight state, so both must clear WCAG 1.4.11's 3:1
+    // floor against the companion header — and they must stay far enough apart
+    // that "yellow, not red" survives.
+    //
+    // The header is translucent, so the floor has to be measured against the
+    // COMPOSITED result, not against an opaque surface token: chrome2 @0.72
+    // over the panel gradient's accent wash @0.10 over chrome @0.96. That
+    // recipe is mirrored from `TerminalPanelChromeView.companionHeader` /
+    // `PopUpTerminalPanelGradient` and has to be updated with them — the app
+    // module is not visible from here.
+    @Test("companion header glyphs clear 1.4.11 and stay hue-distinct")
+    func companionHeaderGlyphsClearContrastFloor() throws {
+        let appearances: [NSAppearance.Name] = [
+            .aqua,
+            .darkAqua,
+            .accessibilityHighContrastAqua,
+            .accessibilityHighContrastDarkAqua,
+        ]
+        // The panel is drawn on a transparent window, so the desktop shows
+        // through the 4% the chrome layer leaves. Both extremes are checked
+        // because neither the wallpaper nor the accent is knowable here.
+        let backdrops = [
+            NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1),
+            NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1),
+        ]
+
+        for appearance in appearances {
+            let chrome = try #require(NSColor(Color.aw.surface.chrome).withAppearance(appearance))
+            let chrome2 = try #require(NSColor(Color.aw.surface.chrome2).withAppearance(appearance))
+            let close = try #require(NSColor(Color.aw.red).withAppearance(appearance))
+            let minimize = try #require(
+                NSColor(Color.aw.tintBorder(.yellow)).withAppearance(appearance)
+            )
+
+            // Channel ordering, not mere inequality: a near-red "yellow" would
+            // pass a `!=` check while defeating the whole point of #371.
+            // Yellow-family hues put green above blue; red-family hues invert
+            // that, in every appearance.
+            #expect(
+                minimize.greenComponent > minimize.blueComponent,
+                "minimize highlight left the yellow family in \(appearance.rawValue)"
+            )
+            #expect(
+                close.greenComponent < close.blueComponent,
+                "close highlight left the red family in \(appearance.rawValue)"
+            )
+
+            let teal = try #require(NSColor(Color.aw.teal).withAppearance(appearance))
+
+            for backdrop in backdrops {
+                for accent in AwAccent.allCases {
+                    let wash = try #require(
+                        NSColor(Color.aw.accent(accent)).withAppearance(appearance)
+                    )
+                    let panel = chrome.withAlphaComponent(0.96).composited(over: backdrop)
+
+                    // `PopUpTerminalPanelGradient` is a three-stop diagonal:
+                    // accent@0.10 topLeading, clear at the midpoint, teal@0.06
+                    // bottomTrailing. The glyphs sit at the header's trailing
+                    // edge, which projects near the CLEAR midpoint rather than
+                    // the accent stop — so sampling only the accent stop would
+                    // test a pixel these buttons never sit on. Asserting the
+                    // floor at all three stops holds the contract wherever the
+                    // header lands on that axis, without this test having to
+                    // track the gradient's geometry.
+                    let stops = [
+                        ("accent", wash.withAlphaComponent(0.10).composited(over: panel)),
+                        ("clear", panel),
+                        ("teal", teal.withAlphaComponent(0.06).composited(over: panel)),
+                    ]
+
+                    for (stop, gradient) in stops {
+                        let header = chrome2.withAlphaComponent(0.72).composited(over: gradient)
+
+                        #expect(
+                            contrastRatio(close, header) >= 3,
+                            "close glyph on \(appearance.rawValue)/\(accent) at the \(stop) stop misses WCAG 1.4.11"
+                        )
+                        #expect(
+                            contrastRatio(minimize, header) >= 3,
+                            "minimize glyph on \(appearance.rawValue)/\(accent) at the \(stop) stop misses WCAG 1.4.11"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     // The muted-accent divider replaces the neutral gray, but it must hold the
     // SAME 1.4.11 floor INT-299 set: every accent, at rest and on hover, in both
     // themes, clears 3:1 / 4:1 against the pane background. This is the contract
@@ -972,6 +1062,73 @@ struct AwColorTests {
                 "railText on sidebar \(appearance.rawValue): \(ratio) < \(floor)"
             )
         }
+    }
+
+    // The panel title-bar band is a chrome2 -> chrome gradient, so the label has
+    // to clear AA against BOTH stops. Stock text3 (overlay1) is 2.42:1 on the
+    // Latte crust stop — under even the 3:1 non-text floor.
+    @Test("titlebarText clears WCAG AA on both stops of the title-bar gradient")
+    func titlebarTextClearsAAOnTitlebarGradient() {
+        let floor = 4.5
+        let foreground = NSColor(Color.aw.titlebarText)
+        let stops = [
+            ("chrome", NSColor(Color.aw.surface.chrome)),
+            ("chrome2", NSColor(Color.aw.surface.chrome2)),
+        ]
+
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            guard let fg = foreground.withAppearance(appearance) else {
+                Issue.record("titlebarText: could not resolve color for \(appearance.rawValue)")
+                continue
+            }
+            for (name, stop) in stops {
+                guard let bg = stop.withAppearance(appearance) else {
+                    Issue.record("titlebarText: could not resolve \(name) for \(appearance.rawValue)")
+                    continue
+                }
+                let ratio = contrastRatio(fg, bg)
+                #expect(
+                    ratio >= floor,
+                    "titlebarText on \(name) \(appearance.rawValue): \(ratio) < \(floor)"
+                )
+            }
+        }
+    }
+
+    // Pure-hex lock for titlebarText's four appearance slots, same technique and
+    // rationale as railText's below.
+    @Test("titlebarText steps only Latte off stock text3")
+    func titlebarTextStepsOnlyLatteOffStockText3() {
+        let colors = AwColors()
+        let mocha = colors.mocha.overlay1
+        let latte = colors.latte.subtext1
+        let mochaHC = colors.mochaHC.overlay1
+        let latteHC = colors.latteHC.overlay1
+
+        // Resolve the PRODUCTION token, not just palette arithmetic. Without
+        // this the rest of the test passes even if `titlebarText` wires a wrong
+        // slot, because every other assertion below compares locals to locals.
+        #expect(
+            NSColor(Color.aw.titlebarText).colorNameComponent
+                == "awDynamic-\(mocha)-\(latte)-\(mochaHC)-\(latteHC)"
+        )
+
+        #expect(
+            NSColor.awDynamicHex(
+                for: .darkAqua, mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
+            ) == mocha)
+        #expect(
+            NSColor.awDynamicHex(
+                for: .aqua, mocha: mocha, latte: latte, mochaHC: mochaHC, latteHC: latteHC
+            ) == latte)
+
+        // Latte steps off stock overlay1; every other palette deliberately does
+        // not, because they already clear AA and changing them would alter an
+        // approved appearance to fix a Latte-only defect.
+        #expect(latte != colors.latte.overlay1)
+        #expect(mocha == colors.mocha.overlay1)
+        #expect(mochaHC == colors.mochaHC.overlay1)
+        #expect(latteHC == colors.latteHC.overlay1)
     }
 
     // Pure-hex lock for railText's four appearance slots. Constructed HC

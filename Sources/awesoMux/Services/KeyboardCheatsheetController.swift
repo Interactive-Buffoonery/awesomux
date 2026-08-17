@@ -124,6 +124,7 @@ final class KeyboardCheatsheetController {
         )
         panel.title = "Keyboard Shortcuts"
         panel.setAccessibilityLabel("Keyboard Shortcuts")
+        panel.showsStandardWindowButtons = true
         panel.hostSwiftUIContent(makeRootView())
         return panel
     }

@@ -33,6 +33,12 @@ struct WorktreeManagerPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            FloatingPanelTitlebar(
+                title: String(
+                    localized: "Worktree Manager",
+                    comment: "Worktree Manager panel title bar."
+                )
+            )
             header
             content
             footer
@@ -44,24 +50,14 @@ struct WorktreeManagerPanel: View {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
-        .overlay(alignment: .topTrailing) {
-            FloatingPanelCloseButton(
-                accessibilityLabel: String(
-                    localized: "Close Worktree Manager",
-                    comment: "Accessibility label for the Worktree Manager close button."
-                ),
-                action: {
-                    guard !model.createSubmissionState.isSubmitting else { return }
-                    onDismiss()
-                }
-            )
-            .padding(.top, 12)
-            .padding(.trailing, FloatingPanelChromeMetrics.closeButtonEdgeInset)
-        }
+        // Closing is the panel's native traffic light. It routes through
+        // `FloatingSwiftUIPanelWindow.performClose` into the controller's
+        // `dismiss()`, which carries the same in-flight-create guard the old
+        // close button applied here.
+        // No container label: the title bar band carries this panel's identity,
+        // and labelling both announced it twice in a row. `children: .contain`
+        // stays — it groups, it does not name.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(
-            String(localized: "Worktree Manager", comment: "Worktree Manager panel accessibility label.")
-        )
         .sheet(isPresented: $isShowingCreateForm, onDismiss: model.resetCreateResult) {
             WorktreeCreateForm(model: model) { isShowingCreateForm = false }
                 .id(createFormPresentationToken)
@@ -126,18 +122,25 @@ struct WorktreeManagerPanel: View {
         }
     }
 
+    // The "WORKTREE MANAGER" kicker moved into `FloatingPanelTitlebar`, which
+    // also freed this row from stepping around the traffic lights. The
+    // repository name stays here rather than moving up: it changes per repo,
+    // and a title bar that renames itself with its content stops reading as
+    // the window's identity.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(String(localized: "WORKTREE MANAGER", comment: "Worktree Manager kicker."))
-                .awFont(AwFont.Mono.kicker)
-                .tracking(2)
+        HStack(spacing: 9) {
+            // Grounds the bare repository name the way the path bar's root chip
+            // does, so this row reads as a place rather than a loose word.
+            Image(systemName: "folder")
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color.aw.text3)
+                .accessibilityHidden(true)
+
             Text(model.repositoryContext.displayName)
                 .awFont(AwFont.UI.title)
                 .foregroundStyle(Color.aw.text)
         }
         .padding(.horizontal, AwSpacing.panelPadding)
-        .padding(.trailing, 52)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) {

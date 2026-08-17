@@ -80,7 +80,7 @@ struct ContentView: View {
     let onManagedSSHWorkspaceOffer: (TerminalSession.ID, TerminalPane.ID) -> Void
     let onReopenClosedWorkspace: () -> Void
     let hasRecoveryWarning: Bool
-    let isRecoveryReplacementInProgress: Bool
+    let recoveryReplacementIndicatorState: RecoveryReplacementIndicatorState
     let onReviewRecoveryWarning: () -> Void
     let hasSessionSaveFailure: Bool
     let onRetrySessionSave: () -> Void
@@ -242,16 +242,35 @@ struct ContentView: View {
                             "Workspace changes are not being saved. Close or simplify workspaces, then retry."
                         )
                     }
-                    if hasRecoveryWarning {
+                    switch recoveryReplacementIndicatorState {
+                    case .hidden:
+                        EmptyView()
+                    case .review:
                         Button(action: onReviewRecoveryWarning) {
                             Label("Review Recovery Options", systemImage: "exclamationmark.triangle")
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(isRecoveryReplacementInProgress)
                         .help("Review how awesoMux should handle the protected saved workspace file")
                         .accessibilityHint(
                             "Choose whether to keep the protected saved file or replace it with current workspaces"
                         )
+                    case .replacing:
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Replacing Saved Workspace Data…")
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Replacing saved workspace data")
+                    case .replaced:
+                        Label("Saved Workspace Data Replaced", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(Color.aw.teal)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
                     }
                 }
                 .padding(16)
